@@ -22,7 +22,7 @@ import java.nio.file.Paths;
  */
 @ConfigData("generator")
 public record BlockGeneratorConfig(
-        @ConfigProperty(defaultValue = "DIR") GenerationMode generationMode,
+        @ConfigProperty(defaultValue = "CRAFT") GenerationMode generationMode,
         @ConfigProperty(defaultValue = "") String folderRootPath,
         @ConfigProperty(defaultValue = "BlockAsFileBlockStreamManager") String managerImplementation,
         @ConfigProperty(defaultValue = "36") int paddedLength,

@@ -2,6 +2,7 @@
 package com.hedera.block.simulator.generator;
 
 import com.hedera.block.simulator.config.data.BlockGeneratorConfig;
+import com.hedera.block.simulator.config.types.GenerationMode;
 import dagger.Module;
 import dagger.Provides;
 import javax.inject.Singleton;
@@ -23,12 +24,18 @@ public interface GeneratorInjectionModule {
     static BlockStreamManager providesBlockStreamManager(BlockGeneratorConfig config) {
 
         final String managerImpl = config.managerImplementation();
-        if ("BlockAsDirBlockStreamManager".equalsIgnoreCase(managerImpl)) {
-            return new BlockAsDirBlockStreamManager(config);
-        } else if ("BlockAsFileLargeDataSets".equalsIgnoreCase(managerImpl)) {
-            return new BlockAsFileLargeDataSets(config);
-        }
+        final GenerationMode generationMode = config.generationMode();
 
-        return new BlockAsFileBlockStreamManager(config);
+        return switch (generationMode){
+            case DIR -> {
+                if ("BlockAsDirBlockStreamManager".equalsIgnoreCase(managerImpl)) {
+                    yield new BlockAsDirBlockStreamManager(config);
+                } else if ("BlockAsFileLargeDataSets".equalsIgnoreCase(managerImpl)) {
+                    yield new BlockAsFileLargeDataSets(config);
+                }
+                yield new BlockAsFileBlockStreamManager(config);
+            }
+            case CRAFT -> new CraftBlockStreamManager(config);
+        };
     }
 }
