@@ -33,7 +33,6 @@ import edu.umd.cs.findbugs.annotations.NonNull;
 import java.time.Clock;
 import java.util.List;
 import java.util.Objects;
-import java.util.concurrent.ExecutorCompletionService;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import javax.inject.Inject;
@@ -54,6 +53,7 @@ public class PbjBlockStreamServiceProxy implements PbjBlockStreamService {
     private final BlockReader<BlockUnparsed> blockReader;
     private final Notifier notifier;
     private final ExecutorService closedRangeHistoricStreamingExecutorService;
+    private final ExecutorService liveStreamExecutorService;
 
     public static SubscribeStreamResponseUnparsed READ_STREAM_INVALID_START_BLOCK_NUMBER_RESPONSE;
     public static SubscribeStreamResponseUnparsed READ_STREAM_INVALID_END_BLOCK_NUMBER_RESPONSE;
@@ -107,6 +107,7 @@ public class PbjBlockStreamServiceProxy implements PbjBlockStreamService {
 
         // Leverage virtual threads given that these are IO-bound tasks
         this.closedRangeHistoricStreamingExecutorService = Executors.newVirtualThreadPerTaskExecutor();
+        this.liveStreamExecutorService = Executors.newVirtualThreadPerTaskExecutor();
         this.blockReader = Objects.requireNonNull(blockReader);
     }
 
@@ -222,15 +223,14 @@ public class PbjBlockStreamServiceProxy implements PbjBlockStreamService {
             // Check to see if the client is requesting a live
             // stream (endBlockNumber is 0)
             if (subscribeStreamRequest.endBlockNumber() == 0) {
-                final var liveStreamEventHandler = LiveStreamEventHandlerBuilder.build(
-                        new ExecutorCompletionService<>(Executors.newSingleThreadExecutor()),
-                        Clock.systemDefaultZone(),
+                final Runnable liveStreamEventHandler = LiveStreamEventHandlerBuilder.buildPoller(
                         streamMediator,
                         helidonConsumerObserver,
                         blockNodeContext.metricsService(),
                         blockNodeContext.configuration());
 
-                streamMediator.subscribe(liveStreamEventHandler);
+                liveStreamExecutorService.submit(liveStreamEventHandler);
+
             } else {
                 final Runnable closedRangeHistoricStreamingRunnable =
                         ClosedRangeHistoricStreamEventHandlerBuilder.build(

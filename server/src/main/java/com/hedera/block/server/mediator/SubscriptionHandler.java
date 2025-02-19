@@ -20,6 +20,8 @@ public interface SubscriptionHandler<V> {
      */
     void subscribe(@NonNull final BlockNodeEventHandler<ObjectEvent<V>> handler);
 
+    Poller<ObjectEvent<V>> subscribePoller(@NonNull final BlockNodeEventHandler<ObjectEvent<V>> handler);
+
     /**
      * Unsubscribes the given handler from the stream of events.
      *

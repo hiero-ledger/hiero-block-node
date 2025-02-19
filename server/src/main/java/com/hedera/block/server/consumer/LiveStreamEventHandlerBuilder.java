@@ -40,4 +40,13 @@ public final class LiveStreamEventHandlerBuilder {
         // Return the top level chain reference
         return asyncConsumerStreamResponseObserver;
     }
+
+    public static Runnable buildPoller(
+            @NonNull final SubscriptionHandler<List<BlockItemUnparsed>> subscriptionHandler,
+            @NonNull final Pipeline<? super SubscribeStreamResponseUnparsed> observer,
+            @NonNull final MetricsService metricsService,
+            @NonNull final Configuration configuration) {
+
+        return new PullConsumerStreamResponseObserver(observer, metricsService, configuration, subscriptionHandler);
+    }
 }

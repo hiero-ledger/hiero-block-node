@@ -82,6 +82,11 @@ public abstract class SubscriptionHandlerBase<V> implements SubscriptionHandler<
         }
     }
 
+    @Override
+    public Poller<ObjectEvent<V>> subscribePoller(@NonNull final BlockNodeEventHandler<ObjectEvent<V>> handler) {
+        return new PollerImpl<>(ringBuffer, ringBuffer.getBufferSize());
+    }
+
     /**
      * Unsubscribes the given handler from the stream of events.
      *
