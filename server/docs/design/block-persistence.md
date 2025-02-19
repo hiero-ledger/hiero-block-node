@@ -3,27 +3,27 @@
 ## Table of Contents
 
 1. [Purpose](#purpose)
-1. [Goals](#goals)
-1. [Terminology](#terminology)
-1. [Abstractions](#abstractions)
-1. [Overview](#overview)
-1. [Implementations](#implementations)
+2. [Goals](#goals)
+3. [Terminology](#terminology)
+4. [Abstractions](#abstractions)
+5. [Overview](#overview)
+6. [Implementations](#implementations)
    1. [Block as Local Directory (a.k.a. `block-as-local-dir`)](#block-as-local-directory-aka-block-as-local-dir)
       1. [Purpose](#purpose-1)
-      1. [Overview](#overview-1)
-      1. [Configurable Parameters](#configurable-parameters)
-   1. [Block as Local File (a.k.a. `block-as-local-file`)](#block-as-local-file-aka-block-as-local-file)
+      2. [Overview](#overview-1)
+      3. [Configurable Parameters](#configurable-parameters)
+   2. [Block as Local File (a.k.a. `block-as-local-file`)](#block-as-local-file-aka-block-as-local-file)
       1. [Purpose](#purpose-2)
-      1. [Overview](#overview-2)
-      1. [Trie Structure & Algorithm for Block Path Resolution](#trie-structure--algorithm-for-block-path-resolution)
-      1. [Configurable Parameters](#configurable-parameters-1)
-   1. [No Operation (a.k.a. `no-op`)](#no-operation-aka-no-op)
+      2. [Overview](#overview-2)
+      3. [Trie Structure & Algorithm for Block Path Resolution](#trie-structure--algorithm-for-block-path-resolution)
+      4. [Configurable Parameters](#configurable-parameters-1)
+   3. [No Operation (a.k.a. `no-op`)](#no-operation-aka-no-op)
       1. [Purpose](#purpose-3)
-      1. [Overview](#overview-3)
+      2. [Overview](#overview-3)
 
 ## Purpose
 
-A major objective of the `hedera-block-node` project is to replace the storage
+A major objective of the `hiero-block-node` project is to replace the storage
 of Consensus Node artifacts (e.g. Blocks) on cloud storage buckets (e.g. GCS and
 S3) with a solution managed by the Block Node server. This document aims to
 describe the high-level design of how the Block Node persists and retrieves
@@ -35,8 +35,8 @@ Blocks and how it handles exception cases when they arise.
    and persisted as a `Block`. Per the specification, a `Block` is an ordered
    list of `BlockItems`. How the `Block` is persisted is an implementation
    detail.
-1. A `Block` must be efficiently retrieved by block number.
-1. Certain aspects of the `Block` persistence implementation must be
+2. A `Block` must be efficiently retrieved by block number.
+3. Certain aspects of the `Block` persistence implementation must be
    configurable.
 
 ## Terminology
@@ -89,8 +89,8 @@ Blocks and how it handles exception cases when they arise.
 
 ## Overview
 
-The design for `Block` persistence is fairly straightforward. `Block` server 
-objects should use the persistence abstractions to read, write and remove 
+The design for `Block` persistence is fairly straightforward. `Block` server
+objects should use the persistence abstractions to read, write and remove
 `Block`s from storage, as well as resolve the paths to `Block`s.
 
 `BlockItem`s streamed from a producer are read off the wire one by one and
@@ -156,15 +156,16 @@ The `Block` path resolution is based on a `trie` structure. The `trie` is
 constructed as follows:
 
 1. We have a `liveRootPath` to store the `Block`s under.
-1. We have an `archiveRootPath` to store the archived `Block`s under.
-1. The `BlockNumber` is a `long` which contains 19 digits maximum.
-1. The `trie` structure is a folder for each digit in the `BlockNumber`, up to a
+2. We have an `archiveRootPath` to store the archived `Block`s under.
+3. The `BlockNumber` is a `long` which contains 19 digits maximum.
+4. The `trie` structure is a folder for each digit in the `BlockNumber`, up to a
    depth of 18.
-1. The last digit of the `BlockNumber` is part of the file name itself.
-1. The `Block`s are compressed (configurable), `zstd` is used by default.
-1. The `Block`s are archived (configurable) in batches, e.g. 1000 `Block`s.
+5. The last digit of the `BlockNumber` is part of the file name itself.
+6. The `Block`s are compressed (configurable), `zstd` is used by default.
+7. The `Block`s are archived (configurable) in batches, e.g. 1000 `Block`s.
 
 Visual example:
+
 ```
 (our block files will have a long as a block number, the trie structure will be
 a digit per folder for all digits in a long, for brevity, here we showcase only
@@ -187,15 +188,15 @@ The algorithm for resolving the path to a `Block` is defined roughly as follows:
 1. When writing, initially we only need to write a new `Block` as a file to the
    local filesystem in the correct place, based on the resolved path from the
    `BlockNumber` utilizing the `trie` structure.
-1. When writing a new `Block` as file, we need to check if the path to the file
+2. When writing a new `Block` as file, we need to check if the path to the file
    we want to write already exists, if it does, the block was previously written.
    We should handle this case directly in our service.
-1. When reading, we should be able to resolve the path to a `Block` as file that
+3. When reading, we should be able to resolve the path to a `Block` as file that
    we want to read, initially attempting to read the file before it would be
    zipped, if not found, we need to search it in the respective zip, else if not
    found, then the block is not available, we need to handle that case inside
    our service.
-1. A separate process/thread will periodically go through our `trie` structure
+4. A separate process/thread will periodically go through our `trie` structure
    and will be zipping the `Block` files in configured groups as shown visually
    above.
 

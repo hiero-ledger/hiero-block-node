@@ -1,6 +1,6 @@
 # Helm Chart
 
-Installs the Hedera Block Node on a Kubernetes cluster.
+Installs the Hiero Block Node on a Kubernetes cluster.
 
 ## Prerequisites
 
@@ -40,27 +40,27 @@ helm pull oci://ghcr.io/hiero-ledger/hiero-block-node/block-node-helm-chart --ve
 To install the chart with default values:
 
 ```bash
-helm install "${RELEASE}" hedera-block-node/charts/block-node-helm-chart-$VERSION.tgz
+helm install "${RELEASE}" block-node-server/charts/block-node-helm-chart-$VERSION.tgz
 ```
 
 To install the chart with custom values:
 
 ```bash
-helm install "${RELEASE}" hedera-block-node/charts/block-node-helm-chart-$VERSION.tgz -f <path-to-custom-values-file>
+helm install "${RELEASE}" block-node-server/charts/block-node-helm-chart-$VERSION.tgz -f <path-to-custom-values-file>
 ```
 
 *Note:* If using the chart directly after cloning the github repo, there is no need to add the repo. and install can be directly.
 Assuming you are at the root folder of the repo.
 
 ```bash
-helm dependency build charts/hedera-block-node
+helm dependency build charts/block-node-server
 
-helm install "${RELEASE}" charts/hedera-block-node -f <path-to-custom-values-file>
+helm install "${RELEASE}" charts/block-node-server -f <path-to-custom-values-file>
 ```
 
 ## Configure
 
-There are several ways to configure the Hedera Block Node. The following is the most common and recommended way to configure the Hedera Block Node.
+There are several ways to configure the Hiero Block Node. The following is the most common and recommended way to configure the Hiero Block Node.
 
 1. Create an override values file, `values.yaml`:
 2. Add the necessary environment configuration variables to the following section:
@@ -85,13 +85,13 @@ blockNode:
 or passed at the command line:
 
 ```bash
-helm install "${RELEASE}" hedera-block-node/hedera-block-node --set blockNode.secret.PRIVATE_KEY="<Secret>"
+helm install "${RELEASE}" hiero-block-node/block-node-server --set blockNode.secret.PRIVATE_KEY="<Secret>"
 ```
 
 ### Enable Prometheus + Grafana Stack
 
 By default the stack includes a chart dependency that includes a prometheus + grafana + node-exporter stack, also adds 3 provisioned dashboards
-- **Hedera Block Node Dashboard:** to monitor the Hedera Block Node metrics, this are the server application specific metrics.
+- **Hiero Block Node Dashboard:** to monitor the Hiero Block Node metrics, this are the server application specific metrics.
 - **Node Exporter Full:** to monitor the node-exporter metrics, system metrics at the K8 cluster/node level.
 - **Kubernetes View Pods:** to monitor the kubernetes pods metrics, system metrics at the container level.
 
@@ -104,7 +104,7 @@ kubepromstack:
 
 ### Enable Loki + Promtail
 
-By default the stack includes chart dependencies for a loki + promtail stack, to collect logs from the Hedera Block Node and the K8 cluster.
+By default the stack includes chart dependencies for a loki + promtail stack, to collect logs from the Hiero Block Node and the K8 cluster.
 If you prefer to use your own loki+promtail stack, you can disable the stack by setting the following values:
 
 ```yaml
@@ -117,7 +117,7 @@ promtail:
 
 ## Using
 
-Follow the `NOTES` instructions after installing the chart to perform `port-forward` to the Hedera Block Node and be able to use it.
+Follow the `NOTES` instructions after installing the chart to perform `port-forward` to the Hiero Block Node and be able to use it.
 
 ## Uninstall
 
@@ -137,5 +137,5 @@ helm repo update
 # save current user supplied values
 helm get values "${RELEASE}" > user-values.yaml
 # upgrade the chart
-helm upgrade "${RELEASE}" hedera-block-node/hedera-block-node -f user-values.yaml
+helm upgrade "${RELEASE}" hiero-block-node/block-node-server -f user-values.yaml
 ```
