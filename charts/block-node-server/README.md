@@ -15,7 +15,6 @@ minikube delete && minikube start --kubernetes-version=v1.23.0 --memory=8g --boo
 
 Set environment variables that will be used for the remainder of the document:
 Replacing the values with the appropriate values for your environment: bn-release is short for block-node-release, but you can name you release as you wish. And use the version that you want to install.
-
 ```bash
 export RELEASE="bn-release"
 export VERSION="0.4.0-SNAPSHOT"
