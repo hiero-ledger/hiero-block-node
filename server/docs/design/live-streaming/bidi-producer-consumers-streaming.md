@@ -26,7 +26,7 @@
 
 ## Purpose
 
-A primary use case of the `hedera-block-node` is to stream live BlockItems (see Terms section) from a producer
+A primary use case of the `hiero-block-node` is to stream live BlockItems (see Terms section) from a producer
 (e.g. Consensus Node) to N consumers (e.g. Mirror Node) with the lowest possible latency while correctly preserving the
 order of the BlockItems. This document outlines several possible strategies to implement this use case and the design
 of the recommended approach. All strategies rely on the Helidon 4.x.x server implementations of HTTP/2 and gRPC
@@ -51,8 +51,8 @@ BlockItems transiting before the start of the next Block will not be sent to tha
 
 ## Terms
 
-**BlockItem** - The BlockItem is the primary data structure passed between the producer, the `hedera-block-node`
-and consumers. A defined sequence of BlockItems represent a Block when stored on the `hedera-block-node`.
+**BlockItem** - The BlockItem is the primary data structure passed between the producer, the `hiero-block-node`
+and consumers. A defined sequence of BlockItems represent a Block when stored on the `hiero-block-node`.
 
 **Bidirectional Streaming** - Bidirectional streaming is an [HTTP/2 feature](https://datatracker.ietf.org/doc/html/rfc9113#name-streams-and-multiplexing)
 allowing both a client and a server emit a continuous stream of frames without waiting for responses. In this way, gRPC
@@ -68,7 +68,7 @@ the Consumer StreamObserver at runtime when the downstream consumer of the `subs
 responses to sent BlockItems.
 
 **subscribe** - Consumers calling the `subscribeBlockStream` gRPC service must be affiliated or subscribed with a producer to
-receive a live stream of BlockItems from the `hedera-block-node`.
+receive a live stream of BlockItems from the `hiero-block-node`.
 
 **unsubscribe** - Consumers terminating their connection with the `subscribeBlockStream` gRPC service must be unaffiliated or
 unsubscribed from a producer so that internal objects can be cleaned up and resources released.
@@ -106,7 +106,7 @@ from the consumer in receipt of BlockItems.
 
 Directly passing BlockItems from the `ProducerBlockItemObserver` to N `ConsumerBlockItemObserver`s without storing
 BlockItems in an intermediate data structure. This approach was the basis for one of the first implementations of gRPC
-Live Streaming (see [BlockNode Issue 21](https://github.com/hashgraph/hedera-block-node/issues/21)). Unfortunately, this approach has the following problems:
+Live Streaming (see [BlockNode Issue 21](https://github.com/hiero-ledger/hiero-block-node/issues/21)). Unfortunately, this approach has the following problems:
 
 Drawbacks:
 1) Each `ProducerBlockItemObserver` must iterate over the list of subscribed consumers to pass the BlockItem to each
@@ -240,7 +240,7 @@ permanently subscribed to the `StreamMediator`.
 **BlockItemStreamService** - The BlockItemStreamService is a custom implementation of the Helidon gRPC GrpcService.
 It is responsible for initializing the StreamMediator and instantiating ProducerBlockItemObserver and
 ConsumerBlockItemObserver instances on-demand when the gRPC API is called by producers and consumers. It is
-the primary binding between the Helidon routing mechanisms and the `hedera-block-node` custom business logic.
+the primary binding between the Helidon routing mechanisms and the `hiero-block-node` custom business logic.
 
 **StreamObserver** - StreamObserver is the main interface through which Helidon 4.x.x invokes custom business logic
 to receive and transmit bidirectional BlockItem streams at runtime.

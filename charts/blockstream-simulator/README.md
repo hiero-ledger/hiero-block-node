@@ -34,7 +34,7 @@ helm pull oci://ghcr.io/hiero-ledger/hiero-block-node/charts/blockstream-simulat
 
 ```bash
 git clone git@github.com:hiero-ledger/hiero-block-node.git
-cd hedera-block-node
+cd hiero-block-node
 helm install "${RELEASE}" charts/blockstream-simulator -f <path-to-custom-values-file>
 ```
 
