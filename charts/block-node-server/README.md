@@ -11,23 +11,23 @@ minikube delete && minikube start --kubernetes-version=v1.23.0 --memory=8g --boo
 ```
 
 Set environment variables that will be used for the remainder of the document:
-Replacing the values with the appropriate values for your environment: bn1 is short for block-node-1, but you can name you release as you wish. And use the version that you want to install.
+Replacing the values with the appropriate values for your environment: bn-release is short for block-node-release, but you can name you release as you wish. And use the version that you want to install.
 ```bash
-export RELEASE="blkNod"
-export VERSION="0.3.0-SNAPSHOT"
+export RELEASE="bn-release"
+export VERSION="0.4.0-SNAPSHOT"
 ```
 
 ## Template
 To generate the K8 manifest files without installing the chart, you need to clone this repo and navigate to `/charts` folder.
 ```bash
-helm template --name-template my-bn hedera-block-node/ --dry-run --output-dir out
+helm template --name-template bn-release block-node-server/ --dry-run --output-dir out
 ```
 
 ## Install using a published chart
 
 To pull the packaged chart from the public repo:
 ```bash
-helm pull oci://ghcr.io/hashgraph/hedera-block-node/block-node-helm-chart --version "${VERSION}"
+helm pull oci://ghcr.io/hiero-ledger/hiero-block-node/block-node-helm-chart --version "${VERSION}"
 ```
 
 To install the chart with default values:

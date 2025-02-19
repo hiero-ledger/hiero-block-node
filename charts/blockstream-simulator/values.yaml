@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 image:
-  repository: ghcr.io/hashgraph/hedera-block-node/simulator-image
+  repository: ghcr.io/hiero-ledger/hiero-block-node/simulator-image
   pullPolicy: IfNotPresent
   # Overrides the image tag whose default is the chart appVersion.
   tag: ""
@@ -20,6 +20,6 @@ simulator:
   config:
     # either CONSUMER or PUBLISHER
     BLOCK_STREAM_SIMULATOR_MODE: "PUBLISHER"
-    GRPC_SERVER_ADDRESS: "blkNod-block-node-helm-chart"
+    GRPC_SERVER_ADDRESS: "bn-release-block-node-helm-chart"
   secret:
     PRIVATE_KEY: "fake_private_key"
