@@ -1,6 +1,10 @@
+// SPDX-License-Identifier: Apache-2.0
 package com.hedera.block.simulator.generator;
 
-import com.google.protobuf.ByteString;
+import static java.lang.System.Logger.Level.DEBUG;
+import static java.lang.System.Logger.Level.INFO;
+import static java.util.Objects.requireNonNull;
+
 import com.hedera.block.common.hasher.Hashes;
 import com.hedera.block.common.hasher.HashingUtilities;
 import com.hedera.block.common.hasher.NaiveStreamingTreeHasher;
@@ -8,32 +12,37 @@ import com.hedera.block.common.hasher.StreamingTreeHasher;
 import com.hedera.block.simulator.config.data.BlockGeneratorConfig;
 import com.hedera.block.simulator.config.types.GenerationMode;
 import com.hedera.block.simulator.exception.BlockSimulatorParsingException;
+import com.hedera.block.simulator.generator.itemhandler.BlockHeaderHandler;
+import com.hedera.block.simulator.generator.itemhandler.BlockProofHandler;
+import com.hedera.block.simulator.generator.itemhandler.EventHeaderHandler;
+import com.hedera.block.simulator.generator.itemhandler.EventTransactionHandler;
+import com.hedera.block.simulator.generator.itemhandler.ItemHandler;
+import com.hedera.block.simulator.generator.itemhandler.TransactionResultHandler;
 import com.hedera.hapi.block.BlockItemUnparsed;
-import com.hedera.hapi.block.stream.output.protoc.BlockHeader;
 import com.hedera.hapi.block.stream.protoc.Block;
 import com.hedera.hapi.block.stream.protoc.BlockItem;
-import com.hedera.hapi.block.stream.protoc.BlockProof;
-import com.hedera.pbj.runtime.ParseException;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
-import com.hederahashgraph.api.proto.java.BlockHashAlgorithm;
-import com.hederahashgraph.api.proto.java.SemanticVersion;
-import com.hederahashgraph.api.proto.java.Timestamp;
 import edu.umd.cs.findbugs.annotations.NonNull;
-
 import java.io.IOException;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.List;
+import java.util.Random;
 
-import static java.lang.System.Logger.Level.DEBUG;
-import static java.lang.System.Logger.Level.INFO;
-import static java.util.Objects.requireNonNull;
-
-public class CraftBlockStreamManager implements BlockStreamManager{
+/**
+ * Implementation of BlockStreamManager that crafts blocks from scratch rather than reading from an existing stream.
+ * This manager generates synthetic blocks with random events and transactions based on configured parameters.
+ */
+public class CraftBlockStreamManager implements BlockStreamManager {
     private final System.Logger LOGGER = System.getLogger(getClass().getName());
 
+    // Service
+    private final Random random;
+
     // Configuration
-    private final BlockGeneratorConfig blockGeneratorConfig;
+    private final int minNumberOfEventsPerBlock;
+    private final int maxNumberOfEventsPerBlock;
+    private final int minNumberOfTransactionsPerEvent;
+    private final int maxNumberOfTransactionsPerEvent;
 
     // State
     private final GenerationMode generationMode;
@@ -44,75 +53,114 @@ public class CraftBlockStreamManager implements BlockStreamManager{
     private StreamingTreeHasher inputTreeHasher;
     private StreamingTreeHasher outputTreeHasher;
 
+    /**
+     * Constructs a new CraftBlockStreamManager with the specified configuration.
+     *
+     * @param blockGeneratorConfig Configuration parameters for block generation including event and transaction counts
+     * @throws NullPointerException if blockGeneratorConfig is null
+     */
     public CraftBlockStreamManager(@NonNull BlockGeneratorConfig blockGeneratorConfig) {
-        this.blockGeneratorConfig = requireNonNull(blockGeneratorConfig);
-        this.generationMode = this.blockGeneratorConfig.generationMode();
+        final BlockGeneratorConfig blockGeneratorConfig1 = requireNonNull(blockGeneratorConfig);
+        this.generationMode = blockGeneratorConfig1.generationMode();
+        this.currentBlockNumber = blockGeneratorConfig1.startBlockNumber();
+        this.minNumberOfEventsPerBlock = blockGeneratorConfig1.minNumberOfEventsPerBlock();
+        this.maxNumberOfEventsPerBlock = blockGeneratorConfig1.maxNumberOfEventsPerBlock();
+        this.minNumberOfTransactionsPerEvent = blockGeneratorConfig1.minNumberOfTransactionsPerEvent();
+        this.maxNumberOfTransactionsPerEvent = blockGeneratorConfig1.maxNumberOfTransactionsPerEvent();
+
+        this.random = new Random();
         this.previousStateRootHash = new byte[StreamingTreeHasher.HASH_LENGTH];
 
         this.previousBlockHash = new byte[StreamingTreeHasher.HASH_LENGTH];
         this.currentBlockHash = new byte[StreamingTreeHasher.HASH_LENGTH];
 
-        this.currentBlockNumber = 0;
         this.inputTreeHasher = new NaiveStreamingTreeHasher();
         this.outputTreeHasher = new NaiveStreamingTreeHasher();
 
         LOGGER.log(INFO, "Block Stream Simulator will use Craft mode for block management.");
     }
 
+    /**
+     * Returns the generation mode of this block stream manager.
+     *
+     * @return The GenerationMode enum value representing the current generation mode
+     */
     @Override
     public GenerationMode getGenerationMode() {
         return generationMode;
     }
 
+    /**
+     * This operation is not supported in Craft mode.
+     *
+     * @throws UnsupportedOperationException always, as Craft mode does not support getting individual block items
+     */
     @Override
     public BlockItem getNextBlockItem() {
-        throw new UnsupportedOperationException("Craft mode does not support getting block items");
+        throw new UnsupportedOperationException("Craft mode does not support getting block items.");
     }
 
+    /**
+     * Generates and returns the next synthetic block.
+     * Creates a block with a random number of events and transactions within configured bounds.
+     * Each block includes a header, events with their transactions and results, and a proof.
+     *
+     * @return A newly generated Block
+     * @throws IOException if there is an error processing block items
+     * @throws BlockSimulatorParsingException if there is an error parsing block components
+     */
     @Override
     public Block getNextBlock() throws IOException, BlockSimulatorParsingException {
         LOGGER.log(DEBUG, "Started creation of block number %s.".formatted(currentBlockNumber));
-        List<BlockItem> blockItems = new ArrayList<>();
-        List<BlockItemUnparsed> blockItemsUnparsed = new ArrayList<>();
+        final List<BlockItemUnparsed> blockItemsUnparsed = new ArrayList<>();
+        final List<ItemHandler> items = new ArrayList<>();
 
-        BlockItem headerItem = BlockItem.newBuilder()
-                .setBlockHeader(createBlockHeader())
-                .build();
-        blockItems.add(headerItem);
+        final ItemHandler headerItemHandler = new BlockHeaderHandler(previousBlockHash, currentBlockNumber);
+        items.add(headerItemHandler);
+        blockItemsUnparsed.add(headerItemHandler.unparseBlockItem());
 
-        // create all other block items with transactions and add them
-        LOGGER.log(DEBUG, "Appending %s number of block items in this block.".formatted(currentBlockNumber));
-        for (BlockItem blockItem : blockItems) {
-            BlockItemUnparsed blockItemUnparsed = unparseBlockItem(blockItem);
-            blockItemsUnparsed.add(blockItemUnparsed);
+        final int eventsNumber = random.nextInt(minNumberOfEventsPerBlock, maxNumberOfEventsPerBlock);
+        for (int i = 0; i < eventsNumber; i++) {
+            final ItemHandler eventHeaderHandler = new EventHeaderHandler();
+            items.add(eventHeaderHandler);
+            blockItemsUnparsed.add(eventHeaderHandler.unparseBlockItem());
+
+            final int transactionsNumber =
+                    random.nextInt(minNumberOfTransactionsPerEvent, maxNumberOfTransactionsPerEvent);
+            for (int j = 0; j < transactionsNumber; j++) {
+                final ItemHandler eventTransactionHandler = new EventTransactionHandler();
+                items.add(eventTransactionHandler);
+                blockItemsUnparsed.add(eventTransactionHandler.unparseBlockItem());
+
+                final ItemHandler transactionResultHandler = new TransactionResultHandler();
+                items.add(transactionResultHandler);
+                blockItemsUnparsed.add(transactionResultHandler.unparseBlockItem());
+            }
         }
+
+        LOGGER.log(DEBUG, "Appending %s number of block items in this block.".formatted(items.size()));
+
         processBlockItems(blockItemsUnparsed);
         updateCurrentBlockHash();
 
-        // create random number of block items with random type of transactions depending on type from configuration
-        BlockItem proofItem = BlockItem.newBuilder()
-                .setBlockProof(createBlockProof())
-                .build();
-        blockItems.add(proofItem);
+        ItemHandler proofItemHandler = new BlockProofHandler(previousBlockHash, currentBlockHash, currentBlockNumber);
+        items.add(proofItemHandler);
         resetState();
-        return Block.newBuilder().addAllItems(blockItems).build();
+        return Block.newBuilder()
+                .addAllItems(items.stream().map(ItemHandler::getItem).toList())
+                .build();
     }
 
     private void updateCurrentBlockHash() {
-        com.hedera.hapi.block.stream.BlockProof unfinishedBlockProof = com.hedera.hapi.block.stream.BlockProof.newBuilder()
-                .previousBlockRootHash(Bytes.wrap(previousBlockHash))
-                .startOfBlockStateRootHash(Bytes.wrap(previousStateRootHash))
-                .build();
+        com.hedera.hapi.block.stream.BlockProof unfinishedBlockProof =
+                com.hedera.hapi.block.stream.BlockProof.newBuilder()
+                        .previousBlockRootHash(Bytes.wrap(previousBlockHash))
+                        .startOfBlockStateRootHash(Bytes.wrap(previousStateRootHash))
+                        .build();
 
-        currentBlockHash = HashingUtilities.computeFinalBlockHash(unfinishedBlockProof, inputTreeHasher, outputTreeHasher).toByteArray();
-    }
-
-    private BlockItemUnparsed unparseBlockItem(BlockItem blockItem) throws BlockSimulatorParsingException {
-        try {
-            return BlockItemUnparsed.PROTOBUF.parse(Bytes.wrap(blockItem.toByteArray()));
-        } catch (ParseException e) {
-            throw new BlockSimulatorParsingException(e);
-        }
+        currentBlockHash = HashingUtilities.computeFinalBlockHash(
+                        unfinishedBlockProof, inputTreeHasher, outputTreeHasher)
+                .toByteArray();
     }
 
     private void processBlockItems(List<BlockItemUnparsed> blockItems) {
@@ -130,31 +178,5 @@ public class CraftBlockStreamManager implements BlockStreamManager{
         outputTreeHasher = new NaiveStreamingTreeHasher();
         currentBlockNumber++;
         previousBlockHash = currentBlockHash;
-    }
-
-    private BlockHeader createBlockHeader() {
-        final SemanticVersion semanticVersion = SemanticVersion.newBuilder().setMajor(0).setMinor(1).setPatch(0).build();
-        final Timestamp firstTransactionConsensusTime = Timestamp.newBuilder().setSeconds(System.currentTimeMillis()/1000).build();
-        return BlockHeader.newBuilder()
-                .setHapiProtoVersion(semanticVersion)
-                .setSoftwareVersion(semanticVersion)
-                .setHashAlgorithm(BlockHashAlgorithm.SHA2_384)
-                .setFirstTransactionConsensusTime(firstTransactionConsensusTime)
-                .setPreviousBlockHash(ByteString.copyFrom(previousBlockHash))
-                .setNumber(currentBlockNumber)
-                .build();
-    }
-
-    private BlockProof createBlockProof() {
-        return BlockProof.newBuilder()
-                .setBlock(currentBlockNumber)
-                .setPreviousBlockRootHash(ByteString.copyFrom(previousBlockHash))
-                .setStartOfBlockStateRootHash(ByteString.copyFrom(previousStateRootHash))
-                .setBlockSignature(produceSignature())
-                .build();
-    }
-
-    private ByteString produceSignature() {
-        return ByteString.copyFrom(HashingUtilities.noThrowSha384HashOf(currentBlockHash));
     }
 }

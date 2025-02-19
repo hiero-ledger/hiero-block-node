@@ -23,12 +23,16 @@ import java.nio.file.Paths;
 @ConfigData("generator")
 public record BlockGeneratorConfig(
         @ConfigProperty(defaultValue = "CRAFT") GenerationMode generationMode,
+        @ConfigProperty(defaultValue = "1") @Min(1) int minNumberOfEventsPerBlock,
+        @ConfigProperty(defaultValue = "10") int maxNumberOfEventsPerBlock,
+        @ConfigProperty(defaultValue = "1") @Min(1) int minNumberOfTransactionsPerEvent,
+        @ConfigProperty(defaultValue = "10") int maxNumberOfTransactionsPerEvent,
         @ConfigProperty(defaultValue = "") String folderRootPath,
         @ConfigProperty(defaultValue = "BlockAsFileBlockStreamManager") String managerImplementation,
         @ConfigProperty(defaultValue = "36") int paddedLength,
         @ConfigProperty(defaultValue = ".blk.gz") String fileExtension,
         // Optional block number range for the BlockAsFileLargeDataSets manager
-        @ConfigProperty(defaultValue = "1") @Min(1) int startBlockNumber,
+        @ConfigProperty(defaultValue = "1") @Min(0) int startBlockNumber,
         @ConfigProperty(defaultValue = "-1") int endBlockNumber) {
 
     /**
@@ -74,6 +78,10 @@ public record BlockGeneratorConfig(
      */
     public static class Builder {
         private GenerationMode generationMode = GenerationMode.DIR;
+        private int minNumberOfEventsPerBlock = 1;
+        private int maxNumberOfEventsPerBlock = 10;
+        private int minNumberOfTransactionsPerEvent = 1;
+        private int maxNumberOfTransactionsPerEvent = 10;
         private String folderRootPath = "";
         private String managerImplementation = "BlockAsFileBlockStreamManager";
         private int paddedLength = 36;
@@ -96,6 +104,50 @@ public record BlockGeneratorConfig(
          */
         public Builder generationMode(GenerationMode generationMode) {
             this.generationMode = generationMode;
+            return this;
+        }
+
+        /**
+         * Sets the minimum number of events per block.
+         *
+         * @param minNumberOfEventsPerBlock the minimum number of events per block
+         * @return this {@code Builder} instance
+         */
+        public Builder minNumberOfEventsPerBlock(int minNumberOfEventsPerBlock) {
+            this.minNumberOfEventsPerBlock = minNumberOfEventsPerBlock;
+            return this;
+        }
+
+        /**
+         * Sets the maximum number of events per block.
+         *
+         * @param maxNumberOfEventsPerBlock the maximum number of events per block
+         * @return this {@code Builder} instance
+         */
+        public Builder maxNumberOfEventsPerBlock(int maxNumberOfEventsPerBlock) {
+            this.maxNumberOfEventsPerBlock = maxNumberOfEventsPerBlock;
+            return this;
+        }
+
+        /**
+         * Sets the minimum number of transactions per event.
+         *
+         * @param minNumberOfTransactionsPerEvent the minimum number of transactions per event
+         * @return this {@code Builder} instance
+         */
+        public Builder minNumberOfTransactionsPerEvent(int minNumberOfTransactionsPerEvent) {
+            this.minNumberOfTransactionsPerEvent = minNumberOfTransactionsPerEvent;
+            return this;
+        }
+
+        /**
+         * Sets the maximum number of transactions per event.
+         *
+         * @param maxNumberOfTransactionsPerEvent the maximum number of transactions per event
+         * @return this {@code Builder} instance
+         */
+        public Builder maxNumberOfTransactionsPerEvent(int maxNumberOfTransactionsPerEvent) {
+            this.maxNumberOfTransactionsPerEvent = maxNumberOfTransactionsPerEvent;
             return this;
         }
 
@@ -175,6 +227,10 @@ public record BlockGeneratorConfig(
         public BlockGeneratorConfig build() {
             return new BlockGeneratorConfig(
                     generationMode,
+                    minNumberOfEventsPerBlock,
+                    maxNumberOfEventsPerBlock,
+                    minNumberOfTransactionsPerEvent,
+                    maxNumberOfTransactionsPerEvent,
                     folderRootPath,
                     managerImplementation,
                     paddedLength,

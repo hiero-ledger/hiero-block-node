@@ -12,12 +12,16 @@ import javax.inject.Singleton;
 public interface GeneratorInjectionModule {
 
     /**
-     * Provides the block stream manager based on the configuration, either
-     * BlockAsFileBlockStreamManager or BlockAsDirBlockStreamManager. by default, it will be
-     * BlockAsFileBlockStreamManager.
+     * Provides the block stream manager based on the configuration settings.
+     * For DIR generation mode:
+     * - BlockAsDirBlockStreamManager if explicitly configured
+     * - BlockAsFileLargeDataSets if explicitly configured
+     * - BlockAsFileBlockStreamManager as default
+     * For CRAFT generation mode:
+     * - CraftBlockStreamManager
      *
      * @param config the block stream configuration
-     * @return the block stream manager
+     * @return the appropriate BlockStreamManager implementation based on configuration
      */
     @Singleton
     @Provides
@@ -26,7 +30,7 @@ public interface GeneratorInjectionModule {
         final String managerImpl = config.managerImplementation();
         final GenerationMode generationMode = config.generationMode();
 
-        return switch (generationMode){
+        return switch (generationMode) {
             case DIR -> {
                 if ("BlockAsDirBlockStreamManager".equalsIgnoreCase(managerImpl)) {
                     yield new BlockAsDirBlockStreamManager(config);
