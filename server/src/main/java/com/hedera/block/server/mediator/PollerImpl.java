@@ -3,11 +3,14 @@ package com.hedera.block.server.mediator;
 
 import com.lmax.disruptor.EventPoller;
 import com.lmax.disruptor.RingBuffer;
+import edu.umd.cs.findbugs.annotations.NonNull;
+import java.util.Objects;
 
 public class PollerImpl<V> implements Poller<V> {
 
     private final EventPoller<V> poller;
     private final BatchedData<V> polledData;
+    private final RingBuffer<V> ringBuffer;
 
     /**
      * Leverage the provided ring buffer and batch size to poll for events.
@@ -15,13 +18,15 @@ public class PollerImpl<V> implements Poller<V> {
      * @param ringBuffer the ring buffer to poll events from
      * @param batchSize the size of the batch
      */
-    PollerImpl(final RingBuffer<V> ringBuffer, final int batchSize) {
+    PollerImpl(@NonNull final RingBuffer<V> ringBuffer, final int batchSize) {
+        this.ringBuffer = Objects.requireNonNull(ringBuffer);
         this.poller = ringBuffer.newPoller();
         ringBuffer.addGatingSequences(poller.getSequence());
         this.polledData = new BatchedData<>(batchSize);
     }
 
     @Override
+    @NonNull
     public V poll() throws Exception {
         if (polledData.getMsgCount() > 0) {
             return polledData.pollMessage();
@@ -29,6 +34,11 @@ public class PollerImpl<V> implements Poller<V> {
 
         loadNextValues(poller, polledData);
         return polledData.getMsgCount() > 0 ? polledData.pollMessage() : null;
+    }
+
+    @Override
+    public void unsubscribe() {
+        ringBuffer.removeGatingSequence(poller.getSequence());
     }
 
     private EventPoller.PollState loadNextValues(final EventPoller<V> poller, final BatchedData<V> batch)
