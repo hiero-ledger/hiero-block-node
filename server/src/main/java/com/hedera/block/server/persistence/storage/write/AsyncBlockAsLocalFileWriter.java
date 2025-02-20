@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 package com.hedera.block.server.persistence.storage.write;
 
-import static com.hedera.block.server.metrics.BlockNodeMetricTypes.Counter.BlockPersistenceError;
 import static com.hedera.block.server.metrics.BlockNodeMetricTypes.Counter.BlocksPersisted;
 import static java.lang.System.Logger.Level.DEBUG;
 import static java.lang.System.Logger.Level.ERROR;
@@ -66,7 +65,7 @@ final class AsyncBlockAsLocalFileWriter implements AsyncBlockWriter {
             metricsService.get(BlocksPersisted).increment();
         } else {
             LOGGER.log(ERROR, "Failed to persist block [%d]".formatted(blockNumber));
-            metricsService.get(BlockPersistenceError).increment();
+            //            metricsService.get(BlockPersistenceError).increment();
         }
 
         return null;
