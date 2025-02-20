@@ -16,18 +16,18 @@
 ## Purpose
 
 The purpose of the Open-Range Historic Block Streaming feature is to provide a mechanism for
-consumers to request an open-ended stream of blocks starting from an existing historic 
+consumers to request an open-ended stream of blocks starting from an existing historic
 block and continuing to the present live stream of blocks using the `subscribeBlockStream` rpc
 endpoint via the `SubscribeStreamRequest` message. The `starting_block_number` parameter can specify
-any existing persisted block and the `end_block_number` parameter can specify a zero value to indicate 
+any existing persisted block and the `end_block_number` parameter can specify a zero value to indicate
 an infinite stream of blocks (transition to live blocks).
 
 See the `block_service.proto` file definition [here](https://github.com/hashgraph/hedera-protobufs/blob/c0ca3524f2e80e5d5e545e36fcb5d23d64c31fb5/block/block_service.proto#L531-L562).
 
 ## Goals
 
-1. Provide a stream of historic blocks, which transitions to the current live stream, to a 
-downstream observer.
+1. Provide a stream of historic blocks, which transitions to the current live stream, to a
+   downstream observer.
 
 ## Terms
 
@@ -43,7 +43,7 @@ See the range specification in the  `block_service.proto` file definition [here]
 ### HistoricToLiveBlockStreamSupplier
 
 - An entity which is responsible for supplying historic block items to a BlockNodeEventHandler and for
-transitioning to the live stream once the stream catches up.
+  transitioning to the live stream once the stream catches up.
 
 ### BlockNodeEventHandler
 
@@ -59,8 +59,8 @@ transitioning to the live stream once the stream catches up.
 ## Design
 
 1. The `PbjBlockStreamServiceProxy` is called by Helidon when a client makes a request to the `subscribeBlockStream` rpc
-   endpoint. After validating the `start_block_number` and `end_block_number`, it creates an 
-   `HistoricToLiveBlockStreamSupplier` with the requested block range, a `BlockReader`, a `BlockNodeEventHandler` and 
+   endpoint. After validating the `start_block_number` and `end_block_number`, it creates an
+   `HistoricToLiveBlockStreamSupplier` with the requested block range, a `BlockReader`, a `BlockNodeEventHandler` and
    an `ExecutorService`.
 2. `HistoricToLiveBlockStreamSupplier` reads the blocks from the `BlockReader` and sends them to the client via the
    `BlockNodeEventHandler`. Once the stream catches up to the live blocks, the `HistoricToLiveBlockStreamSupplier`
@@ -72,9 +72,9 @@ transitioning to the live stream once the stream catches up.
 
 ```mermaid
 sequenceDiagram
+    participant RB as RingBuffer
     participant H as HistoricToLiveBlockStreamSupplier
     participant BR as BlockReader
-    participant RB as RingBuffer
     participant BNEH as BlockNodeEventHandler
     participant C as Client (Mirror Node)
 
@@ -95,12 +95,14 @@ sequenceDiagram
 
 This feature will leverage one of our standard Config objects to communicate properties.
 - `maxBlockItemBatchSize` - An integer used to determine the max size of each block item batch a block from the BlockReader
-  is broken up into before being sent to a client.
+is broken up into before being sent to a client.
 
 ## Metrics
 
 <dl>
 <dt>HistoricBlockItemsConsumed</dt><dd>Counter for the number of historic block items consumed by each BlockNodeEventHandler</dd>
+<dt>HistoricToLiveStream</dt><dd>Counter for the number of transitions from historic-streaming to live-streaming</dd>
+<dt>LiveToHistoricStream</dt><dd>Counter for the number of transitions from live-streaming to historic-streaming</dd>
 <dt>HistoricBlockStreamError</dt><dd>Counter for the number of errors encountered by an HistoricBlockStreamSupplier</dd>
 </dl>
 
@@ -124,8 +126,8 @@ Based on the `SubscribeStreamRequest` specification, the following error respons
 ## Acceptance Tests
 
 - Negative tests for the following:
-    - `start_block_number` is greater than the `end_block_number`
-    - `start_block_number` is invalid
-    - `end_block_number` is invalid
-    - Service unavailable
-    - Mocked BlockReader and client object should verify that an error response is sent to the client.
+  - `start_block_number` is greater than the `end_block_number`
+  - `start_block_number` is invalid
+  - `end_block_number` is invalid
+  - Service unavailable
+  - Mocked BlockReader and client object should verify that an error response is sent to the client.
