@@ -52,6 +52,9 @@ public record PersistenceStorageConfig(
      */
     public PersistenceStorageConfig {
         Objects.requireNonNull(type);
+        if (archiveBatchSize <= 1) {
+            throw new IllegalArgumentException("The archive group size must be greater than [1]");
+        }
         Preconditions.requirePositivePowerOf10(archiveBatchSize);
         compression.verifyCompressionLevel(compressionLevel);
         liveRootPath = resolvePath(liveRootPath, LIVE_ROOT_PATH, BLOCK_NODE_LIVE_ROOT_DIRECTORY_SEMANTIC_NAME);

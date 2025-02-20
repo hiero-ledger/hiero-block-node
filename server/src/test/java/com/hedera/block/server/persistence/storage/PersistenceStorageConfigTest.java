@@ -391,7 +391,6 @@ class PersistenceStorageConfigTest {
 
     private static Stream<Arguments> validArchiveBatchSizes() {
         return Stream.of(
-                Arguments.of(1),
                 Arguments.of(10),
                 Arguments.of(100),
                 Arguments.of(1_000),
@@ -405,6 +404,7 @@ class PersistenceStorageConfigTest {
 
     private static Stream<Arguments> invalidArchiveBatchSizes() {
         return Stream.of(
+                Arguments.of(1),
                 Arguments.of(0),
                 Arguments.of(-1),
                 Arguments.of(-2),

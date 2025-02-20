@@ -26,14 +26,15 @@ public final class LocalBlockFileArchiver implements LocalBlockArchiver {
             @NonNull final PersistenceStorageConfig config,
             @NonNull final AsyncLocalBlockArchiverFactory archiverFactory,
             @NonNull final Executor executor) {
-        this.completionService = new ExecutorCompletionService<>(executor);
-        this.archiveGroupSize = config.archiveBatchSize(); //
+        this.archiveGroupSize = config.archiveBatchSize();
         this.archiverFactory = Objects.requireNonNull(archiverFactory);
+        this.completionService = new ExecutorCompletionService<>(executor);
     }
 
     @Override
     public void submitThresholdPassed(final long blockNumberThreshold) {
-        final boolean validThresholdPassed = blockNumberThreshold % archiveGroupSize == 0;
+        final boolean validThresholdPassed =
+                (blockNumberThreshold > 1) && (blockNumberThreshold % archiveGroupSize == 0);
         final boolean canArchive = blockNumberThreshold - archiveGroupSize * 2L >= 0;
         if (validThresholdPassed && canArchive) {
             // here we need to archive everything below one order of magnitude of the threshold passed
@@ -48,7 +49,8 @@ public final class LocalBlockFileArchiver implements LocalBlockArchiver {
         while ((completionResult = completionService.poll()) != null) {
             try {
                 if (completionResult.isCancelled()) {
-                    // todo
+                    // @todo(517) when we have infrastructure for publishing
+                    // results, we should do so
                 } else {
                     // we call get here to verify that the task has run to completion
                     // we do not expect it to throw an exception, but to publish
@@ -57,10 +59,11 @@ public final class LocalBlockFileArchiver implements LocalBlockArchiver {
                     completionResult.get();
                 }
             } catch (final ExecutionException e) {
-                // todo
-                new RuntimeException(e.getCause());
+                // we do not expect to enter here, if we do, then there is
+                // either a bug in the archiving task, or an unhandled case
+                throw new RuntimeException(e.getCause());
             } catch (final InterruptedException e) {
-                // todo What shall we do here? How to handle?
+                // @todo(517) What shall we do here? How to handle?
                 Thread.currentThread().interrupt();
             }
         }
