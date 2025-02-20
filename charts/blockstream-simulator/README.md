@@ -10,7 +10,7 @@ Installs the BlockStream Simulator on a Kubernetes cluster.
 Set Release name and version to install.
 
 ```bash
-export RELEASE="blockStreamSimulator"
+export RELEASE="simulator-release"
 export VERSION="0.3.0-SNAPSHOT"
 ```
 
@@ -19,7 +19,7 @@ export VERSION="0.3.0-SNAPSHOT"
 To generate the K8 manifest files without installing the chart, you need to clone this repo and navigate to `/charts` folder.
 
 ```bash
-helm template --name-template my-bs blockstream-simulator/ --dry-run --output-dir out
+helm template --name-template simulator-release blockstream-simulator/ --dry-run --output-dir out
 ```
 
 ## Install using a published chart
@@ -27,13 +27,13 @@ helm template --name-template my-bs blockstream-simulator/ --dry-run --output-di
 To pull the packaged chart from the public repo:
 
 ```bash
-helm pull oci://ghcr.io/hashgraph/hedera-block-node/charts/blockstream-simulator-chart--version "${VERSION}"
+helm pull oci://ghcr.io/hiero-ledger/hiero-block-node/charts/blockstream-simulator-chart--version "${VERSION}"
 ```
 
 ## Install using a local chart cloned from the repo
 
 ```bash
-git clone git@github.com:hashgraph/hedera-block-node.git
+git clone git@github.com:hiero-ledger/hiero-block-node.git
 cd hedera-block-node
 helm install "${RELEASE}" charts/blockstream-simulator -f <path-to-custom-values-file>
 ```
