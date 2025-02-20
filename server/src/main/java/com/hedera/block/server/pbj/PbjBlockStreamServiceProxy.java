@@ -223,6 +223,7 @@ public class PbjBlockStreamServiceProxy implements PbjBlockStreamService {
             // Check to see if the client is requesting a live
             // stream (endBlockNumber is 0)
             if (subscribeStreamRequest.endBlockNumber() == 0) {
+                // Build the live stream event handler
                 final Runnable liveStreamEventHandler = LiveStreamEventHandlerBuilder.buildPoller(
                         streamMediator,
                         helidonConsumerObserver,

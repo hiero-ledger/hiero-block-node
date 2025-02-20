@@ -46,10 +46,10 @@ public class PullConsumerStreamResponseObserver
     private final Poller<ObjectEvent<List<BlockItemUnparsed>>> poller;
 
     public PullConsumerStreamResponseObserver(
+            @NonNull final SubscriptionHandler<List<BlockItemUnparsed>> subscriptionHandler,
             @NonNull final Pipeline<? super SubscribeStreamResponseUnparsed> helidonConsumerObserver,
             @NonNull final MetricsService metricsService,
-            @NonNull final Configuration configuration,
-            @NonNull final SubscriptionHandler<List<BlockItemUnparsed>> subscriptionHandler) {
+            @NonNull final Configuration configuration) {
 
         this.metricsService = Objects.requireNonNull(metricsService);
         this.helidonConsumerObserver = Objects.requireNonNull(helidonConsumerObserver);

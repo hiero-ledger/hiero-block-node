@@ -43,10 +43,11 @@ public final class LiveStreamEventHandlerBuilder {
 
     public static Runnable buildPoller(
             @NonNull final SubscriptionHandler<List<BlockItemUnparsed>> subscriptionHandler,
-            @NonNull final Pipeline<? super SubscribeStreamResponseUnparsed> observer,
+            @NonNull final Pipeline<? super SubscribeStreamResponseUnparsed> helidonConsumerObserver,
             @NonNull final MetricsService metricsService,
             @NonNull final Configuration configuration) {
 
-        return new PullConsumerStreamResponseObserver(observer, metricsService, configuration, subscriptionHandler);
+        return new PullConsumerStreamResponseObserver(
+                subscriptionHandler, helidonConsumerObserver, metricsService, configuration);
     }
 }

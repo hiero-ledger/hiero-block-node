@@ -9,6 +9,12 @@ public class PollerImpl<V> implements Poller<V> {
     private final EventPoller<V> poller;
     private final BatchedData<V> polledData;
 
+    /**
+     * Leverage the provided ring buffer and batch size to poll for events.
+     *
+     * @param ringBuffer the ring buffer to poll events from
+     * @param batchSize the size of the batch
+     */
     PollerImpl(final RingBuffer<V> ringBuffer, final int batchSize) {
         this.poller = ringBuffer.newPoller();
         ringBuffer.addGatingSequences(poller.getSequence());
@@ -18,10 +24,10 @@ public class PollerImpl<V> implements Poller<V> {
     @Override
     public V poll() throws Exception {
         if (polledData.getMsgCount() > 0) {
-            return polledData.pollMessage(); // we just fetch from our local
+            return polledData.pollMessage();
         }
 
-        loadNextValues(poller, polledData); // we try to load from the ring
+        loadNextValues(poller, polledData);
         return polledData.getMsgCount() > 0 ? polledData.pollMessage() : null;
     }
 
@@ -30,16 +36,16 @@ public class PollerImpl<V> implements Poller<V> {
         return poller.poll((event, sequence, endOfBatch) -> batch.addDataItem(event));
     }
 
-    private static class BatchedData<T> {
+    private static class BatchedData<V> {
         private int msgHighBound;
         private final int capacity;
-        private final T[] data;
+        private final V[] data;
         private int cursor;
 
         @SuppressWarnings("unchecked")
         BatchedData(final int size) {
             this.capacity = size;
-            data = (T[]) new Object[this.capacity];
+            data = (V[]) new Object[this.capacity];
         }
 
         private void clearCount() {
@@ -51,24 +57,24 @@ public class PollerImpl<V> implements Poller<V> {
             return msgHighBound - cursor;
         }
 
-        public boolean addDataItem(final T item) throws IndexOutOfBoundsException {
+        public boolean addDataItem(final V event) throws IndexOutOfBoundsException {
             if (msgHighBound >= capacity) {
                 throw new IndexOutOfBoundsException("Attempting to add item to full batch");
             }
 
-            data[msgHighBound++] = item;
+            data[msgHighBound++] = event;
             return msgHighBound < capacity;
         }
 
-        public T pollMessage() {
-            T rtVal = null;
+        public V pollMessage() {
+            V event = null;
             if (cursor < msgHighBound) {
-                rtVal = data[cursor++];
+                event = data[cursor++];
             }
             if (cursor > 0 && cursor >= msgHighBound) {
                 clearCount();
             }
-            return rtVal;
+            return event;
         }
     }
 }
