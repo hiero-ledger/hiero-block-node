@@ -2,7 +2,6 @@
 package com.hedera.block.server.persistence.storage.archive;
 
 import com.hedera.block.common.utils.FileUtilities;
-import com.hedera.block.common.utils.Preconditions;
 import com.hedera.block.server.persistence.storage.PersistenceStorageConfig;
 import com.hedera.block.server.persistence.storage.path.BlockPathResolver;
 import edu.umd.cs.findbugs.annotations.NonNull;
@@ -34,9 +33,10 @@ public final class AsyncBlockAsLocalFileArchiver implements AsyncLocalBlockArchi
             @NonNull final BlockPathResolver pathResolver) {
         this.blockNumberThreshold = blockNumberThreshold;
         this.pathResolver = Objects.requireNonNull(pathResolver);
-        Preconditions.requireWhole(blockNumberThreshold);
         final int archiveGroupSize = config.archiveBatchSize();
-        if (blockNumberThreshold % archiveGroupSize != 0) { // @todo(517) require divisible exactly by
+        // valid thresholds are all that are exactly divisible vy the group size
+        // and are bigger than 1
+        if ((blockNumberThreshold <= 1) || (blockNumberThreshold % archiveGroupSize != 0)) {
             throw new IllegalArgumentException("Block number must be divisible by " + archiveGroupSize);
         }
     }
