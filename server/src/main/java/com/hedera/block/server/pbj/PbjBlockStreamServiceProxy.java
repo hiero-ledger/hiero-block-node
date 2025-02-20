@@ -33,6 +33,7 @@ import edu.umd.cs.findbugs.annotations.NonNull;
 import java.time.Clock;
 import java.util.List;
 import java.util.Objects;
+import java.util.concurrent.ExecutorCompletionService;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import javax.inject.Inject;
@@ -224,14 +225,23 @@ public class PbjBlockStreamServiceProxy implements PbjBlockStreamService {
             // stream (endBlockNumber is 0)
             if (subscribeStreamRequest.endBlockNumber() == 0) {
                 // Build the live stream event handler
-                final Runnable liveStreamEventHandler = LiveStreamEventHandlerBuilder.buildPoller(
+                //                final Runnable liveStreamEventHandler = LiveStreamEventHandlerBuilder.buildPoller(
+                //                        streamMediator,
+                //                        helidonConsumerObserver,
+                //                        blockNodeContext.metricsService(),
+                //                        blockNodeContext.configuration());
+
+                //                liveStreamExecutorService.submit(liveStreamEventHandler);
+
+                final var liveStreamEventHandler = LiveStreamEventHandlerBuilder.build(
+                        new ExecutorCompletionService<>(Executors.newSingleThreadExecutor()),
+                        Clock.systemDefaultZone(),
                         streamMediator,
                         helidonConsumerObserver,
                         blockNodeContext.metricsService(),
                         blockNodeContext.configuration());
 
-                liveStreamExecutorService.submit(liveStreamEventHandler);
-
+                streamMediator.subscribe(liveStreamEventHandler);
             } else {
                 final Runnable closedRangeHistoricStreamingRunnable =
                         ClosedRangeHistoricStreamEventHandlerBuilder.build(
