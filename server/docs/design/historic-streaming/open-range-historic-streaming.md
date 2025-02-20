@@ -101,8 +101,8 @@ is broken up into before being sent to a client.
 
 <dl>
 <dt>HistoricBlockItemsConsumed</dt><dd>Counter for the number of historic block items consumed by each BlockNodeEventHandler</dd>
-<dt>HistoricToLiveStream</dt><dd>Counter for the number of transitions from historic-streaming to live-streaming</dd>
-<dt>LiveToHistoricStream</dt><dd>Counter for the number of transitions from live-streaming to historic-streaming</dd>
+<dt>HistoricToLiveStreamTransitions</dt><dd>Counter for the number of transitions from historic-streaming to live-streaming</dd>
+<dt>LiveToHistoricStreamTransitions</dt><dd>Counter for the number of transitions from live-streaming to historic-streaming</dd>
 <dt>HistoricBlockStreamError</dt><dd>Counter for the number of errors encountered by an HistoricBlockStreamSupplier</dd>
 </dl>
 
