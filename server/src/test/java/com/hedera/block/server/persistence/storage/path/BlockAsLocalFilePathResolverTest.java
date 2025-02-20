@@ -51,7 +51,7 @@ class BlockAsLocalFilePathResolverTest {
 
         final String testConfigLiveRootPath = testConfig.liveRootPath();
         assertThat(testConfigLiveRootPath).isEqualTo(testLiveRootPath.toString());
-        toTest = BlockAsLocalFilePathResolver.of(testConfig);
+        toTest = new BlockAsLocalFilePathResolver(testConfig);
     }
 
     /**

@@ -62,10 +62,11 @@ public final class AsyncBlockAsLocalFileArchiver implements AsyncLocalBlockArchi
     }
 
     private void doArchive() throws IOException {
+        LOGGER.log(Level.DEBUG, "Block Number Threshold for archiving passed [%d]".formatted(blockNumberThreshold));
         final long upperBound = blockNumberThreshold - 1;
         final Path rootToArchive = pathResolver.resolveRawPathToArchiveParentUnderLive(upperBound);
-        LOGGER.log(Level.DEBUG, "Block Number Threshold for archiving passed [%d]".formatted(blockNumberThreshold));
         LOGGER.log(Level.DEBUG, "Archiving Block Files under [%s]".formatted(rootToArchive));
+        Files.createDirectories(rootToArchive);
         final List<Path> pathsToArchive;
         try (final Stream<Path> tree = Files.walk(rootToArchive)) {
             pathsToArchive = tree.sorted(Comparator.reverseOrder())

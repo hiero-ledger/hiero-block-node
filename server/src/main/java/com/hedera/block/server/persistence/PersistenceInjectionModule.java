@@ -126,7 +126,7 @@ public interface PersistenceInjectionModule {
     static BlockPathResolver providesPathResolver(@NonNull final PersistenceStorageConfig config) {
         final StorageType persistenceType = config.type();
         return switch (persistenceType) {
-            case BLOCK_AS_LOCAL_FILE -> BlockAsLocalFilePathResolver.of(config);
+            case BLOCK_AS_LOCAL_FILE -> new BlockAsLocalFilePathResolver(config);
             case NO_OP -> NoOpBlockPathResolver.newInstance();
         };
     }

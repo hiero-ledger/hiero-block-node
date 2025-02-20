@@ -33,24 +33,12 @@ public final class BlockAsLocalFilePathResolver implements BlockPathResolver {
      * @param config valid, {@code non-null} instance of
      * {@link PersistenceStorageConfig} used for initializing the resolver
      */
-    private BlockAsLocalFilePathResolver(@NonNull final PersistenceStorageConfig config) {
+    public BlockAsLocalFilePathResolver(@NonNull final PersistenceStorageConfig config) {
         this.liveRootPath = Path.of(config.liveRootPath());
         this.archiveRootPath = Path.of(config.archiveRootPath());
         this.archiveGroupSize = config.archiveBatchSize();
         this.archiveDirDepth = MAX_LONG_DIGITS - (int) Math.log10(this.archiveGroupSize);
         this.longLeadingZeroesFormat = new DecimalFormat("0".repeat(MAX_LONG_DIGITS));
-    }
-
-    /**
-     * This method creates and returns a new instance of
-     * {@link BlockAsLocalFilePathResolver}.
-     *
-     * @param config valid, {@code non-null} instance of
-     * {@link PersistenceStorageConfig} used for initializing the resolver
-     * @return a new, fully initialized instance of {@link BlockAsLocalFilePathResolver}
-     */
-    public static BlockAsLocalFilePathResolver of(@NonNull final PersistenceStorageConfig config) {
-        return new BlockAsLocalFilePathResolver(config);
     }
 
     @NonNull
