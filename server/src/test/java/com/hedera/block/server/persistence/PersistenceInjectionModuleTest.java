@@ -90,7 +90,7 @@ class PersistenceInjectionModuleTest {
     @ParameterizedTest
     @EnumSource(StorageType.class)
     void testProvidesBlockReader(final StorageType storageType) {
-        lenient().when(persistenceStorageConfigMock.liveRootPath()).thenReturn(testLiveRootPath.toString());
+        lenient().when(persistenceStorageConfigMock.liveRootPath()).thenReturn(testLiveRootPath);
         when(persistenceStorageConfigMock.type()).thenReturn(storageType);
 
         final BlockReader<BlockUnparsed> actual = PersistenceInjectionModule.providesBlockReader(
@@ -147,9 +147,9 @@ class PersistenceInjectionModuleTest {
     @ParameterizedTest
     @EnumSource(StorageType.class)
     void testProvidesBlockPathResolver(final StorageType storageType) {
-        lenient().when(persistenceStorageConfigMock.liveRootPath()).thenReturn(testLiveRootPath.toString());
-        lenient().when(persistenceStorageConfigMock.archiveRootPath()).thenReturn(testLiveRootPath.toString());
-        lenient().when(persistenceStorageConfigMock.archiveBatchSize()).thenReturn(10);
+        lenient().when(persistenceStorageConfigMock.liveRootPath()).thenReturn(testLiveRootPath);
+        lenient().when(persistenceStorageConfigMock.archiveRootPath()).thenReturn(testLiveRootPath);
+        lenient().when(persistenceStorageConfigMock.archiveGroupSize()).thenReturn(10);
         when(persistenceStorageConfigMock.type()).thenReturn(storageType);
 
         final BlockPathResolver actual = PersistenceInjectionModule.providesPathResolver(persistenceStorageConfigMock);

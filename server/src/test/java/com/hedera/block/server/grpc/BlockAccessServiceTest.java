@@ -65,8 +65,8 @@ class BlockAccessServiceTest {
 
         blockAccessService = new PbjBlockAccessServiceProxy(serviceStatus, blockReader, blockNodeContext);
 
-        final String testConfigLiveRootPath = testConfig.liveRootPath();
-        assertThat(testConfigLiveRootPath).isEqualTo(testLiveRootPath.toString());
+        final Path testConfigLiveRootPath = testConfig.liveRootPath();
+        assertThat(testConfigLiveRootPath).isEqualTo(testLiveRootPath);
     }
 
     @Test

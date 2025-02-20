@@ -53,11 +53,11 @@ class BlockAsLocalFileReaderTest {
         final PersistenceStorageConfig testConfig =
                 blockNodeContext.configuration().getConfigData(PersistenceStorageConfig.class);
 
-        final String testConfigLiveRootPath = testConfig.liveRootPath();
-        assertThat(testConfigLiveRootPath).isEqualTo(testLiveRootPath.toString());
+        final Path testConfigLiveRootPath = testConfig.liveRootPath();
+        assertThat(testConfigLiveRootPath).isEqualTo(testLiveRootPath);
 
         compressionMock = spy(NoOpCompression.newInstance());
-        blockPathResolverMock = spy(BlockAsLocalFilePathResolver.of(testConfig));
+        blockPathResolverMock = spy(new BlockAsLocalFilePathResolver(testConfig));
         toTest = BlockAsLocalFileReader.of(compressionMock, blockPathResolverMock);
     }
 

@@ -10,22 +10,6 @@ import java.util.Optional;
  */
 public final class NoOpBlockPathResolver implements BlockPathResolver {
     /**
-     * Constructor.
-     */
-    private NoOpBlockPathResolver() {}
-
-    /**
-     * This method creates and returns a new instance of
-     * {@link NoOpBlockPathResolver}.
-     *
-     * @return a new, fully initialized instance of
-     * {@link NoOpBlockPathResolver}
-     */
-    public static NoOpBlockPathResolver newInstance() {
-        return new NoOpBlockPathResolver();
-    }
-
-    /**
      * No-op resolver. Does nothing and always returns a path under '/tmp' that
      * resolves to 'blockNumber.tmp.blk'. No preconditions check also.
      */

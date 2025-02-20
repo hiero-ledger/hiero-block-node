@@ -40,8 +40,8 @@ class BlockAsLocalFileRemoverTest {
         final PersistenceStorageConfig testConfig =
                 blockNodeContext.configuration().getConfigData(PersistenceStorageConfig.class);
 
-        final String testConfigLiveRootPath = testConfig.liveRootPath();
-        assertThat(testConfigLiveRootPath).isEqualTo(testLiveRootPath.toString());
+        final Path testConfigLiveRootPath = testConfig.liveRootPath();
+        assertThat(testConfigLiveRootPath).isEqualTo(testLiveRootPath);
 
         blockPathResolverMock = mock(BlockPathResolver.class);
         toTest = new BlockAsLocalFileRemover(blockPathResolverMock);

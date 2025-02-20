@@ -31,6 +31,8 @@ import com.hedera.hapi.block.BlockUnparsed;
 import dagger.Module;
 import dagger.Provides;
 import edu.umd.cs.findbugs.annotations.NonNull;
+import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.Executors;
@@ -119,10 +121,14 @@ public interface PersistenceInjectionModule {
     @Singleton
     static BlockPathResolver providesPathResolver(@NonNull final PersistenceStorageConfig config) {
         final StorageType persistenceType = config.type();
-        return switch (persistenceType) {
-            case BLOCK_AS_LOCAL_FILE -> BlockAsLocalFilePathResolver.of(config);
-            case NO_OP -> NoOpBlockPathResolver.newInstance();
-        };
+        try {
+            return switch (persistenceType) {
+                case BLOCK_AS_LOCAL_FILE -> new BlockAsLocalFilePathResolver(config);
+                case NO_OP -> new NoOpBlockPathResolver();
+            };
+        } catch (final IOException e) {
+            throw new UncheckedIOException(e);
+        }
     }
 
     /**

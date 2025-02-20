@@ -88,7 +88,7 @@ COPY logging.properties /app/logs/config/logging.properties
 WORKDIR /
 
 # Ensure proper file permissions
-RUN chown -R 2000:2000 /app
+RUN chown -R 2000:2000 /app /opt
 
 ########################################
 ####    Deterministic Build Hack    ####

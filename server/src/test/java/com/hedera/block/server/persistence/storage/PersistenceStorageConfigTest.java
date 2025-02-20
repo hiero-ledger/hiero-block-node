@@ -2,14 +2,12 @@
 package com.hedera.block.server.persistence.storage;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatExceptionOfType;
 import static org.assertj.core.api.Assertions.assertThatIllegalArgumentException;
 import static org.assertj.core.api.Assertions.from;
 
 import com.hedera.block.server.persistence.storage.PersistenceStorageConfig.CompressionType;
 import com.hedera.block.server.persistence.storage.PersistenceStorageConfig.StorageType;
 import java.io.IOException;
-import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Arrays;
@@ -18,6 +16,7 @@ import java.util.stream.Stream;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.EnumSource;
 import org.junit.jupiter.params.provider.MethodSource;
 
 /**
@@ -26,7 +25,7 @@ import org.junit.jupiter.params.provider.MethodSource;
  */
 class PersistenceStorageConfigTest {
     private static final Path HASHGRAPH_ROOT_ABSOLUTE_PATH =
-            Path.of("hashgraph/").toAbsolutePath();
+            Path.of("/opt/hashgraph/").toAbsolutePath();
     private static final Path PERSISTENCE_STORAGE_ROOT_ABSOLUTE_PATH =
             HASHGRAPH_ROOT_ABSOLUTE_PATH.resolve("blocknode/data/");
     // Default compression level (as set in the config annotation)
@@ -68,11 +67,11 @@ class PersistenceStorageConfigTest {
      * @param storageType parameterized, the storage type to test
      */
     @ParameterizedTest
-    @MethodSource("storageTypes")
+    @EnumSource(StorageType.class)
     void testPersistenceStorageConfigStorageTypes(final StorageType storageType) {
         final PersistenceStorageConfig actual = new PersistenceStorageConfig(
-                "",
-                "",
+                Path.of(""),
+                Path.of(""),
                 storageType,
                 CompressionType.NONE,
                 DEFAULT_COMPRESSION_LEVEL,
@@ -94,10 +93,10 @@ class PersistenceStorageConfigTest {
     @ParameterizedTest
     @MethodSource({"validAbsoluteDefaultRootPaths", "validAbsoluteNonDefaultRootPaths"})
     void testPersistenceStorageConfigHappyPaths(
-            final String liveRootPathToTest,
-            final String expectedLiveRootPathToTest,
-            final String archiveRootPathToTest,
-            final String expectedArchiveRootPathToTest) {
+            final Path liveRootPathToTest,
+            final Path expectedLiveRootPathToTest,
+            final Path archiveRootPathToTest,
+            final Path expectedArchiveRootPathToTest) {
         final PersistenceStorageConfig actual = new PersistenceStorageConfig(
                 liveRootPathToTest,
                 archiveRootPathToTest,
@@ -113,31 +112,6 @@ class PersistenceStorageConfigTest {
 
     /**
      * This test aims to verify that the {@link PersistenceStorageConfig} class
-     * correctly throws an {@link UncheckedIOException} when either the live or
-     * archive root paths are invalid.
-     *
-     * @param invalidLiveRootPathToTest parameterized, the invalid live root
-     * path to test
-     * @param invalidArchiveRootPathToTest parameterized, the invalid archive
-     * root path to test
-     */
-    @ParameterizedTest
-    @MethodSource({"invalidRootPaths"})
-    void testPersistenceStorageConfigInvalidRootPaths(
-            final String invalidLiveRootPathToTest, final String invalidArchiveRootPathToTest) {
-        assertThatExceptionOfType(UncheckedIOException.class)
-                .isThrownBy(() -> new PersistenceStorageConfig(
-                        invalidLiveRootPathToTest,
-                        invalidArchiveRootPathToTest,
-                        StorageType.BLOCK_AS_LOCAL_FILE,
-                        CompressionType.NONE,
-                        DEFAULT_COMPRESSION_LEVEL,
-                        DEFAULT_ARCHIVE_ENABLED,
-                        DEFAULT_ARCHIVE_BATCH_SIZE));
-    }
-
-    /**
-     * This test aims to verify that the {@link PersistenceStorageConfig} class
      * correctly returns the compression level that was set in the constructor.
      *
      * @param compressionLevel parameterized, the compression level to test
@@ -147,8 +121,8 @@ class PersistenceStorageConfigTest {
     void testPersistenceStorageConfigValidCompressionLevel(
             final CompressionType compressionType, final int compressionLevel) {
         final PersistenceStorageConfig actual = new PersistenceStorageConfig(
-                "",
-                "",
+                Path.of(""),
+                Path.of(""),
                 StorageType.BLOCK_AS_LOCAL_FILE,
                 compressionType,
                 compressionLevel,
@@ -170,8 +144,8 @@ class PersistenceStorageConfigTest {
             final CompressionType compressionType, final int compressionLevel) {
         assertThatIllegalArgumentException()
                 .isThrownBy(() -> new PersistenceStorageConfig(
-                        "",
-                        "",
+                        Path.of(""),
+                        Path.of(""),
                         StorageType.BLOCK_AS_LOCAL_FILE,
                         compressionType,
                         compressionLevel,
@@ -186,24 +160,17 @@ class PersistenceStorageConfigTest {
      * @param compressionType parameterized, the compression type to test
      */
     @ParameterizedTest
-    @MethodSource("compressionTypes")
+    @EnumSource(CompressionType.class)
     void testPersistenceStorageConfigCompressionTypes(final CompressionType compressionType) {
         final PersistenceStorageConfig actual = new PersistenceStorageConfig(
-                "",
-                "",
+                Path.of(""),
+                Path.of(""),
                 StorageType.NO_OP,
                 compressionType,
                 DEFAULT_COMPRESSION_LEVEL,
                 DEFAULT_ARCHIVE_ENABLED,
                 DEFAULT_ARCHIVE_BATCH_SIZE);
         assertThat(actual).returns(compressionType, from(PersistenceStorageConfig::compression));
-    }
-
-    /**
-     * All storage types dynamically provided.
-     */
-    private static Stream<Arguments> storageTypes() {
-        return Arrays.stream(StorageType.values()).map(Arguments::of);
     }
 
     /**
@@ -233,7 +200,7 @@ class PersistenceStorageConfigTest {
 
         // blank liveRootPath results in the default liveRootPath to be used
         final String liveToTest2 = "";
-        final String liveExpected2 = defaultLiveRootAbsolutePath.toString();
+        final String liveExpected2 = liveToTest2;
         final String archiveToTest2 = defaultArchiveRootAbsolutePath.toString();
         final String archiveExpected2 = defaultArchiveRootAbsolutePath.toString();
 
@@ -241,40 +208,19 @@ class PersistenceStorageConfigTest {
         final String liveToTest3 = defaultLiveRootAbsolutePath.toString();
         final String liveExpected3 = defaultLiveRootAbsolutePath.toString();
         final String archiveToTest3 = "";
-        final String archiveExpected3 = defaultArchiveRootAbsolutePath.toString();
-
-        // null liveRootPath results in the default liveRootPath to be used
-        final String liveToTest4 = null;
-        final String liveExpected4 = defaultLiveRootAbsolutePath.toString();
-        final String archiveToTest4 = defaultArchiveRootAbsolutePath.toString();
-        final String archiveExpected4 = defaultArchiveRootAbsolutePath.toString();
-
-        // null archiveRootPath results in the default archiveRootPath to be used
-        final String liveToTest5 = defaultLiveRootAbsolutePath.toString();
-        final String liveExpected5 = defaultLiveRootAbsolutePath.toString();
-        final String archiveToTest5 = null;
-        final String archiveExpected5 = defaultArchiveRootAbsolutePath.toString();
+        final String archiveExpected3 = archiveToTest3;
 
         // blank liveRootPath and archiveRootPath results in the default liveRootPath and archiveRootPath to be used
         final String liveToTest6 = "";
-        final String liveExpected6 = defaultLiveRootAbsolutePath.toString();
+        final String liveExpected6 = liveToTest6;
         final String archiveToTest6 = "";
-        final String archiveExpected6 = defaultArchiveRootAbsolutePath.toString();
-
-        // null liveRootPath and archiveRootPath results in the default liveRootPath and archiveRootPath to be used
-        final String liveToTest7 = null;
-        final String liveExpected7 = defaultLiveRootAbsolutePath.toString();
-        final String archiveToTest7 = null;
-        final String archiveExpected7 = defaultArchiveRootAbsolutePath.toString();
+        final String archiveExpected6 = archiveToTest6;
 
         return Stream.of(
                 Arguments.of(liveToTest1, liveExpected1, archiveToTest1, archiveExpected1),
                 Arguments.of(liveToTest2, liveExpected2, archiveToTest2, archiveExpected2),
                 Arguments.of(liveToTest3, liveExpected3, archiveToTest3, archiveExpected3),
-                Arguments.of(liveToTest4, liveExpected4, archiveToTest4, archiveExpected4),
-                Arguments.of(liveToTest5, liveExpected5, archiveToTest5, archiveExpected5),
-                Arguments.of(liveToTest6, liveExpected6, archiveToTest6, archiveExpected6),
-                Arguments.of(liveToTest7, liveExpected7, archiveToTest7, archiveExpected7));
+                Arguments.of(liveToTest6, liveExpected6, archiveToTest6, archiveExpected6));
     }
 
     /**
@@ -300,17 +246,6 @@ class PersistenceStorageConfigTest {
         return Stream.of(
                 Arguments.of(liveToTest1, liveToTest1, archiveToTest1, archiveToTest1),
                 Arguments.of(liveToTest2, liveToTest2, archiveToTest2, archiveToTest2));
-    }
-
-    /**
-     * Supplying blank is valid, both must be valid paths in order to be able
-     * to create the config instance. If either liveRootPath or archiveRootPath
-     * is invalid, we expect to fail. There cannot be invalid paths supplied.
-     */
-    private static Stream<Arguments> invalidRootPaths() {
-        final String invalidPath = "/invalid_path/:invalid_directory";
-        return Stream.of(
-                Arguments.of("", invalidPath), Arguments.of(invalidPath, ""), Arguments.of(invalidPath, invalidPath));
     }
 
     private static Stream<Arguments> validCompressionLevels() {

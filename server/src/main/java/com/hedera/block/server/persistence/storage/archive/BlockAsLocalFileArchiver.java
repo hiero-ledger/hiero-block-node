@@ -33,17 +33,13 @@ public final class BlockAsLocalFileArchiver implements LocalBlockArchiver {
     private final BlockArchiverRunnable archiverRunnable;
     private final ExecutorService executor;
 
-    private BlockAsLocalFileArchiver(
-            @NonNull final PersistenceStorageConfig config, @NonNull final BlockPathResolver blockPathResolver) {
+    public BlockAsLocalFileArchiver(
+            @NonNull final PersistenceStorageConfig config, @NonNull final BlockPathResolver blockPathResolver)
+            throws IOException {
         this.archiverRunnable =
                 new BlockArchiverRunnable(Objects.requireNonNull(config), Objects.requireNonNull(blockPathResolver));
         this.executor = Executors.newSingleThreadExecutor();
         this.executor.submit(archiverRunnable);
-    }
-
-    public static BlockArchiver of(
-            @NonNull final PersistenceStorageConfig config, @NonNull final BlockPathResolver blockPathResolver) {
-        return new BlockAsLocalFileArchiver(config, blockPathResolver);
     }
 
     @Override
@@ -66,7 +62,7 @@ public final class BlockAsLocalFileArchiver implements LocalBlockArchiver {
     private static final class BlockArchiverRunnable implements Runnable {
         private static final System.Logger LOGGER = System.getLogger(BlockArchiverRunnable.class.getName());
         private final Path archiveRootPath;
-        private final int archiveBatchSize;
+        private final int archiveGroupSize;
         private final BlockPathResolver blockPathResolver;
         private volatile ThreadSignalCarrier threadSignalCarrier;
         private volatile boolean running;
@@ -76,9 +72,11 @@ public final class BlockAsLocalFileArchiver implements LocalBlockArchiver {
         // @todo(517) no state will be needed once we move to task based solution
 
         private BlockArchiverRunnable(
-                @NonNull final PersistenceStorageConfig config, final BlockPathResolver blockPathResolver) {
-            this.archiveRootPath = Path.of(config.archiveRootPath());
-            this.archiveBatchSize = config.archiveBatchSize();
+                @NonNull final PersistenceStorageConfig config, final BlockPathResolver blockPathResolver)
+                throws IOException {
+            this.archiveRootPath = Objects.requireNonNull(config.archiveRootPath());
+            Files.createDirectories(archiveRootPath);
+            this.archiveGroupSize = config.archiveGroupSize();
             this.blockPathResolver = Objects.requireNonNull(blockPathResolver);
         }
 
@@ -88,7 +86,7 @@ public final class BlockAsLocalFileArchiver implements LocalBlockArchiver {
                     if (running) {
                         // the logic inside this block should be accessed only by a single thread
                         final int currentSignalCount = ++blockWrittenSignalCounter;
-                        if (currentSignalCount >= archiveBatchSize) {
+                        if (currentSignalCount >= archiveGroupSize) {
                             // if threshold is reached, notify the worker and reset counter
                             blockWrittenSignalCounter = 0;
                             lastWrittenBlockNumber = latestBlockNumber;
@@ -136,10 +134,10 @@ public final class BlockAsLocalFileArchiver implements LocalBlockArchiver {
             }
 
             final boolean shouldArchiveBlocks =
-                    lastWrittenLastArchivedGap >= (archiveBatchSize * 2L); // todo is this correct x2 ?
+                    lastWrittenLastArchivedGap >= (archiveGroupSize * 2L); // todo is this correct x2 ?
 
             if (shouldArchiveBlocks) {
-                final long amountOfBlocksToWrite = lastWrittenLastArchivedGap - archiveBatchSize;
+                final long amountOfBlocksToWrite = lastWrittenLastArchivedGap - archiveGroupSize;
                 final List<Path> pathsToArchiveAscending = new ArrayList<>();
                 for (int i = 0; i < amountOfBlocksToWrite; i++) {
                     final Optional<LiveBlockPath> block =
@@ -158,7 +156,7 @@ public final class BlockAsLocalFileArchiver implements LocalBlockArchiver {
                     final long blockNumber =
                             Long.parseLong(path.getFileName().toString().split("\\.")[0]);
                     final Path zipPath =
-                            resolveArchivePathForZipOfBlockNumber(blockNumber, archiveBatchSize, archiveRootPath);
+                            resolveArchivePathForZipOfBlockNumber(blockNumber, archiveGroupSize, archiveRootPath);
                     if (pathsToArchive.containsKey(zipPath)) {
                         pathsToArchive.get(zipPath).add(path);
                     } else {
@@ -169,10 +167,10 @@ public final class BlockAsLocalFileArchiver implements LocalBlockArchiver {
                 }
 
                 pathsToArchive = pathsToArchive.entrySet().stream()
-                        .filter(entry -> entry.getValue().size() == archiveBatchSize
+                        .filter(entry -> entry.getValue().size() == archiveGroupSize
                                 || entry.getKey()
                                         .toString()
-                                        .endsWith("/0".repeat(19 - (int) Math.log10(archiveBatchSize)) + ".zip"))
+                                        .endsWith("/0".repeat(19 - (int) Math.log10(archiveGroupSize)) + ".zip"))
                         .collect(
                                 Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue, (e1, e2) -> e1, TreeMap::new));
 

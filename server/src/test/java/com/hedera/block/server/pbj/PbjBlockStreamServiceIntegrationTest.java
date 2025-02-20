@@ -145,8 +145,8 @@ class PbjBlockStreamServiceIntegrationTest {
         blockNodeContext = TestConfigUtil.getTestBlockNodeContext(properties);
         testConfig = blockNodeContext.configuration().getConfigData(PersistenceStorageConfig.class);
 
-        final String testConfigLiveRootPath = testConfig.liveRootPath();
-        assertThat(testConfigLiveRootPath).isEqualTo(testLiveRootPath.toString());
+        final Path testConfigLiveRootPath = testConfig.liveRootPath();
+        assertThat(testConfigLiveRootPath).isEqualTo(testLiveRootPath);
     }
 
     @Disabled("@todo(642) make test deterministic via correct executor injection")

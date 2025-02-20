@@ -49,9 +49,9 @@ class BlockAsLocalFilePathResolverTest {
                 "10"));
         testConfig = blockNodeContext.configuration().getConfigData(PersistenceStorageConfig.class);
 
-        final String testConfigLiveRootPath = testConfig.liveRootPath();
-        assertThat(testConfigLiveRootPath).isEqualTo(testLiveRootPath.toString());
-        toTest = BlockAsLocalFilePathResolver.of(testConfig);
+        final Path testConfigLiveRootPath = testConfig.liveRootPath();
+        assertThat(testConfigLiveRootPath).isEqualTo(testLiveRootPath);
+        toTest = new BlockAsLocalFilePathResolver(testConfig);
     }
 
     /**

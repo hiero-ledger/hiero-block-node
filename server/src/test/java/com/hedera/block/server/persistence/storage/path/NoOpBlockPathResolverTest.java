@@ -20,7 +20,7 @@ class NoOpBlockPathResolverTest {
 
     @BeforeEach
     void setUp() {
-        toTest = NoOpBlockPathResolver.newInstance();
+        toTest = new NoOpBlockPathResolver();
     }
 
     /**

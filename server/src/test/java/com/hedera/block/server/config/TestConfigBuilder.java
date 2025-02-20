@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 package com.hedera.block.server.config;
 
-import com.swirlds.common.config.singleton.ConfigurationHolder;
 import com.swirlds.common.threading.locks.AutoClosableLock;
 import com.swirlds.common.threading.locks.Locks;
 import com.swirlds.common.threading.locks.locked.Locked;
@@ -154,7 +153,6 @@ public class TestConfigBuilder {
         try (final Locked ignore = configLock.lock()) {
             if (configuration == null) {
                 configuration = builder.build();
-                ConfigurationHolder.getInstance().setConfiguration(configuration);
             }
             return configuration;
         }

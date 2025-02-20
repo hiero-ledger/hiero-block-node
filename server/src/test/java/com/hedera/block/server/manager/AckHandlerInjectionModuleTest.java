@@ -14,6 +14,7 @@ import com.hedera.block.server.persistence.storage.PersistenceStorageConfig;
 import com.hedera.block.server.persistence.storage.remove.BlockRemover;
 import com.hedera.block.server.service.ServiceStatus;
 import com.hedera.block.server.verification.VerificationConfig;
+import java.nio.file.Path;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
@@ -32,8 +33,8 @@ class AckHandlerInjectionModuleTest {
         final ServiceStatus serviceStatus = mock(ServiceStatus.class);
         final BlockRemover blockRemover = mock(BlockRemover.class);
         final PersistenceStorageConfig persistenceStorageConfig = new PersistenceStorageConfig(
-                "",
-                "",
+                Path.of(""),
+                Path.of(""),
                 PersistenceStorageConfig.StorageType.BLOCK_AS_LOCAL_FILE,
                 PersistenceStorageConfig.CompressionType.NONE,
                 0,

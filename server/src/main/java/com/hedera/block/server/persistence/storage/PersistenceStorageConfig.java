@@ -1,20 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 package com.hedera.block.server.persistence.storage;
 
-import static com.hedera.block.server.Constants.BLOCK_NODE_ARCHIVE_ROOT_DIRECTORY_SEMANTIC_NAME;
-import static com.hedera.block.server.Constants.BLOCK_NODE_LIVE_ROOT_DIRECTORY_SEMANTIC_NAME;
-
 import com.hedera.block.common.utils.Preconditions;
-import com.hedera.block.common.utils.StringUtilities;
 import com.hedera.block.server.config.logging.Loggable;
 import com.swirlds.config.api.ConfigData;
 import com.swirlds.config.api.ConfigProperty;
 import com.swirlds.config.api.validation.annotation.Max;
 import com.swirlds.config.api.validation.annotation.Min;
-import edu.umd.cs.findbugs.annotations.NonNull;
-import java.io.IOException;
-import java.io.UncheckedIOException;
-import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Objects;
 
@@ -27,92 +19,27 @@ import java.util.Objects;
  * @param compression compression type to use for the storage
  * @param compressionLevel compression level used by the compression algorithm
  * Non-PRODUCTION values should only be used for troubleshooting and development purposes.
+ * @param archiveEnabled whether to enable archiving
+ * @param archiveGroupSize the number of blocks to archive in a single group
  */
 @ConfigData("persistence.storage")
 public record PersistenceStorageConfig(
-        // @todo(#371) - the default life/archive root path must be absolute starting from /opt
-        @Loggable @ConfigProperty(defaultValue = "") String liveRootPath,
-        // @todo(#371) - the default life/archive root path must be absolute starting from /opt
-        @Loggable @ConfigProperty(defaultValue = "") String archiveRootPath,
+        @Loggable @ConfigProperty(defaultValue = "/opt/hashgraph/blocknode/data/live") Path liveRootPath,
+        @Loggable @ConfigProperty(defaultValue = "/opt/hashgraph/blocknode/data/archive") Path archiveRootPath,
         @Loggable @ConfigProperty(defaultValue = "BLOCK_AS_LOCAL_FILE") StorageType type,
         @Loggable @ConfigProperty(defaultValue = "ZSTD") CompressionType compression,
         @Loggable @ConfigProperty(defaultValue = "3") @Min(0) @Max(20) int compressionLevel,
         @Loggable @ConfigProperty(defaultValue = "true") boolean archiveEnabled,
-        @Loggable @ConfigProperty(defaultValue = "1_000")
-                int archiveBatchSize) { // @todo(517) rename batch to group size
-    // @todo(#371) - the default life/archive root path must be absolute starting from /opt
-    private static final String LIVE_ROOT_PATH =
-            Path.of("hashgraph/blocknode/data/live/").toAbsolutePath().toString();
-    // @todo(#371) - the default life/archive root path must be absolute starting from /opt
-    private static final String ARCHIVE_ROOT_PATH =
-            Path.of("hashgraph/blocknode/data/archive/").toAbsolutePath().toString();
-
+        @Loggable @ConfigProperty(defaultValue = "1_000") int archiveGroupSize) {
     /**
      * Constructor.
      */
     public PersistenceStorageConfig {
+        Objects.requireNonNull(liveRootPath);
+        Objects.requireNonNull(archiveRootPath);
         Objects.requireNonNull(type);
-        Preconditions.requirePositivePowerOf10(archiveBatchSize);
         compression.verifyCompressionLevel(compressionLevel);
-        liveRootPath = resolvePath(liveRootPath, LIVE_ROOT_PATH, BLOCK_NODE_LIVE_ROOT_DIRECTORY_SEMANTIC_NAME);
-        archiveRootPath =
-                resolvePath(archiveRootPath, ARCHIVE_ROOT_PATH, BLOCK_NODE_ARCHIVE_ROOT_DIRECTORY_SEMANTIC_NAME);
-    }
-
-    /**
-     * This method attempts to resolve a given configured path. If the input
-     * path is blank, a default path is used. The resolved path must be
-     * absolute! If the path resolution is successful, at attempt is made to
-     * create the directory path. If the directory path cannot be created, an
-     * {@link UncheckedIOException} is thrown.
-     *
-     * @param pathToResolve the path to resolve
-     * @param defaultIfBlank the default path if the path to resolve is blank
-     * @param semanticPathName the semantic name of the path used for logging
-     * @return the resolved path
-     * @throws IllegalArgumentException if the resolved path is not absolute
-     * @throws UncheckedIOException if the resolved path cannot be created
-     */
-    @NonNull
-    private String resolvePath(
-            final String pathToResolve, @NonNull final String defaultIfBlank, @NonNull final String semanticPathName) {
-        final Path normalized = getNormalizedPath(pathToResolve, defaultIfBlank);
-        createDirectoryPath(normalized, semanticPathName);
-        return normalized.toString();
-    }
-
-    /**
-     * This method normalizes a given path. If the path to normalize is blank,
-     * a default path is used. The normalized path must be absolute!
-     *
-     * @param pathToNormalize the path to normalize
-     * @param defaultIfBlank the default path if the path to normalize is blank
-     * @throws IllegalArgumentException if the path to normalize is not absolute
-     */
-    @NonNull
-    private Path getNormalizedPath(final String pathToNormalize, @NonNull final String defaultIfBlank) {
-        final String actualToNormalize = StringUtilities.isBlank(pathToNormalize) ? defaultIfBlank : pathToNormalize;
-        return Path.of(actualToNormalize).normalize().toAbsolutePath();
-    }
-
-    /**
-     * This method creates a directory path at the given target path. If the
-     * directory path cannot be created, an {@link UncheckedIOException} is
-     * thrown.
-     *
-     * @param targetPath the target path to create the directory path
-     * @param semanticPathName the semantic name of the path used for logging
-     * @throws UncheckedIOException if the directory path cannot be created
-     */
-    private void createDirectoryPath(@NonNull final Path targetPath, @NonNull final String semanticPathName) {
-        try {
-            Files.createDirectories(targetPath);
-        } catch (final IOException e) {
-            final String classname = this.getClass().getName();
-            final String message = "Unable to instantiate [%s]! Unable to create the [%s] path that was provided!"
-                    .formatted(classname, semanticPathName);
-            throw new UncheckedIOException(message, e);
-        }
+        Preconditions.requirePositivePowerOf10(archiveGroupSize);
     }
 
     /**
