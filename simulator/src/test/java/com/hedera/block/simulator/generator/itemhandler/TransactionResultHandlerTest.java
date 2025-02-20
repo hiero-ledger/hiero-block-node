@@ -25,7 +25,7 @@ class TransactionResultHandlerTest {
         assertTrue(item.hasTransactionResult());
 
         TransactionResult result = item.getTransactionResult();
-        assertEquals(ResponseCodeEnum.OK, result.getStatus());
+        assertEquals(ResponseCodeEnum.SUCCESS, result.getStatus());
         assertNotNull(result.getConsensusTimestamp());
         assertNotNull(result.getTransferList());
         assertEquals(1, result.getTokenTransferListsCount());

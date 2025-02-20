@@ -29,7 +29,7 @@ public class TransactionResultHandler extends AbstractBlockItemHandler {
 
     private TransactionResult createTransactionResult() {
         return TransactionResult.newBuilder()
-                .setStatus(ResponseCodeEnum.OK)
+                .setStatus(ResponseCodeEnum.SUCCESS)
                 .setTransferList(createTransferList())
                 .addTokenTransferLists(createTokenTransferList())
                 .setConsensusTimestamp(getTimestamp())
