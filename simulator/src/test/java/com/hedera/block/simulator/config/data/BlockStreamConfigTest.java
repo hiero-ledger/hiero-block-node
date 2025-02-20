@@ -161,7 +161,7 @@ class BlockStreamConfigTest {
     void testGenerationModeNonDirDoesNotCheckFolderExistence() {
         // Setup a non-existent folder path but with a generation mode that is not DIR
         String folderRootPath = "/non/existent/path/to/blocks";
-        GenerationMode generationMode = GenerationMode.ADHOC;
+        GenerationMode generationMode = GenerationMode.CRAFT;
 
         // No exception should be thrown because generation mode is not DIR
         BlockGeneratorConfig config = getBlockGeneratorConfigBuilder()
@@ -171,6 +171,6 @@ class BlockStreamConfigTest {
 
         // Verify that the configuration was created successfully
         assertEquals(folderRootPath, config.folderRootPath());
-        assertEquals(GenerationMode.ADHOC, config.generationMode());
+        assertEquals(GenerationMode.CRAFT, config.generationMode());
     }
 }

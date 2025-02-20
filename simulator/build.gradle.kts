@@ -29,7 +29,7 @@ testModuleInfo {
     requires("org.mockito")
     requires("org.mockito.junit.jupiter")
     requires("org.assertj.core")
-    requires("com.google.protobuf")
+    runtimeOnly("com.google.protobuf")
 }
 
 // Task to run simulator in Publisher mode

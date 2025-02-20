@@ -11,7 +11,7 @@ class GenerationModeTest {
     void testGenerationMode() {
         GenerationMode mode = GenerationMode.DIR;
         assertEquals(GenerationMode.DIR, mode);
-        mode = GenerationMode.ADHOC;
-        assertEquals(GenerationMode.ADHOC, mode);
+        mode = GenerationMode.CRAFT;
+        assertEquals(GenerationMode.CRAFT, mode);
     }
 }
