@@ -6,6 +6,7 @@ import static org.assertj.core.api.Assertions.assertThatExceptionOfType;
 import static org.assertj.core.api.Assertions.assertThatIllegalArgumentException;
 import static org.assertj.core.api.Assertions.from;
 
+import com.hedera.block.server.persistence.storage.PersistenceStorageConfig.ArchiveType;
 import com.hedera.block.server.persistence.storage.PersistenceStorageConfig.CompressionType;
 import com.hedera.block.server.persistence.storage.PersistenceStorageConfig.StorageType;
 import java.io.IOException;
@@ -76,7 +77,7 @@ class PersistenceStorageConfigTest {
                 storageType,
                 CompressionType.NONE,
                 DEFAULT_COMPRESSION_LEVEL,
-                DEFAULT_ARCHIVE_ENABLED,
+                ArchiveType.NO_OP,
                 DEFAULT_ARCHIVE_BATCH_SIZE);
         assertThat(actual).returns(storageType, from(PersistenceStorageConfig::type));
     }
@@ -104,7 +105,7 @@ class PersistenceStorageConfigTest {
                 StorageType.BLOCK_AS_LOCAL_FILE,
                 CompressionType.NONE,
                 DEFAULT_COMPRESSION_LEVEL,
-                DEFAULT_ARCHIVE_ENABLED,
+                ArchiveType.NO_OP,
                 DEFAULT_ARCHIVE_BATCH_SIZE);
         assertThat(actual)
                 .returns(expectedLiveRootPathToTest, from(PersistenceStorageConfig::liveRootPath))
@@ -132,7 +133,7 @@ class PersistenceStorageConfigTest {
                         StorageType.BLOCK_AS_LOCAL_FILE,
                         CompressionType.NONE,
                         DEFAULT_COMPRESSION_LEVEL,
-                        DEFAULT_ARCHIVE_ENABLED,
+                        ArchiveType.NO_OP,
                         DEFAULT_ARCHIVE_BATCH_SIZE));
     }
 
@@ -152,7 +153,7 @@ class PersistenceStorageConfigTest {
                 StorageType.BLOCK_AS_LOCAL_FILE,
                 compressionType,
                 compressionLevel,
-                DEFAULT_ARCHIVE_ENABLED,
+                ArchiveType.NO_OP,
                 DEFAULT_ARCHIVE_BATCH_SIZE);
         assertThat(actual).returns(compressionLevel, from(PersistenceStorageConfig::compressionLevel));
     }
@@ -175,7 +176,7 @@ class PersistenceStorageConfigTest {
                         StorageType.BLOCK_AS_LOCAL_FILE,
                         compressionType,
                         compressionLevel,
-                        DEFAULT_ARCHIVE_ENABLED,
+                        ArchiveType.NO_OP,
                         DEFAULT_ARCHIVE_BATCH_SIZE));
     }
 
@@ -194,7 +195,7 @@ class PersistenceStorageConfigTest {
                 StorageType.NO_OP,
                 compressionType,
                 DEFAULT_COMPRESSION_LEVEL,
-                DEFAULT_ARCHIVE_ENABLED,
+                ArchiveType.NO_OP,
                 DEFAULT_ARCHIVE_BATCH_SIZE);
         assertThat(actual).returns(compressionType, from(PersistenceStorageConfig::compression));
     }

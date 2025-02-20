@@ -16,13 +16,13 @@ import javax.inject.Inject;
  * {@link com.hedera.block.server.persistence.storage.PersistenceStorageConfig.StorageType#BLOCK_AS_LOCAL_FILE}
  * persistence type.
  */
-public final class BlockAsLocalFileArchiver implements LocalBlockArchiver {
+public final class LocalBlockFileArchiver implements LocalBlockArchiver {
     private final CompletionService<Void> completionService;
     private final int archiveGroupSize;
     private final AsyncLocalBlockArchiverFactory archiverFactory;
 
     @Inject
-    public BlockAsLocalFileArchiver(
+    public LocalBlockFileArchiver(
             @NonNull final PersistenceStorageConfig config,
             @NonNull final AsyncLocalBlockArchiverFactory archiverFactory,
             @NonNull final Executor executor) {

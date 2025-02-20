@@ -10,12 +10,12 @@ import javax.inject.Inject;
 /**
  * A factory for creating {@link AsyncBlockAsLocalFileArchiver} instances.
  */
-public final class AsyncBlockAsLocalFileFactory implements AsyncLocalBlockArchiverFactory {
+public final class AsyncBlockAsLocalFileArchiverFactory implements AsyncLocalBlockArchiverFactory {
     private final PersistenceStorageConfig config;
     private final BlockPathResolver pathResolver;
 
     @Inject
-    public AsyncBlockAsLocalFileFactory(
+    public AsyncBlockAsLocalFileArchiverFactory(
             @NonNull final PersistenceStorageConfig config, @NonNull final BlockPathResolver pathResolver) {
         this.config = Objects.requireNonNull(config);
         this.pathResolver = Objects.requireNonNull(pathResolver);
