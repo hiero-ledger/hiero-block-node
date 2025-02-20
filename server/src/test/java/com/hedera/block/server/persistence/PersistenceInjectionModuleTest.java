@@ -13,8 +13,14 @@ import com.hedera.block.server.events.ObjectEvent;
 import com.hedera.block.server.mediator.SubscriptionHandler;
 import com.hedera.block.server.notifier.Notifier;
 import com.hedera.block.server.persistence.storage.PersistenceStorageConfig;
+import com.hedera.block.server.persistence.storage.PersistenceStorageConfig.ArchiveType;
 import com.hedera.block.server.persistence.storage.PersistenceStorageConfig.CompressionType;
 import com.hedera.block.server.persistence.storage.PersistenceStorageConfig.StorageType;
+import com.hedera.block.server.persistence.storage.archive.AsyncBlockAsLocalFileArchiverFactory;
+import com.hedera.block.server.persistence.storage.archive.AsyncLocalBlockArchiverFactory;
+import com.hedera.block.server.persistence.storage.archive.AsyncNoOpArchiverFactory;
+import com.hedera.block.server.persistence.storage.archive.LocalBlockArchiver;
+import com.hedera.block.server.persistence.storage.archive.LocalBlockFileArchiver;
 import com.hedera.block.server.persistence.storage.compression.Compression;
 import com.hedera.block.server.persistence.storage.compression.NoOpCompression;
 import com.hedera.block.server.persistence.storage.compression.ZstdCompression;
@@ -72,6 +78,15 @@ class PersistenceInjectionModuleTest {
 
     @Mock
     private Executor executorMock;
+
+    @Mock
+    private LocalBlockArchiver archiverMock;
+
+    @Mock
+    private AsyncLocalBlockArchiverFactory asyncLocalBlockArchiverFactory;
+
+    @Mock
+    private PersistenceStorageConfig persistenceConfigMock;
 
     @TempDir
     private Path testLiveRootPath;
@@ -188,6 +203,59 @@ class PersistenceInjectionModuleTest {
         assertThat(actual).isNotNull().isExactlyInstanceOf(targetInstanceType);
     }
 
+    /**
+     * This test aims to verify that the
+     * {@link PersistenceInjectionModule#providesLocalBlockArchiver(PersistenceStorageConfig, AsyncLocalBlockArchiverFactory)}
+     * will return the correct {@link LocalBlockArchiver} instance based on the
+     * {@link StorageType} parameter. The test verifies only the result type and
+     * not what is inside the instance! For the purpose of this test, what is
+     * inside the instance is not important. We aim to test the branch that will
+     * be taken based on the {@link StorageType} parameter in terms of the
+     * returned instance type.
+     *
+     * @param type parameterized, the {@link StorageType} to test
+     */
+    @ParameterizedTest
+    @EnumSource(StorageType.class)
+    void testProvidesLocalBlockArchiver(final StorageType type) {
+        when(persistenceConfigMock.type()).thenReturn(type);
+        final LocalBlockArchiver actual = PersistenceInjectionModule.providesLocalBlockArchiver(
+                persistenceConfigMock, asyncLocalBlockArchiverFactory);
+
+        final Class<?> targetInstanceType =
+                switch (type) {
+                    case BLOCK_AS_LOCAL_FILE, NO_OP -> LocalBlockFileArchiver.class;
+                };
+        assertThat(actual).isNotNull().isExactlyInstanceOf(targetInstanceType);
+    }
+
+    /**
+     * This test aims to verify that the
+     * {@link PersistenceInjectionModule#providesAsyncLocalBlockArchiverFactory(PersistenceStorageConfig, BlockPathResolver)}
+     * will return the correct {@link AsyncLocalBlockArchiverFactory} instance
+     * based on the {@link ArchiveType} parameter. The test verifies only the
+     * result type and not what is inside the instance! For the purpose of this
+     * test, what is inside the instance is not important. We aim to test the
+     * branch that will be taken based on the {@link ArchiveType} parameter in
+     * terms of the returned instance type.
+     *
+     * @param type parameterized, the {@link ArchiveType} to test
+     */
+    @ParameterizedTest
+    @EnumSource(ArchiveType.class)
+    void testProvidesLocalBlockArchiver(final ArchiveType type) {
+        when(persistenceConfigMock.archiveType()).thenReturn(type);
+        final AsyncLocalBlockArchiverFactory actual = PersistenceInjectionModule.providesAsyncLocalBlockArchiverFactory(
+                persistenceConfigMock, blockPathResolverMock);
+
+        final Class<?> targetInstanceType =
+                switch (type) {
+                    case ArchiveType.BLOCK_AS_LOCAL_FILE -> AsyncBlockAsLocalFileArchiverFactory.class;
+                    case ArchiveType.NO_OP -> AsyncNoOpArchiverFactory.class;
+                };
+        assertThat(actual).isNotNull().isExactlyInstanceOf(targetInstanceType);
+    }
+
     @Test
     void testProvidesStreamValidatorBuilder() throws IOException {
         final BlockNodeContext blockNodeContext = TestConfigUtil.getTestBlockNodeContext();
@@ -201,7 +269,9 @@ class PersistenceInjectionModuleTest {
                         serviceStatusMock,
                         ackHandlerMock,
                         asyncBlockWriterFactoryMock,
-                        executorMock);
+                        executorMock,
+                        archiverMock,
+                        persistenceConfigMock);
         assertNotNull(streamVerifier);
     }
 }

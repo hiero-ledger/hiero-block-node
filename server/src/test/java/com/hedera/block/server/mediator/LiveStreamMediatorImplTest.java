@@ -20,6 +20,8 @@ import com.hedera.block.server.metrics.BlockNodeMetricTypes;
 import com.hedera.block.server.notifier.Notifier;
 import com.hedera.block.server.notifier.NotifierImpl;
 import com.hedera.block.server.persistence.StreamPersistenceHandlerImpl;
+import com.hedera.block.server.persistence.storage.PersistenceStorageConfig;
+import com.hedera.block.server.persistence.storage.archive.LocalBlockArchiver;
 import com.hedera.block.server.persistence.storage.write.AsyncBlockWriterFactory;
 import com.hedera.block.server.persistence.storage.write.AsyncNoOpWriterFactory;
 import com.hedera.block.server.service.ServiceStatus;
@@ -86,8 +88,11 @@ class LiveStreamMediatorImplTest {
     @Mock
     private Executor executorMock;
 
-    private BlockNodeContext testContext;
+    @Mock
+    private LocalBlockArchiver archiverMock;
 
+    private PersistenceStorageConfig persistenceStorageConfig;
+    private BlockNodeContext testContext;
     private CompletionService<Void> completionService;
 
     @BeforeEach
@@ -96,6 +101,7 @@ class LiveStreamMediatorImplTest {
         properties.put(TestConfigUtil.CONSUMER_TIMEOUT_THRESHOLD_KEY, String.valueOf(TIMEOUT_THRESHOLD_MILLIS));
         properties.put(TestConfigUtil.MEDIATOR_RING_BUFFER_SIZE_KEY, String.valueOf(1024));
         this.testContext = TestConfigUtil.getTestBlockNodeContext(properties);
+        this.persistenceStorageConfig = testContext.configuration().getConfigData(PersistenceStorageConfig.class);
         this.completionService = new ExecutorCompletionService<>(Executors.newSingleThreadExecutor());
     }
 
@@ -144,7 +150,15 @@ class LiveStreamMediatorImplTest {
         final AsyncNoOpWriterFactory writerFactory =
                 new AsyncNoOpWriterFactory(ackHandlerMock, blockNodeContext.metricsService());
         final StreamPersistenceHandlerImpl handler = new StreamPersistenceHandlerImpl(
-                streamMediator, notifier, blockNodeContext, serviceStatus, ackHandlerMock, writerFactory, executorMock);
+                streamMediator,
+                notifier,
+                blockNodeContext,
+                serviceStatus,
+                ackHandlerMock,
+                writerFactory,
+                executorMock,
+                archiverMock,
+                persistenceStorageConfig);
         streamMediator.subscribe(handler);
 
         // Acting as a producer, notify the mediator of a new block
@@ -222,7 +236,9 @@ class LiveStreamMediatorImplTest {
                 serviceStatus,
                 ackHandlerMock,
                 asyncBlockWriterFactoryMock,
-                executorMock);
+                executorMock,
+                archiverMock,
+                persistenceStorageConfig);
         streamMediator.subscribe(handler);
 
         // Acting as a producer, notify the mediator of a new block
@@ -464,7 +480,9 @@ class LiveStreamMediatorImplTest {
                 serviceStatus,
                 ackHandlerMock,
                 asyncBlockWriterFactoryMock,
-                executorMock);
+                executorMock,
+                archiverMock,
+                persistenceStorageConfig);
 
         // Set up the stream verifier
         streamMediator.subscribe(handler);
@@ -532,7 +550,9 @@ class LiveStreamMediatorImplTest {
                 serviceStatus,
                 ackHandlerMock,
                 asyncBlockWriterFactoryMock,
-                executorMock);
+                executorMock,
+                archiverMock,
+                persistenceStorageConfig);
         streamMediator.subscribe(handler);
 
         final BlockNodeEventHandler<ObjectEvent<List<BlockItemUnparsed>>> testConsumerBlockItemObserver =

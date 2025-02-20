@@ -13,6 +13,8 @@ import com.hedera.block.server.exception.BlockStreamProtocolException;
 import com.hedera.block.server.mediator.SubscriptionHandler;
 import com.hedera.block.server.metrics.MetricsService;
 import com.hedera.block.server.notifier.Notifier;
+import com.hedera.block.server.persistence.storage.PersistenceStorageConfig;
+import com.hedera.block.server.persistence.storage.archive.LocalBlockArchiver;
 import com.hedera.block.server.persistence.storage.write.AsyncBlockWriter;
 import com.hedera.block.server.persistence.storage.write.AsyncBlockWriterFactory;
 import com.hedera.block.server.persistence.storage.write.BlockPersistenceResult;
@@ -51,6 +53,8 @@ public class StreamPersistenceHandlerImpl implements BlockNodeEventHandler<Objec
     private final AckHandler ackHandler;
     private final AsyncBlockWriterFactory asyncBlockWriterFactory;
     private final CompletionService<Void> completionService;
+    private final LocalBlockArchiver archiver;
+    private final int archiveGroupSize;
     private TransferQueue<BlockItemUnparsed> currentWriterQueue;
 
     /**
@@ -62,7 +66,9 @@ public class StreamPersistenceHandlerImpl implements BlockNodeEventHandler<Objec
      * @param serviceStatus valid, non-null instance of {@link ServiceStatus}
      * @param ackHandler valid, non-null instance of {@link AckHandler}
      * @param asyncBlockWriterFactory valid, non-null instance of {@link AsyncBlockWriterFactory}
-     * @param executor valid, non-null instance of {@link Executor}
+     * @param writerExecutor valid, non-null instance of {@link Executor}
+     * @param archiver valid, non-null instance of {@link LocalBlockArchiver}
+     * @param persistenceStorageConfig valid, non-null instance of {@link PersistenceStorageConfig}
      */
     @Inject
     public StreamPersistenceHandlerImpl(
@@ -72,14 +78,18 @@ public class StreamPersistenceHandlerImpl implements BlockNodeEventHandler<Objec
             @NonNull final ServiceStatus serviceStatus,
             @NonNull final AckHandler ackHandler,
             @NonNull final AsyncBlockWriterFactory asyncBlockWriterFactory,
-            @NonNull final Executor executor) {
+            @NonNull final Executor writerExecutor,
+            @NonNull final LocalBlockArchiver archiver,
+            @NonNull final PersistenceStorageConfig persistenceStorageConfig) {
         this.subscriptionHandler = Objects.requireNonNull(subscriptionHandler);
         this.notifier = Objects.requireNonNull(notifier);
         this.metricsService = blockNodeContext.metricsService();
         this.serviceStatus = Objects.requireNonNull(serviceStatus);
         this.ackHandler = Objects.requireNonNull(ackHandler);
         this.asyncBlockWriterFactory = Objects.requireNonNull(asyncBlockWriterFactory);
-        this.completionService = new ExecutorCompletionService<>(Objects.requireNonNull(executor));
+        this.archiver = Objects.requireNonNull(archiver);
+        this.archiveGroupSize = persistenceStorageConfig.archiveBatchSize();
+        this.completionService = new ExecutorCompletionService<>(Objects.requireNonNull(writerExecutor));
     }
 
     /**
@@ -141,6 +151,11 @@ public class StreamPersistenceHandlerImpl implements BlockNodeEventHandler<Objec
                     final AsyncBlockWriter writer = asyncBlockWriterFactory.create(blockNumber);
                     currentWriterQueue = writer.getQueue();
                     completionService.submit(writer);
+                    if (blockNumber % archiveGroupSize == 0) {
+                        // threshold reached, archive blocks 1 order of magnitude
+                        // lower than the threshold juxtaposed to the archive group size
+                        archiver.submitThresholdPassed(blockNumber);
+                    }
                 } else {
                     // we need to notify the ackHandler that the block number is invalid
                     // IMPORTANT: the currentWriterQueue MUST be null after we have

@@ -28,6 +28,7 @@ import com.hedera.block.server.notifier.Notifier;
 import com.hedera.block.server.notifier.NotifierImpl;
 import com.hedera.block.server.persistence.StreamPersistenceHandlerImpl;
 import com.hedera.block.server.persistence.storage.PersistenceStorageConfig;
+import com.hedera.block.server.persistence.storage.archive.LocalBlockArchiver;
 import com.hedera.block.server.persistence.storage.read.BlockReader;
 import com.hedera.block.server.persistence.storage.remove.BlockRemover;
 import com.hedera.block.server.persistence.storage.write.AsyncBlockWriterFactory;
@@ -132,20 +133,23 @@ class PbjBlockStreamServiceIntegrationTest {
     @Mock
     private Executor executorMock;
 
+    @Mock
+    private LocalBlockArchiver archiverMock;
+
     @TempDir
     private Path testLiveRootPath;
 
     private BlockNodeContext blockNodeContext;
-    private PersistenceStorageConfig testConfig;
+    private PersistenceStorageConfig persistenceStorageConfig;
 
     @BeforeEach
     void setUp() throws IOException {
         final Map<String, String> properties = new HashMap<>();
         properties.put(PERSISTENCE_STORAGE_LIVE_ROOT_PATH_KEY, testLiveRootPath.toString());
         blockNodeContext = TestConfigUtil.getTestBlockNodeContext(properties);
-        testConfig = blockNodeContext.configuration().getConfigData(PersistenceStorageConfig.class);
+        persistenceStorageConfig = blockNodeContext.configuration().getConfigData(PersistenceStorageConfig.class);
 
-        final String testConfigLiveRootPath = testConfig.liveRootPath();
+        final String testConfigLiveRootPath = persistenceStorageConfig.liveRootPath();
         assertThat(testConfigLiveRootPath).isEqualTo(testLiveRootPath.toString());
     }
 
@@ -420,7 +424,9 @@ class PbjBlockStreamServiceIntegrationTest {
                 serviceStatus,
                 ackHandlerMock,
                 writerFactory,
-                executorMock);
+                executorMock,
+                archiverMock,
+                persistenceStorageConfig);
         final StreamVerificationHandlerImpl streamVerificationHandler = new StreamVerificationHandlerImpl(
                 streamMediator,
                 notifierMock,
@@ -575,7 +581,9 @@ class PbjBlockStreamServiceIntegrationTest {
                 serviceStatus,
                 ackHandlerMock,
                 asyncBlockWriterFactoryMock,
-                executorMock);
+                executorMock,
+                archiverMock,
+                persistenceStorageConfig);
         final StreamVerificationHandlerImpl streamVerificationHandler = new StreamVerificationHandlerImpl(
                 streamMediator,
                 notifier,
@@ -756,7 +764,9 @@ class PbjBlockStreamServiceIntegrationTest {
                 serviceStatus,
                 blockManager,
                 writerFactory,
-                persistenceExecutor);
+                persistenceExecutor,
+                archiverMock,
+                persistenceStorageConfig);
         final StreamVerificationHandlerImpl streamVerificationHandler = new StreamVerificationHandlerImpl(
                 streamMediator, notifier, blockNodeContext.metricsService(), serviceStatus, BlockVerificationService);
         return new PbjBlockStreamServiceProxy(

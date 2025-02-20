@@ -14,6 +14,8 @@ import com.hedera.block.server.events.ObjectEvent;
 import com.hedera.block.server.mediator.SubscriptionHandler;
 import com.hedera.block.server.metrics.MetricsService;
 import com.hedera.block.server.notifier.Notifier;
+import com.hedera.block.server.persistence.storage.PersistenceStorageConfig;
+import com.hedera.block.server.persistence.storage.archive.LocalBlockArchiver;
 import com.hedera.block.server.persistence.storage.write.AsyncBlockWriterFactory;
 import com.hedera.block.server.service.ServiceStatus;
 import com.hedera.hapi.block.BlockItemUnparsed;
@@ -26,8 +28,6 @@ import org.mockito.junit.jupiter.MockitoExtension;
 
 @ExtendWith(MockitoExtension.class)
 class StreamPersistenceHandlerImplTest {
-    private static final int TEST_TIMEOUT = 50;
-
     @Mock
     private SubscriptionHandler<List<BlockItemUnparsed>> subscriptionHandler;
 
@@ -50,6 +50,12 @@ class StreamPersistenceHandlerImplTest {
     private AsyncBlockWriterFactory asyncBlockWriterFactoryMock;
 
     @Mock
+    private LocalBlockArchiver archiverMock;
+
+    @Mock
+    private PersistenceStorageConfig persistenceConfigMock;
+
+    @Mock
     private Executor executorMock;
 
     @Test
@@ -64,7 +70,9 @@ class StreamPersistenceHandlerImplTest {
                 serviceStatus,
                 ackHandlerMock,
                 asyncBlockWriterFactoryMock,
-                executorMock);
+                executorMock,
+                archiverMock,
+                persistenceConfigMock);
 
         final List<BlockItemUnparsed> blockItems = generateBlockItemsUnparsed(1);
         final ObjectEvent<List<BlockItemUnparsed>> event = new ObjectEvent<>();

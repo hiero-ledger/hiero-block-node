@@ -20,6 +20,8 @@ import com.hedera.block.server.mediator.SubscriptionHandler;
 import com.hedera.block.server.pbj.PbjBlockStreamService;
 import com.hedera.block.server.pbj.PbjBlockStreamServiceProxy;
 import com.hedera.block.server.persistence.StreamPersistenceHandlerImpl;
+import com.hedera.block.server.persistence.storage.PersistenceStorageConfig;
+import com.hedera.block.server.persistence.storage.archive.LocalBlockArchiver;
 import com.hedera.block.server.persistence.storage.read.BlockReader;
 import com.hedera.block.server.persistence.storage.write.AsyncBlockWriterFactory;
 import com.hedera.block.server.producer.ProducerBlockItemObserver;
@@ -106,11 +108,16 @@ class NotifierImplTest {
     @Mock
     private Executor executorMock;
 
+    @Mock
+    private LocalBlockArchiver archiverMock;
+
     private BlockNodeContext blockNodeContext;
+    private PersistenceStorageConfig persistenceStorageConfig;
 
     @BeforeEach
     void setUp() throws IOException {
         blockNodeContext = TestConfigUtil.getTestBlockNodeContext();
+        persistenceStorageConfig = blockNodeContext.configuration().getConfigData(PersistenceStorageConfig.class);
     }
 
     @Test
@@ -212,7 +219,9 @@ class NotifierImplTest {
                 serviceStatus,
                 ackHandler,
                 asyncBlockWriterFactoryMock,
-                executorMock);
+                executorMock,
+                archiverMock,
+                persistenceStorageConfig);
         final BlockVerificationService blockVerificationService = new NoOpBlockVerificationService();
         final StreamVerificationHandlerImpl streamVerificationHandler = new StreamVerificationHandlerImpl(
                 streamMediator, notifier, blockNodeContext.metricsService(), serviceStatus, blockVerificationService);
