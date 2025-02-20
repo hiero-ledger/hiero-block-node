@@ -47,7 +47,7 @@ public final class LiveStreamEventHandlerBuilder {
             @NonNull final MetricsService metricsService,
             @NonNull final Configuration configuration) {
 
-        return new PullConsumerStreamResponseObserver(
+        return new PollConsumerStreamResponseObserver(
                 subscriptionHandler, helidonConsumerObserver, metricsService, configuration);
     }
 }

@@ -1,16 +1,20 @@
 // SPDX-License-Identifier: Apache-2.0
 package com.hedera.block.server.mediator;
 
+import static java.lang.System.Logger.Level.DEBUG;
+
 import com.hedera.block.server.events.BlockNodeEventHandler;
 import com.hedera.block.server.events.ObjectEvent;
 import com.lmax.disruptor.BatchEventProcessor;
 import com.lmax.disruptor.BatchEventProcessorBuilder;
+import com.lmax.disruptor.EventPoller;
 import com.lmax.disruptor.RingBuffer;
 import com.lmax.disruptor.dsl.Disruptor;
 import com.lmax.disruptor.util.DaemonThreadFactory;
 import com.swirlds.metrics.api.LongGauge;
 import edu.umd.cs.findbugs.annotations.NonNull;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
@@ -24,7 +28,10 @@ import java.util.concurrent.Executors;
  */
 public abstract class SubscriptionHandlerBase<V> implements SubscriptionHandler<V> {
 
+    private final System.Logger LOGGER = System.getLogger(getClass().getName());
+
     private final Map<BlockNodeEventHandler<ObjectEvent<V>>, BatchEventProcessor<ObjectEvent<V>>> subscribers;
+    private final Map<BlockNodeEventHandler<ObjectEvent<V>>, EventPoller<ObjectEvent<V>>> pollSubscribers;
 
     /** The ring buffer to publish events to the subscribers. */
     protected final RingBuffer<ObjectEvent<V>> ringBuffer;
@@ -49,6 +56,7 @@ public abstract class SubscriptionHandlerBase<V> implements SubscriptionHandler<
             final int ringBufferSize) {
 
         this.subscribers = subscribers;
+        this.pollSubscribers = new ConcurrentHashMap<>();
         this.subscriptionGauge = subscriptionGauge;
 
         // Initialize and start the disruptor
@@ -68,7 +76,7 @@ public abstract class SubscriptionHandlerBase<V> implements SubscriptionHandler<
 
         if (!subscribers.containsKey(handler)) {
             // Initialize the batch event processor and set it on the ring buffer
-            final var batchEventProcessor =
+            final BatchEventProcessor<ObjectEvent<V>> batchEventProcessor =
                     new BatchEventProcessorBuilder().build(ringBuffer, ringBuffer.newBarrier(), handler);
 
             ringBuffer.addGatingSequences(batchEventProcessor.getSequence());
@@ -84,7 +92,31 @@ public abstract class SubscriptionHandlerBase<V> implements SubscriptionHandler<
 
     @Override
     public Poller<ObjectEvent<V>> subscribePoller(@NonNull final BlockNodeEventHandler<ObjectEvent<V>> handler) {
-        return new PollerImpl<>(ringBuffer, ringBuffer.getBufferSize());
+
+        if (!subscribers.containsKey(handler)) {
+
+            final EventPoller<ObjectEvent<V>> eventPoller = ringBuffer.newPoller();
+            ringBuffer.addGatingSequences(eventPoller.getSequence());
+            pollSubscribers.put(handler, eventPoller);
+
+            // Update the subscriber metrics.
+            subscriptionGauge.set(subscribers.size() + pollSubscribers.size());
+            return new PollerImpl<>(eventPoller, ringBuffer.getBufferSize());
+        }
+
+        return null;
+    }
+
+    @Override
+    public void unsubscribePoller(@NonNull final BlockNodeEventHandler<ObjectEvent<V>> handler) {
+        final EventPoller<ObjectEvent<V>> eventPoller = pollSubscribers.remove(handler);
+        if (eventPoller != null) {
+            ringBuffer.removeGatingSequence(eventPoller.getSequence());
+        }
+        LOGGER.log(DEBUG, "Unsubscribed poller handler");
+
+        // Update the subscriber metrics.
+        subscriptionGauge.set(subscribers.size() + pollSubscribers.size());
     }
 
     /**
@@ -106,7 +138,7 @@ public abstract class SubscriptionHandlerBase<V> implements SubscriptionHandler<
         }
 
         // Update the subscriber metrics.
-        subscriptionGauge.set(subscribers.size());
+        subscriptionGauge.set(subscribers.size() + pollSubscribers.size());
     }
 
     /**

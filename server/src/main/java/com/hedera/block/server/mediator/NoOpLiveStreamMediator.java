@@ -48,7 +48,11 @@ public class NoOpLiveStreamMediator implements LiveStreamMediator {
     @Override
     public Poller<ObjectEvent<List<BlockItemUnparsed>>> subscribePoller(
             @NonNull BlockNodeEventHandler<ObjectEvent<List<BlockItemUnparsed>>> handler) {
+        throw new UnsupportedOperationException("Not implemented");
+    }
 
+    @Override
+    public void unsubscribePoller(@NonNull BlockNodeEventHandler<ObjectEvent<List<BlockItemUnparsed>>> handler) {
         throw new UnsupportedOperationException("Not implemented");
     }
 

@@ -15,9 +15,4 @@ public interface Poller<V> {
      * @throws Exception if an error occurs while polling the event
      */
     V poll() throws Exception;
-
-    /**
-     * Unsubscribes the poller from the ring buffer.
-     */
-    void unsubscribe();
 }
