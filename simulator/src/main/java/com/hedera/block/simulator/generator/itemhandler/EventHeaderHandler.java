@@ -5,6 +5,10 @@ import com.hedera.hapi.block.stream.input.protoc.EventHeader;
 import com.hedera.hapi.block.stream.protoc.BlockItem;
 import com.hedera.hapi.platform.event.legacy.EventCore;
 
+/**
+ * Handler for event headers in the block stream.
+ * Creates and manages event header items containing metadata about events.
+ */
 public class EventHeaderHandler extends AbstractBlockItemHandler {
     @Override
     public BlockItem getItem() {

@@ -28,6 +28,10 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Random;
 
+/**
+ * Implementation of BlockStreamManager that crafts blocks from scratch rather than reading from an existing stream.
+ * This manager generates synthetic blocks with random events and transactions based on configured parameters.
+ */
 public class CraftBlockStreamManager implements BlockStreamManager {
     private final System.Logger LOGGER = System.getLogger(getClass().getName());
 
@@ -49,6 +53,12 @@ public class CraftBlockStreamManager implements BlockStreamManager {
     private StreamingTreeHasher inputTreeHasher;
     private StreamingTreeHasher outputTreeHasher;
 
+    /**
+     * Constructs a new CraftBlockStreamManager with the specified configuration.
+     *
+     * @param blockGeneratorConfig Configuration parameters for block generation including event and transaction counts
+     * @throws NullPointerException if blockGeneratorConfig is null
+     */
     public CraftBlockStreamManager(@NonNull BlockGeneratorConfig blockGeneratorConfig) {
         final BlockGeneratorConfig blockGeneratorConfig1 = requireNonNull(blockGeneratorConfig);
         this.generationMode = blockGeneratorConfig1.generationMode();
@@ -70,16 +80,35 @@ public class CraftBlockStreamManager implements BlockStreamManager {
         LOGGER.log(INFO, "Block Stream Simulator will use Craft mode for block management.");
     }
 
+    /**
+     * Returns the generation mode of this block stream manager.
+     *
+     * @return The GenerationMode enum value representing the current generation mode
+     */
     @Override
     public GenerationMode getGenerationMode() {
         return generationMode;
     }
 
+    /**
+     * This operation is not supported in Craft mode.
+     *
+     * @throws UnsupportedOperationException always, as Craft mode does not support getting individual block items
+     */
     @Override
     public BlockItem getNextBlockItem() {
-        throw new UnsupportedOperationException("Craft mode does not support getting block items");
+        throw new UnsupportedOperationException("Craft mode does not support getting block items.");
     }
 
+    /**
+     * Generates and returns the next synthetic block.
+     * Creates a block with a random number of events and transactions within configured bounds.
+     * Each block includes a header, events with their transactions and results, and a proof.
+     *
+     * @return A newly generated Block
+     * @throws IOException if there is an error processing block items
+     * @throws BlockSimulatorParsingException if there is an error parsing block components
+     */
     @Override
     public Block getNextBlock() throws IOException, BlockSimulatorParsingException {
         LOGGER.log(DEBUG, "Started creation of block number %s.".formatted(currentBlockNumber));

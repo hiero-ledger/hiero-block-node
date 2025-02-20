@@ -11,6 +11,11 @@ import com.hederahashgraph.api.proto.java.TokenID;
 import com.hederahashgraph.api.proto.java.TokenTransferList;
 import com.hederahashgraph.api.proto.java.TransferList;
 
+/**
+ * Handler for transaction results in the block stream.
+ * Creates and manages transaction result items containing the outcome of transactions,
+ * including transfer lists and token transfers.
+ */
 public class TransactionResultHandler extends AbstractBlockItemHandler {
     @Override
     public BlockItem getItem() {

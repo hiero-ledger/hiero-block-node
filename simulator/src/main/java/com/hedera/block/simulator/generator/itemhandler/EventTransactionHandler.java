@@ -4,6 +4,10 @@ package com.hedera.block.simulator.generator.itemhandler;
 import com.hedera.hapi.block.stream.protoc.BlockItem;
 import com.hedera.hapi.platform.event.legacy.EventTransaction;
 
+/**
+ * Handler for event transactions in the block stream.
+ * Creates and manages event transaction items representing blockchain transactions.
+ */
 public class EventTransactionHandler extends AbstractBlockItemHandler {
     @Override
     public BlockItem getItem() {
