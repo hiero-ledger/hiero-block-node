@@ -26,7 +26,6 @@ public final class BlockAsLocalFilePathResolver implements BlockPathResolver {
     private final int archiveGroupSize;
     private final int archiveDirDepth;
     private final DecimalFormat longLeadingZeroesFormat;
-    private final DecimalFormat blockDirDepthFormat;
 
     /**
      * Constructor.
@@ -40,7 +39,6 @@ public final class BlockAsLocalFilePathResolver implements BlockPathResolver {
         this.archiveGroupSize = config.archiveBatchSize();
         this.archiveDirDepth = MAX_LONG_DIGITS - (int) Math.log10(this.archiveGroupSize);
         this.longLeadingZeroesFormat = new DecimalFormat("0".repeat(MAX_LONG_DIGITS));
-        this.blockDirDepthFormat = new DecimalFormat("0".repeat(archiveDirDepth));
     }
 
     /**

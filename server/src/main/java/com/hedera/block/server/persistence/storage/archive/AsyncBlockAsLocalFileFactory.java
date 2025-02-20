@@ -5,22 +5,25 @@ import com.hedera.block.server.persistence.storage.PersistenceStorageConfig;
 import com.hedera.block.server.persistence.storage.path.BlockPathResolver;
 import edu.umd.cs.findbugs.annotations.NonNull;
 import java.util.Objects;
+import javax.inject.Inject;
 
 /**
- * TODO: add documentation
+ * A factory for creating {@link AsyncBlockAsLocalFileArchiver} instances.
  */
-public class AsyncBlockAsLocalFileFactory implements AsyncLocalBlockArchiverFactory {
+public final class AsyncBlockAsLocalFileFactory implements AsyncLocalBlockArchiverFactory {
     private final PersistenceStorageConfig config;
     private final BlockPathResolver pathResolver;
 
+    @Inject
     public AsyncBlockAsLocalFileFactory(
             @NonNull final PersistenceStorageConfig config, @NonNull final BlockPathResolver pathResolver) {
         this.config = Objects.requireNonNull(config);
         this.pathResolver = Objects.requireNonNull(pathResolver);
     }
 
+    @NonNull
     @Override
-    public AsyncLocalBlockArchiver create(final long blockNumber) {
-        return new AsyncBlockAsLocalFileArchiver(blockNumber, config, pathResolver);
+    public AsyncLocalBlockArchiver create(final long blockNumberThreshold) {
+        return new AsyncBlockAsLocalFileArchiver(blockNumberThreshold, config, pathResolver);
     }
 }

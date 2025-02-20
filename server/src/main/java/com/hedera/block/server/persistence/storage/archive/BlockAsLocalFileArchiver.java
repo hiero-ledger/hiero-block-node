@@ -9,15 +9,19 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Executor;
 import java.util.concurrent.ExecutorCompletionService;
 import java.util.concurrent.Future;
+import javax.inject.Inject;
 
 /**
- * TODO: add documentation
+ * An implementation of {@link LocalBlockArchiver} that utilizes the
+ * {@link com.hedera.block.server.persistence.storage.PersistenceStorageConfig.StorageType#BLOCK_AS_LOCAL_FILE}
+ * persistence type.
  */
 public final class BlockAsLocalFileArchiver implements LocalBlockArchiver {
     private final CompletionService<Void> completionService;
     private final int archiveGroupSize;
     private final AsyncLocalBlockArchiverFactory archiverFactory;
 
+    @Inject
     public BlockAsLocalFileArchiver(
             @NonNull final PersistenceStorageConfig config,
             @NonNull final AsyncLocalBlockArchiverFactory archiverFactory,
@@ -28,12 +32,12 @@ public final class BlockAsLocalFileArchiver implements LocalBlockArchiver {
     }
 
     @Override
-    public void signalThresholdPassed(final long blockNumber) {
-        final boolean validThresholdPassed = blockNumber % archiveGroupSize == 0;
-        final boolean canArchive = blockNumber - archiveGroupSize * 2L >= 0;
+    public void submitThresholdPassed(final long blockNumberThreshold) {
+        final boolean validThresholdPassed = blockNumberThreshold % archiveGroupSize == 0;
+        final boolean canArchive = blockNumberThreshold - archiveGroupSize * 2L >= 0;
         if (validThresholdPassed && canArchive) {
             // here we need to archive everything below one order of magnitude of the threshold passed
-            final AsyncLocalBlockArchiver archiver = archiverFactory.create(blockNumber - archiveGroupSize);
+            final AsyncLocalBlockArchiver archiver = archiverFactory.create(blockNumberThreshold - archiveGroupSize);
             completionService.submit(archiver, null);
         }
         handleSubmittedResults();

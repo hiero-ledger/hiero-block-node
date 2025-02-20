@@ -154,7 +154,7 @@ public class StreamPersistenceHandlerImpl implements BlockNodeEventHandler<Objec
                     if (blockNumber % archiveGroupSize == 0) {
                         // threshold reached, archive blocks 1 order of magnitude
                         // lower than the threshold juxtaposed to the archive group size
-                        archiver.signalThresholdPassed(blockNumber);
+                        archiver.submitThresholdPassed(blockNumber);
                     }
                 } else {
                     // we need to notify the ackHandler that the block number is invalid

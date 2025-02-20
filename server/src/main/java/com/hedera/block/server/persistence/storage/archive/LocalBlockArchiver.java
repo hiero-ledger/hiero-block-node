@@ -2,8 +2,15 @@
 package com.hedera.block.server.persistence.storage.archive;
 
 /**
- * TODO: add documentation
+ * An interface that defines an asynchronous local block archiver.
  */
 public interface LocalBlockArchiver {
-    void signalThresholdPassed(final long currentBlockNumber);
+    /**
+     * This method will submit a passed threshold. The archiver then will
+     * proceed to archive the blocks lower than 1 order of magnitude below the
+     * threshold, based on archive group size configuration.
+     *
+     * @param blockNumberThreshold the block number threshold passed
+     */
+    void submitThresholdPassed(final long blockNumberThreshold);
 }

@@ -19,7 +19,9 @@ import java.util.zip.ZipEntry;
 import java.util.zip.ZipOutputStream;
 
 /**
- * TODO: add documentation
+ * An {@link AsyncLocalBlockArchiver} that utilizes the
+ * {@link com.hedera.block.server.persistence.storage.PersistenceStorageConfig.StorageType#BLOCK_AS_LOCAL_FILE}
+ * persistence type.
  */
 public final class AsyncBlockAsLocalFileArchiver implements AsyncLocalBlockArchiver {
     private static final System.Logger LOGGER = System.getLogger(AsyncBlockAsLocalFileArchiver.class.getName());
@@ -39,6 +41,16 @@ public final class AsyncBlockAsLocalFileArchiver implements AsyncLocalBlockArchi
         }
     }
 
+    /**
+     * The archiver will archive blocks to local storage. It is given a passed
+     * block number threshold, all blocks below 1 order of magnitude lower that
+     * threshold will be archived. Due to the trie structure utilized by the
+     * persistence type used, we can be sure that simply by determining the
+     * archive root, we can archive all blocks under that root. It is not
+     * possible due to the different branching of the trie to archive something
+     * that should not be archived. This also means that archives for different
+     * thresholds can be safely run in parallel.
+     */
     @Override
     public void run() {
         try {
@@ -52,6 +64,7 @@ public final class AsyncBlockAsLocalFileArchiver implements AsyncLocalBlockArchi
     private void doArchive() throws IOException {
         final long upperBound = blockNumberThreshold - 1;
         final Path rootToArchive = pathResolver.resolveRawPathToArchiveParentUnderLive(upperBound);
+        LOGGER.log(Level.DEBUG, "Block Number Threshold for archiving passed [%d]".formatted(blockNumberThreshold));
         LOGGER.log(Level.DEBUG, "Archiving Block Files under [%s]".formatted(rootToArchive));
         final List<Path> pathsToArchive;
         try (final Stream<Path> tree = Files.walk(rootToArchive)) {
@@ -63,9 +76,12 @@ public final class AsyncBlockAsLocalFileArchiver implements AsyncLocalBlockArchi
             final Path zipFilePath = archiveInZip(upperBound, pathsToArchive, rootToArchive);
             createSymlink(rootToArchive, zipFilePath);
             deleteLive(rootToArchive);
+        } else {
+            LOGGER.log(Level.DEBUG, "No files to archive under [%s]".formatted(rootToArchive));
         }
     }
 
+    @SuppressWarnings("ForLoopReplaceableByForEach")
     private Path archiveInZip(final long upperBound, final List<Path> pathsToArchive, final Path rootToArchive)
             throws IOException {
         final Path zipFilePath = pathResolver.resolveRawPathToArchiveParentUnderArchive(upperBound);
@@ -101,6 +117,7 @@ public final class AsyncBlockAsLocalFileArchiver implements AsyncLocalBlockArchi
         LOGGER.log(Level.DEBUG, "Symlink [%s <-> %s] created".formatted(liveSymlink, zipFilePath));
     }
 
+    @SuppressWarnings("ResultOfMethodCallIgnored")
     private void deleteLive(final Path rootToArchive) throws IOException {
         // we need to move the live dir that we just archived so readers will no longer be able
         // to find it, hence they will fall back to search for the symlink we just made as well
@@ -108,8 +125,8 @@ public final class AsyncBlockAsLocalFileArchiver implements AsyncLocalBlockArchi
         // live dir
         final Path movedToDelete = FileUtilities.appendExtension(rootToArchive, "del");
         Files.move(rootToArchive, movedToDelete);
-        try (Stream<Path> paths = Files.walk(movedToDelete)) {
-            paths.sorted(Comparator.reverseOrder()).map(Path::toFile).forEach(File::delete);
+        try (final Stream<Path> pathsToDelete = Files.walk(movedToDelete)) {
+            pathsToDelete.sorted(Comparator.reverseOrder()).map(Path::toFile).forEach(File::delete);
         }
     }
 }
