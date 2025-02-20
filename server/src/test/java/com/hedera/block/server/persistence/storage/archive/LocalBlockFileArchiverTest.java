@@ -54,6 +54,7 @@ class LocalBlockFileArchiverTest {
         final AsyncLocalBlockArchiver taskMock = mock(AsyncLocalBlockArchiver.class);
         when(archiverFactoryMock.create(threshold)).thenReturn(taskMock);
         toTest.submitThresholdPassed(threshold + BATCH_SIZE);
+        verify(archiverFactoryMock, times(1)).create(threshold);
         verify(executorMock, times(1)).execute(any(Runnable.class));
     }
 
