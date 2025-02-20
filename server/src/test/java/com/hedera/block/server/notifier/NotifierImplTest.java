@@ -112,12 +112,12 @@ class NotifierImplTest {
     private LocalBlockArchiver archiverMock;
 
     private BlockNodeContext blockNodeContext;
-    private PersistenceStorageConfig persistenceConfigMock;
+    private PersistenceStorageConfig persistenceStorageConfig;
 
     @BeforeEach
     void setUp() throws IOException {
         blockNodeContext = TestConfigUtil.getTestBlockNodeContext();
-        persistenceConfigMock = blockNodeContext.configuration().getConfigData(PersistenceStorageConfig.class);
+        persistenceStorageConfig = blockNodeContext.configuration().getConfigData(PersistenceStorageConfig.class);
     }
 
     @Test
@@ -221,7 +221,7 @@ class NotifierImplTest {
                 asyncBlockWriterFactoryMock,
                 executorMock,
                 archiverMock,
-                persistenceConfigMock);
+                persistenceStorageConfig);
         final BlockVerificationService blockVerificationService = new NoOpBlockVerificationService();
         final StreamVerificationHandlerImpl streamVerificationHandler = new StreamVerificationHandlerImpl(
                 streamMediator, notifier, blockNodeContext.metricsService(), serviceStatus, blockVerificationService);

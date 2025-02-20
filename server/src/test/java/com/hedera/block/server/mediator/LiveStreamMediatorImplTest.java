@@ -91,7 +91,7 @@ class LiveStreamMediatorImplTest {
     @Mock
     private LocalBlockArchiver archiverMock;
 
-    private PersistenceStorageConfig persistenceConfigMock;
+    private PersistenceStorageConfig persistenceStorageConfig;
     private BlockNodeContext testContext;
     private CompletionService<Void> completionService;
 
@@ -101,7 +101,7 @@ class LiveStreamMediatorImplTest {
         properties.put(TestConfigUtil.CONSUMER_TIMEOUT_THRESHOLD_KEY, String.valueOf(TIMEOUT_THRESHOLD_MILLIS));
         properties.put(TestConfigUtil.MEDIATOR_RING_BUFFER_SIZE_KEY, String.valueOf(1024));
         this.testContext = TestConfigUtil.getTestBlockNodeContext(properties);
-        this.persistenceConfigMock = testContext.configuration().getConfigData(PersistenceStorageConfig.class);
+        this.persistenceStorageConfig = testContext.configuration().getConfigData(PersistenceStorageConfig.class);
         this.completionService = new ExecutorCompletionService<>(Executors.newSingleThreadExecutor());
     }
 
@@ -158,7 +158,7 @@ class LiveStreamMediatorImplTest {
                 writerFactory,
                 executorMock,
                 archiverMock,
-                persistenceConfigMock);
+                persistenceStorageConfig);
         streamMediator.subscribe(handler);
 
         // Acting as a producer, notify the mediator of a new block
@@ -238,7 +238,7 @@ class LiveStreamMediatorImplTest {
                 asyncBlockWriterFactoryMock,
                 executorMock,
                 archiverMock,
-                persistenceConfigMock);
+                persistenceStorageConfig);
         streamMediator.subscribe(handler);
 
         // Acting as a producer, notify the mediator of a new block
@@ -482,7 +482,7 @@ class LiveStreamMediatorImplTest {
                 asyncBlockWriterFactoryMock,
                 executorMock,
                 archiverMock,
-                persistenceConfigMock);
+                persistenceStorageConfig);
 
         // Set up the stream verifier
         streamMediator.subscribe(handler);
@@ -552,7 +552,7 @@ class LiveStreamMediatorImplTest {
                 asyncBlockWriterFactoryMock,
                 executorMock,
                 archiverMock,
-                persistenceConfigMock);
+                persistenceStorageConfig);
         streamMediator.subscribe(handler);
 
         final BlockNodeEventHandler<ObjectEvent<List<BlockItemUnparsed>>> testConsumerBlockItemObserver =

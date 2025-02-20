@@ -164,10 +164,7 @@ public final class PersistTestUtils {
      */
     public static List<List<BlockItemUnparsed>> generateBlockItemsUnparsedStartFromBlockNumber0Chunked(
             final int numOfBlocks) {
-        final List<BlockItemUnparsed> blockItems = new ArrayList<>();
-        for (int i = 0; i < numOfBlocks; i++) {
-            blockItems.addAll(generateBlockItemsUnparsedForWithBlockNumber(i));
-        }
+        final List<BlockItemUnparsed> blockItems = generateBlockItemsUnparsedStartFromBlockNumber0(numOfBlocks);
         return ChunkUtils.chunkify(blockItems, 10);
     }
 
