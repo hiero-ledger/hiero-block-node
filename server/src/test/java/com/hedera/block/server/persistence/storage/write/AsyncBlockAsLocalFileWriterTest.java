@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 package com.hedera.block.server.persistence.storage.write;
 
+import static com.hedera.block.server.metrics.BlockNodeMetricTypes.Counter.BlockPersistenceError;
 import static com.hedera.block.server.metrics.BlockNodeMetricTypes.Counter.BlocksPersisted;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatIllegalArgumentException;
@@ -60,7 +61,10 @@ class AsyncBlockAsLocalFileWriterTest {
     private MetricsService metricsServiceMock;
 
     @Mock
-    private Counter counterMock;
+    private Counter successfulPersistenceCounterMock;
+
+    @Mock
+    private Counter persistenceErrorCounterMock;
 
     @TempDir
     private Path testTempDir;
@@ -95,7 +99,7 @@ class AsyncBlockAsLocalFileWriterTest {
         when(blockPathResolverMock.existsVerifiedBlock(validBlockNumber)).thenReturn(false);
         when(compressionMock.getCompressionFileExtension()).thenReturn("");
         when(compressionMock.wrap(any(OutputStream.class))).thenAnswer(invocation -> invocation.getArgument(0));
-        when(metricsServiceMock.get(BlocksPersisted)).thenReturn(counterMock);
+        when(metricsServiceMock.get(BlocksPersisted)).thenReturn(successfulPersistenceCounterMock);
 
         // then
         toTest.call();
@@ -139,7 +143,7 @@ class AsyncBlockAsLocalFileWriterTest {
         when(blockPathResolverMock.existsVerifiedBlock(validBlockNumber)).thenReturn(false);
         when(compressionMock.getCompressionFileExtension()).thenReturn("");
         when(compressionMock.wrap(any(OutputStream.class))).thenAnswer(invocation -> invocation.getArgument(0));
-        when(metricsServiceMock.get(BlocksPersisted)).thenReturn(counterMock);
+        when(metricsServiceMock.get(BlocksPersisted)).thenReturn(successfulPersistenceCounterMock);
 
         // then
         toTest.call();
@@ -174,6 +178,7 @@ class AsyncBlockAsLocalFileWriterTest {
 
         // when
         final Path expectedWrittenBlockFile = testTempDir.resolve(validBlockNumber + Constants.BLOCK_FILE_EXTENSION);
+        when(metricsServiceMock.get(BlockPersistenceError)).thenReturn(persistenceErrorCounterMock);
         when(blockPathResolverMock.resolveLiveRawPathToBlock(validBlockNumber)).thenReturn(expectedWrittenBlockFile);
         when(blockPathResolverMock.existsVerifiedBlock(validBlockNumber)).thenReturn(false);
         when(compressionMock.getCompressionFileExtension()).thenReturn("");
@@ -218,6 +223,7 @@ class AsyncBlockAsLocalFileWriterTest {
         when(compressionMock.getCompressionFileExtension()).thenReturn("");
         when(compressionMock.wrap(any(OutputStream.class))).thenThrow(IOException.class);
         when(blockRemoverMock.removeLiveUnverified(validBlockNumber)).thenThrow(IOException.class);
+        when(metricsServiceMock.get(BlockPersistenceError)).thenReturn(persistenceErrorCounterMock);
 
         // then
         toTest.call();
@@ -246,6 +252,8 @@ class AsyncBlockAsLocalFileWriterTest {
         // setup
         final List<BlockItemUnparsed> validBlock =
                 PersistTestUtils.generateBlockItemsUnparsedForWithBlockNumber(validBlockNumber);
+
+        when(metricsServiceMock.get(BlockPersistenceError)).thenReturn(persistenceErrorCounterMock);
         final AsyncBlockWriter toTest = new AsyncBlockAsLocalFileWriter(
                 validBlockNumber,
                 blockPathResolverMock,
@@ -294,6 +302,7 @@ class AsyncBlockAsLocalFileWriterTest {
 
         // when
         when(blockPathResolverMock.existsVerifiedBlock(validBlockNumber)).thenReturn(true);
+        when(metricsServiceMock.get(BlockPersistenceError)).thenReturn(persistenceErrorCounterMock);
 
         // then
         toTest.call();
@@ -340,7 +349,7 @@ class AsyncBlockAsLocalFileWriterTest {
     private void verifySuccessfulPersistencePublish(final BlockPersistenceResult actual) {
         verify(ackHandlerMock, times(1)).blockPersisted(actual);
         verify(metricsServiceMock, times(1)).get(BlocksPersisted);
-        verify(counterMock, times(1)).increment();
+        verify(successfulPersistenceCounterMock, times(1)).increment();
     }
 
     /**
@@ -352,7 +361,8 @@ class AsyncBlockAsLocalFileWriterTest {
     private void verifyUnsuccessfulPersistencePublish(final BlockPersistenceResult actual) {
         verify(ackHandlerMock, times(1)).blockPersisted(actual);
         verify(metricsServiceMock, never()).get(BlocksPersisted);
-        verify(counterMock, never()).increment();
+        verify(successfulPersistenceCounterMock, never()).increment();
+        verify(persistenceErrorCounterMock, times(1)).increment();
     }
 
     /**
