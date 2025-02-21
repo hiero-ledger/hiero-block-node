@@ -9,6 +9,8 @@ public final class Preconditions {
     private static final String DEFAULT_REQUIRE_POSITIVE_MESSAGE = "The input number [%d] is required to be positive.";
     private static final String DEFAULT_GT_OR_EQ_MESSAGE =
             "The input number [%d] is required to be greater or equal than [%d].";
+    private static final String DEFAULT_EXACT_DIVISION_MESSAGE =
+            "The input number [%d] is required to be exactly divisible by [%d].";
     private static final String DEFAULT_REQUIRE_IN_RANGE_MESSAGE =
             "The input number [%d] is required to be in the range [%d, %d] boundaries included.";
     private static final String DEFAULT_REQUIRE_WHOLE_MESSAGE =
@@ -163,6 +165,41 @@ public final class Preconditions {
             return toTest;
         } else {
             throw new IllegalArgumentException(errorMessage.formatted(toTest, base));
+        }
+    }
+
+    /**
+     * This method asserts a given long is exactly divisible by a given modulus.
+     *
+     * @param toTest the long to check if it is exactly divisible by the modulus
+     * @param modulus the modulus to check if the long is exactly divisible by
+     * @return the long to check if it is exactly divisible by the modulus
+     * @throws IllegalArgumentException if the input long to check is not exactly
+     * divisible by the modulus
+     */
+    public static long requireExactlyDivisibleBy(final long toTest, final long modulus) {
+        return requireExactlyDivisibleBy(toTest, modulus, DEFAULT_EXACT_DIVISION_MESSAGE);
+    }
+
+    /**
+     * This method asserts a given long is exactly divisible by a given modulus.
+     *
+     * @param toTest the long to check if it is exactly divisible by the modulus
+     * @param modulus the modulus to check if the long is exactly divisible by
+     * @param errorMessage a formatted string with two decimal parameters for
+     * {@code toTest} and {@code modulus}, must not be {@code null}.<br/>
+     * Example error message: {@value #DEFAULT_EXACT_DIVISION_MESSAGE}
+     * @return the long to check if it is exactly divisible by the modulus
+     * @throws IllegalArgumentException if the input long to check is not exactly
+     * divisible by the modulus
+     * @see java.util.Formatter for more information on error message formatting
+     */
+    public static long requireExactlyDivisibleBy(
+            final long toTest, final long modulus, @NonNull final String errorMessage) {
+        if (toTest % modulus == 0) {
+            return toTest;
+        } else {
+            throw new IllegalArgumentException(errorMessage.formatted(toTest, modulus));
         }
     }
 
