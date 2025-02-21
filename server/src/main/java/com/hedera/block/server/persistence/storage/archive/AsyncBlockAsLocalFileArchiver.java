@@ -48,7 +48,7 @@ public final class AsyncBlockAsLocalFileArchiver implements Callable<Void> {
 
     /**
      * The archiver will archive blocks to local storage. It is given a passed
-     * block number threshold, all blocks below 1 order of magnitude lower that
+     * block number threshold, all blocks below 1 group size lower than the
      * threshold will be archived. Due to the trie structure utilized by the
      * persistence type used, we can be sure that simply by determining the
      * archive root, we can archive all blocks under that root. It is not
@@ -92,20 +92,20 @@ public final class AsyncBlockAsLocalFileArchiver implements Callable<Void> {
             final Path zipFilePath = archiveInZip(upperBound, pathsToArchive, rootToArchive);
             // Then, if that did not throw an exception, this means that the zip is successful,
             // now we can reroute all subsequent reads to be done under through the zip. To do
-            // that, we need to create a symlink to the zip file we just created so readers can
+            // that, we need to create a link to the zip file we just created so readers can
             // find it again under the live root (the specification is that reading will try to
             // first resolve a block from the live root and if it is not found, it will try to
-            // resolve it from the archive, which will be symlinked at the place where we would
+            // resolve it from the archive, which will be linked at the place where we would
             // usually find the live block, based on archive group size option, so we will find
-            // a symlink to the zip we just created at the appropriate place).
-            createSymlink(rootToArchive, zipFilePath);
-            // If the symlink is created and no exception is thrown, we are sure that blocks are
-            // safely archived and are discoverable via the symlink, now we can safely proceed to
-            // delete the live blocks, if something goes wrong, we know the archive is fine and we
+            // a link to the zip we just created at the appropriate place).
+            createLink(rootToArchive, zipFilePath);
+            // If the link is created and no exception is thrown, we are sure that blocks are
+            // safely archived and are discoverable via the link, now we can safely proceed to
+            // delete the live blocks, if something goes wrong, we know the archive is fine, we
             // can rely on it, we will no longer be touching that.
             deleteLive(rootToArchive);
             // If deleting does not throw any exception, we are sure that the blocks are safely
-            // archived, are discoverable via the symlink to the archive and the live blocks are
+            // archived, are discoverable via the link to the archive and the live blocks are
             // deleted. We can also be sure that no data has been lost.
         } else {
             LOGGER.log(Level.DEBUG, "No files to archive under [%s]".formatted(rootToArchive));
@@ -161,26 +161,36 @@ public final class AsyncBlockAsLocalFileArchiver implements Callable<Void> {
         return zipFilePath;
     }
 
-    private static void createSymlink(final Path rootToArchive, final Path zipFilePath) throws IOException {
-        // We need to create a symlink to the zip file we just created so readers can find it.
-        final Path liveSymlink = FileUtilities.appendExtension(rootToArchive, ".zip");
-        Files.createSymbolicLink(liveSymlink, zipFilePath);
-        LOGGER.log(Level.DEBUG, "Symlink [%s <-> %s] created".formatted(liveSymlink, zipFilePath));
-        // If no exception is thrown here, this means that the symlink is made and the blocks
+    private static void createLink(final Path rootToArchive, final Path zipFilePath) throws IOException {
+        // We need to create a link to the zip file we just created so readers can find it.
+        final Path livelink = FileUtilities.appendExtension(rootToArchive, ".zip");
+        try {
+            Files.createLink(livelink, zipFilePath);
+        } catch (final Exception e) {
+            LOGGER.log(
+                    Level.ERROR,
+                    "Error while creating link [%s <-> %s], attempting to create a symlink"
+                            .formatted(livelink, zipFilePath),
+                    e);
+            // if we are unable to create a link, we need to attempt to create a symbolic link
+            Files.createSymbolicLink(livelink, zipFilePath);
+        }
+        LOGGER.log(Level.DEBUG, "link [%s <-> %s] created".formatted(livelink, zipFilePath));
+        // If no exception is thrown here, this means that the link is made and the blocks
         // could now be discovered via it
     }
 
     @SuppressWarnings("ResultOfMethodCallIgnored")
     private void deleteLive(final Path rootToArchive) throws IOException {
         // We need to move the live dir that we just archived so readers will no longer be able
-        // to find it, hence they will fall back to search for the symlink we just made as well
-        // in the meantime, while readers get data from the symlink, we can safely delete the
+        // to find it, hence they will fall back to search for the link we just made as well
+        // in the meantime, while readers get data from the link, we can safely delete the
         // live dir.
         final Path movedToDelete = FileUtilities.appendExtension(rootToArchive, "del");
         Files.move(rootToArchive, movedToDelete);
-        // After the move is successful, reads will be done through the symlink.
+        // After the move is successful, reads will be done through the link.
         // If we have reached here, this means that the zipping is successful,
-        // the symlink for the archive is created successfully, and now it is
+        // the link for the archive is created successfully, and now it is
         // safe for us to start deleting the blocks in the live root. Even if a
         // delete fails, we know our blocks are safely stored in the archive,
         // so we can be sure no data is lost.

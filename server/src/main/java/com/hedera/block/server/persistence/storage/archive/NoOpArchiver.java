@@ -15,8 +15,8 @@ public class NoOpArchiver implements LocalBlockArchiver {
      * No-op implementation. Does nothing.
      */
     @Override
-    public void submitThresholdPassed(long blockNumberThreshold) {
+    public void notifyBlockPersisted(long blockNumber) {
         // no-op
-        LOGGER.log(TRACE, "No-op archiver invoked for block number threshold [%d]".formatted(blockNumberThreshold));
+        LOGGER.log(TRACE, "No-op archiver invoked for block number threshold [%d]".formatted(blockNumber));
     }
 }

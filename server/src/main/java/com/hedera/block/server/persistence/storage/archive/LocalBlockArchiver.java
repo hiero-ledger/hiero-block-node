@@ -6,11 +6,9 @@ package com.hedera.block.server.persistence.storage.archive;
  */
 public interface LocalBlockArchiver {
     /**
-     * This method will submit a passed threshold. The archiver then will
-     * proceed to archive the blocks lower than 1 order of magnitude below the
-     * threshold, based on archive group size configuration.
+     * This method will notify the archiver that a block has been persisted.
      *
-     * @param blockNumberThreshold the block number threshold passed
+     * @param blockNumber the block number that has been persisted
      */
-    void submitThresholdPassed(final long blockNumberThreshold);
+    void notifyBlockPersisted(final long blockNumber);
 }

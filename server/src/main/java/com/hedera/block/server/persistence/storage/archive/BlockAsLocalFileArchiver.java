@@ -36,13 +36,12 @@ public final class BlockAsLocalFileArchiver implements LocalBlockArchiver {
     }
 
     @Override
-    public void submitThresholdPassed(final long blockNumberThreshold) {
-        final boolean validThresholdPassed =
-                (blockNumberThreshold >= 10) && (blockNumberThreshold % archiveGroupSize == 0);
-        final boolean canArchive = blockNumberThreshold - archiveGroupSize * 2L >= 0;
+    public void notifyBlockPersisted(final long blockNumber) {
+        final boolean validThresholdPassed = (blockNumber >= 10) && (blockNumber % archiveGroupSize == 0);
+        final boolean canArchive = blockNumber - archiveGroupSize * 2L >= 0;
         if (validThresholdPassed && canArchive) {
-            // here we need to archive everything below one order of magnitude of the threshold passed
-            final long thresholdOneGroupSizeLower = blockNumberThreshold - archiveGroupSize;
+            // here we need to archive everything below 1 group size lower than the threshold passed
+            final long thresholdOneGroupSizeLower = blockNumber - archiveGroupSize;
             final Callable<Void> archivingTask =
                     new AsyncBlockAsLocalFileArchiver(thresholdOneGroupSizeLower, config, blockPathResolver);
             completionService.submit(archivingTask);
