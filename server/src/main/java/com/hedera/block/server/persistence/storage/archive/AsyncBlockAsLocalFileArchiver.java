@@ -14,6 +14,7 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Objects;
 import java.util.stream.Stream;
+import java.util.zip.Deflater;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipOutputStream;
 
@@ -120,11 +121,14 @@ public final class AsyncBlockAsLocalFileArchiver implements AsyncLocalBlockArchi
         // Then, we need to populate the zip with all entries that should be in it, resolved before
         // the invocation of this method.
         try (final ZipOutputStream out = new ZipOutputStream(Files.newOutputStream(zipFilePath))) {
+            out.setMethod(ZipOutputStream.STORED);
+            out.setLevel(Deflater.NO_COMPRESSION);
             for (int i = 0; i < pathsToArchive.size(); i++) {
                 final Path pathToArchive = pathsToArchive.get(i);
                 final String relativizedEntryName =
                         rootToArchive.relativize(pathToArchive).toString();
                 final ZipEntry zipEntry = new ZipEntry(relativizedEntryName);
+                zipEntry.setMethod(ZipEntry.STORED);
                 LOGGER.log(Level.TRACE, "Adding Zip Entry [%s] to zip file [%s]".formatted(zipEntry, zipFilePath));
                 // For each block that should be part of this zip, we copy the contents from live to the zip
                 out.putNextEntry(zipEntry);
