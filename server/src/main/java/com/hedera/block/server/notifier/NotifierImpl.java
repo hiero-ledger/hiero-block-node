@@ -2,6 +2,7 @@
 package com.hedera.block.server.notifier;
 
 import static com.hedera.block.server.metrics.BlockNodeMetricTypes.Counter.SuccessfulPubStreamResp;
+import static com.hedera.block.server.metrics.BlockNodeMetricTypes.Gauge.ConsumerBuffersRemainingCapacity;
 import static com.hedera.block.server.metrics.BlockNodeMetricTypes.Gauge.NotifierRingBufferRemainingCapacity;
 import static com.hedera.block.server.metrics.BlockNodeMetricTypes.Gauge.Producers;
 import static java.lang.System.Logger.Level.ERROR;
@@ -63,7 +64,8 @@ public class NotifierImpl extends SubscriptionHandlerBase<PublishStreamResponse>
                 blockNodeContext
                         .configuration()
                         .getConfigData(NotifierConfig.class)
-                        .ringBufferSize());
+                        .ringBufferSize(),
+                blockNodeContext.metricsService().get(ConsumerBuffersRemainingCapacity));
 
         this.mediator = mediator;
         this.metricsService = blockNodeContext.metricsService();

@@ -18,7 +18,7 @@ import com.swirlds.config.api.ConfigProperty;
  */
 @ConfigData("mediator")
 public record MediatorConfig(
-        @Loggable @ConfigProperty(defaultValue = "1_048_576") int ringBufferSize,
+        @Loggable @ConfigProperty(defaultValue = "262_144") int ringBufferSize,
         @Loggable @ConfigProperty(defaultValue = "PRODUCTION") MediatorType type) {
 
     /**
