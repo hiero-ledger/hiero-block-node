@@ -38,7 +38,7 @@ public final class BlockAsLocalFileArchiver implements LocalBlockArchiver {
     @Override
     public void submitThresholdPassed(final long blockNumberThreshold) {
         final boolean validThresholdPassed =
-                (blockNumberThreshold > 1) && (blockNumberThreshold % archiveGroupSize == 0);
+                (blockNumberThreshold >= 10) && (blockNumberThreshold % archiveGroupSize == 0);
         final boolean canArchive = blockNumberThreshold - archiveGroupSize * 2L >= 0;
         if (validThresholdPassed && canArchive) {
             // here we need to archive everything below one order of magnitude of the threshold passed

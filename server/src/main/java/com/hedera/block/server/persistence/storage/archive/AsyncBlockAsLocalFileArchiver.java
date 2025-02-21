@@ -2,6 +2,7 @@
 package com.hedera.block.server.persistence.storage.archive;
 
 import com.hedera.block.common.utils.FileUtilities;
+import com.hedera.block.common.utils.Preconditions;
 import com.hedera.block.server.persistence.storage.PersistenceStorageConfig;
 import com.hedera.block.server.persistence.storage.path.BlockPathResolver;
 import edu.umd.cs.findbugs.annotations.NonNull;
@@ -37,11 +38,12 @@ public final class AsyncBlockAsLocalFileArchiver implements Callable<Void> {
         this.blockNumberThreshold = blockNumberThreshold;
         this.pathResolver = Objects.requireNonNull(pathResolver);
         final int archiveGroupSize = config.archiveGroupSize();
-        // valid thresholds are all that are exactly divisible vy the group size
-        // and are bigger than 1
-        if ((blockNumberThreshold <= 1) || (blockNumberThreshold % archiveGroupSize != 0)) {
-            throw new IllegalArgumentException("Block number must be divisible by " + archiveGroupSize);
-        }
+        // valid thresholds are all that are exactly divisible by the group size
+        // and are greater than or equal to 10
+        Preconditions.requireGreaterOrEqual(
+                blockNumberThreshold, 10, "Block Number [%d] is required to be greater or equal than [%d].");
+        Preconditions.requireExactlyDivisibleBy(
+                blockNumberThreshold, archiveGroupSize, "Block Number [%d] is required to be a positive power of 10.");
     }
 
     /**
