@@ -4,6 +4,7 @@ package com.hedera.block.server.util;
 import static java.lang.System.Logger;
 import static java.lang.System.Logger.Level.INFO;
 
+import com.hedera.block.common.utils.ChunkUtils;
 import com.hedera.hapi.block.BlockItemUnparsed;
 import com.hedera.hapi.block.stream.BlockProof;
 import com.hedera.hapi.block.stream.input.EventHeader;
@@ -21,6 +22,7 @@ public final class PersistTestUtils {
     private static final Logger LOGGER = System.getLogger(PersistTestUtils.class.getName());
     public static final String PERSISTENCE_STORAGE_LIVE_ROOT_PATH_KEY = "persistence.storage.liveRootPath";
     public static final String PERSISTENCE_STORAGE_ARCHIVE_ROOT_PATH_KEY = "persistence.storage.archiveRootPath";
+    public static final String PERSISTENCE_STORAGE_COMPRESSION_TYPE = "persistence.storage.compressionType";
     public static final String PERSISTENCE_STORAGE_COMPRESSION_LEVEL = "persistence.storage.compressionLevel";
     public static final String PERSISTENCE_STORAGE_ARCHIVE_BATCH_SIZE = "persistence.storage.archiveGroupSize";
 
@@ -124,6 +126,46 @@ public final class PersistTestUtils {
             blockItems.addAll(generateBlockItemsUnparsedForWithBlockNumber(i));
         }
         return blockItems;
+    }
+
+    /**
+     * This method generates a list of {@link BlockItemUnparsed} for as many
+     * blocks as specified by the input parameter numOfBlocks. For each block
+     * number from 0 to numOfBlocks - 1, it generates 10 block items starting with
+     * the block header, followed by 8 events and ending with the block proof.
+     * In a way, this simulates a stream of block items. Each 10 items in the
+     * list represent a block.
+     *
+     * @param numOfBlocks the number of blocks to generate block items for
+     *
+     * @return a list of {@link BlockItemUnparsed} for as many blocks as
+     * specified by the input parameter numOfBlocks
+     */
+    public static List<BlockItemUnparsed> generateBlockItemsUnparsedStartFromBlockNumber0(final int numOfBlocks) {
+        final List<BlockItemUnparsed> blockItems = new ArrayList<>();
+        for (int i = 0; i < numOfBlocks; i++) {
+            blockItems.addAll(generateBlockItemsUnparsedForWithBlockNumber(i));
+        }
+        return blockItems;
+    }
+
+    /**
+     * This method generates a list of {@link BlockItemUnparsed} for as many
+     * blocks as specified by the input parameter numOfBlocks. For each block
+     * number from 0 to numOfBlocks - 1, it generates 10 block items starting with
+     * the block header, followed by 8 events and ending with the block proof.
+     * In a way, this simulates a stream of block items. Each 10 items in the
+     * list represent a block.
+     *
+     * @param numOfBlocks the number of blocks to generate block items for
+     *
+     * @return a list of {@link BlockItemUnparsed} for as many blocks as
+     * specified by the input parameter numOfBlocks
+     */
+    public static List<List<BlockItemUnparsed>> generateBlockItemsUnparsedStartFromBlockNumber0Chunked(
+            final int numOfBlocks) {
+        final List<BlockItemUnparsed> blockItems = generateBlockItemsUnparsedStartFromBlockNumber0(numOfBlocks);
+        return ChunkUtils.chunkify(blockItems, 10);
     }
 
     public static byte[] reverseByteArray(byte[] input) {

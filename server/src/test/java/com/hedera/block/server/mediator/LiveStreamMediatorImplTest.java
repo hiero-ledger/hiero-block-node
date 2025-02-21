@@ -3,7 +3,11 @@ package com.hedera.block.server.mediator;
 
 import static com.hedera.block.server.metrics.BlockNodeMetricTypes.Counter.LiveBlockItems;
 import static com.hedera.block.server.metrics.BlockNodeMetricTypes.Counter.LiveBlockStreamMediatorError;
+import static com.hedera.block.server.util.PersistTestUtils.PERSISTENCE_STORAGE_ARCHIVE_ROOT_PATH_KEY;
+import static com.hedera.block.server.util.PersistTestUtils.PERSISTENCE_STORAGE_LIVE_ROOT_PATH_KEY;
 import static com.hedera.block.server.util.PersistTestUtils.generateBlockItemsUnparsed;
+import static com.hedera.block.server.util.TestConfigUtil.CONSUMER_TIMEOUT_THRESHOLD_KEY;
+import static com.hedera.block.server.util.TestConfigUtil.MEDIATOR_RING_BUFFER_SIZE_KEY;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -20,6 +24,8 @@ import com.hedera.block.server.metrics.BlockNodeMetricTypes;
 import com.hedera.block.server.notifier.Notifier;
 import com.hedera.block.server.notifier.NotifierImpl;
 import com.hedera.block.server.persistence.StreamPersistenceHandlerImpl;
+import com.hedera.block.server.persistence.storage.PersistenceStorageConfig;
+import com.hedera.block.server.persistence.storage.archive.LocalBlockArchiver;
 import com.hedera.block.server.persistence.storage.write.AsyncBlockWriterFactory;
 import com.hedera.block.server.persistence.storage.write.AsyncNoOpWriterFactory;
 import com.hedera.block.server.service.ServiceStatus;
@@ -33,6 +39,7 @@ import com.hedera.hapi.block.stream.output.BlockHeader;
 import com.hedera.pbj.runtime.grpc.Pipeline;
 import com.swirlds.metrics.api.LongGauge;
 import java.io.IOException;
+import java.nio.file.Path;
 import java.time.InstantSource;
 import java.util.HashMap;
 import java.util.List;
@@ -44,6 +51,7 @@ import java.util.concurrent.Executors;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.api.io.TempDir;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
@@ -86,16 +94,25 @@ class LiveStreamMediatorImplTest {
     @Mock
     private Executor executorMock;
 
-    private BlockNodeContext testContext;
+    @Mock
+    private LocalBlockArchiver archiverMock;
 
+    @TempDir
+    private Path testTempDir;
+
+    private PersistenceStorageConfig persistenceStorageConfig;
+    private BlockNodeContext testContext;
     private CompletionService<Void> completionService;
 
     @BeforeEach
     void setup() throws IOException {
         final Map<String, String> properties = new HashMap<>();
-        properties.put(TestConfigUtil.CONSUMER_TIMEOUT_THRESHOLD_KEY, String.valueOf(TIMEOUT_THRESHOLD_MILLIS));
-        properties.put(TestConfigUtil.MEDIATOR_RING_BUFFER_SIZE_KEY, String.valueOf(1024));
+        properties.put(PERSISTENCE_STORAGE_LIVE_ROOT_PATH_KEY, testTempDir.toString());
+        properties.put(PERSISTENCE_STORAGE_ARCHIVE_ROOT_PATH_KEY, testTempDir.toString());
+        properties.put(CONSUMER_TIMEOUT_THRESHOLD_KEY, String.valueOf(TIMEOUT_THRESHOLD_MILLIS));
+        properties.put(MEDIATOR_RING_BUFFER_SIZE_KEY, String.valueOf(1024));
         this.testContext = TestConfigUtil.getTestBlockNodeContext(properties);
+        this.persistenceStorageConfig = testContext.configuration().getConfigData(PersistenceStorageConfig.class);
         this.completionService = new ExecutorCompletionService<>(Executors.newSingleThreadExecutor());
     }
 
@@ -144,7 +161,15 @@ class LiveStreamMediatorImplTest {
         final AsyncNoOpWriterFactory writerFactory =
                 new AsyncNoOpWriterFactory(ackHandlerMock, blockNodeContext.metricsService());
         final StreamPersistenceHandlerImpl handler = new StreamPersistenceHandlerImpl(
-                streamMediator, notifier, blockNodeContext, serviceStatus, ackHandlerMock, writerFactory, executorMock);
+                streamMediator,
+                notifier,
+                blockNodeContext,
+                serviceStatus,
+                ackHandlerMock,
+                writerFactory,
+                executorMock,
+                archiverMock,
+                persistenceStorageConfig);
         streamMediator.subscribe(handler);
 
         // Acting as a producer, notify the mediator of a new block
@@ -222,7 +247,9 @@ class LiveStreamMediatorImplTest {
                 serviceStatus,
                 ackHandlerMock,
                 asyncBlockWriterFactoryMock,
-                executorMock);
+                executorMock,
+                archiverMock,
+                persistenceStorageConfig);
         streamMediator.subscribe(handler);
 
         // Acting as a producer, notify the mediator of a new block
@@ -464,7 +491,9 @@ class LiveStreamMediatorImplTest {
                 serviceStatus,
                 ackHandlerMock,
                 asyncBlockWriterFactoryMock,
-                executorMock);
+                executorMock,
+                archiverMock,
+                persistenceStorageConfig);
 
         // Set up the stream verifier
         streamMediator.subscribe(handler);
@@ -532,7 +561,9 @@ class LiveStreamMediatorImplTest {
                 serviceStatus,
                 ackHandlerMock,
                 asyncBlockWriterFactoryMock,
-                executorMock);
+                executorMock,
+                archiverMock,
+                persistenceStorageConfig);
         streamMediator.subscribe(handler);
 
         final BlockNodeEventHandler<ObjectEvent<List<BlockItemUnparsed>>> testConsumerBlockItemObserver =

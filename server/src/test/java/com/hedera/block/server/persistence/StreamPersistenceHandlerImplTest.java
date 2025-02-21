@@ -2,6 +2,8 @@
 package com.hedera.block.server.persistence;
 
 import static com.hedera.block.server.metrics.BlockNodeMetricTypes.Counter.StreamPersistenceHandlerError;
+import static com.hedera.block.server.util.PersistTestUtils.*;
+import static com.hedera.block.server.util.PersistTestUtils.PERSISTENCE_STORAGE_LIVE_ROOT_PATH_KEY;
 import static com.hedera.block.server.util.PersistTestUtils.generateBlockItemsUnparsed;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.never;
@@ -10,24 +12,30 @@ import static org.mockito.Mockito.when;
 
 import com.hedera.block.server.ack.AckHandler;
 import com.hedera.block.server.config.BlockNodeContext;
+import com.hedera.block.server.config.TestConfigBuilder;
 import com.hedera.block.server.events.ObjectEvent;
 import com.hedera.block.server.mediator.SubscriptionHandler;
 import com.hedera.block.server.metrics.MetricsService;
 import com.hedera.block.server.notifier.Notifier;
+import com.hedera.block.server.persistence.storage.PersistenceStorageConfig;
+import com.hedera.block.server.persistence.storage.archive.LocalBlockArchiver;
 import com.hedera.block.server.persistence.storage.write.AsyncBlockWriterFactory;
 import com.hedera.block.server.service.ServiceStatus;
 import com.hedera.hapi.block.BlockItemUnparsed;
+import com.swirlds.config.api.Configuration;
+import java.io.IOException;
+import java.nio.file.Path;
 import java.util.List;
 import java.util.concurrent.Executor;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.api.io.TempDir;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 @ExtendWith(MockitoExtension.class)
 class StreamPersistenceHandlerImplTest {
-    private static final int TEST_TIMEOUT = 50;
-
     @Mock
     private SubscriptionHandler<List<BlockItemUnparsed>> subscriptionHandler;
 
@@ -50,10 +58,27 @@ class StreamPersistenceHandlerImplTest {
     private AsyncBlockWriterFactory asyncBlockWriterFactoryMock;
 
     @Mock
+    private LocalBlockArchiver archiverMock;
+
+    @Mock
     private Executor executorMock;
 
+    @TempDir
+    private Path testTempDir;
+
+    private PersistenceStorageConfig persistenceStorageConfig;
+
+    @BeforeEach
+    void setUp() {
+        final TestConfigBuilder configBuilder = new TestConfigBuilder(PersistenceStorageConfig.class);
+        configBuilder.withValue(PERSISTENCE_STORAGE_LIVE_ROOT_PATH_KEY, testTempDir.toString());
+        configBuilder.withValue(PERSISTENCE_STORAGE_ARCHIVE_ROOT_PATH_KEY, testTempDir.toString());
+        final Configuration config = configBuilder.getOrCreateConfig();
+        persistenceStorageConfig = config.getConfigData(PersistenceStorageConfig.class);
+    }
+
     @Test
-    void testOnEventWhenServiceIsNotRunning() {
+    void testOnEventWhenServiceIsNotRunning() throws IOException {
         when(blockNodeContext.metricsService()).thenReturn(metricsService);
         when(serviceStatus.isRunning()).thenReturn(false);
 
@@ -64,7 +89,9 @@ class StreamPersistenceHandlerImplTest {
                 serviceStatus,
                 ackHandlerMock,
                 asyncBlockWriterFactoryMock,
-                executorMock);
+                executorMock,
+                archiverMock,
+                persistenceStorageConfig);
 
         final List<BlockItemUnparsed> blockItems = generateBlockItemsUnparsed(1);
         final ObjectEvent<List<BlockItemUnparsed>> event = new ObjectEvent<>();
