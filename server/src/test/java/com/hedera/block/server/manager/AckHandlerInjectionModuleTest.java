@@ -11,6 +11,7 @@ import com.hedera.block.server.ack.AckHandlerInjectionModule;
 import com.hedera.block.server.metrics.MetricsService;
 import com.hedera.block.server.notifier.Notifier;
 import com.hedera.block.server.persistence.storage.PersistenceStorageConfig;
+import com.hedera.block.server.persistence.storage.PersistenceStorageConfig.ArchiveType;
 import com.hedera.block.server.persistence.storage.remove.BlockRemover;
 import com.hedera.block.server.service.ServiceStatus;
 import com.hedera.block.server.verification.VerificationConfig;
@@ -38,7 +39,7 @@ class AckHandlerInjectionModuleTest {
                 PersistenceStorageConfig.StorageType.BLOCK_AS_LOCAL_FILE,
                 PersistenceStorageConfig.CompressionType.NONE,
                 0,
-                false,
+                ArchiveType.NO_OP,
                 10);
         final VerificationConfig verificationConfig = mock(VerificationConfig.class);
         when(verificationConfig.type()).thenReturn(VerificationConfig.VerificationServiceType.PRODUCTION);

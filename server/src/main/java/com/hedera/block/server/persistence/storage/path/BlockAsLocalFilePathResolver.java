@@ -22,10 +22,10 @@ import java.util.zip.ZipFile;
 public final class BlockAsLocalFilePathResolver implements BlockPathResolver {
     private static final int MAX_LONG_DIGITS = 19;
     private final Path liveRootPath;
+    private final Path archiveRootPath;
     private final int archiveGroupSize;
     private final int archiveDirDepth;
     private final DecimalFormat longLeadingZeroesFormat;
-    private final DecimalFormat blockDirDepthFormat;
 
     /**
      * Constructor.
@@ -35,11 +35,10 @@ public final class BlockAsLocalFilePathResolver implements BlockPathResolver {
      */
     public BlockAsLocalFilePathResolver(@NonNull final PersistenceStorageConfig config) throws IOException {
         this.liveRootPath = Objects.requireNonNull(config.liveRootPath());
-        Files.createDirectories(liveRootPath);
+        this.archiveRootPath = Objects.requireNonNull(config.archiveRootPath());
         this.archiveGroupSize = config.archiveGroupSize();
         this.archiveDirDepth = MAX_LONG_DIGITS - (int) Math.log10(this.archiveGroupSize);
         this.longLeadingZeroesFormat = new DecimalFormat("0".repeat(MAX_LONG_DIGITS));
-        this.blockDirDepthFormat = new DecimalFormat("0".repeat(archiveDirDepth));
     }
 
     @NonNull
@@ -59,6 +58,18 @@ public final class BlockAsLocalFilePathResolver implements BlockPathResolver {
         blockPath[blockPath.length - 1] =
                 blockPath[blockPath.length - 1].concat(Constants.UNVERIFIED_BLOCK_FILE_EXTENSION);
         return Path.of(liveRootPath.toString(), blockPath);
+    }
+
+    @NonNull
+    @Override
+    public Path resolveRawPathToArchiveParentUnderLive(final long blockNumber) {
+        return resolveRawArchivingTarget(blockNumber, liveRootPath, "");
+    }
+
+    @NonNull
+    @Override
+    public Path resolveRawPathToArchiveParentUnderArchive(final long blockNumber) {
+        return resolveRawArchivingTarget(blockNumber, archiveRootPath, ".zip");
     }
 
     @NonNull
@@ -149,24 +160,15 @@ public final class BlockAsLocalFilePathResolver implements BlockPathResolver {
      * @return an {@link ArchiveBlockPath} containing the raw path resolved
      */
     ArchiveBlockPath resolveRawArchivePath(final long blockNumber) {
-        final long dividedNumber = Math.floorDiv(blockNumber, archiveGroupSize);
-        final String formattedNumber = blockDirDepthFormat.format(dividedNumber);
-        final StringBuilder pathBuilder = new StringBuilder(archiveDirDepth * 2);
-        final char[] arr = formattedNumber.toCharArray();
-        for (int i = 0; i < arr.length; i++) {
-            pathBuilder.append(arr[i]).append("/");
-        }
-        pathBuilder.setCharAt(pathBuilder.length() - 1, '.');
-        pathBuilder.append("zip");
-        final String dst = pathBuilder.toString();
-        // use the symlink from the live root path
-        final Path destPath = liveRootPath.resolve(Path.of(dst));
-        final String rawBlockFileName =
-                longLeadingZeroesFormat.format(blockNumber).concat(Constants.BLOCK_FILE_EXTENSION);
+        final Path zipRootUnderLiveLocation = resolveRawPathToArchiveParentUnderLive(blockNumber);
+        final String zipEntryName = zipRootUnderLiveLocation
+                .relativize(resolveLiveRawPathToBlock(blockNumber))
+                .toString();
+        final Path zipFileSymlink = FileUtilities.appendExtension(zipRootUnderLiveLocation, ".zip");
         return new ArchiveBlockPath(
-                destPath.getParent(),
-                destPath.getFileName().toString(),
-                rawBlockFileName,
+                zipFileSymlink.getParent(),
+                zipFileSymlink.getFileName().toString(),
+                zipEntryName,
                 CompressionType.NONE,
                 blockNumber);
     }
@@ -184,5 +186,21 @@ public final class BlockAsLocalFilePathResolver implements BlockPathResolver {
                 .toString()
                 .replace(Constants.UNVERIFIED_BLOCK_FILE_EXTENSION, Constants.BLOCK_FILE_EXTENSION);
         Files.move(targetToMove, targetToMove.resolveSibling(verifiedBlockFileName));
+    }
+
+    private Path resolveRawArchivingTarget(final long blockNumber, final Path basePath, final String extension) {
+        final long batchStartNumber = (blockNumber / archiveGroupSize) * archiveGroupSize;
+        final String formattedBatchStartNumber = longLeadingZeroesFormat.format(batchStartNumber);
+        final String[] blockPath = formattedBatchStartNumber.split("");
+        final int targetFilePosition = archiveDirDepth - 1;
+        final String targetFileName = blockPath[targetFilePosition] + extension;
+        blockPath[targetFilePosition] = targetFileName;
+        // Construct the path
+        Path result = basePath;
+        for (int i = 0; i < targetFilePosition; i++) {
+            result = result.resolve(blockPath[i]);
+        }
+        result = result.resolve(targetFileName);
+        return result;
     }
 }

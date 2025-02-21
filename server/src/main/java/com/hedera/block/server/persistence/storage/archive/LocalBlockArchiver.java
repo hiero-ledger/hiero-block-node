@@ -1,5 +1,14 @@
 // SPDX-License-Identifier: Apache-2.0
 package com.hedera.block.server.persistence.storage.archive;
 
-// @todo(517) maybe we will not need this interface
-public interface LocalBlockArchiver extends BlockArchiver {}
+/**
+ * An interface that defines an asynchronous local block archiver.
+ */
+public interface LocalBlockArchiver {
+    /**
+     * This method will notify the archiver that a block has been persisted.
+     *
+     * @param blockNumber the block number that has been persisted
+     */
+    void notifyBlockPersisted(final long blockNumber);
+}

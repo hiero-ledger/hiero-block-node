@@ -2,6 +2,7 @@
 package com.hedera.block.server.persistence.storage.path;
 
 import static com.hedera.block.server.util.PersistTestUtils.PERSISTENCE_STORAGE_ARCHIVE_BATCH_SIZE;
+import static com.hedera.block.server.util.PersistTestUtils.PERSISTENCE_STORAGE_ARCHIVE_ROOT_PATH_KEY;
 import static com.hedera.block.server.util.PersistTestUtils.PERSISTENCE_STORAGE_LIVE_ROOT_PATH_KEY;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatIllegalArgumentException;
@@ -44,6 +45,8 @@ class BlockAsLocalFilePathResolverTest {
     void setUp() throws IOException {
         blockNodeContext = TestConfigUtil.getTestBlockNodeContext(Map.of(
                 PERSISTENCE_STORAGE_LIVE_ROOT_PATH_KEY,
+                testLiveRootPath.toString(),
+                PERSISTENCE_STORAGE_ARCHIVE_ROOT_PATH_KEY,
                 testLiveRootPath.toString(),
                 PERSISTENCE_STORAGE_ARCHIVE_BATCH_SIZE,
                 "10"));
@@ -104,6 +107,41 @@ class BlockAsLocalFilePathResolverTest {
                 expectedBlockFile.replace(Constants.BLOCK_FILE_EXTENSION, Constants.UNVERIFIED_BLOCK_FILE_EXTENSION);
         final Path actual = toTest.resolveLiveRawUnverifiedPathToBlock(toResolve);
         assertThat(actual).isNotNull().isAbsolute().isEqualByComparingTo(testLiveRootPath.resolve(expectedUnverified));
+    }
+
+    /**
+     * This test aims to verify that the
+     * {@link BlockAsLocalFilePathResolver#resolveRawPathToArchiveParentUnderLive(long)}
+     * correctly resolves the path to an archive root under live, based on group
+     * size as to where a given block by number would reside
+     *
+     * @param archiveBlockPath parameterized, valid archive path (relative)
+     */
+    @ParameterizedTest
+    @MethodSource("validBlockNumbersArchivePathResolve")
+    void testSuccessfulResolveParentToArchiveUnderLive(final ArchiveBlockPath archiveBlockPath) {
+        final String zipFolder = archiveBlockPath.zipFileName().replace(".zip", "");
+        final Path expected =
+                testLiveRootPath.resolve(archiveBlockPath.dirPath()).resolve(zipFolder);
+        final Path actual = toTest.resolveRawPathToArchiveParentUnderLive(archiveBlockPath.blockNumber());
+        assertThat(actual).isNotNull().isAbsolute().isEqualByComparingTo(expected);
+    }
+
+    /**
+     * This test aims to verify that the
+     * {@link BlockAsLocalFilePathResolver#resolveRawPathToArchiveParentUnderArchive(long)}
+     * correctly resolves the path to an archive root under archive, based on
+     * group size as to where a given block by number would reside
+     *
+     * @param archiveBlockPath parameterized, valid archive path (relative)
+     */
+    @ParameterizedTest
+    @MethodSource("validBlockNumbersArchivePathResolve")
+    void testSuccessfulResolveParentToArchivedBlocks(final ArchiveBlockPath archiveBlockPath) {
+        final Path expected =
+                testLiveRootPath.resolve(archiveBlockPath.dirPath().resolve(archiveBlockPath.zipFileName()));
+        final Path actual = toTest.resolveRawPathToArchiveParentUnderArchive(archiveBlockPath.blockNumber());
+        assertThat(actual).isNotNull().isAbsolute().isEqualByComparingTo(expected);
     }
 
     /**

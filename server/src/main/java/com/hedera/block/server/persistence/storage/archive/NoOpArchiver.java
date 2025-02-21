@@ -1,39 +1,22 @@
 // SPDX-License-Identifier: Apache-2.0
 package com.hedera.block.server.persistence.storage.archive;
 
+import static java.lang.System.Logger.Level.TRACE;
+
+import java.lang.System.Logger;
+
 /**
- * A no-op implementation of the archiver.
+ * A no-op implementation of {@link LocalBlockArchiver}.
  */
-public final class NoOpArchiver implements BlockArchiver {
-    /**
-     * Constructor.
-     */
-    private NoOpArchiver() {}
+public class NoOpArchiver implements LocalBlockArchiver {
+    private static final Logger LOGGER = System.getLogger(NoOpArchiver.class.getName());
 
     /**
-     * Factory method. Returns a new, fully initialized instance of
-     * {@link NoOpArchiver}.
-     *
-     * @return a new, fully initialized and valid instance of
-     * {@link NoOpArchiver}
-     */
-    public static NoOpArchiver newInstance() {
-        return new NoOpArchiver();
-    }
-
-    /**
-     * This method does nothing, it also has no precondition checks.
+     * No-op implementation. Does nothing.
      */
     @Override
-    public void signalBlockWritten(final long currentBlockNumber) {
-        // do nothing
-    }
-
-    /**
-     * This method does nothing, it also has no precondition checks.
-     */
-    @Override
-    public void stop() throws InterruptedException {
-        // do nothing
+    public void notifyBlockPersisted(long blockNumber) {
+        // no-op
+        LOGGER.log(TRACE, "No-op archiver invoked for block number threshold [%d]".formatted(blockNumber));
     }
 }
