@@ -1,14 +1,20 @@
 // SPDX-License-Identifier: Apache-2.0
 package com.hedera.block.server.mediator;
 
+import static java.lang.System.Logger.Level.TRACE;
+
 import com.lmax.disruptor.EventPoller;
+import com.swirlds.metrics.api.LongGauge;
 import edu.umd.cs.findbugs.annotations.NonNull;
 import java.util.Objects;
 
 public class PollerImpl<V> implements Poller<V> {
 
+    private final System.Logger LOGGER = System.getLogger(getClass().getName());
+
     private final EventPoller<V> poller;
     private final BatchedData<V> polledData;
+    private final LongGauge consumerBuffersRemainingCapacity;
 
     /**
      * Leverage the provided ring buffer and batch size to poll for events.
@@ -16,9 +22,13 @@ public class PollerImpl<V> implements Poller<V> {
      * @param eventPoller the event poller
      * @param batchSize the size of the batch
      */
-    PollerImpl(@NonNull final EventPoller<V> eventPoller, final int batchSize) {
+    PollerImpl(
+            @NonNull final EventPoller<V> eventPoller,
+            final int batchSize,
+            @NonNull final LongGauge consumerBuffersRemainingCapacity) {
         this.poller = Objects.requireNonNull(eventPoller);
         this.polledData = new BatchedData<>(batchSize);
+        this.consumerBuffersRemainingCapacity = Objects.requireNonNull(consumerBuffersRemainingCapacity);
     }
 
     @Override
@@ -27,7 +37,14 @@ public class PollerImpl<V> implements Poller<V> {
             return polledData.pollMessage();
         }
 
+        // Poll to get the latest batches of block items
         poller.poll((event, sequence, endOfBatch) -> polledData.addDataItem(event));
+        consumerBuffersRemainingCapacity.set(polledData.capacity - polledData.msgHighBound);
+        if (LOGGER.isLoggable(TRACE)) {
+            LOGGER.log(
+                    TRACE, "Consumer Buffers Remaining Capacity: %d".formatted(consumerBuffersRemainingCapacity.get()));
+        }
+
         return polledData.getMsgCount() > 0 ? polledData.pollMessage() : null;
     }
 

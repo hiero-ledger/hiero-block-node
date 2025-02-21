@@ -124,6 +124,9 @@ public final class BlockNodeMetricTypes {
         MediatorRingBufferRemainingCapacity(
                 "mediator_ring_buffer_remaining_capacity", "Mediator Ring Buffer Remaining Capacity"),
 
+        /** The amount of capacity remaining in the consumer buffers. */
+        ConsumerBuffersRemainingCapacity("consumer_buffers_remaining_capacity", "Consumer Buffers Remaining Capacity"),
+
         /** The amount of capacity remaining in the notifier ring buffer. */
         NotifierRingBufferRemainingCapacity(
                 "notifier_ring_buffer_remaining_capacity", "Notifier Ring Buffer Remaining Capacity");

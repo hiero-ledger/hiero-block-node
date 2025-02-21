@@ -37,6 +37,7 @@ public abstract class SubscriptionHandlerBase<V> implements SubscriptionHandler<
     protected final RingBuffer<ObjectEvent<V>> ringBuffer;
 
     private final LongGauge subscriptionGauge;
+    private final LongGauge consumerBuffersRemainingCapacity;
     private final ExecutorService executor;
 
     /**
@@ -53,11 +54,13 @@ public abstract class SubscriptionHandlerBase<V> implements SubscriptionHandler<
     protected SubscriptionHandlerBase(
             @NonNull final Map<BlockNodeEventHandler<ObjectEvent<V>>, BatchEventProcessor<ObjectEvent<V>>> subscribers,
             @NonNull final LongGauge subscriptionGauge,
-            final int ringBufferSize) {
+            final int ringBufferSize,
+            @NonNull final LongGauge consumerBuffersRemainingCapacity) {
 
         this.subscribers = subscribers;
         this.pollSubscribers = new ConcurrentHashMap<>();
         this.subscriptionGauge = subscriptionGauge;
+        this.consumerBuffersRemainingCapacity = consumerBuffersRemainingCapacity;
 
         // Initialize and start the disruptor
         final Disruptor<ObjectEvent<V>> disruptor =
@@ -101,7 +104,7 @@ public abstract class SubscriptionHandlerBase<V> implements SubscriptionHandler<
 
             // Update the subscriber metrics.
             subscriptionGauge.set(subscribers.size() + pollSubscribers.size());
-            return new PollerImpl<>(eventPoller, ringBuffer.getBufferSize());
+            return new PollerImpl<>(eventPoller, 8192, consumerBuffersRemainingCapacity);
         }
 
         return null;
