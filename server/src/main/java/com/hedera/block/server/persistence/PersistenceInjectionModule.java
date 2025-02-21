@@ -8,14 +8,11 @@ import com.hedera.block.server.events.ObjectEvent;
 import com.hedera.block.server.mediator.SubscriptionHandler;
 import com.hedera.block.server.notifier.Notifier;
 import com.hedera.block.server.persistence.storage.PersistenceStorageConfig;
-import com.hedera.block.server.persistence.storage.PersistenceStorageConfig.ArchiveType;
 import com.hedera.block.server.persistence.storage.PersistenceStorageConfig.CompressionType;
 import com.hedera.block.server.persistence.storage.PersistenceStorageConfig.StorageType;
-import com.hedera.block.server.persistence.storage.archive.AsyncBlockAsLocalFileArchiverFactory;
-import com.hedera.block.server.persistence.storage.archive.AsyncLocalBlockArchiverFactory;
-import com.hedera.block.server.persistence.storage.archive.AsyncNoOpArchiverFactory;
+import com.hedera.block.server.persistence.storage.archive.BlockAsLocalFileArchiver;
 import com.hedera.block.server.persistence.storage.archive.LocalBlockArchiver;
-import com.hedera.block.server.persistence.storage.archive.LocalBlockFileArchiver;
+import com.hedera.block.server.persistence.storage.archive.NoOpArchiver;
 import com.hedera.block.server.persistence.storage.compression.Compression;
 import com.hedera.block.server.persistence.storage.compression.NoOpCompression;
 import com.hedera.block.server.persistence.storage.compression.ZstdCompression;
@@ -156,24 +153,13 @@ public interface PersistenceInjectionModule {
 
     @Provides
     @Singleton
-    static AsyncLocalBlockArchiverFactory providesAsyncLocalBlockArchiverFactory(
-            @NonNull final PersistenceStorageConfig config, @NonNull final BlockPathResolver blockPathResolver) {
-        final ArchiveType archiveType = config.archiveType();
-        return switch (archiveType) {
-            case BLOCK_AS_LOCAL_FILE -> new AsyncBlockAsLocalFileArchiverFactory(config, blockPathResolver);
-            case NO_OP -> new AsyncNoOpArchiverFactory();
-        };
-    }
-
-    @Provides
-    @Singleton
     static LocalBlockArchiver providesLocalBlockArchiver(
-            @NonNull final PersistenceStorageConfig config,
-            @NonNull final AsyncLocalBlockArchiverFactory asyncLocalBlockArchiverFactory) {
+            @NonNull final PersistenceStorageConfig config, @NonNull final BlockPathResolver blockPathResolver) {
         final StorageType persistenceType = config.type();
         return switch (persistenceType) {
-            case BLOCK_AS_LOCAL_FILE, NO_OP -> new LocalBlockFileArchiver(
-                    config, asyncLocalBlockArchiverFactory, Executors.newFixedThreadPool(5));
+            case BLOCK_AS_LOCAL_FILE -> new BlockAsLocalFileArchiver(
+                    config, blockPathResolver, Executors.newFixedThreadPool(5));
+            case NO_OP -> new NoOpArchiver();
         };
     }
 

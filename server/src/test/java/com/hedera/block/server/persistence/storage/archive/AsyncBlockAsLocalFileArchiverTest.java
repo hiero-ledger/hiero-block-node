@@ -94,7 +94,7 @@ class AsyncBlockAsLocalFileArchiverTest {
         // call the actual archiver
         final AsyncBlockAsLocalFileArchiver toTest =
                 new AsyncBlockAsLocalFileArchiver(thresholdPassed, persistenceStorageConfig, pathResolverSpy);
-        toTest.run();
+        toTest.call();
 
         // assert that blocks are in archive storage and in live
         final List<ArchiveBlockPath> archiveBlockPaths = new ArrayList<>();

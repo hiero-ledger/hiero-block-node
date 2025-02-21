@@ -2,8 +2,10 @@
 package com.hedera.block.server.persistence.storage.archive;
 
 import com.hedera.block.server.persistence.storage.PersistenceStorageConfig;
+import com.hedera.block.server.persistence.storage.path.BlockPathResolver;
 import edu.umd.cs.findbugs.annotations.NonNull;
 import java.util.Objects;
+import java.util.concurrent.Callable;
 import java.util.concurrent.CompletionService;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Executor;
@@ -16,19 +18,21 @@ import javax.inject.Inject;
  * {@link com.hedera.block.server.persistence.storage.PersistenceStorageConfig.StorageType#BLOCK_AS_LOCAL_FILE}
  * persistence type.
  */
-public final class LocalBlockFileArchiver implements LocalBlockArchiver {
+public final class BlockAsLocalFileArchiver implements LocalBlockArchiver {
+    private final PersistenceStorageConfig config;
+    private final BlockPathResolver blockPathResolver;
     private final CompletionService<Void> completionService;
     private final int archiveGroupSize;
-    private final AsyncLocalBlockArchiverFactory archiverFactory;
 
     @Inject
-    public LocalBlockFileArchiver(
+    public BlockAsLocalFileArchiver(
             @NonNull final PersistenceStorageConfig config,
-            @NonNull final AsyncLocalBlockArchiverFactory archiverFactory,
+            @NonNull final BlockPathResolver blockPathResolver,
             @NonNull final Executor executor) {
-        this.archiveGroupSize = config.archiveGroupSize();
-        this.archiverFactory = Objects.requireNonNull(archiverFactory);
+        this.config = Objects.requireNonNull(config);
+        this.blockPathResolver = Objects.requireNonNull(blockPathResolver);
         this.completionService = new ExecutorCompletionService<>(executor);
+        this.archiveGroupSize = config.archiveGroupSize();
     }
 
     @Override
@@ -38,8 +42,10 @@ public final class LocalBlockFileArchiver implements LocalBlockArchiver {
         final boolean canArchive = blockNumberThreshold - archiveGroupSize * 2L >= 0;
         if (validThresholdPassed && canArchive) {
             // here we need to archive everything below one order of magnitude of the threshold passed
-            final AsyncLocalBlockArchiver archiver = archiverFactory.create(blockNumberThreshold - archiveGroupSize);
-            completionService.submit(archiver, null);
+            final long thresholdOneGroupSizeLower = blockNumberThreshold - archiveGroupSize;
+            final Callable<Void> archivingTask =
+                    new AsyncBlockAsLocalFileArchiver(thresholdOneGroupSizeLower, config, blockPathResolver);
+            completionService.submit(archivingTask);
         }
         handleSubmittedResults();
     }

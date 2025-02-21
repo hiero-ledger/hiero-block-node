@@ -13,17 +13,18 @@ import java.nio.file.Path;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Objects;
+import java.util.concurrent.Callable;
 import java.util.stream.Stream;
 import java.util.zip.Deflater;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipOutputStream;
 
 /**
- * An {@link AsyncLocalBlockArchiver} that utilizes the
+ * A {@link java.util.concurrent.Callable} that utilizes the
  * {@link com.hedera.block.server.persistence.storage.PersistenceStorageConfig.StorageType#BLOCK_AS_LOCAL_FILE}
  * persistence type.
  */
-public final class AsyncBlockAsLocalFileArchiver implements AsyncLocalBlockArchiver {
+public final class AsyncBlockAsLocalFileArchiver implements Callable<Void> {
     private static final System.Logger LOGGER = System.getLogger(AsyncBlockAsLocalFileArchiver.class.getName());
     private final BlockPathResolver pathResolver;
     private final long blockNumberThreshold;
@@ -53,7 +54,7 @@ public final class AsyncBlockAsLocalFileArchiver implements AsyncLocalBlockArchi
      * thresholds can be safely run in parallel.
      */
     @Override
-    public void run() {
+    public Void call() {
         try {
             doArchive();
         } catch (final IOException e) {
@@ -63,6 +64,7 @@ public final class AsyncBlockAsLocalFileArchiver implements AsyncLocalBlockArchi
             // thrown, then it is either a bug or an unhandled case
             LOGGER.log(Level.ERROR, "Error while archiving blocks", e);
         }
+        return null;
     }
 
     private void doArchive() throws IOException {
@@ -129,6 +131,8 @@ public final class AsyncBlockAsLocalFileArchiver implements AsyncLocalBlockArchi
                         rootToArchive.relativize(pathToArchive).toString();
                 final ZipEntry zipEntry = new ZipEntry(relativizedEntryName);
                 zipEntry.setMethod(ZipEntry.STORED);
+                // @todo(517) the zip entry should be properly managed, for now it will throw an exception if
+                // we attempt to simply write it like so: STORED entry missing size, compressed size, or crc-32
                 LOGGER.log(Level.TRACE, "Adding Zip Entry [%s] to zip file [%s]".formatted(zipEntry, zipFilePath));
                 // For each block that should be part of this zip, we copy the contents from live to the zip
                 out.putNextEntry(zipEntry);
