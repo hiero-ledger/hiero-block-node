@@ -51,7 +51,7 @@ class BlockAsLocalFileArchiverTest {
     @ParameterizedTest
     @MethodSource("validThresholds")
     void testSubmitValidThreshold(final long threshold) {
-        toTest.submitThresholdPassed(threshold + BATCH_SIZE);
+        toTest.notifyBlockPersisted(threshold + BATCH_SIZE);
         verify(executorMock, times(1)).execute(any(Runnable.class));
     }
 
@@ -63,7 +63,7 @@ class BlockAsLocalFileArchiverTest {
     @ParameterizedTest
     @MethodSource("invalidThresholds")
     void testSubmitInvalidThreshold(final long threshold) {
-        toTest.submitThresholdPassed(threshold + BATCH_SIZE);
+        toTest.notifyBlockPersisted(threshold + BATCH_SIZE);
         verifyNoInteractions(executorMock);
     }
 

@@ -158,7 +158,7 @@ public class StreamPersistenceHandlerImpl implements BlockNodeEventHandler<Objec
                     final AsyncBlockWriter writer = asyncBlockWriterFactory.create(blockNumber);
                     currentWriterQueue = writer.getQueue();
                     completionService.submit(writer);
-                    archiver.submitThresholdPassed(blockNumber);
+                    archiver.notifyBlockPersisted(blockNumber);
                 } else {
                     // we need to notify the ackHandler that the block number is invalid
                     // IMPORTANT: the currentWriterQueue MUST be null after we have
