@@ -27,13 +27,8 @@ public class PollerImpl<V> implements Poller<V> {
             return polledData.pollMessage();
         }
 
-        loadNextValues(poller, polledData);
+        poller.poll((event, sequence, endOfBatch) -> polledData.addDataItem(event));
         return polledData.getMsgCount() > 0 ? polledData.pollMessage() : null;
-    }
-
-    private EventPoller.PollState loadNextValues(final EventPoller<V> poller, final BatchedData<V> batch)
-            throws Exception {
-        return poller.poll((event, sequence, endOfBatch) -> batch.addDataItem(event));
     }
 
     private static class BatchedData<V> {

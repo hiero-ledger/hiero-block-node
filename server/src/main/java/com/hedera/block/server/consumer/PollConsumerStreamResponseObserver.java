@@ -68,7 +68,7 @@ public class PollConsumerStreamResponseObserver
                 throw new RuntimeException(e);
             }
             try {
-                Thread.sleep(5);
+                Thread.sleep(1);
             } catch (InterruptedException e) {
                 subscriptionHandler.unsubscribePoller(this);
                 throw new RuntimeException(e);
