@@ -15,6 +15,7 @@ import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.Callable;
 import java.util.stream.Stream;
+import java.util.zip.CRC32;
 import java.util.zip.Deflater;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipOutputStream;
@@ -130,13 +131,17 @@ public final class AsyncBlockAsLocalFileArchiver implements Callable<Void> {
                 final String relativizedEntryName =
                         rootToArchive.relativize(pathToArchive).toString();
                 final ZipEntry zipEntry = new ZipEntry(relativizedEntryName);
-                zipEntry.setMethod(ZipEntry.STORED);
-                // @todo(517) the zip entry should be properly managed, for now it will throw an exception if
-                // we attempt to simply write it like so: STORED entry missing size, compressed size, or crc-32
                 LOGGER.log(Level.TRACE, "Adding Zip Entry [%s] to zip file [%s]".formatted(zipEntry, zipFilePath));
-                // For each block that should be part of this zip, we copy the contents from live to the zip
+                zipEntry.setMethod(ZipEntry.STORED);
+                // @todo(517) we should put a limit to the size that could be read into memory
+                final byte[] blockFileBytes = Files.readAllBytes(pathToArchive);
+                zipEntry.setSize(blockFileBytes.length);
+                zipEntry.setCompressedSize(blockFileBytes.length);
+                final CRC32 crc32 = new CRC32();
+                crc32.update(blockFileBytes);
+                zipEntry.setCrc(crc32.getValue());
                 out.putNextEntry(zipEntry);
-                Files.copy(pathToArchive, out);
+                out.write(blockFileBytes);
                 out.closeEntry();
                 LOGGER.log(
                         Level.TRACE,
