@@ -43,7 +43,7 @@ public final class BlockAsLocalFileArchiver implements LocalBlockArchiver {
             // here we need to archive everything below 1 group size lower than the threshold passed
             final long thresholdOneGroupSizeLower = blockNumber - archiveGroupSize;
             final Callable<Void> archivingTask =
-                    new AsyncBlockAsLocalFileArchiver(thresholdOneGroupSizeLower, config, blockPathResolver);
+                    new LocalGroupZipArchiveTask(thresholdOneGroupSizeLower, config, blockPathResolver);
             completionService.submit(archivingTask);
         }
         handleSubmittedResults();

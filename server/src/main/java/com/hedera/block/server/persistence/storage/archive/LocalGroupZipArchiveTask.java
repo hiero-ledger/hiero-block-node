@@ -26,12 +26,12 @@ import java.util.zip.ZipOutputStream;
  * {@link com.hedera.block.server.persistence.storage.PersistenceStorageConfig.StorageType#BLOCK_AS_LOCAL_FILE}
  * persistence type.
  */
-public final class AsyncBlockAsLocalFileArchiver implements Callable<Void> {
-    private static final System.Logger LOGGER = System.getLogger(AsyncBlockAsLocalFileArchiver.class.getName());
+public final class LocalGroupZipArchiveTask implements Callable<Void> {
+    private static final System.Logger LOGGER = System.getLogger(LocalGroupZipArchiveTask.class.getName());
     private final BlockPathResolver pathResolver;
     private final long blockNumberThreshold;
 
-    AsyncBlockAsLocalFileArchiver(
+    LocalGroupZipArchiveTask(
             final long blockNumberThreshold,
             @NonNull final PersistenceStorageConfig config,
             @NonNull final BlockPathResolver pathResolver) {
