@@ -33,9 +33,9 @@ import org.junit.jupiter.api.io.TempDir;
 import org.mockito.Mockito;
 
 /**
- * Test for {@link AsyncBlockAsLocalFileArchiver}.
+ * Test for {@link LocalGroupZipArchiveTask}.
  */
-class AsyncBlockAsLocalFileArchiverTest {
+class LocalGroupZipArchiveTaskTest {
     @TempDir
     private Path testTempDir;
 
@@ -92,8 +92,8 @@ class AsyncBlockAsLocalFileArchiverTest {
         }
 
         // call the actual archiver
-        final AsyncBlockAsLocalFileArchiver toTest =
-                new AsyncBlockAsLocalFileArchiver(thresholdPassed, persistenceStorageConfig, pathResolverSpy);
+        final LocalGroupZipArchiveTask toTest =
+                new LocalGroupZipArchiveTask(thresholdPassed, persistenceStorageConfig, pathResolverSpy);
         toTest.call();
 
         // assert that blocks are in archive storage and in live
