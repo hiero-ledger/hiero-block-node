@@ -2,13 +2,13 @@
 package com.hedera.block.server.persistence.storage.archive;
 
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import com.hedera.block.server.persistence.storage.PersistenceStorageConfig;
+import com.hedera.block.server.persistence.storage.path.BlockPathResolver;
 import java.util.concurrent.Executor;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.BeforeEach;
@@ -20,46 +20,43 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 /**
- * Tests for {@link LocalBlockFileArchiver}.
+ * Tests for {@link BlockAsLocalFileArchiver}.
  */
 @ExtendWith(MockitoExtension.class)
-class LocalBlockFileArchiverTest {
+class BlockAsLocalFileArchiverTest {
     private static final int BATCH_SIZE = 10;
 
     @Mock
     private PersistenceStorageConfig persistenceStorageConfigMock;
 
     @Mock
-    private AsyncLocalBlockArchiverFactory archiverFactoryMock;
+    private BlockPathResolver pathResolverMock;
 
     @Mock
     private Executor executorMock;
 
-    private LocalBlockFileArchiver toTest;
+    private BlockAsLocalFileArchiver toTest;
 
     @BeforeEach
     void setUp() {
         when(persistenceStorageConfigMock.archiveGroupSize()).thenReturn(BATCH_SIZE);
-        toTest = new LocalBlockFileArchiver(persistenceStorageConfigMock, archiverFactoryMock, executorMock);
+        toTest = new BlockAsLocalFileArchiver(persistenceStorageConfigMock, pathResolverMock, executorMock);
     }
 
     /**
-     * This test aims to assert that the {@link LocalBlockFileArchiver} will
+     * This test aims to assert that the {@link BlockAsLocalFileArchiver} will
      * successfully submit a task to the executor when a valid threshold is
      * provided.
      */
     @ParameterizedTest
     @MethodSource("validThresholds")
     void testSubmitValidThreshold(final long threshold) {
-        final AsyncLocalBlockArchiver taskMock = mock(AsyncLocalBlockArchiver.class);
-        when(archiverFactoryMock.create(threshold)).thenReturn(taskMock);
         toTest.submitThresholdPassed(threshold + BATCH_SIZE);
-        verify(archiverFactoryMock, times(1)).create(threshold);
         verify(executorMock, times(1)).execute(any(Runnable.class));
     }
 
     /**
-     * This test aims to assert that the {@link LocalBlockFileArchiver} will
+     * This test aims to assert that the {@link BlockAsLocalFileArchiver} will
      * not create or submit a task to the executor when an invalid threshold is
      * provided.
      */
@@ -67,7 +64,6 @@ class LocalBlockFileArchiverTest {
     @MethodSource("invalidThresholds")
     void testSubmitInvalidThreshold(final long threshold) {
         toTest.submitThresholdPassed(threshold + BATCH_SIZE);
-        verifyNoInteractions(archiverFactoryMock);
         verifyNoInteractions(executorMock);
     }
 
