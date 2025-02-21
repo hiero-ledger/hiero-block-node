@@ -5,7 +5,7 @@
 # Declare variables to be passed into your templates.
 
 image:
-  repository: ghcr.io/hashgraph/hedera-block-node
+  repository: ghcr.io/hiero-ledger/hiero-block-node
   pullPolicy: IfNotPresent
   # Overrides the image tag whose default is the chart appVersion.
   tag: ""

@@ -166,12 +166,12 @@ jobs:
 
       - name: Package helm chart
         run: |
-          helm dependency update charts/hedera-block-node
-          helm package charts/hedera-block-node
+          helm dependency update charts/block-node-server
+          helm package charts/block-node-server
 
       - name: Push helm chart
         run: |
-          helm push block-node-helm-chart-${{ env.VERSION }}.tgz oci://ghcr.io/hashgraph/hedera-block-node
+          helm push block-node-helm-chart-${{ env.VERSION }}.tgz oci://ghcr.io/hiero-ledger/hiero-block-node
 
       - name: Simulator Chart - Package helm chart
         run: |
@@ -180,4 +180,4 @@ jobs:
 
       - name: Simulator Chart - Push helm chart
         run: |
-          helm push blockstream-simulator-chart-${{ env.VERSION }}.tgz oci://ghcr.io/hashgraph/hedera-block-node
+          helm push blockstream-simulator-chart-${{ env.VERSION }}.tgz oci://ghcr.io/hiero-ledger/hiero-block-node
