@@ -13,6 +13,8 @@ import com.hedera.block.server.exception.BlockStreamProtocolException;
 import com.hedera.block.server.mediator.SubscriptionHandler;
 import com.hedera.block.server.metrics.MetricsService;
 import com.hedera.block.server.notifier.Notifier;
+import com.hedera.block.server.persistence.storage.PersistenceStorageConfig;
+import com.hedera.block.server.persistence.storage.archive.LocalBlockArchiver;
 import com.hedera.block.server.persistence.storage.write.AsyncBlockWriter;
 import com.hedera.block.server.persistence.storage.write.AsyncBlockWriterFactory;
 import com.hedera.block.server.persistence.storage.write.BlockPersistenceResult;
@@ -22,6 +24,9 @@ import com.hedera.hapi.block.BlockItemUnparsed;
 import com.hedera.hapi.block.stream.output.BlockHeader;
 import com.hedera.pbj.runtime.ParseException;
 import edu.umd.cs.findbugs.annotations.NonNull;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.CompletionService;
@@ -30,7 +35,6 @@ import java.util.concurrent.Executor;
 import java.util.concurrent.ExecutorCompletionService;
 import java.util.concurrent.Future;
 import java.util.concurrent.TransferQueue;
-import javax.inject.Inject;
 import javax.inject.Singleton;
 
 /**
@@ -51,6 +55,8 @@ public class StreamPersistenceHandlerImpl implements BlockNodeEventHandler<Objec
     private final AckHandler ackHandler;
     private final AsyncBlockWriterFactory asyncBlockWriterFactory;
     private final CompletionService<Void> completionService;
+    private final LocalBlockArchiver archiver;
+    private final int archiveGroupSize;
     private TransferQueue<BlockItemUnparsed> currentWriterQueue;
 
     /**
@@ -62,9 +68,10 @@ public class StreamPersistenceHandlerImpl implements BlockNodeEventHandler<Objec
      * @param serviceStatus valid, non-null instance of {@link ServiceStatus}
      * @param ackHandler valid, non-null instance of {@link AckHandler}
      * @param asyncBlockWriterFactory valid, non-null instance of {@link AsyncBlockWriterFactory}
-     * @param executor valid, non-null instance of {@link Executor}
+     * @param writerExecutor valid, non-null instance of {@link Executor}
+     * @param archiver valid, non-null instance of {@link LocalBlockArchiver}
+     * @param persistenceStorageConfig valid, non-null instance of {@link PersistenceStorageConfig}
      */
-    @Inject
     public StreamPersistenceHandlerImpl(
             @NonNull final SubscriptionHandler<List<BlockItemUnparsed>> subscriptionHandler,
             @NonNull final Notifier notifier,
@@ -72,14 +79,24 @@ public class StreamPersistenceHandlerImpl implements BlockNodeEventHandler<Objec
             @NonNull final ServiceStatus serviceStatus,
             @NonNull final AckHandler ackHandler,
             @NonNull final AsyncBlockWriterFactory asyncBlockWriterFactory,
-            @NonNull final Executor executor) {
+            @NonNull final Executor writerExecutor,
+            @NonNull final LocalBlockArchiver archiver,
+            @NonNull final PersistenceStorageConfig persistenceStorageConfig)
+            throws IOException {
         this.subscriptionHandler = Objects.requireNonNull(subscriptionHandler);
         this.notifier = Objects.requireNonNull(notifier);
         this.metricsService = blockNodeContext.metricsService();
         this.serviceStatus = Objects.requireNonNull(serviceStatus);
         this.ackHandler = Objects.requireNonNull(ackHandler);
         this.asyncBlockWriterFactory = Objects.requireNonNull(asyncBlockWriterFactory);
-        this.completionService = new ExecutorCompletionService<>(Objects.requireNonNull(executor));
+        this.archiver = Objects.requireNonNull(archiver);
+        this.archiveGroupSize = persistenceStorageConfig.archiveGroupSize();
+        this.completionService = new ExecutorCompletionService<>(Objects.requireNonNull(writerExecutor));
+        // Ensure that the root paths exist
+        final Path liveRootPath = Objects.requireNonNull(persistenceStorageConfig.liveRootPath());
+        final Path archiveRootPath = Objects.requireNonNull(persistenceStorageConfig.archiveRootPath());
+        Files.createDirectories(liveRootPath);
+        Files.createDirectories(archiveRootPath);
     }
 
     /**
@@ -141,6 +158,11 @@ public class StreamPersistenceHandlerImpl implements BlockNodeEventHandler<Objec
                     final AsyncBlockWriter writer = asyncBlockWriterFactory.create(blockNumber);
                     currentWriterQueue = writer.getQueue();
                     completionService.submit(writer);
+                    if (blockNumber % archiveGroupSize == 0) {
+                        // threshold reached, archive blocks 1 order of magnitude
+                        // lower than the threshold juxtaposed to the archive group size
+                        archiver.submitThresholdPassed(blockNumber);
+                    }
                 } else {
                     // we need to notify the ackHandler that the block number is invalid
                     // IMPORTANT: the currentWriterQueue MUST be null after we have

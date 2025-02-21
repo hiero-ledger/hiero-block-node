@@ -62,6 +62,44 @@ public interface BlockPathResolver {
     Path resolveLiveRawUnverifiedPathToBlock(final long blockNumber);
 
     /**
+     * This method will resolve the path to a parent directory of a given
+     * Block, by Block Number. That parent is the directory under the live root
+     * storage, where the Block would reside in for the given
+     * {@link com.hedera.block.server.persistence.storage.PersistenceStorageConfig#archiveGroupSize()}.
+     * This means that if our group size is 1000, and the provided block number
+     * is let's say 20, then it will be resolved the path to the directory
+     * where the 1000s will reside. Another example if we are given the block
+     * number 1020, then the resolved path will be the directory where the 2000s
+     * reside. This is intended so we know which is the root to be used to
+     * archive all blocks under.
+     * @param blockNumber to be resolved the path for
+     * @return non-null, resolved path for parent of block under live to archive
+     */
+    @NonNull
+    Path resolveRawPathToArchiveParentUnderLive(final long blockNumber);
+
+    /**
+     * This method will resolve the path to a parent directory of a given
+     * Block, by Block Number. That parent is the directory under the archive
+     * storage, where the Block would reside in for the given
+     * {@link com.hedera.block.server.persistence.storage.PersistenceStorageConfig#archiveGroupSize()}.
+     * This means that if our group size is 1000, and the provided block number
+     * is let's say 20, then it will be resolved the path to the directory
+     * where the 1000s will reside. Another example if we are given the block
+     * number 1020, then the resolved path will be the directory where the 2000s
+     * reside. This is intended so we know which is the root to be used to
+     * archive all blocks under. In fact, this is indeed very similar to the
+     * {@link #resolveRawPathToArchiveParentUnderLive(long)}, but the difference
+     * is that the path is resolved for the archive root and instead of resolving
+     * to a directory, we will resolve to a zip file.
+     * @param blockNumber to be resolved the path for
+     * @return non-null, resolved path for the zip that would contain all
+     * blocks archived based on group size
+     */
+    @NonNull
+    Path resolveRawPathToArchiveParentUnderArchive(final long blockNumber);
+
+    /**
      * This method attempts to find a Block by a given number under the
      * persistence storage live root. This method will ONLY check for VERIFIED
      * persisted Blocks. If the Block is found, the method returns a non-empty

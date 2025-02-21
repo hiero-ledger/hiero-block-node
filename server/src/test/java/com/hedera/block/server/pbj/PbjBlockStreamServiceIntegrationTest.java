@@ -3,6 +3,7 @@ package com.hedera.block.server.pbj;
 
 import static com.hedera.block.server.util.PbjProtoTestUtils.buildEmptyPublishStreamRequest;
 import static com.hedera.block.server.util.PbjProtoTestUtils.buildEmptySubscribeStreamRequest;
+import static com.hedera.block.server.util.PersistTestUtils.PERSISTENCE_STORAGE_ARCHIVE_ROOT_PATH_KEY;
 import static com.hedera.block.server.util.PersistTestUtils.PERSISTENCE_STORAGE_LIVE_ROOT_PATH_KEY;
 import static com.hedera.block.server.util.PersistTestUtils.generateBlockItemsUnparsed;
 import static com.hedera.hapi.block.SubscribeStreamResponseCode.READ_STREAM_NOT_AVAILABLE;
@@ -28,6 +29,7 @@ import com.hedera.block.server.notifier.Notifier;
 import com.hedera.block.server.notifier.NotifierImpl;
 import com.hedera.block.server.persistence.StreamPersistenceHandlerImpl;
 import com.hedera.block.server.persistence.storage.PersistenceStorageConfig;
+import com.hedera.block.server.persistence.storage.archive.LocalBlockArchiver;
 import com.hedera.block.server.persistence.storage.read.BlockReader;
 import com.hedera.block.server.persistence.storage.remove.BlockRemover;
 import com.hedera.block.server.persistence.storage.write.AsyncBlockWriterFactory;
@@ -132,27 +134,31 @@ class PbjBlockStreamServiceIntegrationTest {
     @Mock
     private Executor executorMock;
 
+    @Mock
+    private LocalBlockArchiver archiverMock;
+
     @TempDir
     private Path testLiveRootPath;
 
     private BlockNodeContext blockNodeContext;
-    private PersistenceStorageConfig testConfig;
+    private PersistenceStorageConfig persistenceStorageConfig;
 
     @BeforeEach
     void setUp() throws IOException {
         final Map<String, String> properties = new HashMap<>();
         properties.put(PERSISTENCE_STORAGE_LIVE_ROOT_PATH_KEY, testLiveRootPath.toString());
+        properties.put(PERSISTENCE_STORAGE_ARCHIVE_ROOT_PATH_KEY, testLiveRootPath.toString());
         blockNodeContext = TestConfigUtil.getTestBlockNodeContext(properties);
-        testConfig = blockNodeContext.configuration().getConfigData(PersistenceStorageConfig.class);
+        persistenceStorageConfig = blockNodeContext.configuration().getConfigData(PersistenceStorageConfig.class);
 
-        final Path testConfigLiveRootPath = testConfig.liveRootPath();
+        final Path testConfigLiveRootPath = persistenceStorageConfig.liveRootPath();
         assertThat(testConfigLiveRootPath).isEqualTo(testLiveRootPath);
     }
 
     @Disabled("@todo(642) make test deterministic via correct executor injection")
     @Test
     @Timeout(value = JUNIT_TIMEOUT, unit = TimeUnit.MILLISECONDS)
-    void testPublishBlockStreamRegistrationAndExecution() {
+    void testPublishBlockStreamRegistrationAndExecution() throws IOException {
         final int numberOfBlocks = 1;
         final ExecutorService executor = Executors.newFixedThreadPool(numberOfBlocks);
         final PbjBlockStreamServiceProxy pbjBlockStreamServiceProxy =
@@ -243,7 +249,7 @@ class PbjBlockStreamServiceIntegrationTest {
     @Disabled("@todo(642) make test deterministic via correct executor injection")
     @Test
     @Timeout(value = JUNIT_TIMEOUT, unit = TimeUnit.MILLISECONDS)
-    void testFullProducerConsumerHappyPath() {
+    void testFullProducerConsumerHappyPath() throws IOException {
         final int numberOfBlocks = 5;
 
         final ExecutorService executor = Executors.newFixedThreadPool(numberOfBlocks);
@@ -316,7 +322,7 @@ class PbjBlockStreamServiceIntegrationTest {
 
     @Test
     @Timeout(value = JUNIT_TIMEOUT, unit = TimeUnit.MILLISECONDS)
-    void testFullWithSubscribersAddedDynamically() {
+    void testFullWithSubscribersAddedDynamically() throws IOException {
         final int numberOfBlocks = 100;
 
         final ExecutorService executor = Executors.newFixedThreadPool(1);
@@ -401,7 +407,7 @@ class PbjBlockStreamServiceIntegrationTest {
 
     @Test
     @Timeout(value = JUNIT_TIMEOUT, unit = TimeUnit.MILLISECONDS)
-    void testSubAndUnsubWhileStreaming() throws InterruptedException {
+    void testSubAndUnsubWhileStreaming() throws InterruptedException, IOException {
         final int numberOfBlocks = 100;
         final LinkedHashMap<
                         BlockNodeEventHandler<ObjectEvent<List<BlockItemUnparsed>>>,
@@ -420,7 +426,9 @@ class PbjBlockStreamServiceIntegrationTest {
                 serviceStatus,
                 ackHandlerMock,
                 writerFactory,
-                executorMock);
+                executorMock,
+                archiverMock,
+                persistenceStorageConfig);
         final StreamVerificationHandlerImpl streamVerificationHandler = new StreamVerificationHandlerImpl(
                 streamMediator,
                 notifierMock,
@@ -549,7 +557,7 @@ class PbjBlockStreamServiceIntegrationTest {
 
     @Test
     @Timeout(value = JUNIT_TIMEOUT, unit = TimeUnit.MILLISECONDS)
-    void testMediatorExceptionHandlingWhenPersistenceFailure() {
+    void testMediatorExceptionHandlingWhenPersistenceFailure() throws IOException {
         final ConcurrentHashMap<
                         BlockNodeEventHandler<ObjectEvent<List<BlockItemUnparsed>>>,
                         BatchEventProcessor<ObjectEvent<List<BlockItemUnparsed>>>>
@@ -575,7 +583,9 @@ class PbjBlockStreamServiceIntegrationTest {
                 serviceStatus,
                 ackHandlerMock,
                 asyncBlockWriterFactoryMock,
-                executorMock);
+                executorMock,
+                archiverMock,
+                persistenceStorageConfig);
         final StreamVerificationHandlerImpl streamVerificationHandler = new StreamVerificationHandlerImpl(
                 streamMediator,
                 notifier,
@@ -736,7 +746,8 @@ class PbjBlockStreamServiceIntegrationTest {
     }
 
     private PbjBlockStreamServiceProxy buildBlockStreamService(
-            final BlockReader<BlockUnparsed> blockReader, final ExecutorService persistenceExecutor) {
+            final BlockReader<BlockUnparsed> blockReader, final ExecutorService persistenceExecutor)
+            throws IOException {
         final BlockRemover blockRemover = mock(BlockRemover.class);
         final ServiceStatus serviceStatus = new ServiceStatusImpl(blockNodeContext);
         serviceStatus.setLatestAckedBlock(new BlockInfo(1L));
@@ -756,7 +767,9 @@ class PbjBlockStreamServiceIntegrationTest {
                 serviceStatus,
                 blockManager,
                 writerFactory,
-                persistenceExecutor);
+                persistenceExecutor,
+                archiverMock,
+                persistenceStorageConfig);
         final StreamVerificationHandlerImpl streamVerificationHandler = new StreamVerificationHandlerImpl(
                 streamMediator, notifier, blockNodeContext.metricsService(), serviceStatus, BlockVerificationService);
         return new PbjBlockStreamServiceProxy(

@@ -61,6 +61,40 @@ class NoOpBlockPathResolverTest {
 
     /**
      * This test aims to verify that the
+     * {@link NoOpBlockPathResolver#resolveRawPathToArchiveParentUnderLive(long)}
+     * correctly resolves the path to an archive root under live, based on group
+     * size as to where a given block by number would reside. The no-op resolver
+     * does nothing, always returns a path resolved under '/tmp' based on the
+     * blockNumber and has no preconditions check. E.g. for blockNumber 0, the
+     * resolved path is '/tmp/hashgraph/blocknode/data/0.tmp.blk'.
+     *
+     */
+    @ParameterizedTest
+    @MethodSource({"validBlockNumbers", "invalidBlockNumbers"})
+    void testSuccessfulResolveParentToArchiveUnderLive(final long toResolve, final Path expected) {
+        final Path actual = toTest.resolveRawPathToArchiveParentUnderLive(toResolve);
+        assertThat(actual).isNotNull().isAbsolute().isEqualByComparingTo(expected);
+    }
+
+    /**
+     * This test aims to verify that the
+     * {@link NoOpBlockPathResolver#resolveRawPathToArchiveParentUnderArchive(long)}
+     * correctly resolves the path to an archive root under archive, based on
+     * group size as to where a given block by number would reside. The no-op
+     * resolver does nothing, always returns a path resolved under '/tmp' based
+     * on the blockNumber and has no preconditions check. E.g. for blockNumber
+     * 0, the resolved path is '/tmp/hashgraph/blocknode/data/0.tmp.blk'.
+     *
+     */
+    @ParameterizedTest
+    @MethodSource({"validBlockNumbers", "invalidBlockNumbers"})
+    void testSuccessfulResolveParentToArchivedBlocks(final long toResolve, final Path expected) {
+        final Path actual = toTest.resolveRawPathToArchiveParentUnderArchive(toResolve);
+        assertThat(actual).isNotNull().isAbsolute().isEqualByComparingTo(expected);
+    }
+
+    /**
+     * This test aims to verify that the
      * {@link NoOpBlockPathResolver#findLiveBlock(long)}  always returns an empty
      * optional.
      *
