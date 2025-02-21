@@ -5,14 +5,12 @@ Implementation of the Hiero Block Node, which is responsible for consuming the b
 ## Table of Contents
 
 1. [Project Links](#project-links)
-1. [Prerequisites](#prerequisites)
-1. [Overview of child modules](#overview-of-child-modules)
-1. [Getting Started](#getting-started)
-1. [Support](#support)
-1. [Contributing](#contributing)
-1. [Code of Conduct](#code-of-conduct)
-1. [Security](#-security)
-1. [License](#license)
+2. [Prerequisites](#prerequisites)
+3. [Overview of child modules](#overview-of-child-modules)
+4. [Getting Started](#getting-started)
+5. [Contributing](#contributing)
+6. [Code of Conduct](#code-of-conduct)
+7. [License](#license)
 
 ## Project Links
 
