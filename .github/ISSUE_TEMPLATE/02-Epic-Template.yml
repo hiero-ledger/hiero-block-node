@@ -1,8 +1,8 @@
 # SPDX-License-Identifier: Apache-2.0
 name: Epic
 description: Create a new Epic
-title: "EPIC: "
-projects: "hashgraph/69"
+title: " "
+projects: "hiero-ledger/9"
 body:
   - type: textarea
     id: epic-goal
@@ -55,6 +55,5 @@ body:
         - [ ] feature 2
         - [ ] task 1
         - [ ] ...
-      render: "[tasklist]"
     validations:
       required: true
