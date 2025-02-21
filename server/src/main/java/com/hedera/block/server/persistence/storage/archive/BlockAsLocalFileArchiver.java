@@ -66,7 +66,7 @@ public final class BlockAsLocalFileArchiver implements LocalBlockArchiver {
             } catch (final ExecutionException e) {
                 // we do not expect to enter here, if we do, then there is
                 // either a bug in the archiving task, or an unhandled case
-                throw new RuntimeException(e.getCause());
+                throw new BlockArchivingException(e.getCause());
             } catch (final InterruptedException e) {
                 // @todo(517) What shall we do here? How to handle?
                 Thread.currentThread().interrupt();

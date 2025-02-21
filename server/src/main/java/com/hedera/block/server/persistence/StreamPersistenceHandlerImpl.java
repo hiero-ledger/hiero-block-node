@@ -56,7 +56,6 @@ public class StreamPersistenceHandlerImpl implements BlockNodeEventHandler<Objec
     private final AsyncBlockWriterFactory asyncBlockWriterFactory;
     private final CompletionService<Void> completionService;
     private final LocalBlockArchiver archiver;
-    private final int archiveGroupSize;
     private TransferQueue<BlockItemUnparsed> currentWriterQueue;
 
     /**
@@ -90,7 +89,6 @@ public class StreamPersistenceHandlerImpl implements BlockNodeEventHandler<Objec
         this.ackHandler = Objects.requireNonNull(ackHandler);
         this.asyncBlockWriterFactory = Objects.requireNonNull(asyncBlockWriterFactory);
         this.archiver = Objects.requireNonNull(archiver);
-        this.archiveGroupSize = persistenceStorageConfig.archiveGroupSize();
         this.completionService = new ExecutorCompletionService<>(Objects.requireNonNull(writerExecutor));
         // Ensure that the root paths exist
         final Path liveRootPath = Objects.requireNonNull(persistenceStorageConfig.liveRootPath());
