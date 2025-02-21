@@ -21,6 +21,7 @@ module com.hedera.block.simulator {
     requires com.swirlds.config.api;
     requires com.swirlds.config.extensions;
     requires com.swirlds.metrics.api;
+    requires com.google.protobuf;
     requires dagger;
     requires io.grpc.stub;
     requires io.grpc;
