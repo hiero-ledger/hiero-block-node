@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 name: Epic
 description: Create a new Epic
-title: " "
+title: "-"
 projects: "hiero-ledger/9"
 body:
   - type: textarea
