@@ -13,3 +13,11 @@ testModuleInfo {
     requires("org.junit.jupiter.params")
     requires("org.assertj.core")
 }
+
+tasks.jacocoTestReport {
+    dependsOn("test")
+    reports {
+        xml.required.set(true)
+        html.required.set(true)
+    }
+}
