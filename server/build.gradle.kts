@@ -121,3 +121,11 @@ tasks.register<Exec>("stopDockerContainer") {
     workingDir(dockerBuildRootDirectory)
     commandLine("sh", "-c", "docker compose -p block-node stop")
 }
+
+tasks.jacocoTestReport {
+    dependsOn("test")
+    reports {
+        xml.required.set(true)
+        html.required.set(true)
+    }
+}
