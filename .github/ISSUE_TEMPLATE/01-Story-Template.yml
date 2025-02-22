@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 name: Agile Task or Feature
 description: Create a new task or feature
-title: " "
+title: "-"
 projects: "hiero-ledger/9"
 body:
   - type: input
