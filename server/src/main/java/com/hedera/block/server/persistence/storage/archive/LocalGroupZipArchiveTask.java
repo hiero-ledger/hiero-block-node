@@ -229,6 +229,12 @@ public final class LocalGroupZipArchiveTask implements Callable<Void> {
         // live dir.
         final Path movedToDelete = FileUtilities.appendExtension(rootToArchive, "del");
         Files.move(rootToArchive, movedToDelete);
+        try {
+            // A sleep here would improve the chances of the deletion to succeed
+            Thread.sleep(150);
+        } catch (final InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
         // After the move is successful, reads will be done through the link.
         // If we have reached here, this means that the zipping is successful,
         // the link for the archive is created successfully, and now it is
