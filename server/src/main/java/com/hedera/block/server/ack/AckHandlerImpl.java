@@ -60,8 +60,13 @@ public class AckHandlerImpl implements AckHandler {
         if (!skipAcknowledgement) {
             final long blockNumber = blockPersistenceResult.blockNumber();
             if (blockPersistenceResult.status() == BlockPersistenceStatus.SUCCESS) {
-                final BlockInfo info =
-                        blockInfo.containsKey(blockNumber) ? blockInfo.get(blockNumber) : new BlockInfo(blockNumber);
+                final BlockInfo info;
+                if (blockInfo.containsKey(blockNumber)) {
+                    info = blockInfo.get(blockNumber);
+                } else {
+                    info = new BlockInfo(blockNumber);
+                    blockInfo.put(blockNumber, info);
+                }
                 info.getBlockStatus().setPersisted();
             } else {
                 // @todo(545) handle other cases for the blockPersistenceResult
