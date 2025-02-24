@@ -9,6 +9,7 @@ import edu.umd.cs.findbugs.annotations.NonNull;
 import java.io.File;
 import java.io.IOException;
 import java.lang.System.Logger.Level;
+import java.nio.file.FileAlreadyExistsException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Comparator;
@@ -31,19 +32,48 @@ public final class LocalGroupZipArchiveTask implements Callable<Void> {
     private final BlockPathResolver pathResolver;
     private final long blockNumberThreshold;
 
+    /**
+     * Each local group zip archive task requires a block number threshold to
+     * be passed. The block number threshold is the block number of the latest
+     * block that has been successfully persisted and verified - 1 group size.
+     * It is important to ensure gap of at least 1 group size between the latest
+     * live persisted and verified and what would be now archived. The archiving
+     * task also requires the archive group size we acquire from the
+     * {@link PersistenceStorageConfig} reference. The archive group size is
+     * the number of blocks that will be archived in a single zip file. The
+     * archive group size is always a power of 10. This must be so in order to
+     * ensure proper archiving by determining a safe root to archive everything
+     * under it. The trie structure that is utilized by the persistence type
+     * used ensures that we can safely archive all blocks under the determined
+     * root. The task will utilize the {@link BlockPathResolver} to resolve
+     * the root archive based on the passed threshold. The threshold must be
+     * at least 10 because 10 is the minimum allowed group size and that would
+     * be the least possible threshold passed if the group size were 10. Also,
+     * the threshold must be exactly divisible by the group size, otherwise it
+     * would indicate a problem during creation of the task (it has been passed
+     * an invalid threshold).
+     *
+     * @param blockNumberThreshold the archiving threshold that was passed
+     * @param config valid, non-null {@link PersistenceStorageConfig} instance
+     * @param pathResolver valid, non-null {@link BlockPathResolver} instance
+     */
     LocalGroupZipArchiveTask(
             final long blockNumberThreshold,
             @NonNull final PersistenceStorageConfig config,
             @NonNull final BlockPathResolver pathResolver) {
-        this.blockNumberThreshold = blockNumberThreshold;
         this.pathResolver = Objects.requireNonNull(pathResolver);
         final int archiveGroupSize = config.archiveGroupSize();
-        // valid thresholds are all that are exactly divisible by the group size
-        // and are greater than or equal to 10
+        // Valid thresholds are all that are exactly divisible by the group size
+        // and are greater than or equal to 10 (minimum allowed group size, also
+        // that would be the least possible threshold passed if group size were
+        // to be 10).
         Preconditions.requireGreaterOrEqual(
                 blockNumberThreshold, 10, "Block Number [%d] is required to be greater or equal than [%d].");
         Preconditions.requireExactlyDivisibleBy(
-                blockNumberThreshold, archiveGroupSize, "Block Number [%d] is required to be a positive power of 10.");
+                blockNumberThreshold,
+                archiveGroupSize,
+                "Block Number [%d] is required to be exactly divisible by archive group size [%d].");
+        this.blockNumberThreshold = blockNumberThreshold;
     }
 
     /**
@@ -57,20 +87,7 @@ public final class LocalGroupZipArchiveTask implements Callable<Void> {
      * thresholds can be safely run in parallel.
      */
     @Override
-    public Void call() {
-        try {
-            doArchive();
-        } catch (final IOException e) {
-            // Ideally in the future, we would want to publish a result rather
-            // that just logging. The archiver, like the writer, must not throw
-            // exceptions but publish meaningful results. If an exception is
-            // thrown, then it is either a bug or an unhandled case
-            LOGGER.log(Level.ERROR, "Error while archiving blocks", e);
-        }
-        return null;
-    }
-
-    private void doArchive() throws IOException {
+    public Void call() throws IOException {
         LOGGER.log(Level.DEBUG, "Block Number Threshold for archiving passed [%d]".formatted(blockNumberThreshold));
         // Upper bound is always the threshold that was passed -1, the threshold % archive group size (pow 10)
         // must always be 0.
@@ -110,6 +127,7 @@ public final class LocalGroupZipArchiveTask implements Callable<Void> {
         } else {
             LOGGER.log(Level.DEBUG, "No files to archive under [%s]".formatted(rootToArchive));
         }
+        return null;
     }
 
     @SuppressWarnings("ForLoopReplaceableByForEach")
@@ -117,48 +135,52 @@ public final class LocalGroupZipArchiveTask implements Callable<Void> {
             throws IOException {
         // First, we create the zip
         final Path zipFilePath = pathResolver.resolveRawPathToArchiveParentUnderArchive(upperBound);
+        // If the zip file cannot be created or already exists we must throw and stop the archiving
+        // existing archives must never be overwritten.
         if (!Files.exists(zipFilePath)) {
-            // @todo(517) should we assume something if the zip file already exists? If yes, what and how to
-            // handle?
+            // Inability to create the file must stop the archiving process
             FileUtilities.createFile(zipFilePath);
-        }
-        LOGGER.log(Level.DEBUG, "Target Zip Path [%s]".formatted(zipFilePath));
-        // Then, we need to populate the zip with all entries that should be in it, resolved before
-        // the invocation of this method.
-        try (final ZipOutputStream out = new ZipOutputStream(Files.newOutputStream(zipFilePath))) {
-            out.setMethod(ZipOutputStream.STORED);
-            out.setLevel(Deflater.NO_COMPRESSION);
-            for (int i = 0; i < pathsToArchive.size(); i++) {
-                final Path pathToArchive = pathsToArchive.get(i);
-                final String relativizedEntryName =
-                        rootToArchive.relativize(pathToArchive).toString();
-                final ZipEntry zipEntry = new ZipEntry(relativizedEntryName);
-                LOGGER.log(Level.TRACE, "Adding Zip Entry [%s] to zip file [%s]".formatted(zipEntry, zipFilePath));
-                zipEntry.setMethod(ZipEntry.STORED);
-                // @todo(517) we should put a limit to the size that could be read into memory
-                final byte[] blockFileBytes = Files.readAllBytes(pathToArchive);
-                zipEntry.setSize(blockFileBytes.length);
-                zipEntry.setCompressedSize(blockFileBytes.length);
-                final CRC32 crc32 = new CRC32();
-                crc32.update(blockFileBytes);
-                zipEntry.setCrc(crc32.getValue());
-                out.putNextEntry(zipEntry);
-                out.write(blockFileBytes);
-                out.closeEntry();
-                LOGGER.log(
-                        Level.TRACE,
-                        "Zip Entry [%s] successfully added to zip file [%s]".formatted(zipEntry, zipFilePath));
+            LOGGER.log(Level.DEBUG, "Target Zip Path [%s]".formatted(zipFilePath));
+            // Then, we need to populate the zip with all entries that should be in it, resolved before
+            // the invocation of this method.
+            try (final ZipOutputStream out = new ZipOutputStream(Files.newOutputStream(zipFilePath))) {
+                out.setMethod(ZipOutputStream.STORED);
+                out.setLevel(Deflater.NO_COMPRESSION);
+                for (int i = 0; i < pathsToArchive.size(); i++) {
+                    final Path pathToArchive = pathsToArchive.get(i);
+                    final String relativizedEntryName =
+                            rootToArchive.relativize(pathToArchive).toString();
+                    final ZipEntry zipEntry = new ZipEntry(relativizedEntryName);
+                    LOGGER.log(Level.TRACE, "Adding Zip Entry [%s] to zip file [%s]".formatted(zipEntry, zipFilePath));
+                    zipEntry.setMethod(ZipEntry.STORED);
+                    // @todo(517) data should be piped instead of read into memory
+                    final byte[] blockFileBytes = Files.readAllBytes(pathToArchive);
+                    zipEntry.setSize(blockFileBytes.length);
+                    zipEntry.setCompressedSize(blockFileBytes.length);
+                    final CRC32 crc32 = new CRC32();
+                    crc32.update(blockFileBytes);
+                    zipEntry.setCrc(crc32.getValue());
+                    out.putNextEntry(zipEntry);
+                    out.write(blockFileBytes);
+                    out.closeEntry();
+                    LOGGER.log(
+                            Level.TRACE,
+                            "Zip Entry [%s] successfully added to zip file [%s]".formatted(zipEntry, zipFilePath));
+                }
+            } catch (final IOException e) {
+                // If an exception is thrown here, we need to delete the zip file we just made
+                Files.deleteIfExists(zipFilePath);
+                // We need to propagate the exception in order to not continue with any further executions of this
+                // archiving tasks!
+                throw e;
             }
-        } catch (final IOException e) {
-            // If an exception is thrown here, we need to delete the zip file we just made
-            Files.deleteIfExists(zipFilePath);
-            // We need to propagate the exception in order to not continue with any further executions of this
-            // archiving tasks!
-            throw e;
+            // If no exception is thrown, this means that the zip is successfully created.
+            LOGGER.log(Level.DEBUG, "Zip File [%s] successfully created".formatted(zipFilePath));
+            return zipFilePath;
+        } else {
+            throw new FileAlreadyExistsException(
+                    "Zip file [%s] already exists, unable to proceed with archiving!".formatted(zipFilePath));
         }
-        // If no exception is thrown, this means that the zip is successfully created.
-        LOGGER.log(Level.DEBUG, "Zip File [%s] successfully created".formatted(zipFilePath));
-        return zipFilePath;
     }
 
     private static void createLink(final Path rootToArchive, final Path zipFilePath) throws IOException {
@@ -166,10 +188,10 @@ public final class LocalGroupZipArchiveTask implements Callable<Void> {
         final Path livelink = FileUtilities.appendExtension(rootToArchive, ".zip");
         try {
             Files.createLink(livelink, zipFilePath);
-        } catch (final Exception e) {
+        } catch (final IOException e) {
             LOGGER.log(
-                    Level.ERROR,
-                    "Error while creating link [%s <-> %s], attempting to create a symlink"
+                    Level.DEBUG,
+                    "Unable to create hard link [%s <-> %s], attempting to create a symbolic link"
                             .formatted(livelink, zipFilePath),
                     e);
             // if we are unable to create a link, we need to attempt to create a symbolic link
