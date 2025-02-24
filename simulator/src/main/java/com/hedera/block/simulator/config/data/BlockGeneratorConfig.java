@@ -22,13 +22,17 @@ import java.nio.file.Paths;
  */
 @ConfigData("generator")
 public record BlockGeneratorConfig(
-        @ConfigProperty(defaultValue = "DIR") GenerationMode generationMode,
+        @ConfigProperty(defaultValue = "CRAFT") GenerationMode generationMode,
+        @ConfigProperty(defaultValue = "1") @Min(1) int minEventsPerBlock,
+        @ConfigProperty(defaultValue = "10") int maxEventsPerBlock,
+        @ConfigProperty(defaultValue = "1") @Min(1) int minTransactionsPerEvent,
+        @ConfigProperty(defaultValue = "10") int maxTransactionsPerEvent,
         @ConfigProperty(defaultValue = "") String folderRootPath,
         @ConfigProperty(defaultValue = "BlockAsFileBlockStreamManager") String managerImplementation,
         @ConfigProperty(defaultValue = "36") int paddedLength,
         @ConfigProperty(defaultValue = ".blk.gz") String fileExtension,
         // Optional block number range for the BlockAsFileLargeDataSets manager
-        @ConfigProperty(defaultValue = "1") @Min(1) int startBlockNumber,
+        @ConfigProperty(defaultValue = "1") @Min(0) int startBlockNumber,
         @ConfigProperty(defaultValue = "-1") int endBlockNumber) {
 
     /**
@@ -74,6 +78,10 @@ public record BlockGeneratorConfig(
      */
     public static class Builder {
         private GenerationMode generationMode = GenerationMode.DIR;
+        private int minEventsPerBlock = 1;
+        private int maxEventsPerBlock = 10;
+        private int minTransactionsPerEvent = 1;
+        private int maxTransactionsPerEvent = 10;
         private String folderRootPath = "";
         private String managerImplementation = "BlockAsFileBlockStreamManager";
         private int paddedLength = 36;
@@ -96,6 +104,50 @@ public record BlockGeneratorConfig(
          */
         public Builder generationMode(GenerationMode generationMode) {
             this.generationMode = generationMode;
+            return this;
+        }
+
+        /**
+         * Sets the minimum number of events per block.
+         *
+         * @param minEventsPerBlock the minimum number of events per block
+         * @return this {@code Builder} instance
+         */
+        public Builder minEventsPerBlock(int minEventsPerBlock) {
+            this.minEventsPerBlock = minEventsPerBlock;
+            return this;
+        }
+
+        /**
+         * Sets the maximum number of events per block.
+         *
+         * @param maxEventsPerBlock the maximum number of events per block
+         * @return this {@code Builder} instance
+         */
+        public Builder maxEventsPerBlock(int maxEventsPerBlock) {
+            this.maxEventsPerBlock = maxEventsPerBlock;
+            return this;
+        }
+
+        /**
+         * Sets the minimum number of transactions per event.
+         *
+         * @param minTransactionsPerEvent the minimum number of transactions per event
+         * @return this {@code Builder} instance
+         */
+        public Builder minTransactionsPerEvent(int minTransactionsPerEvent) {
+            this.minTransactionsPerEvent = minTransactionsPerEvent;
+            return this;
+        }
+
+        /**
+         * Sets the maximum number of transactions per event.
+         *
+         * @param maxTransactionsPerEvent the maximum number of transactions per event
+         * @return this {@code Builder} instance
+         */
+        public Builder maxTransactionsPerEvent(int maxTransactionsPerEvent) {
+            this.maxTransactionsPerEvent = maxTransactionsPerEvent;
             return this;
         }
 
@@ -175,6 +227,10 @@ public record BlockGeneratorConfig(
         public BlockGeneratorConfig build() {
             return new BlockGeneratorConfig(
                     generationMode,
+                    minEventsPerBlock,
+                    maxEventsPerBlock,
+                    minTransactionsPerEvent,
+                    maxTransactionsPerEvent,
                     folderRootPath,
                     managerImplementation,
                     paddedLength,

@@ -57,7 +57,7 @@ class BlockAsDirBlockStreamManagerTest {
 
     private BlockStreamManager getBlockAsDirBlockStreamManager(String rootFolder) {
         final BlockGeneratorConfig blockGeneratorConfig = new BlockGeneratorConfig(
-                GenerationMode.DIR, rootFolder, "BlockAsDirBlockStreamManager", 36, ".blk", 0, 0);
+                GenerationMode.DIR, 1, 10, 1, 10, rootFolder, "BlockAsDirBlockStreamManager", 36, ".blk", 0, 0);
         final BlockStreamManager blockStreamManager = new BlockAsDirBlockStreamManager(blockGeneratorConfig);
         blockStreamManager.init();
         return blockStreamManager;

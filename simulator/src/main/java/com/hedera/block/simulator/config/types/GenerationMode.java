@@ -6,5 +6,5 @@ public enum GenerationMode {
     /** Reads Blocks from a Folder. */
     DIR,
     /** Generates Blocks from rules */
-    ADHOC
+    CRAFT
 }
