@@ -1,19 +1,20 @@
 # Metrics
+
 This document describes the metrics that are available in the system, its purpose, and how to use them.
 
 ## Table of Contents
 
 1. [Overview](#overview)
-1. [Purpose](#purpose)
-1. [Configuration](#configuration)
-    1. [Prometheus](#prometheus)
-1. [Usage](#usage)
-    1. [Local Development](#local-development)
-1. [Existing Metrics](#existing-metrics)
+2. [Purpose](#purpose)
+3. [Configuration](#configuration)
+   1. [Prometheus](#prometheus)
+4. [Usage](#usage)
+   1. [Local Development](#local-development)
+5. [Existing Metrics](#existing-metrics)
 
 ## Overview
 
-We are using Prometheus to collect metrics from the system, through the use of [Hedera Platform SDK - Metrics](https://github.com/hashgraph/hedera-services/blob/develop/platform-sdk/docs/base/metrics/metrics.md).
+We are using Prometheus to collect metrics from the system, through the use of [Hiero Platform SDK - Metrics](https://github.com/hiero-ledger/hiero-consensus-node/blob/main/platform-sdk/docs/base/metrics/metrics.md).
 
 ## Purpose
 
@@ -25,11 +26,11 @@ The purpose of metrics is to provide a way to measure the performance of the sys
 
 Prefix: prometheus, ie. `prometheus.configKey`
 
-| ConfigKey | Description | Default |
-|:---|:---|---:|
-| enableEndpoint | either `true` or `false`. Enables or disables the endpoint for metrics | true |
-| endpointPortNumber | Port of the Prometheus endpoint | 9999 |
-| endpointMaxBacklogAllowed | The maximum number of incoming TCP connections which the system will queue internally | 1 |
+| ConfigKey                 | Description                                                                           | Default |
+|:--------------------------|:--------------------------------------------------------------------------------------|--------:|
+| enableEndpoint            | either `true` or `false`. Enables or disables the endpoint for metrics                |    true |
+| endpointPortNumber        | Port of the Prometheus endpoint                                                       |    9999 |
+| endpointMaxBacklogAllowed | The maximum number of incoming TCP connections which the system will queue internally |       1 |
 
 ## Usage
 
@@ -42,7 +43,7 @@ To check the metrics you can access the Prometheus endpoint at `http://localhost
 
 ### Local Development
 
-For developers, when using the gradle task `startDockerContainer` it will automatically start a prometheus and grafana services preconfigured locally with credentials: username `admin` and password  `admin` and the dashboard already provisioned with the current metrics and widgets. 
+For developers, when using the gradle task `startDockerContainer` it will automatically start a prometheus and grafana services preconfigured locally with credentials: username `admin` and password  `admin` and the dashboard already provisioned with the current metrics and widgets.
 
 Dashboard is called `Block-Node Server Dashboard` and its source is kept on folder: `server/docker/metrics/dashboards` as: `block-node-server.json`.
 
@@ -54,9 +55,9 @@ If needed to create another dashboard is possible to include it by adding it to 
 
 All metrics have `hedera_block_node` prefix.
 
-| Metric Name | Description | Type |
-|:---|:---|---:|
-| live_block_items | The number of block items received | Counter |
-| blocks_persisted | the number of blocks persisted | Counter |
-| subscribers | The number of subscribers | Gauge |
+| Metric Name             | Description                           |    Type |
+|:------------------------|:--------------------------------------|--------:|
+| live_block_items        | The number of block items received    | Counter |
+| blocks_persisted        | the number of blocks persisted        | Counter |
+| subscribers             | The number of subscribers             |   Gauge |
 | single_blocks_retrieved | the number of single blocks requested | Counter |

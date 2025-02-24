@@ -1,6 +1,6 @@
 # Server Configuration
 
-The components of the Hedera Block Node all support loading configuration via the
+The components of the Hiero Block Node all support loading configuration via the
 environment.
 
 ## Default Values
