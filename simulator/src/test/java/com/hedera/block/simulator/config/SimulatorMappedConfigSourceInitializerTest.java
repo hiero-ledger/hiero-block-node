@@ -51,6 +51,10 @@ class SimulatorMappedConfigSourceInitializerTest {
 
         // Block generator configuration
         new ConfigMapping("generator.generationMode", "GENERATOR_GENERATION_MODE"),
+        new ConfigMapping("generator.minEventsPerBlock", "GENERATOR_MIN_EVENTS_PER_BLOCK"),
+        new ConfigMapping("generator.maxEventsPerBlock", "GENERATOR_MAX_EVENTS_PER_BLOCK"),
+        new ConfigMapping("generator.minTransactionsPerEvent", "GENERATOR_MIN_TRANSACTIONS_PER_EVENT"),
+        new ConfigMapping("generator.maxTransactionsPerEvent", "GENERATOR_MAX_TRANSACTIONS_PER_EVENT"),
         new ConfigMapping("generator.folderRootPath", "GENERATOR_FOLDER_ROOT_PATH"),
         new ConfigMapping("generator.managerImplementation", "GENERATOR_MANAGER_IMPLEMENTATION"),
         new ConfigMapping("generator.paddedLength", "GENERATOR_PADDED_LENGTH"),
