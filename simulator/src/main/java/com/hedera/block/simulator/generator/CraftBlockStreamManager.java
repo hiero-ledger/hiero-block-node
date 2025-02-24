@@ -39,10 +39,10 @@ public class CraftBlockStreamManager implements BlockStreamManager {
     private final Random random;
 
     // Configuration
-    private final int minNumberOfEventsPerBlock;
-    private final int maxNumberOfEventsPerBlock;
-    private final int minNumberOfTransactionsPerEvent;
-    private final int maxNumberOfTransactionsPerEvent;
+    private final int minEventsPerBlock;
+    private final int maxEventsPerBlock;
+    private final int minTransactionsPerEvent;
+    private final int maxTransactionsPerEvent;
 
     // State
     private final GenerationMode generationMode;
@@ -63,10 +63,10 @@ public class CraftBlockStreamManager implements BlockStreamManager {
         final BlockGeneratorConfig blockGeneratorConfig1 = requireNonNull(blockGeneratorConfig);
         this.generationMode = blockGeneratorConfig1.generationMode();
         this.currentBlockNumber = blockGeneratorConfig1.startBlockNumber();
-        this.minNumberOfEventsPerBlock = blockGeneratorConfig1.minNumberOfEventsPerBlock();
-        this.maxNumberOfEventsPerBlock = blockGeneratorConfig1.maxNumberOfEventsPerBlock();
-        this.minNumberOfTransactionsPerEvent = blockGeneratorConfig1.minNumberOfTransactionsPerEvent();
-        this.maxNumberOfTransactionsPerEvent = blockGeneratorConfig1.maxNumberOfTransactionsPerEvent();
+        this.minEventsPerBlock = blockGeneratorConfig1.minEventsPerBlock();
+        this.maxEventsPerBlock = blockGeneratorConfig1.maxEventsPerBlock();
+        this.minTransactionsPerEvent = blockGeneratorConfig1.minTransactionsPerEvent();
+        this.maxTransactionsPerEvent = blockGeneratorConfig1.maxTransactionsPerEvent();
 
         this.random = new Random();
         this.previousStateRootHash = new byte[StreamingTreeHasher.HASH_LENGTH];
@@ -112,6 +112,8 @@ public class CraftBlockStreamManager implements BlockStreamManager {
     @Override
     public Block getNextBlock() throws IOException, BlockSimulatorParsingException {
         LOGGER.log(DEBUG, "Started creation of block number %s.".formatted(currentBlockNumber));
+        // todo(683) Refactor common hasher to accept protoc types, in order to avoid the additional overhead of keeping
+        // and unparsing.
         final List<BlockItemUnparsed> blockItemsUnparsed = new ArrayList<>();
         final List<ItemHandler> items = new ArrayList<>();
 
@@ -119,14 +121,13 @@ public class CraftBlockStreamManager implements BlockStreamManager {
         items.add(headerItemHandler);
         blockItemsUnparsed.add(headerItemHandler.unparseBlockItem());
 
-        final int eventsNumber = random.nextInt(minNumberOfEventsPerBlock, maxNumberOfEventsPerBlock);
+        final int eventsNumber = random.nextInt(minEventsPerBlock, maxEventsPerBlock);
         for (int i = 0; i < eventsNumber; i++) {
             final ItemHandler eventHeaderHandler = new EventHeaderHandler();
             items.add(eventHeaderHandler);
             blockItemsUnparsed.add(eventHeaderHandler.unparseBlockItem());
 
-            final int transactionsNumber =
-                    random.nextInt(minNumberOfTransactionsPerEvent, maxNumberOfTransactionsPerEvent);
+            final int transactionsNumber = random.nextInt(minTransactionsPerEvent, maxTransactionsPerEvent);
             for (int j = 0; j < transactionsNumber; j++) {
                 final ItemHandler eventTransactionHandler = new EventTransactionHandler();
                 items.add(eventTransactionHandler);

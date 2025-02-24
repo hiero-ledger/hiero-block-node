@@ -49,7 +49,7 @@ public class TransactionResultHandler extends AbstractBlockItemHandler {
 
     private AccountAmount createAccountAmount(long accountNum, long accountAmount) {
         Preconditions.requirePositive(accountNum);
-
+        // todo(700) Add support for non-zero shard/realm entity
         return AccountAmount.newBuilder()
                 .setAccountID(AccountID.newBuilder()
                         .setRealmNum(0)

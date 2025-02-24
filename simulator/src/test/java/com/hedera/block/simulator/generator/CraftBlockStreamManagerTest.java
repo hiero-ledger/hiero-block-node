@@ -21,10 +21,10 @@ public class CraftBlockStreamManagerTest {
         mockConfig = Mockito.mock(BlockGeneratorConfig.class);
         Mockito.when(mockConfig.generationMode()).thenReturn(GenerationMode.CRAFT);
         Mockito.when(mockConfig.startBlockNumber()).thenReturn(1);
-        Mockito.when(mockConfig.minNumberOfEventsPerBlock()).thenReturn(1);
-        Mockito.when(mockConfig.maxNumberOfEventsPerBlock()).thenReturn(3);
-        Mockito.when(mockConfig.minNumberOfTransactionsPerEvent()).thenReturn(1);
-        Mockito.when(mockConfig.maxNumberOfTransactionsPerEvent()).thenReturn(2);
+        Mockito.when(mockConfig.minEventsPerBlock()).thenReturn(1);
+        Mockito.when(mockConfig.maxEventsPerBlock()).thenReturn(3);
+        Mockito.when(mockConfig.minTransactionsPerEvent()).thenReturn(1);
+        Mockito.when(mockConfig.maxTransactionsPerEvent()).thenReturn(2);
 
         manager = new CraftBlockStreamManager(mockConfig);
     }
@@ -68,10 +68,10 @@ public class CraftBlockStreamManagerTest {
 
     @Test
     void testBlockGenerationWithCustomValues() throws IOException, BlockSimulatorParsingException {
-        Mockito.when(mockConfig.minNumberOfEventsPerBlock()).thenReturn(3);
-        Mockito.when(mockConfig.maxNumberOfEventsPerBlock()).thenReturn(4);
-        Mockito.when(mockConfig.minNumberOfTransactionsPerEvent()).thenReturn(2);
-        Mockito.when(mockConfig.maxNumberOfTransactionsPerEvent()).thenReturn(3);
+        Mockito.when(mockConfig.minEventsPerBlock()).thenReturn(3);
+        Mockito.when(mockConfig.maxEventsPerBlock()).thenReturn(4);
+        Mockito.when(mockConfig.minTransactionsPerEvent()).thenReturn(2);
+        Mockito.when(mockConfig.maxTransactionsPerEvent()).thenReturn(3);
 
         manager = new CraftBlockStreamManager(mockConfig);
         Block block = manager.getNextBlock();
