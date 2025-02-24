@@ -99,9 +99,7 @@ public final class LocalGroupZipArchiveTask implements Callable<Void> {
         LOGGER.log(Level.DEBUG, "Archiving Block Files under [%s]".formatted(rootToArchive));
         final List<Path> pathsToArchive; // all blocks that should be archived
         try (final Stream<Path> tree = Files.walk(rootToArchive)) {
-            pathsToArchive = tree.sorted(Comparator.reverseOrder())
-                    .filter(Files::isRegularFile)
-                    .toList();
+            pathsToArchive = tree.sorted().toList();
         }
         if (!pathsToArchive.isEmpty()) {
             // First, we create the zip, copying (adding entries) all blocks that
@@ -148,24 +146,45 @@ public final class LocalGroupZipArchiveTask implements Callable<Void> {
                 out.setLevel(Deflater.NO_COMPRESSION);
                 for (int i = 0; i < pathsToArchive.size(); i++) {
                     final Path pathToArchive = pathsToArchive.get(i);
-                    final String relativizedEntryName =
-                            rootToArchive.relativize(pathToArchive).toString();
-                    final ZipEntry zipEntry = new ZipEntry(relativizedEntryName);
-                    LOGGER.log(Level.TRACE, "Adding Zip Entry [%s] to zip file [%s]".formatted(zipEntry, zipFilePath));
-                    zipEntry.setMethod(ZipEntry.STORED);
-                    // @todo(517) data should be piped instead of read into memory
-                    final byte[] blockFileBytes = Files.readAllBytes(pathToArchive);
-                    zipEntry.setSize(blockFileBytes.length);
-                    zipEntry.setCompressedSize(blockFileBytes.length);
-                    final CRC32 crc32 = new CRC32();
-                    crc32.update(blockFileBytes);
-                    zipEntry.setCrc(crc32.getValue());
-                    out.putNextEntry(zipEntry);
-                    out.write(blockFileBytes);
-                    out.closeEntry();
-                    LOGGER.log(
-                            Level.TRACE,
-                            "Zip Entry [%s] successfully added to zip file [%s]".formatted(zipEntry, zipFilePath));
+                    if (Files.isDirectory(pathToArchive)) {
+                        final String relativizedEntryName = rootToArchive.relativize(pathToArchive) + "/";
+                        final ZipEntry zipEntry = new ZipEntry(relativizedEntryName);
+                        LOGGER.log(
+                                Level.TRACE,
+                                "Adding Zip Directory Entry [%s] to zip file [%s]".formatted(zipEntry, zipFilePath));
+                        zipEntry.setMethod(ZipEntry.STORED);
+                        zipEntry.setSize(0);
+                        zipEntry.setCompressedSize(0);
+                        zipEntry.setCrc(0);
+                        out.putNextEntry(zipEntry);
+                        out.closeEntry();
+                        LOGGER.log(
+                                Level.TRACE,
+                                "Zip Directory Entry [%s] successfully added to zip file [%s]"
+                                        .formatted(zipEntry, zipFilePath));
+                    } else {
+                        final String relativizedEntryName =
+                                rootToArchive.relativize(pathToArchive).toString();
+                        final ZipEntry zipEntry = new ZipEntry(relativizedEntryName);
+                        LOGGER.log(
+                                Level.TRACE,
+                                "Adding Zip File Entry [%s] to zip file [%s]".formatted(zipEntry, zipFilePath));
+                        zipEntry.setMethod(ZipEntry.STORED);
+                        // @todo(517) data should be piped instead of read into memory
+                        final byte[] blockFileBytes = Files.readAllBytes(pathToArchive);
+                        zipEntry.setSize(blockFileBytes.length);
+                        zipEntry.setCompressedSize(blockFileBytes.length);
+                        final CRC32 crc32 = new CRC32();
+                        crc32.update(blockFileBytes);
+                        zipEntry.setCrc(crc32.getValue());
+                        out.putNextEntry(zipEntry);
+                        out.write(blockFileBytes);
+                        out.closeEntry();
+                        LOGGER.log(
+                                Level.TRACE,
+                                "Zip File Entry [%s] successfully added to zip file [%s]"
+                                        .formatted(zipEntry, zipFilePath));
+                    }
                 }
             } catch (final IOException e) {
                 // If an exception is thrown here, we need to delete the zip file we just made
@@ -179,7 +198,7 @@ public final class LocalGroupZipArchiveTask implements Callable<Void> {
             return zipFilePath;
         } else {
             throw new FileAlreadyExistsException(
-                    "Zip file [%s] already exists, unable to proceed with archiving!".formatted(zipFilePath));
+                    "Zip File [%s] already exists, unable to proceed with archiving!".formatted(zipFilePath));
         }
     }
 
