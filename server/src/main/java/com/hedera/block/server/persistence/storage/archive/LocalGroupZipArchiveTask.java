@@ -8,16 +8,22 @@ import com.hedera.block.server.persistence.storage.path.BlockPathResolver;
 import edu.umd.cs.findbugs.annotations.NonNull;
 import java.io.File;
 import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
 import java.lang.System.Logger.Level;
+import java.nio.channels.Channels;
+import java.nio.channels.FileChannel;
 import java.nio.file.FileAlreadyExistsException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.Callable;
 import java.util.stream.Stream;
 import java.util.zip.CRC32;
+import java.util.zip.CheckedInputStream;
 import java.util.zip.Deflater;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipOutputStream;
@@ -29,6 +35,18 @@ import java.util.zip.ZipOutputStream;
  */
 public final class LocalGroupZipArchiveTask implements Callable<Void> {
     private static final System.Logger LOGGER = System.getLogger(LocalGroupZipArchiveTask.class.getName());
+    private static final String THRESHOLD_PASSED_MESSAGE = "Block Number Threshold for archiving passed [{0}]";
+    private static final String ARCHIVE_ROOT_RESOLVED_MESSAGE =
+            "Archive Root resolved to [{0}], archiving Block Files under this root";
+    private static final String NO_FILES_TO_ARCHIVE_MESSAGE = "No files to archive under [{0}]";
+    private static final String TARGET_ZIP_CREATED_MESSAGE = "Target Zip Path [{0}] successfully created";
+    private static final String ADD_ENTRY_MESSAGE = "Adding Zip Entry [{0}] to zip file [{1}]";
+    private static final String ADD_SUCCESS_MESSAGE = "Zip Entry [{0}] successfully added to zip file [{1}]";
+    private static final String ZIP_FILE_SUCCESSFULLY_CREATED_MESSAGE = "Zip File [{0}] successfully created";
+    private static final String MUST_CREATE_SYMLINK_MESSAGE =
+            "Unable to create hard link [{0} <-> {1}], attempting to create a symbolic link instead";
+    private static final String LINK_CREATED_MESSAGE = "Link [{0} <-> {1}] created";
+    private static final int BUFFER_SIZE = 32768; // 32K should exactly contain one or two disk blocks in most cases.
     private final BlockPathResolver pathResolver;
     private final long blockNumberThreshold;
 
@@ -88,7 +106,7 @@ public final class LocalGroupZipArchiveTask implements Callable<Void> {
      */
     @Override
     public Void call() throws IOException {
-        LOGGER.log(Level.DEBUG, "Block Number Threshold for archiving passed [%d]".formatted(blockNumberThreshold));
+        LOGGER.log(Level.DEBUG, THRESHOLD_PASSED_MESSAGE, blockNumberThreshold);
         // Upper bound is always the threshold that was passed -1, the threshold % archive group size (pow 10)
         // must always be 0.
         final long upperBound = blockNumberThreshold - 1;
@@ -96,7 +114,7 @@ public final class LocalGroupZipArchiveTask implements Callable<Void> {
         // will be the target of our archive. We expect that this root exists because we expect blocks
         // to be actually written there.
         final Path rootToArchive = pathResolver.resolveRawPathToArchiveParentUnderLive(upperBound);
-        LOGGER.log(Level.DEBUG, "Archiving Block Files under [%s]".formatted(rootToArchive));
+        LOGGER.log(Level.DEBUG, ARCHIVE_ROOT_RESOLVED_MESSAGE, rootToArchive);
         final List<Path> pathsToArchive; // all blocks that should be archived
         try (final Stream<Path> tree = Files.walk(rootToArchive)) {
             pathsToArchive = tree.sorted().toList();
@@ -123,7 +141,7 @@ public final class LocalGroupZipArchiveTask implements Callable<Void> {
             // archived, are discoverable via the link to the archive and the live blocks are
             // deleted. We can also be sure that no data has been lost.
         } else {
-            LOGGER.log(Level.DEBUG, "No files to archive under [%s]".formatted(rootToArchive));
+            LOGGER.log(Level.DEBUG, NO_FILES_TO_ARCHIVE_MESSAGE, rootToArchive);
         }
         return null;
     }
@@ -138,67 +156,93 @@ public final class LocalGroupZipArchiveTask implements Callable<Void> {
         if (!Files.exists(zipFilePath)) {
             // Inability to create the file must stop the archiving process
             FileUtilities.createFile(zipFilePath);
-            LOGGER.log(Level.DEBUG, "Target Zip Path [%s]".formatted(zipFilePath));
+            LOGGER.log(Level.DEBUG, TARGET_ZIP_CREATED_MESSAGE, zipFilePath);
             // Then, we need to populate the zip with all entries that should be in it, resolved before
             // the invocation of this method.
-            try (final ZipOutputStream out = new ZipOutputStream(Files.newOutputStream(zipFilePath))) {
-                out.setMethod(ZipOutputStream.STORED);
-                out.setLevel(Deflater.NO_COMPRESSION);
+
+            // @todo(issue=???) Idea to not have to catch an exception and delete.
+            //    Write the file to a temp file initially, and _move it_ to the correct
+            //    zip file name/location after it completes.  Thus if you succeed you have a
+            //    good file (and writing it was faster).  If you fail there _might_ be a tempfile
+            //    somewhere, but if correctly implemented the tempfile is supposed to be deleted
+            //    automatically.
+            try (final OutputStream fileOut = Files.newOutputStream(zipFilePath);
+                    final ZipOutputStream zipOut = new ZipOutputStream(fileOut)) {
+                zipOut.setMethod(ZipOutputStream.STORED);
+                zipOut.setLevel(Deflater.NO_COMPRESSION);
                 for (int i = 0; i < pathsToArchive.size(); i++) {
                     final Path pathToArchive = pathsToArchive.get(i);
-                    if (Files.isDirectory(pathToArchive)) {
-                        final String relativizedEntryName = rootToArchive.relativize(pathToArchive) + "/";
-                        final ZipEntry zipEntry = new ZipEntry(relativizedEntryName);
-                        LOGGER.log(
-                                Level.TRACE,
-                                "Adding Zip Directory Entry [%s] to zip file [%s]".formatted(zipEntry, zipFilePath));
-                        zipEntry.setMethod(ZipEntry.STORED);
-                        zipEntry.setSize(0);
-                        zipEntry.setCompressedSize(0);
-                        zipEntry.setCrc(0);
-                        out.putNextEntry(zipEntry);
-                        out.closeEntry();
-                        LOGGER.log(
-                                Level.TRACE,
-                                "Zip Directory Entry [%s] successfully added to zip file [%s]"
-                                        .formatted(zipEntry, zipFilePath));
-                    } else {
-                        final String relativizedEntryName =
-                                rootToArchive.relativize(pathToArchive).toString();
-                        final ZipEntry zipEntry = new ZipEntry(relativizedEntryName);
-                        LOGGER.log(
-                                Level.TRACE,
-                                "Adding Zip File Entry [%s] to zip file [%s]".formatted(zipEntry, zipFilePath));
-                        zipEntry.setMethod(ZipEntry.STORED);
-                        // @todo(517) data should be piped instead of read into memory
-                        final byte[] blockFileBytes = Files.readAllBytes(pathToArchive);
-                        zipEntry.setSize(blockFileBytes.length);
-                        zipEntry.setCompressedSize(blockFileBytes.length);
-                        final CRC32 crc32 = new CRC32();
-                        crc32.update(blockFileBytes);
-                        zipEntry.setCrc(crc32.getValue());
-                        out.putNextEntry(zipEntry);
-                        out.write(blockFileBytes);
-                        out.closeEntry();
-                        LOGGER.log(
-                                Level.TRACE,
-                                "Zip File Entry [%s] successfully added to zip file [%s]"
-                                        .formatted(zipEntry, zipFilePath));
-                    }
+                    final Path relativizedEntryName = rootToArchive.relativize(pathToArchive);
+                    writeOneEntry(pathToArchive, relativizedEntryName, zipOut, zipFilePath.toString());
                 }
             } catch (final IOException e) {
                 // If an exception is thrown here, we need to delete the zip file we just made
                 Files.deleteIfExists(zipFilePath);
                 // We need to propagate the exception in order to not continue with any further executions of this
-                // archiving tasks!
+                // archiving task!
                 throw e;
             }
             // If no exception is thrown, this means that the zip is successfully created.
-            LOGGER.log(Level.DEBUG, "Zip File [%s] successfully created".formatted(zipFilePath));
+            LOGGER.log(Level.DEBUG, ZIP_FILE_SUCCESSFULLY_CREATED_MESSAGE, zipFilePath);
             return zipFilePath;
         } else {
             throw new FileAlreadyExistsException(
                     "Zip File [%s] already exists, unable to proceed with archiving!".formatted(zipFilePath));
+        }
+    }
+
+    private void writeOneEntry(
+            final Path pathToArchive,
+            final Path relativizedEntryName,
+            final ZipOutputStream zipOut,
+            final String zipFilePath)
+            throws IOException {
+        if (Files.isDirectory(pathToArchive)) {
+            final ZipEntry zipEntry =
+                    new ZipEntry(relativizedEntryName.toString().concat("/"));
+            LOGGER.log(Level.TRACE, ADD_ENTRY_MESSAGE, zipEntry, zipFilePath);
+            zipEntry.setMethod(ZipEntry.STORED);
+            zipEntry.setSize(0);
+            zipEntry.setCompressedSize(0);
+            zipEntry.setCrc(0);
+            zipOut.putNextEntry(zipEntry);
+            zipOut.closeEntry();
+            LOGGER.log(Level.TRACE, ADD_SUCCESS_MESSAGE, zipEntry, zipFilePath);
+        } else {
+            final ZipEntry zipEntry = new ZipEntry(relativizedEntryName.toString());
+            zipEntry.setMethod(ZipEntry.STORED);
+            LOGGER.log(Level.TRACE, ADD_ENTRY_MESSAGE, zipEntry, zipFilePath);
+            writeSingleFileToZip(pathToArchive, zipOut, zipEntry);
+            LOGGER.log(Level.TRACE, ADD_SUCCESS_MESSAGE, zipEntry, zipFilePath);
+        }
+    }
+
+    private static void writeSingleFileToZip(
+            final Path pathToArchive, final ZipOutputStream zipOut, final ZipEntry zipEntry) throws IOException {
+        try (final FileChannel channel = FileChannel.open(pathToArchive, StandardOpenOption.READ);
+                final InputStream fileIn = Channels.newInputStream(channel);
+                final CheckedInputStream checkedIn = new CheckedInputStream(fileIn, new CRC32()); ) {
+            // read and count all bytes, let the checksum stream calculate the checksum
+            long checksum;
+            long fileSize = 0;
+            int checkedBytesRead;
+            byte[] checkedBlockFileBytes = new byte[BUFFER_SIZE];
+            while ((checkedBytesRead = checkedIn.read(checkedBlockFileBytes)) > 0) {
+                fileSize += checkedBytesRead;
+            }
+            checksum = checkedIn.getChecksum().getValue();
+            zipEntry.setSize(fileSize);
+            zipEntry.setCompressedSize(fileSize);
+            zipEntry.setCrc(checksum);
+            zipOut.putNextEntry(zipEntry);
+            channel.position(0);
+            // read and write all bytes to the zip entry
+            int bytesRead;
+            byte[] blockFileBytes = new byte[BUFFER_SIZE];
+            while ((bytesRead = fileIn.read(blockFileBytes)) > 0) {
+                zipOut.write(blockFileBytes, 0, bytesRead);
+            }
+            zipOut.closeEntry();
         }
     }
 
@@ -208,15 +252,11 @@ public final class LocalGroupZipArchiveTask implements Callable<Void> {
         try {
             Files.createLink(livelink, zipFilePath);
         } catch (final IOException e) {
-            LOGGER.log(
-                    Level.DEBUG,
-                    "Unable to create hard link [%s <-> %s], attempting to create a symbolic link"
-                            .formatted(livelink, zipFilePath),
-                    e);
+            LOGGER.log(Level.DEBUG, MUST_CREATE_SYMLINK_MESSAGE, livelink, zipFilePath, e);
             // if we are unable to create a link, we need to attempt to create a symbolic link
             Files.createSymbolicLink(livelink, zipFilePath);
         }
-        LOGGER.log(Level.DEBUG, "link [%s <-> %s] created".formatted(livelink, zipFilePath));
+        LOGGER.log(Level.DEBUG, LINK_CREATED_MESSAGE, livelink, zipFilePath);
         // If no exception is thrown here, this means that the link is made and the blocks
         // could now be discovered via it
     }
