@@ -79,6 +79,7 @@ class PersistenceStorageConfigTest {
                 DEFAULT_ARCHIVE_BATCH_SIZE,
                 PersistenceStorageConfig.ExecutorType.THREAD_POOL,
                 6,
+                60,
                 false,
                 2048);
         assertThat(actual).returns(storageType, from(PersistenceStorageConfig::type));
@@ -111,6 +112,7 @@ class PersistenceStorageConfigTest {
                 DEFAULT_ARCHIVE_BATCH_SIZE,
                 PersistenceStorageConfig.ExecutorType.THREAD_POOL,
                 6,
+                60,
                 false,
                 2048);
         assertThat(actual)
@@ -138,6 +140,7 @@ class PersistenceStorageConfigTest {
                 DEFAULT_ARCHIVE_BATCH_SIZE,
                 PersistenceStorageConfig.ExecutorType.THREAD_POOL,
                 6,
+                60,
                 false,
                 2048);
         assertThat(actual).returns(compressionLevel, from(PersistenceStorageConfig::compressionLevel));
@@ -165,6 +168,7 @@ class PersistenceStorageConfigTest {
                         DEFAULT_ARCHIVE_BATCH_SIZE,
                         PersistenceStorageConfig.ExecutorType.THREAD_POOL,
                         6,
+                        60,
                         false,
                         2048));
     }
@@ -188,6 +192,7 @@ class PersistenceStorageConfigTest {
                 DEFAULT_ARCHIVE_BATCH_SIZE,
                 PersistenceStorageConfig.ExecutorType.THREAD_POOL,
                 6,
+                60,
                 false,
                 2048);
         assertThat(actual).returns(compressionType, from(PersistenceStorageConfig::compression));

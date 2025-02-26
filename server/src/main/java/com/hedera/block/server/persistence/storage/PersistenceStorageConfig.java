@@ -33,6 +33,7 @@ public record PersistenceStorageConfig(
         @Loggable @ConfigProperty(defaultValue = "1_000") int archiveGroupSize,
         @Loggable @ConfigProperty(defaultValue = "THREAD_POOL") ExecutorType executorType,
         @Loggable @ConfigProperty(defaultValue = "6") @Min(1) @Max(16) int threadCount,
+        @Loggable @ConfigProperty(defaultValue = "60") @Min(0) long threadKeepAliveTime,
         @Loggable @ConfigProperty(defaultValue = "false") boolean useVirtualThreads,
         @Loggable @ConfigProperty(defaultValue = "1024") @Min(64) @Max(2048) int executionQueueLimit) {
     /**
