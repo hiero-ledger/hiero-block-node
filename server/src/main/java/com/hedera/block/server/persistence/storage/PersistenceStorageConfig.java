@@ -29,7 +29,12 @@ public record PersistenceStorageConfig(
         @Loggable @ConfigProperty(defaultValue = "BLOCK_AS_LOCAL_FILE") StorageType type,
         @Loggable @ConfigProperty(defaultValue = "ZSTD") CompressionType compression,
         @Loggable @ConfigProperty(defaultValue = "3") @Min(0) @Max(20) int compressionLevel,
-        @Loggable @ConfigProperty(defaultValue = "1_000") @Min(10) int archiveGroupSize) {
+        @Loggable @ConfigProperty(defaultValue = "1_000") @Min(10) int archiveGroupSize,
+        @Loggable @ConfigProperty(defaultValue = "true") boolean archiveEnabled,
+        @Loggable @ConfigProperty(defaultValue = "THREAD_POOL") ExecutorType executorType,
+        @Loggable @ConfigProperty(defaultValue = "6") @Min(1) @Max(16) int threadCount,
+        @Loggable @ConfigProperty(defaultValue = "false") boolean useVirtualThreads,
+        @Loggable @ConfigProperty(defaultValue = "1024") @Min(64) @Max(2048) int executionQueueLimit) {
     /**
      * Constructor.
      */
@@ -72,6 +77,39 @@ public record PersistenceStorageConfig(
          * This type of storage does nothing.
          */
         NO_OP
+    }
+
+    /**
+     * An enum that defines the type of executor to use for async writers.
+     * <p>
+     * Different executor types have different performance characteristics and are suitable
+     * for different workloads and deployment environments.
+     */
+    public enum ExecutorType {
+        /**
+         * A fixed-size thread pool executor that maintains a specified number of threads.
+         * Recommended for environments where consistent performance and resource usage are important.
+         */
+        THREAD_POOL,
+
+        /**
+         * An executor with a single worker thread.
+         * Suitable for low-throughput environments or when strict ordering of task execution is required.
+         */
+        SINGLE_THREAD,
+
+        /**
+         * Uses the common ForkJoinPool for task execution.
+         * Best for compute-intensive workloads that benefit from work-stealing and when
+         * you want to share thread resources with other components in the application.
+         */
+        FORK_JOIN,
+
+        /**
+         * Executes tasks directly in the calling thread without creating additional threads.
+         * Useful for testing, debugging, or when immediate execution in the current thread is desired.
+         */
+        CALLING_THREAD
     }
 
     /**
