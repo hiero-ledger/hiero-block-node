@@ -221,7 +221,7 @@ class PersistenceStorageConfigTest {
      */
     @ParameterizedTest
     @MethodSource("invalidArchiveGroupSizes")
-    void testPersistenceStorageConfigInvalidSrchiveGroupSizes(final int archiveGroupSize) {
+    void testPersistenceStorageConfigInvalidArchiveGroupSizes(final int archiveGroupSize) {
         assertThatIllegalArgumentException()
                 .isThrownBy(() -> new PersistenceStorageConfig(
                         Path.of(""),

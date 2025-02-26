@@ -30,7 +30,7 @@ public record PersistenceStorageConfig(
         @Loggable @ConfigProperty(defaultValue = "ZSTD") CompressionType compression,
         @Loggable @ConfigProperty(defaultValue = "3") @Min(0) @Max(20) int compressionLevel,
         @Loggable @ConfigProperty(defaultValue = "BLOCK_AS_LOCAL_FILE") ArchiveType archiveType,
-        @Loggable @ConfigProperty(defaultValue = "1_000") int archiveGroupSize) {
+        @Loggable @ConfigProperty(defaultValue = "1_000") @Min(10) int archiveGroupSize) {
     /**
      * Constructor.
      */
@@ -39,8 +39,13 @@ public record PersistenceStorageConfig(
         Objects.requireNonNull(archiveRootPath);
         Objects.requireNonNull(type);
         compression.verifyCompressionLevel(compressionLevel);
-        Preconditions.requireGreaterOrEqual(archiveGroupSize, 10);
-        Preconditions.requirePositivePowerOf10(archiveGroupSize);
+        Preconditions.requireGreaterOrEqual(
+                archiveGroupSize,
+                10,
+                "persistence.storage.archiveGroupSize [%d] is required to be greater or equal than [%d].");
+        Preconditions.requirePositivePowerOf10(
+                archiveGroupSize,
+                "persistence.storage.archiveGroupSize [%d] is required to be a positive power of 10.");
     }
 
     /**
@@ -93,7 +98,11 @@ public record PersistenceStorageConfig(
         }
 
         public void verifyCompressionLevel(final int levelToCheck) {
-            Preconditions.requireInRange(levelToCheck, minCompressionLevel, maxCompressionLevel);
+            Preconditions.requireInRange(
+                    levelToCheck,
+                    minCompressionLevel,
+                    maxCompressionLevel,
+                    "persistence.storage.compressionLevel [%d] is required to be in the range [%d, %d] boundaries included.");
         }
 
         public String getFileExtension() {
