@@ -3,6 +3,8 @@ package com.hedera.block.server.notifier;
 
 import static com.hedera.block.server.metrics.BlockNodeMetricTypes.Gauge.Producers;
 import static com.hedera.block.server.util.PbjProtoTestUtils.buildEmptyPublishStreamRequest;
+import static com.hedera.block.server.util.PersistTestUtils.PERSISTENCE_STORAGE_ARCHIVE_ROOT_PATH_KEY;
+import static com.hedera.block.server.util.PersistTestUtils.PERSISTENCE_STORAGE_LIVE_ROOT_PATH_KEY;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.timeout;
@@ -20,6 +22,8 @@ import com.hedera.block.server.mediator.SubscriptionHandler;
 import com.hedera.block.server.pbj.PbjBlockStreamService;
 import com.hedera.block.server.pbj.PbjBlockStreamServiceProxy;
 import com.hedera.block.server.persistence.StreamPersistenceHandlerImpl;
+import com.hedera.block.server.persistence.storage.PersistenceStorageConfig;
+import com.hedera.block.server.persistence.storage.archive.LocalBlockArchiver;
 import com.hedera.block.server.persistence.storage.read.BlockReader;
 import com.hedera.block.server.persistence.storage.write.AsyncBlockWriterFactory;
 import com.hedera.block.server.producer.ProducerBlockItemObserver;
@@ -39,8 +43,10 @@ import com.hedera.pbj.runtime.io.buffer.Bytes;
 import com.lmax.disruptor.BatchEventProcessor;
 import io.helidon.webserver.WebServer;
 import java.io.IOException;
+import java.nio.file.Path;
 import java.security.NoSuchAlgorithmException;
 import java.time.InstantSource;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
@@ -48,6 +54,7 @@ import java.util.concurrent.Executor;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.api.io.TempDir;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
@@ -106,15 +113,27 @@ class NotifierImplTest {
     @Mock
     private Executor executorMock;
 
+    @Mock
+    private LocalBlockArchiver archiverMock;
+
+    @TempDir
+    private Path testTempDir;
+
     private BlockNodeContext blockNodeContext;
+    private PersistenceStorageConfig persistenceStorageConfig;
 
     @BeforeEach
     void setUp() throws IOException {
-        blockNodeContext = TestConfigUtil.getTestBlockNodeContext();
+
+        final Map<String, String> properties = new HashMap<>();
+        properties.put(PERSISTENCE_STORAGE_LIVE_ROOT_PATH_KEY, testTempDir.toString());
+        properties.put(PERSISTENCE_STORAGE_ARCHIVE_ROOT_PATH_KEY, testTempDir.toString());
+        blockNodeContext = TestConfigUtil.getTestBlockNodeContext(properties);
+        persistenceStorageConfig = blockNodeContext.configuration().getConfigData(PersistenceStorageConfig.class);
     }
 
     @Test
-    void testRegistration() throws NoSuchAlgorithmException {
+    void testRegistration() throws IOException {
         when(serviceStatus.isRunning()).thenReturn(true);
 
         final NotifierImpl notifier = new NotifierImpl(mediator, blockNodeContext, serviceStatus);
@@ -202,7 +221,7 @@ class NotifierImplTest {
         verify(publishStreamObserver3, timeout(TEST_TIMEOUT).times(0)).onNext(publishStreamResponse);
     }
 
-    private PbjBlockStreamServiceProxy buildBlockStreamService(final Notifier notifier) {
+    private PbjBlockStreamServiceProxy buildBlockStreamService(final Notifier notifier) throws IOException {
         final ServiceStatus serviceStatus = new ServiceStatusImpl(blockNodeContext);
         final LiveStreamMediator streamMediator = buildStreamMediator(new ConcurrentHashMap<>(32), serviceStatus);
         final StreamPersistenceHandlerImpl blockNodeEventHandler = new StreamPersistenceHandlerImpl(
@@ -212,7 +231,9 @@ class NotifierImplTest {
                 serviceStatus,
                 ackHandler,
                 asyncBlockWriterFactoryMock,
-                executorMock);
+                executorMock,
+                archiverMock,
+                persistenceStorageConfig);
         final BlockVerificationService blockVerificationService = new NoOpBlockVerificationService();
         final StreamVerificationHandlerImpl streamVerificationHandler = new StreamVerificationHandlerImpl(
                 streamMediator, notifier, blockNodeContext.metricsService(), serviceStatus, blockVerificationService);

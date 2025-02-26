@@ -1,43 +1,24 @@
 // SPDX-License-Identifier: Apache-2.0
 package com.hedera.block.server.util;
 
-import static java.lang.System.Logger;
-import static java.lang.System.Logger.Level.INFO;
-
+import com.hedera.block.common.utils.ChunkUtils;
 import com.hedera.hapi.block.BlockItemUnparsed;
 import com.hedera.hapi.block.stream.BlockProof;
 import com.hedera.hapi.block.stream.input.EventHeader;
 import com.hedera.hapi.block.stream.output.BlockHeader;
 import com.hedera.hapi.node.base.SemanticVersion;
 import com.hedera.hapi.platform.event.EventCore;
-import com.hedera.pbj.runtime.io.buffer.Bytes;
-import java.io.FileOutputStream;
-import java.io.IOException;
-import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 
 public final class PersistTestUtils {
-    private static final Logger LOGGER = System.getLogger(PersistTestUtils.class.getName());
     public static final String PERSISTENCE_STORAGE_LIVE_ROOT_PATH_KEY = "persistence.storage.liveRootPath";
     public static final String PERSISTENCE_STORAGE_ARCHIVE_ROOT_PATH_KEY = "persistence.storage.archiveRootPath";
+    public static final String PERSISTENCE_STORAGE_COMPRESSION_TYPE = "persistence.storage.compressionType";
     public static final String PERSISTENCE_STORAGE_COMPRESSION_LEVEL = "persistence.storage.compressionLevel";
     public static final String PERSISTENCE_STORAGE_ARCHIVE_BATCH_SIZE = "persistence.storage.archiveGroupSize";
 
     private PersistTestUtils() {}
-
-    public static void writeBlockItemToPath(final Path path, final BlockItemUnparsed blockItem) throws IOException {
-
-        Bytes bytes = BlockItemUnparsed.PROTOBUF.toBytes(blockItem);
-        writeBytesToPath(path, bytes.toByteArray());
-    }
-
-    public static void writeBytesToPath(final Path path, final byte[] bytes) throws IOException {
-        try (FileOutputStream fos = new FileOutputStream(path.toString())) {
-            fos.write(bytes);
-            LOGGER.log(INFO, "Successfully wrote the bytes to file: {0}", path);
-        }
-    }
 
     /**
      * This method generates a list of {@link BlockItemUnparsed} with the input
@@ -126,16 +107,81 @@ public final class PersistTestUtils {
         return blockItems;
     }
 
-    public static byte[] reverseByteArray(byte[] input) {
-        if (input == null || input.length == 0) {
-            return input;
+    /**
+     * This method generates a list of {@link BlockItemUnparsed} for as many
+     * blocks as specified by the input parameter numOfBlocks. For each block
+     * number from 0 to numOfBlocks - 1, it generates 10 block items starting with
+     * the block header, followed by 8 events and ending with the block proof.
+     * In a way, this simulates a stream of block items. Each 10 items in the
+     * list represent a block.
+     *
+     * @param numOfBlocks the number of blocks to generate block items for
+     *
+     * @return a list of {@link BlockItemUnparsed} for as many blocks as
+     * specified by the input parameter numOfBlocks
+     */
+    public static List<BlockItemUnparsed> generateBlockItemsUnparsedStartFromBlockNumber0(final int numOfBlocks) {
+        final List<BlockItemUnparsed> blockItems = new ArrayList<>();
+        for (int i = 0; i < numOfBlocks; i++) {
+            blockItems.addAll(generateBlockItemsUnparsedForWithBlockNumber(i));
         }
+        return blockItems;
+    }
 
-        byte[] reversed = new byte[input.length];
-        for (int i = 0; i < input.length; i++) {
-            reversed[i] = input[input.length - 1 - i];
+    /**
+     * This method generates a list of {@link BlockItemUnparsed} for as many
+     * blocks as specified by the input parameter numOfBlocks. For each block
+     * number from 0 to numOfBlocks - 1, it generates 10 block items starting with
+     * the block header, followed by 8 events and ending with the block proof.
+     * In a way, this simulates a stream of block items. Each 10 items in the
+     * list represent a block.
+     *
+     * @param numOfBlocks the number of blocks to generate block items for
+     *
+     * @return a list of {@link BlockItemUnparsed} for as many blocks as
+     * specified by the input parameter numOfBlocks
+     */
+    public static List<List<BlockItemUnparsed>> generateBlockItemsUnparsedStartFromBlockNumber0Chunked(
+            final int numOfBlocks) {
+        final List<BlockItemUnparsed> blockItems = generateBlockItemsUnparsedStartFromBlockNumber0(numOfBlocks);
+        return ChunkUtils.chunkify(blockItems, 10);
+    }
+
+    /**
+     * This method generates a list of {@link BlockItemUnparsed} for as many
+     * blocks as specified in a given range. For each block number from
+     * startBlockNumber to endBlockNumber - 1, it generates 10 block items.
+     *
+     * @param startBlockNumber the start block number
+     * @param endBlockNumber the end block number
+     *
+     * @return a list of {@link BlockItemUnparsed} for as many blocks as
+     * specified in a given range
+     */
+    public static List<BlockItemUnparsed> generateBlockItemsUnparsedForBlocksInRange(
+            final long startBlockNumber, final long endBlockNumber) {
+        final List<BlockItemUnparsed> blockItems = new ArrayList<>();
+        for (long i = startBlockNumber; i < endBlockNumber; i++) {
+            blockItems.addAll(generateBlockItemsUnparsedForWithBlockNumber(i));
         }
+        return blockItems;
+    }
 
-        return reversed;
+    /**
+     * This method generates a list of chunks of {@link BlockItemUnparsed} for
+     * as many blocks as specified in a given range. For each block number from
+     * startBlockNumber to endBlockNumber - 1, it generates 10 block items.
+     *
+     * @param startBlockNumber the start block number
+     * @param endBlockNumber the end block number
+     *
+     * @return a list of chunks {@link BlockItemUnparsed} for as many blocks as
+     * specified in a given range
+     */
+    public static List<List<BlockItemUnparsed>> generateBlockItemsUnparsedForBlocksInRangeChunked(
+            final long startBlockNumber, final long endBlockNumber) {
+        final List<BlockItemUnparsed> blockItems =
+                generateBlockItemsUnparsedForBlocksInRange(startBlockNumber, endBlockNumber);
+        return ChunkUtils.chunkify(blockItems, 10);
     }
 }

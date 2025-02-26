@@ -18,6 +18,8 @@ class PreconditionsTest {
     private static final String DEFAULT_REQUIRE_POSITIVE_MESSAGE = "The input number [%d] is required to be positive.";
     private static final String DEFAULT_GT_OR_EQ_MESSAGE =
             "The input number [%d] is required to be greater or equal than [%d].";
+    private static final String DEFAULT_EXACTLY_DIVISIBLE_MESSAGE =
+            "The input number [%d] is required to be exactly divisible by [%d].";
     private static final String DEFAULT_REQUIRE_IN_RANGE_MESSAGE =
             "The input number [%d] is required to be in the range [%d, %d] boundaries included.";
     private static final String DEFAULT_REQUIRE_WHOLE_MESSAGE =
@@ -150,6 +152,50 @@ class PreconditionsTest {
         final String expectedTestMessage = testMessage.formatted(toTest, base);
         assertThatIllegalArgumentException()
                 .isThrownBy(() -> Preconditions.requireGreaterOrEqual(toTest, base, testMessage))
+                .withMessage(expectedTestMessage);
+    }
+
+    /**
+     * This test aims to verify that the
+     * {@link Preconditions#requireExactlyDivisibleBy(long, long)} will return
+     * the input 'toTest' parameter if the modulo division check passes. Test
+     * includes overloads.
+     *
+     * @param toTest parameterized, the dividend
+     * @param modulus parameterized, the modulus
+     */
+    @ParameterizedTest
+    @MethodSource("moduloDivisionPairsZeroRemainder")
+    void testRequireModuloDivisionZeroRemainderPass(final int toTest, final int modulus) {
+        final Consumer<Long> asserts = actual -> assertThat(actual).isEqualTo(toTest);
+
+        final long actual = Preconditions.requireExactlyDivisibleBy(toTest, modulus);
+        assertThat(actual).satisfies(asserts);
+
+        final long actualOverload = Preconditions.requireExactlyDivisibleBy(toTest, modulus, "test error message");
+        assertThat(actualOverload).satisfies(asserts);
+    }
+
+    /**
+     * This test aims to verify that the
+     * {@link Preconditions#requireExactlyDivisibleBy(long, long)} will throw an
+     * {@link IllegalArgumentException} if the modulo division check fails. Test
+     * includes overloads.
+     *
+     * @param toTest parameterized, the dividend
+     * @param modulus parameterized, the modulus
+     */
+    @ParameterizedTest
+    @MethodSource("moduloDivisionPairsNonZeroRemainder")
+    void testRequireModuloDivisionNonZeroRemainderFail(final int toTest, final int modulus) {
+        assertThatIllegalArgumentException()
+                .isThrownBy(() -> Preconditions.requireExactlyDivisibleBy(toTest, modulus))
+                .withMessage(DEFAULT_EXACTLY_DIVISIBLE_MESSAGE.formatted(toTest, modulus));
+
+        final String testMessage = DEFAULT_EXACTLY_DIVISIBLE_MESSAGE.concat("custom test error message");
+        final String expectedTestMessage = testMessage.formatted(toTest, modulus);
+        assertThatIllegalArgumentException()
+                .isThrownBy(() -> Preconditions.requireExactlyDivisibleBy(toTest, modulus, testMessage))
                 .withMessage(expectedTestMessage);
     }
 
@@ -433,5 +479,62 @@ class PreconditionsTest {
                 Arguments.of(-1, 0, 1),
                 Arguments.of(-1, 0, 0),
                 Arguments.of(1, 0, 0));
+    }
+
+    private static Stream<Arguments> moduloDivisionPairsZeroRemainder() {
+        return Stream.of(
+                Arguments.of(0, 10),
+                Arguments.of(6, 3),
+                Arguments.of(8, 2),
+                Arguments.of(8, 4),
+                Arguments.of(10, 10),
+                Arguments.of(20, 10),
+                Arguments.of(100, 10),
+                Arguments.of(1_000, 10),
+                Arguments.of(10_000, 10),
+                Arguments.of(100_000, 10),
+                Arguments.of(1_000_000, 10),
+                Arguments.of(10_000_000, 10),
+                Arguments.of(100_000_000, 10),
+                Arguments.of(1_000_000_000, 10),
+                Arguments.of(-10, 10),
+                Arguments.of(-20, 10),
+                Arguments.of(-100, 10),
+                Arguments.of(-1_000, 10),
+                Arguments.of(-10_000, 10),
+                Arguments.of(-100_000, 10),
+                Arguments.of(-1_000_000, 10),
+                Arguments.of(-10_000_000, 10),
+                Arguments.of(-100_000_000, 10),
+                Arguments.of(-1_000_000_000, 10));
+    }
+
+    private static Stream<Arguments> moduloDivisionPairsNonZeroRemainder() {
+        return Stream.of(
+                Arguments.of(1, 10),
+                Arguments.of(6, 4),
+                Arguments.of(7, 2),
+                Arguments.of(7, 4),
+                Arguments.of(11, 10),
+                Arguments.of(21, 10),
+                Arguments.of(101, 10),
+                Arguments.of(1_001, 10),
+                Arguments.of(10_001, 10),
+                Arguments.of(100_001, 10),
+                Arguments.of(1_000_001, 10),
+                Arguments.of(10_000_001, 10),
+                Arguments.of(100_000_001, 10),
+                Arguments.of(1_000_000_001, 10),
+                Arguments.of(-1, 10),
+                Arguments.of(-11, 10),
+                Arguments.of(-21, 10),
+                Arguments.of(-101, 10),
+                Arguments.of(-1_001, 10),
+                Arguments.of(-10_001, 10),
+                Arguments.of(-100_001, 10),
+                Arguments.of(-1_000_001, 10),
+                Arguments.of(-10_000_001, 10),
+                Arguments.of(-100_000_001, 10),
+                Arguments.of(-1_000_000_001, 10));
     }
 }

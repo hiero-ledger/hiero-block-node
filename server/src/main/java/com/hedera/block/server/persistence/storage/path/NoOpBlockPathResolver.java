@@ -31,6 +31,26 @@ public final class NoOpBlockPathResolver implements BlockPathResolver {
     }
 
     /**
+     * No-op resolver. Does nothing and always returns a path under '/tmp' that
+     * resolves to 'blockNumber.tmp.blk'. No preconditions check also.
+     */
+    @NonNull
+    @Override
+    public Path resolveRawPathToArchiveParentUnderLive(final long blockNumber) {
+        return resolveLiveRawPathToBlock(blockNumber);
+    }
+
+    /**
+     * No-op resolver. Does nothing and always returns a path under '/tmp' that
+     * resolves to 'blockNumber.tmp.blk'. No preconditions check also.
+     */
+    @NonNull
+    @Override
+    public Path resolveRawPathToArchiveParentUnderArchive(final long blockNumber) {
+        return resolveLiveRawPathToBlock(blockNumber);
+    }
+
+    /**
      * No-op resolver. Does nothing and always returns an empty optional. No preconditions check also.
      */
     @NonNull

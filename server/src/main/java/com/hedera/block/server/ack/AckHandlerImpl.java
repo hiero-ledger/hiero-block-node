@@ -58,10 +58,17 @@ public class AckHandlerImpl implements AckHandler {
     public void blockPersisted(@NonNull final BlockPersistenceResult blockPersistenceResult) {
         Objects.requireNonNull(blockPersistenceResult);
         if (!skipAcknowledgement) {
-            // @todo(545) handle other cases for the blockPersistenceResult
-            final BlockInfo info = blockInfo.computeIfAbsent(blockPersistenceResult.blockNumber(), BlockInfo::new);
+            final long blockNumber = blockPersistenceResult.blockNumber();
             if (blockPersistenceResult.status() == BlockPersistenceStatus.SUCCESS) {
+                final BlockInfo info = blockInfo.computeIfAbsent(blockNumber, BlockInfo::new);
                 info.getBlockStatus().setPersisted();
+            } else {
+                // @todo(545) handle other cases for the blockPersistenceResult
+                //   for now we will simply send an end of stream message
+                //   but more things need to be handled, like ensure the
+                //   blockInfo map will not be inserted
+                blockVerificationFailed(blockNumber);
+                blockInfo.remove(blockNumber);
             }
             attemptAcks();
         }
@@ -99,6 +106,7 @@ public class AckHandlerImpl implements AckHandler {
             LOGGER.log(System.Logger.Level.ERROR, "Failed to remove block " + blockNumber, e);
             throw new RuntimeException(e);
         }
+        blockInfo.remove(blockNumber);
     }
 
     /**

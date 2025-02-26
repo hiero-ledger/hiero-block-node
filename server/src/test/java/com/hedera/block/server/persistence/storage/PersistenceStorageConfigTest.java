@@ -10,7 +10,6 @@ import com.hedera.block.server.persistence.storage.PersistenceStorageConfig.Stor
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.Arrays;
 import java.util.Comparator;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.AfterEach;
@@ -39,7 +38,6 @@ class PersistenceStorageConfigTest {
     private static final int DEFAULT_VALUE_FOR_ZSTD_COMPRESSION = DEFAULT_COMPRESSION_LEVEL;
     private static final int UPPER_BOUNDARY_FOR_ZSTD_COMPRESSION = 20;
     // Archiving defaults
-    private static final boolean DEFAULT_ARCHIVE_ENABLED = true;
     private static final int DEFAULT_ARCHIVE_BATCH_SIZE = 1000;
 
     @AfterEach
@@ -75,7 +73,6 @@ class PersistenceStorageConfigTest {
                 storageType,
                 CompressionType.NONE,
                 DEFAULT_COMPRESSION_LEVEL,
-                DEFAULT_ARCHIVE_ENABLED,
                 DEFAULT_ARCHIVE_BATCH_SIZE);
         assertThat(actual).returns(storageType, from(PersistenceStorageConfig::type));
     }
@@ -103,7 +100,6 @@ class PersistenceStorageConfigTest {
                 StorageType.BLOCK_AS_LOCAL_FILE,
                 CompressionType.NONE,
                 DEFAULT_COMPRESSION_LEVEL,
-                DEFAULT_ARCHIVE_ENABLED,
                 DEFAULT_ARCHIVE_BATCH_SIZE);
         assertThat(actual)
                 .returns(expectedLiveRootPathToTest, from(PersistenceStorageConfig::liveRootPath))
@@ -126,7 +122,6 @@ class PersistenceStorageConfigTest {
                 StorageType.BLOCK_AS_LOCAL_FILE,
                 compressionType,
                 compressionLevel,
-                DEFAULT_ARCHIVE_ENABLED,
                 DEFAULT_ARCHIVE_BATCH_SIZE);
         assertThat(actual).returns(compressionLevel, from(PersistenceStorageConfig::compressionLevel));
     }
@@ -149,7 +144,6 @@ class PersistenceStorageConfigTest {
                         StorageType.BLOCK_AS_LOCAL_FILE,
                         compressionType,
                         compressionLevel,
-                        DEFAULT_ARCHIVE_ENABLED,
                         DEFAULT_ARCHIVE_BATCH_SIZE));
     }
 
@@ -168,16 +162,47 @@ class PersistenceStorageConfigTest {
                 StorageType.NO_OP,
                 compressionType,
                 DEFAULT_COMPRESSION_LEVEL,
-                DEFAULT_ARCHIVE_ENABLED,
                 DEFAULT_ARCHIVE_BATCH_SIZE);
         assertThat(actual).returns(compressionType, from(PersistenceStorageConfig::compression));
     }
 
     /**
-     * All compression types dynamically provided.
+     * This test aims to verify that the {@link PersistenceStorageConfig} class
+     * correctly returns the archive batch size that was set in the constructor.
+     *
+     * @param archiveGroupSize parameterized, the archive batch size to test
      */
-    private static Stream<Arguments> compressionTypes() {
-        return Arrays.stream(CompressionType.values()).map(Arguments::of);
+    @ParameterizedTest
+    @MethodSource("validArchiveGroupSizes")
+    void testPersistenceStorageConfigValidArchiveGroupSizes(final int archiveGroupSize) {
+        final PersistenceStorageConfig actual = new PersistenceStorageConfig(
+                Path.of(""),
+                Path.of(""),
+                StorageType.NO_OP,
+                CompressionType.NONE,
+                DEFAULT_COMPRESSION_LEVEL,
+                archiveGroupSize);
+        assertThat(actual).returns(archiveGroupSize, from(PersistenceStorageConfig::archiveGroupSize));
+    }
+
+    /**
+     * This test aims to verify that the {@link PersistenceStorageConfig} class
+     * correctly throws an {@link IllegalArgumentException} when the archive batch
+     * size is invalid.
+     *
+     * @param archiveGroupSize parameterized, the archive batch size to test
+     */
+    @ParameterizedTest
+    @MethodSource("invalidArchiveGroupSizes")
+    void testPersistenceStorageConfigInvalidArchiveGroupSizes(final int archiveGroupSize) {
+        assertThatIllegalArgumentException()
+                .isThrownBy(() -> new PersistenceStorageConfig(
+                        Path.of(""),
+                        Path.of(""),
+                        StorageType.NO_OP,
+                        CompressionType.NONE,
+                        DEFAULT_COMPRESSION_LEVEL,
+                        archiveGroupSize));
     }
 
     /**
@@ -274,5 +299,37 @@ class PersistenceStorageConfigTest {
         return Stream.of(
                 Arguments.of(CompressionType.ZSTD, LOWER_BOUNDARY_FOR_ZSTD_COMPRESSION - 1),
                 Arguments.of(CompressionType.ZSTD, UPPER_BOUNDARY_FOR_ZSTD_COMPRESSION + 1));
+    }
+
+    private static Stream<Arguments> validArchiveGroupSizes() {
+        return Stream.of(
+                Arguments.of(10),
+                Arguments.of(100),
+                Arguments.of(1_000),
+                Arguments.of(10_000),
+                Arguments.of(100_000),
+                Arguments.of(1_000_000),
+                Arguments.of(10_000_000),
+                Arguments.of(100_000_000),
+                Arguments.of(1_000_000_000));
+    }
+
+    private static Stream<Arguments> invalidArchiveGroupSizes() {
+        return Stream.of(
+                Arguments.of(1),
+                Arguments.of(0),
+                Arguments.of(-1),
+                Arguments.of(-2),
+                Arguments.of(-10),
+                Arguments.of(-20),
+                Arguments.of(-50),
+                Arguments.of(-100),
+                Arguments.of(-1_000),
+                Arguments.of(-10_000),
+                Arguments.of(-100_000),
+                Arguments.of(-1_000_000),
+                Arguments.of(-10_000_000),
+                Arguments.of(-100_000_000),
+                Arguments.of(-1_000_000_000));
     }
 }
