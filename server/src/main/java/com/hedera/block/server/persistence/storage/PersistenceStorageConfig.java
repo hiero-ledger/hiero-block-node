@@ -96,12 +96,6 @@ public record PersistenceStorageConfig(
          * you want to share thread resources with other components in the application.
          */
         FORK_JOIN,
-
-        /**
-         * Executes tasks directly in the calling thread without creating additional threads.
-         * Useful for testing, debugging, or when immediate execution in the current thread is desired.
-         */
-        CALLING_THREAD
     }
 
     /**

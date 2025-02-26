@@ -28,7 +28,6 @@ import java.util.concurrent.atomic.AtomicInteger;
  *   <li>Thread pool executors with configurable thread count and queue size
  *   <li>Single-threaded executors for sequential processing
  *   <li>Fork-join pool executors for work-stealing parallelism
- *   <li>Direct executors that run tasks in the calling thread
  * </ul>
  */
 public final class AsyncWriterExecutorFactory {
@@ -57,7 +56,6 @@ public final class AsyncWriterExecutorFactory {
             case THREAD_POOL -> createThreadPoolExecutor(config);
             case SINGLE_THREAD -> createSingleThreadExecutor();
             case FORK_JOIN -> createForkJoinExecutor();
-            case CALLING_THREAD -> createDirectExecutor();
         };
     }
 
@@ -133,19 +131,6 @@ public final class AsyncWriterExecutorFactory {
                 TRACE,
                 "Using common fork-join pool with parallelism level: %d".formatted(forkJoinPool.getParallelism()));
         return forkJoinPool;
-    }
-
-    /**
-     * Creates a direct executor that runs tasks in the calling thread.
-     * <p>
-     *     This executor does not create any additional threads and executes
-     *     tasks synchronously in the thread that submits them.
-     * @return a direct executor
-     */
-    @NonNull
-    private static Executor createDirectExecutor() {
-        LOGGER.log(TRACE, "Creating a direct executor (tasks run in the calling thread)");
-        return Runnable::run;
     }
 
     private static class AsyncWriterThreadFactory implements ThreadFactory {
