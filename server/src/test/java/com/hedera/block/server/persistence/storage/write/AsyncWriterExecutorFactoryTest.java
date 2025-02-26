@@ -47,7 +47,7 @@ class AsyncWriterExecutorFactoryTest {
 
         // Then
         assertNotNull(executor);
-        
+
         switch (executorType) {
             case THREAD_POOL -> assertTrue(executor instanceof ThreadPoolExecutor);
             case SINGLE_THREAD -> assertTrue(executor instanceof ExecutorService);
@@ -84,8 +84,8 @@ class AsyncWriterExecutorFactoryTest {
         final int threadCount = 6;
         final long keepAliveTime = 120L;
         final int queueLimit = 200;
-        final PersistenceStorageConfig config = createConfig(
-                ExecutorType.THREAD_POOL, false, threadCount, keepAliveTime, queueLimit);
+        final PersistenceStorageConfig config =
+                createConfig(ExecutorType.THREAD_POOL, false, threadCount, keepAliveTime, queueLimit);
 
         // When
         final Executor executor = AsyncWriterExecutorFactory.createExecutor(config);
@@ -93,7 +93,7 @@ class AsyncWriterExecutorFactoryTest {
         // Then
         assertNotNull(executor);
         assertTrue(executor instanceof ThreadPoolExecutor);
-        
+
         final ThreadPoolExecutor threadPoolExecutor = (ThreadPoolExecutor) executor;
         assertTrue(threadPoolExecutor.getCorePoolSize() == threadCount);
         assertTrue(threadPoolExecutor.getMaximumPoolSize() == threadCount);
@@ -101,7 +101,7 @@ class AsyncWriterExecutorFactoryTest {
         assertTrue(threadPoolExecutor.getQueue().remainingCapacity() == queueLimit);
         assertTrue(threadPoolExecutor.getRejectedExecutionHandler() instanceof AsyncWriterRejectedExecutionHandler);
     }
-    
+
     /**
      * Creates a test configuration with the specified parameters.
      */
@@ -125,4 +125,4 @@ class AsyncWriterExecutorFactoryTest {
                 useVirtualThreads,
                 executionQueueLimit);
     }
-} 
+}

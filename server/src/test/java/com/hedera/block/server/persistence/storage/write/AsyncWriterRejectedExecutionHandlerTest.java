@@ -34,14 +34,14 @@ class AsyncWriterRejectedExecutionHandlerTest {
         // Given
         final AtomicBoolean taskExecuted = new AtomicBoolean(false);
         final Runnable task = () -> taskExecuted.set(true);
-        
+
         // Create a test executor that is not shutting down
-        final ThreadPoolExecutor executor = new ThreadPoolExecutor(
-                1, 1, 60, TimeUnit.SECONDS, new LinkedBlockingQueue<>(1));
-        
+        final ThreadPoolExecutor executor =
+                new ThreadPoolExecutor(1, 1, 60, TimeUnit.SECONDS, new LinkedBlockingQueue<>(1));
+
         // When
         handler.rejectedExecution(task, executor);
-        
+
         // Then
         assertTrue(taskExecuted.get(), "Task should have been executed in the caller's thread");
     }
@@ -54,16 +54,19 @@ class AsyncWriterRejectedExecutionHandlerTest {
     void testRejectedExecutionThrowsExceptionWhenExecutorShutdown() {
         // Given
         final Runnable task = () -> {};
-        
+
         // Create a test executor that is shutting down
-        final ThreadPoolExecutor executor = new ThreadPoolExecutor(
-                1, 1, 60, TimeUnit.SECONDS, new LinkedBlockingQueue<>(1));
+        final ThreadPoolExecutor executor =
+                new ThreadPoolExecutor(1, 1, 60, TimeUnit.SECONDS, new LinkedBlockingQueue<>(1));
         executor.shutdown(); // Mark as shutting down
-        
+
         // Then
-        assertThrows(RejectedExecutionException.class, () -> {
-            // When
-            handler.rejectedExecution(task, executor);
-        }, "Should throw RejectedExecutionException when executor is shutting down");
+        assertThrows(
+                RejectedExecutionException.class,
+                () -> {
+                    // When
+                    handler.rejectedExecution(task, executor);
+                },
+                "Should throw RejectedExecutionException when executor is shutting down");
     }
-} 
+}
