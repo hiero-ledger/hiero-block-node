@@ -14,6 +14,7 @@ import java.util.Arrays;
 import java.util.Comparator;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.EnumSource;
@@ -76,7 +77,12 @@ class PersistenceStorageConfigTest {
                 CompressionType.NONE,
                 DEFAULT_COMPRESSION_LEVEL,
                 DEFAULT_ARCHIVE_ENABLED,
-                DEFAULT_ARCHIVE_BATCH_SIZE);
+                DEFAULT_ARCHIVE_BATCH_SIZE,
+                PersistenceStorageConfig.ExecutorType.THREAD_POOL,
+                6,
+                60,
+                false,
+                2048);
         assertThat(actual).returns(storageType, from(PersistenceStorageConfig::type));
     }
 
@@ -104,7 +110,12 @@ class PersistenceStorageConfigTest {
                 CompressionType.NONE,
                 DEFAULT_COMPRESSION_LEVEL,
                 DEFAULT_ARCHIVE_ENABLED,
-                DEFAULT_ARCHIVE_BATCH_SIZE);
+                DEFAULT_ARCHIVE_BATCH_SIZE,
+                PersistenceStorageConfig.ExecutorType.THREAD_POOL,
+                6,
+                60,
+                false,
+                2048);
         assertThat(actual)
                 .returns(expectedLiveRootPathToTest, from(PersistenceStorageConfig::liveRootPath))
                 .returns(expectedArchiveRootPathToTest, from(PersistenceStorageConfig::archiveRootPath));
@@ -127,7 +138,12 @@ class PersistenceStorageConfigTest {
                 compressionType,
                 compressionLevel,
                 DEFAULT_ARCHIVE_ENABLED,
-                DEFAULT_ARCHIVE_BATCH_SIZE);
+                DEFAULT_ARCHIVE_BATCH_SIZE,
+                PersistenceStorageConfig.ExecutorType.THREAD_POOL,
+                6,
+                60,
+                false,
+                2048);
         assertThat(actual).returns(compressionLevel, from(PersistenceStorageConfig::compressionLevel));
     }
 
@@ -150,7 +166,12 @@ class PersistenceStorageConfigTest {
                         compressionType,
                         compressionLevel,
                         DEFAULT_ARCHIVE_ENABLED,
-                        DEFAULT_ARCHIVE_BATCH_SIZE));
+                        DEFAULT_ARCHIVE_BATCH_SIZE,
+                        PersistenceStorageConfig.ExecutorType.THREAD_POOL,
+                        6,
+                        60,
+                        false,
+                        2048));
     }
 
     /**
@@ -169,8 +190,130 @@ class PersistenceStorageConfigTest {
                 compressionType,
                 DEFAULT_COMPRESSION_LEVEL,
                 DEFAULT_ARCHIVE_ENABLED,
-                DEFAULT_ARCHIVE_BATCH_SIZE);
+                DEFAULT_ARCHIVE_BATCH_SIZE,
+                PersistenceStorageConfig.ExecutorType.THREAD_POOL,
+                6,
+                60,
+                false,
+                2048);
         assertThat(actual).returns(compressionType, from(PersistenceStorageConfig::compression));
+    }
+
+    /**
+     * This test aims to verify that the {@link PersistenceStorageConfig} class
+     * correctly returns the executor type that was set in the constructor.
+     *
+     * @param executorType parameterized, the executor type to test
+     */
+    @ParameterizedTest
+    @EnumSource(PersistenceStorageConfig.ExecutorType.class)
+    void testPersistenceStorageConfigExecutorTypes(final PersistenceStorageConfig.ExecutorType executorType) {
+        final PersistenceStorageConfig actual = new PersistenceStorageConfig(
+                Path.of(""),
+                Path.of(""),
+                StorageType.BLOCK_AS_LOCAL_FILE,
+                CompressionType.NONE,
+                DEFAULT_COMPRESSION_LEVEL,
+                DEFAULT_ARCHIVE_ENABLED,
+                DEFAULT_ARCHIVE_BATCH_SIZE,
+                executorType,
+                6,
+                60,
+                false,
+                2048);
+        assertThat(actual).returns(executorType, from(PersistenceStorageConfig::executorType));
+    }
+
+    /**
+     * This test aims to verify that the {@link PersistenceStorageConfig} class
+     * correctly returns the thread count that was set in the constructor.
+     */
+    @Test
+    void testPersistenceStorageConfigThreadCount() {
+        final int threadCount = 8;
+        final PersistenceStorageConfig actual = new PersistenceStorageConfig(
+                Path.of(""),
+                Path.of(""),
+                StorageType.BLOCK_AS_LOCAL_FILE,
+                CompressionType.NONE,
+                DEFAULT_COMPRESSION_LEVEL,
+                DEFAULT_ARCHIVE_ENABLED,
+                DEFAULT_ARCHIVE_BATCH_SIZE,
+                PersistenceStorageConfig.ExecutorType.THREAD_POOL,
+                threadCount,
+                60,
+                false,
+                2048);
+        assertThat(actual).returns(threadCount, from(PersistenceStorageConfig::threadCount));
+    }
+
+    /**
+     * This test aims to verify that the {@link PersistenceStorageConfig} class
+     * correctly returns the thread keep alive time that was set in the constructor.
+     */
+    @Test
+    void testPersistenceStorageConfigThreadKeepAliveTime() {
+        final long keepAliveTime = 120L;
+        final PersistenceStorageConfig actual = new PersistenceStorageConfig(
+                Path.of(""),
+                Path.of(""),
+                StorageType.BLOCK_AS_LOCAL_FILE,
+                CompressionType.NONE,
+                DEFAULT_COMPRESSION_LEVEL,
+                DEFAULT_ARCHIVE_ENABLED,
+                DEFAULT_ARCHIVE_BATCH_SIZE,
+                PersistenceStorageConfig.ExecutorType.THREAD_POOL,
+                6,
+                keepAliveTime,
+                false,
+                2048);
+        assertThat(actual).returns(keepAliveTime, from(PersistenceStorageConfig::threadKeepAliveTime));
+    }
+
+    /**
+     * This test aims to verify that the {@link PersistenceStorageConfig} class
+     * correctly returns the use virtual threads flag that was set in the constructor.
+     */
+    @Test
+    void testPersistenceStorageConfigUseVirtualThreads() {
+        final boolean useVirtualThreads = true;
+        final PersistenceStorageConfig actual = new PersistenceStorageConfig(
+                Path.of(""),
+                Path.of(""),
+                StorageType.BLOCK_AS_LOCAL_FILE,
+                CompressionType.NONE,
+                DEFAULT_COMPRESSION_LEVEL,
+                DEFAULT_ARCHIVE_ENABLED,
+                DEFAULT_ARCHIVE_BATCH_SIZE,
+                PersistenceStorageConfig.ExecutorType.THREAD_POOL,
+                6,
+                60,
+                useVirtualThreads,
+                2048);
+        assertThat(actual).returns(useVirtualThreads, from(PersistenceStorageConfig::useVirtualThreads));
+    }
+
+    /**
+     * This test aims to verify that the {@link PersistenceStorageConfig} class
+     * correctly returns the execution queue limit that was set in the constructor.
+     */
+    @Test
+    void testPersistenceStorageConfigExecutionQueueLimit() {
+        final int queueLimit = 1024;
+        final PersistenceStorageConfig actual = new PersistenceStorageConfig(
+                Path.of(""),
+                Path.of(""),
+                StorageType.BLOCK_AS_LOCAL_FILE,
+                CompressionType.NONE,
+                DEFAULT_COMPRESSION_LEVEL,
+                DEFAULT_ARCHIVE_ENABLED,
+                DEFAULT_ARCHIVE_BATCH_SIZE,
+                PersistenceStorageConfig.ExecutorType.THREAD_POOL,
+                6,
+                60,
+                false,
+                queueLimit);
+        assertThat(actual).returns(queueLimit, from(PersistenceStorageConfig::executionQueueLimit));
     }
 
     /**

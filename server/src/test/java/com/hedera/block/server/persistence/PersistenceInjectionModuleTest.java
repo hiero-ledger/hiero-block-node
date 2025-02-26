@@ -14,6 +14,7 @@ import com.hedera.block.server.mediator.SubscriptionHandler;
 import com.hedera.block.server.notifier.Notifier;
 import com.hedera.block.server.persistence.storage.PersistenceStorageConfig;
 import com.hedera.block.server.persistence.storage.PersistenceStorageConfig.CompressionType;
+import com.hedera.block.server.persistence.storage.PersistenceStorageConfig.ExecutorType;
 import com.hedera.block.server.persistence.storage.PersistenceStorageConfig.StorageType;
 import com.hedera.block.server.persistence.storage.compression.Compression;
 import com.hedera.block.server.persistence.storage.compression.NoOpCompression;
@@ -32,6 +33,7 @@ import com.hedera.block.server.service.ServiceStatus;
 import com.hedera.block.server.util.TestConfigUtil;
 import com.hedera.hapi.block.BlockItemUnparsed;
 import com.hedera.hapi.block.BlockUnparsed;
+import com.swirlds.config.api.Configuration;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.List;
@@ -72,6 +74,12 @@ class PersistenceInjectionModuleTest {
 
     @Mock
     private Executor executorMock;
+
+    @Mock
+    private BlockNodeContext blockNodeContextMock;
+
+    @Mock
+    private Configuration configurationMock;
 
     @TempDir
     private Path testLiveRootPath;
@@ -203,5 +211,34 @@ class PersistenceInjectionModuleTest {
                         asyncBlockWriterFactoryMock,
                         executorMock);
         assertNotNull(streamVerifier);
+    }
+
+    /**
+     * This test verifies that the PersistenceInjectionModule correctly uses the
+     * AsyncWriterExecutorFactory to create an executor based on the provided configuration.
+     */
+    @Test
+    void testProvidesBlockNodeEventHandlerCreatesExecutor() {
+        // Given
+        when(blockNodeContextMock.configuration()).thenReturn(configurationMock);
+        when(configurationMock.getConfigData(PersistenceStorageConfig.class)).thenReturn(persistenceStorageConfigMock);
+        when(persistenceStorageConfigMock.executorType()).thenReturn(ExecutorType.THREAD_POOL);
+        when(persistenceStorageConfigMock.useVirtualThreads()).thenReturn(false);
+        when(persistenceStorageConfigMock.threadCount()).thenReturn(6);
+        when(persistenceStorageConfigMock.threadKeepAliveTime()).thenReturn(60L);
+        when(persistenceStorageConfigMock.executionQueueLimit()).thenReturn(1024);
+
+        // When
+        final BlockNodeEventHandler<ObjectEvent<List<BlockItemUnparsed>>> handler =
+                PersistenceInjectionModule.providesBlockNodeEventHandler(
+                        subscriptionHandlerMock,
+                        notifierMock,
+                        blockNodeContextMock,
+                        serviceStatusMock,
+                        ackHandlerMock,
+                        asyncBlockWriterFactoryMock);
+
+        // Then
+        assertNotNull(handler);
     }
 }

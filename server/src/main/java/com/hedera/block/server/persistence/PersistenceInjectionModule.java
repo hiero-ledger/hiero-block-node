@@ -25,6 +25,7 @@ import com.hedera.block.server.persistence.storage.remove.NoOpBlockRemover;
 import com.hedera.block.server.persistence.storage.write.AsyncBlockAsLocalFileWriterFactory;
 import com.hedera.block.server.persistence.storage.write.AsyncBlockWriterFactory;
 import com.hedera.block.server.persistence.storage.write.AsyncNoOpWriterFactory;
+import com.hedera.block.server.persistence.storage.write.AsyncWriterExecutorFactory;
 import com.hedera.block.server.service.ServiceStatus;
 import com.hedera.hapi.block.BlockItemUnparsed;
 import com.hedera.hapi.block.BlockUnparsed;
@@ -35,7 +36,7 @@ import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.util.List;
 import java.util.Objects;
-import java.util.concurrent.Executors;
+import java.util.concurrent.Executor;
 import javax.inject.Singleton;
 
 /** A Dagger module for providing dependencies for Persistence Module. */
@@ -167,6 +168,10 @@ public interface PersistenceInjectionModule {
             @NonNull final ServiceStatus serviceStatus,
             @NonNull final AckHandler ackHandler,
             @NonNull final AsyncBlockWriterFactory asyncBlockWriterFactory) {
+        final PersistenceStorageConfig persistenceStorageConfig =
+                blockNodeContext.configuration().getConfigData(PersistenceStorageConfig.class);
+        final Executor executor = AsyncWriterExecutorFactory.createExecutor(persistenceStorageConfig);
+
         return new StreamPersistenceHandlerImpl(
                 subscriptionHandler,
                 notifier,
@@ -174,6 +179,6 @@ public interface PersistenceInjectionModule {
                 serviceStatus,
                 ackHandler,
                 asyncBlockWriterFactory,
-                Executors.newFixedThreadPool(5));
+                executor);
     }
 }
