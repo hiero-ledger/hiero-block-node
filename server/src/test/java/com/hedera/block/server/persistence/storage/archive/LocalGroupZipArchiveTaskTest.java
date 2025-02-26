@@ -19,6 +19,7 @@ import com.hedera.hapi.block.BlockItemUnparsed;
 import com.hedera.hapi.block.BlockUnparsed;
 import com.hedera.hapi.block.stream.output.BlockHeader;
 import com.hedera.pbj.runtime.ParseException;
+import com.hedera.pbj.runtime.UncheckedParseException;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import com.swirlds.config.api.Configuration;
 import java.io.IOException;
@@ -200,7 +201,7 @@ class LocalGroupZipArchiveTaskTest {
                                     Objects.requireNonNull(b.getFirst().blockHeader());
                             return BlockHeader.PROTOBUF.parse(header).number() == localBlockNumber;
                         } catch (final ParseException e) {
-                            throw new RuntimeException(e);
+                            throw new UncheckedParseException(e);
                         }
                     })
                     .findFirst()
