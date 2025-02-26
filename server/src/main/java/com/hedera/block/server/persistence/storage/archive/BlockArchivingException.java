@@ -13,7 +13,7 @@ public final class BlockArchivingException extends RuntimeException {
         super(message);
     }
 
-    BlockArchivingException(final Throwable cause) {
+    public BlockArchivingException(final Throwable cause) {
         super(cause);
     }
 
