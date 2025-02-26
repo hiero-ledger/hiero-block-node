@@ -121,7 +121,7 @@ public class StreamPersistenceHandlerImpl implements BlockNodeEventHandler<Objec
                 LOGGER.log(ERROR, "Service is not running. Block items will not be persisted.");
             }
         } catch (final Exception e) {
-            LOGGER.log(ERROR, "Failed to persist BlockItems: %s".formatted(e.getMessage()), e);
+            LOGGER.log(ERROR, "Failed to persist BlockItems", e);
             teardown();
         }
     }
