@@ -58,7 +58,6 @@ class ServerMappedConfigSourceInitializerTest {
         new ConfigMapping("persistence.storage.liveRootPath", "PERSISTENCE_STORAGE_LIVE_ROOT_PATH"),
         new ConfigMapping("persistence.storage.type", "PERSISTENCE_STORAGE_TYPE"),
         new ConfigMapping("persistence.storage.archiveGroupSize", "PERSISTENCE_STORAGE_ARCHIVE_GROUP_SIZE"),
-        new ConfigMapping("persistence.storage.archiveType", "PERSISTENCE_STORAGE_ARCHIVE_TYPE"),
 
         // Producer Config
         new ConfigMapping("producer.type", "PRODUCER_TYPE"),

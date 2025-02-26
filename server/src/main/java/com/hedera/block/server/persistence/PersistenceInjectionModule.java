@@ -12,7 +12,6 @@ import com.hedera.block.server.persistence.storage.PersistenceStorageConfig.Comp
 import com.hedera.block.server.persistence.storage.PersistenceStorageConfig.StorageType;
 import com.hedera.block.server.persistence.storage.archive.BlockAsLocalFileArchiver;
 import com.hedera.block.server.persistence.storage.archive.LocalBlockArchiver;
-import com.hedera.block.server.persistence.storage.archive.NoOpArchiver;
 import com.hedera.block.server.persistence.storage.compression.Compression;
 import com.hedera.block.server.persistence.storage.compression.NoOpCompression;
 import com.hedera.block.server.persistence.storage.compression.ZstdCompression;
@@ -155,12 +154,7 @@ public interface PersistenceInjectionModule {
     @Singleton
     static LocalBlockArchiver providesLocalBlockArchiver(
             @NonNull final PersistenceStorageConfig config, @NonNull final BlockPathResolver blockPathResolver) {
-        final StorageType persistenceType = config.type();
-        return switch (persistenceType) {
-            case BLOCK_AS_LOCAL_FILE -> new BlockAsLocalFileArchiver(
-                    config, blockPathResolver, Executors.newFixedThreadPool(5));
-            case NO_OP -> new NoOpArchiver();
-        };
+        return new BlockAsLocalFileArchiver(config, blockPathResolver, Executors.newFixedThreadPool(5));
     }
 
     /**

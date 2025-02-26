@@ -19,7 +19,6 @@ import java.util.Objects;
  * @param compression compression type to use for the storage
  * @param compressionLevel compression level used by the compression algorithm
  * Non-PRODUCTION values should only be used for troubleshooting and development purposes.
- * @param archiveType type of the archive
  * @param archiveGroupSize the number of blocks to archive in a single group
  */
 @ConfigData("persistence.storage")
@@ -29,7 +28,6 @@ public record PersistenceStorageConfig(
         @Loggable @ConfigProperty(defaultValue = "BLOCK_AS_LOCAL_FILE") StorageType type,
         @Loggable @ConfigProperty(defaultValue = "ZSTD") CompressionType compression,
         @Loggable @ConfigProperty(defaultValue = "3") @Min(0) @Max(20) int compressionLevel,
-        @Loggable @ConfigProperty(defaultValue = "BLOCK_AS_LOCAL_FILE") ArchiveType archiveType,
         @Loggable @ConfigProperty(defaultValue = "1_000") @Min(10) int archiveGroupSize) {
     /**
      * Constructor.
@@ -108,48 +106,5 @@ public record PersistenceStorageConfig(
         public String getFileExtension() {
             return fileExtension;
         }
-    }
-
-    /**
-     * An enum that reflects the type of archive that is used to archive
-     * the blocks that are stored within the persistence storage.
-     */
-    public enum ArchiveType {
-        /**
-         * This type of archive is used to archive the blocks as individual files
-         * with the Block number as a unique file name and persisted in a trie
-         * structure with digit-per-folder. Acts in a very similar fashion as
-         * {@link StorageType#BLOCK_AS_LOCAL_FILE} in terms of how the blocks are
-         * stored, but instead of having a directory where certain blocks must
-         * reside based on the trie structure, there will be a zip in its place.
-         * Entries inside the zip are continued to be resolved as if they were
-         * part of the trie structure, meaning the actual files are saved under
-         * directories where they would usually reside as if they were saved
-         * under the block-as-file live persistence trie.
-         * <pre>
-         *     E.G.
-         *     Imagine we are archiving each 1000 blocks. So if we want to
-         *     archive blocks 1000-1999, here is how the archive would look
-         *     juxtaposed with the live root path:
-         *
-         *     LIVE ROOT PATH:
-         *     (folders are up to dept 18, long max digit size - 1):
-         *     /live/0/0/0.../1/0/0/0000000000000001000.blk
-         *     ...
-         *     /live/0/0/0.../1/0/0/0000000000000001999.blk
-         *
-         *     ARCHIVE ROOT PATH:
-         *     (folders are up to dept 18, long max digit size - 1):
-         *     /archive/0/0/0.../1.zip/0/0/0000000000000001000.blk
-         *     ...
-         *     /archive/0/0/0.../1.zip/0/0/0000000000000001999.blk
-         * </pre>
-         */
-        BLOCK_AS_LOCAL_FILE,
-        /**
-         * This type of archive does nothing, essentially acting as if it were
-         * disabled.
-         */
-        NO_OP
     }
 }

@@ -5,7 +5,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatIllegalArgumentException;
 import static org.assertj.core.api.Assertions.from;
 
-import com.hedera.block.server.persistence.storage.PersistenceStorageConfig.ArchiveType;
 import com.hedera.block.server.persistence.storage.PersistenceStorageConfig.CompressionType;
 import com.hedera.block.server.persistence.storage.PersistenceStorageConfig.StorageType;
 import java.io.IOException;
@@ -74,7 +73,6 @@ class PersistenceStorageConfigTest {
                 storageType,
                 CompressionType.NONE,
                 DEFAULT_COMPRESSION_LEVEL,
-                ArchiveType.NO_OP,
                 DEFAULT_ARCHIVE_BATCH_SIZE);
         assertThat(actual).returns(storageType, from(PersistenceStorageConfig::type));
     }
@@ -102,7 +100,6 @@ class PersistenceStorageConfigTest {
                 StorageType.BLOCK_AS_LOCAL_FILE,
                 CompressionType.NONE,
                 DEFAULT_COMPRESSION_LEVEL,
-                ArchiveType.NO_OP,
                 DEFAULT_ARCHIVE_BATCH_SIZE);
         assertThat(actual)
                 .returns(expectedLiveRootPathToTest, from(PersistenceStorageConfig::liveRootPath))
@@ -125,7 +122,6 @@ class PersistenceStorageConfigTest {
                 StorageType.BLOCK_AS_LOCAL_FILE,
                 compressionType,
                 compressionLevel,
-                ArchiveType.NO_OP,
                 DEFAULT_ARCHIVE_BATCH_SIZE);
         assertThat(actual).returns(compressionLevel, from(PersistenceStorageConfig::compressionLevel));
     }
@@ -148,7 +144,6 @@ class PersistenceStorageConfigTest {
                         StorageType.BLOCK_AS_LOCAL_FILE,
                         compressionType,
                         compressionLevel,
-                        ArchiveType.NO_OP,
                         DEFAULT_ARCHIVE_BATCH_SIZE));
     }
 
@@ -167,29 +162,8 @@ class PersistenceStorageConfigTest {
                 StorageType.NO_OP,
                 compressionType,
                 DEFAULT_COMPRESSION_LEVEL,
-                ArchiveType.NO_OP,
                 DEFAULT_ARCHIVE_BATCH_SIZE);
         assertThat(actual).returns(compressionType, from(PersistenceStorageConfig::compression));
-    }
-
-    /**
-     * This test aims to verify that the {@link PersistenceStorageConfig} class
-     * correctly returns the archive type that was set in the constructor.
-     *
-     * @param archiveType parameterized, the archive type to test
-     */
-    @ParameterizedTest
-    @EnumSource(ArchiveType.class)
-    void testPersistenceStorageConfigArchiveTypes(final ArchiveType archiveType) {
-        final PersistenceStorageConfig actual = new PersistenceStorageConfig(
-                Path.of(""),
-                Path.of(""),
-                StorageType.NO_OP,
-                CompressionType.NONE,
-                DEFAULT_COMPRESSION_LEVEL,
-                archiveType,
-                DEFAULT_ARCHIVE_BATCH_SIZE);
-        assertThat(actual).returns(archiveType, from(PersistenceStorageConfig::archiveType));
     }
 
     /**
@@ -207,7 +181,6 @@ class PersistenceStorageConfigTest {
                 StorageType.NO_OP,
                 CompressionType.NONE,
                 DEFAULT_COMPRESSION_LEVEL,
-                ArchiveType.NO_OP,
                 archiveGroupSize);
         assertThat(actual).returns(archiveGroupSize, from(PersistenceStorageConfig::archiveGroupSize));
     }
@@ -229,7 +202,6 @@ class PersistenceStorageConfigTest {
                         StorageType.NO_OP,
                         CompressionType.NONE,
                         DEFAULT_COMPRESSION_LEVEL,
-                        ArchiveType.NO_OP,
                         archiveGroupSize));
     }
 

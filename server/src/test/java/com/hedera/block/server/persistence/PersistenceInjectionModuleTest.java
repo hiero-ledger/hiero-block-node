@@ -17,7 +17,6 @@ import com.hedera.block.server.persistence.storage.PersistenceStorageConfig.Comp
 import com.hedera.block.server.persistence.storage.PersistenceStorageConfig.StorageType;
 import com.hedera.block.server.persistence.storage.archive.BlockAsLocalFileArchiver;
 import com.hedera.block.server.persistence.storage.archive.LocalBlockArchiver;
-import com.hedera.block.server.persistence.storage.archive.NoOpArchiver;
 import com.hedera.block.server.persistence.storage.compression.Compression;
 import com.hedera.block.server.persistence.storage.compression.NoOpCompression;
 import com.hedera.block.server.persistence.storage.compression.ZstdCompression;
@@ -209,16 +208,9 @@ class PersistenceInjectionModuleTest {
     @ParameterizedTest
     @EnumSource(StorageType.class)
     void testProvidesLocalBlockArchiver(final StorageType type) {
-        when(persistenceStorageConfigMock.type()).thenReturn(type);
         final LocalBlockArchiver actual = PersistenceInjectionModule.providesLocalBlockArchiver(
                 persistenceStorageConfigMock, blockPathResolverMock);
-
-        final Class<?> targetInstanceType =
-                switch (type) {
-                    case BLOCK_AS_LOCAL_FILE -> BlockAsLocalFileArchiver.class;
-                    case NO_OP -> NoOpArchiver.class;
-                };
-        assertThat(actual).isNotNull().isExactlyInstanceOf(targetInstanceType);
+        assertThat(actual).isNotNull().isExactlyInstanceOf(BlockAsLocalFileArchiver.class);
     }
 
     @Test
