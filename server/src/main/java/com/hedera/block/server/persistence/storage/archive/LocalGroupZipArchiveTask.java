@@ -162,12 +162,8 @@ public final class LocalGroupZipArchiveTask implements Callable<Long> {
             // Then, we need to populate the zip with all entries that should be in it, resolved before
             // the invocation of this method.
 
-            // @todo(issue=???) Idea to not have to catch an exception and delete.
-            //    Write the file to a temp file initially, and _move it_ to the correct
-            //    zip file name/location after it completes.  Thus if you succeed you have a
-            //    good file (and writing it was faster).  If you fail there _might_ be a tempfile
-            //    somewhere, but if correctly implemented the tempfile is supposed to be deleted
-            //    automatically.
+            // @todo(721) write the zip file initially to a temp file and
+            //    move to actual location only after successful creation
             try (final OutputStream fileOut = Files.newOutputStream(zipFilePath);
                     final ZipOutputStream zipOut = new ZipOutputStream(fileOut); ) {
                 zipOut.setMethod(ZipOutputStream.STORED);
