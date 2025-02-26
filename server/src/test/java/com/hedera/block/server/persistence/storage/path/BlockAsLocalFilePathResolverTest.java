@@ -120,7 +120,7 @@ class BlockAsLocalFilePathResolverTest {
     @ParameterizedTest
     @MethodSource("validBlockNumbersArchivePathResolve")
     void testSuccessfulResolveParentToArchiveUnderLive(final ArchiveBlockPath archiveBlockPath) {
-        final String zipFolder = archiveBlockPath.zipFileName().replace(".zip", "");
+        final String zipFolder = archiveBlockPath.zipFileName().replace(Constants.ZIP_FILE_EXTENSION, "");
         final Path expected =
                 testLiveRootPath.resolve(archiveBlockPath.dirPath()).resolve(zipFolder);
         final Path actual = toTest.resolveRawPathToArchiveParentUnderLive(archiveBlockPath.blockNumber());

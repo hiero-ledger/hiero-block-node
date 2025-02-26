@@ -1,9 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 package com.hedera.block.server.persistence.storage.archive;
 
+import static java.lang.System.Logger.Level.TRACE;
+
 import com.hedera.block.server.persistence.storage.PersistenceStorageConfig;
 import com.hedera.block.server.persistence.storage.path.BlockPathResolver;
 import edu.umd.cs.findbugs.annotations.NonNull;
+import java.lang.System.Logger;
 import java.util.Objects;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CompletionService;
@@ -19,9 +22,10 @@ import javax.inject.Inject;
  * persistence type.
  */
 public final class BlockAsLocalFileArchiver implements LocalBlockArchiver {
+    private final Logger LOGGER = System.getLogger(BlockAsLocalFileArchiver.class.getName());
     private final PersistenceStorageConfig config;
     private final BlockPathResolver blockPathResolver;
-    private final CompletionService<Void> completionService;
+    private final CompletionService<Long> completionService;
     private final int archiveGroupSize;
 
     @Inject
@@ -42,7 +46,7 @@ public final class BlockAsLocalFileArchiver implements LocalBlockArchiver {
         if (validThresholdPassed && canArchive) {
             // here we need to archive everything below 1 group size lower than the threshold passed
             final long thresholdOneGroupSizeLower = blockNumber - archiveGroupSize;
-            final Callable<Void> archivingTask =
+            final Callable<Long> archivingTask =
                     new LocalGroupZipArchiveTask(thresholdOneGroupSizeLower, config, blockPathResolver);
             completionService.submit(archivingTask);
         }
@@ -50,18 +54,23 @@ public final class BlockAsLocalFileArchiver implements LocalBlockArchiver {
     }
 
     private void handleSubmittedResults() {
-        Future<Void> completionResult;
+        Future<Long> completionResult;
         while ((completionResult = completionService.poll()) != null) {
             try {
                 if (completionResult.isCancelled()) {
                     // @todo(517) when we have infrastructure for publishing
-                    // results, we should do so
+                    //    results, we should do so
                 } else {
-                    // we call get here to verify that the task has run to completion
+                    // We call get here to verify that the task has run to completion
                     // we do not expect it to throw an exception, but to publish
                     // a meaningful result, if an exception is thrown, it should be
-                    // either considered a bug or an unhandled exception
-                    completionResult.get();
+                    // either considered a bug or an unhandled exception.
+                    // We do not expect a null result from the get method.
+                    // The result should be the number of actual block items
+                    // archived.
+                    final long result = completionResult.get();
+                    // @todo(517) this is a good place to do some metrics
+                    LOGGER.log(TRACE, "Archived [{0}] BlockFiles", result);
                 }
             } catch (final ExecutionException e) {
                 // we do not expect to enter here, if we do, then there is

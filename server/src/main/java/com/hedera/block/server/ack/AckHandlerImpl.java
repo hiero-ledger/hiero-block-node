@@ -60,19 +60,13 @@ public class AckHandlerImpl implements AckHandler {
         if (!skipAcknowledgement) {
             final long blockNumber = blockPersistenceResult.blockNumber();
             if (blockPersistenceResult.status() == BlockPersistenceStatus.SUCCESS) {
-                final BlockInfo info;
-                if (blockInfo.containsKey(blockNumber)) {
-                    info = blockInfo.get(blockNumber);
-                } else {
-                    info = new BlockInfo(blockNumber);
-                    blockInfo.put(blockNumber, info);
-                }
+                final BlockInfo info = blockInfo.computeIfAbsent(blockNumber, BlockInfo::new);
                 info.getBlockStatus().setPersisted();
             } else {
                 // @todo(545) handle other cases for the blockPersistenceResult
-                // for now we will simply send an end of stream message
-                // but more things need to be handled, like ensure the
-                // blockInfo map will not be inserted
+                //   for now we will simply send an end of stream message
+                //   but more things need to be handled, like ensure the
+                //   blockInfo map will not be inserted
                 blockVerificationFailed(blockNumber);
                 blockInfo.remove(blockNumber);
             }

@@ -36,6 +36,8 @@ import org.mockito.Mockito;
  * Test for {@link LocalGroupZipArchiveTask}.
  */
 class LocalGroupZipArchiveTaskTest {
+    private static final int ARCHIVE_GROUP_SIZE = 10;
+
     @TempDir
     private Path testTempDir;
 
@@ -46,7 +48,7 @@ class LocalGroupZipArchiveTaskTest {
     void setUp() throws IOException {
         final Configuration config = new TestConfigBuilder(PersistenceStorageConfig.class)
                 .withValue(PERSISTENCE_STORAGE_COMPRESSION_TYPE, "NONE")
-                .withValue(PERSISTENCE_STORAGE_ARCHIVE_BATCH_SIZE, "10")
+                .withValue(PERSISTENCE_STORAGE_ARCHIVE_BATCH_SIZE, String.valueOf(ARCHIVE_GROUP_SIZE))
                 .withValue(PERSISTENCE_STORAGE_LIVE_ROOT_PATH_KEY, testTempDir.resolve("live"))
                 .withValue(PERSISTENCE_STORAGE_ARCHIVE_ROOT_PATH_KEY, testTempDir.resolve("archive"))
                 .getOrCreateConfig();
@@ -94,7 +96,9 @@ class LocalGroupZipArchiveTaskTest {
         // call the actual archiver
         final LocalGroupZipArchiveTask toTest =
                 new LocalGroupZipArchiveTask(thresholdPassed, persistenceStorageConfig, pathResolverSpy);
-        toTest.call();
+        final long blocksArchived = toTest.call();
+
+        assertThat(blocksArchived).isEqualTo(ARCHIVE_GROUP_SIZE);
 
         // assert that blocks are in archive storage and in live
         final List<ArchiveBlockPath> archiveBlockPaths = new ArrayList<>();

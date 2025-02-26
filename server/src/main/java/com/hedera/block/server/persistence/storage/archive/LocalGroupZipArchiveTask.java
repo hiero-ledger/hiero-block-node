@@ -3,6 +3,7 @@ package com.hedera.block.server.persistence.storage.archive;
 
 import com.hedera.block.common.utils.FileUtilities;
 import com.hedera.block.common.utils.Preconditions;
+import com.hedera.block.server.Constants;
 import com.hedera.block.server.persistence.storage.PersistenceStorageConfig;
 import com.hedera.block.server.persistence.storage.path.BlockPathResolver;
 import edu.umd.cs.findbugs.annotations.NonNull;
@@ -33,7 +34,7 @@ import java.util.zip.ZipOutputStream;
  * {@link com.hedera.block.server.persistence.storage.PersistenceStorageConfig.StorageType#BLOCK_AS_LOCAL_FILE}
  * persistence type.
  */
-public final class LocalGroupZipArchiveTask implements Callable<Void> {
+public final class LocalGroupZipArchiveTask implements Callable<Long> {
     private static final System.Logger LOGGER = System.getLogger(LocalGroupZipArchiveTask.class.getName());
     private static final String THRESHOLD_PASSED_MESSAGE = "Block Number Threshold for archiving passed [{0}]";
     private static final String ARCHIVE_ROOT_RESOLVED_MESSAGE =
@@ -49,6 +50,7 @@ public final class LocalGroupZipArchiveTask implements Callable<Void> {
     private static final int BUFFER_SIZE = 32768; // 32K should exactly contain one or two disk blocks in most cases.
     private final BlockPathResolver pathResolver;
     private final long blockNumberThreshold;
+    private long blockFilesArchived = 0;
 
     /**
      * Each local group zip archive task requires a block number threshold to
@@ -95,17 +97,15 @@ public final class LocalGroupZipArchiveTask implements Callable<Void> {
     }
 
     /**
-     * The archiver will archive blocks to local storage. It is given a passed
-     * block number threshold, all blocks below 1 group size lower than the
-     * threshold will be archived. Due to the trie structure utilized by the
-     * persistence type used, we can be sure that simply by determining the
-     * archive root, we can archive all blocks under that root. It is not
-     * possible due to the different branching of the trie to archive something
-     * that should not be archived. This also means that archives for different
-     * thresholds can be safely run in parallel.
+     * The archiver will archive blocks to local storage. It is given a passed block number threshold, all blocks
+     * below 1 group size lower than the threshold will be archived. Due to the trie structure utilized by the
+     * persistence type used, we can be sure that simply by determining the archive root, we can archive all blocks
+     * under that root. It is not possible due to the different branching of the trie to archive something that
+     * should not be archived. This also means that archives for different thresholds can be safely run in
+     * parallel.
      */
     @Override
-    public Void call() throws IOException {
+    public Long call() throws IOException {
         LOGGER.log(Level.DEBUG, THRESHOLD_PASSED_MESSAGE, blockNumberThreshold);
         // Upper bound is always the threshold that was passed -1, the threshold % archive group size (pow 10)
         // must always be 0.
@@ -143,7 +143,9 @@ public final class LocalGroupZipArchiveTask implements Callable<Void> {
         } else {
             LOGGER.log(Level.DEBUG, NO_FILES_TO_ARCHIVE_MESSAGE, rootToArchive);
         }
-        return null;
+        // If no exception is thrown, then we expect that the archiving process is successful,
+        // and we can return the number of blocks that were archived.
+        return blockFilesArchived;
     }
 
     @SuppressWarnings("ForLoopReplaceableByForEach")
@@ -167,7 +169,7 @@ public final class LocalGroupZipArchiveTask implements Callable<Void> {
             //    somewhere, but if correctly implemented the tempfile is supposed to be deleted
             //    automatically.
             try (final OutputStream fileOut = Files.newOutputStream(zipFilePath);
-                    final ZipOutputStream zipOut = new ZipOutputStream(fileOut)) {
+                    final ZipOutputStream zipOut = new ZipOutputStream(fileOut); ) {
                 zipOut.setMethod(ZipOutputStream.STORED);
                 zipOut.setLevel(Deflater.NO_COMPRESSION);
                 for (int i = 0; i < pathsToArchive.size(); i++) {
@@ -198,27 +200,30 @@ public final class LocalGroupZipArchiveTask implements Callable<Void> {
             final String zipFilePath)
             throws IOException {
         if (Files.isDirectory(pathToArchive)) {
-            final ZipEntry zipEntry =
-                    new ZipEntry(relativizedEntryName.toString().concat("/"));
-            LOGGER.log(Level.TRACE, ADD_ENTRY_MESSAGE, zipEntry, zipFilePath);
-            zipEntry.setMethod(ZipEntry.STORED);
-            zipEntry.setSize(0);
-            zipEntry.setCompressedSize(0);
-            zipEntry.setCrc(0);
-            zipOut.putNextEntry(zipEntry);
-            zipOut.closeEntry();
-            LOGGER.log(Level.TRACE, ADD_SUCCESS_MESSAGE, zipEntry, zipFilePath);
+            final String entryName = relativizedEntryName.toString().concat("/");
+            LOGGER.log(Level.TRACE, ADD_ENTRY_MESSAGE, entryName, zipFilePath);
+            writeSingleDirToZip(zipOut, entryName);
+            LOGGER.log(Level.TRACE, ADD_SUCCESS_MESSAGE, entryName, zipFilePath);
         } else {
-            final ZipEntry zipEntry = new ZipEntry(relativizedEntryName.toString());
-            zipEntry.setMethod(ZipEntry.STORED);
-            LOGGER.log(Level.TRACE, ADD_ENTRY_MESSAGE, zipEntry, zipFilePath);
-            writeSingleFileToZip(pathToArchive, zipOut, zipEntry);
-            LOGGER.log(Level.TRACE, ADD_SUCCESS_MESSAGE, zipEntry, zipFilePath);
+            final String entryName = relativizedEntryName.toString();
+            LOGGER.log(Level.TRACE, ADD_ENTRY_MESSAGE, entryName, zipFilePath);
+            writeSingleFileToZip(pathToArchive, zipOut, entryName);
+            LOGGER.log(Level.TRACE, ADD_SUCCESS_MESSAGE, entryName, zipFilePath);
         }
     }
 
-    private static void writeSingleFileToZip(
-            final Path pathToArchive, final ZipOutputStream zipOut, final ZipEntry zipEntry) throws IOException {
+    private void writeSingleDirToZip(final ZipOutputStream zipOut, final String entryName) throws IOException {
+        final ZipEntry zipEntry = new ZipEntry(entryName);
+        zipEntry.setMethod(ZipEntry.STORED);
+        zipEntry.setSize(0);
+        zipEntry.setCompressedSize(0);
+        zipEntry.setCrc(0);
+        zipOut.putNextEntry(zipEntry);
+        zipOut.closeEntry();
+    }
+
+    private void writeSingleFileToZip(final Path pathToArchive, final ZipOutputStream zipOut, final String entryName)
+            throws IOException {
         try (final FileChannel channel = FileChannel.open(pathToArchive, StandardOpenOption.READ);
                 final InputStream fileIn = Channels.newInputStream(channel);
                 final CheckedInputStream checkedIn = new CheckedInputStream(fileIn, new CRC32()); ) {
@@ -231,6 +236,8 @@ public final class LocalGroupZipArchiveTask implements Callable<Void> {
                 fileSize += checkedBytesRead;
             }
             checksum = checkedIn.getChecksum().getValue();
+            final ZipEntry zipEntry = new ZipEntry(entryName);
+            zipEntry.setMethod(ZipEntry.STORED);
             zipEntry.setSize(fileSize);
             zipEntry.setCompressedSize(fileSize);
             zipEntry.setCrc(checksum);
@@ -243,22 +250,23 @@ public final class LocalGroupZipArchiveTask implements Callable<Void> {
                 zipOut.write(blockFileBytes, 0, bytesRead);
             }
             zipOut.closeEntry();
+            blockFilesArchived++;
         }
     }
 
-    private static void createLink(final Path rootToArchive, final Path zipFilePath) throws IOException {
+    private void createLink(final Path rootToArchive, final Path zipFilePath) throws IOException {
         // We need to create a link to the zip file we just created so readers can find it.
-        final Path livelink = FileUtilities.appendExtension(rootToArchive, ".zip");
+        final Path livelink = FileUtilities.appendExtension(rootToArchive, Constants.ZIP_FILE_EXTENSION);
         try {
             Files.createLink(livelink, zipFilePath);
         } catch (final IOException e) {
             LOGGER.log(Level.DEBUG, MUST_CREATE_SYMLINK_MESSAGE, livelink, zipFilePath, e);
-            // if we are unable to create a link, we need to attempt to create a symbolic link
+            // If we are unable to create a link, we need to attempt to create a symbolic link.
             Files.createSymbolicLink(livelink, zipFilePath);
         }
         LOGGER.log(Level.DEBUG, LINK_CREATED_MESSAGE, livelink, zipFilePath);
         // If no exception is thrown here, this means that the link is made and the blocks
-        // could now be discovered via it
+        // could now be discovered via it.
     }
 
     @SuppressWarnings("ResultOfMethodCallIgnored")
@@ -270,7 +278,7 @@ public final class LocalGroupZipArchiveTask implements Callable<Void> {
         final Path movedToDelete = FileUtilities.appendExtension(rootToArchive, "del");
         Files.move(rootToArchive, movedToDelete);
         try {
-            // A sleep here would improve the chances of the deletion to succeed
+            // Sleep here would improve the chances of the deletion to succeed.
             Thread.sleep(150);
         } catch (final InterruptedException e) {
             Thread.currentThread().interrupt();

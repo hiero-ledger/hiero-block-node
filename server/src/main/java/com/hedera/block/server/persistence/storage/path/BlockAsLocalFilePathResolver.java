@@ -69,7 +69,7 @@ public final class BlockAsLocalFilePathResolver implements BlockPathResolver {
     @NonNull
     @Override
     public Path resolveRawPathToArchiveParentUnderArchive(final long blockNumber) {
-        return resolveRawArchivingTarget(blockNumber, archiveRootPath, ".zip");
+        return resolveRawArchivingTarget(blockNumber, archiveRootPath, Constants.ZIP_FILE_EXTENSION);
     }
 
     @NonNull
@@ -164,7 +164,7 @@ public final class BlockAsLocalFilePathResolver implements BlockPathResolver {
         final String zipEntryName = zipRootUnderLiveLocation
                 .relativize(resolveLiveRawPathToBlock(blockNumber))
                 .toString();
-        final Path zipFileSymlink = FileUtilities.appendExtension(zipRootUnderLiveLocation, ".zip");
+        final Path zipFileSymlink = FileUtilities.appendExtension(zipRootUnderLiveLocation, Constants.ZIP_FILE_EXTENSION);
         return new ArchiveBlockPath(
                 zipFileSymlink.getParent(),
                 zipFileSymlink.getFileName().toString(),

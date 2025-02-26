@@ -36,5 +36,8 @@ public final class Constants {
     /** Constant defining the compressed file extension */
     public static final String COMPRESSED_FILE_EXTENSION = ".zstd";
 
+    /** Constant defining zip file extension */
+    public static final String ZIP_FILE_EXTENSION = ".zip";
+
     private Constants() {}
 }
