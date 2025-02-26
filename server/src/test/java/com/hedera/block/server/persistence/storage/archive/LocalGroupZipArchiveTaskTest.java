@@ -6,6 +6,7 @@ import static com.hedera.block.server.util.PersistTestUtils.PERSISTENCE_STORAGE_
 import static com.hedera.block.server.util.PersistTestUtils.PERSISTENCE_STORAGE_COMPRESSION_TYPE;
 import static com.hedera.block.server.util.PersistTestUtils.PERSISTENCE_STORAGE_LIVE_ROOT_PATH_KEY;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatIOException;
 
 import com.hedera.block.common.utils.FileUtilities;
 import com.hedera.block.server.config.TestConfigBuilder;
@@ -16,6 +17,9 @@ import com.hedera.block.server.persistence.storage.path.BlockPathResolver;
 import com.hedera.block.server.util.PersistTestUtils;
 import com.hedera.hapi.block.BlockItemUnparsed;
 import com.hedera.hapi.block.BlockUnparsed;
+import com.hedera.hapi.block.stream.output.BlockHeader;
+import com.hedera.pbj.runtime.ParseException;
+import com.hedera.pbj.runtime.io.buffer.Bytes;
 import com.swirlds.config.api.Configuration;
 import java.io.IOException;
 import java.io.InputStream;
@@ -24,6 +28,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipFile;
@@ -143,15 +148,63 @@ class LocalGroupZipArchiveTaskTest {
         }
     }
 
+    /**
+     * This test aims to assert that the archiver returns 0 count when the
+     * there are no blocks to archive under root.
+     */
+    @Test
+    void testArchiveBlockCountZero() throws IOException {
+        // write something outside the threshold
+        final List<List<BlockItemUnparsed>> blocksTenToNineteenAsItems =
+                PersistTestUtils.generateBlockItemsUnparsedForBlocksInRangeChunked(10, 20);
+        doWriteBlocks(blocksTenToNineteenAsItems, 10, 20);
+        // create the root for the archive under live, this is expected to be
+        // present for the task to run properly
+        Files.createDirectories(pathResolverSpy.resolveRawPathToArchiveParentUnderLive(9));
+        // call the actual archiver
+        final LocalGroupZipArchiveTask toTest =
+                new LocalGroupZipArchiveTask(THRESHOLD_PASSED_TEN, persistenceStorageConfig, pathResolverSpy);
+        final long blocksArchived = toTest.call();
+        assertThat(blocksArchived).isEqualTo(0);
+    }
+
+    @Test
+    void testArchiveBlockThrowsExceptionIfZipFileExists() throws IOException {
+        // create the zip file that should not exist when starting the archiver
+        final Path zipFile = pathResolverSpy.resolveRawPathToArchiveParentUnderArchive(0);
+        FileUtilities.createFile(zipFile);
+        // call the actual archiver
+        final LocalGroupZipArchiveTask toTest =
+                new LocalGroupZipArchiveTask(THRESHOLD_PASSED_TEN, persistenceStorageConfig, pathResolverSpy);
+        assertThatIOException().isThrownBy(toTest::call);
+    }
+
     private List<BlockUnparsed> writeFirstTenBlocks() throws IOException {
         // generate first 10 blocks, from numbers 0 to 9
         final List<List<BlockItemUnparsed>> firstTenBlocksAsItems =
-                PersistTestUtils.generateBlockItemsUnparsedStartFromBlockNumber0Chunked(THRESHOLD_PASSED_TEN);
+                PersistTestUtils.generateBlockItemsUnparsedStartFromBlockNumber0Chunked(10);
         // write first 10 blocks to live storage
+        return doWriteBlocks(firstTenBlocksAsItems, 0, 10);
+    }
+
+    private List<BlockUnparsed> doWriteBlocks(
+            final List<List<BlockItemUnparsed>> blocksAsItems, final int startBlockNumber, final int endBlockNumber)
+            throws IOException {
         final List<BlockUnparsed> firstTenBlocks = new ArrayList<>();
-        final int blockNumberUpperBound = firstTenBlocksAsItems.size();
-        for (int blockNumber = 0; blockNumber < blockNumberUpperBound; blockNumber++) {
-            final List<BlockItemUnparsed> block = firstTenBlocksAsItems.get(blockNumber);
+        for (int blockNumber = startBlockNumber; blockNumber < endBlockNumber; blockNumber++) {
+            final long localBlockNumber = blockNumber;
+            final List<BlockItemUnparsed> block = blocksAsItems.stream()
+                    .filter(b -> {
+                        try {
+                            final Bytes header =
+                                    Objects.requireNonNull(b.getFirst().blockHeader());
+                            return BlockHeader.PROTOBUF.parse(header).number() == localBlockNumber;
+                        } catch (final ParseException e) {
+                            throw new RuntimeException(e);
+                        }
+                    })
+                    .findFirst()
+                    .get();
             final BlockUnparsed blockUnparsed =
                     BlockUnparsed.newBuilder().blockItems(block).build();
             final Path pathToLive = pathResolverSpy.resolveLiveRawPathToBlock(blockNumber);
