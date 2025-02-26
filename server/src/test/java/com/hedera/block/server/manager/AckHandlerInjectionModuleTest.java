@@ -39,7 +39,12 @@ class AckHandlerInjectionModuleTest {
                 PersistenceStorageConfig.StorageType.BLOCK_AS_LOCAL_FILE,
                 PersistenceStorageConfig.CompressionType.NONE,
                 0,
-                10);
+                10,
+                1024,
+                PersistenceStorageConfig.ExecutorType.THREAD_POOL,
+                6,
+                60000,
+                true);
         final VerificationConfig verificationConfig = mock(VerificationConfig.class);
         when(verificationConfig.type()).thenReturn(VerificationConfig.VerificationServiceType.PRODUCTION);
 

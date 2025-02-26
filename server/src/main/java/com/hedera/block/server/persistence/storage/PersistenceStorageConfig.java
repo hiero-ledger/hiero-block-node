@@ -30,11 +30,11 @@ public record PersistenceStorageConfig(
         @Loggable @ConfigProperty(defaultValue = "ZSTD") CompressionType compression,
         @Loggable @ConfigProperty(defaultValue = "3") @Min(0) @Max(20) int compressionLevel,
         @Loggable @ConfigProperty(defaultValue = "1_000") @Min(10) int archiveGroupSize,
-        @Loggable @ConfigProperty(defaultValue = "true") boolean archiveEnabled,
+        @Loggable @ConfigProperty(defaultValue = "1024") @Min(64) @Max(2048) int executionQueueLimit,
         @Loggable @ConfigProperty(defaultValue = "THREAD_POOL") ExecutorType executorType,
         @Loggable @ConfigProperty(defaultValue = "6") @Min(1) @Max(16) int threadCount,
-        @Loggable @ConfigProperty(defaultValue = "false") boolean useVirtualThreads,
-        @Loggable @ConfigProperty(defaultValue = "1024") @Min(64) @Max(2048) int executionQueueLimit) {
+        @Loggable @ConfigProperty(defaultValue = "60000") @Min(0) long threadKeepAliveTime,
+        @Loggable @ConfigProperty(defaultValue = "false") boolean useVirtualThreads) {
     /**
      * Constructor.
      */
@@ -43,6 +43,7 @@ public record PersistenceStorageConfig(
         Objects.requireNonNull(archiveRootPath);
         Objects.requireNonNull(unverifiedRootPath);
         Objects.requireNonNull(type);
+        Objects.requireNonNull(executorType);
         compression.verifyCompressionLevel(compressionLevel);
         // @todo(742) verify that the group size has not changed once it has
         //    been set initially
@@ -53,6 +54,15 @@ public record PersistenceStorageConfig(
         Preconditions.requirePositivePowerOf10(
                 archiveGroupSize,
                 "persistence.storage.archiveGroupSize [%d] is required to be a positive power of 10.");
+        Preconditions.requirePositivePowerOf10(archiveGroupSize);
+        Preconditions.requireWhole(threadKeepAliveTime);
+        Preconditions.requireInRange(
+                executionQueueLimit,
+                64,
+                2048,
+                "persistence.storage.executionQueueLimit [%d] is required to be between [%d] and [%d].");
+        Preconditions.requireInRange(
+                threadCount, 1, 16, "persistence.storage.threadCount [%d] is required to be between [%d] and [%d].");
     }
 
     /**
@@ -99,17 +109,10 @@ public record PersistenceStorageConfig(
         SINGLE_THREAD,
 
         /**
-         * Uses the common ForkJoinPool for task execution.
-         * Best for compute-intensive workloads that benefit from work-stealing and when
-         * you want to share thread resources with other components in the application.
+         * Uses the ForkJoinPool for task execution.
+         * Best for compute-intensive workloads that benefit from work-stealing.
          */
         FORK_JOIN,
-
-        /**
-         * Executes tasks directly in the calling thread without creating additional threads.
-         * Useful for testing, debugging, or when immediate execution in the current thread is desired.
-         */
-        CALLING_THREAD
     }
 
     /**
