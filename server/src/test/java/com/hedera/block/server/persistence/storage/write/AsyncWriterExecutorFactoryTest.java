@@ -99,7 +99,7 @@ class AsyncWriterExecutorFactoryTest {
         assertTrue(threadPoolExecutor.getMaximumPoolSize() == threadCount);
         assertTrue(threadPoolExecutor.getKeepAliveTime(java.util.concurrent.TimeUnit.SECONDS) == keepAliveTime);
         assertTrue(threadPoolExecutor.getQueue().remainingCapacity() == queueLimit);
-        assertTrue(threadPoolExecutor.getRejectedExecutionHandler() instanceof AsyncWriterRejectedExecutionHandler);
+        assertTrue(threadPoolExecutor.getRejectedExecutionHandler() instanceof ThreadPoolExecutor.CallerRunsPolicy);
     }
 
     /**

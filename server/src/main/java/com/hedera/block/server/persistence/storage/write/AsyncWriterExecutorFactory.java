@@ -14,6 +14,7 @@ import java.util.concurrent.ForkJoinPool;
 import java.util.concurrent.LinkedBlockingDeque;
 import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.ThreadPoolExecutor.CallerRunsPolicy;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -100,7 +101,7 @@ public final class AsyncWriterExecutorFactory {
                 TimeUnit.SECONDS,
                 new LinkedBlockingDeque<>(queueLimit),
                 new AsyncWriterThreadFactory(),
-                new AsyncWriterRejectedExecutionHandler());
+                new CallerRunsPolicy());
     }
 
     /**
