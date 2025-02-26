@@ -37,6 +37,7 @@ import org.mockito.Mockito;
  */
 class LocalGroupZipArchiveTaskTest {
     private static final int ARCHIVE_GROUP_SIZE = 10;
+    private static final int THRESHOLD_PASSED_TEN = 10;
 
     @TempDir
     private Path testTempDir;
@@ -60,20 +61,96 @@ class LocalGroupZipArchiveTaskTest {
     }
 
     /**
-     * This test aims to assert that the archiver correctly archives blocks that
-     * have passed the threshold. The archived blocks need to be taken from the
-     * live storage and moved to the archive storage.
+     * This test aims to assert that the archiver correctly counts archived
+     * blocks.
      */
     @Test
-    void testArchiveBlock() throws IOException {
-        final int thresholdPassed = 10;
+    void testArchiveBlockCount() throws IOException {
+        // write first 10 blocks to live storage before running the archiver
+        writeFirstTenBlocks();
+
+        // call the actual archiver
+        final LocalGroupZipArchiveTask toTest =
+                new LocalGroupZipArchiveTask(THRESHOLD_PASSED_TEN, persistenceStorageConfig, pathResolverSpy);
+        final long blocksArchived = toTest.call();
+
+        assertThat(blocksArchived).isEqualTo(ARCHIVE_GROUP_SIZE);
+    }
+
+    /**
+     * This test aims to assert that the archiver correctly removes blocks from
+     * live storage after successful archive.
+     */
+    @Test
+    void testArchiveBlockLocationNotLive() throws IOException {
+        // write first 10 blocks to live storage before running the archiver
+        writeFirstTenBlocks();
+
+        // call the actual archiver
+        final LocalGroupZipArchiveTask toTest =
+                new LocalGroupZipArchiveTask(THRESHOLD_PASSED_TEN, persistenceStorageConfig, pathResolverSpy);
+        toTest.call();
+
+        // assert that blocks are not in live storage
+        for (int blockNumber = 0; blockNumber < THRESHOLD_PASSED_TEN; blockNumber++) {
+            assertThat(pathResolverSpy.findLiveBlock(blockNumber)).isNotNull().isEmpty();
+        }
+    }
+
+    /**
+     * This test aims to assert that the archiver correctly stores archived
+     * blocks in the archive storage.
+     */
+    @Test
+    void testArchiveBlockLocationInArchive() throws IOException {
+        // write first 10 blocks to live storage before running the archiver
+        writeFirstTenBlocks();
+
+        // call the actual archiver
+        final LocalGroupZipArchiveTask toTest =
+                new LocalGroupZipArchiveTask(THRESHOLD_PASSED_TEN, persistenceStorageConfig, pathResolverSpy);
+        toTest.call();
+
+        // assert that blocks are in archive storage
+        for (int blockNumber = 0; blockNumber < THRESHOLD_PASSED_TEN; blockNumber++) {
+            final Optional<ArchiveBlockPath> archivedBlock = pathResolverSpy.findArchivedBlock(blockNumber);
+            assertThat(archivedBlock).isNotNull().isPresent();
+        }
+    }
+
+    /**
+     * This test aims to assert that the archiver correctly writes bytes to the
+     * archive storage.
+     */
+    @SuppressWarnings("OptionalGetWithoutIsPresent")
+    @Test
+    void testArchiveBlockBytesWritten() throws IOException {
+        // write first 10 blocks to live storage before running the archiver
+        final List<BlockUnparsed> firstTenBlocks = writeFirstTenBlocks();
+
+        // call the actual archiver
+        final LocalGroupZipArchiveTask toTest =
+                new LocalGroupZipArchiveTask(THRESHOLD_PASSED_TEN, persistenceStorageConfig, pathResolverSpy);
+        toTest.call();
+
+        // assert that what is read as bytes from archive matches what was created and written initially
+        for (int blockNumber = 0; blockNumber < THRESHOLD_PASSED_TEN; blockNumber++) {
+            final Optional<ArchiveBlockPath> archivedBlock = pathResolverSpy.findArchivedBlock(blockNumber);
+            final byte[] actual = readArchived(archivedBlock.get());
+            final BlockUnparsed block = firstTenBlocks.get(blockNumber);
+            final byte[] expected = BlockUnparsed.PROTOBUF.toBytes(block).toByteArray();
+            assertThat(actual).isEqualTo(expected);
+        }
+    }
+
+    private List<BlockUnparsed> writeFirstTenBlocks() throws IOException {
         // generate first 10 blocks, from numbers 0 to 9
         final List<List<BlockItemUnparsed>> firstTenBlocksAsItems =
-                PersistTestUtils.generateBlockItemsUnparsedStartFromBlockNumber0Chunked(thresholdPassed);
-
-        // write first 10 blocks to live storage before running the archiver
+                PersistTestUtils.generateBlockItemsUnparsedStartFromBlockNumber0Chunked(THRESHOLD_PASSED_TEN);
+        // write first 10 blocks to live storage
         final List<BlockUnparsed> firstTenBlocks = new ArrayList<>();
-        for (int blockNumber = 0; blockNumber < firstTenBlocksAsItems.size(); blockNumber++) {
+        final int blockNumberUpperBound = firstTenBlocksAsItems.size();
+        for (int blockNumber = 0; blockNumber < blockNumberUpperBound; blockNumber++) {
             final List<BlockItemUnparsed> block = firstTenBlocksAsItems.get(blockNumber);
             final BlockUnparsed blockUnparsed =
                     BlockUnparsed.newBuilder().blockItems(block).build();
@@ -83,39 +160,13 @@ class LocalGroupZipArchiveTaskTest {
                 BlockUnparsed.PROTOBUF.toBytes(blockUnparsed).writeTo(out);
             }
             firstTenBlocks.add(blockUnparsed);
-        }
-
-        // assert that blocks are in live storage and not in archive
-        for (int blockNumber = 0; blockNumber < thresholdPassed; blockNumber++) {
+            // assert block is in live storage and not in archive
             assertThat(pathResolverSpy.findLiveBlock(blockNumber)).isNotNull().isPresent();
             assertThat(pathResolverSpy.findArchivedBlock(blockNumber))
                     .isNotNull()
                     .isEmpty();
         }
-
-        // call the actual archiver
-        final LocalGroupZipArchiveTask toTest =
-                new LocalGroupZipArchiveTask(thresholdPassed, persistenceStorageConfig, pathResolverSpy);
-        final long blocksArchived = toTest.call();
-
-        assertThat(blocksArchived).isEqualTo(ARCHIVE_GROUP_SIZE);
-
-        // assert that blocks are in archive storage and in live
-        final List<ArchiveBlockPath> archiveBlockPaths = new ArrayList<>();
-        for (int blockNumber = 0; blockNumber < thresholdPassed; blockNumber++) {
-            assertThat(pathResolverSpy.findLiveBlock(blockNumber)).isNotNull().isEmpty();
-            final Optional<ArchiveBlockPath> archivedBlock = pathResolverSpy.findArchivedBlock(blockNumber);
-            assertThat(archivedBlock).isNotNull().isPresent();
-            archiveBlockPaths.add(archivedBlock.get());
-        }
-
-        // assert that what is read as bytes from archive matches what was created and written initially
-        for (int blockNumber = 0; blockNumber < archiveBlockPaths.size(); blockNumber++) {
-            final byte[] actual = readArchived(archiveBlockPaths.get(blockNumber));
-            final BlockUnparsed block = firstTenBlocks.get(blockNumber);
-            final byte[] expected = BlockUnparsed.PROTOBUF.toBytes(block).toByteArray();
-            assertThat(actual).isEqualTo(expected);
-        }
+        return firstTenBlocks;
     }
 
     private byte[] readArchived(final ArchiveBlockPath archiveBlockPath) throws IOException {

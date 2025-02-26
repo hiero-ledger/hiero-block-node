@@ -164,7 +164,8 @@ public final class BlockAsLocalFilePathResolver implements BlockPathResolver {
         final String zipEntryName = zipRootUnderLiveLocation
                 .relativize(resolveLiveRawPathToBlock(blockNumber))
                 .toString();
-        final Path zipFileSymlink = FileUtilities.appendExtension(zipRootUnderLiveLocation, Constants.ZIP_FILE_EXTENSION);
+        final Path zipFileSymlink =
+                FileUtilities.appendExtension(zipRootUnderLiveLocation, Constants.ZIP_FILE_EXTENSION);
         return new ArchiveBlockPath(
                 zipFileSymlink.getParent(),
                 zipFileSymlink.getFileName().toString(),
