@@ -59,7 +59,7 @@ ingress:
 resources:
   requests:
     cpu: "2"
-    memory: "8Gi"
+    memory: "16Gi"
 
 nodeSelector: {}
 
@@ -73,8 +73,14 @@ blockNode:
   config:
     # Add any additional env configuration here
     # key: value
-    BLOCKNODE_STORAGE_ROOT_PATH: "/app/storage"
     JAVA_TOOL_OPTIONS: "-Djava.util.logging.config.file=/app/logs/config/logging.properties"
+    JAVA_OPTS: "-Xms8G -Xmx16G"
+    # PRODUCER_TYPE: "NO_OP"
+    # PERSISTENCE_STORAGE_TYPE: "NO_OP"
+    # VERIFICATION_TYPE: "NO_OP"
+    # MEDIATOR_TYPE: "NO_OP"
+    MEDIATOR_RING_BUFFER_SIZE: "4096"
+
   secret:
     PRIVATE_KEY: "fake_private_key"
   health:
@@ -84,18 +90,12 @@ blockNode:
       endpoint: "/healthz/livez"
     metrics:
       port: 9999
-  resources:
-    limits:
-      cpu: "8"
-      memory: "16Gi"
-    requests:
-      cpu: "2"
-      memory: "8Gi"
   logs:
     # Available Levels are (from most verbose to least verbose):
     # ALL FINEST FINER FINE CONFIG INFO WARNING SEVERE OFF
     level: "INFO"
     loggingProperties:
+      # com.hedera.block.server.producer.ProducerBlockItemObserver.level: "FINE"
       io.helidon.webserver.level: "INFO"
       io.helidon.webserver.access.level: "INFO"
       io.helidon.config.level: "SEVERE"
@@ -121,10 +121,7 @@ blockNode:
       #   %4$ - log level
       #   %5$ - log message
       #   %6$ - throwable trace
-      #
-      # Example to produce a line such as:
-      # 2025-01-04 00:34:43 INFO [com.hedera.block.server.Server main] Starting BlockNode Server
-      java.util.logging.SimpleFormatter.format: "%1$tF %1$tT %4$-7s [%2$s] %5$s %n"
+      java.util.logging.SimpleFormatter.format: "%TF %<TT.%<TL%<Tz %4$-7s [%2$s] %5$s%6$s%n"
 
 kubepromstack:
   enabled: true
