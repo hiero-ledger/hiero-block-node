@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 package com.hedera.block.server.mediator;
 
+import static com.hedera.block.server.metrics.BlockNodeMetricTypes.Counter.BlocksPersisted;
 import static com.hedera.block.server.metrics.BlockNodeMetricTypes.Counter.LiveBlockItems;
 import static com.hedera.block.server.metrics.BlockNodeMetricTypes.Counter.LiveBlockStreamMediatorError;
 import static com.hedera.block.server.util.PersistTestUtils.PERSISTENCE_STORAGE_ARCHIVE_ROOT_PATH_KEY;
@@ -30,6 +31,7 @@ import com.hedera.block.server.persistence.storage.write.AsyncBlockWriterFactory
 import com.hedera.block.server.persistence.storage.write.AsyncNoOpWriterFactory;
 import com.hedera.block.server.service.ServiceStatus;
 import com.hedera.block.server.service.ServiceStatusImpl;
+import com.hedera.block.server.util.BlockingExecutorService;
 import com.hedera.block.server.util.PersistTestUtils;
 import com.hedera.block.server.util.TestConfigUtil;
 import com.hedera.hapi.block.BlockItemSetUnparsed;
@@ -148,7 +150,9 @@ class LiveStreamMediatorImplTest {
     }
 
     @Test
-    void testMediatorPersistenceWithoutSubscribers() throws IOException {
+    void testMediatorPersistenceWithoutSubscribers() throws IOException, InterruptedException {
+        // 1 block is expected to be processed, so the expected tasks param is set to 1
+        final BlockingExecutorService executor = new BlockingExecutorService(1, 1);
         final BlockNodeContext blockNodeContext = TestConfigUtil.getTestBlockNodeContext();
         final ServiceStatus serviceStatus = new ServiceStatusImpl(blockNodeContext);
         final LiveStreamMediator streamMediator = LiveStreamMediatorBuilder.newBuilder(blockNodeContext, serviceStatus)
@@ -167,7 +171,7 @@ class LiveStreamMediatorImplTest {
                 serviceStatus,
                 ackHandlerMock,
                 writerFactory,
-                executorMock,
+                executor,
                 archiverMock,
                 persistenceStorageConfig);
         streamMediator.subscribe(handler);
@@ -175,13 +179,12 @@ class LiveStreamMediatorImplTest {
         // Acting as a producer, notify the mediator of a new block
         streamMediator.publish(blockItemUnparsed);
 
+        // Wait all the tasks to complete before the assertions to avoid flakiness
+        executor.waitTasksToComplete();
+
         // Verify the counter was incremented
         assertEquals(10, blockNodeContext.metricsService().get(LiveBlockItems).get());
-
-        // @todo(642) we need to employ the same technique here to inject a writer that will ensure
-        // the tasks are complete before we can verify the metrics for blocks persisted
-        // the test will pass without flaking if we do that
-        // assertEquals(1, blockNodeContext.metricsService().get(BlocksPersisted).get());
+        assertEquals(1, blockNodeContext.metricsService().get(BlocksPersisted).get());
     }
 
     @Test

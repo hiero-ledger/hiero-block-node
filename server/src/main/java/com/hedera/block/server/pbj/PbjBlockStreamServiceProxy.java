@@ -33,6 +33,7 @@ import edu.umd.cs.findbugs.annotations.NonNull;
 import java.time.Clock;
 import java.util.List;
 import java.util.Objects;
+import java.util.concurrent.Executor;
 import java.util.concurrent.ExecutorCompletionService;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -135,7 +136,42 @@ public class PbjBlockStreamServiceProxy implements PbjBlockStreamService {
                 case subscribeBlockStream -> Pipelines
                         .<SubscribeStreamRequest, SubscribeStreamResponseUnparsed>serverStreaming()
                         .mapRequest(bytes -> parseSubscribeStreamRequest(bytes, options))
-                        .method(this::subscribeBlockStream)
+                        .method((subscribeStreamRequest, helidonConsumerObserver) -> subscribeBlockStream(
+                                subscribeStreamRequest, helidonConsumerObserver, Executors.newSingleThreadExecutor()))
+                        .mapResponse(reply -> createSubscribeStreamResponse(reply, options))
+                        .respondTo(replies)
+                        .build();
+            };
+        } catch (Exception e) {
+            replies.onError(e);
+            return Pipelines.noop();
+        }
+    }
+
+    @NonNull
+    public Pipeline<? super Bytes> openWithSpecifiedExecutor(
+            final @NonNull Method method,
+            final @NonNull RequestOptions options,
+            final @NonNull Pipeline<? super Bytes> replies,
+            final @NonNull Executor executor) {
+
+        final var m = (BlockStreamMethod) method;
+        try {
+            return switch (m) {
+                case publishBlockStream -> {
+                    notifier.unsubscribeAllExpired();
+                    yield Pipelines.<List<BlockItemUnparsed>, PublishStreamResponse>bidiStreaming()
+                            .mapRequest(bytes -> parsePublishStreamRequest(bytes, options))
+                            .method(this::publishBlockStream)
+                            .mapResponse(bytes -> createPublishStreamResponse(bytes, options))
+                            .respondTo(replies)
+                            .build();
+                }
+                case subscribeBlockStream -> Pipelines
+                        .<SubscribeStreamRequest, SubscribeStreamResponseUnparsed>serverStreaming()
+                        .mapRequest(bytes -> parseSubscribeStreamRequest(bytes, options))
+                        .method((subscribeStreamRequest, helidonConsumerObserver) ->
+                                subscribeBlockStream(subscribeStreamRequest, helidonConsumerObserver, executor))
                         .mapResponse(reply -> createSubscribeStreamResponse(reply, options))
                         .respondTo(replies)
                         .build();
@@ -193,7 +229,8 @@ public class PbjBlockStreamServiceProxy implements PbjBlockStreamService {
      */
     void subscribeBlockStream(
             @NonNull final SubscribeStreamRequest subscribeStreamRequest,
-            @NonNull final Pipeline<? super SubscribeStreamResponseUnparsed> helidonConsumerObserver) {
+            @NonNull final Pipeline<? super SubscribeStreamResponseUnparsed> helidonConsumerObserver,
+            @NonNull final Executor executor) {
 
         LOGGER.log(DEBUG, "Executing Server Streaming subscribeBlockStream gRPC method");
 
@@ -223,7 +260,7 @@ public class PbjBlockStreamServiceProxy implements PbjBlockStreamService {
             // stream (endBlockNumber is 0)
             if (subscribeStreamRequest.endBlockNumber() == 0) {
                 final var liveStreamEventHandler = LiveStreamEventHandlerBuilder.build(
-                        new ExecutorCompletionService<>(Executors.newSingleThreadExecutor()),
+                        new ExecutorCompletionService<>(executor),
                         Clock.systemDefaultZone(),
                         streamMediator,
                         helidonConsumerObserver,
