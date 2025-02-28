@@ -91,7 +91,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "hedera_block_node_simulator_live_blocks_consumed_total{instance_type=\"$instance_type\"}",
+          "expr": "hiero_block_node_simulator_live_blocks_consumed_total{instance_type=\"$instance_type\"}",
           "instant": false,
           "legendFormat": "Blocks Consumed",
           "range": true,
@@ -183,7 +183,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "rate(hedera_block_node_simulator_live_blocks_consumed_total{instance_type=\"$instance_type\"}[$__rate_interval])",
+          "expr": "rate(hiero_block_node_simulator_live_blocks_consumed_total{instance_type=\"$instance_type\"}[$__rate_interval])",
           "instant": false,
           "legendFormat": "Blocks Consume Rate",
           "range": true,

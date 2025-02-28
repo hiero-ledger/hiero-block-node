@@ -16,7 +16,7 @@ import javax.inject.Inject;
  * example, to increment a counter, call {@link Counter#increment()}.
  */
 public final class MetricsServiceImpl implements MetricsService {
-    private static final String CATEGORY = "hedera_block_node";
+    private static final String CATEGORY = "hiero_block_node";
     private final EnumMap<BlockNodeMetricTypes.Counter, Counter> counters =
             new EnumMap<>(BlockNodeMetricTypes.Counter.class);
     private final EnumMap<BlockNodeMetricTypes.Gauge, LongGauge> gauges =
