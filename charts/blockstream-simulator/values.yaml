@@ -16,6 +16,8 @@ nodeSelector: {}
 tolerations: []
 affinity: {}
 
+replicas: 1
+
 simulator:
   config:
     # either CONSUMER or PUBLISHER
