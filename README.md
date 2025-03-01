@@ -1,6 +1,6 @@
 # Hiero Block Node
 
-Implementation of the Hiero Block Node, which is responsible for consuming the block streams, maintaining state and exposing additional targeted value adding APIs to the Hiero community.
+This is any change to test the CI pipeline is working.
 
 ## Table of Contents
 
