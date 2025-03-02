@@ -91,7 +91,7 @@
                 "uid": "prometheus"
               },
               "editorMode": "code",
-              "expr": "hedera_block_node_live_block_stream_mediator_error_total",
+              "expr": "hiero_block_node_live_block_stream_mediator_error_total",
               "instant": false,
               "legendFormat": "Block Item Errors",
               "range": true,
@@ -190,7 +190,7 @@
                 "uid": "prometheus"
               },
               "editorMode": "code",
-              "expr": "rate( hedera_block_node_live_block_stream_mediator_error_total [$__rate_interval])",
+              "expr": "rate( hiero_block_node_live_block_stream_mediator_error_total [$__rate_interval])",
               "instant": false,
               "legendFormat": "Mediator Errors",
               "range": true,
@@ -260,7 +260,7 @@
                 "uid": "prometheus"
               },
               "editorMode": "code",
-              "expr": "hedera_block_node_stream_persistence_handler_error_total",
+              "expr": "hiero_block_node_stream_persistence_handler_error_total",
               "instant": false,
               "legendFormat": "__auto",
               "range": true,
@@ -355,7 +355,7 @@
                 "uid": "prometheus"
               },
               "editorMode": "code",
-              "expr": "rate(hedera_block_node_stream_persistence_handler_error_total [$__rate_interval])",
+              "expr": "rate(hiero_block_node_stream_persistence_handler_error_total [$__rate_interval])",
               "instant": false,
               "legendFormat": "Stream Persistence Errors",
               "range": true,
@@ -421,7 +421,7 @@
             {
               "disableTextWrap": false,
               "editorMode": "code",
-              "expr": "last_over_time(hedera_block_node_verification_blocks_failed_total[$__interval])",
+              "expr": "last_over_time(hiero_block_node_verification_blocks_failed_total[$__interval])",
               "fullMetaSearch": false,
               "includeNullMetadata": true,
               "legendFormat": "Total Failed Verifications",
@@ -519,7 +519,7 @@
             {
               "disableTextWrap": false,
               "editorMode": "code",
-              "expr": "rate(hedera_block_node_verification_blocks_failed_total[$__rate_interval])",
+              "expr": "rate(hiero_block_node_verification_blocks_failed_total[$__rate_interval])",
               "fullMetaSearch": false,
               "includeNullMetadata": true,
               "legendFormat": "Total Failed Verifications",
@@ -586,7 +586,7 @@
           "targets": [
             {
               "editorMode": "code",
-              "expr": "hedera_block_node_block_persistence_error_total",
+              "expr": "hiero_block_node_block_persistence_error_total",
               "legendFormat": "Block Persistence Error",
               "range": true,
               "refId": "A"
@@ -679,7 +679,7 @@
           "targets": [
             {
               "editorMode": "code",
-              "expr": "rate( hedera_block_node_block_persistence_error_total [$__rate_interval])",
+              "expr": "rate( hiero_block_node_block_persistence_error_total [$__rate_interval])",
               "legendFormat": "Block Persistence Errors",
               "range": true,
               "refId": "A"
@@ -758,7 +758,7 @@
                 "uid": "prometheus"
               },
               "editorMode": "code",
-              "expr": "hedera_block_node_live_block_items_received_total",
+              "expr": "hiero_block_node_live_block_items_received_total",
               "instant": false,
               "legendFormat": "BlockItems",
               "range": true,
@@ -862,7 +862,7 @@
                 "uid": "prometheus"
               },
               "editorMode": "code",
-              "expr": "rate( hedera_block_node_live_block_items_received_total [$__rate_interval])",
+              "expr": "rate( hiero_block_node_live_block_items_received_total [$__rate_interval])",
               "instant": false,
               "legendFormat": "BlockItems",
               "range": true,
@@ -928,7 +928,7 @@
                 "uid": "prometheus"
               },
               "editorMode": "code",
-              "expr": "hedera_block_node_live_block_items_total",
+              "expr": "hiero_block_node_live_block_items_total",
               "instant": false,
               "legendFormat": "BlockItems",
               "range": true,
@@ -1031,7 +1031,7 @@
                 "uid": "prometheus"
               },
               "editorMode": "code",
-              "expr": "rate( hedera_block_node_live_block_items_total [$__rate_interval])",
+              "expr": "rate( hiero_block_node_live_block_items_total [$__rate_interval])",
               "instant": false,
               "legendFormat": "BlockItems",
               "range": true,
@@ -1097,7 +1097,7 @@
                 "uid": "prometheus"
               },
               "editorMode": "code",
-              "expr": "hedera_block_node_live_block_items_consumed_total",
+              "expr": "hiero_block_node_live_block_items_consumed_total",
               "instant": false,
               "legendFormat": "BlockItems Consumed",
               "range": true,
@@ -1200,7 +1200,7 @@
                 "uid": "prometheus"
               },
               "editorMode": "code",
-              "expr": "rate( hedera_block_node_live_block_items_consumed_total [$__rate_interval])",
+              "expr": "rate( hiero_block_node_live_block_items_consumed_total [$__rate_interval])",
               "instant": false,
               "legendFormat": "BlockItems",
               "range": true,
@@ -1271,7 +1271,7 @@
           "targets": [
             {
               "editorMode": "code",
-              "expr": "hedera_block_node_current_block_number_outbound",
+              "expr": "hiero_block_node_current_block_number_outbound",
               "hide": true,
               "legendFormat": "__auto",
               "range": true,
@@ -1283,7 +1283,7 @@
                 "uid": "prometheus"
               },
               "editorMode": "code",
-              "expr": "hedera_block_node_current_block_number_inbound",
+              "expr": "hiero_block_node_current_block_number_inbound",
               "hide": true,
               "instant": false,
               "legendFormat": "__auto",
@@ -1296,7 +1296,7 @@
                 "uid": "prometheus"
               },
               "editorMode": "code",
-              "expr": "hedera_block_node_consumers",
+              "expr": "hiero_block_node_consumers",
               "hide": true,
               "instant": false,
               "legendFormat": "__auto",
@@ -1402,7 +1402,7 @@
           "targets": [
             {
               "editorMode": "code",
-              "expr": "hedera_block_node_current_block_number_outbound",
+              "expr": "hiero_block_node_current_block_number_outbound",
               "hide": true,
               "legendFormat": "Outbound Blocks",
               "range": true,
@@ -1414,7 +1414,7 @@
                 "uid": "prometheus"
               },
               "editorMode": "code",
-              "expr": "hedera_block_node_current_block_number_inbound",
+              "expr": "hiero_block_node_current_block_number_inbound",
               "hide": true,
               "instant": false,
               "legendFormat": "Inbound Blocks",
@@ -1427,7 +1427,7 @@
                 "uid": "prometheus"
               },
               "editorMode": "code",
-              "expr": "hedera_block_node_consumers",
+              "expr": "hiero_block_node_consumers",
               "hide": true,
               "instant": false,
               "legendFormat": "Consumers",
@@ -1515,7 +1515,7 @@
                 "uid": "prometheus"
               },
               "editorMode": "code",
-              "expr": "hedera_block_node_mediator_ring_buffer_remaining_capacity",
+              "expr": "hiero_block_node_mediator_ring_buffer_remaining_capacity",
               "instant": false,
               "legendFormat": "Mediator Remaining Capacity",
               "range": true,
@@ -1614,7 +1614,7 @@
               },
               "disableTextWrap": false,
               "editorMode": "code",
-              "expr": "min(hedera_block_node_mediator_ring_buffer_remaining_capacity)",
+              "expr": "min(hiero_block_node_mediator_ring_buffer_remaining_capacity)",
               "fullMetaSearch": false,
               "includeNullMetadata": true,
               "instant": false,
@@ -1693,7 +1693,7 @@
                 "uid": "prometheus"
               },
               "editorMode": "code",
-              "expr": "hedera_block_node_notifier_ring_buffer_remaining_capacity",
+              "expr": "hiero_block_node_notifier_ring_buffer_remaining_capacity",
               "instant": false,
               "legendFormat": "Notifier Remaining Capacity",
               "range": true,
@@ -1791,7 +1791,7 @@
                 "uid": "prometheus"
               },
               "editorMode": "code",
-              "expr": "min(hedera_block_node_notifier_ring_buffer_remaining_capacity)",
+              "expr": "min(hiero_block_node_notifier_ring_buffer_remaining_capacity)",
               "instant": false,
               "legendFormat": "__auto",
               "range": true,
@@ -1863,7 +1863,7 @@
                 "uid": "prometheus"
               },
               "editorMode": "code",
-              "expr": "hedera_block_node_producers",
+              "expr": "hiero_block_node_producers",
               "instant": false,
               "legendFormat": "Producers",
               "range": true,
@@ -1936,7 +1936,7 @@
                 "uid": "prometheus"
               },
               "editorMode": "code",
-              "expr": "hedera_block_node_consumers",
+              "expr": "hiero_block_node_consumers",
               "instant": false,
               "legendFormat": "Consumers",
               "range": true,
@@ -2016,7 +2016,7 @@
                 "uid": "prometheus"
               },
               "editorMode": "code",
-              "expr": "hedera_block_node_blocks_persisted_total",
+              "expr": "hiero_block_node_blocks_persisted_total",
               "instant": false,
               "legendFormat": "Block Persistence Counter",
               "range": true,
@@ -2119,7 +2119,7 @@
                 "uid": "prometheus"
               },
               "editorMode": "code",
-              "expr": "rate(hedera_block_node_blocks_persisted_total[$__rate_interval])",
+              "expr": "rate(hiero_block_node_blocks_persisted_total[$__rate_interval])",
               "instant": false,
               "legendFormat": "Block Persistence Counter",
               "range": true,
@@ -2198,7 +2198,7 @@
                 "uid": "prometheus"
               },
               "editorMode": "code",
-              "expr": "hedera_block_node_successful_pub_stream_resp_total",
+              "expr": "hiero_block_node_successful_pub_stream_resp_total",
               "instant": false,
               "legendFormat": "PublishStreamResponses",
               "range": true,
@@ -2296,7 +2296,7 @@
                 "uid": "prometheus"
               },
               "editorMode": "code",
-              "expr": "rate( hedera_block_node_successful_pub_stream_resp_total [$__rate_interval])",
+              "expr": "rate( hiero_block_node_successful_pub_stream_resp_total [$__rate_interval])",
               "instant": false,
               "legendFormat": "PublishStreamResponses",
               "range": true,
@@ -2360,7 +2360,7 @@
                 "uid": "prometheus"
               },
               "editorMode": "code",
-              "expr": "hedera_block_node_successful_pub_stream_resp_sent_total",
+              "expr": "hiero_block_node_successful_pub_stream_resp_sent_total",
               "instant": false,
               "legendFormat": "PublishStreamResponses",
               "range": true,
@@ -2454,7 +2454,7 @@
                 "uid": "prometheus"
               },
               "editorMode": "code",
-              "expr": "rate(hedera_block_node_successful_pub_stream_resp_sent_total[$__rate_interval])",
+              "expr": "rate(hiero_block_node_successful_pub_stream_resp_sent_total[$__rate_interval])",
               "instant": false,
               "legendFormat": "PublishStreamResponses",
               "range": true,
@@ -2529,7 +2529,7 @@
             {
               "disableTextWrap": false,
               "editorMode": "builder",
-              "expr": "last_over_time(hedera_block_node_verification_blocks_verified_total[$__interval])",
+              "expr": "last_over_time(hiero_block_node_verification_blocks_verified_total[$__interval])",
               "fullMetaSearch": false,
               "includeNullMetadata": true,
               "legendFormat": "__auto",
@@ -2626,7 +2626,7 @@
             {
               "disableTextWrap": false,
               "editorMode": "code",
-              "expr": "last_over_time(hedera_block_node_verification_blocks_verified_total[$__interval])",
+              "expr": "last_over_time(hiero_block_node_verification_blocks_verified_total[$__interval])",
               "fullMetaSearch": false,
               "includeNullMetadata": true,
               "legendFormat": "Blocks Verified over time",
@@ -2698,7 +2698,7 @@
             {
               "disableTextWrap": false,
               "editorMode": "code",
-              "expr": "(last_over_time(hedera_block_node_verification_block_time_total[$__interval]) / last_over_time(hedera_block_node_verification_blocks_verified_total[$__interval]) )",
+              "expr": "(last_over_time(hiero_block_node_verification_block_time_total[$__interval]) / last_over_time(hiero_block_node_verification_blocks_verified_total[$__interval]) )",
               "fullMetaSearch": false,
               "includeNullMetadata": true,
               "legendFormat": "__auto",
@@ -2808,7 +2808,7 @@
             {
               "disableTextWrap": false,
               "editorMode": "code",
-              "expr": "(last_over_time(hedera_block_node_verification_block_time_total[$__interval]) / last_over_time(hedera_block_node_verification_blocks_verified_total[$__interval]) )",
+              "expr": "(last_over_time(hiero_block_node_verification_block_time_total[$__interval]) / last_over_time(hiero_block_node_verification_blocks_verified_total[$__interval]) )",
               "fullMetaSearch": false,
               "includeNullMetadata": true,
               "legendFormat": "Average Block Verification Time in ms",
@@ -2893,7 +2893,7 @@
             {
               "disableTextWrap": false,
               "editorMode": "code",
-              "expr": "hedera_block_node_live_block_items_received_total / hedera_block_node_verification_blocks_verified_total",
+              "expr": "hiero_block_node_live_block_items_received_total / hiero_block_node_verification_blocks_verified_total",
               "fullMetaSearch": false,
               "includeNullMetadata": true,
               "legendFormat": "__auto",
@@ -3007,7 +3007,7 @@
             {
               "disableTextWrap": false,
               "editorMode": "code",
-              "expr": "hedera_block_node_live_block_items_received_total / hedera_block_node_verification_blocks_verified_total",
+              "expr": "hiero_block_node_live_block_items_received_total / hiero_block_node_verification_blocks_verified_total",
               "fullMetaSearch": false,
               "includeNullMetadata": true,
               "legendFormat": "__auto",
@@ -3097,7 +3097,7 @@
             {
               "disableTextWrap": false,
               "editorMode": "builder",
-              "expr": "last_over_time(hedera_block_node_acked_blocked_total[$__interval])",
+              "expr": "last_over_time(hiero_block_node_acked_blocked_total[$__interval])",
               "fullMetaSearch": false,
               "includeNullMetadata": true,
               "legendFormat": "__auto",
@@ -3194,7 +3194,7 @@
             {
               "disableTextWrap": false,
               "editorMode": "code",
-              "expr": "last_over_time(hedera_block_node_acked_blocked_total[$__interval])",
+              "expr": "last_over_time(hiero_block_node_acked_blocked_total[$__interval])",
               "fullMetaSearch": false,
               "includeNullMetadata": true,
               "legendFormat": "Blocks Acked over time",
@@ -3280,7 +3280,7 @@
                 "uid": "prometheus"
               },
               "editorMode": "code",
-              "expr": "hedera_block_node_single_blocks_retrieved_total",
+              "expr": "hiero_block_node_single_blocks_retrieved_total",
               "instant": false,
               "legendFormat": "Single Blocks Retrieved",
               "range": true,
@@ -3379,7 +3379,7 @@
                 "uid": "prometheus"
               },
               "editorMode": "code",
-              "expr": "rate(hedera_block_node_single_blocks_retrieved_total[$__rate_interval])",
+              "expr": "rate(hiero_block_node_single_blocks_retrieved_total[$__rate_interval])",
               "instant": false,
               "legendFormat": "RPS of Single Blocks Retrieval",
               "range": true,
@@ -3449,7 +3449,7 @@
                 "uid": "prometheus"
               },
               "editorMode": "code",
-              "expr": "hedera_block_node_single_blocks_not_found_total",
+              "expr": "hiero_block_node_single_blocks_not_found_total",
               "instant": false,
               "legendFormat": "Single Blocks Not Found",
               "range": true,
@@ -3548,7 +3548,7 @@
                 "uid": "prometheus"
               },
               "editorMode": "code",
-              "expr": "rate( hedera_block_node_single_blocks_not_found_total [$__rate_interval])",
+              "expr": "rate( hiero_block_node_single_blocks_not_found_total [$__rate_interval])",
               "instant": false,
               "legendFormat": "Single Blocks Not Found",
               "range": true,
@@ -3609,7 +3609,7 @@
           "targets": [
             {
               "editorMode": "code",
-              "expr": "hedera_block_node_closed_range_historic_blocks_retrieved_total",
+              "expr": "hiero_block_node_closed_range_historic_blocks_retrieved_total",
               "legendFormat": "Closed Range Historic Blocks",
               "range": true,
               "refId": "A"
@@ -3699,7 +3699,7 @@
           "targets": [
             {
               "editorMode": "code",
-              "expr": "rate(hedera_block_node_closed_range_historic_blocks_retrieved_total[$__rate_interval])",
+              "expr": "rate(hiero_block_node_closed_range_historic_blocks_retrieved_total[$__rate_interval])",
               "legendFormat": "Stream Closed-Range Historical Blocks",
               "range": true,
               "refId": "A"
