@@ -9,7 +9,7 @@ metadata:
   labels:
     {{- include "blockstream-simulator-chart.labels" . | nindent 4 }}
 spec:
-  replicas: 1
+  replicas: {{ .Values.replicas }}
   selector:
     matchLabels:
       {{- include "blockstream-simulator-chart.selectorLabels" . | nindent 6 }}
