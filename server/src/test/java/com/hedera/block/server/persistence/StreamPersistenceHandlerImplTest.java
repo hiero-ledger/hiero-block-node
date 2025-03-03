@@ -12,7 +12,6 @@ import static org.mockito.Mockito.when;
 
 import com.hedera.block.server.ack.AckHandler;
 import com.hedera.block.server.config.BlockNodeContext;
-import com.hedera.block.server.config.TestConfigBuilder;
 import com.hedera.block.server.events.ObjectEvent;
 import com.hedera.block.server.mediator.SubscriptionHandler;
 import com.hedera.block.server.metrics.MetricsService;
@@ -23,6 +22,7 @@ import com.hedera.block.server.persistence.storage.write.AsyncBlockWriterFactory
 import com.hedera.block.server.service.ServiceStatus;
 import com.hedera.hapi.block.BlockItemUnparsed;
 import com.swirlds.config.api.Configuration;
+import com.swirlds.config.api.ConfigurationBuilder;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.List;
@@ -70,10 +70,10 @@ class StreamPersistenceHandlerImplTest {
 
     @BeforeEach
     void setUp() {
-        final TestConfigBuilder configBuilder = new TestConfigBuilder(PersistenceStorageConfig.class);
+        final ConfigurationBuilder configBuilder = ConfigurationBuilder.create().autoDiscoverExtensions();
         configBuilder.withValue(PERSISTENCE_STORAGE_LIVE_ROOT_PATH_KEY, testTempDir.toString());
         configBuilder.withValue(PERSISTENCE_STORAGE_ARCHIVE_ROOT_PATH_KEY, testTempDir.toString());
-        final Configuration config = configBuilder.getOrCreateConfig();
+        final Configuration config = configBuilder.build();
         persistenceStorageConfig = config.getConfigData(PersistenceStorageConfig.class);
     }
 
