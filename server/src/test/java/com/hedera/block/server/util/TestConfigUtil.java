@@ -2,12 +2,12 @@
 package com.hedera.block.server.util;
 
 import com.hedera.block.server.config.BlockNodeContext;
-import com.hedera.block.server.config.TestConfigBuilder;
 import com.hedera.block.server.consumer.ConsumerConfig;
 import com.hedera.block.server.metrics.MetricsService;
 import com.hedera.block.server.metrics.MetricsServiceImpl;
 import com.swirlds.common.metrics.platform.DefaultMetricsProvider;
 import com.swirlds.config.api.Configuration;
+import com.swirlds.config.api.ConfigurationBuilder;
 import com.swirlds.config.extensions.sources.ClasspathFileConfigSource;
 import com.swirlds.metrics.api.Metrics;
 import edu.umd.cs.findbugs.annotations.NonNull;
@@ -28,7 +28,8 @@ public class TestConfigUtil {
             throws IOException {
 
         // create test configuration
-        TestConfigBuilder testConfigBuilder = new TestConfigBuilder(true)
+        ConfigurationBuilder testConfigBuilder = ConfigurationBuilder.create()
+                .autoDiscoverExtensions()
                 .withSource(new ClasspathFileConfigSource(Path.of(TEST_APP_PROPERTIES_FILE)));
 
         for (Map.Entry<String, String> entry : customProperties.entrySet()) {
@@ -39,7 +40,7 @@ public class TestConfigUtil {
 
         testConfigBuilder = testConfigBuilder.withConfigDataType(ConsumerConfig.class);
 
-        Configuration testConfiguration = testConfigBuilder.getOrCreateConfig();
+        Configuration testConfiguration = testConfigBuilder.build();
 
         Metrics metrics = getTestMetrics(testConfiguration);
 

@@ -9,7 +9,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatIOException;
 
 import com.hedera.block.common.utils.FileUtilities;
-import com.hedera.block.server.config.TestConfigBuilder;
 import com.hedera.block.server.persistence.storage.PersistenceStorageConfig;
 import com.hedera.block.server.persistence.storage.path.ArchiveBlockPath;
 import com.hedera.block.server.persistence.storage.path.BlockAsLocalFilePathResolver;
@@ -22,6 +21,7 @@ import com.hedera.pbj.runtime.ParseException;
 import com.hedera.pbj.runtime.UncheckedParseException;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import com.swirlds.config.api.Configuration;
+import com.swirlds.config.api.ConfigurationBuilder;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
@@ -53,12 +53,19 @@ class LocalGroupZipArchiveTaskTest {
 
     @BeforeEach
     void setUp() throws IOException {
-        final Configuration config = new TestConfigBuilder(PersistenceStorageConfig.class)
+
+        final Configuration config = ConfigurationBuilder.create()
+                .autoDiscoverExtensions()
                 .withValue(PERSISTENCE_STORAGE_COMPRESSION_TYPE, "NONE")
                 .withValue(PERSISTENCE_STORAGE_ARCHIVE_BATCH_SIZE, String.valueOf(ARCHIVE_GROUP_SIZE))
-                .withValue(PERSISTENCE_STORAGE_LIVE_ROOT_PATH_KEY, testTempDir.resolve("live"))
-                .withValue(PERSISTENCE_STORAGE_ARCHIVE_ROOT_PATH_KEY, testTempDir.resolve("archive"))
-                .getOrCreateConfig();
+                .withValue(
+                        PERSISTENCE_STORAGE_LIVE_ROOT_PATH_KEY,
+                        testTempDir.resolve("live").toString())
+                .withValue(
+                        PERSISTENCE_STORAGE_ARCHIVE_ROOT_PATH_KEY,
+                        testTempDir.resolve("archive").toString())
+                .build();
+
         persistenceStorageConfig = config.getConfigData(PersistenceStorageConfig.class);
         // using spy for path resolver because we should test with actual logic for path resolution
         // also asserts would be based on the findLive/findArchive methods, which are unit tested themselves
