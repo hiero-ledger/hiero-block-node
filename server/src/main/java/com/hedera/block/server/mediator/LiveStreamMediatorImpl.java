@@ -56,7 +56,14 @@ class LiveStreamMediatorImpl extends SubscriptionHandlerBase<List<BlockItemUnpar
             @NonNull final ServiceStatus serviceStatus,
             @NonNull final BlockNodeContext blockNodeContext) {
 
-        super(subscribers, blockNodeContext.metricsService(), blockNodeContext.configuration());
+        super(
+                subscribers,
+                blockNodeContext.metricsService(),
+                blockNodeContext.configuration(),
+                blockNodeContext
+                        .configuration()
+                        .getConfigData(MediatorConfig.class)
+                        .ringBufferSize());
 
         this.serviceStatus = serviceStatus;
         this.metricsService = blockNodeContext.metricsService();

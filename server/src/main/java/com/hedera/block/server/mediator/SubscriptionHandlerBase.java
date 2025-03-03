@@ -61,14 +61,13 @@ public abstract class SubscriptionHandlerBase<V> implements SubscriptionHandler<
     protected SubscriptionHandlerBase(
             @NonNull final Map<BlockNodeEventHandler<ObjectEvent<V>>, BatchEventProcessor<ObjectEvent<V>>> subscribers,
             @NonNull final MetricsService metricsService,
-            @NonNull final Configuration configuration) {
+            @NonNull final Configuration configuration,
+            final int ringBufferSize) {
 
         this.subscribers = subscribers;
         this.pollSubscribers = new ConcurrentHashMap<>();
         this.consumerGauge = metricsService.get(Consumers);
         this.configuration = configuration;
-
-        int ringBufferSize = configuration.getConfigData(MediatorConfig.class).ringBufferSize();
 
         // Initialize and start the disruptor
         final Disruptor<ObjectEvent<V>> disruptor =

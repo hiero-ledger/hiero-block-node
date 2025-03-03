@@ -59,7 +59,11 @@ public class NotifierImpl extends SubscriptionHandlerBase<PublishStreamResponse>
         super(
                 new ConcurrentHashMap<>(SUBSCRIBER_INIT_CAPACITY),
                 blockNodeContext.metricsService(),
-                blockNodeContext.configuration());
+                blockNodeContext.configuration(),
+                blockNodeContext
+                        .configuration()
+                        .getConfigData(NotifierConfig.class)
+                        .ringBufferSize());
 
         this.mediator = mediator;
         this.metricsService = blockNodeContext.metricsService();
