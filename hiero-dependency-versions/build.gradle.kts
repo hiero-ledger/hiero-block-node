@@ -17,7 +17,7 @@ dependencies.constraints {
     val swirldsVersion = "0.58.4"
 
     api("com.github.luben:zstd-jni:1.5.7-1") { because("com.github.luben.zstd_jni") }
-    api("com.github.spotbugs:spotbugs-annotations:4.9.1") {
+    api("com.github.spotbugs:spotbugs-annotations:4.9.2") {
         because("com.github.spotbugs.annotations")
     }
     api("com.google.auto.service:auto-service-annotations:1.1.1") {
