@@ -70,7 +70,7 @@ dependencies.constraints {
     api("org.mockito:mockito-core:5.15.2") { because("org.mockito") }
     api("org.mockito:mockito-junit-jupiter:5.15.2") { because("org.mockito.junit.jupiter") }
     api("org.testcontainers:junit-jupiter:1.20.5") { because("org.testcontainers.junit.jupiter") }
-    api("org.testcontainers:testcontainers:1.20.4") { because("org.testcontainers") }
+    api("org.testcontainers:testcontainers:1.20.5") { because("org.testcontainers") }
 
     api("com.google.auto.service:auto-service:1.1.1") {
         because("com.google.auto.service.processor")
