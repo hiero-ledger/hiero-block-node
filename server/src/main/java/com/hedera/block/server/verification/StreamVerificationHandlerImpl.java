@@ -30,9 +30,6 @@ public class StreamVerificationHandlerImpl implements BlockNodeEventHandler<Obje
     private final ServiceStatus serviceStatus;
     private final BlockVerificationService blockVerificationService;
 
-    private static final String PROTOCOL_VIOLATION_MESSAGE =
-            "Protocol Violation. %s is OneOf type %s but %s is null.\n%s";
-
     /**
      * Constructs a new instance of {@link StreamVerificationHandlerImpl}.
      *
@@ -63,7 +60,6 @@ public class StreamVerificationHandlerImpl implements BlockNodeEventHandler<Obje
     public void onEvent(ObjectEvent<List<BlockItemUnparsed>> event, long l, boolean b) {
 
         try {
-
             if (!serviceStatus.isRunning()) {
                 LOGGER.log(ERROR, "Service is not running. Block item will not be processed further.");
                 return;

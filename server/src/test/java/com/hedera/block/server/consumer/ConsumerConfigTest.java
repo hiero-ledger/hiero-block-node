@@ -18,7 +18,7 @@ public class ConsumerConfigTest {
     @MethodSource("outOfRangeMaxBlockItemBatchSize")
     public void testMaxBlockItemBatchSize(int maxBlockItemBatchSize, final String message) {
         assertThatIllegalArgumentException()
-                .isThrownBy(() -> new ConsumerConfig(1500, maxBlockItemBatchSize))
+                .isThrownBy(() -> new ConsumerConfig(1500, 3, maxBlockItemBatchSize))
                 .withMessage(message);
     }
 
@@ -26,7 +26,15 @@ public class ConsumerConfigTest {
     @MethodSource("outOfRangeTimeoutThresholdMillis")
     public void testTimeoutThresholdMillis(int timeoutThresholdMillis, final String message) {
         assertThatIllegalArgumentException()
-                .isThrownBy(() -> new ConsumerConfig(timeoutThresholdMillis, 1000))
+                .isThrownBy(() -> new ConsumerConfig(timeoutThresholdMillis, 3, 1000))
+                .withMessage(message);
+    }
+
+    @ParameterizedTest
+    @MethodSource("outOfRangeCueHistoricStreamingPaddingBlocks")
+    public void testCueHistoricStreamingPaddingBlocks(int cueHistoricStreamingPaddingBlocks, final String message) {
+        assertThatIllegalArgumentException()
+                .isThrownBy(() -> new ConsumerConfig(1500, cueHistoricStreamingPaddingBlocks, 1000))
                 .withMessage(message);
     }
 
@@ -67,6 +75,26 @@ public class ConsumerConfigTest {
                                 "consumer.timeoutThresholdMillis",
                                 0,
                                 minTimeoutThresholdMillis,
+                                Integer.MAX_VALUE)));
+    }
+
+    private static Stream<Arguments> outOfRangeCueHistoricStreamingPaddingBlocks() {
+        return Stream.of(
+                Arguments.of(
+                        0,
+                        String.format(
+                                RANGE_ERROR_TEMPLATE,
+                                "consumer.cueHistoricStreamingPaddingBlocks",
+                                0,
+                                minMaxBlockItemBatchSize,
+                                Integer.MAX_VALUE)),
+                Arguments.of(
+                        -1,
+                        String.format(
+                                RANGE_ERROR_TEMPLATE,
+                                "consumer.cueHistoricStreamingPaddingBlocks",
+                                -1,
+                                minMaxBlockItemBatchSize,
                                 Integer.MAX_VALUE)));
     }
 }

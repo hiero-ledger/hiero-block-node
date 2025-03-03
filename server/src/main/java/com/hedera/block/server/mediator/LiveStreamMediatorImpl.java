@@ -3,7 +3,6 @@ package com.hedera.block.server.mediator;
 
 import static com.hedera.block.server.metrics.BlockNodeMetricTypes.Counter.LiveBlockItems;
 import static com.hedera.block.server.metrics.BlockNodeMetricTypes.Counter.LiveBlockStreamMediatorError;
-import static com.hedera.block.server.metrics.BlockNodeMetricTypes.Gauge.Consumers;
 import static com.hedera.block.server.metrics.BlockNodeMetricTypes.Gauge.MediatorRingBufferRemainingCapacity;
 import static java.lang.System.Logger;
 import static java.lang.System.Logger.Level.DEBUG;
@@ -57,13 +56,7 @@ class LiveStreamMediatorImpl extends SubscriptionHandlerBase<List<BlockItemUnpar
             @NonNull final ServiceStatus serviceStatus,
             @NonNull final BlockNodeContext blockNodeContext) {
 
-        super(
-                subscribers,
-                blockNodeContext.metricsService().get(Consumers),
-                blockNodeContext
-                        .configuration()
-                        .getConfigData(MediatorConfig.class)
-                        .ringBufferSize());
+        super(subscribers, blockNodeContext.metricsService(), blockNodeContext.configuration());
 
         this.serviceStatus = serviceStatus;
         this.metricsService = blockNodeContext.metricsService();

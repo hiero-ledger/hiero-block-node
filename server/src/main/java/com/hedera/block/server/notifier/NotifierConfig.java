@@ -15,7 +15,9 @@ import com.swirlds.config.api.ConfigProperty;
  *                       events.
  */
 @ConfigData("notifier")
-public record NotifierConfig(@Loggable @ConfigProperty(defaultValue = "1024") int ringBufferSize) {
+public record NotifierConfig(
+        @Loggable @ConfigProperty(defaultValue = "1024") int ringBufferSize,
+        @Loggable @ConfigProperty(defaultValue = "90") int historicTransitionThresholdPercentage) {
 
     /**
      * Validate the configuration.
@@ -25,5 +27,11 @@ public record NotifierConfig(@Loggable @ConfigProperty(defaultValue = "1024") in
     public NotifierConfig {
         Preconditions.requirePositive(ringBufferSize, "Notifier Ring Buffer Size must be positive");
         Preconditions.requirePowerOfTwo(ringBufferSize, "Notifier Ring Buffer Size must be a power of 2");
+
+        Preconditions.requireInRange(
+                historicTransitionThresholdPercentage,
+                10,
+                90,
+                "Historic Transition Threshold Percentage must be between 10 and 90");
     }
 }

@@ -101,7 +101,7 @@ class HistoricBlockStreamSupplier implements Runnable {
         return true;
     }
 
-    void sendInBatches(final List<List<BlockItemUnparsed>> blockItems) throws Exception {
+    void sendInBatches(final List<List<BlockItemUnparsed>> blockItems) {
         for (List<BlockItemUnparsed> blockItemsBatch : blockItems) {
             // Prepare the response
             final var subscribeStreamResponse = SubscribeStreamResponseUnparsed.newBuilder()

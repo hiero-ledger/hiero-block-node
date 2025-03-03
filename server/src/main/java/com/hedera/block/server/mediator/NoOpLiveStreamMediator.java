@@ -5,6 +5,7 @@ import static com.hedera.block.server.metrics.BlockNodeMetricTypes.Counter.LiveB
 import static java.lang.System.Logger.Level.INFO;
 
 import com.hedera.block.server.config.BlockNodeContext;
+import com.hedera.block.server.consumer.StreamManager;
 import com.hedera.block.server.events.BlockNodeEventHandler;
 import com.hedera.block.server.events.ObjectEvent;
 import com.hedera.block.server.metrics.MetricsService;
@@ -44,6 +45,20 @@ public class NoOpLiveStreamMediator implements LiveStreamMediator {
      */
     @Override
     public void subscribe(@NonNull BlockNodeEventHandler<ObjectEvent<List<BlockItemUnparsed>>> handler) {}
+
+    @Override
+    public Poller<ObjectEvent<List<BlockItemUnparsed>>> subscribePoller(@NonNull final StreamManager streamManager) {
+        throw new UnsupportedOperationException("Not implemented");
+    }
+
+    @Override
+    public void unsubscribePoller(@NonNull final StreamManager streamManager) {
+        throw new UnsupportedOperationException("Not implemented");
+    }
+
+    public List<BlockItemUnparsed> getBlockItems() {
+        return null;
+    }
 
     /**
      * {@inheritDoc}

@@ -15,10 +15,12 @@ import com.swirlds.config.api.ConfigProperty;
 @ConfigData("consumer")
 public record ConsumerConfig(
         @Loggable @ConfigProperty(defaultValue = "1500") int timeoutThresholdMillis,
+        @Loggable @ConfigProperty(defaultValue = "3") int cueHistoricStreamingPaddingBlocks,
         @Loggable @ConfigProperty(defaultValue = "1000") int maxBlockItemBatchSize) {
 
     static final int minTimeoutThresholdMillis = 1;
     static final int minMaxBlockItemBatchSize = 1;
+    static final int minCueHistoricStreamingPaddingBlocks = 1;
 
     private static final String CONSUMER_CONFIG_PREFIX = "consumer.";
     private static final String ERROR_MSG_TEMPLATE = " value %d is out of range [%d, %d]";
@@ -39,5 +41,10 @@ public record ConsumerConfig(
                 minMaxBlockItemBatchSize,
                 Integer.MAX_VALUE,
                 CONSUMER_CONFIG_PREFIX + "maxBlockItemBatchSize" + ERROR_MSG_TEMPLATE);
+        Preconditions.requireInRange(
+                cueHistoricStreamingPaddingBlocks,
+                minCueHistoricStreamingPaddingBlocks,
+                Integer.MAX_VALUE,
+                CONSUMER_CONFIG_PREFIX + "cueHistoricStreamingPaddingBlocks" + ERROR_MSG_TEMPLATE);
     }
 }
