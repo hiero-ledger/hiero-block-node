@@ -39,9 +39,8 @@ public class HistoricDataPollerImpl implements HistoricDataPoller<List<BlockItem
 
         this.blockReader = Objects.requireNonNull(blockReader);
         this.metricsService = Objects.requireNonNull(metricsService);
-        final ConsumerConfig consumerConfig =
-                Objects.requireNonNull(configuration).getConfigData(ConsumerConfig.class);
-        this.maxBlockItemBatchSize = Objects.requireNonNull(consumerConfig).maxBlockItemBatchSize();
+        this.maxBlockItemBatchSize =
+                configuration.getConfigData(ConsumerConfig.class).maxBlockItemBatchSize();
     }
 
     /**

@@ -207,7 +207,6 @@ public class PbjBlockStreamServiceProxy implements PbjBlockStreamService {
 
             // Validate inbound request parameters
             if (!isValidRequestedRange(subscribeStreamRequest, helidonConsumerObserver)) {
-                // @todo: send a protocol message
                 return;
             }
 
@@ -216,7 +215,6 @@ public class PbjBlockStreamServiceProxy implements PbjBlockStreamService {
             long currentBlockNumber = (latestAckedBlockInfo != null) ? latestAckedBlockInfo.getBlockNumber() : 0;
             if (!isRequestedRangeValidForCurrentBlock(
                     subscribeStreamRequest, currentBlockNumber, helidonConsumerObserver)) {
-                // @todo: send a protocol message
                 return;
             }
 
