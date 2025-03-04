@@ -31,10 +31,9 @@ public class ConsumerStreamRunnable implements Runnable {
     @Override
     public void run() {
         LOGGER.log(TRACE, "Starting ConsumerStreamRunnable. Calling the StreamManager.");
-        while (true) {
-            if (!streamManager.execute()) {
-                break;
-            }
-        }
+
+        // Continue to loop until the stream manager
+        // returns false
+        while (streamManager.execute()) {}
     }
 }
