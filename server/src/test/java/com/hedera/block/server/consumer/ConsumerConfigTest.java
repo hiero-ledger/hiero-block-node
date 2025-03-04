@@ -12,8 +12,6 @@ import org.junit.jupiter.params.provider.MethodSource;
 
 public class ConsumerConfigTest {
 
-    private static final String RANGE_ERROR_TEMPLATE = "%s value %d is out of range [%d, %d]";
-
     @ParameterizedTest
     @MethodSource("outOfRangeMaxBlockItemBatchSize")
     public void testMaxBlockItemBatchSize(int maxBlockItemBatchSize, final String message) {
@@ -43,19 +41,13 @@ public class ConsumerConfigTest {
                 Arguments.of(
                         0,
                         String.format(
-                                RANGE_ERROR_TEMPLATE,
-                                "consumer.maxBlockItemBatchSize",
-                                0,
-                                minMaxBlockItemBatchSize,
-                                Integer.MAX_VALUE)),
+                                "The input number [%d] is required to be greater or equal than [%d].",
+                                0, minMaxBlockItemBatchSize)),
                 Arguments.of(
                         -1,
                         String.format(
-                                RANGE_ERROR_TEMPLATE,
-                                "consumer.maxBlockItemBatchSize",
-                                -1,
-                                minMaxBlockItemBatchSize,
-                                Integer.MAX_VALUE)));
+                                "The input number [%d] is required to be greater or equal than [%d].",
+                                -1, minMaxBlockItemBatchSize)));
     }
 
     private static Stream<Arguments> outOfRangeTimeoutThresholdMillis() {
@@ -63,19 +55,13 @@ public class ConsumerConfigTest {
                 Arguments.of(
                         -1,
                         String.format(
-                                RANGE_ERROR_TEMPLATE,
-                                "consumer.timeoutThresholdMillis",
-                                -1,
-                                minTimeoutThresholdMillis,
-                                Integer.MAX_VALUE)),
+                                "The input number [%d] is required to be greater or equal than [%d].",
+                                -1, minTimeoutThresholdMillis)),
                 Arguments.of(
                         0,
                         String.format(
-                                RANGE_ERROR_TEMPLATE,
-                                "consumer.timeoutThresholdMillis",
-                                0,
-                                minTimeoutThresholdMillis,
-                                Integer.MAX_VALUE)));
+                                "The input number [%d] is required to be greater or equal than [%d].",
+                                0, minTimeoutThresholdMillis)));
     }
 
     private static Stream<Arguments> outOfRangeCueHistoricStreamingPaddingBlocks() {
@@ -83,18 +69,12 @@ public class ConsumerConfigTest {
                 Arguments.of(
                         0,
                         String.format(
-                                RANGE_ERROR_TEMPLATE,
-                                "consumer.cueHistoricStreamingPaddingBlocks",
-                                0,
-                                minMaxBlockItemBatchSize,
-                                Integer.MAX_VALUE)),
+                                "The input number [%d] is required to be greater or equal than [%d].",
+                                0, minMaxBlockItemBatchSize)),
                 Arguments.of(
                         -1,
                         String.format(
-                                RANGE_ERROR_TEMPLATE,
-                                "consumer.cueHistoricStreamingPaddingBlocks",
-                                -1,
-                                minMaxBlockItemBatchSize,
-                                Integer.MAX_VALUE)));
+                                "The input number [%d] is required to be greater or equal than [%d].",
+                                -1, minMaxBlockItemBatchSize)));
     }
 }
