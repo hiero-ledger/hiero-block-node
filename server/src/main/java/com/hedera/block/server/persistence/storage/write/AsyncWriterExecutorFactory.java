@@ -7,15 +7,8 @@ import static java.util.Objects.requireNonNull;
 import com.hedera.block.server.persistence.storage.PersistenceStorageConfig;
 import com.hedera.block.server.persistence.storage.PersistenceStorageConfig.ExecutorType;
 import edu.umd.cs.findbugs.annotations.NonNull;
-import java.util.concurrent.Executor;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.ForkJoinPool;
-import java.util.concurrent.LinkedBlockingDeque;
-import java.util.concurrent.ThreadFactory;
-import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.*;
 import java.util.concurrent.ThreadPoolExecutor.CallerRunsPolicy;
-import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
 /**
@@ -33,6 +26,7 @@ import java.util.concurrent.atomic.AtomicInteger;
  */
 public final class AsyncWriterExecutorFactory {
     private static final System.Logger LOGGER = System.getLogger(AsyncWriterExecutorFactory.class.getName());
+    private static final int BASE_THREADS = 4;
 
     // Private constructor to prevent instantiation
     private AsyncWriterExecutorFactory() {}
@@ -56,7 +50,7 @@ public final class AsyncWriterExecutorFactory {
         return switch (executorType) {
             case THREAD_POOL -> createThreadPoolExecutor(config);
             case SINGLE_THREAD -> createSingleThreadExecutor();
-            case FORK_JOIN -> createForkJoinExecutor();
+            case FORK_JOIN -> createForkJoinExecutor(config);
         };
     }
 
@@ -71,36 +65,30 @@ public final class AsyncWriterExecutorFactory {
      *   <li>Bounded queue with the specified capacity
      *   <li>Custom rejection handler that implements a caller-runs policy
      * </ul>
-     * <p>
-     * If virtual threads are enabled it creates a virtual
-     * thread per task executor instead.
      *
      * @param config the configuration containing thread pool settings
      * @return a configured thread pool executor
      */
     @NonNull
     private static Executor createThreadPoolExecutor(@NonNull final PersistenceStorageConfig config) {
-        if (config.useVirtualThreads()) {
-            LOGGER.log(TRACE, "Creating virtual thread per task executor");
-            return Executors.newVirtualThreadPerTaskExecutor();
-        }
-
         final int threadCount = config.threadCount();
         final long threadKeepAliveTime = config.threadKeepAliveTime();
         final int queueLimit = config.executionQueueLimit();
+        final boolean useVirtualThreads = config.useVirtualThreads();
 
         LOGGER.log(
                 TRACE,
-                "Creating thread pool executor with %d threads and queue limit of %d"
-                        .formatted(threadCount, queueLimit));
+                "Creating thread pool executor with {0} threads and queue limit of {1}",
+                threadCount,
+                queueLimit);
 
         return new ThreadPoolExecutor(
                 threadCount,
                 threadCount,
                 threadKeepAliveTime,
-                TimeUnit.SECONDS,
-                new LinkedBlockingDeque<>(queueLimit),
-                new AsyncWriterThreadFactory(),
+                TimeUnit.MILLISECONDS,
+                new ArrayBlockingQueue<>(queueLimit),
+                new AsyncWriterThreadFactory(useVirtualThreads),
                 new CallerRunsPolicy());
     }
 
@@ -114,31 +102,54 @@ public final class AsyncWriterExecutorFactory {
     @NonNull
     private static ExecutorService createSingleThreadExecutor() {
         LOGGER.log(TRACE, "Creating single thread executor");
-        return Executors.newSingleThreadExecutor(new AsyncWriterThreadFactory());
+        return Executors.newSingleThreadExecutor(new AsyncWriterThreadFactory(false));
     }
 
     /**
      * Creates a fork-join pool executor.
      * <p>
-     *     This method returns the common ForkJoinPool, which uses a work-stealing
-     *     algorithm for efficient load balancing across available processors.
+     * This method creates a dedicated ForkJoinPool with configurable parallelism and thread limits.
+     * The maximum number of threads is calculated based on the thread count configuration plus a base value.
      *
-     * @return the common fork-join pool
+     * @param config the configuration containing executor settings
+     * @return a configured fork-join pool
      */
     @NonNull
-    private static ForkJoinPool createForkJoinExecutor() {
-        final ForkJoinPool forkJoinPool = ForkJoinPool.commonPool();
-        LOGGER.log(
-                TRACE,
-                "Using common fork-join pool with parallelism level: %d".formatted(forkJoinPool.getParallelism()));
-        return forkJoinPool;
+    private static ForkJoinPool createForkJoinExecutor(@NonNull final PersistenceStorageConfig config) {
+        final int threadCount = config.threadCount();
+        final long threadKeepAliveTime = config.threadKeepAliveTime();
+        int maxThreads = threadCount + BASE_THREADS;
+
+        LOGGER.log(TRACE, "Creating fork-join pool with parallelism: {0}, max threads: {1}", threadCount, maxThreads);
+
+        return new ForkJoinPool(
+                threadCount,
+                ForkJoinPool.defaultForkJoinWorkerThreadFactory,
+                null,
+                true,
+                maxThreads,
+                maxThreads,
+                0,
+                null,
+                threadKeepAliveTime,
+                TimeUnit.MILLISECONDS);
     }
 
     private static class AsyncWriterThreadFactory implements ThreadFactory {
         private final AtomicInteger threadNumber = new AtomicInteger(1);
+        private final boolean useVirtualThreads;
+
+        public AsyncWriterThreadFactory(final boolean useVirtualThreads) {
+            this.useVirtualThreads = useVirtualThreads;
+        }
 
         @Override
         public Thread newThread(@NonNull final Runnable r) {
+            if (useVirtualThreads) {
+                return Thread.ofVirtual()
+                        .name("async-writer-" + threadNumber.getAndIncrement())
+                        .unstarted(r);
+            }
             return new Thread(r, "async-writer-" + threadNumber.getAndIncrement());
         }
     }

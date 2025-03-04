@@ -31,11 +31,11 @@ public record PersistenceStorageConfig(
         @Loggable @ConfigProperty(defaultValue = "3") @Min(0) @Max(20) int compressionLevel,
         @Loggable @ConfigProperty(defaultValue = "true") boolean archiveEnabled,
         @Loggable @ConfigProperty(defaultValue = "1_000") int archiveGroupSize,
+        @Loggable @ConfigProperty(defaultValue = "1024") @Min(64) @Max(2048) int executionQueueLimit,
         @Loggable @ConfigProperty(defaultValue = "THREAD_POOL") ExecutorType executorType,
         @Loggable @ConfigProperty(defaultValue = "6") @Min(1) @Max(16) int threadCount,
-        @Loggable @ConfigProperty(defaultValue = "60") @Min(0) long threadKeepAliveTime,
-        @Loggable @ConfigProperty(defaultValue = "false") boolean useVirtualThreads,
-        @Loggable @ConfigProperty(defaultValue = "1024") @Min(64) @Max(2048) int executionQueueLimit) {
+        @Loggable @ConfigProperty(defaultValue = "60000") @Min(0) long threadKeepAliveTime,
+        @Loggable @ConfigProperty(defaultValue = "false") boolean useVirtualThreads) {
     /**
      * Constructor.
      */
@@ -43,8 +43,12 @@ public record PersistenceStorageConfig(
         Objects.requireNonNull(liveRootPath);
         Objects.requireNonNull(archiveRootPath);
         Objects.requireNonNull(type);
+        Objects.requireNonNull(executorType);
         compression.verifyCompressionLevel(compressionLevel);
         Preconditions.requirePositivePowerOf10(archiveGroupSize);
+        Preconditions.requireWhole(threadKeepAliveTime);
+        Preconditions.requireInRange(executionQueueLimit, 64, 2048);
+        Preconditions.requireInRange(threadCount, 1, 16);
     }
 
     /**
@@ -91,9 +95,8 @@ public record PersistenceStorageConfig(
         SINGLE_THREAD,
 
         /**
-         * Uses the common ForkJoinPool for task execution.
-         * Best for compute-intensive workloads that benefit from work-stealing and when
-         * you want to share thread resources with other components in the application.
+         * Uses the ForkJoinPool for task execution.
+         * Best for compute-intensive workloads that benefit from work-stealing.
          */
         FORK_JOIN,
     }

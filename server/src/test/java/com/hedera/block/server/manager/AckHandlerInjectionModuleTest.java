@@ -40,11 +40,11 @@ class AckHandlerInjectionModuleTest {
                 0,
                 false,
                 10,
+                2048,
                 PersistenceStorageConfig.ExecutorType.THREAD_POOL,
                 6,
                 60,
-                false,
-                2048);
+                false);
         final VerificationConfig verificationConfig = mock(VerificationConfig.class);
         when(verificationConfig.type()).thenReturn(VerificationConfig.VerificationServiceType.PRODUCTION);
 
