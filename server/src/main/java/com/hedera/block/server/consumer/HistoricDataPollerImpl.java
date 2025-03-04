@@ -24,7 +24,7 @@ import java.util.concurrent.atomic.AtomicLong;
 public class HistoricDataPollerImpl implements HistoricDataPoller<List<BlockItemUnparsed>> {
     private final System.Logger LOGGER = System.getLogger(getClass().getName());
 
-    private AtomicLong currentIndex;
+    private final AtomicLong currentIndex = new AtomicLong(0);
 
     private final BlockReader<BlockUnparsed> blockReader;
     private final MetricsService metricsService;
@@ -51,7 +51,7 @@ public class HistoricDataPollerImpl implements HistoricDataPoller<List<BlockItem
      */
     @Override
     public void init(long blockNumber) {
-        currentIndex = new AtomicLong(blockNumber);
+        currentIndex.set(blockNumber);
         blockItemBatches.clear();
     }
 

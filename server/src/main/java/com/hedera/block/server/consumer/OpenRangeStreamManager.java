@@ -123,7 +123,8 @@ class OpenRangeStreamManager implements StreamManager {
                 // service. This should be happening all the time.
                 LOGGER.log(
                         DEBUG,
-                        "UncheckedIOException caught from Pipeline instance. Unsubscribed consumer observer instance");
+                        "UncheckedIOException caught from Pipeline instance. Unsubscribed consumer observer instance",
+                        e);
 
             } else {
                 // Report the error
