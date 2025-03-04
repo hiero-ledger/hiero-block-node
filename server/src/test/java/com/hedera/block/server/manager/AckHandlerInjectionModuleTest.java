@@ -35,6 +35,7 @@ class AckHandlerInjectionModuleTest {
         final PersistenceStorageConfig persistenceStorageConfig = new PersistenceStorageConfig(
                 Path.of(""),
                 Path.of(""),
+                Path.of(""),
                 PersistenceStorageConfig.StorageType.BLOCK_AS_LOCAL_FILE,
                 PersistenceStorageConfig.CompressionType.NONE,
                 0,

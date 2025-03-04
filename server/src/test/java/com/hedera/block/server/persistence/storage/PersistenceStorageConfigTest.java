@@ -70,6 +70,7 @@ class PersistenceStorageConfigTest {
         final PersistenceStorageConfig actual = new PersistenceStorageConfig(
                 Path.of(""),
                 Path.of(""),
+                Path.of(""),
                 storageType,
                 CompressionType.NONE,
                 DEFAULT_COMPRESSION_LEVEL,
@@ -97,6 +98,7 @@ class PersistenceStorageConfigTest {
         final PersistenceStorageConfig actual = new PersistenceStorageConfig(
                 liveRootPathToTest,
                 archiveRootPathToTest,
+                archiveRootPathToTest, // @todo(582) add unverified paths
                 StorageType.BLOCK_AS_LOCAL_FILE,
                 CompressionType.NONE,
                 DEFAULT_COMPRESSION_LEVEL,
@@ -117,6 +119,7 @@ class PersistenceStorageConfigTest {
     void testPersistenceStorageConfigValidCompressionLevel(
             final CompressionType compressionType, final int compressionLevel) {
         final PersistenceStorageConfig actual = new PersistenceStorageConfig(
+                Path.of(""),
                 Path.of(""),
                 Path.of(""),
                 StorageType.BLOCK_AS_LOCAL_FILE,
@@ -141,6 +144,7 @@ class PersistenceStorageConfigTest {
                 .isThrownBy(() -> new PersistenceStorageConfig(
                         Path.of(""),
                         Path.of(""),
+                        Path.of(""),
                         StorageType.BLOCK_AS_LOCAL_FILE,
                         compressionType,
                         compressionLevel,
@@ -157,6 +161,7 @@ class PersistenceStorageConfigTest {
     @EnumSource(CompressionType.class)
     void testPersistenceStorageConfigCompressionTypes(final CompressionType compressionType) {
         final PersistenceStorageConfig actual = new PersistenceStorageConfig(
+                Path.of(""),
                 Path.of(""),
                 Path.of(""),
                 StorageType.NO_OP,
@@ -178,6 +183,7 @@ class PersistenceStorageConfigTest {
         final PersistenceStorageConfig actual = new PersistenceStorageConfig(
                 Path.of(""),
                 Path.of(""),
+                Path.of(""),
                 StorageType.NO_OP,
                 CompressionType.NONE,
                 DEFAULT_COMPRESSION_LEVEL,
@@ -197,6 +203,7 @@ class PersistenceStorageConfigTest {
     void testPersistenceStorageConfigInvalidArchiveGroupSizes(final int archiveGroupSize) {
         assertThatIllegalArgumentException()
                 .isThrownBy(() -> new PersistenceStorageConfig(
+                        Path.of(""),
                         Path.of(""),
                         Path.of(""),
                         StorageType.NO_OP,

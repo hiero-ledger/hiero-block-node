@@ -154,6 +154,7 @@ class PersistenceInjectionModuleTest {
     void testProvidesBlockPathResolver(final StorageType storageType) {
         lenient().when(persistenceStorageConfigMock.liveRootPath()).thenReturn(testLiveRootPath);
         lenient().when(persistenceStorageConfigMock.archiveRootPath()).thenReturn(testLiveRootPath);
+        lenient().when(persistenceStorageConfigMock.unverifiedRootPath()).thenReturn(testLiveRootPath);
         lenient().when(persistenceStorageConfigMock.archiveGroupSize()).thenReturn(10);
         when(persistenceStorageConfigMock.type()).thenReturn(storageType);
 
@@ -218,6 +219,7 @@ class PersistenceInjectionModuleTest {
         final BlockNodeContext blockNodeContext = TestConfigUtil.getTestBlockNodeContext();
         when(persistenceStorageConfigMock.liveRootPath()).thenReturn(testLiveRootPath);
         when(persistenceStorageConfigMock.archiveRootPath()).thenReturn(testLiveRootPath);
+        when(persistenceStorageConfigMock.unverifiedRootPath()).thenReturn(testLiveRootPath);
         // Call the method under test
         final BlockNodeEventHandler<ObjectEvent<List<BlockItemUnparsed>>> streamVerifier =
                 new StreamPersistenceHandlerImpl(
@@ -229,6 +231,7 @@ class PersistenceInjectionModuleTest {
                         asyncBlockWriterFactoryMock,
                         executorMock,
                         archiverMock,
+                        blockPathResolverMock,
                         persistenceStorageConfigMock);
         assertNotNull(streamVerifier);
     }

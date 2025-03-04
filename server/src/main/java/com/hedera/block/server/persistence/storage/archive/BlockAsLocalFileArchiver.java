@@ -58,7 +58,7 @@ public final class BlockAsLocalFileArchiver implements LocalBlockArchiver {
         while ((completionResult = completionService.poll()) != null) {
             try {
                 if (completionResult.isCancelled()) {
-                    // @todo(517) when we have infrastructure for publishing
+                    // @todo(713) when we have infrastructure for publishing
                     //    results, we should do so
                 } else {
                     // We call get here to verify that the task has run to completion
@@ -69,7 +69,7 @@ public final class BlockAsLocalFileArchiver implements LocalBlockArchiver {
                     // The result should be the number of actual block items
                     // archived.
                     final long result = completionResult.get();
-                    // @todo(517) this is a good place to do some metrics
+                    // @todo(713) this is a good place to do some metrics
                     LOGGER.log(TRACE, "Archived [{0}] BlockFiles", result);
                 }
             } catch (final ExecutionException e) {
@@ -77,7 +77,7 @@ public final class BlockAsLocalFileArchiver implements LocalBlockArchiver {
                 // either a bug in the archiving task, or an unhandled case
                 throw new BlockArchivingException(e.getCause());
             } catch (final InterruptedException e) {
-                // @todo(517) What shall we do here? How to handle?
+                // @todo(713) What shall we do here? How to handle?
                 Thread.currentThread().interrupt();
             }
         }

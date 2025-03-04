@@ -14,9 +14,10 @@ import java.util.List;
 public final class PersistTestUtils {
     public static final String PERSISTENCE_STORAGE_LIVE_ROOT_PATH_KEY = "persistence.storage.liveRootPath";
     public static final String PERSISTENCE_STORAGE_ARCHIVE_ROOT_PATH_KEY = "persistence.storage.archiveRootPath";
+    public static final String PERSISTENCE_STORAGE_UNVERIFIED_ROOT_PATH_KEY = "persistence.storage.unverifiedRootPath";
     public static final String PERSISTENCE_STORAGE_COMPRESSION_TYPE = "persistence.storage.compressionType";
     public static final String PERSISTENCE_STORAGE_COMPRESSION_LEVEL = "persistence.storage.compressionLevel";
-    public static final String PERSISTENCE_STORAGE_ARCHIVE_BATCH_SIZE = "persistence.storage.archiveGroupSize";
+    public static final String PERSISTENCE_STORAGE_ARCHIVE_GROUP_SIZE = "persistence.storage.archiveGroupSize";
 
     private PersistTestUtils() {}
 

@@ -143,6 +143,9 @@ public final class LocalGroupZipArchiveTask implements Callable<Long> {
         } else {
             LOGGER.log(Level.DEBUG, NO_FILES_TO_ARCHIVE_MESSAGE, rootToArchive);
         }
+        // @todo(737) update proper metrics
+        // @todo(739) the task should return meaningful result that would be
+        //    published
         // If no exception is thrown, then we expect that the archiving process is successful,
         // and we can return the number of blocks that were archived.
         return blockFilesArchived;

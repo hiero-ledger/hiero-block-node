@@ -22,7 +22,7 @@ class NoOpBlockRemoverTest {
 
     /**
      * This test aims to verify that the
-     * {@link NoOpBlockRemover#removeLiveUnverified(long)} does nothing and
+     * {@link NoOpBlockRemover#removeUnverified(long)} does nothing and
      * returns false always. The no-op remover has no preconditions check as well.
      *
      * @param toRemove parameterized, block number
@@ -30,7 +30,7 @@ class NoOpBlockRemoverTest {
     @ParameterizedTest
     @MethodSource({"validBlockNumbers", "invalidBlockNumbers"})
     void testSuccessfulBlockDeletion(final long toRemove) {
-        final boolean actual = toTest.removeLiveUnverified(toRemove);
+        final boolean actual = toTest.removeUnverified(toRemove);
         assertThat(actual).isFalse();
     }
 

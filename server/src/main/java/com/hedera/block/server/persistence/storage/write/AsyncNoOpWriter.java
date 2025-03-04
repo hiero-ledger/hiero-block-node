@@ -73,7 +73,7 @@ final class AsyncNoOpWriter implements AsyncBlockWriter {
                     }
                 }
             } catch (final InterruptedException e) {
-                // @todo(545) is this the proper handling here?
+                // @todo(713) is this the proper handling here?
                 LOGGER.log(
                         Level.ERROR,
                         "Interrupted while waiting for next block item for block [%d]".formatted(blockNumber));
