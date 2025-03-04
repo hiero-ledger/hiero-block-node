@@ -1,29 +1,29 @@
 // SPDX-License-Identifier: Apache-2.0
 package com.hedera.block.server.persistence.storage.read;
 
+import static com.hedera.block.server.util.PersistTestUtils.PERSISTENCE_STORAGE_COMPRESSION_TYPE;
 import static com.hedera.block.server.util.PersistTestUtils.PERSISTENCE_STORAGE_LIVE_ROOT_PATH_KEY;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatIllegalArgumentException;
 import static org.assertj.core.api.Assertions.from;
 import static org.mockito.Mockito.spy;
 
-import com.hedera.block.server.config.BlockNodeContext;
 import com.hedera.block.server.persistence.storage.PersistenceStorageConfig;
 import com.hedera.block.server.persistence.storage.compression.Compression;
 import com.hedera.block.server.persistence.storage.compression.NoOpCompression;
 import com.hedera.block.server.persistence.storage.path.BlockAsLocalFilePathResolver;
 import com.hedera.block.server.persistence.storage.path.BlockPathResolver;
 import com.hedera.block.server.util.PersistTestUtils;
-import com.hedera.block.server.util.TestConfigUtil;
 import com.hedera.hapi.block.BlockItemUnparsed;
 import com.hedera.hapi.block.BlockUnparsed;
 import com.hedera.hapi.block.stream.output.BlockHeader;
 import com.hedera.pbj.runtime.ParseException;
+import com.swirlds.config.api.Configuration;
+import com.swirlds.config.api.ConfigurationBuilder;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
-import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.stream.Stream;
@@ -44,20 +44,21 @@ class BlockAsLocalFileReaderTest {
     private BlockAsLocalFileReader toTest;
 
     @TempDir
-    private Path testLiveRootPath;
+    private Path testTempDir;
 
     @BeforeEach
     void setUp() throws IOException {
-        final BlockNodeContext blockNodeContext = TestConfigUtil.getTestBlockNodeContext(
-                Map.of(PERSISTENCE_STORAGE_LIVE_ROOT_PATH_KEY, testLiveRootPath.toString()));
-        final PersistenceStorageConfig testConfig =
-                blockNodeContext.configuration().getConfigData(PersistenceStorageConfig.class);
-
-        final Path testConfigLiveRootPath = testConfig.liveRootPath();
+        final Path testLiveRootPath = testTempDir.resolve("live");
+        final Configuration config = ConfigurationBuilder.create()
+                .withConfigDataType(PersistenceStorageConfig.class)
+                .withValue(PERSISTENCE_STORAGE_COMPRESSION_TYPE, "NONE")
+                .withValue(PERSISTENCE_STORAGE_LIVE_ROOT_PATH_KEY, testLiveRootPath.toString())
+                .build();
+        final PersistenceStorageConfig persistenceStorageConfig = config.getConfigData(PersistenceStorageConfig.class);
+        final Path testConfigLiveRootPath = persistenceStorageConfig.liveRootPath();
         assertThat(testConfigLiveRootPath).isEqualTo(testLiveRootPath);
-
         compressionMock = spy(NoOpCompression.newInstance());
-        blockPathResolverMock = spy(new BlockAsLocalFilePathResolver(testConfig));
+        blockPathResolverMock = spy(new BlockAsLocalFilePathResolver(persistenceStorageConfig));
         toTest = BlockAsLocalFileReader.of(compressionMock, blockPathResolverMock);
     }
 

@@ -70,18 +70,20 @@ public final class NoOpBlockPathResolver implements BlockPathResolver {
     }
 
     /**
+     * No-op resolver. Does nothing and always returns an empty optional.
+     * No preconditions check also.
+     */
+    @NonNull
+    @Override
+    public Optional<UnverifiedBlockPath> findUnverifiedBlock(final long blockNumber) {
+        return Optional.empty();
+    }
+
+    /**
      * No-op resolver. Does nothing and always returns false.
      */
     @Override
     public boolean existsVerifiedBlock(final long blockNumber) {
         return false;
-    }
-
-    /**
-     * No-op resolver. Does nothing.
-     */
-    @Override
-    public void markVerified(final long blockNumber) {
-        // no-op
     }
 }

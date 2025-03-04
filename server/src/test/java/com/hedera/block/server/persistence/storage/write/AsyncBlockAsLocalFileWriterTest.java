@@ -95,7 +95,8 @@ class AsyncBlockAsLocalFileWriterTest {
 
         // when
         final Path expectedWrittenBlockFile = testTempDir.resolve(validBlockNumber + Constants.BLOCK_FILE_EXTENSION);
-        when(blockPathResolverMock.resolveLiveRawPathToBlock(validBlockNumber)).thenReturn(expectedWrittenBlockFile);
+        when(blockPathResolverMock.resolveLiveRawUnverifiedPathToBlock(validBlockNumber))
+                .thenReturn(expectedWrittenBlockFile);
         when(blockPathResolverMock.existsVerifiedBlock(validBlockNumber)).thenReturn(false);
         when(compressionMock.getCompressionFileExtension()).thenReturn("");
         when(compressionMock.wrap(any(OutputStream.class))).thenAnswer(invocation -> invocation.getArgument(0));
@@ -139,7 +140,8 @@ class AsyncBlockAsLocalFileWriterTest {
 
         // when
         final Path expectedWrittenBlockFile = testTempDir.resolve(validBlockNumber + Constants.BLOCK_FILE_EXTENSION);
-        when(blockPathResolverMock.resolveLiveRawPathToBlock(validBlockNumber)).thenReturn(expectedWrittenBlockFile);
+        when(blockPathResolverMock.resolveLiveRawUnverifiedPathToBlock(validBlockNumber))
+                .thenReturn(expectedWrittenBlockFile);
         when(blockPathResolverMock.existsVerifiedBlock(validBlockNumber)).thenReturn(false);
         when(compressionMock.getCompressionFileExtension()).thenReturn("");
         when(compressionMock.wrap(any(OutputStream.class))).thenAnswer(invocation -> invocation.getArgument(0));
@@ -179,7 +181,8 @@ class AsyncBlockAsLocalFileWriterTest {
         // when
         final Path expectedWrittenBlockFile = testTempDir.resolve(validBlockNumber + Constants.BLOCK_FILE_EXTENSION);
         when(metricsServiceMock.get(BlockPersistenceError)).thenReturn(persistenceErrorCounterMock);
-        when(blockPathResolverMock.resolveLiveRawPathToBlock(validBlockNumber)).thenReturn(expectedWrittenBlockFile);
+        when(blockPathResolverMock.resolveLiveRawUnverifiedPathToBlock(validBlockNumber))
+                .thenReturn(expectedWrittenBlockFile);
         when(blockPathResolverMock.existsVerifiedBlock(validBlockNumber)).thenReturn(false);
         when(compressionMock.getCompressionFileExtension()).thenReturn("");
         when(compressionMock.wrap(any(OutputStream.class))).thenThrow(IOException.class);
@@ -218,11 +221,12 @@ class AsyncBlockAsLocalFileWriterTest {
 
         // when
         final Path expectedWrittenBlockFile = testTempDir.resolve(validBlockNumber + Constants.BLOCK_FILE_EXTENSION);
-        when(blockPathResolverMock.resolveLiveRawPathToBlock(validBlockNumber)).thenReturn(expectedWrittenBlockFile);
+        when(blockPathResolverMock.resolveLiveRawUnverifiedPathToBlock(validBlockNumber))
+                .thenReturn(expectedWrittenBlockFile);
         when(blockPathResolverMock.existsVerifiedBlock(validBlockNumber)).thenReturn(false);
         when(compressionMock.getCompressionFileExtension()).thenReturn("");
         when(compressionMock.wrap(any(OutputStream.class))).thenThrow(IOException.class);
-        when(blockRemoverMock.removeLiveUnverified(validBlockNumber)).thenThrow(IOException.class);
+        when(blockRemoverMock.removeUnverified(validBlockNumber)).thenThrow(IOException.class);
         when(metricsServiceMock.get(BlockPersistenceError)).thenReturn(persistenceErrorCounterMock);
 
         // then

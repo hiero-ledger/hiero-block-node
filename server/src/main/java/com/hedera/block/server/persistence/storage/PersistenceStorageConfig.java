@@ -25,6 +25,7 @@ import java.util.Objects;
 public record PersistenceStorageConfig(
         @Loggable @ConfigProperty(defaultValue = "/opt/hashgraph/blocknode/data/live") Path liveRootPath,
         @Loggable @ConfigProperty(defaultValue = "/opt/hashgraph/blocknode/data/archive") Path archiveRootPath,
+        @Loggable @ConfigProperty(defaultValue = "/opt/hashgraph/blocknode/data/unverified") Path unverifiedRootPath,
         @Loggable @ConfigProperty(defaultValue = "BLOCK_AS_LOCAL_FILE") StorageType type,
         @Loggable @ConfigProperty(defaultValue = "ZSTD") CompressionType compression,
         @Loggable @ConfigProperty(defaultValue = "3") @Min(0) @Max(20) int compressionLevel,
@@ -35,8 +36,11 @@ public record PersistenceStorageConfig(
     public PersistenceStorageConfig {
         Objects.requireNonNull(liveRootPath);
         Objects.requireNonNull(archiveRootPath);
+        Objects.requireNonNull(unverifiedRootPath);
         Objects.requireNonNull(type);
         compression.verifyCompressionLevel(compressionLevel);
+        // @todo(742) verify that the group size has not changed once it has
+        //    been set initially
         Preconditions.requireGreaterOrEqual(
                 archiveGroupSize,
                 10,

@@ -6,7 +6,7 @@ import java.io.IOException;
 /** The BlockRemover interface defines the contract for removing a block from storage. */
 public interface BlockRemover {
     /**
-     * Remove an unverified block under the live root with the given block
+     * Remove an unverified block under the unverified root with the given block
      * number.
      *
      * @param blockNumber the block number of the block to remove
@@ -14,5 +14,5 @@ public interface BlockRemover {
      * @throws IOException when failing to remove a block
      * @throws IllegalArgumentException if the blockNumber IS NOT a whole number
      */
-    boolean removeLiveUnverified(final long blockNumber) throws IOException;
+    boolean removeUnverified(final long blockNumber) throws IOException;
 }

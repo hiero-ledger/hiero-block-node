@@ -5,9 +5,9 @@ import static com.hedera.block.server.metrics.BlockNodeMetricTypes.Counter.LiveB
 import static com.hedera.block.server.metrics.BlockNodeMetricTypes.Counter.LiveBlockStreamMediatorError;
 import static com.hedera.block.server.util.PersistTestUtils.PERSISTENCE_STORAGE_ARCHIVE_ROOT_PATH_KEY;
 import static com.hedera.block.server.util.PersistTestUtils.PERSISTENCE_STORAGE_LIVE_ROOT_PATH_KEY;
+import static com.hedera.block.server.util.PersistTestUtils.PERSISTENCE_STORAGE_UNVERIFIED_ROOT_PATH_KEY;
 import static com.hedera.block.server.util.PersistTestUtils.generateBlockItemsUnparsed;
-import static com.hedera.block.server.util.TestConfigUtil.CONSUMER_TIMEOUT_THRESHOLD_KEY;
-import static com.hedera.block.server.util.TestConfigUtil.MEDIATOR_RING_BUFFER_SIZE_KEY;
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -26,6 +26,7 @@ import com.hedera.block.server.notifier.NotifierImpl;
 import com.hedera.block.server.persistence.StreamPersistenceHandlerImpl;
 import com.hedera.block.server.persistence.storage.PersistenceStorageConfig;
 import com.hedera.block.server.persistence.storage.archive.LocalBlockArchiver;
+import com.hedera.block.server.persistence.storage.path.BlockPathResolver;
 import com.hedera.block.server.persistence.storage.write.AsyncBlockWriterFactory;
 import com.hedera.block.server.persistence.storage.write.AsyncNoOpWriterFactory;
 import com.hedera.block.server.service.ServiceStatus;
@@ -97,6 +98,9 @@ class LiveStreamMediatorImplTest {
     @Mock
     private LocalBlockArchiver archiverMock;
 
+    @Mock
+    private BlockPathResolver pathResolverMock;
+
     @TempDir
     private Path testTempDir;
 
@@ -107,12 +111,20 @@ class LiveStreamMediatorImplTest {
     @BeforeEach
     void setup() throws IOException {
         final Map<String, String> properties = new HashMap<>();
-        properties.put(PERSISTENCE_STORAGE_LIVE_ROOT_PATH_KEY, testTempDir.toString());
-        properties.put(PERSISTENCE_STORAGE_ARCHIVE_ROOT_PATH_KEY, testTempDir.toString());
-        properties.put(CONSUMER_TIMEOUT_THRESHOLD_KEY, String.valueOf(TIMEOUT_THRESHOLD_MILLIS));
-        properties.put(MEDIATOR_RING_BUFFER_SIZE_KEY, String.valueOf(1024));
+        final Path testLiveRootPath = testTempDir.resolve("live");
+        final Path testArchiveRootPath = testTempDir.resolve("archive");
+        final Path testUnverifiedRootPath = testTempDir.resolve("unverified");
+        properties.put(PERSISTENCE_STORAGE_LIVE_ROOT_PATH_KEY, testLiveRootPath.toString());
+        properties.put(PERSISTENCE_STORAGE_ARCHIVE_ROOT_PATH_KEY, testArchiveRootPath.toString());
+        properties.put(PERSISTENCE_STORAGE_UNVERIFIED_ROOT_PATH_KEY, testUnverifiedRootPath.toString());
         this.testContext = TestConfigUtil.getTestBlockNodeContext(properties);
         this.persistenceStorageConfig = testContext.configuration().getConfigData(PersistenceStorageConfig.class);
+        final Path testConfigLiveRootPath = persistenceStorageConfig.liveRootPath();
+        assertThat(testConfigLiveRootPath).isEqualTo(testLiveRootPath);
+        final Path testConfigArchiveRootPath = persistenceStorageConfig.archiveRootPath();
+        assertThat(testConfigArchiveRootPath).isEqualTo(testArchiveRootPath);
+        final Path testConfigUnverifiedRootPath = persistenceStorageConfig.unverifiedRootPath();
+        assertThat(testConfigUnverifiedRootPath).isEqualTo(testUnverifiedRootPath);
         this.completionService = new ExecutorCompletionService<>(Executors.newSingleThreadExecutor());
     }
 
@@ -169,6 +181,7 @@ class LiveStreamMediatorImplTest {
                 writerFactory,
                 executorMock,
                 archiverMock,
+                pathResolverMock,
                 persistenceStorageConfig);
         streamMediator.subscribe(handler);
 
@@ -249,6 +262,7 @@ class LiveStreamMediatorImplTest {
                 asyncBlockWriterFactoryMock,
                 executorMock,
                 archiverMock,
+                pathResolverMock,
                 persistenceStorageConfig);
         streamMediator.subscribe(handler);
 
@@ -493,6 +507,7 @@ class LiveStreamMediatorImplTest {
                 asyncBlockWriterFactoryMock,
                 executorMock,
                 archiverMock,
+                pathResolverMock,
                 persistenceStorageConfig);
 
         // Set up the stream verifier
@@ -563,6 +578,7 @@ class LiveStreamMediatorImplTest {
                 asyncBlockWriterFactoryMock,
                 executorMock,
                 archiverMock,
+                pathResolverMock,
                 persistenceStorageConfig);
         streamMediator.subscribe(handler);
 

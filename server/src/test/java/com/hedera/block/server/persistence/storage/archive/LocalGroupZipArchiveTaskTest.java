@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 package com.hedera.block.server.persistence.storage.archive;
 
-import static com.hedera.block.server.util.PersistTestUtils.PERSISTENCE_STORAGE_ARCHIVE_BATCH_SIZE;
+import static com.hedera.block.server.util.PersistTestUtils.PERSISTENCE_STORAGE_ARCHIVE_GROUP_SIZE;
 import static com.hedera.block.server.util.PersistTestUtils.PERSISTENCE_STORAGE_ARCHIVE_ROOT_PATH_KEY;
 import static com.hedera.block.server.util.PersistTestUtils.PERSISTENCE_STORAGE_COMPRESSION_TYPE;
 import static com.hedera.block.server.util.PersistTestUtils.PERSISTENCE_STORAGE_LIVE_ROOT_PATH_KEY;
@@ -53,20 +53,20 @@ class LocalGroupZipArchiveTaskTest {
 
     @BeforeEach
     void setUp() throws IOException {
-
+        final Path testLiveRootPath = testTempDir.resolve("live");
+        final Path testArchiveRootPath = testTempDir.resolve("archive");
         final Configuration config = ConfigurationBuilder.create()
-                .autoDiscoverExtensions()
+                .withConfigDataType(PersistenceStorageConfig.class)
                 .withValue(PERSISTENCE_STORAGE_COMPRESSION_TYPE, "NONE")
-                .withValue(PERSISTENCE_STORAGE_ARCHIVE_BATCH_SIZE, String.valueOf(ARCHIVE_GROUP_SIZE))
-                .withValue(
-                        PERSISTENCE_STORAGE_LIVE_ROOT_PATH_KEY,
-                        testTempDir.resolve("live").toString())
-                .withValue(
-                        PERSISTENCE_STORAGE_ARCHIVE_ROOT_PATH_KEY,
-                        testTempDir.resolve("archive").toString())
+                .withValue(PERSISTENCE_STORAGE_ARCHIVE_GROUP_SIZE, String.valueOf(ARCHIVE_GROUP_SIZE))
+                .withValue(PERSISTENCE_STORAGE_LIVE_ROOT_PATH_KEY, testLiveRootPath.toString())
+                .withValue(PERSISTENCE_STORAGE_ARCHIVE_ROOT_PATH_KEY, testArchiveRootPath.toString())
                 .build();
-
         persistenceStorageConfig = config.getConfigData(PersistenceStorageConfig.class);
+        final Path testConfigLiveRootPath = persistenceStorageConfig.liveRootPath();
+        assertThat(testConfigLiveRootPath).isEqualTo(testLiveRootPath);
+        final Path testConfigArchiveRootPath = persistenceStorageConfig.archiveRootPath();
+        assertThat(testConfigArchiveRootPath).isEqualTo(testArchiveRootPath);
         // using spy for path resolver because we should test with actual logic for path resolution
         // also asserts would be based on the findLive/findArchive methods, which are unit tested themselves
         // in the respective test class
