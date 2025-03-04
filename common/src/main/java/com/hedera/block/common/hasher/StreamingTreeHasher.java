@@ -52,6 +52,8 @@ public interface StreamingTreeHasher {
      */
     CompletableFuture<Bytes> rootHash();
 
+    CompletableFuture<List<List<Bytes>>> merkleTree();
+
     /**
      * If supported, blocks until this hasher can give a deterministic summary of the status of the
      * tree hash computation.

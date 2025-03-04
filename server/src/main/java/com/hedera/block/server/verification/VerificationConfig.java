@@ -17,7 +17,7 @@ import com.swirlds.config.api.ConfigProperty;
 @ConfigData("verification")
 public record VerificationConfig(
         @Loggable @ConfigProperty(defaultValue = "PRODUCTION") VerificationServiceType type,
-        @Loggable @ConfigProperty(defaultValue = "ASYNC") BlockVerificationSessionType sessionType,
+        @Loggable @ConfigProperty(defaultValue = "SYNC") BlockVerificationSessionType sessionType,
         @Loggable @ConfigProperty(defaultValue = "32") int hashCombineBatchSize) {
 
     /**

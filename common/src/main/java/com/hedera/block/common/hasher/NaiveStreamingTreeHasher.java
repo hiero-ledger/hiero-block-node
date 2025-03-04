@@ -12,6 +12,7 @@ import java.util.LinkedList;
 import java.util.List;
 import java.util.Queue;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutionException;
 
 /**
  * A naive implementation of {@link StreamingTreeHasher} that computes the root hash of a perfect binary Merkle tree of
@@ -22,6 +23,7 @@ public class NaiveStreamingTreeHasher implements StreamingTreeHasher {
 
     private final List<byte[]> leafHashes = new ArrayList<>();
     private boolean rootHashRequested = false;
+    private final CompletableFuture<List<List<Bytes>>> futureMerkleTree = new CompletableFuture<>();
 
     /**
      * Constructor for the {@link NaiveStreamingTreeHasher}.
@@ -55,7 +57,9 @@ public class NaiveStreamingTreeHasher implements StreamingTreeHasher {
                 hashes.add(EMPTY_HASH);
             }
         }
+        final List<List<Bytes>> completeMerkleTree = new LinkedList<>();
         while (hashes.size() > 1) {
+            completeMerkleTree.add(new ArrayList<>(hashes.stream().map(Bytes::wrap).toList()));
             final Queue<byte[]> newLeafHashes = new LinkedList<>();
             while (!hashes.isEmpty()) {
                 final byte[] left = hashes.poll();
@@ -67,6 +71,12 @@ public class NaiveStreamingTreeHasher implements StreamingTreeHasher {
             }
             hashes = newLeafHashes;
         }
+        completeMerkleTree.add(new ArrayList<>(hashes.stream().map(Bytes::wrap).toList()));
+        futureMerkleTree.complete(completeMerkleTree);
         return CompletableFuture.completedFuture(Bytes.wrap(requireNonNull(hashes.poll())));
+    }
+
+    public CompletableFuture<List<List<Bytes>>> merkleTree() {
+        return rootHash().thenCompose(ignore -> futureMerkleTree);
     }
 }

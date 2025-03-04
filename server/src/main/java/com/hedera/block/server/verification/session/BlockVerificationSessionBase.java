@@ -3,6 +3,7 @@ package com.hedera.block.server.verification.session;
 
 import static java.lang.System.Logger.Level.INFO;
 
+import com.hedera.block.common.hasher.BlockMerkleTreeInfo;
 import com.hedera.block.common.hasher.Hashes;
 import com.hedera.block.common.hasher.HashingUtilities;
 import com.hedera.block.common.hasher.StreamingTreeHasher;
@@ -134,6 +135,12 @@ public abstract class BlockVerificationSessionBase implements BlockVerificationS
         Bytes blockHash = HashingUtilities.computeFinalBlockHash(blockProof, inputTreeHasher, outputTreeHasher);
         VerificationResult result;
         boolean verified = signatureVerifier.verifySignature(blockHash, blockProof.blockSignature());
+        BlockMerkleTreeInfo blockMerkleTreeInfo = new BlockMerkleTreeInfo(
+                inputTreeHasher.merkleTree().join(),
+                outputTreeHasher.merkleTree().join(),
+                blockProof.previousBlockRootHash(),
+                blockProof.startOfBlockStateRootHash(),
+                blockHash);
         if (verified) {
             long verificationLatency = System.nanoTime() - blockWorkStartTime;
             metricsService
@@ -143,14 +150,16 @@ public abstract class BlockVerificationSessionBase implements BlockVerificationS
                     .get(BlockNodeMetricTypes.Counter.VerificationBlocksVerified)
                     .increment();
 
-            result = new VerificationResult(blockNumber, blockHash, BlockVerificationStatus.VERIFIED);
+            result = new VerificationResult(
+                    blockNumber, blockHash, BlockVerificationStatus.VERIFIED, blockMerkleTreeInfo);
         } else {
             LOGGER.log(INFO, "Block verification failed for block number: {0}", blockNumber);
             metricsService
                     .get(BlockNodeMetricTypes.Counter.VerificationBlocksFailed)
                     .increment();
 
-            result = new VerificationResult(blockNumber, blockHash, BlockVerificationStatus.INVALID_HASH_OR_SIGNATURE);
+            result = new VerificationResult(
+                    blockNumber, blockHash, BlockVerificationStatus.INVALID_HASH_OR_SIGNATURE, blockMerkleTreeInfo);
         }
         shutdownSession();
         verificationResultFuture.complete(result);
