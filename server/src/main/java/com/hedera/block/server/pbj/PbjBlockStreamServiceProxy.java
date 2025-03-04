@@ -7,7 +7,7 @@ import static java.lang.System.Logger.Level.ERROR;
 import com.hedera.block.server.block.BlockInfo;
 import com.hedera.block.server.config.BlockNodeContext;
 import com.hedera.block.server.consumer.ClosedRangeHistoricStreamEventHandlerBuilder;
-import com.hedera.block.server.consumer.LiveStreamEventHandlerBuilder;
+import com.hedera.block.server.consumer.ConsumerStreamBuilder;
 import com.hedera.block.server.events.BlockNodeEventHandler;
 import com.hedera.block.server.events.ObjectEvent;
 import com.hedera.block.server.mediator.LiveStreamMediator;
@@ -33,7 +33,6 @@ import edu.umd.cs.findbugs.annotations.NonNull;
 import java.time.Clock;
 import java.util.List;
 import java.util.Objects;
-import java.util.concurrent.ExecutorCompletionService;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import javax.inject.Inject;
@@ -54,6 +53,7 @@ public class PbjBlockStreamServiceProxy implements PbjBlockStreamService {
     private final BlockReader<BlockUnparsed> blockReader;
     private final Notifier notifier;
     private final ExecutorService closedRangeHistoricStreamingExecutorService;
+    private final ExecutorService openRangeHistoricStreamingExecutorService;
 
     public static SubscribeStreamResponseUnparsed READ_STREAM_INVALID_START_BLOCK_NUMBER_RESPONSE;
     public static SubscribeStreamResponseUnparsed READ_STREAM_INVALID_END_BLOCK_NUMBER_RESPONSE;
@@ -107,6 +107,7 @@ public class PbjBlockStreamServiceProxy implements PbjBlockStreamService {
 
         // Leverage virtual threads given that these are IO-bound tasks
         this.closedRangeHistoricStreamingExecutorService = Executors.newVirtualThreadPerTaskExecutor();
+        this.openRangeHistoricStreamingExecutorService = Executors.newVirtualThreadPerTaskExecutor();
         this.blockReader = Objects.requireNonNull(blockReader);
     }
 
@@ -211,27 +212,40 @@ public class PbjBlockStreamServiceProxy implements PbjBlockStreamService {
 
             // Validate inbound request parameters with current block number
             final BlockInfo latestAckedBlockInfo = serviceStatus.getLatestAckedBlock();
-            if (latestAckedBlockInfo != null) {
-                long currentBlockNumber = latestAckedBlockInfo.getBlockNumber();
-                if (!isRequestedRangeValidForCurrentBlock(
-                        subscribeStreamRequest, currentBlockNumber, helidonConsumerObserver)) {
-                    return;
-                }
+            long currentBlockNumber = (latestAckedBlockInfo != null) ? latestAckedBlockInfo.getBlockNumber() : 0;
+            if (!isRequestedRangeValidForCurrentBlock(
+                    subscribeStreamRequest, currentBlockNumber, helidonConsumerObserver)) {
+                return;
             }
 
             // Check to see if the client is requesting a live
             // stream (endBlockNumber is 0)
             if (subscribeStreamRequest.endBlockNumber() == 0) {
-                final var liveStreamEventHandler = LiveStreamEventHandlerBuilder.build(
-                        new ExecutorCompletionService<>(Executors.newSingleThreadExecutor()),
+
+                // Build the live stream event handler
+                LOGGER.log(
+                        DEBUG,
+                        "Building Open-Range Streaming Handler: start block number {0}, end block number 0",
+                        subscribeStreamRequest.startBlockNumber());
+
+                final Runnable openRangeHistoricStreamingRunnable = ConsumerStreamBuilder.build(
                         Clock.systemDefaultZone(),
+                        subscribeStreamRequest,
                         streamMediator,
                         helidonConsumerObserver,
+                        blockReader,
+                        serviceStatus,
                         blockNodeContext.metricsService(),
                         blockNodeContext.configuration());
 
-                streamMediator.subscribe(liveStreamEventHandler);
+                openRangeHistoricStreamingExecutorService.submit(openRangeHistoricStreamingRunnable);
+
             } else {
+                LOGGER.log(
+                        DEBUG,
+                        "Building Closed-Range Streaming Handler: start block number {0}, end block number {1}",
+                        subscribeStreamRequest.startBlockNumber(),
+                        subscribeStreamRequest.endBlockNumber());
                 final Runnable closedRangeHistoricStreamingRunnable =
                         ClosedRangeHistoricStreamEventHandlerBuilder.build(
                                 subscribeStreamRequest.startBlockNumber(),

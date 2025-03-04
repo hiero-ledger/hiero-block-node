@@ -3,7 +3,6 @@ package com.hedera.block.server.notifier;
 
 import static com.hedera.block.server.metrics.BlockNodeMetricTypes.Counter.SuccessfulPubStreamResp;
 import static com.hedera.block.server.metrics.BlockNodeMetricTypes.Gauge.NotifierRingBufferRemainingCapacity;
-import static com.hedera.block.server.metrics.BlockNodeMetricTypes.Gauge.Producers;
 import static java.lang.System.Logger.Level.ERROR;
 
 import com.hedera.block.server.config.BlockNodeContext;
@@ -59,7 +58,8 @@ public class NotifierImpl extends SubscriptionHandlerBase<PublishStreamResponse>
 
         super(
                 new ConcurrentHashMap<>(SUBSCRIBER_INIT_CAPACITY),
-                blockNodeContext.metricsService().get(Producers),
+                blockNodeContext.metricsService(),
+                blockNodeContext.configuration(),
                 blockNodeContext
                         .configuration()
                         .getConfigData(NotifierConfig.class)

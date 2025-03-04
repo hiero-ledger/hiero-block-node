@@ -6,8 +6,8 @@
 2. [Goals](#goals)
 3. [Terms](#terms)
 4. [Entities](#entities)
-5. [Design](#design)
-6. [Sequence Diagram](#sequence-diagram)
+5. [Design](#design-overview)
+6. [Finite State Machine](#finite-state-machine)
 7. [Configuration](#configuration)
 8. [Metrics](#metrics)
 9. [Exceptions](#exceptions)
@@ -36,59 +36,98 @@ See the range specification in the  `block_service.proto` file definition [here]
 
 ## Entities
 
-### BlockReader
-
-- An entity which is responsible for reading block items from the persistence service.
-
-### HistoricToLiveBlockStreamSupplier
-
-- An entity which is responsible for supplying historic block items to a BlockNodeEventHandler and for
-  transitioning to the live stream once the stream catches up.
-
-### BlockNodeEventHandler
-
-- An entity which manages a connection to a streaming client provided by Helidon and which receives data from an
-  HistoricToLiveBlockStreamSupplier. It is responsible for sending the data to the streaming client.
-
 ### PbjBlockStreamServiceProxy
 
 - An entity which is responsible for reading the gRPC `SubscribeStreamRequest` message, validating the
   `start_block_number` and `end_block_number` and building/injecting all other necessary entities to
   stream the historic blocks back to the client.
 
-## Design
+### BlockReader
+
+- An entity which is responsible for reading block items from the persistence service.
+
+### HistoricDataPoller
+
+- An entity which is responsible for polling the BlockReader for historic block items.
+
+### LiveStreamPoller
+
+- An entity which is responsible for polling the RingBuffer for live block items.
+
+### ConsumerStreamResponseObserver
+
+- An entity which manages a connection to a streaming client provided by Helidon and which receives data from an
+  HistoricToLiveBlockStreamSupplier. It is responsible for sending the data to the streaming client.
+
+### OpenRangeStreamManager
+
+- An entity which is responsible for supplying historic block items to a ConsumerStreamResponseObserver and for
+  transitioning from an historic stream of block items to the live stream of block items once it catches up.
+
+### ConsumerStreamRunnable
+
+- A runnable executed by virtual threads which continuously loops calling the `execute` method of the
+  OpenRangeStreamManager until it returns false or an exception is thrown.
+
+## Design Overview
 
 1. The `PbjBlockStreamServiceProxy` is called by Helidon when a client makes a request to the `subscribeBlockStream` rpc
    endpoint. After validating the `start_block_number` and `end_block_number`, it creates an
-   `HistoricToLiveBlockStreamSupplier` with the requested block range, a `BlockReader`, a `BlockNodeEventHandler` and
-   an `ExecutorService`.
-2. `HistoricToLiveBlockStreamSupplier` reads the blocks from the `BlockReader` and sends them to the client via the
-   `BlockNodeEventHandler`. Once the stream catches up to the live blocks, the `HistoricToLiveBlockStreamSupplier`
-   will transition to the live stream.
-3. The `HistoricToLiveBlockStreamSupplier` will continue to stream blocks to the client until the client disconnects
+   `OpenRangeStreamManager` with the requested block range, an `HistoricDataPoller`, a `LiveStreamPoller`, a `ConsumerStreamResponseObserver` and
+   a `ConsumerStreamRunnable`.
+2. The `ConsumerStreamRunnable` continuously calls the `OpenRangeStreamManager` which polls block items from the `HistoricDataPoller`
+   and sends them to the client via the `ConsumerStreamResponseObserver`. Once the stream catches up to the live blocks, the `OpenRangeStreamManager`
+   will transition to polling the live stream from the `LiveStreamPoller`.
+3. The `OpenRangeStreamManager` will continue to stream blocks to the client until the client disconnects
    or the stream is closed.
 
-## Sequence Diagram
+## Finite State Machine
+
+The `OpenRangeStreamManager` will leverage a Finite State Machine to dynamically manage the transitions between block item
+stream sources.
+
+### Dynamic Toggling between Historic Streaming to Live Streaming State Diagram
+
+### Client can request:
+
+1) Live Streaming starting with the latest block
+2) Historic Streaming starting with a specific block and transitioning to Live Streaming
+
+### Live Streaming:
+
+1) Continue to stream the latest live data unless the client is too slow
+2) Transition to Historic Streaming if the client exceeds a threshold
+
+### Historic Streaming:
+
+1) Start streaming from the requested block
+2) When the client catches up to the latest acknowledged block, initialize the Live Streaming. Live Streaming requires Ring Buffer resources that should not be allocated until necessary
+3) Cue up the Live Streaming to the next block boundary. Transitions between streaming sources must occur at block boundaries
+4) Continue to stream the Historic data to the client until the Historic Stream reaches the Live Stream block boundary
+5) Transition to Live Streaming
+6) Continue to stream the latest live data unless the client is too slow
+7) Transition to Historic Streaming if the client exceeds a threshold
 
 ```mermaid
-sequenceDiagram
-    participant RB as RingBuffer
-    participant H as HistoricToLiveBlockStreamSupplier
-    participant BR as BlockReader
-    participant BNEH as BlockNodeEventHandler
-    participant C as Client (Mirror Node)
-
-    loop
-    H->>BR: read(blockNumber)
-    BR->>H: block
-    H->>BNEH: send(blockItems)
-    BNEH->>C: send()
-    end
-    loop
-    H->>RB: read(blockItem batches)
-    H->>BNEH: send(blockItem batches)
-    BNEH->>C: send()
-    end
+stateDiagram
+[*] --> INIT_LIVE
+[*] --> INIT_HISTORIC
+INIT_HISTORIC --> HISTORIC_STREAMING : Historic Stream initialized
+INIT_HISTORIC --> CUE_HISTORIC_STREAMING : Current Acked Block caught up with last Live Block sent
+CUE_HISTORIC_STREAMING --> CUE_HISTORIC_STREAMING : Current Acked Block did not exceed last Live Block sent
+CUE_HISTORIC_STREAMING --> HISTORIC_STREAMING : Current Acked Block exceeded last Live Block sent
+INIT_LIVE --> CUE_LIVE_STREAMING : Live Stream initialized AND initial request was Historic Stream
+INIT_LIVE --> LIVE_STREAMING : Live Stream Initialized AND initial request was Live Stream
+CUE_LIVE_STREAMING --> CUE_LIVE_STREAMING : Drop Live data until next block boundary
+CUE_LIVE_STREAMING --> HISTORIC_STREAMING : Start of next block boundary found
+HISTORIC_STREAMING --> HISTORIC_STREAMING : Stream Historic data to client
+HISTORIC_STREAMING --> INIT_LIVE : Historic data caught up to Current Acked Block
+HISTORIC_STREAMING --> LIVE_STREAMING : Historic data caught up to Current Live Block
+LIVE_STREAMING --> HISTORIC_STREAMING : Slow client exceeded threshold
+LIVE_STREAMING --> LIVE_STREAMING : Stream Live data to client
+LIVE_STREAMING --> DRAIN_LIVE_STREAMING : Slow client exceeded threshold
+DRAIN_LIVE_STREAMING --> DRAIN_LIVE_STREAMING : Stream Live data to client until next block boundary
+DRAIN_LIVE_STREAMING --> INIT_HISTORIC : Live Stream drained and reset
 ```
 
 ## Configuration

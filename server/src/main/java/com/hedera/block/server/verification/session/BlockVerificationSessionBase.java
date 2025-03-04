@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 package com.hedera.block.server.verification.session;
 
-import static java.lang.System.Logger.Level.INFO;
+import static java.lang.System.Logger.Level.WARNING;
 
 import com.hedera.block.common.hasher.Hashes;
 import com.hedera.block.common.hasher.HashingUtilities;
@@ -145,7 +145,7 @@ public abstract class BlockVerificationSessionBase implements BlockVerificationS
 
             result = new VerificationResult(blockNumber, blockHash, BlockVerificationStatus.VERIFIED);
         } else {
-            LOGGER.log(INFO, "Block verification failed for block number: {0}", blockNumber);
+            LOGGER.log(WARNING, "Block verification failed for block number: {0}", blockNumber);
             metricsService
                     .get(BlockNodeMetricTypes.Counter.VerificationBlocksFailed)
                     .increment();
