@@ -97,52 +97,45 @@ class OpenRangeStreamManager implements StreamManager {
      * busy-wait loop to continuously produce block item batches for a downstream client.
      *
      * @return true if the stream should continue producing block item batches, false otherwise
-     * @throws Exception if an error occurs while streaming data
      */
     @Override
-    public boolean execute() throws Exception {
-        this.currentState = currentState.execute(this);
+    public boolean execute() {
+        try {
+            this.currentState = currentState.execute(this);
 
-        // Inside the busy-wait loop, we
-        // need to wait to avoid consuming
-        // the whole CPU
-        LockSupport.parkNanos(500_000L);
+            // Inside the busy-wait loop, we
+            // need to wait to avoid consuming
+            // the whole CPU
+            LockSupport.parkNanos(500_000L);
 
-        // For open-range, always return true
-        // to keep the stream producing block item
-        // batches indefinitely.
-        return true;
-    }
+            // For open-range, always return true
+            // to keep the stream producing block item
+            // batches indefinitely.
+            return true;
+        } catch (Exception e) {
+            cleanUpLiveStream();
 
-    /**
-     * The handleException method is called to clean up resources from
-     * the outside when an exception is caught while streaming data.
-     *
-     * @param e the exception that was thrown
-     */
-    @Override
-    public void handleException(Exception e) {
+            Throwable cause = e.getCause();
+            if (cause instanceof UncheckedIOException) {
+                // UncheckedIOException at this layer will almost
+                // always be wrapped SocketExceptions from individual
+                // clients disconnecting from the server streaming
+                // service. This should be happening all the time.
+                LOGGER.log(
+                        DEBUG,
+                        "UncheckedIOException caught from Pipeline instance. Unsubscribed consumer observer instance");
 
-        cleanUpLiveStream();
+            } else {
+                // Report the error
+                metricsService.get(OutboundStreamingError).increment();
+                LOGGER.log(ERROR, "Exception thrown while streaming data", e);
 
-        Throwable cause = e.getCause();
-        if (cause instanceof UncheckedIOException) {
-            // UncheckedIOException at this layer will almost
-            // always be wrapped SocketExceptions from individual
-            // clients disconnecting from the server streaming
-            // service. This should be happening all the time.
-            LOGGER.log(
-                    DEBUG,
-                    "UncheckedIOException caught from Pipeline instance. Unsubscribed consumer observer instance");
+                // Send an error response to the client
+                LOGGER.log(ERROR, "Sending error response to client");
+                consumerStreamResponseObserver.send(SubscribeStreamResponseCode.READ_STREAM_NOT_AVAILABLE);
+            }
 
-        } else {
-            // Report the error
-            metricsService.get(OutboundStreamingError).increment();
-            LOGGER.log(ERROR, "Exception thrown while streaming data", e);
-
-            // Send an error response to the client
-            LOGGER.log(ERROR, "Sending error response to client");
-            consumerStreamResponseObserver.send(SubscribeStreamResponseCode.READ_STREAM_NOT_AVAILABLE);
+            return false;
         }
     }
 
