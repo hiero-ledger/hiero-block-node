@@ -6,6 +6,8 @@ import java.nio.file.attribute.FileAttribute;
 import java.nio.file.attribute.PosixFilePermission;
 import java.nio.file.attribute.PosixFilePermissions;
 import java.util.Set;
+import java.util.concurrent.CountDownLatch;
+import org.mockito.stubbing.Answer;
 
 public final class TestUtils {
     private TestUtils() {}
@@ -42,5 +44,15 @@ public final class TestUtils {
 
     public static FileAttribute<Set<PosixFilePermission>> getNoWrite() {
         return PosixFilePermissions.asFileAttribute(PosixFilePermissions.fromString(NO_WRITE));
+    }
+
+    public static Answer<Void> onEventLatchCountdown(CountDownLatch latch) {
+        return invocation -> {
+            if (latch.getCount() == 0) {
+                throw new IllegalStateException("Event calls exceeded");
+            }
+            latch.countDown();
+            return null;
+        };
     }
 }
