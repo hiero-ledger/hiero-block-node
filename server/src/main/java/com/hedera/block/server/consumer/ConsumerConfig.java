@@ -22,9 +22,6 @@ public record ConsumerConfig(
     static final int minMaxBlockItemBatchSize = 1;
     static final int minCueHistoricStreamingPaddingBlocks = 1;
 
-    //    private static final String CONSUMER_CONFIG_PREFIX = "consumer.";
-    //    private static final String ERROR_MSG_TEMPLATE = " value %d is out of range [%d, %d]";
-
     /**
      * Validate the configuration.
      *

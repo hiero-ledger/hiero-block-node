@@ -45,7 +45,7 @@ class OpenRangeStreamManager implements StreamManager {
     private final AtomicLong currentHistoricBlockNumber;
     private final String managerId;
 
-    private AtomicBoolean isLiveStreamInitialized = new AtomicBoolean(false);
+    private final AtomicBoolean isLiveStreamInitialized = new AtomicBoolean(false);
 
     // @todo(#750) - Commented out first pass. Need to revisit.
     //    private final int cueHistoricStreamingPaddingBlocks;
@@ -142,7 +142,7 @@ class OpenRangeStreamManager implements StreamManager {
 
     private void cleanUpLiveStream() {
         // Unsubscribe from the live stream
-        isLiveStreamInitialized = new AtomicBoolean(false);
+        isLiveStreamInitialized.set(false);
         if (subscriptionHandler != null) {
             LOGGER.log(DEBUG, "Unsubscribed from the live stream");
             subscriptionHandler.unsubscribePoller(this);
@@ -349,7 +349,7 @@ class OpenRangeStreamManager implements StreamManager {
                         m.currentLiveBlockNumber.set(currentLiveBlockNumber + 1);
 
                         // We're initialized
-                        m.isLiveStreamInitialized = new AtomicBoolean(true);
+                        m.isLiveStreamInitialized.set(true);
 
                         // Now that we're cued up to the correct live block, pick the next state
                         // based on the initial state. If the request was strictly for live-streaming,
