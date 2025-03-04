@@ -15,7 +15,7 @@ import javax.inject.Inject;
  */
 public class MetricsServiceImpl implements MetricsService {
 
-    private static final String CATEGORY = "hedera_block_node_simulator";
+    private static final String CATEGORY = "hiero_block_node_simulator";
 
     private final EnumMap<SimulatorMetricTypes.Counter, Counter> counters =
             new EnumMap<>(SimulatorMetricTypes.Counter.class);

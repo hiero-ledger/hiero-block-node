@@ -5,9 +5,9 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.fail;
 
-import com.hedera.block.server.config.TestConfigBuilder;
 import com.hedera.block.server.consumer.ConsumerConfig;
 import com.swirlds.config.api.Configuration;
+import com.swirlds.config.api.ConfigurationBuilder;
 import com.swirlds.config.extensions.sources.ClasspathFileConfigSource;
 import edu.umd.cs.findbugs.annotations.NonNull;
 import java.io.IOException;
@@ -59,8 +59,9 @@ public class ConfigurationLoggingImplTest {
     private static Configuration getTestConfig(@NonNull Map<String, String> customProperties) throws IOException {
 
         // create test configuration
-        TestConfigBuilder testConfigBuilder =
-                new TestConfigBuilder(true).withSource(new ClasspathFileConfigSource(Path.of("app.properties")));
+        ConfigurationBuilder testConfigBuilder = ConfigurationBuilder.create()
+                .autoDiscoverExtensions()
+                .withSource(new ClasspathFileConfigSource(Path.of("app.properties")));
 
         for (Map.Entry<String, String> entry : customProperties.entrySet()) {
             String key = entry.getKey();
@@ -69,14 +70,15 @@ public class ConfigurationLoggingImplTest {
         }
 
         testConfigBuilder = testConfigBuilder.withConfigDataType(ConsumerConfig.class);
-        return testConfigBuilder.getOrCreateConfig();
+        return testConfigBuilder.build();
     }
 
     private static Configuration getTestConfigWithSecret() throws IOException {
 
-        TestConfigBuilder testConfigBuilder =
-                new TestConfigBuilder(true).withSource(new ClasspathFileConfigSource(Path.of("app.properties")));
+        ConfigurationBuilder testConfigBuilder = ConfigurationBuilder.create()
+                .autoDiscoverExtensions()
+                .withSource(new ClasspathFileConfigSource(Path.of("app.properties")));
         testConfigBuilder = testConfigBuilder.withConfigDataType(TestSecretConfig.class);
-        return testConfigBuilder.getOrCreateConfig();
+        return testConfigBuilder.build();
     }
 }

@@ -91,7 +91,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "hedera_block_node_simulator_live_block_items_sent_total{instance_type=\"$instance_type\"}",
+          "expr": "hiero_block_node_simulator_live_block_items_sent_total{instance_type=\"$instance_type\"}",
           "instant": false,
           "legendFormat": "Block Items Sent",
           "range": true,
@@ -183,7 +183,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "rate(hedera_block_node_simulator_live_block_items_sent_total{instance_type=\"$instance_type\"}[$__rate_interval])",
+          "expr": "rate(hiero_block_node_simulator_live_block_items_sent_total{instance_type=\"$instance_type\"}[$__rate_interval])",
           "instant": false,
           "legendFormat": "Block Items Send Rate",
           "range": true,
@@ -262,7 +262,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "hedera_block_node_simulator_live_blocks_sent_total{instance_type=\"$instance_type\"}",
+          "expr": "hiero_block_node_simulator_live_blocks_sent_total{instance_type=\"$instance_type\"}",
           "instant": false,
           "legendFormat": "Blocks Sent",
           "range": true,
@@ -354,7 +354,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "rate(hedera_block_node_simulator_live_blocks_sent_total{instance_type=\"$instance_type\"}[$__rate_interval])",
+          "expr": "rate(hiero_block_node_simulator_live_blocks_sent_total{instance_type=\"$instance_type\"}[$__rate_interval])",
           "instant": false,
           "legendFormat": "Blocks Send Rate",
           "range": true,

@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 package com.hedera.block.simulator;
 
-import com.hedera.block.simulator.config.TestConfigBuilder;
 import com.swirlds.common.metrics.platform.DefaultMetricsProvider;
 import com.swirlds.config.api.Configuration;
+import com.swirlds.config.api.ConfigurationBuilder;
 import com.swirlds.config.extensions.sources.ClasspathFileConfigSource;
 import com.swirlds.config.extensions.sources.SimpleConfigSource;
 import com.swirlds.metrics.api.Metrics;
@@ -18,17 +18,18 @@ public class TestUtils {
     private static final String TEST_APP_PROPERTIES_FILE = "app.properties";
 
     public static Configuration getTestConfiguration(@NonNull Map<String, String> customProperties) throws IOException {
-        // create test configuration
-        TestConfigBuilder testConfigBuilder = new TestConfigBuilder(true)
+
+        ConfigurationBuilder configurationBuilder = ConfigurationBuilder.create()
+                .autoDiscoverExtensions()
                 .withSource(new ClasspathFileConfigSource(Path.of(TEST_APP_PROPERTIES_FILE)));
 
         for (Map.Entry<String, String> entry : customProperties.entrySet()) {
             String key = entry.getKey();
             String value = entry.getValue();
-            testConfigBuilder = testConfigBuilder.withSource(new SimpleConfigSource(key, value).withOrdinal(500));
+            configurationBuilder.withSource(new SimpleConfigSource(key, value).withOrdinal(500));
         }
 
-        return testConfigBuilder.getOrCreateConfig();
+        return configurationBuilder.build();
     }
 
     public static Configuration getTestConfiguration() throws IOException {

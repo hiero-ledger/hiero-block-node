@@ -182,8 +182,8 @@ class PbjBlockStreamServiceIntegrationTest {
                 .when(helidonPublishStreamObserver3)
                 .onNext(any());
 
-        final PbjBlockStreamServiceProxy pbjBlockStreamServiceProxy = buildBlockStreamService(blockReaderMock,
-                persistenceExecutor);
+        final PbjBlockStreamServiceProxy pbjBlockStreamServiceProxy =
+                buildBlockStreamService(blockReaderMock, persistenceExecutor);
 
         // Register 3 producers - Opening a pipeline is not enough to register a producer.
         // pipeline.onNext() must be invoked to register the producer at the Helidon PBJ layer.
@@ -207,17 +207,23 @@ class PbjBlockStreamServiceIntegrationTest {
         pbjBlockStreamServiceProxy
                 .openWithSpecifiedExecutor(
                         PbjBlockStreamService.BlockStreamMethod.subscribeBlockStream,
-                        optionsMock, subscribeStreamObserver1, subscriberExecutor1)
+                        optionsMock,
+                        subscribeStreamObserver1,
+                        subscriberExecutor1)
                 .onNext(buildEmptySubscribeStreamRequest());
         pbjBlockStreamServiceProxy
                 .openWithSpecifiedExecutor(
                         PbjBlockStreamService.BlockStreamMethod.subscribeBlockStream,
-                        optionsMock, subscribeStreamObserver2, subscriberExecutor2)
+                        optionsMock,
+                        subscribeStreamObserver2,
+                        subscriberExecutor2)
                 .onNext(buildEmptySubscribeStreamRequest());
         pbjBlockStreamServiceProxy
                 .openWithSpecifiedExecutor(
                         PbjBlockStreamService.BlockStreamMethod.subscribeBlockStream,
-                        optionsMock, subscribeStreamObserver3, subscriberExecutor3)
+                        optionsMock,
+                        subscribeStreamObserver3,
+                        subscriberExecutor3)
                 .onNext(buildEmptySubscribeStreamRequest());
 
         final List<BlockItemUnparsed> blockItems = generateBlockItemsUnparsed(numberOfBlocks);
@@ -241,26 +247,17 @@ class PbjBlockStreamServiceIntegrationTest {
         publishStreamObserversLatch.await();
 
         // Verify all 10 BlockItems were sent to each of the 3 consumers
-        verify(subscribeStreamObserver1, times(1))
-                .onNext(buildSubscribeStreamResponse(blockItems.getFirst()));
-        verify(subscribeStreamObserver1, times(8))
-                .onNext(buildSubscribeStreamResponse(blockItems.get(1)));
-        verify(subscribeStreamObserver1, times(1))
-                .onNext(buildSubscribeStreamResponse(blockItems.get(9)));
+        verify(subscribeStreamObserver1, times(1)).onNext(buildSubscribeStreamResponse(blockItems.getFirst()));
+        verify(subscribeStreamObserver1, times(8)).onNext(buildSubscribeStreamResponse(blockItems.get(1)));
+        verify(subscribeStreamObserver1, times(1)).onNext(buildSubscribeStreamResponse(blockItems.get(9)));
 
-        verify(subscribeStreamObserver2, times(1))
-                .onNext(buildSubscribeStreamResponse(blockItems.getFirst()));
-        verify(subscribeStreamObserver2, times(8))
-                .onNext(buildSubscribeStreamResponse(blockItems.get(1)));
-        verify(subscribeStreamObserver2, times(1))
-                .onNext(buildSubscribeStreamResponse(blockItems.get(9)));
+        verify(subscribeStreamObserver2, times(1)).onNext(buildSubscribeStreamResponse(blockItems.getFirst()));
+        verify(subscribeStreamObserver2, times(8)).onNext(buildSubscribeStreamResponse(blockItems.get(1)));
+        verify(subscribeStreamObserver2, times(1)).onNext(buildSubscribeStreamResponse(blockItems.get(9)));
 
-        verify(subscribeStreamObserver3, times(1))
-                .onNext(buildSubscribeStreamResponse(blockItems.getFirst()));
-        verify(subscribeStreamObserver3, times(8))
-                .onNext(buildSubscribeStreamResponse(blockItems.get(1)));
-        verify(subscribeStreamObserver3, times(1))
-                .onNext(buildSubscribeStreamResponse(blockItems.get(9)));
+        verify(subscribeStreamObserver3, times(1)).onNext(buildSubscribeStreamResponse(blockItems.getFirst()));
+        verify(subscribeStreamObserver3, times(8)).onNext(buildSubscribeStreamResponse(blockItems.get(1)));
+        verify(subscribeStreamObserver3, times(1)).onNext(buildSubscribeStreamResponse(blockItems.get(9)));
 
         verify(helidonPublishStreamObserver1, times(1)).onNext(any());
         verify(helidonPublishStreamObserver2, times(1)).onNext(any());
@@ -283,9 +280,15 @@ class PbjBlockStreamServiceIntegrationTest {
         // The PublishStreamObserver logic is executed via lmax BatchEventProcessors internally,
         // so BlockingExecutorService approach is not applicable.
         CountDownLatch publishStreamObserversLatch = new CountDownLatch(3 * numberOfBlocks);
-        doAnswer(onEventLatchCountdown(publishStreamObserversLatch)).when(helidonPublishStreamObserver1).onNext(any());
-        doAnswer(onEventLatchCountdown(publishStreamObserversLatch)).when(helidonPublishStreamObserver2).onNext(any());
-        doAnswer(onEventLatchCountdown(publishStreamObserversLatch)).when(helidonPublishStreamObserver3).onNext(any());
+        doAnswer(onEventLatchCountdown(publishStreamObserversLatch))
+                .when(helidonPublishStreamObserver1)
+                .onNext(any());
+        doAnswer(onEventLatchCountdown(publishStreamObserversLatch))
+                .when(helidonPublishStreamObserver2)
+                .onNext(any());
+        doAnswer(onEventLatchCountdown(publishStreamObserversLatch))
+                .when(helidonPublishStreamObserver3)
+                .onNext(any());
 
         // Use a real BlockWriter to test the full integration
         final PbjBlockStreamServiceProxy pbjBlockStreamServiceProxy =
@@ -313,17 +316,23 @@ class PbjBlockStreamServiceIntegrationTest {
         pbjBlockStreamServiceProxy
                 .openWithSpecifiedExecutor(
                         PbjBlockStreamService.BlockStreamMethod.subscribeBlockStream,
-                        optionsMock, subscribeStreamObserver1, subscriberExecutor1)
+                        optionsMock,
+                        subscribeStreamObserver1,
+                        subscriberExecutor1)
                 .onNext(buildEmptySubscribeStreamRequest());
         pbjBlockStreamServiceProxy
                 .openWithSpecifiedExecutor(
                         PbjBlockStreamService.BlockStreamMethod.subscribeBlockStream,
-                        optionsMock, subscribeStreamObserver2, subscriberExecutor2)
+                        optionsMock,
+                        subscribeStreamObserver2,
+                        subscriberExecutor2)
                 .onNext(buildEmptySubscribeStreamRequest());
         pbjBlockStreamServiceProxy
                 .openWithSpecifiedExecutor(
                         PbjBlockStreamService.BlockStreamMethod.subscribeBlockStream,
-                        optionsMock, subscribeStreamObserver3, subscriberExecutor3)
+                        optionsMock,
+                        subscribeStreamObserver3,
+                        subscriberExecutor3)
                 .onNext(buildEmptySubscribeStreamRequest());
 
         final List<BlockItemUnparsed> blockItems = generateBlockItemsUnparsed(numberOfBlocks);
@@ -343,12 +352,9 @@ class PbjBlockStreamServiceIntegrationTest {
         publishStreamObserversLatch.await();
 
         // Verify the subscribers received the data
-        verifySubscribeStreamResponse(numberOfBlocks, 0, numberOfBlocks, subscribeStreamObserver1,
-                blockItems, false);
-        verifySubscribeStreamResponse(numberOfBlocks, 0, numberOfBlocks, subscribeStreamObserver2,
-                blockItems, false);
-        verifySubscribeStreamResponse(numberOfBlocks, 0, numberOfBlocks, subscribeStreamObserver3,
-                blockItems, false);
+        verifySubscribeStreamResponse(numberOfBlocks, 0, numberOfBlocks, subscribeStreamObserver1, blockItems, false);
+        verifySubscribeStreamResponse(numberOfBlocks, 0, numberOfBlocks, subscribeStreamObserver2, blockItems, false);
+        verifySubscribeStreamResponse(numberOfBlocks, 0, numberOfBlocks, subscribeStreamObserver3, blockItems, false);
 
         // Verify the producers received all the responses
         verify(helidonPublishStreamObserver1, times(numberOfBlocks)).onNext(any());
@@ -427,24 +433,18 @@ class PbjBlockStreamServiceIntegrationTest {
         }
 
         // Verify subscribers who were listening before the stream started
-        verifySubscribeStreamResponse(numberOfBlocks, 0, numberOfBlocks, subscribeStreamObserver1,
-                blockItems, true);
-        verifySubscribeStreamResponse(numberOfBlocks, 0, numberOfBlocks, subscribeStreamObserver2,
-                blockItems, true);
-        verifySubscribeStreamResponse(numberOfBlocks, 0, numberOfBlocks, subscribeStreamObserver3,
-                blockItems, true);
+        verifySubscribeStreamResponse(numberOfBlocks, 0, numberOfBlocks, subscribeStreamObserver1, blockItems, true);
+        verifySubscribeStreamResponse(numberOfBlocks, 0, numberOfBlocks, subscribeStreamObserver2, blockItems, true);
+        verifySubscribeStreamResponse(numberOfBlocks, 0, numberOfBlocks, subscribeStreamObserver3, blockItems, true);
 
         // Verify subscribers added while the stream was in progress.
         // The Helidon-provided StreamObserver onNext() method will only
         // be called once a Header BlockItem is reached. So, pass in
         // the number of BlockItems to wait to verify that the method
         // was called.
-        verifySubscribeStreamResponse(numberOfBlocks, 59, numberOfBlocks, subscribeStreamObserver4,
-                blockItems, true);
-        verifySubscribeStreamResponse(numberOfBlocks, 79, numberOfBlocks, subscribeStreamObserver5,
-                blockItems, true);
-        verifySubscribeStreamResponse(numberOfBlocks, 89, numberOfBlocks, subscribeStreamObserver6,
-                blockItems, true);
+        verifySubscribeStreamResponse(numberOfBlocks, 59, numberOfBlocks, subscribeStreamObserver4, blockItems, true);
+        verifySubscribeStreamResponse(numberOfBlocks, 79, numberOfBlocks, subscribeStreamObserver5, blockItems, true);
+        verifySubscribeStreamResponse(numberOfBlocks, 89, numberOfBlocks, subscribeStreamObserver6, blockItems, true);
     }
 
     @Test
@@ -581,24 +581,18 @@ class PbjBlockStreamServiceIntegrationTest {
         }
 
         // Verify subscribers who were listening before the stream started
-        verifySubscribeStreamResponse(numberOfBlocks, 0, 10, subscribeStreamObserver1,
-                blockItems, true);
-        verifySubscribeStreamResponse(numberOfBlocks, 0, 60, subscribeStreamObserver2,
-                blockItems, true);
-        verifySubscribeStreamResponse(numberOfBlocks, 0, 70, subscribeStreamObserver3,
-                blockItems, true);
+        verifySubscribeStreamResponse(numberOfBlocks, 0, 10, subscribeStreamObserver1, blockItems, true);
+        verifySubscribeStreamResponse(numberOfBlocks, 0, 60, subscribeStreamObserver2, blockItems, true);
+        verifySubscribeStreamResponse(numberOfBlocks, 0, 70, subscribeStreamObserver3, blockItems, true);
 
         // Verify subscribers added while the stream was in progress.
         // The Helidon-provided StreamObserver onNext() method will only
         // be called once a Header BlockItem is reached. So, pass in
         // the number of BlockItems to wait to verify that the method
         // was called.
-        verifySubscribeStreamResponse(numberOfBlocks, 59, numberOfBlocks, subscribeStreamObserver4,
-                blockItems, true);
-        verifySubscribeStreamResponse(numberOfBlocks, 79, numberOfBlocks, subscribeStreamObserver5,
-                blockItems, true);
-        verifySubscribeStreamResponse(numberOfBlocks, 89, numberOfBlocks, subscribeStreamObserver6,
-                blockItems, true);
+        verifySubscribeStreamResponse(numberOfBlocks, 59, numberOfBlocks, subscribeStreamObserver4, blockItems, true);
+        verifySubscribeStreamResponse(numberOfBlocks, 79, numberOfBlocks, subscribeStreamObserver5, blockItems, true);
+        verifySubscribeStreamResponse(numberOfBlocks, 89, numberOfBlocks, subscribeStreamObserver6, blockItems, true);
 
         producerPipeline.onComplete();
     }
@@ -772,7 +766,6 @@ class PbjBlockStreamServiceIntegrationTest {
                 verify(pipeline, times(8)).onNext(bodySubStreamResponse);
                 verify(pipeline, times(1)).onNext(stateProofStreamResponse);
             }
-
         }
     }
 

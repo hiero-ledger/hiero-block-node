@@ -1,14 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 package com.hedera.block.server.util;
 
-import org.mockito.stubbing.Answer;
-
 import java.io.File;
 import java.nio.file.attribute.FileAttribute;
 import java.nio.file.attribute.PosixFilePermission;
 import java.nio.file.attribute.PosixFilePermissions;
 import java.util.Set;
 import java.util.concurrent.CountDownLatch;
+import org.mockito.stubbing.Answer;
 
 public final class TestUtils {
     private TestUtils() {}
@@ -50,11 +49,10 @@ public final class TestUtils {
     public static Answer<Void> onEventLatchCountdown(CountDownLatch latch) {
         return invocation -> {
             if (latch.getCount() == 0) {
-                throw new RuntimeException("Event calls exceeded");
+                throw new IllegalStateException("Event calls exceeded");
             }
             latch.countDown();
             return null;
         };
     }
-
 }
