@@ -46,7 +46,7 @@ public record BlockGeneratorConfig(
 
         // If folderRootPath is empty, set it to the default data directory
         if (folderRootPath.isEmpty()) {
-            path = Paths.get("").toAbsolutePath().resolve("src/main/resources/block-0.0.3");
+            path = Paths.get("").toAbsolutePath().resolve("build/resources/main//block-0.0.3");
         }
         // Check if absolute
         if (!path.isAbsolute()) {

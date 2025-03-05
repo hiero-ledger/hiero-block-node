@@ -33,7 +33,7 @@ class BlockStreamConfigTest {
     }
 
     private BlockGeneratorConfig.Builder getBlockGeneratorConfigBuilder() {
-        String folderRootPath = "src/main/resources/block-0.0.3/";
+        String folderRootPath = "build/resources/main//block-0.0.3/";
         GenerationMode generationMode = GenerationMode.DIR;
 
         String blockStreamManagerImplementation = "BlockAsFileBlockStreamManager";
@@ -85,7 +85,7 @@ class BlockStreamConfigTest {
     @Test
     void testValidAbsolutePath() {
         // Setup valid folder path and generation mode
-        String gzRootFolder = "src/main/resources/block-0.0.3/";
+        String gzRootFolder = "build/resources/main//block-0.0.3/";
         String folderRootPath = getAbsoluteFolder(gzRootFolder);
         GenerationMode generationMode = GenerationMode.DIR;
 
@@ -114,7 +114,7 @@ class BlockStreamConfigTest {
         BlockGeneratorConfig config = builder.build();
 
         // Verify that the path is set to the default
-        Path expectedPath = Paths.get("src/main/resources/block-0.0.3/").toAbsolutePath();
+        Path expectedPath = Paths.get("build/resources/main//block-0.0.3/").toAbsolutePath();
         assertEquals(expectedPath.toString(), config.folderRootPath());
         assertEquals(GenerationMode.DIR, config.generationMode());
     }
