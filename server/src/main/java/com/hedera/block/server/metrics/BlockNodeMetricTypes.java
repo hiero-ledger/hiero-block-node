@@ -65,6 +65,12 @@ public final class BlockNodeMetricTypes {
         /** The time in nanoseconds taken to verify a block */
         VerificationBlockTime("verification_block_time", "Block Verification Time"),
 
+        /** The number of historic to live stream transitions */
+        HistoricToLiveStreamTransitions("historic_to_live_stream_transitions", "Historic to Live Stream Transitions"),
+
+        /** The number of live to historic stream transitions */
+        LiveToHistoricStreamTransitions("live_to_historic_stream_transitions", "Live to Historic Stream Transitions"),
+
         // Error counters
 
         /** The number of errors encountered by the live block stream mediator. */
@@ -77,7 +83,10 @@ public final class BlockNodeMetricTypes {
         AckedBlocked("acked_blocked", "Count of blocks acked"),
 
         /** The number of blocks failed to persist. */
-        BlockPersistenceError("block_persistence_error", "Blocks Failed to Persist");
+        BlockPersistenceError("block_persistence_error", "Blocks Failed to Persist"),
+
+        /** The number of errors streaming block items to clients. */
+        OutboundStreamingError("outbound_streaming_error", "Outbound Streaming Error");
 
         private final String grafanaLabel;
         private final String description;

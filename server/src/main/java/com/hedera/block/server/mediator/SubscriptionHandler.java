@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 package com.hedera.block.server.mediator;
 
+import com.hedera.block.server.consumer.StreamManager;
 import com.hedera.block.server.events.BlockNodeEventHandler;
 import com.hedera.block.server.events.ObjectEvent;
 import edu.umd.cs.findbugs.annotations.NonNull;
@@ -19,6 +20,29 @@ public interface SubscriptionHandler<V> {
      * @param handler the handler to subscribe
      */
     void subscribe(@NonNull final BlockNodeEventHandler<ObjectEvent<V>> handler);
+
+    /**
+     * Subscribes the given streamManager to the stream of events and returns a poller to poll the events.
+     *
+     * @param streamManager the streamManager to subscribe
+     * @return the poller to poll the events
+     */
+    Poller<ObjectEvent<V>> subscribePoller(@NonNull final StreamManager streamManager);
+
+    /**
+     * Unsubscribes the given streamManager from the stream of events.
+     *
+     * @param streamManager the streamManager to unsubscribe
+     */
+    void unsubscribePoller(@NonNull final StreamManager streamManager);
+
+    /**
+     * Checks if the given streamManager is subscribed to the stream of events.
+     *
+     * @param streamManager the streamManager to check
+     * @return true if the streamManager is subscribed, false otherwise
+     */
+    boolean isSubscribed(@NonNull final StreamManager streamManager);
 
     /**
      * Unsubscribes the given handler from the stream of events.

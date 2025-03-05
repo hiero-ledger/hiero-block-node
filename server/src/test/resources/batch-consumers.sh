@@ -38,7 +38,7 @@ fi
 
 # Loop to invoke consumer.sh and store PIDs
 for ((i = 0; i < num_iterations; i++)); do
-    ./consumer.sh 1 > "./$dir_name/bg_pid_$i.txt" 2>&1 &
+    ./consumer.sh 0 > "./$dir_name/bg_pid_$i.txt" 2>&1 &
     bg_pid=$!
     pids+=("$bg_pid")
     echo "Started consumer.sh with PID: $bg_pid"

@@ -12,13 +12,11 @@ import org.junit.jupiter.params.provider.MethodSource;
 
 public class ConsumerConfigTest {
 
-    private static final String RANGE_ERROR_TEMPLATE = "%s value %d is out of range [%d, %d]";
-
     @ParameterizedTest
     @MethodSource("outOfRangeMaxBlockItemBatchSize")
     public void testMaxBlockItemBatchSize(int maxBlockItemBatchSize, final String message) {
         assertThatIllegalArgumentException()
-                .isThrownBy(() -> new ConsumerConfig(1500, maxBlockItemBatchSize))
+                .isThrownBy(() -> new ConsumerConfig(1500, 3, maxBlockItemBatchSize))
                 .withMessage(message);
     }
 
@@ -26,7 +24,15 @@ public class ConsumerConfigTest {
     @MethodSource("outOfRangeTimeoutThresholdMillis")
     public void testTimeoutThresholdMillis(int timeoutThresholdMillis, final String message) {
         assertThatIllegalArgumentException()
-                .isThrownBy(() -> new ConsumerConfig(timeoutThresholdMillis, 1000))
+                .isThrownBy(() -> new ConsumerConfig(timeoutThresholdMillis, 3, 1000))
+                .withMessage(message);
+    }
+
+    @ParameterizedTest
+    @MethodSource("outOfRangeCueHistoricStreamingPaddingBlocks")
+    public void testCueHistoricStreamingPaddingBlocks(int cueHistoricStreamingPaddingBlocks, final String message) {
+        assertThatIllegalArgumentException()
+                .isThrownBy(() -> new ConsumerConfig(1500, cueHistoricStreamingPaddingBlocks, 1000))
                 .withMessage(message);
     }
 
@@ -35,19 +41,13 @@ public class ConsumerConfigTest {
                 Arguments.of(
                         0,
                         String.format(
-                                RANGE_ERROR_TEMPLATE,
-                                "consumer.maxBlockItemBatchSize",
-                                0,
-                                minMaxBlockItemBatchSize,
-                                Integer.MAX_VALUE)),
+                                "The input number [%d] is required to be greater or equal than [%d].",
+                                0, minMaxBlockItemBatchSize)),
                 Arguments.of(
                         -1,
                         String.format(
-                                RANGE_ERROR_TEMPLATE,
-                                "consumer.maxBlockItemBatchSize",
-                                -1,
-                                minMaxBlockItemBatchSize,
-                                Integer.MAX_VALUE)));
+                                "The input number [%d] is required to be greater or equal than [%d].",
+                                -1, minMaxBlockItemBatchSize)));
     }
 
     private static Stream<Arguments> outOfRangeTimeoutThresholdMillis() {
@@ -55,18 +55,26 @@ public class ConsumerConfigTest {
                 Arguments.of(
                         -1,
                         String.format(
-                                RANGE_ERROR_TEMPLATE,
-                                "consumer.timeoutThresholdMillis",
-                                -1,
-                                minTimeoutThresholdMillis,
-                                Integer.MAX_VALUE)),
+                                "The input number [%d] is required to be greater or equal than [%d].",
+                                -1, minTimeoutThresholdMillis)),
                 Arguments.of(
                         0,
                         String.format(
-                                RANGE_ERROR_TEMPLATE,
-                                "consumer.timeoutThresholdMillis",
-                                0,
-                                minTimeoutThresholdMillis,
-                                Integer.MAX_VALUE)));
+                                "The input number [%d] is required to be greater or equal than [%d].",
+                                0, minTimeoutThresholdMillis)));
+    }
+
+    private static Stream<Arguments> outOfRangeCueHistoricStreamingPaddingBlocks() {
+        return Stream.of(
+                Arguments.of(
+                        0,
+                        String.format(
+                                "The input number [%d] is required to be greater or equal than [%d].",
+                                0, minMaxBlockItemBatchSize)),
+                Arguments.of(
+                        -1,
+                        String.format(
+                                "The input number [%d] is required to be greater or equal than [%d].",
+                                -1, minMaxBlockItemBatchSize)));
     }
 }
