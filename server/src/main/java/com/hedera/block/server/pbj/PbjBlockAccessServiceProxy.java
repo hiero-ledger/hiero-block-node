@@ -6,7 +6,6 @@ import static com.hedera.block.server.metrics.BlockNodeMetricTypes.Counter.Singl
 import static java.lang.System.Logger.Level.DEBUG;
 import static java.lang.System.Logger.Level.ERROR;
 
-import com.hedera.block.server.config.BlockNodeContext;
 import com.hedera.block.server.metrics.MetricsService;
 import com.hedera.block.server.persistence.storage.read.BlockReader;
 import com.hedera.block.server.service.ServiceStatus;
@@ -42,16 +41,16 @@ public class PbjBlockAccessServiceProxy implements PbjBlockAccessService {
      *
      * @param serviceStatus the service status
      * @param blockReader the block reader
-     * @param blockNodeContext the block node context
+     * @param metricsService the metrics service
      */
     @Inject
     public PbjBlockAccessServiceProxy(
             @NonNull final ServiceStatus serviceStatus,
             @NonNull final BlockReader<BlockUnparsed> blockReader,
-            @NonNull final BlockNodeContext blockNodeContext) {
+            @NonNull final MetricsService metricsService) {
         this.serviceStatus = serviceStatus;
         this.blockReader = blockReader;
-        this.metricsService = blockNodeContext.metricsService();
+        this.metricsService = metricsService;
     }
 
     /**

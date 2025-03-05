@@ -14,13 +14,15 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.hedera.block.server.ack.AckHandler;
-import com.hedera.block.server.config.BlockNodeContext;
+import com.hedera.block.server.consumer.ConsumerConfig;
 import com.hedera.block.server.events.BlockNodeEventHandler;
 import com.hedera.block.server.events.ObjectEvent;
 import com.hedera.block.server.mediator.LiveStreamMediator;
 import com.hedera.block.server.mediator.LiveStreamMediatorBuilder;
+import com.hedera.block.server.mediator.MediatorConfig;
 import com.hedera.block.server.mediator.Publisher;
 import com.hedera.block.server.mediator.SubscriptionHandler;
+import com.hedera.block.server.metrics.MetricsService;
 import com.hedera.block.server.pbj.PbjBlockStreamService;
 import com.hedera.block.server.pbj.PbjBlockStreamServiceProxy;
 import com.hedera.block.server.persistence.StreamPersistenceHandlerImpl;
@@ -30,6 +32,8 @@ import com.hedera.block.server.persistence.storage.path.BlockPathResolver;
 import com.hedera.block.server.persistence.storage.read.BlockReader;
 import com.hedera.block.server.persistence.storage.write.AsyncBlockWriterFactory;
 import com.hedera.block.server.producer.ProducerBlockItemObserver;
+import com.hedera.block.server.producer.ProducerConfig;
+import com.hedera.block.server.service.ServiceConfig;
 import com.hedera.block.server.service.ServiceStatus;
 import com.hedera.block.server.service.ServiceStatusImpl;
 import com.hedera.block.server.util.TestConfigUtil;
@@ -44,6 +48,7 @@ import com.hedera.pbj.runtime.grpc.Pipeline;
 import com.hedera.pbj.runtime.grpc.ServiceInterface;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import com.lmax.disruptor.BatchEventProcessor;
+import com.swirlds.config.api.Configuration;
 import io.helidon.webserver.WebServer;
 import java.io.IOException;
 import java.nio.file.Path;
@@ -126,8 +131,13 @@ class NotifierImplTest {
     @TempDir
     private Path testTempDir;
 
-    private BlockNodeContext blockNodeContext;
+    private MetricsService metricsService;
     private PersistenceStorageConfig persistenceStorageConfig;
+    private NotifierConfig notifierConfig;
+    private ConsumerConfig consumerConfig;
+    private ProducerConfig producerConfig;
+    private ServiceConfig serviceConfig;
+    private MediatorConfig mediatorConfig;
 
     @BeforeEach
     void setUp() throws IOException {
@@ -138,14 +148,21 @@ class NotifierImplTest {
         properties.put(PERSISTENCE_STORAGE_LIVE_ROOT_PATH_KEY, testLiveRootPath.toString());
         properties.put(PERSISTENCE_STORAGE_ARCHIVE_ROOT_PATH_KEY, testArchiveRootPath.toString());
         properties.put(PERSISTENCE_STORAGE_UNVERIFIED_ROOT_PATH_KEY, testUnverifiedRootPath.toString());
-        blockNodeContext = TestConfigUtil.getTestBlockNodeContext(properties);
-        persistenceStorageConfig = blockNodeContext.configuration().getConfigData(PersistenceStorageConfig.class);
+        Configuration configuration = TestConfigUtil.getTestBlockNodeConfiguration(properties);
+        persistenceStorageConfig = configuration.getConfigData(PersistenceStorageConfig.class);
         final Path testConfigLiveRootPath = persistenceStorageConfig.liveRootPath();
         assertThat(testConfigLiveRootPath).isEqualTo(testLiveRootPath);
         final Path testConfigArchiveRootPath = persistenceStorageConfig.archiveRootPath();
         assertThat(testConfigArchiveRootPath).isEqualTo(testArchiveRootPath);
         final Path testConfigUnverifiedRootPath = persistenceStorageConfig.unverifiedRootPath();
         assertThat(testConfigUnverifiedRootPath).isEqualTo(testUnverifiedRootPath);
+
+        metricsService = TestConfigUtil.getTestBlockNodeMetricsService(configuration);
+        notifierConfig = configuration.getConfigData(NotifierConfig.class);
+        consumerConfig = configuration.getConfigData(ConsumerConfig.class);
+        producerConfig = configuration.getConfigData(ProducerConfig.class);
+        serviceConfig = configuration.getConfigData(ServiceConfig.class);
+        mediatorConfig = configuration.getConfigData(MediatorConfig.class);
     }
 
     @Test
@@ -153,7 +170,8 @@ class NotifierImplTest {
     void testRegistration() throws IOException {
         when(serviceStatus.isRunning()).thenReturn(true);
 
-        final NotifierImpl notifier = new NotifierImpl(mediator, blockNodeContext, serviceStatus);
+        final NotifierImpl notifier =
+                new NotifierImpl(mediator, metricsService, notifierConfig, mediatorConfig, serviceStatus);
         final PbjBlockStreamServiceProxy pbjBlockStreamServiceProxy = buildBlockStreamService(notifier);
 
         // Register 3 producers - Opening a pipeline is not enough to register a producer.
@@ -168,7 +186,7 @@ class NotifierImplTest {
                 PbjBlockStreamService.BlockStreamMethod.publishBlockStream, options, helidonPublishStreamObserver3);
         producerPipeline3.onNext(buildEmptyPublishStreamRequest());
 
-        long producers = blockNodeContext.metricsService().get(Producers).get();
+        long producers = metricsService.get(Producers).get();
         assertEquals(3, producers, "Expected 3 producers to be registered");
 
         final Bytes blockHash = Bytes.wrap("1234");
@@ -196,7 +214,7 @@ class NotifierImplTest {
         producerPipeline2.onComplete();
         producerPipeline3.onComplete();
 
-        producers = blockNodeContext.metricsService().get(Producers).get();
+        producers = metricsService.get(Producers).get();
         assertEquals(0, producers, "Expected 0 producers to be registered");
     }
 
@@ -204,13 +222,32 @@ class NotifierImplTest {
     void testServiceStatusNotRunning() throws NoSuchAlgorithmException {
         // Set the serviceStatus to not running
         when(serviceStatus.isRunning()).thenReturn(false);
-        final NotifierImpl notifier = new NotifierImpl(mediator, blockNodeContext, serviceStatus);
+        final NotifierImpl notifier =
+                new NotifierImpl(mediator, metricsService, notifierConfig, mediatorConfig, serviceStatus);
         final ProducerBlockItemObserver concreteObserver1 = new ProducerBlockItemObserver(
-                testClock, publisher, subscriptionHandler, publishStreamObserver1, blockNodeContext, serviceStatus);
+                testClock,
+                publisher,
+                subscriptionHandler,
+                publishStreamObserver1,
+                serviceStatus,
+                consumerConfig,
+                metricsService);
         final ProducerBlockItemObserver concreteObserver2 = new ProducerBlockItemObserver(
-                testClock, publisher, subscriptionHandler, publishStreamObserver2, blockNodeContext, serviceStatus);
+                testClock,
+                publisher,
+                subscriptionHandler,
+                publishStreamObserver2,
+                serviceStatus,
+                consumerConfig,
+                metricsService);
         final ProducerBlockItemObserver concreteObserver3 = new ProducerBlockItemObserver(
-                testClock, publisher, subscriptionHandler, publishStreamObserver3, blockNodeContext, serviceStatus);
+                testClock,
+                publisher,
+                subscriptionHandler,
+                publishStreamObserver3,
+                serviceStatus,
+                consumerConfig,
+                metricsService);
 
         notifier.subscribe(concreteObserver1);
         notifier.subscribe(concreteObserver2);
@@ -239,12 +276,12 @@ class NotifierImplTest {
     }
 
     private PbjBlockStreamServiceProxy buildBlockStreamService(final Notifier notifier) throws IOException {
-        final ServiceStatus serviceStatus = new ServiceStatusImpl(blockNodeContext);
+        final ServiceStatus serviceStatus = new ServiceStatusImpl(serviceConfig);
         final LiveStreamMediator streamMediator = buildStreamMediator(new ConcurrentHashMap<>(32), serviceStatus);
         final StreamPersistenceHandlerImpl blockNodeEventHandler = new StreamPersistenceHandlerImpl(
                 streamMediator,
                 notifier,
-                blockNodeContext,
+                metricsService,
                 serviceStatus,
                 ackHandler,
                 asyncBlockWriterFactoryMock,
@@ -254,7 +291,7 @@ class NotifierImplTest {
                 persistenceStorageConfig);
         final BlockVerificationService blockVerificationService = new NoOpBlockVerificationService();
         final StreamVerificationHandlerImpl streamVerificationHandler = new StreamVerificationHandlerImpl(
-                streamMediator, notifier, blockNodeContext.metricsService(), serviceStatus, blockVerificationService);
+                streamMediator, notifier, metricsService, serviceStatus, blockVerificationService);
         return new PbjBlockStreamServiceProxy(
                 streamMediator,
                 serviceStatus,
@@ -262,7 +299,9 @@ class NotifierImplTest {
                 streamVerificationHandler,
                 blockReader,
                 notifier,
-                blockNodeContext);
+                metricsService,
+                consumerConfig,
+                producerConfig);
     }
 
     private LiveStreamMediator buildStreamMediator(
@@ -272,7 +311,7 @@ class NotifierImplTest {
                     subscribers,
             final ServiceStatus serviceStatus) {
         serviceStatus.setWebServer(webServer);
-        return LiveStreamMediatorBuilder.newBuilder(blockNodeContext, serviceStatus)
+        return LiveStreamMediatorBuilder.newBuilder(metricsService, mediatorConfig, serviceStatus)
                 .subscribers(subscribers)
                 .build();
     }

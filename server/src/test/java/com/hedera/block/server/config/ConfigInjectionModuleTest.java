@@ -20,16 +20,15 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 class ConfigInjectionModuleTest {
-    private BlockNodeContext testContext;
+    private Configuration configuration;
 
     @BeforeEach
     void setUp() throws IOException {
-        testContext = TestConfigUtil.getTestBlockNodeContext();
+        configuration = TestConfigUtil.getTestBlockNodeConfiguration();
     }
 
     @Test
     void testProvidePersistenceStorageConfig() {
-        final Configuration configuration = testContext.configuration();
         final PersistenceStorageConfig persistenceStorageConfig =
                 configuration.getConfigData(PersistenceStorageConfig.class);
         final PersistenceStorageConfig providedConfig =
@@ -40,7 +39,6 @@ class ConfigInjectionModuleTest {
 
     @Test
     void testProvideMetricsConfig() {
-        final Configuration configuration = testContext.configuration();
         final MetricsConfig metricsConfig = configuration.getConfigData(MetricsConfig.class);
         final MetricsConfig providedConfig = ConfigInjectionModule.provideMetricsConfig(configuration);
         assertNotNull(providedConfig);
@@ -49,7 +47,6 @@ class ConfigInjectionModuleTest {
 
     @Test
     void testProvidePrometheusConfig() {
-        final Configuration configuration = testContext.configuration();
         final PrometheusConfig prometheusConfig = configuration.getConfigData(PrometheusConfig.class);
         final PrometheusConfig providedConfig = ConfigInjectionModule.providePrometheusConfig(configuration);
         assertNotNull(providedConfig);
@@ -58,7 +55,6 @@ class ConfigInjectionModuleTest {
 
     @Test
     void testProvideConsumerConfig() {
-        final Configuration configuration = testContext.configuration();
         final ConsumerConfig consumerConfig = configuration.getConfigData(ConsumerConfig.class);
         final ConsumerConfig providedConfig = ConfigInjectionModule.provideConsumerConfig(configuration);
         assertNotNull(providedConfig);
@@ -67,7 +63,6 @@ class ConfigInjectionModuleTest {
 
     @Test
     void testProvideMediatorConfig() {
-        final Configuration configuration = testContext.configuration();
         final MediatorConfig mediatorConfig = configuration.getConfigData(MediatorConfig.class);
         final MediatorConfig providedConfig = ConfigInjectionModule.provideMediatorConfig(configuration);
         assertNotNull(providedConfig);
@@ -76,7 +71,6 @@ class ConfigInjectionModuleTest {
 
     @Test
     void testProvideNotifierConfig() {
-        final Configuration configuration = testContext.configuration();
         final NotifierConfig notifierConfig = configuration.getConfigData(NotifierConfig.class);
         final NotifierConfig providedConfig = ConfigInjectionModule.provideNotifierConfig(configuration);
         assertNotNull(providedConfig);
@@ -85,7 +79,6 @@ class ConfigInjectionModuleTest {
 
     @Test
     void testServerConfig() {
-        final Configuration configuration = testContext.configuration();
         final ServerConfig serverConfig = configuration.getConfigData(ServerConfig.class);
         final ServerConfig providedConfig = ConfigInjectionModule.provideServerConfig(configuration);
         assertNotNull(providedConfig);
@@ -94,7 +87,6 @@ class ConfigInjectionModuleTest {
 
     @Test
     void testVerificationConfig() {
-        final Configuration configuration = testContext.configuration();
         final VerificationConfig verificationConfig = configuration.getConfigData(VerificationConfig.class);
         final VerificationConfig providedConfig = ConfigInjectionModule.provideVerificationConfig(configuration);
         assertNotNull(providedConfig);
@@ -103,7 +95,6 @@ class ConfigInjectionModuleTest {
 
     @Test
     void testProducerConfig() {
-        final Configuration configuration = testContext.configuration();
         final ProducerConfig producerConfig = configuration.getConfigData(ProducerConfig.class);
         final ProducerConfig providedConfig = ConfigInjectionModule.provideProducerConfig(configuration);
         assertNotNull(providedConfig);
@@ -112,7 +103,6 @@ class ConfigInjectionModuleTest {
 
     @Test
     void testConfigurationLogging() {
-        final Configuration configuration = testContext.configuration();
         final ConfigurationLogging providedConfigurationLogging =
                 ConfigInjectionModule.provideConfigurationLogging(configuration);
         assertNotNull(providedConfigurationLogging);

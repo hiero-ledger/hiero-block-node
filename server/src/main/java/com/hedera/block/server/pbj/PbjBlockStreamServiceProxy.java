@@ -5,12 +5,13 @@ import static java.lang.System.Logger.Level.DEBUG;
 import static java.lang.System.Logger.Level.ERROR;
 
 import com.hedera.block.server.block.BlockInfo;
-import com.hedera.block.server.config.BlockNodeContext;
 import com.hedera.block.server.consumer.ClosedRangeHistoricStreamEventHandlerBuilder;
+import com.hedera.block.server.consumer.ConsumerConfig;
 import com.hedera.block.server.consumer.ConsumerStreamBuilder;
 import com.hedera.block.server.events.BlockNodeEventHandler;
 import com.hedera.block.server.events.ObjectEvent;
 import com.hedera.block.server.mediator.LiveStreamMediator;
+import com.hedera.block.server.metrics.MetricsService;
 import com.hedera.block.server.notifier.Notifier;
 import com.hedera.block.server.persistence.storage.read.BlockReader;
 import com.hedera.block.server.producer.NoOpProducerObserver;
@@ -49,7 +50,9 @@ public class PbjBlockStreamServiceProxy implements PbjBlockStreamService {
 
     private final LiveStreamMediator streamMediator;
     private final ServiceStatus serviceStatus;
-    private final BlockNodeContext blockNodeContext;
+    private final MetricsService metricsService;
+    private final ConsumerConfig consumerConfig;
+    private final ProducerConfig producerConfig;
     private final BlockReader<BlockUnparsed> blockReader;
     private final Notifier notifier;
     private final ExecutorService closedRangeHistoricStreamingExecutorService;
@@ -86,7 +89,9 @@ public class PbjBlockStreamServiceProxy implements PbjBlockStreamService {
      * @param streamPersistenceHandler the stream persistence handler
      * @param streamVerificationHandler the stream verification handler
      * @param notifier the notifier
-     * @param blockNodeContext the block node context
+     * @param metricsService - the service responsible for handling metrics
+     * @param consumerConfig - the configuration settings for the consumer
+     * @param producerConfig - the configuration settings for the producer
      */
     @Inject
     public PbjBlockStreamServiceProxy(
@@ -96,14 +101,18 @@ public class PbjBlockStreamServiceProxy implements PbjBlockStreamService {
             @NonNull final StreamVerificationHandlerImpl streamVerificationHandler,
             @NonNull final BlockReader<BlockUnparsed> blockReader,
             @NonNull final Notifier notifier,
-            @NonNull final BlockNodeContext blockNodeContext) {
+            @NonNull final MetricsService metricsService,
+            @NonNull final ConsumerConfig consumerConfig,
+            @NonNull final ProducerConfig producerConfig) {
 
         this.serviceStatus = Objects.requireNonNull(serviceStatus);
         this.notifier = Objects.requireNonNull(notifier);
-        this.blockNodeContext = Objects.requireNonNull(blockNodeContext);
         streamMediator.subscribe(Objects.requireNonNull(streamPersistenceHandler));
         streamMediator.subscribe(Objects.requireNonNull(streamVerificationHandler));
         this.streamMediator = Objects.requireNonNull(streamMediator);
+        this.metricsService = Objects.requireNonNull(metricsService);
+        this.consumerConfig = Objects.requireNonNull(consumerConfig);
+        this.producerConfig = Objects.requireNonNull(producerConfig);
 
         // Leverage virtual threads given that these are IO-bound tasks
         this.closedRangeHistoricStreamingExecutorService = Executors.newVirtualThreadPerTaskExecutor();
@@ -160,13 +169,10 @@ public class PbjBlockStreamServiceProxy implements PbjBlockStreamService {
         // Unsubscribe any expired notifiers
         notifier.unsubscribeAllExpired();
 
-        final ProducerConfig.ProducerType producerType = blockNodeContext
-                .configuration()
-                .getConfigData(ProducerConfig.class)
-                .type();
+        final ProducerConfig.ProducerType producerType = producerConfig.type();
 
         if (producerType == ProducerConfig.ProducerType.NO_OP) {
-            return new NoOpProducerObserver(helidonProducerObserver, blockNodeContext);
+            return new NoOpProducerObserver(helidonProducerObserver, metricsService);
         }
 
         final var producerBlockItemObserver = new ProducerBlockItemObserver(
@@ -174,8 +180,9 @@ public class PbjBlockStreamServiceProxy implements PbjBlockStreamService {
                 streamMediator,
                 notifier,
                 helidonProducerObserver,
-                blockNodeContext,
-                serviceStatus);
+                serviceStatus,
+                consumerConfig,
+                metricsService);
 
         if (serviceStatus.isRunning()) {
             // Register the producer observer with the notifier to publish responses back to the
@@ -235,8 +242,8 @@ public class PbjBlockStreamServiceProxy implements PbjBlockStreamService {
                         helidonConsumerObserver,
                         blockReader,
                         serviceStatus,
-                        blockNodeContext.metricsService(),
-                        blockNodeContext.configuration());
+                        metricsService,
+                        consumerConfig);
 
                 openRangeHistoricStreamingExecutorService.submit(openRangeHistoricStreamingRunnable);
 
@@ -252,8 +259,8 @@ public class PbjBlockStreamServiceProxy implements PbjBlockStreamService {
                                 subscribeStreamRequest.endBlockNumber(),
                                 blockReader,
                                 helidonConsumerObserver,
-                                blockNodeContext.metricsService(),
-                                blockNodeContext.configuration());
+                                metricsService,
+                                consumerConfig);
 
                 // Submit the runnable to the executor service
                 closedRangeHistoricStreamingExecutorService.submit(closedRangeHistoricStreamingRunnable);

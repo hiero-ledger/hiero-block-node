@@ -10,10 +10,12 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.hedera.block.server.block.BlockInfo;
-import com.hedera.block.server.config.BlockNodeContext;
+import com.hedera.block.server.consumer.ConsumerConfig;
 import com.hedera.block.server.events.ObjectEvent;
 import com.hedera.block.server.mediator.Publisher;
 import com.hedera.block.server.mediator.SubscriptionHandler;
+import com.hedera.block.server.metrics.MetricsService;
+import com.hedera.block.server.service.ServiceConfig;
 import com.hedera.block.server.service.ServiceStatus;
 import com.hedera.block.server.service.ServiceStatusImpl;
 import com.hedera.block.server.util.TestConfigUtil;
@@ -25,6 +27,7 @@ import com.hedera.hapi.block.PublishStreamResponse;
 import com.hedera.hapi.block.PublishStreamResponseCode;
 import com.hedera.pbj.runtime.grpc.Pipeline;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
+import com.swirlds.config.api.Configuration;
 import java.io.IOException;
 import java.time.InstantSource;
 import java.util.List;
@@ -61,19 +64,31 @@ public class ProducerBlockItemObserverTest {
     private final long TIMEOUT_THRESHOLD_MILLIS = 50L;
     private static final int testTimeout = 1000;
 
-    BlockNodeContext testContext;
+    private MetricsService metricsService;
+    private ConsumerConfig consumerConfig;
+    private ServiceConfig serviceConfig;
 
     @BeforeEach
     public void setUp() throws IOException {
-        this.testContext = TestConfigUtil.getTestBlockNodeContext(
-                Map.of(TestConfigUtil.CONSUMER_TIMEOUT_THRESHOLD_KEY, String.valueOf(TIMEOUT_THRESHOLD_MILLIS)));
+        Map<String, String> configMap =
+                Map.of(TestConfigUtil.CONSUMER_TIMEOUT_THRESHOLD_KEY, String.valueOf(TIMEOUT_THRESHOLD_MILLIS));
+        Configuration config = TestConfigUtil.getTestBlockNodeConfiguration(configMap);
+        consumerConfig = config.getConfigData(ConsumerConfig.class);
+        serviceConfig = config.getConfigData(ServiceConfig.class);
+        metricsService = TestConfigUtil.getTestBlockNodeMetricsService(config);
     }
 
     @Test
     public void testConfirmOnErrorNotCalled() {
 
         final ProducerBlockItemObserver producerBlockItemObserver = new ProducerBlockItemObserver(
-                testClock, publisher, subscriptionHandler, helidonPublishPipeline, testContext, serviceStatus);
+                testClock,
+                publisher,
+                subscriptionHandler,
+                helidonPublishPipeline,
+                serviceStatus,
+                consumerConfig,
+                metricsService);
 
         // Confirm that onError will call the handler
         // to unsubscribe but make sure onError is never
@@ -92,7 +107,13 @@ public class ProducerBlockItemObserverTest {
 
         when(testClock.millis()).thenReturn(TEST_TIME, TEST_TIME + TIMEOUT_THRESHOLD_MILLIS + 1);
         final ProducerBlockItemObserver producerBlockItemObserver = new ProducerBlockItemObserver(
-                testClock, publisher, subscriptionHandler, helidonPublishPipeline, testContext, serviceStatus);
+                testClock,
+                publisher,
+                subscriptionHandler,
+                helidonPublishPipeline,
+                serviceStatus,
+                consumerConfig,
+                metricsService);
 
         producerBlockItemObserver.onEvent(objectEvent, 0, true);
         producerBlockItemObserver.onEvent(objectEvent, 0, true);
@@ -104,7 +125,13 @@ public class ProducerBlockItemObserverTest {
     public void testOnSubscribe() {
 
         final ProducerBlockItemObserver producerBlockItemObserver = new ProducerBlockItemObserver(
-                testClock, publisher, subscriptionHandler, helidonPublishPipeline, testContext, serviceStatus);
+                testClock,
+                publisher,
+                subscriptionHandler,
+                helidonPublishPipeline,
+                serviceStatus,
+                consumerConfig,
+                metricsService);
 
         // Currently, our implementation of onSubscribe() is a
         // no-op.
@@ -115,7 +142,13 @@ public class ProducerBlockItemObserverTest {
     public void testEmptyBlockItems() {
 
         final ProducerBlockItemObserver producerBlockItemObserver = new ProducerBlockItemObserver(
-                testClock, publisher, subscriptionHandler, helidonPublishPipeline, testContext, serviceStatus);
+                testClock,
+                publisher,
+                subscriptionHandler,
+                helidonPublishPipeline,
+                serviceStatus,
+                consumerConfig,
+                metricsService);
 
         producerBlockItemObserver.onNext(List.of());
         verify(publisher, never()).publish(any());
@@ -124,10 +157,16 @@ public class ProducerBlockItemObserverTest {
     @Test
     public void testOnlyErrorStreamResponseAllowedAfterStatusChange() {
 
-        final ServiceStatus serviceStatus = new ServiceStatusImpl(testContext);
+        final ServiceStatus serviceStatus = new ServiceStatusImpl(serviceConfig);
 
         final ProducerBlockItemObserver producerBlockItemObserver = new ProducerBlockItemObserver(
-                testClock, publisher, subscriptionHandler, helidonPublishPipeline, testContext, serviceStatus);
+                testClock,
+                publisher,
+                subscriptionHandler,
+                helidonPublishPipeline,
+                serviceStatus,
+                consumerConfig,
+                metricsService);
 
         final List<BlockItemUnparsed> blockItems = generateBlockItemsUnparsed(1);
 
@@ -148,7 +187,13 @@ public class ProducerBlockItemObserverTest {
     public void testClientEndStreamReceived() {
 
         final ProducerBlockItemObserver producerBlockItemObserver = new ProducerBlockItemObserver(
-                testClock, publisher, subscriptionHandler, helidonPublishPipeline, testContext, serviceStatus);
+                testClock,
+                publisher,
+                subscriptionHandler,
+                helidonPublishPipeline,
+                serviceStatus,
+                consumerConfig,
+                metricsService);
 
         producerBlockItemObserver.clientEndStreamReceived();
 
@@ -171,7 +216,13 @@ public class ProducerBlockItemObserverTest {
 
         final List<BlockItemUnparsed> blockItems = generateBlockItemsUnparsedForWithBlockNumber(10);
         final ProducerBlockItemObserver producerBlockItemObserver = new ProducerBlockItemObserver(
-                testClock, publisher, subscriptionHandler, helidonPublishPipeline, testContext, serviceStatus);
+                testClock,
+                publisher,
+                subscriptionHandler,
+                helidonPublishPipeline,
+                serviceStatus,
+                consumerConfig,
+                metricsService);
 
         // when
         producerBlockItemObserver.onNext(blockItems);
@@ -209,7 +260,13 @@ public class ProducerBlockItemObserverTest {
         when(serviceStatus.getLatestReceivedBlockNumber()).thenReturn(10L);
         final List<BlockItemUnparsed> blockItems = generateBlockItemsUnparsedForWithBlockNumber(12);
         final ProducerBlockItemObserver producerBlockItemObserver = new ProducerBlockItemObserver(
-                testClock, publisher, subscriptionHandler, helidonPublishPipeline, testContext, serviceStatus);
+                testClock,
+                publisher,
+                subscriptionHandler,
+                helidonPublishPipeline,
+                serviceStatus,
+                consumerConfig,
+                metricsService);
 
         // when
         producerBlockItemObserver.onNext(blockItems);

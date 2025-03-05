@@ -7,7 +7,6 @@ import static java.lang.System.Logger.Level.ERROR;
 
 import com.hedera.block.common.utils.FileUtilities;
 import com.hedera.block.server.ack.AckHandler;
-import com.hedera.block.server.config.BlockNodeContext;
 import com.hedera.block.server.events.BlockNodeEventHandler;
 import com.hedera.block.server.events.ObjectEvent;
 import com.hedera.block.server.exception.BlockStreamProtocolException;
@@ -71,7 +70,7 @@ public class StreamPersistenceHandlerImpl implements BlockNodeEventHandler<Objec
      *
      * @param subscriptionHandler valid, non-null instance of {@link SubscriptionHandler}
      * @param notifier valid, non-null instance of {@link Notifier}
-     * @param blockNodeContext valid, non-null instance of {@link BlockNodeContext}
+     * @param metricsService valid, non-null instance of {@link MetricsService}
      * @param serviceStatus valid, non-null instance of {@link ServiceStatus}
      * @param ackHandler valid, non-null instance of {@link AckHandler}
      * @param asyncBlockWriterFactory valid, non-null instance of {@link AsyncBlockWriterFactory}
@@ -82,7 +81,7 @@ public class StreamPersistenceHandlerImpl implements BlockNodeEventHandler<Objec
     public StreamPersistenceHandlerImpl(
             @NonNull final SubscriptionHandler<List<BlockItemUnparsed>> subscriptionHandler,
             @NonNull final Notifier notifier,
-            @NonNull final BlockNodeContext blockNodeContext,
+            @NonNull final MetricsService metricsService,
             @NonNull final ServiceStatus serviceStatus,
             @NonNull final AckHandler ackHandler,
             @NonNull final AsyncBlockWriterFactory asyncBlockWriterFactory,
@@ -93,7 +92,7 @@ public class StreamPersistenceHandlerImpl implements BlockNodeEventHandler<Objec
             throws IOException {
         this.subscriptionHandler = Objects.requireNonNull(subscriptionHandler);
         this.notifier = Objects.requireNonNull(notifier);
-        this.metricsService = blockNodeContext.metricsService();
+        this.metricsService = metricsService;
         this.serviceStatus = Objects.requireNonNull(serviceStatus);
         this.asyncBlockWriterFactory = Objects.requireNonNull(asyncBlockWriterFactory);
         this.archiver = Objects.requireNonNull(archiver);

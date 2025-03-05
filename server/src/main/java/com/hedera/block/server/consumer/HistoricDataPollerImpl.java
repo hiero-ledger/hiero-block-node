@@ -9,7 +9,6 @@ import com.hedera.block.server.metrics.MetricsService;
 import com.hedera.block.server.persistence.storage.read.BlockReader;
 import com.hedera.hapi.block.BlockItemUnparsed;
 import com.hedera.hapi.block.BlockUnparsed;
-import com.swirlds.config.api.Configuration;
 import edu.umd.cs.findbugs.annotations.NonNull;
 import java.util.LinkedList;
 import java.util.List;
@@ -35,12 +34,11 @@ public class HistoricDataPollerImpl implements HistoricDataPoller<List<BlockItem
     public HistoricDataPollerImpl(
             @NonNull final BlockReader<BlockUnparsed> blockReader,
             @NonNull final MetricsService metricsService,
-            @NonNull final Configuration configuration) {
+            @NonNull final ConsumerConfig consumerConfig) {
 
         this.blockReader = Objects.requireNonNull(blockReader);
         this.metricsService = Objects.requireNonNull(metricsService);
-        this.maxBlockItemBatchSize =
-                configuration.getConfigData(ConsumerConfig.class).maxBlockItemBatchSize();
+        this.maxBlockItemBatchSize = consumerConfig.maxBlockItemBatchSize();
     }
 
     /**

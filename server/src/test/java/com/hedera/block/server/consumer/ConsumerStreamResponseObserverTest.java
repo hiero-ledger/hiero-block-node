@@ -8,9 +8,9 @@ import static org.mockito.Mockito.timeout;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-import com.hedera.block.server.config.BlockNodeContext;
 import com.hedera.block.server.mediator.LiveStreamMediator;
 import com.hedera.block.server.mediator.LiveStreamMediatorBuilder;
+import com.hedera.block.server.mediator.MediatorConfig;
 import com.hedera.block.server.metrics.MetricsService;
 import com.hedera.block.server.persistence.storage.read.BlockReader;
 import com.hedera.block.server.service.ServiceStatus;
@@ -63,22 +63,25 @@ public class ConsumerStreamResponseObserverTest {
     private BlockReader<BlockUnparsed> blockReader;
 
     private MetricsService metricsService;
-    private Configuration configuration;
-    private BlockNodeContext testContext;
+    private MediatorConfig mediatorConfig;
+    private ConsumerConfig consumerConfig;
 
     @BeforeEach
     public void setup() throws IOException {
-        testContext = TestConfigUtil.getTestBlockNodeContext(
-                Map.of(TestConfigUtil.CONSUMER_TIMEOUT_THRESHOLD_KEY, String.valueOf(TIMEOUT_THRESHOLD_MILLIS)));
-        metricsService = testContext.metricsService();
-        configuration = testContext.configuration();
+        Map<String, String> configMap =
+                Map.of(TestConfigUtil.CONSUMER_TIMEOUT_THRESHOLD_KEY, String.valueOf(TIMEOUT_THRESHOLD_MILLIS));
+        Configuration config = TestConfigUtil.getTestBlockNodeConfiguration(configMap);
+        this.metricsService = TestConfigUtil.getTestBlockNodeMetricsService(config);
+        this.mediatorConfig = config.getConfigData(MediatorConfig.class);
+        this.consumerConfig = config.getConfigData(ConsumerConfig.class);
     }
 
     @Test
     public void testProducerTimeoutWithinWindow() {
 
-        final LiveStreamMediator streamMediator =
-                LiveStreamMediatorBuilder.newBuilder(testContext, serviceStatus).build();
+        final LiveStreamMediator streamMediator = LiveStreamMediatorBuilder.newBuilder(
+                        metricsService, mediatorConfig, serviceStatus)
+                .build();
         when(testClock.millis()).thenReturn(TEST_TIME, TEST_TIME + TIMEOUT_THRESHOLD_MILLIS);
 
         // Mock live streaming
@@ -93,7 +96,7 @@ public class ConsumerStreamResponseObserverTest {
                 blockReader,
                 serviceStatus,
                 metricsService,
-                configuration);
+                consumerConfig);
 
         // Create a block item to publish
         final BlockHeader blockHeader = BlockHeader.newBuilder().number(1).build();
@@ -130,8 +133,9 @@ public class ConsumerStreamResponseObserverTest {
     @Test
     public void testProducerTimeoutOutsideWindow() {
 
-        final LiveStreamMediator streamMediator =
-                LiveStreamMediatorBuilder.newBuilder(testContext, serviceStatus).build();
+        final LiveStreamMediator streamMediator = LiveStreamMediatorBuilder.newBuilder(
+                        metricsService, mediatorConfig, serviceStatus)
+                .build();
         when(testClock.millis()).thenReturn(TEST_TIME, TEST_TIME + TIMEOUT_THRESHOLD_MILLIS + 1);
 
         // Mock live streaming
@@ -146,7 +150,7 @@ public class ConsumerStreamResponseObserverTest {
                 blockReader,
                 serviceStatus,
                 metricsService,
-                configuration);
+                consumerConfig);
 
         // Create a block item to publish
         final BlockHeader blockHeader = BlockHeader.newBuilder().number(1).build();
@@ -174,8 +178,9 @@ public class ConsumerStreamResponseObserverTest {
     @Test
     public void testConsumerNotToSendBeforeBlockHeader() {
 
-        final LiveStreamMediator streamMediator =
-                LiveStreamMediatorBuilder.newBuilder(testContext, serviceStatus).build();
+        final LiveStreamMediator streamMediator = LiveStreamMediatorBuilder.newBuilder(
+                        metricsService, mediatorConfig, serviceStatus)
+                .build();
         when(testClock.millis()).thenReturn(TEST_TIME, TEST_TIME + TIMEOUT_THRESHOLD_MILLIS);
 
         // Mock live streaming
@@ -190,7 +195,7 @@ public class ConsumerStreamResponseObserverTest {
                 blockReader,
                 serviceStatus,
                 metricsService,
-                configuration);
+                consumerConfig);
 
         // Set up the StreamManager to poll for
         // block items
@@ -249,8 +254,9 @@ public class ConsumerStreamResponseObserverTest {
         doThrow(runtimeException).when(helidonResponseStreamObserver).onNext(subscribeStreamResponse);
 
         // Create a stream mediator
-        final LiveStreamMediator streamMediator =
-                LiveStreamMediatorBuilder.newBuilder(testContext, serviceStatus).build();
+        final LiveStreamMediator streamMediator = LiveStreamMediatorBuilder.newBuilder(
+                        metricsService, mediatorConfig, serviceStatus)
+                .build();
         when(testClock.millis()).thenReturn(TEST_TIME, TEST_TIME + TIMEOUT_THRESHOLD_MILLIS);
 
         // Mock live streaming
@@ -265,7 +271,7 @@ public class ConsumerStreamResponseObserverTest {
                 blockReader,
                 serviceStatus,
                 metricsService,
-                configuration);
+                consumerConfig);
 
         // Set up the StreamManager to poll for
         // block items

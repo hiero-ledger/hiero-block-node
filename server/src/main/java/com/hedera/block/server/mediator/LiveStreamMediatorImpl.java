@@ -8,7 +8,6 @@ import static java.lang.System.Logger;
 import static java.lang.System.Logger.Level.DEBUG;
 import static java.lang.System.Logger.Level.ERROR;
 
-import com.hedera.block.server.config.BlockNodeContext;
 import com.hedera.block.server.events.BlockNodeEventHandler;
 import com.hedera.block.server.events.ObjectEvent;
 import com.hedera.block.server.metrics.MetricsService;
@@ -44,8 +43,8 @@ class LiveStreamMediatorImpl extends SubscriptionHandlerBase<List<BlockItemUnpar
      *     implementation is thread-safe
      * @param serviceStatus the service status to stop the service and web server if an exception
      *     occurs while persisting a block item, stop the web server for maintenance, etc
-     * @param blockNodeContext contains the context with metrics and configuration for the
-     *     application
+     * @param metricsService - the service responsible for handling metrics
+     * @param mediatorConfig - the configuration settings for the mediator
      */
     LiveStreamMediatorImpl(
             @NonNull
@@ -54,19 +53,13 @@ class LiveStreamMediatorImpl extends SubscriptionHandlerBase<List<BlockItemUnpar
                                     BatchEventProcessor<ObjectEvent<List<BlockItemUnparsed>>>>
                             subscribers,
             @NonNull final ServiceStatus serviceStatus,
-            @NonNull final BlockNodeContext blockNodeContext) {
+            @NonNull final MetricsService metricsService,
+            @NonNull final MediatorConfig mediatorConfig) {
 
-        super(
-                subscribers,
-                blockNodeContext.metricsService(),
-                blockNodeContext.configuration(),
-                blockNodeContext
-                        .configuration()
-                        .getConfigData(MediatorConfig.class)
-                        .ringBufferSize());
+        super(subscribers, metricsService, mediatorConfig, mediatorConfig.ringBufferSize());
 
         this.serviceStatus = serviceStatus;
-        this.metricsService = blockNodeContext.metricsService();
+        this.metricsService = metricsService;
     }
 
     /**

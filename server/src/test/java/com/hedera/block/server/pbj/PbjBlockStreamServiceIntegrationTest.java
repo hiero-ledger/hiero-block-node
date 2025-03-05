@@ -21,12 +21,15 @@ import static org.mockito.Mockito.when;
 import com.hedera.block.server.ack.AckHandler;
 import com.hedera.block.server.ack.AckHandlerImpl;
 import com.hedera.block.server.block.BlockInfo;
-import com.hedera.block.server.config.BlockNodeContext;
+import com.hedera.block.server.consumer.ConsumerConfig;
 import com.hedera.block.server.events.BlockNodeEventHandler;
 import com.hedera.block.server.events.ObjectEvent;
 import com.hedera.block.server.mediator.LiveStreamMediator;
 import com.hedera.block.server.mediator.LiveStreamMediatorBuilder;
+import com.hedera.block.server.mediator.MediatorConfig;
+import com.hedera.block.server.metrics.MetricsService;
 import com.hedera.block.server.notifier.Notifier;
+import com.hedera.block.server.notifier.NotifierConfig;
 import com.hedera.block.server.notifier.NotifierImpl;
 import com.hedera.block.server.persistence.StreamPersistenceHandlerImpl;
 import com.hedera.block.server.persistence.storage.PersistenceStorageConfig;
@@ -36,6 +39,8 @@ import com.hedera.block.server.persistence.storage.read.BlockReader;
 import com.hedera.block.server.persistence.storage.remove.BlockRemover;
 import com.hedera.block.server.persistence.storage.write.AsyncBlockWriterFactory;
 import com.hedera.block.server.persistence.storage.write.AsyncNoOpWriterFactory;
+import com.hedera.block.server.producer.ProducerConfig;
+import com.hedera.block.server.service.ServiceConfig;
 import com.hedera.block.server.service.ServiceStatus;
 import com.hedera.block.server.service.ServiceStatusImpl;
 import com.hedera.block.server.util.TestConfigUtil;
@@ -60,6 +65,7 @@ import com.hedera.pbj.runtime.grpc.Pipeline;
 import com.hedera.pbj.runtime.grpc.ServiceInterface;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import com.lmax.disruptor.BatchEventProcessor;
+import com.swirlds.config.api.Configuration;
 import io.helidon.webserver.WebServer;
 import java.io.IOException;
 import java.nio.file.Path;
@@ -145,7 +151,13 @@ class PbjBlockStreamServiceIntegrationTest {
     @TempDir
     private Path testTempDir;
 
-    private BlockNodeContext blockNodeContext;
+    private MetricsService metricsService;
+    private ServiceConfig serviceConfig;
+    private ConsumerConfig consumerConfig;
+    private ProducerConfig producerConfig;
+    private NotifierConfig notifierConfig;
+    private VerificationConfig verificationConfig;
+    private MediatorConfig mediatorConfig;
     private PersistenceStorageConfig persistenceStorageConfig;
 
     @BeforeEach
@@ -157,14 +169,22 @@ class PbjBlockStreamServiceIntegrationTest {
         properties.put(PERSISTENCE_STORAGE_LIVE_ROOT_PATH_KEY, testLiveRootPath.toString());
         properties.put(PERSISTENCE_STORAGE_ARCHIVE_ROOT_PATH_KEY, testArchiveRootPath.toString());
         properties.put(PERSISTENCE_STORAGE_UNVERIFIED_ROOT_PATH_KEY, testUnverifiedRootPath.toString());
-        blockNodeContext = TestConfigUtil.getTestBlockNodeContext(properties);
-        persistenceStorageConfig = blockNodeContext.configuration().getConfigData(PersistenceStorageConfig.class);
+        Configuration config = TestConfigUtil.getTestBlockNodeConfiguration(properties);
+        metricsService = TestConfigUtil.getTestBlockNodeMetricsService(config);
+        persistenceStorageConfig = config.getConfigData(PersistenceStorageConfig.class);
         final Path testConfigLiveRootPath = persistenceStorageConfig.liveRootPath();
         assertThat(testConfigLiveRootPath).isEqualTo(testLiveRootPath);
         final Path testConfigArchiveRootPath = persistenceStorageConfig.archiveRootPath();
         assertThat(testConfigArchiveRootPath).isEqualTo(testArchiveRootPath);
         final Path testConfigUnverifiedRootPath = persistenceStorageConfig.unverifiedRootPath();
         assertThat(testConfigUnverifiedRootPath).isEqualTo(testUnverifiedRootPath);
+
+        serviceConfig = config.getConfigData(ServiceConfig.class);
+        consumerConfig = config.getConfigData(ConsumerConfig.class);
+        producerConfig = config.getConfigData(ProducerConfig.class);
+        notifierConfig = config.getConfigData(NotifierConfig.class);
+        verificationConfig = config.getConfigData(VerificationConfig.class);
+        mediatorConfig = config.getConfigData(MediatorConfig.class);
     }
 
     @Disabled("@todo(642) make test deterministic via correct executor injection")
@@ -427,16 +447,15 @@ class PbjBlockStreamServiceIntegrationTest {
                         BlockNodeEventHandler<ObjectEvent<List<BlockItemUnparsed>>>,
                         BatchEventProcessor<ObjectEvent<List<BlockItemUnparsed>>>>
                 consumers = new LinkedHashMap<>();
-        final ServiceStatus serviceStatus = new ServiceStatusImpl(blockNodeContext);
+        final ServiceStatus serviceStatus = new ServiceStatusImpl(serviceConfig);
         final BlockInfo blockInfo = new BlockInfo(1L);
         serviceStatus.setLatestAckedBlock(blockInfo);
         final LiveStreamMediator streamMediator = buildStreamMediator(consumers, serviceStatus);
-        final AsyncNoOpWriterFactory writerFactory =
-                new AsyncNoOpWriterFactory(ackHandlerMock, blockNodeContext.metricsService());
+        final AsyncNoOpWriterFactory writerFactory = new AsyncNoOpWriterFactory(ackHandlerMock, metricsService);
         final StreamPersistenceHandlerImpl blockNodeEventHandler = new StreamPersistenceHandlerImpl(
                 streamMediator,
                 notifierMock,
-                blockNodeContext,
+                metricsService,
                 serviceStatus,
                 ackHandlerMock,
                 writerFactory,
@@ -445,11 +464,7 @@ class PbjBlockStreamServiceIntegrationTest {
                 pathResolverMock,
                 persistenceStorageConfig);
         final StreamVerificationHandlerImpl streamVerificationHandler = new StreamVerificationHandlerImpl(
-                streamMediator,
-                notifierMock,
-                blockNodeContext.metricsService(),
-                serviceStatus,
-                mock(BlockVerificationService.class));
+                streamMediator, notifierMock, metricsService, serviceStatus, mock(BlockVerificationService.class));
         final PbjBlockStreamServiceProxy pbjBlockStreamServiceProxy = new PbjBlockStreamServiceProxy(
                 streamMediator,
                 serviceStatus,
@@ -457,7 +472,9 @@ class PbjBlockStreamServiceIntegrationTest {
                 streamVerificationHandler,
                 blockReaderMock,
                 notifierMock,
-                blockNodeContext);
+                metricsService,
+                consumerConfig,
+                producerConfig);
 
         final Pipeline<? super Bytes> producerPipeline = pbjBlockStreamServiceProxy.open(
                 PbjBlockStreamService.BlockStreamMethod.publishBlockStream, optionsMock, helidonPublishStreamObserver1);
@@ -579,7 +596,7 @@ class PbjBlockStreamServiceIntegrationTest {
                         BatchEventProcessor<ObjectEvent<List<BlockItemUnparsed>>>>
                 consumers = new ConcurrentHashMap<>();
         // Use a spy to use the real object but also verify the behavior.
-        final ServiceStatus serviceStatus = spy(new ServiceStatusImpl(blockNodeContext));
+        final ServiceStatus serviceStatus = spy(new ServiceStatusImpl(serviceConfig));
         final BlockInfo blockInfo = new BlockInfo(1L);
         serviceStatus.setLatestAckedBlock(blockInfo);
         doCallRealMethod().when(serviceStatus).setWebServer(webServerMock);
@@ -591,11 +608,12 @@ class PbjBlockStreamServiceIntegrationTest {
 
         // the mocked factory will throw a npe
         final LiveStreamMediator streamMediator = buildStreamMediator(consumers, serviceStatus);
-        final Notifier notifier = new NotifierImpl(streamMediator, blockNodeContext, serviceStatus);
+        final Notifier notifier =
+                new NotifierImpl(streamMediator, metricsService, notifierConfig, mediatorConfig, serviceStatus);
         final StreamPersistenceHandlerImpl blockNodeEventHandler = new StreamPersistenceHandlerImpl(
                 streamMediator,
                 notifier,
-                blockNodeContext,
+                metricsService,
                 serviceStatus,
                 ackHandlerMock,
                 asyncBlockWriterFactoryMock,
@@ -604,11 +622,7 @@ class PbjBlockStreamServiceIntegrationTest {
                 pathResolverMock,
                 persistenceStorageConfig);
         final StreamVerificationHandlerImpl streamVerificationHandler = new StreamVerificationHandlerImpl(
-                streamMediator,
-                notifier,
-                blockNodeContext.metricsService(),
-                serviceStatus,
-                mock(BlockVerificationService.class));
+                streamMediator, notifier, metricsService, serviceStatus, mock(BlockVerificationService.class));
         final PbjBlockStreamServiceProxy pbjBlockStreamServiceProxy = new PbjBlockStreamServiceProxy(
                 streamMediator,
                 serviceStatus,
@@ -616,7 +630,9 @@ class PbjBlockStreamServiceIntegrationTest {
                 streamVerificationHandler,
                 blockReaderMock,
                 notifier,
-                blockNodeContext);
+                metricsService,
+                consumerConfig,
+                producerConfig);
 
         // Register a producer
         final Pipeline<? super Bytes> producerPipeline = pbjBlockStreamServiceProxy.open(
@@ -671,7 +687,7 @@ class PbjBlockStreamServiceIntegrationTest {
                 SingleBlockRequest.newBuilder().blockNumber(1).build();
 
         final PbjBlockAccessServiceProxy pbjBlockAccessServiceProxy =
-                new PbjBlockAccessServiceProxy(serviceStatus, blockReaderMock, blockNodeContext);
+                new PbjBlockAccessServiceProxy(serviceStatus, blockReaderMock, metricsService);
 
         // Simulate a consumer attempting to connect to the Block Node after the exception.
         final SingleBlockResponseUnparsed singleBlockResponse =
@@ -754,33 +770,32 @@ class PbjBlockStreamServiceIntegrationTest {
     }
 
     private BlockVerificationSessionFactory getBlockVerificationSessionFactory() {
-        final VerificationConfig config = blockNodeContext.configuration().getConfigData(VerificationConfig.class);
         final SignatureVerifierDummy signatureVerifier = mock(SignatureVerifierDummy.class);
         when(signatureVerifier.verifySignature(any(), any())).thenReturn(true);
         final ExecutorService executorService = ForkJoinPool.commonPool();
         return new BlockVerificationSessionFactory(
-                config, blockNodeContext.metricsService(), signatureVerifier, executorService);
+                verificationConfig, metricsService, signatureVerifier, executorService);
     }
 
     private PbjBlockStreamServiceProxy buildBlockStreamService(
             final BlockReader<BlockUnparsed> blockReader, final ExecutorService persistenceExecutor)
             throws IOException {
         final BlockRemover blockRemover = mock(BlockRemover.class);
-        final ServiceStatus serviceStatus = new ServiceStatusImpl(blockNodeContext);
+        final ServiceStatus serviceStatus = new ServiceStatusImpl(serviceConfig);
         serviceStatus.setLatestAckedBlock(new BlockInfo(1L));
         final LiveStreamMediator streamMediator = buildStreamMediator(new ConcurrentHashMap<>(32), serviceStatus);
-        final Notifier notifier = new NotifierImpl(streamMediator, blockNodeContext, serviceStatus);
+        final Notifier notifier =
+                new NotifierImpl(streamMediator, metricsService, notifierConfig, mediatorConfig, serviceStatus);
         final AckHandler blockManager =
-                new AckHandlerImpl(notifier, false, serviceStatus, blockRemover, blockNodeContext.metricsService());
+                new AckHandlerImpl(notifier, false, serviceStatus, blockRemover, metricsService);
         final BlockVerificationSessionFactory blockVerificationSessionFactory = getBlockVerificationSessionFactory();
-        final BlockVerificationService BlockVerificationService = new BlockVerificationServiceImpl(
-                blockNodeContext.metricsService(), blockVerificationSessionFactory, blockManager);
-        final AsyncNoOpWriterFactory writerFactory =
-                new AsyncNoOpWriterFactory(blockManager, blockNodeContext.metricsService());
+        final BlockVerificationService BlockVerificationService =
+                new BlockVerificationServiceImpl(metricsService, blockVerificationSessionFactory, blockManager);
+        final AsyncNoOpWriterFactory writerFactory = new AsyncNoOpWriterFactory(blockManager, metricsService);
         final StreamPersistenceHandlerImpl blockNodeEventHandler = new StreamPersistenceHandlerImpl(
                 streamMediator,
                 notifier,
-                blockNodeContext,
+                metricsService,
                 serviceStatus,
                 blockManager,
                 writerFactory,
@@ -789,7 +804,7 @@ class PbjBlockStreamServiceIntegrationTest {
                 pathResolverMock,
                 persistenceStorageConfig);
         final StreamVerificationHandlerImpl streamVerificationHandler = new StreamVerificationHandlerImpl(
-                streamMediator, notifier, blockNodeContext.metricsService(), serviceStatus, BlockVerificationService);
+                streamMediator, notifier, metricsService, serviceStatus, BlockVerificationService);
         return new PbjBlockStreamServiceProxy(
                 streamMediator,
                 serviceStatus,
@@ -797,7 +812,9 @@ class PbjBlockStreamServiceIntegrationTest {
                 streamVerificationHandler,
                 blockReader,
                 notifier,
-                blockNodeContext);
+                metricsService,
+                consumerConfig,
+                producerConfig);
     }
 
     private LiveStreamMediator buildStreamMediator(
@@ -807,7 +824,7 @@ class PbjBlockStreamServiceIntegrationTest {
                     subscribers,
             final ServiceStatus serviceStatus) {
         serviceStatus.setWebServer(webServerMock);
-        return LiveStreamMediatorBuilder.newBuilder(blockNodeContext, serviceStatus)
+        return LiveStreamMediatorBuilder.newBuilder(metricsService, mediatorConfig, serviceStatus)
                 .subscribers(subscribers)
                 .build();
     }

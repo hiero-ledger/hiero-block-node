@@ -14,7 +14,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.hedera.block.server.ack.AckHandler;
-import com.hedera.block.server.config.BlockNodeContext;
+import com.hedera.block.server.consumer.ConsumerConfig;
 import com.hedera.block.server.consumer.ConsumerStreamBuilder;
 import com.hedera.block.server.consumer.StreamManager;
 import com.hedera.block.server.events.BlockNodeEventHandler;
@@ -28,6 +28,7 @@ import com.hedera.block.server.persistence.storage.path.BlockPathResolver;
 import com.hedera.block.server.persistence.storage.read.BlockReader;
 import com.hedera.block.server.persistence.storage.write.AsyncBlockWriterFactory;
 import com.hedera.block.server.persistence.storage.write.AsyncNoOpWriterFactory;
+import com.hedera.block.server.service.ServiceConfig;
 import com.hedera.block.server.service.ServiceStatus;
 import com.hedera.block.server.service.ServiceStatusImpl;
 import com.hedera.block.server.util.PersistTestUtils;
@@ -109,10 +110,12 @@ class LiveStreamMediatorImplTest {
     @TempDir
     private Path testTempDir;
 
-    private PersistenceStorageConfig persistenceStorageConfig;
-    private BlockNodeContext testContext;
     private MetricsService metricsService;
-    private Configuration configuration;
+
+    private PersistenceStorageConfig persistenceStorageConfig;
+    private MediatorConfig mediatorConfig;
+    private ConsumerConfig consumerConfig;
+    private ServiceConfig serviceConfig;
 
     @BeforeEach
     void setup() throws IOException {
@@ -123,23 +126,26 @@ class LiveStreamMediatorImplTest {
         properties.put(PERSISTENCE_STORAGE_LIVE_ROOT_PATH_KEY, testLiveRootPath.toString());
         properties.put(PERSISTENCE_STORAGE_ARCHIVE_ROOT_PATH_KEY, testArchiveRootPath.toString());
         properties.put(PERSISTENCE_STORAGE_UNVERIFIED_ROOT_PATH_KEY, testUnverifiedRootPath.toString());
-        this.testContext = TestConfigUtil.getTestBlockNodeContext(properties);
-        this.metricsService = testContext.metricsService();
-        this.configuration = testContext.configuration();
-        this.persistenceStorageConfig = testContext.configuration().getConfigData(PersistenceStorageConfig.class);
+        Configuration config = TestConfigUtil.getTestBlockNodeConfiguration(properties);
+        this.metricsService = TestConfigUtil.getTestBlockNodeMetricsService(config);
+        this.persistenceStorageConfig = config.getConfigData(PersistenceStorageConfig.class);
         final Path testConfigLiveRootPath = persistenceStorageConfig.liveRootPath();
         assertThat(testConfigLiveRootPath).isEqualTo(testLiveRootPath);
         final Path testConfigArchiveRootPath = persistenceStorageConfig.archiveRootPath();
         assertThat(testConfigArchiveRootPath).isEqualTo(testArchiveRootPath);
         final Path testConfigUnverifiedRootPath = persistenceStorageConfig.unverifiedRootPath();
         assertThat(testConfigUnverifiedRootPath).isEqualTo(testUnverifiedRootPath);
+
+        Configuration configEmpty = TestConfigUtil.getTestBlockNodeConfiguration();
+        this.mediatorConfig = configEmpty.getConfigData(MediatorConfig.class);
+        this.serviceConfig = configEmpty.getConfigData(ServiceConfig.class);
+        this.consumerConfig = configEmpty.getConfigData(ConsumerConfig.class);
     }
 
     @Test
-    void testUnsubscribeEach() throws InterruptedException, IOException {
-        final BlockNodeContext blockNodeContext = TestConfigUtil.getTestBlockNodeContext();
-        final LiveStreamMediatorBuilder streamMediatorBuilder =
-                LiveStreamMediatorBuilder.newBuilder(blockNodeContext, new ServiceStatusImpl(blockNodeContext));
+    void testUnsubscribeEach() throws InterruptedException {
+        final LiveStreamMediatorBuilder streamMediatorBuilder = LiveStreamMediatorBuilder.newBuilder(
+                metricsService, mediatorConfig, new ServiceStatusImpl(serviceConfig));
         final LiveStreamMediator streamMediator = streamMediatorBuilder.build();
 
         // Set up the subscribers
@@ -163,26 +169,25 @@ class LiveStreamMediatorImplTest {
         assertFalse(streamMediator.isSubscribed(observer3), "Expected the mediator to have unsubscribed observer3");
 
         // Confirm the counter was never incremented
-        assertEquals(0, blockNodeContext.metricsService().get(LiveBlockItems).get());
+        assertEquals(0, metricsService.get(LiveBlockItems).get());
     }
 
     @Test
     void testMediatorPersistenceWithoutSubscribers() throws IOException {
-        final BlockNodeContext blockNodeContext = TestConfigUtil.getTestBlockNodeContext();
-        final ServiceStatus serviceStatus = new ServiceStatusImpl(blockNodeContext);
-        final LiveStreamMediator streamMediator = LiveStreamMediatorBuilder.newBuilder(blockNodeContext, serviceStatus)
+        final ServiceStatus serviceStatus = new ServiceStatusImpl(serviceConfig);
+        final LiveStreamMediator streamMediator = LiveStreamMediatorBuilder.newBuilder(
+                        metricsService, mediatorConfig, serviceStatus)
                 .build();
 
         final List<BlockItemUnparsed> blockItemUnparsed =
                 PersistTestUtils.generateBlockItemsUnparsedForWithBlockNumber(1);
 
         // register the stream validator
-        final AsyncNoOpWriterFactory writerFactory =
-                new AsyncNoOpWriterFactory(ackHandlerMock, blockNodeContext.metricsService());
+        final AsyncNoOpWriterFactory writerFactory = new AsyncNoOpWriterFactory(ackHandlerMock, metricsService);
         final StreamPersistenceHandlerImpl handler = new StreamPersistenceHandlerImpl(
                 streamMediator,
                 notifier,
-                blockNodeContext,
+                metricsService,
                 serviceStatus,
                 ackHandlerMock,
                 writerFactory,
@@ -196,7 +201,7 @@ class LiveStreamMediatorImplTest {
         streamMediator.publish(blockItemUnparsed);
 
         // Verify the counter was incremented
-        assertEquals(10, blockNodeContext.metricsService().get(LiveBlockItems).get());
+        assertEquals(10, metricsService.get(LiveBlockItems).get());
 
         // @todo(642) we need to employ the same technique here to inject a writer that will ensure
         // the tasks are complete before we can verify the metrics for blocks persisted
@@ -206,9 +211,9 @@ class LiveStreamMediatorImplTest {
 
     @Test
     void testMediatorPublishEventToSubscribers() throws IOException {
-        final BlockNodeContext blockNodeContext = TestConfigUtil.getTestBlockNodeContext();
-        final ServiceStatus serviceStatus = new ServiceStatusImpl(blockNodeContext);
-        final LiveStreamMediator streamMediator = LiveStreamMediatorBuilder.newBuilder(blockNodeContext, serviceStatus)
+        final ServiceStatus serviceStatus = new ServiceStatusImpl(serviceConfig);
+        final LiveStreamMediator streamMediator = LiveStreamMediatorBuilder.newBuilder(
+                        metricsService, mediatorConfig, serviceStatus)
                 .build();
 
         when(testClock.millis()).thenReturn(TEST_TIME, TEST_TIME + TIMEOUT_THRESHOLD_MILLIS);
@@ -224,7 +229,7 @@ class LiveStreamMediatorImplTest {
                 blockReader,
                 serviceStatus,
                 metricsService,
-                configuration);
+                consumerConfig);
 
         final StreamManager streamManager2 = ConsumerStreamBuilder.buildStreamManager(
                 testClock,
@@ -234,7 +239,7 @@ class LiveStreamMediatorImplTest {
                 blockReader,
                 serviceStatus,
                 metricsService,
-                configuration);
+                consumerConfig);
 
         final StreamManager streamManager3 = ConsumerStreamBuilder.buildStreamManager(
                 testClock,
@@ -244,7 +249,7 @@ class LiveStreamMediatorImplTest {
                 blockReader,
                 serviceStatus,
                 metricsService,
-                configuration);
+                consumerConfig);
 
         assertFalse(streamMediator.isSubscribed(streamManager1), "StreamManager1 should not be subscribed yet");
         assertFalse(streamMediator.isSubscribed(streamManager2), "StreamManager2 should not be subscribed yet");
@@ -276,7 +281,7 @@ class LiveStreamMediatorImplTest {
         final StreamPersistenceHandlerImpl handler = new StreamPersistenceHandlerImpl(
                 streamMediator,
                 notifier,
-                blockNodeContext,
+                metricsService,
                 serviceStatus,
                 ackHandlerMock,
                 asyncBlockWriterFactoryMock,
@@ -288,7 +293,7 @@ class LiveStreamMediatorImplTest {
 
         // Acting as a producer, notify the mediator of a new block
         streamMediator.publish(List.of(blockItem));
-        assertEquals(1, blockNodeContext.metricsService().get(LiveBlockItems).get());
+        assertEquals(1, metricsService.get(LiveBlockItems).get());
 
         // Simulate the runner looping
         // by calling execute for each

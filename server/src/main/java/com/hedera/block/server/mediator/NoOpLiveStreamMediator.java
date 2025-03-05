@@ -4,7 +4,6 @@ package com.hedera.block.server.mediator;
 import static com.hedera.block.server.metrics.BlockNodeMetricTypes.Counter.LiveBlockItems;
 import static java.lang.System.Logger.Level.INFO;
 
-import com.hedera.block.server.config.BlockNodeContext;
 import com.hedera.block.server.consumer.StreamManager;
 import com.hedera.block.server.events.BlockNodeEventHandler;
 import com.hedera.block.server.events.ObjectEvent;
@@ -25,11 +24,11 @@ public class NoOpLiveStreamMediator implements LiveStreamMediator {
     /**
      * Creates a new NoOpLiveStreamMediator instance for testing and troubleshooting only.
      *
-     * @param blockNodeContext the block node context
+     * @param metricsService the metrics service
      */
-    public NoOpLiveStreamMediator(@NonNull final BlockNodeContext blockNodeContext) {
+    public NoOpLiveStreamMediator(@NonNull final MetricsService metricsService) {
         System.getLogger(getClass().getName()).log(INFO, "Using " + getClass().getSimpleName());
-        this.metricsService = blockNodeContext.metricsService();
+        this.metricsService = metricsService;
     }
 
     @Override

@@ -33,7 +33,6 @@ import com.hedera.hapi.block.SubscribeStreamResponseUnparsed;
 import com.hedera.hapi.block.stream.output.BlockHeader;
 import com.hedera.pbj.runtime.ParseException;
 import com.hedera.pbj.runtime.grpc.Pipeline;
-import com.swirlds.config.api.Configuration;
 import com.swirlds.metrics.api.Counter;
 import com.swirlds.metrics.api.LongGauge;
 import java.time.InstantSource;
@@ -70,9 +69,6 @@ public class OpenRangeStreamManagerTest {
     private MetricsService metricsService;
 
     @Mock
-    private Configuration configuration;
-
-    @Mock
     private ConsumerConfig consumerConfig;
 
     @Mock
@@ -87,8 +83,8 @@ public class OpenRangeStreamManagerTest {
     @Mock
     private Counter liveBlockItemsConsumed;
 
-    @Mock
-    private Counter liveToHistoricStreamTransitions;
+    //    @Mock
+    //    private Counter liveToHistoricStreamTransitions;
 
     @Mock
     private Pipeline<? super SubscribeStreamResponseUnparsed> helidonConsumerObserver;
@@ -99,7 +95,6 @@ public class OpenRangeStreamManagerTest {
     @BeforeEach
     public void setUp() {
         // Set up the ConsumerConfig
-        when(configuration.getConfigData(ConsumerConfig.class)).thenReturn(consumerConfig);
         when(consumerConfig.maxBlockItemBatchSize()).thenReturn(1000);
         when(consumerConfig.timeoutThresholdMillis()).thenReturn(1500);
 
@@ -145,7 +140,7 @@ public class OpenRangeStreamManagerTest {
                 blockReader,
                 serviceStatus,
                 metricsService,
-                configuration);
+                consumerConfig);
 
         // INIT_LIVE - transition
         assertEquals(INIT_LIVE, streamManager.getState());
@@ -223,7 +218,7 @@ public class OpenRangeStreamManagerTest {
                 blockReader,
                 serviceStatus,
                 metricsService,
-                configuration);
+                consumerConfig);
 
         // INIT_HISTORIC
         assertEquals(INIT_HISTORIC, streamManager.getState());

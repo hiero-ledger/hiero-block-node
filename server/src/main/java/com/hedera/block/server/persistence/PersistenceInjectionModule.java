@@ -2,10 +2,10 @@
 package com.hedera.block.server.persistence;
 
 import com.hedera.block.server.ack.AckHandler;
-import com.hedera.block.server.config.BlockNodeContext;
 import com.hedera.block.server.events.BlockNodeEventHandler;
 import com.hedera.block.server.events.ObjectEvent;
 import com.hedera.block.server.mediator.SubscriptionHandler;
+import com.hedera.block.server.metrics.MetricsService;
 import com.hedera.block.server.notifier.Notifier;
 import com.hedera.block.server.persistence.storage.PersistenceStorageConfig;
 import com.hedera.block.server.persistence.storage.PersistenceStorageConfig.CompressionType;
@@ -61,12 +61,12 @@ public interface PersistenceInjectionModule {
             @NonNull final BlockRemover blockRemover,
             @NonNull final Compression compression,
             @NonNull final AckHandler ackHandler,
-            @NonNull final BlockNodeContext context) {
+            @NonNull final MetricsService metricsService) {
         final StorageType type = config.type();
         return switch (type) {
             case BLOCK_AS_LOCAL_FILE -> new AsyncBlockAsLocalFileWriterFactory(
-                    blockPathResolver, blockRemover, compression, ackHandler, context.metricsService());
-            case NO_OP -> new AsyncNoOpWriterFactory(ackHandler, context.metricsService());
+                    blockPathResolver, blockRemover, compression, ackHandler, metricsService);
+            case NO_OP -> new AsyncNoOpWriterFactory(ackHandler, metricsService);
         };
     }
 
@@ -162,7 +162,7 @@ public interface PersistenceInjectionModule {
      * Provides a block node event handler singleton (stream persistence handler)
      * @param subscriptionHandler the subscription handler
      * @param notifier the notifier
-     * @param blockNodeContext the block node context
+     * @param metricsService the metrics service
      * @param serviceStatus the service status
      * @param ackHandler the ack handler
      * @param asyncBlockWriterFactory the async block writer factory
@@ -173,7 +173,7 @@ public interface PersistenceInjectionModule {
     static BlockNodeEventHandler<ObjectEvent<List<BlockItemUnparsed>>> providesBlockNodeEventHandler(
             @NonNull final SubscriptionHandler<List<BlockItemUnparsed>> subscriptionHandler,
             @NonNull final Notifier notifier,
-            @NonNull final BlockNodeContext blockNodeContext,
+            @NonNull final MetricsService metricsService,
             @NonNull final ServiceStatus serviceStatus,
             @NonNull final AckHandler ackHandler,
             @NonNull final AsyncBlockWriterFactory asyncBlockWriterFactory,
@@ -184,7 +184,7 @@ public interface PersistenceInjectionModule {
             return new StreamPersistenceHandlerImpl(
                     subscriptionHandler,
                     notifier,
-                    blockNodeContext,
+                    metricsService,
                     serviceStatus,
                     ackHandler,
                     asyncBlockWriterFactory,

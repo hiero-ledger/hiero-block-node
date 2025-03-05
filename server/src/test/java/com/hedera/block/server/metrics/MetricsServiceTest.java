@@ -8,7 +8,6 @@ import static com.hedera.block.server.metrics.BlockNodeMetricTypes.Counter.Singl
 import static com.hedera.block.server.metrics.BlockNodeMetricTypes.Gauge.Consumers;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
-import com.hedera.block.server.config.BlockNodeContext;
 import com.hedera.block.server.util.TestConfigUtil;
 import com.swirlds.config.api.Configuration;
 import dagger.BindsInstance;
@@ -36,8 +35,7 @@ public class MetricsServiceTest {
 
     @BeforeEach
     public void setUp() throws IOException {
-        final BlockNodeContext context = TestConfigUtil.getTestBlockNodeContext();
-        final Configuration configuration = context.configuration();
+        final Configuration configuration = TestConfigUtil.getTestBlockNodeConfiguration();
         final MetricsServiceTestComponent testComponent =
                 DaggerMetricsServiceTest_MetricsServiceTestComponent.factory().create(configuration);
         this.metricsService = testComponent.getMetricsService();

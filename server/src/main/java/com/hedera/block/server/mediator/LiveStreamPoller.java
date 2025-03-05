@@ -6,7 +6,6 @@ import static java.lang.System.Logger.Level.TRACE;
 
 import com.lmax.disruptor.EventPoller;
 import com.lmax.disruptor.RingBuffer;
-import com.swirlds.config.api.Configuration;
 import edu.umd.cs.findbugs.annotations.NonNull;
 import java.util.Objects;
 import java.util.Optional;
@@ -24,12 +23,11 @@ public class LiveStreamPoller<V> implements Poller<V> {
     public LiveStreamPoller(
             @NonNull final EventPoller<V> eventPoller,
             @NonNull final RingBuffer<V> ringBuffer,
-            @NonNull final Configuration configuration) {
+            @NonNull final MediatorConfig mediatorConfig) {
 
         this.eventPoller = Objects.requireNonNull(eventPoller);
         this.ringBuffer = Objects.requireNonNull(ringBuffer);
-        this.historicTransitionThresholdPercentage =
-                configuration.getConfigData(MediatorConfig.class).historicTransitionThresholdPercentage();
+        this.historicTransitionThresholdPercentage = mediatorConfig.historicTransitionThresholdPercentage();
 
         this.polledData = new BatchedData<>(1);
     }

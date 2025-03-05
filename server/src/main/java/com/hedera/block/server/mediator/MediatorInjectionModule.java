@@ -3,7 +3,7 @@ package com.hedera.block.server.mediator;
 
 import static com.hedera.block.server.mediator.MediatorConfig.MediatorType.NO_OP;
 
-import com.hedera.block.server.config.BlockNodeContext;
+import com.hedera.block.server.metrics.MetricsService;
 import com.hedera.block.server.notifier.Notifiable;
 import com.hedera.block.server.service.ServiceStatus;
 import com.hedera.hapi.block.BlockItemUnparsed;
@@ -21,23 +21,23 @@ public interface MediatorInjectionModule {
     /**
      * Provides the stream mediator.
      *
-     * @param blockNodeContext the block node context
+     * @param mediatorConfig the mediator configuration
+     * @param metricsService the metrics service
      * @param serviceStatus the service status
      * @return the stream mediator
      */
     @Provides
     @Singleton
     static LiveStreamMediator providesLiveStreamMediator(
-            @NonNull BlockNodeContext blockNodeContext, @NonNull ServiceStatus serviceStatus) {
-        final MediatorConfig.MediatorType mediatorType = blockNodeContext
-                .configuration()
-                .getConfigData(MediatorConfig.class)
-                .type();
+            @NonNull MediatorConfig mediatorConfig,
+            @NonNull MetricsService metricsService,
+            @NonNull ServiceStatus serviceStatus) {
+        final MediatorConfig.MediatorType mediatorType = mediatorConfig.type();
         if (mediatorType == NO_OP) {
-            return new NoOpLiveStreamMediator(blockNodeContext);
+            return new NoOpLiveStreamMediator(metricsService);
         }
 
-        return LiveStreamMediatorBuilder.newBuilder(blockNodeContext, serviceStatus)
+        return LiveStreamMediatorBuilder.newBuilder(metricsService, mediatorConfig, serviceStatus)
                 .build();
     }
 

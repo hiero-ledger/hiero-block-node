@@ -5,7 +5,6 @@ import static com.hedera.block.server.metrics.BlockNodeMetricTypes.Counter.LiveB
 import static java.lang.System.Logger.Level.ERROR;
 import static java.lang.System.Logger.Level.INFO;
 
-import com.hedera.block.server.config.BlockNodeContext;
 import com.hedera.block.server.events.BlockNodeEventHandler;
 import com.hedera.block.server.events.ObjectEvent;
 import com.hedera.block.server.metrics.MetricsService;
@@ -31,13 +30,13 @@ public class NoOpProducerObserver
      * Creates a new NoOpProducerObserver instance for testing and troubleshooting only.
      *
      * @param publishStreamResponseObserver the stream response observer provided by Helidon
-     * @param blockNodeContext the block node context
+     * @param metricsService the metrics service
      */
     public NoOpProducerObserver(
             @NonNull final Pipeline<? super PublishStreamResponse> publishStreamResponseObserver,
-            @NonNull final BlockNodeContext blockNodeContext) {
+            @NonNull final MetricsService metricsService) {
         LOGGER.log(INFO, "Using " + getClass().getName());
-        this.metricsService = blockNodeContext.metricsService();
+        this.metricsService = metricsService;
     }
 
     /**

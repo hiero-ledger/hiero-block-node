@@ -5,22 +5,26 @@ import static org.mockito.Mockito.any;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-import com.hedera.block.server.config.BlockNodeContext;
 import com.hedera.block.server.config.logging.ConfigurationLogging;
+import com.hedera.block.server.consumer.ConsumerConfig;
 import com.hedera.block.server.events.BlockNodeEventHandler;
 import com.hedera.block.server.events.ObjectEvent;
 import com.hedera.block.server.health.HealthService;
 import com.hedera.block.server.mediator.LiveStreamMediator;
+import com.hedera.block.server.metrics.MetricsService;
 import com.hedera.block.server.notifier.Notifier;
 import com.hedera.block.server.pbj.PbjBlockAccessServiceProxy;
 import com.hedera.block.server.pbj.PbjBlockStreamServiceProxy;
 import com.hedera.block.server.persistence.storage.read.BlockReader;
+import com.hedera.block.server.producer.ProducerConfig;
 import com.hedera.block.server.service.ServiceStatus;
+import com.hedera.block.server.util.TestConfigUtil;
 import com.hedera.block.server.verification.StreamVerificationHandlerImpl;
 import com.hedera.hapi.block.BlockItemUnparsed;
 import com.hedera.hapi.block.BlockUnparsed;
 import com.hedera.pbj.grpc.helidon.PbjRouting;
 import com.hedera.pbj.grpc.helidon.config.PbjConfig;
+import com.swirlds.config.api.Configuration;
 import io.helidon.webserver.ConnectionConfig;
 import io.helidon.webserver.WebServer;
 import io.helidon.webserver.WebServerConfig;
@@ -64,7 +68,7 @@ class BlockNodeAppTest {
     private Notifier notifier;
 
     @Mock
-    private BlockNodeContext blockNodeContext;
+    private MetricsService metricsService;
 
     @Mock
     private ConfigurationLogging configurationLogging;
@@ -74,7 +78,11 @@ class BlockNodeAppTest {
     private BlockNodeApp blockNodeApp;
 
     @BeforeEach
-    void setup() {
+    void setup() throws IOException {
+
+        Configuration config = TestConfigUtil.getTestBlockNodeConfiguration();
+        ConsumerConfig consumerConfig = config.getConfigData(ConsumerConfig.class);
+        ProducerConfig producerConfig = config.getConfigData(ProducerConfig.class);
 
         serverConfig = new ServerConfig(4_194_304, 32_768, 32_768, 8080);
 
@@ -88,8 +96,10 @@ class BlockNodeAppTest {
                         streamVerificationHandler,
                         blockReader,
                         notifier,
-                        blockNodeContext),
-                new PbjBlockAccessServiceProxy(serviceStatus, blockReader, blockNodeContext),
+                        metricsService,
+                        consumerConfig,
+                        producerConfig),
+                new PbjBlockAccessServiceProxy(serviceStatus, blockReader, metricsService),
                 webServerBuilder,
                 serverConfig,
                 configurationLogging);

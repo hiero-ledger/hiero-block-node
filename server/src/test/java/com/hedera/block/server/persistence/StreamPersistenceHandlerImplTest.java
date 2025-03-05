@@ -14,7 +14,6 @@ import static org.mockito.Mockito.when;
 
 import com.hedera.block.common.utils.FileUtilities;
 import com.hedera.block.server.ack.AckHandler;
-import com.hedera.block.server.config.BlockNodeContext;
 import com.hedera.block.server.events.ObjectEvent;
 import com.hedera.block.server.mediator.SubscriptionHandler;
 import com.hedera.block.server.metrics.MetricsService;
@@ -54,9 +53,6 @@ class StreamPersistenceHandlerImplTest {
 
     @Mock
     private Notifier notifierMock;
-
-    @Mock
-    private BlockNodeContext blockNodeContextMock;
 
     @Mock
     private ServiceStatus serviceStatusMock;
@@ -107,7 +103,7 @@ class StreamPersistenceHandlerImplTest {
         toTest = new StreamPersistenceHandlerImpl(
                 subscriptionHandler,
                 notifierMock,
-                blockNodeContextMock,
+                metricsServiceMock,
                 serviceStatusMock,
                 ackHandlerMock,
                 asyncBlockWriterFactoryMock,

@@ -7,10 +7,10 @@ import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.when;
 
 import com.hedera.block.server.ack.AckHandler;
-import com.hedera.block.server.config.BlockNodeContext;
 import com.hedera.block.server.events.BlockNodeEventHandler;
 import com.hedera.block.server.events.ObjectEvent;
 import com.hedera.block.server.mediator.SubscriptionHandler;
+import com.hedera.block.server.metrics.MetricsService;
 import com.hedera.block.server.notifier.Notifier;
 import com.hedera.block.server.persistence.storage.PersistenceStorageConfig;
 import com.hedera.block.server.persistence.storage.PersistenceStorageConfig.CompressionType;
@@ -216,7 +216,7 @@ class PersistenceInjectionModuleTest {
 
     @Test
     void testProvidesStreamValidatorBuilder() throws IOException {
-        final BlockNodeContext blockNodeContext = TestConfigUtil.getTestBlockNodeContext();
+        final MetricsService metricsService = TestConfigUtil.getTestBlockNodeMetricsService();
         when(persistenceStorageConfigMock.liveRootPath()).thenReturn(testLiveRootPath);
         when(persistenceStorageConfigMock.archiveRootPath()).thenReturn(testLiveRootPath);
         when(persistenceStorageConfigMock.unverifiedRootPath()).thenReturn(testLiveRootPath);
@@ -225,7 +225,7 @@ class PersistenceInjectionModuleTest {
                 new StreamPersistenceHandlerImpl(
                         subscriptionHandlerMock,
                         notifierMock,
-                        blockNodeContext,
+                        metricsService,
                         serviceStatusMock,
                         ackHandlerMock,
                         asyncBlockWriterFactoryMock,

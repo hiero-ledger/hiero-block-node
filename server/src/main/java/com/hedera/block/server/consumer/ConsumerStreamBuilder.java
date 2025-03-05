@@ -10,7 +10,6 @@ import com.hedera.hapi.block.BlockUnparsed;
 import com.hedera.hapi.block.SubscribeStreamRequest;
 import com.hedera.hapi.block.SubscribeStreamResponseUnparsed;
 import com.hedera.pbj.runtime.grpc.Pipeline;
-import com.swirlds.config.api.Configuration;
 import edu.umd.cs.findbugs.annotations.NonNull;
 import java.time.InstantSource;
 import java.util.List;
@@ -31,7 +30,7 @@ public final class ConsumerStreamBuilder {
      * @param blockReader the reader to use to read blocks
      * @param serviceStatus the status of the service
      * @param metricsService the service responsible for handling metrics
-     * @param configuration the configuration settings for the block node
+     * @param consumerConfig the consumer configuration
      * @return the runnable that will handle the streaming of block items
      */
     @NonNull
@@ -43,7 +42,7 @@ public final class ConsumerStreamBuilder {
             @NonNull final BlockReader<BlockUnparsed> blockReader,
             @NonNull final ServiceStatus serviceStatus,
             @NonNull final MetricsService metricsService,
-            @NonNull final Configuration configuration) {
+            @NonNull final ConsumerConfig consumerConfig) {
 
         return new ConsumerStreamRunnable(buildStreamManager(
                 producerLivenessClock,
@@ -53,7 +52,7 @@ public final class ConsumerStreamBuilder {
                 blockReader,
                 serviceStatus,
                 metricsService,
-                configuration));
+                consumerConfig));
     }
 
     public static OpenRangeStreamManager buildStreamManager(
@@ -64,10 +63,10 @@ public final class ConsumerStreamBuilder {
             @NonNull final BlockReader<BlockUnparsed> blockReader,
             @NonNull final ServiceStatus serviceStatus,
             @NonNull final MetricsService metricsService,
-            @NonNull final Configuration configuration) {
+            @NonNull final ConsumerConfig consumerConfig) {
 
         final HistoricDataPoller<List<BlockItemUnparsed>> historicDataPoller =
-                new HistoricDataPollerImpl(blockReader, metricsService, configuration);
+                new HistoricDataPollerImpl(blockReader, metricsService, consumerConfig);
 
         final ConsumerStreamResponseObserver consumerStreamResponseObserver =
                 new ConsumerStreamResponseObserver(helidonConsumerObserver, metricsService);
@@ -80,6 +79,6 @@ public final class ConsumerStreamBuilder {
                 consumerStreamResponseObserver,
                 serviceStatus,
                 metricsService,
-                configuration);
+                consumerConfig);
     }
 }
