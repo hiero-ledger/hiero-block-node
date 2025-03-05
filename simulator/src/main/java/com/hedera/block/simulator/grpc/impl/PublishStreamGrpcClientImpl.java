@@ -151,14 +151,10 @@ public class PublishStreamGrpcClientImpl implements PublishStreamGrpcClient {
     /**
      * Sends a onCompleted message to the server and waits for a short period of
      * time to ensure the message is sent.
-     *
-     * @throws InterruptedException if the thread is interrupted
      */
     @Override
-    public void completeStreaming() throws InterruptedException {
+    public void completeStreaming() {
         requestStreamObserver.onCompleted();
-        // todo(352) Find a suitable solution for removing the sleep
-        Thread.sleep(100);
     }
 
     /**

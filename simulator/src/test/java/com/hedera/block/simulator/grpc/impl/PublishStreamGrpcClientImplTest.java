@@ -4,6 +4,7 @@ package com.hedera.block.simulator.grpc.impl;
 import static com.hedera.block.simulator.TestUtils.findFreePort;
 import static com.hedera.block.simulator.TestUtils.getTestMetrics;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.when;
 
@@ -40,6 +41,7 @@ class PublishStreamGrpcClientImplTest {
 
     private MetricsService metricsService;
     private PublishStreamGrpcClient publishStreamGrpcClient;
+    private boolean isShutdownCalled = false;
 
     @Mock
     private GrpcConfig grpcConfig;
@@ -128,7 +130,9 @@ class PublishStreamGrpcClientImplTest {
 
     @AfterEach
     void teardown() throws InterruptedException {
-        publishStreamGrpcClient.shutdown();
+        if (!isShutdownCalled) {
+            publishStreamGrpcClient.shutdown();
+        }
 
         if (server != null) {
             server.shutdown();
@@ -192,5 +196,53 @@ class PublishStreamGrpcClientImplTest {
         assertEquals(streamedBlocks, publishStreamGrpcClient.getPublishedBlocks());
         assertEquals(
                 streamedBlocks, publishStreamGrpcClient.getLastKnownStatuses().size());
+    }
+
+    @Test
+    void testStreamBlock_RejectsAfterShutdown() throws InterruptedException {
+        publishStreamGrpcClient.init();
+        final int streamedBlocks = 3;
+
+        for (int i = 0; i < streamedBlocks; i++) {
+            final Block block = constructBlock(i);
+            final boolean result = publishStreamGrpcClient.streamBlock(block);
+            assertTrue(result);
+        }
+
+        // we use simple retry mechanism here, because sometimes server takes some time to receive the stream
+        long retryNumber = 1;
+        long waitTime = 500;
+
+        while (retryNumber < 3) {
+            if (!publishStreamGrpcClient.getLastKnownStatuses().isEmpty()) {
+                break;
+            }
+            Thread.sleep(retryNumber * waitTime);
+            retryNumber++;
+        }
+
+        assertEquals(streamedBlocks, publishStreamGrpcClient.getPublishedBlocks());
+        assertEquals(
+                streamedBlocks, publishStreamGrpcClient.getLastKnownStatuses().size());
+        publishStreamGrpcClient.shutdown();
+        isShutdownCalled = true;
+
+        final Block block = constructBlock(0);
+        IllegalStateException exception =
+                assertThrows(IllegalStateException.class, () -> publishStreamGrpcClient.streamBlock(block));
+        assertEquals("Stream is already completed, no further calls are allowed", exception.getMessage());
+    }
+
+    private Block constructBlock(long number) {
+        BlockItem blockItemHeader = BlockItem.newBuilder()
+                .setBlockHeader(BlockHeader.newBuilder().setNumber(number).build())
+                .build();
+        BlockItem blockItemProof = BlockItem.newBuilder()
+                .setBlockProof(BlockProof.newBuilder().setBlock(number).build())
+                .build();
+        return Block.newBuilder()
+                .addItems(blockItemHeader)
+                .addItems(blockItemProof)
+                .build();
     }
 }
