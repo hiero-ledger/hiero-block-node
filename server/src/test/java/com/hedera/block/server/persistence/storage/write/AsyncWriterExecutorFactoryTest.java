@@ -1,12 +1,19 @@
 // SPDX-License-Identifier: Apache-2.0
 package com.hedera.block.server.persistence.storage.write;
 
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.hedera.block.server.persistence.storage.PersistenceStorageConfig;
 import com.hedera.block.server.persistence.storage.PersistenceStorageConfig.ExecutorType;
+import com.swirlds.config.api.ConfigurationBuilder;
+import com.swirlds.config.extensions.sources.SimpleConfigSource;
+import edu.umd.cs.findbugs.annotations.NonNull;
+import java.util.Map;
 import java.util.concurrent.Executor;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.ForkJoinPool;
@@ -20,7 +27,6 @@ import org.junit.jupiter.params.provider.EnumSource;
  * {@link AsyncWriterExecutorFactory}
  */
 class AsyncWriterExecutorFactoryTest {
-
     /**
      * This test verifies that the factory throws a NullPointerException when
      * null config is provided.
@@ -40,7 +46,8 @@ class AsyncWriterExecutorFactoryTest {
     @EnumSource(ExecutorType.class)
     void testCreateExecutorWithDifferentTypes(final ExecutorType executorType) {
         // Given
-        final PersistenceStorageConfig config = createConfig(executorType, false, 4, 60L, 100);
+        final PersistenceStorageConfig config =
+                createConfig(Map.of("persistence.storage.executorType", executorType.toString()));
 
         // When
         final Executor executor = AsyncWriterExecutorFactory.createExecutor(config);
@@ -49,9 +56,9 @@ class AsyncWriterExecutorFactoryTest {
         assertNotNull(executor);
 
         switch (executorType) {
-            case THREAD_POOL -> assertTrue(executor instanceof ThreadPoolExecutor);
-            case SINGLE_THREAD -> assertTrue(executor instanceof ExecutorService);
-            case FORK_JOIN -> assertTrue(executor instanceof ForkJoinPool);
+            case THREAD_POOL -> assertThat(executor).isExactlyInstanceOf(ThreadPoolExecutor.class);
+            case SINGLE_THREAD -> assertThat(executor).isInstanceOf(ExecutorService.class);
+            case FORK_JOIN -> assertThat(executor).isExactlyInstanceOf(ForkJoinPool.class);
         }
     }
 
@@ -62,66 +69,89 @@ class AsyncWriterExecutorFactoryTest {
     @Test
     void testCreateThreadPoolExecutorWithVirtualThreads() {
         // Given
-        final PersistenceStorageConfig config = createConfig(ExecutorType.THREAD_POOL, true, 4, 60L, 100);
+        final PersistenceStorageConfig config = createConfig(Map.of(
+                "persistence.storage.executorType", "THREAD_POOL", "persistence.storage.useVirtualThreads", "true"));
 
         // When
         final Executor executor = AsyncWriterExecutorFactory.createExecutor(config);
 
         // Then
         assertNotNull(executor);
-        System.out.println(executor.getClass().getName());
-        // Virtual thread executor invokes underneath ThreadPerTaskExecutor with specific factory for virtual
-        assertTrue(executor.getClass().getName().contains("ThreadPerTaskExecutor"));
+        assertThat(executor).isExactlyInstanceOf(ThreadPoolExecutor.class);
+
+        final ThreadPoolExecutor threadPoolExecutor = (ThreadPoolExecutor) executor;
+        assertTrue(threadPoolExecutor.getThreadFactory().newThread(() -> {}).isVirtual());
     }
 
     /**
      * This test verifies that the factory creates a thread pool executor with
-     * the correct configuration when virtual threads are disabled.
+     * the correct configuration when platform threads are used.
      */
     @Test
     void testCreateThreadPoolExecutorWithPlatformThreads() {
         // Given
         final int threadCount = 6;
-        final long keepAliveTime = 120L;
         final int queueLimit = 200;
-        final PersistenceStorageConfig config =
-                createConfig(ExecutorType.THREAD_POOL, false, threadCount, keepAliveTime, queueLimit);
+        final PersistenceStorageConfig config = createConfig(Map.of(
+                "persistence.storage.executorType",
+                "THREAD_POOL",
+                "persistence.storage.useVirtualThreads",
+                "false",
+                "persistence.storage.threadCount",
+                "6",
+                "persistence.storage.executionQueueLimit",
+                "200"));
 
         // When
         final Executor executor = AsyncWriterExecutorFactory.createExecutor(config);
 
         // Then
         assertNotNull(executor);
-        assertTrue(executor instanceof ThreadPoolExecutor);
+        assertThat(executor).isExactlyInstanceOf(ThreadPoolExecutor.class);
 
         final ThreadPoolExecutor threadPoolExecutor = (ThreadPoolExecutor) executor;
-        assertTrue(threadPoolExecutor.getCorePoolSize() == threadCount);
-        assertTrue(threadPoolExecutor.getMaximumPoolSize() == threadCount);
-        assertTrue(threadPoolExecutor.getKeepAliveTime(java.util.concurrent.TimeUnit.SECONDS) == keepAliveTime);
-        assertTrue(threadPoolExecutor.getQueue().remainingCapacity() == queueLimit);
-        assertTrue(threadPoolExecutor.getRejectedExecutionHandler() instanceof ThreadPoolExecutor.CallerRunsPolicy);
+        assertEquals(threadCount, threadPoolExecutor.getCorePoolSize());
+        assertEquals(threadCount, threadPoolExecutor.getMaximumPoolSize());
+        assertEquals(queueLimit, threadPoolExecutor.getQueue().remainingCapacity());
+        assertInstanceOf(ThreadPoolExecutor.CallerRunsPolicy.class, threadPoolExecutor.getRejectedExecutionHandler());
+
+        // Verify thread naming
+        final Thread thread = threadPoolExecutor.getThreadFactory().newThread(() -> {});
+        assertTrue(thread.getName().startsWith("async-writer-"));
+    }
+
+    /**
+     * This test verifies that the factory creates a fork-join pool executor with
+     * the correct configuration.
+     */
+    @Test
+    void testCreateForkJoinExecutor() {
+        // Given
+        final PersistenceStorageConfig config = createConfig(Map.of("persistence.storage.executorType", "FORK_JOIN"));
+
+        // When
+        final Executor executor = AsyncWriterExecutorFactory.createExecutor(config);
+
+        // Then
+        assertNotNull(executor);
+        assertThat(executor).isExactlyInstanceOf(ForkJoinPool.class);
+
+        final ForkJoinPool forkJoinPool = (ForkJoinPool) executor;
+        assertTrue(forkJoinPool.getAsyncMode());
     }
 
     /**
      * Creates a test configuration with the specified parameters.
      */
-    private PersistenceStorageConfig createConfig(
-            final ExecutorType executorType,
-            final boolean useVirtualThreads,
-            final int threadCount,
-            final long threadKeepAliveTime,
-            final int executionQueueLimit) {
-        return new PersistenceStorageConfig(
-                java.nio.file.Path.of(""),
-                java.nio.file.Path.of(""),
-                PersistenceStorageConfig.StorageType.BLOCK_AS_LOCAL_FILE,
-                PersistenceStorageConfig.CompressionType.NONE,
-                3, // Default compression level
-                1000, // Default archive batch size
-                executionQueueLimit,
-                executorType,
-                threadCount,
-                threadKeepAliveTime,
-                useVirtualThreads);
+    private PersistenceStorageConfig createConfig(@NonNull Map<String, String> customProperties) {
+        ConfigurationBuilder configurationBuilder =
+                ConfigurationBuilder.create().autoDiscoverExtensions();
+
+        for (Map.Entry<String, String> entry : customProperties.entrySet()) {
+            String key = entry.getKey();
+            String value = entry.getValue();
+            configurationBuilder.withSource(new SimpleConfigSource(key, value).withOrdinal(500));
+        }
+        return configurationBuilder.build().getConfigData(PersistenceStorageConfig.class);
     }
 }

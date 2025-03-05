@@ -529,7 +529,9 @@ class PersistenceStorageConfigTest {
                 Arguments.of(10_000),
                 Arguments.of(100_000),
                 Arguments.of(1_000_000),
-                Arguments.of(10_000_000));
+                Arguments.of(10_000_000),
+                Arguments.of(100_000_000),
+                Arguments.of(1_000_000_000));
     }
 
     private static Stream<Arguments> invalidArchiveGroupSizes() {
@@ -546,7 +548,9 @@ class PersistenceStorageConfigTest {
                 Arguments.of(-10_000),
                 Arguments.of(-100_000),
                 Arguments.of(-1_000_000),
-                Arguments.of(-10_000_000));
+                Arguments.of(-10_000_000),
+                Arguments.of(-100_000_000),
+                Arguments.of(-1_000_000_000));
     }
 
     private static Stream<Arguments> validExecutionQueueLimits() {
