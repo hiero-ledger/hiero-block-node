@@ -22,7 +22,7 @@ import org.junit.jupiter.api.io.TempDir;
 
 class BlockAsFileLargeDataSetsTest {
 
-    private static final String rootFolder = "src/test/resources/block-0.0.3-blk/";
+    private static final String rootFolder = "build/resources/test//block-0.0.3-blk/";
     private static int filesInFolder;
 
     @BeforeAll

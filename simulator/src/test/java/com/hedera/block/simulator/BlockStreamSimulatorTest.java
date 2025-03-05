@@ -150,7 +150,7 @@ class BlockStreamSimulatorTest {
                 "generator.managerImplementation",
                 "BlockAsFileLargeDataSets",
                 "generator.rootPath",
-                getAbsoluteFolder("src/test/resources/block-0.0.3-blk/"),
+                getAbsoluteFolder("build/resources/test//block-0.0.3-blk/"),
                 "blockStream.streamingMode",
                 "CONSTANT_RATE",
                 "blockStream.blockItemsBatchSize",
@@ -233,7 +233,7 @@ class BlockStreamSimulatorTest {
                 "generator.managerImplementation",
                 "BlockAsFileLargeDataSets",
                 "generator.rootPath",
-                getAbsoluteFolder("src/test/resources/block-0.0.3-blk/"),
+                getAbsoluteFolder("build/resources/test//block-0.0.3-blk/"),
                 "blockStream.streamingMode",
                 "MILLIS_PER_BLOCK"));
 
@@ -276,7 +276,7 @@ class BlockStreamSimulatorTest {
                 "generator.managerImplementation",
                 "BlockAsFileBlockStreamManager",
                 "generator.rootPath",
-                getAbsoluteFolder("src/test/resources/block-0.0.3-blk/"),
+                getAbsoluteFolder("build/resources/test//block-0.0.3-blk/"),
                 "blockStream.maxBlockItemsToStream",
                 "2",
                 "blockStream.streamingMode",

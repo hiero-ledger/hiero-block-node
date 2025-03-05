@@ -158,7 +158,7 @@ class FileUtilitiesTest {
      */
     @Test
     void testReadFileBytesUnsafeReturnsNull() throws IOException {
-        final Path path = Path.of("src/test/resources/nonexistent.unrecognized");
+        final Path path = Path.of("build/resources/test//nonexistent.unrecognized");
 
         final byte[] actualContent = FileUtilities.readFileBytesUnsafe(path, ".blk", ".gz");
         assertThat(actualContent).isNull();
@@ -215,21 +215,21 @@ class FileUtilitiesTest {
 
     private static Stream<Arguments> validGzipFiles() {
         return Stream.of(
-                Arguments.of("src/test/resources/valid1.txt.gz", "valid1"),
-                Arguments.of("src/test/resources/valid2.txt.gz", "valid2"));
+                Arguments.of("build/resources/test//valid1.txt.gz", "valid1"),
+                Arguments.of("build/resources/test//valid2.txt.gz", "valid2"));
     }
 
     private static Stream<Arguments> validBlkFiles() {
         return Stream.of(
-                Arguments.of("src/test/resources/valid1.blk", "valid1blk"),
-                Arguments.of("src/test/resources/valid2.blk", "valid2blk"));
+                Arguments.of("build/resources/test//valid1.blk", "valid1blk"),
+                Arguments.of("build/resources/test//valid2.blk", "valid2blk"));
     }
 
     private static Stream<Arguments> invalidFiles() {
         return Stream.of(
-                Arguments.of("src/test/resources/invalid1.gz"),
-                Arguments.of("src/test/resources/nonexistent.gz"),
-                Arguments.of("src/test/resources/nonexistent.blk"));
+                Arguments.of("build/resources/test//invalid1.gz"),
+                Arguments.of("build/resources/test//nonexistent.gz"),
+                Arguments.of("build/resources/test//nonexistent.blk"));
     }
 
     private static Stream<Arguments> filesToCreate() {

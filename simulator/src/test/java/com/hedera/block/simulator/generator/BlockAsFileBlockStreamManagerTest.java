@@ -13,7 +13,7 @@ import org.junit.jupiter.api.Test;
 
 class BlockAsFileBlockStreamManagerTest {
 
-    private final String gzRootFolder = "src/main/resources/block-0.0.3/";
+    private final String gzRootFolder = "build/resources/main//block-0.0.3/";
     private BlockStreamManager blockStreamManager;
 
     private String getAbsoluteFolder(String relativePath) {
@@ -47,7 +47,7 @@ class BlockAsFileBlockStreamManagerTest {
 
     @Test
     void loadBlockBlk() throws IOException, BlockSimulatorParsingException {
-        String blkRootFolder = "src/test/resources/block-0.0.3-blk/";
+        String blkRootFolder = "build/resources/test//block-0.0.3-blk/";
         BlockStreamManager blockStreamManager = getBlockAsFileBlockStreamManager(getAbsoluteFolder(blkRootFolder));
         blockStreamManager.init();
 
@@ -58,7 +58,7 @@ class BlockAsFileBlockStreamManagerTest {
     void BlockAsFileBlockStreamManagerInvalidRootPath() {
         assertThrows(
                 RuntimeException.class,
-                () -> getBlockAsFileBlockStreamManager(getAbsoluteFolder("src/test/resources/BlockAsDirException/1/")));
+                () -> getBlockAsFileBlockStreamManager(getAbsoluteFolder("build/resources/test//BlockAsDirException/1/")));
     }
 
     private BlockStreamManager getBlockAsFileBlockStreamManager(String rootFolder) {
