@@ -41,14 +41,20 @@ class ServerMappedConfigSourceInitializerTest {
         // Please add properties in alphabetical order
 
         // Consumer Config
+        new ConfigMapping(
+                "consumer.cueHistoricStreamingPaddingBlocks", "CONSUMER_CUE_HISTORIC_STREAMING_PADDING_BLOCKS"),
         new ConfigMapping("consumer.timeoutThresholdMillis", "CONSUMER_TIMEOUT_THRESHOLD_MILLIS"),
         new ConfigMapping("consumer.maxBlockItemBatchSize", "CONSUMER_MAX_BLOCK_ITEM_BATCH_SIZE"),
 
         // Mediator Config
+        new ConfigMapping(
+                "mediator.historicTransitionThresholdPercentage", "MEDIATOR_HISTORIC_TRANSITION_THRESHOLD_PERCENTAGE"),
         new ConfigMapping("mediator.ringBufferSize", "MEDIATOR_RING_BUFFER_SIZE"),
         new ConfigMapping("mediator.type", "MEDIATOR_TYPE"),
 
         // Notifier Config
+        new ConfigMapping(
+                "notifier.historicTransitionThresholdPercentage", "NOTIFIER_HISTORIC_TRANSITION_THRESHOLD_PERCENTAGE"),
         new ConfigMapping("notifier.ringBufferSize", "NOTIFIER_RING_BUFFER_SIZE"),
 
         // Persistence Config

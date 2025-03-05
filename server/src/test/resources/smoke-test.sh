@@ -69,7 +69,7 @@ liveness
 readiness
 
 # 2. Start the consumer script with parameters 1 1000 and save logs to consumer.log
-./consumer.sh 1 0 > consumer.log 2>&1 &
+./consumer.sh 0 > consumer.log 2>&1 &
 CONSUMER_PID=$!
 echo "Started consumer with PID $CONSUMER_PID, logging to consumer.log"
 

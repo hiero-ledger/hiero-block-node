@@ -1,36 +1,41 @@
 // SPDX-License-Identifier: Apache-2.0
 package com.hedera.block.server.consumer;
 
-import static org.mockito.ArgumentMatchers.any;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.doThrow;
-import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.timeout;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.hedera.block.server.config.BlockNodeContext;
-import com.hedera.block.server.events.ObjectEvent;
-import com.hedera.block.server.mediator.StreamMediator;
+import com.hedera.block.server.mediator.LiveStreamMediator;
+import com.hedera.block.server.mediator.LiveStreamMediatorBuilder;
+import com.hedera.block.server.metrics.MetricsService;
+import com.hedera.block.server.persistence.storage.read.BlockReader;
+import com.hedera.block.server.service.ServiceStatus;
 import com.hedera.block.server.util.TestConfigUtil;
 import com.hedera.hapi.block.BlockItemSetUnparsed;
 import com.hedera.hapi.block.BlockItemUnparsed;
+import com.hedera.hapi.block.BlockUnparsed;
+import com.hedera.hapi.block.SubscribeStreamRequest;
 import com.hedera.hapi.block.SubscribeStreamResponseUnparsed;
 import com.hedera.hapi.block.stream.BlockProof;
 import com.hedera.hapi.block.stream.input.EventHeader;
 import com.hedera.hapi.block.stream.output.BlockHeader;
 import com.hedera.pbj.runtime.grpc.Pipeline;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
+import com.swirlds.config.api.Configuration;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.time.InstantSource;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.CompletionService;
-import java.util.concurrent.ExecutorCompletionService;
-import java.util.concurrent.Executors;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
@@ -43,53 +48,71 @@ public class ConsumerStreamResponseObserverTest {
     private static final int testTimeout = 1000;
 
     @Mock
-    private StreamMediator<BlockItemUnparsed, List<BlockItemUnparsed>> streamMediator;
-
-    @Mock
-    private Pipeline<? super SubscribeStreamResponseUnparsed> responseStreamObserver;
-
-    @Mock
-    private ObjectEvent<List<BlockItemUnparsed>> objectEvent;
+    private Pipeline<? super SubscribeStreamResponseUnparsed> helidonResponseStreamObserver;
 
     @Mock
     private InstantSource testClock;
 
-    final BlockNodeContext testContext;
+    @Mock
+    private SubscribeStreamRequest subscribeStreamRequest;
 
-    private CompletionService<Void> completionService;
+    @Mock
+    private ServiceStatus serviceStatus;
+
+    @Mock
+    private BlockReader<BlockUnparsed> blockReader;
+
+    private MetricsService metricsService;
+    private Configuration configuration;
+    private BlockNodeContext testContext;
 
     @BeforeEach
-    public void setUp() {
-        completionService = new ExecutorCompletionService<>(Executors.newSingleThreadExecutor());
-    }
-
-    public ConsumerStreamResponseObserverTest() throws IOException {
-        this.testContext = TestConfigUtil.getTestBlockNodeContext(
+    public void setup() throws IOException {
+        testContext = TestConfigUtil.getTestBlockNodeContext(
                 Map.of(TestConfigUtil.CONSUMER_TIMEOUT_THRESHOLD_KEY, String.valueOf(TIMEOUT_THRESHOLD_MILLIS)));
+        metricsService = testContext.metricsService();
+        configuration = testContext.configuration();
     }
 
     @Test
-    public void testProducerTimeoutWithinWindow() throws Exception {
+    public void testProducerTimeoutWithinWindow() {
 
+        final LiveStreamMediator streamMediator =
+                LiveStreamMediatorBuilder.newBuilder(testContext, serviceStatus).build();
         when(testClock.millis()).thenReturn(TEST_TIME, TEST_TIME + TIMEOUT_THRESHOLD_MILLIS);
 
-        final var consumerBlockItemObserver = LiveStreamEventHandlerBuilder.build(
-                completionService,
-                testClock,
-                streamMediator,
-                responseStreamObserver,
-                testContext.metricsService(),
-                testContext.configuration());
+        // Mock live streaming
+        when(subscribeStreamRequest.startBlockNumber()).thenReturn(0L);
+        when(serviceStatus.isRunning()).thenReturn(true);
 
+        final StreamManager streamManager = ConsumerStreamBuilder.buildStreamManager(
+                testClock,
+                subscribeStreamRequest,
+                streamMediator,
+                helidonResponseStreamObserver,
+                blockReader,
+                serviceStatus,
+                metricsService,
+                configuration);
+
+        // Create a block item to publish
         final BlockHeader blockHeader = BlockHeader.newBuilder().number(1).build();
         final BlockItemUnparsed blockItem = BlockItemUnparsed.newBuilder()
                 .blockHeader(BlockHeader.PROTOBUF.toBytes(blockHeader))
                 .build();
-
         List<BlockItemUnparsed> blockItems = List.of(blockItem);
-        when(objectEvent.get()).thenReturn(blockItems);
 
-        consumerBlockItemObserver.onEvent(objectEvent, 0, true);
+        // Set up the StreamManager to poll for
+        // block items
+        streamManager.execute();
+
+        // Now publish the block items to the mediator
+        streamMediator.publish(blockItems);
+
+        // Call the StreamManager to poll for
+        // the block items and send them to the
+        // client
+        streamManager.execute();
 
         final BlockItemSetUnparsed blockItemSet =
                 BlockItemSetUnparsed.newBuilder().blockItems(blockItems).build();
@@ -97,50 +120,81 @@ public class ConsumerStreamResponseObserverTest {
                 .blockItems(blockItemSet)
                 .build();
 
-        // verify the observer is called with the next BlockItem
-        verify(responseStreamObserver, timeout(testTimeout)).onNext(subscribeStreamResponse);
+        // verify the Helidon observer is called with the next BlockItem
+        verify(helidonResponseStreamObserver, timeout(testTimeout)).onNext(subscribeStreamResponse);
 
         // verify the mediator is NOT called to unsubscribe the observer
-        verify(streamMediator, timeout(testTimeout).times(0)).unsubscribe(consumerBlockItemObserver);
+        assertTrue(streamMediator.isSubscribed(streamManager));
     }
 
     @Test
-    public void testProducerTimeoutOutsideWindow() throws Exception {
+    public void testProducerTimeoutOutsideWindow() {
 
-        // Mock a clock with 2 different return values in response to anticipated
-        // millis() calls. Here the second call will always be outside the timeout window.
+        final LiveStreamMediator streamMediator =
+                LiveStreamMediatorBuilder.newBuilder(testContext, serviceStatus).build();
         when(testClock.millis()).thenReturn(TEST_TIME, TEST_TIME + TIMEOUT_THRESHOLD_MILLIS + 1);
 
-        final var consumerBlockItemObserver = LiveStreamEventHandlerBuilder.build(
-                completionService,
-                testClock,
-                streamMediator,
-                responseStreamObserver,
-                testContext.metricsService(),
-                testContext.configuration());
+        // Mock live streaming
+        when(subscribeStreamRequest.startBlockNumber()).thenReturn(0L);
+        when(serviceStatus.isRunning()).thenReturn(true);
 
-        final List<BlockItemUnparsed> blockItems =
-                List.of(BlockItemUnparsed.newBuilder().build());
-        final ObjectEvent<List<BlockItemUnparsed>> objectEvent = new ObjectEvent<>();
-        objectEvent.set(blockItems);
-        consumerBlockItemObserver.onEvent(objectEvent, 0, true);
-        verify(streamMediator, timeout(testTimeout)).unsubscribe(consumerBlockItemObserver);
+        final StreamManager streamManager = ConsumerStreamBuilder.buildStreamManager(
+                testClock,
+                subscribeStreamRequest,
+                streamMediator,
+                helidonResponseStreamObserver,
+                blockReader,
+                serviceStatus,
+                metricsService,
+                configuration);
+
+        // Create a block item to publish
+        final BlockHeader blockHeader = BlockHeader.newBuilder().number(1).build();
+        final BlockItemUnparsed blockItem = BlockItemUnparsed.newBuilder()
+                .blockHeader(BlockHeader.PROTOBUF.toBytes(blockHeader))
+                .build();
+        List<BlockItemUnparsed> blockItems = List.of(blockItem);
+
+        // Set up the StreamManager to poll for
+        // block items
+        streamManager.execute();
+
+        // Now publish the block items to the mediator
+        streamMediator.publish(blockItems);
+
+        // Call the StreamManager to poll for
+        // the block items and send them to the
+        // client
+        streamManager.execute();
+
+        // verify the mediator unsubscribed the observer
+        assertFalse(streamMediator.isSubscribed(streamManager));
     }
 
     @Test
-    public void testConsumerNotToSendBeforeBlockHeader() throws Exception {
+    public void testConsumerNotToSendBeforeBlockHeader() {
 
-        // Mock a clock with 2 different return values in response to anticipated
-        // millis() calls. Here the second call will always be inside the timeout window.
+        final LiveStreamMediator streamMediator =
+                LiveStreamMediatorBuilder.newBuilder(testContext, serviceStatus).build();
         when(testClock.millis()).thenReturn(TEST_TIME, TEST_TIME + TIMEOUT_THRESHOLD_MILLIS);
 
-        final var consumerBlockItemObserver = LiveStreamEventHandlerBuilder.build(
-                completionService,
+        // Mock live streaming
+        when(subscribeStreamRequest.startBlockNumber()).thenReturn(0L);
+        when(serviceStatus.isRunning()).thenReturn(true);
+
+        final StreamManager streamManager = ConsumerStreamBuilder.buildStreamManager(
                 testClock,
+                subscribeStreamRequest,
                 streamMediator,
-                responseStreamObserver,
-                testContext.metricsService(),
-                testContext.configuration());
+                helidonResponseStreamObserver,
+                blockReader,
+                serviceStatus,
+                metricsService,
+                configuration);
+
+        // Set up the StreamManager to poll for
+        // block items
+        streamManager.execute();
 
         // Send non-header BlockItems to validate that the observer does not send them
         for (int i = 1; i <= 10; i++) {
@@ -150,16 +204,20 @@ public class ConsumerStreamResponseObserverTest {
                         EventHeader.PROTOBUF.toBytes(EventHeader.newBuilder().build());
                 final BlockItemUnparsed blockItem =
                         BlockItemUnparsed.newBuilder().eventHeader(eventHeader).build();
-                lenient().when(objectEvent.get()).thenReturn(List.of(blockItem));
+
+                // Now publish the block items to the mediator
+                streamMediator.publish(List.of(blockItem));
             } else {
                 final Bytes blockProof = BlockProof.PROTOBUF.toBytes(
                         BlockProof.newBuilder().block(i).build());
                 final BlockItemUnparsed blockItem =
                         BlockItemUnparsed.newBuilder().blockProof(blockProof).build();
-                when(objectEvent.get()).thenReturn(List.of(blockItem));
+                streamMediator.publish(List.of(blockItem));
             }
 
-            consumerBlockItemObserver.onEvent(objectEvent, 0, true);
+            // Trigger the StreamManager to poll for
+            // block items
+            streamManager.execute();
         }
 
         final BlockItemUnparsed blockItem = BlockItemUnparsed.newBuilder().build();
@@ -171,76 +229,57 @@ public class ConsumerStreamResponseObserverTest {
 
         // Confirm that the observer was called with the next BlockItem
         // since we never send a BlockItem with a Header to start the stream.
-        verify(responseStreamObserver, timeout(testTimeout).times(0)).onNext(subscribeStreamResponse);
+        verify(helidonResponseStreamObserver, timeout(testTimeout).times(0)).onNext(subscribeStreamResponse);
     }
 
-    @Test
-    public void testUncheckedIOExceptionException() throws Exception {
+    @ParameterizedTest
+    @ValueSource(classes = {RuntimeException.class, UncheckedIOException.class})
+    public void testClientDisconnectWithUncheckedIOException(Class<RuntimeException> runtimeException) {
         final BlockHeader blockHeader = BlockHeader.newBuilder().number(1).build();
         final BlockItemUnparsed blockItem = BlockItemUnparsed.newBuilder()
                 .blockHeader(BlockHeader.PROTOBUF.toBytes(blockHeader))
                 .build();
-
-        when(objectEvent.get()).thenReturn(List.of(blockItem));
 
         final BlockItemSetUnparsed blockItemSet =
                 BlockItemSetUnparsed.newBuilder().blockItems(blockItem).build();
         final SubscribeStreamResponseUnparsed subscribeStreamResponse = SubscribeStreamResponseUnparsed.newBuilder()
                 .blockItems(blockItemSet)
                 .build();
-        doThrow(UncheckedIOException.class).when(responseStreamObserver).onNext(subscribeStreamResponse);
 
-        final var consumerBlockItemObserver = LiveStreamEventHandlerBuilder.build(
-                completionService,
+        doThrow(runtimeException).when(helidonResponseStreamObserver).onNext(subscribeStreamResponse);
+
+        // Create a stream mediator
+        final LiveStreamMediator streamMediator =
+                LiveStreamMediatorBuilder.newBuilder(testContext, serviceStatus).build();
+        when(testClock.millis()).thenReturn(TEST_TIME, TEST_TIME + TIMEOUT_THRESHOLD_MILLIS);
+
+        // Mock live streaming
+        when(subscribeStreamRequest.startBlockNumber()).thenReturn(0L);
+        when(serviceStatus.isRunning()).thenReturn(true);
+
+        final StreamManager streamManager = ConsumerStreamBuilder.buildStreamManager(
                 testClock,
+                subscribeStreamRequest,
                 streamMediator,
-                responseStreamObserver,
-                testContext.metricsService(),
-                testContext.configuration());
+                helidonResponseStreamObserver,
+                blockReader,
+                serviceStatus,
+                metricsService,
+                configuration);
 
-        // This call will throw an exception but, because of the async
-        // service executor, the exception will not get caught until the
-        // next call.
-        consumerBlockItemObserver.onEvent(objectEvent, 0, true);
-        Thread.sleep(testTimeout);
+        // Set up the StreamManager to poll for
+        // block items
+        streamManager.execute();
 
-        // This second call will throw the exception.
-        consumerBlockItemObserver.onEvent(objectEvent, 0, true);
+        // Now publish the block items to the mediator
+        streamMediator.publish(List.of(blockItem));
 
-        verify(streamMediator, timeout(testTimeout).times(1)).unsubscribe(any());
-    }
+        // The helidonResponseStreamObserver is expected to throw an UncheckedIOException
+        // simulation that the client disconnected.
+        streamManager.execute();
 
-    @Test
-    public void testRuntimeException() throws Exception {
-        final BlockHeader blockHeader = BlockHeader.newBuilder().number(1).build();
-        final BlockItemUnparsed blockItem = BlockItemUnparsed.newBuilder()
-                .blockHeader(BlockHeader.PROTOBUF.toBytes(blockHeader))
-                .build();
-        final BlockItemSetUnparsed blockItemSet =
-                BlockItemSetUnparsed.newBuilder().blockItems(blockItem).build();
-        final SubscribeStreamResponseUnparsed subscribeStreamResponse = SubscribeStreamResponseUnparsed.newBuilder()
-                .blockItems(blockItemSet)
-                .build();
-        when(objectEvent.get()).thenReturn(List.of(blockItem));
-        doThrow(RuntimeException.class).when(responseStreamObserver).onNext(subscribeStreamResponse);
-
-        final var consumerBlockItemObserver = LiveStreamEventHandlerBuilder.build(
-                completionService,
-                testClock,
-                streamMediator,
-                responseStreamObserver,
-                testContext.metricsService(),
-                testContext.configuration());
-
-        // This call will throw an exception but, because of the async
-        // service executor, the exception will not get caught until the
-        // next call.
-        consumerBlockItemObserver.onEvent(objectEvent, 0, true);
-        Thread.sleep(testTimeout);
-
-        // This second call will throw the exception.
-        consumerBlockItemObserver.onEvent(objectEvent, 0, true);
-
-        verify(streamMediator, timeout(testTimeout).times(1)).unsubscribe(any());
+        // It's expected that the exception will be caught and the
+        // streamManager will be unsubscribed
+        assertFalse(streamMediator.isSubscribed(streamManager));
     }
 }

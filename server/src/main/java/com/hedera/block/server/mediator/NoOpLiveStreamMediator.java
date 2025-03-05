@@ -5,6 +5,7 @@ import static com.hedera.block.server.metrics.BlockNodeMetricTypes.Counter.LiveB
 import static java.lang.System.Logger.Level.INFO;
 
 import com.hedera.block.server.config.BlockNodeContext;
+import com.hedera.block.server.consumer.StreamManager;
 import com.hedera.block.server.events.BlockNodeEventHandler;
 import com.hedera.block.server.events.ObjectEvent;
 import com.hedera.block.server.metrics.MetricsService;
@@ -31,43 +32,38 @@ public class NoOpLiveStreamMediator implements LiveStreamMediator {
         this.metricsService = blockNodeContext.metricsService();
     }
 
-    /**
-     * {@inheritDoc}
-     */
     @Override
     public void publish(@NonNull List<BlockItemUnparsed> blockItems) {
         metricsService.get(LiveBlockItems).add(blockItems.size());
     }
 
-    /**
-     * {@inheritDoc}
-     */
     @Override
     public void subscribe(@NonNull BlockNodeEventHandler<ObjectEvent<List<BlockItemUnparsed>>> handler) {}
 
-    /**
-     * {@inheritDoc}
-     */
+    @Override
+    public Poller<ObjectEvent<List<BlockItemUnparsed>>> subscribePoller(@NonNull final StreamManager streamManager) {
+        return null;
+    }
+
+    @Override
+    public void unsubscribePoller(@NonNull final StreamManager streamManager) {}
+
+    @Override
+    public boolean isSubscribed(@NonNull final StreamManager streamManager) {
+        return false;
+    }
+
     @Override
     public void unsubscribe(@NonNull BlockNodeEventHandler<ObjectEvent<List<BlockItemUnparsed>>> handler) {}
 
-    /**
-     * {@inheritDoc}
-     */
     @Override
     public boolean isSubscribed(@NonNull BlockNodeEventHandler<ObjectEvent<List<BlockItemUnparsed>>> handler) {
         return false;
     }
 
-    /**
-     * {@inheritDoc}
-     */
     @Override
     public void unsubscribeAllExpired() {}
 
-    /**
-     * {@inheritDoc}
-     */
     @Override
     public void notifyUnrecoverableError() {}
 }

@@ -18,8 +18,9 @@ import com.swirlds.config.api.ConfigProperty;
  */
 @ConfigData("mediator")
 public record MediatorConfig(
-        @Loggable @ConfigProperty(defaultValue = "1_048_576") int ringBufferSize,
-        @Loggable @ConfigProperty(defaultValue = "PRODUCTION") MediatorType type) {
+        @Loggable @ConfigProperty(defaultValue = "4096") int ringBufferSize,
+        @Loggable @ConfigProperty(defaultValue = "PRODUCTION") MediatorType type,
+        @Loggable @ConfigProperty(defaultValue = "90") int historicTransitionThresholdPercentage) {
 
     /**
      * Validate the configuration.
@@ -29,6 +30,12 @@ public record MediatorConfig(
     public MediatorConfig {
         Preconditions.requirePositive(ringBufferSize, "Mediator Ring Buffer Size must be positive");
         Preconditions.requirePowerOfTwo(ringBufferSize, "Mediator Ring Buffer Size must be a power of 2");
+
+        Preconditions.requireInRange(
+                historicTransitionThresholdPercentage,
+                10,
+                90,
+                "Historic Transition Threshold Percentage must be between 10 and 90");
     }
 
     /**
