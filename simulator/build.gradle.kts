@@ -73,27 +73,14 @@ tasks.register<JavaExec>("runConsumer") {
     environment("PROMETHEUS_ENDPOINT_PORT_NUMBER", "9997")
 }
 
-tasks.register<Copy>("untarTestBlockStream") {
+tasks.register<Sync>("untarTestBlockStream") {
     description = "Untar the test block stream data"
-    group = "build"
-
-    val targetDir = file("src/main/resources")
 
     from(tarTree(resources.gzip(file("src/main/resources/block-0.0.3.tar.gz"))))
-    into(targetDir)
-
-    // Mark task as not up-to-date if the directory is empty
-    outputs.upToDateWhen { targetDir.listFiles()?.isNotEmpty() ?: false }
-
-    // Adding a simple logging to verify
-    doLast { println("Untar task completed. Files should be in: ${targetDir.absolutePath}") }
+    into(layout.buildDirectory.dir("extracted-resources"))
 }
 
-tasks.processResources { dependsOn(tasks.named("untarTestBlockStream")) }
-
-tasks.sourcesJar { dependsOn(tasks.named("untarTestBlockStream")) }
-
-tasks.spotlessJavaInfoFiles { dependsOn(tasks.named("untarTestBlockStream")) }
+sourceSets.main { resources.srcDir(tasks.named("untarTestBlockStream")) }
 
 // Vals
 val dockerProjectRootDirectory: Directory = layout.projectDirectory.dir("docker")
