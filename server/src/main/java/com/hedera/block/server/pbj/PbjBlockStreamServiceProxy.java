@@ -130,7 +130,37 @@ public class PbjBlockStreamServiceProxy implements PbjBlockStreamService {
             final @NonNull RequestOptions options,
             final @NonNull Pipeline<? super Bytes> replies) {
 
-        final var m = (BlockStreamMethod) method;
+        return openPipeline(
+                (BlockStreamMethod) method,
+                options,
+                replies,
+                openRangeHistoricStreamingExecutorService,
+                closedRangeHistoricStreamingExecutorService);
+    }
+
+    @NonNull
+    public Pipeline<? super Bytes> open(
+            final @NonNull Method method,
+            final @NonNull RequestOptions options,
+            final @NonNull Pipeline<? super Bytes> replies,
+            final @NonNull ExecutorService openRangeHistoricStreamingExecutorService,
+            final @NonNull ExecutorService closedRangeHistoricStreamingExecutorService) {
+
+        return openPipeline(
+                (BlockStreamMethod) method,
+                options,
+                replies,
+                openRangeHistoricStreamingExecutorService,
+                closedRangeHistoricStreamingExecutorService);
+    }
+
+    private Pipeline<? super Bytes> openPipeline(
+            @NonNull BlockStreamMethod method,
+            @NonNull RequestOptions options,
+            @NonNull Pipeline<? super Bytes> replies,
+            @NonNull ExecutorService openRangeHistoricStreamingExecutorService,
+            @NonNull ExecutorService closedRangeHistoricStreamingExecutorService) {
+        final var m = method;
         try {
             return switch (m) {
                 case publishBlockStream -> {
@@ -145,7 +175,11 @@ public class PbjBlockStreamServiceProxy implements PbjBlockStreamService {
                 case subscribeBlockStream -> Pipelines
                         .<SubscribeStreamRequest, SubscribeStreamResponseUnparsed>serverStreaming()
                         .mapRequest(bytes -> parseSubscribeStreamRequest(bytes, options))
-                        .method(this::subscribeBlockStream)
+                        .method((subscribeStreamRequest, helidonConsumerObserver) -> subscribeBlockStream(
+                                subscribeStreamRequest,
+                                helidonConsumerObserver,
+                                openRangeHistoricStreamingExecutorService,
+                                closedRangeHistoricStreamingExecutorService))
                         .mapResponse(reply -> createSubscribeStreamResponse(reply, options))
                         .respondTo(replies)
                         .build();
@@ -201,7 +235,9 @@ public class PbjBlockStreamServiceProxy implements PbjBlockStreamService {
      */
     void subscribeBlockStream(
             @NonNull final SubscribeStreamRequest subscribeStreamRequest,
-            @NonNull final Pipeline<? super SubscribeStreamResponseUnparsed> helidonConsumerObserver) {
+            @NonNull final Pipeline<? super SubscribeStreamResponseUnparsed> helidonConsumerObserver,
+            @NonNull final ExecutorService openRangeHistoricStreamingExecutorService,
+            @NonNull final ExecutorService closedRangeHistoricStreamingExecutorService) {
 
         LOGGER.log(DEBUG, "Executing Server Streaming subscribeBlockStream gRPC method");
 
