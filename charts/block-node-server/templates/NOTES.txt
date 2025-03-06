@@ -1,7 +1,7 @@
 1. **Get the application URL** by running the following commands:
 
 ```bash
-kubectl port-forward --namespace {{ .Release.Namespace }} svc/{{.Release.Name}}-hiero-block-node 8080:{{ .Values.service.port }}
+kubectl port-forward --namespace {{ .Release.Namespace }} svc/{{.Release.Name}}-{{.Chart.Name}} 8080:{{ .Values.service.port }}
 echo "Visit http://127.0.0.1:8080 to use your application"
 ```
 
