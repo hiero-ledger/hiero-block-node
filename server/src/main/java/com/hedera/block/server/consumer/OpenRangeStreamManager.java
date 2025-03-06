@@ -384,7 +384,11 @@ public class OpenRangeStreamManager implements StreamManager {
                     if (blockItems.getLast().hasBlockProof()) {
                         final long currentLiveBlockNumber = getBlockNumber(blockItems);
 
-                        LOGGER.log(TRACE, "Found the block proof of live block number: {0}", currentLiveBlockNumber);
+                        LOGGER.log(
+                                TRACE,
+                                "{0} - Found the block proof of live block number: {1}",
+                                m.managerId,
+                                currentLiveBlockNumber);
 
                         // The poller consumed all the block items for the current block,
                         // so we know the poller is now cued up for the start of the next block.
@@ -448,7 +452,7 @@ public class OpenRangeStreamManager implements StreamManager {
                 if (liveDataOpt.isPresent()) {
                     // send data to the client
                     sendData(m, liveDataOpt.get().get());
-                    LOGGER.log(TRACE, "Fetched a live batch with data. Loop to get the next batch.");
+                    LOGGER.log(TRACE, "{0} - Fetched a live batch with data. Loop to get the next batch.", m.managerId);
                 } else {
                     LOGGER.log(TRACE, "{0} - No data returned from live poll. Loop to check again.", m.managerId);
                 }

@@ -2,6 +2,7 @@
 package com.hedera.block.server.mediator;
 
 import static com.hedera.block.server.metrics.BlockNodeMetricTypes.Counter.LiveBlockItems;
+import static com.hedera.block.server.metrics.BlockNodeMetricTypes.Gauge.Consumers;
 import static com.hedera.block.server.util.PersistTestUtils.PERSISTENCE_STORAGE_ARCHIVE_ROOT_PATH_KEY;
 import static com.hedera.block.server.util.PersistTestUtils.PERSISTENCE_STORAGE_LIVE_ROOT_PATH_KEY;
 import static com.hedera.block.server.util.PersistTestUtils.PERSISTENCE_STORAGE_UNVERIFIED_ROOT_PATH_KEY;
@@ -310,87 +311,39 @@ class LiveStreamMediatorImplTest {
         verify(asyncBlockWriterFactoryMock, timeout(TEST_TIMEOUT).times(1)).create(1L);
     }
 
-    @Disabled("@todo(751) - adapt these tests to the new streaming consumer model")
     @Test
-    void testSubAndUnsubHandling() throws IOException {
-        //        final BlockNodeContext blockNodeContext = TestConfigUtil.getTestBlockNodeContext();
-        //        final ServiceStatus serviceStatus = new ServiceStatusImpl(blockNodeContext);
-        //        final LiveStreamMediator streamMediator = LiveStreamMediatorBuilder.newBuilder(blockNodeContext,
-        // serviceStatus)
-        //                .build();
-        //
-        //        when(testClock.millis()).thenReturn(TEST_TIME, TEST_TIME + TIMEOUT_THRESHOLD_MILLIS);
-        //
-        //        final var concreteObserver1 = ConsumerStreamBuilder.build(
-        //                completionService,
-        //                testClock,
-        //                streamMediator,
-        //                helidonSubscribeStreamObserver1,
-        //                testContext.metricsService(),
-        //                testContext.configuration());
-        //        final var concreteObserver2 = ConsumerStreamBuilder.build(
-        //                completionService,
-        //                testClock,
-        //                streamMediator,
-        //                helidonSubscribeStreamObserver2,
-        //                testContext.metricsService(),
-        //                testContext.configuration());
-        //        final var concreteObserver3 = ConsumerStreamBuilder.build(
-        //                completionService,
-        //                testClock,
-        //                streamMediator,
-        //                helidonSubscribeStreamObserver3,
-        //                testContext.metricsService(),
-        //                testContext.configuration());
-        //
-        //        // Set up the subscribers
-        //        streamMediator.subscribe(concreteObserver1);
-        //        streamMediator.subscribe(concreteObserver2);
-        //        streamMediator.subscribe(concreteObserver3);
-        //
-        //        streamMediator.unsubscribe(concreteObserver1);
-        //        streamMediator.unsubscribe(concreteObserver2);
-        //        streamMediator.unsubscribe(concreteObserver3);
-        //
-        //        // Confirm the counter was never incremented
-        //        assertEquals(0, blockNodeContext.metricsService().get(LiveBlockItems).get());
-    }
+    void testPollSubscribeWhenHandlerAlreadySubscribed() {
 
-    @Disabled("@todo(751) - adapt these tests to the new streaming consumer model")
-    @Test
-    void testSubscribeWhenHandlerAlreadySubscribed() throws IOException {
-        //        final BlockNodeContext blockNodeContext = TestConfigUtil.getTestBlockNodeContext();
-        //        final LongGauge consumersGauge =
-        // blockNodeContext.metricsService().get(BlockNodeMetricTypes.Gauge.Consumers);
-        //        final ServiceStatus serviceStatus = new ServiceStatusImpl(blockNodeContext);
-        //        final LiveStreamMediator streamMediator = LiveStreamMediatorBuilder.newBuilder(blockNodeContext,
-        // serviceStatus)
-        //                .build();
-        //
-        //        final BlockNodeEventHandler<ObjectEvent<List<BlockItemUnparsed>>> concreteObserver1 =
-        //                ConsumerStreamBuilder.build(
-        //                        completionService,
-        //                        testClock,
-        //                        streamMediator,
-        //                        helidonSubscribeStreamObserver1,
-        //                        testContext.metricsService(),
-        //                        testContext.configuration());
-        //
-        //        streamMediator.subscribe(concreteObserver1);
-        //        assertTrue(streamMediator.isSubscribed(concreteObserver1));
-        //        assertEquals(1L, consumersGauge.get());
-        //
-        //        // Attempt to "re-subscribe" the observer
-        //        // Should not increment the counter or change the implementation
-        //        streamMediator.subscribe(concreteObserver1);
-        //        assertTrue(streamMediator.isSubscribed(concreteObserver1));
-        //        assertEquals(1L, consumersGauge.get());
-        //
-        //        streamMediator.unsubscribe(concreteObserver1);
-        //        assertFalse(streamMediator.isSubscribed(concreteObserver1));
-        //
-        //        // Confirm the counter was decremented
-        //        assertEquals(0L, consumersGauge.get());
+        final ServiceStatus serviceStatus = new ServiceStatusImpl(serviceConfig);
+        final LiveStreamMediator streamMediator = LiveStreamMediatorBuilder.newBuilder(
+                        metricsService, mediatorConfig, serviceStatus)
+                .build();
+
+        final StreamManager streamManager = ConsumerStreamBuilder.buildStreamManager(
+                testClock,
+                subscribeStreamRequest,
+                streamMediator,
+                helidonResponseStreamObserver1,
+                blockReader,
+                serviceStatus,
+                metricsService,
+                consumerConfig);
+
+        streamMediator.subscribePoller(streamManager);
+        assertTrue(streamMediator.isSubscribed(streamManager));
+        assertEquals(1L, metricsService.get(Consumers).get());
+
+        // Attempt to "re-subscribe" the streamManager
+        // Should not increment the counter or change the implementation
+        streamMediator.subscribePoller(streamManager);
+        assertTrue(streamMediator.isSubscribed(streamManager));
+        assertEquals(1L, metricsService.get(Consumers).get());
+
+        streamMediator.unsubscribePoller(streamManager);
+        assertFalse(streamMediator.isSubscribed(streamManager));
+
+        // Confirm the counter was decremented
+        assertEquals(0L, metricsService.get(Consumers).get());
     }
 
     @Disabled("@todo(303), @todo(306) - adapt these tests once #303 and #306 are resolved")
@@ -497,7 +450,7 @@ class LiveStreamMediatorImplTest {
         //        assertTrue(streamMediator.isSubscribed(streamValidator));
     }
 
-    @Disabled("@todo(751) - adapt these tests to the new streaming consumer model")
+    @Disabled("@todo(662): Revisit this code after we implement an error channel")
     @Test
     void testMediatorBlocksPublishAfterException() throws IOException, InterruptedException {
         //        final BlockNodeContext blockNodeContext = TestConfigUtil.getTestBlockNodeContext();
@@ -606,47 +559,46 @@ class LiveStreamMediatorImplTest {
         //        verify(asyncBlockWriterFactoryMock, timeout(TEST_TIMEOUT).times(1)).create(1L);
     }
 
-    @Disabled("@todo(751) - adapt these tests to the new streaming consumer model")
     @Test
     void testUnsubscribeWhenNotSubscribed() throws IOException {
-        //        final BlockNodeContext blockNodeContext = TestConfigUtil.getTestBlockNodeContext();
-        //        final ServiceStatus serviceStatus = new ServiceStatusImpl(blockNodeContext);
-        //        final LiveStreamMediator streamMediator = LiveStreamMediatorBuilder.newBuilder(blockNodeContext,
-        // serviceStatus)
-        //                .build();
-        //
-        //        // register the stream validator
-        //        final StreamPersistenceHandlerImpl handler = new StreamPersistenceHandlerImpl(
-        //                streamMediator,
-        //                notifier,
-        //                blockNodeContext,
-        //                serviceStatus,
-        //                ackHandlerMock,
-        //                asyncBlockWriterFactoryMock,
-        //                executorMock,
-        //                archiverMock,
-        //                persistenceStorageConfig);
-        //        streamMediator.subscribe(handler);
-        //
-        //        final BlockNodeEventHandler<ObjectEvent<List<BlockItemUnparsed>>> testConsumerBlockItemObserver =
-        //                ConsumerStreamBuilder.build(
-        //                        completionService,
-        //                        testClock,
-        //                        streamMediator,
-        //                        helidonSubscribeStreamObserver1,
-        //                        testContext.metricsService(),
-        //                        testContext.configuration());
-        //
-        //        // Confirm the observer is not subscribed
-        //        assertFalse(streamMediator.isSubscribed(testConsumerBlockItemObserver));
-        //
-        //        // Attempt to unsubscribe the observer
-        //        streamMediator.unsubscribe(testConsumerBlockItemObserver);
-        //
-        //        // Confirm the observer is still not subscribed
-        //        assertFalse(streamMediator.isSubscribed(testConsumerBlockItemObserver));
-        //
-        //        // Confirm the stream validator is still subscribed
-        //        assertTrue(streamMediator.isSubscribed(handler));
+        final ServiceStatus serviceStatus = new ServiceStatusImpl(serviceConfig);
+        final LiveStreamMediator streamMediator = LiveStreamMediatorBuilder.newBuilder(
+                        metricsService, mediatorConfig, serviceStatus)
+                .build();
+
+        final StreamPersistenceHandlerImpl handler = new StreamPersistenceHandlerImpl(
+                streamMediator,
+                notifier,
+                metricsService,
+                serviceStatus,
+                ackHandlerMock,
+                asyncBlockWriterFactoryMock,
+                executorMock,
+                archiverMock,
+                pathResolverMock,
+                persistenceStorageConfig);
+        streamMediator.subscribe(handler);
+
+        final StreamManager streamManager = ConsumerStreamBuilder.buildStreamManager(
+                testClock,
+                subscribeStreamRequest,
+                streamMediator,
+                helidonResponseStreamObserver1,
+                blockReader,
+                serviceStatus,
+                metricsService,
+                consumerConfig);
+
+        // Confirm the observer is not subscribed
+        assertFalse(streamMediator.isSubscribed(streamManager));
+
+        // Attempt to unsubscribe the observer
+        streamMediator.unsubscribePoller(streamManager);
+
+        // Confirm the observer is still not subscribed
+        assertFalse(streamMediator.isSubscribed(streamManager));
+
+        // Confirm the stream validator is still subscribed
+        assertTrue(streamMediator.isSubscribed(handler));
     }
 }
