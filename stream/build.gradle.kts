@@ -7,7 +7,7 @@ plugins {
     id("com.hedera.pbj.pbj-compiler") version "0.9.17"
 }
 
-description = "Hedera API"
+description = "Hiero API"
 
 // Remove the following line to enable all 'javac' lint checks that we have turned on by default
 // and then fix the reported issues.

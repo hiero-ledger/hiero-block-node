@@ -4,11 +4,11 @@ plugins {
     id("application")
 }
 
-description = "Hedera Block Node E2E Suites"
+description = "Hiero Block Node E2E Suites"
 
 application {
-    mainModule = "com.hedera.block.suites"
-    mainClass = "com.hedera.block.suites.BaseSuite"
+    mainModule = "org.hiero.block.suites"
+    mainClass = "org.hiero.block.suites.BaseSuite"
 }
 
 mainModuleInfo {

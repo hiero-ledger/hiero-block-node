@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
-module com.hedera.block.common {
-    exports com.hedera.block.common.constants;
-    exports com.hedera.block.common.utils;
-    exports com.hedera.block.common.hasher;
+module org.hiero.block.common {
+    exports org.hiero.block.common.constants;
+    exports org.hiero.block.common.utils;
+    exports org.hiero.block.common.hasher;
 
     requires transitive com.hedera.block.stream;
     requires transitive com.hedera.pbj.runtime;
