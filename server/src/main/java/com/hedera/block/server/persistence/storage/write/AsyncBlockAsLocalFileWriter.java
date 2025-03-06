@@ -20,6 +20,7 @@ import com.hedera.pbj.runtime.io.stream.WritableStreamingData;
 import edu.umd.cs.findbugs.annotations.NonNull;
 import java.io.IOException;
 import java.nio.file.Files;
+import java.nio.file.OpenOption;
 import java.nio.file.Path;
 import java.util.LinkedList;
 import java.util.List;
@@ -115,6 +116,8 @@ final class AsyncBlockAsLocalFileWriter implements AsyncBlockWriter {
                 }
             }
             // proceed to persist the items
+            // providing no {@link OpenOption} to the newOutputStream method
+            // will create the file if it does not exist or truncate it if it does
             try (final WritableStreamingData wsd = new WritableStreamingData(
                     compression.wrap(Files.newOutputStream(getResolvedUnverifiedBlockPath())))) {
                 final BlockUnparsed blockToWrite =
@@ -128,21 +131,19 @@ final class AsyncBlockAsLocalFileWriter implements AsyncBlockWriter {
         }
     }
 
-    private Path getResolvedUnverifiedBlockPath() throws IOException {
+    /**
+     * This method will resolve the path to where the unverified block must be
+     * written. We only need to resolve the path to the block. Unverified blocks
+     * can be overwritten. This path will be used to open a new output stream
+     * using {@link Files#newOutputStream(Path, OpenOption...)}. By default, if
+     * no options are provided, the file will be created if it does not exist or
+     * truncated if it does exist (effectively overwritten).
+     *
+     * @return the resolved path to the unverified block
+     */
+    private Path getResolvedUnverifiedBlockPath() {
         final Path rawUnverifiedBlockPath = blockPathResolver.resolveLiveRawUnverifiedPathToBlock(blockNumber);
-        final Path resolvedRawUnverifiedBlockPath =
-                FileUtilities.appendExtension(rawUnverifiedBlockPath, compression.getCompressionFileExtension());
-        if (Files.deleteIfExists(resolvedRawUnverifiedBlockPath)) {
-            // We should not throw, unverified blocks are allowed to be overwritten
-            // in the beginning of the task we check if the block is already persisted
-            // and verified. Those must never be overwritten! If we have reached
-            // here, we must know that the block has never been persisted before.
-            // Else we need not create the file, it will be overwritten since is
-            // unverified. If the createFile method throws an exception here,
-            // it is either a bug, or a potential race condition!
-            FileUtilities.createFile(resolvedRawUnverifiedBlockPath);
-        }
-        return resolvedRawUnverifiedBlockPath;
+        return FileUtilities.appendExtension(rawUnverifiedBlockPath, compression.getCompressionFileExtension());
     }
 
     /**
