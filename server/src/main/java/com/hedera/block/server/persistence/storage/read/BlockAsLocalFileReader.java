@@ -71,6 +71,7 @@ public final class BlockAsLocalFileReader implements LocalBlockReader<BlockUnpar
                 final ArchiveBlockPath archiveBlockPath = optArchivedBlock.get();
                 final Path zipFilePath = archiveBlockPath.dirPath().resolve(archiveBlockPath.zipFileName());
                 final BlockUnparsed value;
+                // @todo(741) update reader to use zipfs to read blocks
                 try (final ZipFile zipFile = new ZipFile(zipFilePath.toFile())) {
                     final ZipEntry entry = zipFile.getEntry(archiveBlockPath.zipEntryName());
                     final InputStream in = zipFile.getInputStream(entry);

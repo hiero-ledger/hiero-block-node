@@ -22,6 +22,7 @@ import com.hedera.block.server.block.BlockInfo;
 import com.hedera.block.server.metrics.BlockNodeMetricTypes;
 import com.hedera.block.server.metrics.MetricsService;
 import com.hedera.block.server.notifier.Notifier;
+import com.hedera.block.server.persistence.StreamPersistenceHandlerImpl;
 import com.hedera.block.server.persistence.storage.remove.BlockRemover;
 import com.hedera.block.server.persistence.storage.write.BlockPersistenceResult;
 import com.hedera.block.server.persistence.storage.write.BlockPersistenceResult.BlockPersistenceStatus;
@@ -48,6 +49,8 @@ import org.mockito.junit.jupiter.MockitoExtension;
 
 @ExtendWith(MockitoExtension.class)
 class AckHandlerImplTest {
+    @Mock
+    private StreamPersistenceHandlerImpl persistenceHandlerMock;
 
     @Mock
     private Notifier notifier;
@@ -71,6 +74,7 @@ class AckHandlerImplTest {
                 .when(metricsService.get(BlockNodeMetricTypes.Counter.AckedBlocked))
                 .thenReturn(metric);
         ackHandler = new AckHandlerImpl(notifier, false, serviceStatus, blockRemover, metricsService);
+        ackHandler.registerPersistence(persistenceHandlerMock);
     }
 
     @Test
@@ -278,17 +282,14 @@ class AckHandlerImplTest {
     })
     void highlyConcurrentAckHandlerTest(int blockCount, int maxPersistDelayNanos, int maxVerifyDelayNanos)
             throws Exception {
-        // Create the instance under test (with skipAcknowledgement = false).
-        AckHandlerImpl ackHandler = new AckHandlerImpl(notifier, false, serviceStatus, blockRemover, metricsService);
-
         // Use an ExecutorService to run two concurrent tasks.
-        ExecutorService executor = Executors.newFixedThreadPool(2);
-        CountDownLatch startLatch = new CountDownLatch(1);
-        CountDownLatch doneLatch = new CountDownLatch(2);
-        Random random = new Random();
+        final ExecutorService executor = Executors.newFixedThreadPool(2);
+        final CountDownLatch startLatch = new CountDownLatch(1);
+        final CountDownLatch doneLatch = new CountDownLatch(2);
+        final Random random = new Random();
 
         // Thread that sends persistence events.
-        Runnable persistTask = () -> {
+        final Runnable persistTask = () -> {
             try {
                 startLatch.await();
                 for (int i = 1; i <= blockCount; i++) {
@@ -298,7 +299,7 @@ class AckHandlerImplTest {
                         TimeUnit.NANOSECONDS.sleep(delay);
                     }
                 }
-            } catch (InterruptedException ex) {
+            } catch (final InterruptedException ex) {
                 Thread.currentThread().interrupt();
             } finally {
                 doneLatch.countDown();
@@ -306,18 +307,18 @@ class AckHandlerImplTest {
         };
 
         // Thread that sends verification events.
-        Runnable verifyTask = () -> {
+        final Runnable verifyTask = () -> {
             try {
                 startLatch.await();
                 for (int i = 1; i <= blockCount; i++) {
-                    Bytes blockHash = bytesFromLong(i);
+                    final Bytes blockHash = bytesFromLong(i);
                     ackHandler.blockVerified(i, blockHash);
                     if (maxVerifyDelayNanos > 0) {
                         long delay = random.nextInt(maxVerifyDelayNanos + 1);
                         TimeUnit.NANOSECONDS.sleep(delay);
                     }
                 }
-            } catch (InterruptedException ex) {
+            } catch (final InterruptedException ex) {
                 Thread.currentThread().interrupt();
             } finally {
                 doneLatch.countDown();
@@ -332,12 +333,12 @@ class AckHandlerImplTest {
         // Wait a bit to ensure all ACKs are processed.
         Thread.sleep(100);
 
-        ArgumentCaptor<Long> blockNumberCaptor = ArgumentCaptor.forClass(Long.class);
-        ArgumentCaptor<Bytes> blockHashCaptor = ArgumentCaptor.forClass(Bytes.class);
+        final ArgumentCaptor<Long> blockNumberCaptor = ArgumentCaptor.forClass(Long.class);
+        final ArgumentCaptor<Bytes> blockHashCaptor = ArgumentCaptor.forClass(Bytes.class);
         verify(notifier, times(blockCount))
                 .sendAck(blockNumberCaptor.capture(), blockHashCaptor.capture(), anyBoolean());
-        List<Long> capturedBlockNumbers = blockNumberCaptor.getAllValues();
-        List<Bytes> capturedBlockHashes = blockHashCaptor.getAllValues();
+        final List<Long> capturedBlockNumbers = blockNumberCaptor.getAllValues();
+        final List<Bytes> capturedBlockHashes = blockHashCaptor.getAllValues();
 
         assertEquals(blockCount, capturedBlockNumbers.size(), "Number of ACKs mismatch");
         for (int i = 0; i < blockCount; i++) {
@@ -347,9 +348,9 @@ class AckHandlerImplTest {
                     bytesFromLong(expected), capturedBlockHashes.get(i), "Block hash mismatch at block " + expected);
         }
         // verify that the serviceStatus was updated with the final block.
-        ArgumentCaptor<BlockInfo> blockInfoCaptor = ArgumentCaptor.forClass(BlockInfo.class);
+        final ArgumentCaptor<BlockInfo> blockInfoCaptor = ArgumentCaptor.forClass(BlockInfo.class);
         verify(serviceStatus, atLeastOnce()).setLatestAckedBlock(blockInfoCaptor.capture());
-        BlockInfo latest = blockInfoCaptor.getValue();
+        final BlockInfo latest = blockInfoCaptor.getValue();
         assertNotNull(latest, "Latest acked block should not be null");
         assertEquals(blockCount, latest.getBlockNumber(), "Latest acknowledged block number mismatch");
     }

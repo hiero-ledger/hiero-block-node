@@ -154,6 +154,7 @@ public interface PersistenceInjectionModule {
     @Singleton
     static LocalBlockArchiver providesLocalBlockArchiver(
             @NonNull final PersistenceStorageConfig config, @NonNull final BlockPathResolver blockPathResolver) {
+        // @todo(740) allow for configurable executor for the archiver
         return new BlockAsLocalFileArchiver(config, blockPathResolver, Executors.newFixedThreadPool(5));
     }
 
@@ -176,6 +177,7 @@ public interface PersistenceInjectionModule {
             @NonNull final ServiceStatus serviceStatus,
             @NonNull final AckHandler ackHandler,
             @NonNull final AsyncBlockWriterFactory asyncBlockWriterFactory,
+            @NonNull final BlockPathResolver blockPathResolver,
             @NonNull final PersistenceStorageConfig persistenceStorageConfig,
             @NonNull final LocalBlockArchiver localBlockArchiver) {
         try {
@@ -188,6 +190,7 @@ public interface PersistenceInjectionModule {
                     asyncBlockWriterFactory,
                     Executors.newFixedThreadPool(5),
                     localBlockArchiver,
+                    blockPathResolver,
                     persistenceStorageConfig);
         } catch (final IOException e) {
             throw new UncheckedIOException(e);

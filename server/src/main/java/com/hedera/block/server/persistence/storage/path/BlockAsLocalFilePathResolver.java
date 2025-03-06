@@ -23,6 +23,7 @@ public final class BlockAsLocalFilePathResolver implements BlockPathResolver {
     private static final int MAX_LONG_DIGITS = 19;
     private final Path liveRootPath;
     private final Path archiveRootPath;
+    private final Path unverifiedRootPath;
     private final int archiveGroupSize;
     private final int archiveDirDepth;
     private final DecimalFormat longLeadingZeroesFormat;
@@ -36,6 +37,7 @@ public final class BlockAsLocalFilePathResolver implements BlockPathResolver {
     public BlockAsLocalFilePathResolver(@NonNull final PersistenceStorageConfig config) throws IOException {
         this.liveRootPath = Objects.requireNonNull(config.liveRootPath());
         this.archiveRootPath = Objects.requireNonNull(config.archiveRootPath());
+        this.unverifiedRootPath = Objects.requireNonNull(config.unverifiedRootPath());
         this.archiveGroupSize = config.archiveGroupSize();
         this.archiveDirDepth = MAX_LONG_DIGITS - (int) Math.log10(this.archiveGroupSize);
         this.longLeadingZeroesFormat = new DecimalFormat("0".repeat(MAX_LONG_DIGITS));
@@ -54,10 +56,8 @@ public final class BlockAsLocalFilePathResolver implements BlockPathResolver {
     @Override
     public Path resolveLiveRawUnverifiedPathToBlock(final long blockNumber) {
         Preconditions.requireWhole(blockNumber);
-        final String[] blockPath = getRawBlockPath(blockNumber);
-        blockPath[blockPath.length - 1] =
-                blockPath[blockPath.length - 1].concat(Constants.UNVERIFIED_BLOCK_FILE_EXTENSION);
-        return Path.of(liveRootPath.toString(), blockPath);
+        return unverifiedRootPath.resolve(
+                longLeadingZeroesFormat.format(blockNumber).concat(Constants.BLOCK_FILE_EXTENSION));
     }
 
     @NonNull
@@ -130,27 +130,36 @@ public final class BlockAsLocalFilePathResolver implements BlockPathResolver {
         return result;
     }
 
+    @NonNull
+    @Override
+    public Optional<UnverifiedBlockPath> findUnverifiedBlock(final long blockNumber) {
+        Preconditions.requireWhole(blockNumber);
+        final Path unverifiedPathToBlock =
+                resolveLiveRawUnverifiedPathToBlock(blockNumber); // here is the raw path, no extension
+        Optional<UnverifiedBlockPath> result = Optional.empty();
+        final CompressionType[] allCompressionTypes = CompressionType.values();
+        for (int i = 0; i < allCompressionTypes.length; i++) {
+            final CompressionType localCompressionType = allCompressionTypes[i];
+            final Path compressionExtendedBlockPath =
+                    FileUtilities.appendExtension(unverifiedPathToBlock, localCompressionType.getFileExtension());
+            if (Files.exists(compressionExtendedBlockPath)) {
+                final Path dirPath = compressionExtendedBlockPath.getParent();
+                final String blockFileName =
+                        compressionExtendedBlockPath.getFileName().toString();
+                final UnverifiedBlockPath toReturn =
+                        new UnverifiedBlockPath(blockNumber, dirPath, blockFileName, localCompressionType);
+                result = Optional.of(toReturn);
+                break;
+            }
+        }
+        return result;
+    }
+
     @Override
     public boolean existsVerifiedBlock(final long blockNumber) {
         Preconditions.requireWhole(blockNumber);
         return findLiveBlock(blockNumber).isPresent()
                 || findArchivedBlock(blockNumber).isPresent();
-    }
-
-    @Override
-    public void markVerified(final long blockNumber) throws IOException {
-        Preconditions.requireWhole(blockNumber);
-        final Path pathToUnverifiedBlockNoCompressionExtension = resolveLiveRawUnverifiedPathToBlock(blockNumber);
-        final CompressionType[] allCompressionTypes = CompressionType.values();
-        for (int i = 0; i < allCompressionTypes.length; i++) {
-            final CompressionType compressionType = allCompressionTypes[i];
-            final Path compressionExtendedUnverifiedPath = FileUtilities.appendExtension(
-                    pathToUnverifiedBlockNoCompressionExtension, compressionType.getFileExtension());
-            if (Files.exists(compressionExtendedUnverifiedPath)) {
-                doMarkUnverified(compressionExtendedUnverifiedPath);
-                break;
-            }
-        }
     }
 
     /**
@@ -179,14 +188,6 @@ public final class BlockAsLocalFilePathResolver implements BlockPathResolver {
         final String[] split = rawBlockNumber.split("");
         split[split.length - 1] = rawBlockNumber;
         return split;
-    }
-
-    private void doMarkUnverified(final Path targetToMove) throws IOException {
-        final String verifiedBlockFileName = targetToMove
-                .getFileName()
-                .toString()
-                .replace(Constants.UNVERIFIED_BLOCK_FILE_EXTENSION, Constants.BLOCK_FILE_EXTENSION);
-        Files.move(targetToMove, targetToMove.resolveSibling(verifiedBlockFileName));
     }
 
     private Path resolveRawArchivingTarget(final long blockNumber, final Path basePath, final String extension) {
