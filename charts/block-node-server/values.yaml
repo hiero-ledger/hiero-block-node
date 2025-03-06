@@ -58,8 +58,8 @@ ingress:
 
 resources:
   requests:
-    cpu: "8"
-    memory: "24Gi"
+    cpu: "3"
+    memory: "12Gi"
 
 nodeSelector: {}
 
@@ -74,7 +74,7 @@ blockNode:
     # Add any additional env configuration here
     # key: value
     JAVA_TOOL_OPTIONS: "-Djava.util.logging.config.file=/app/logs/config/logging.properties"
-    JAVA_OPTS: "-Xms16G -Xmx16G"
+    JAVA_OPTS: "-Xms8G -Xmx8G"
     # PRODUCER_TYPE: "NO_OP"
     # PERSISTENCE_STORAGE_TYPE: "NO_OP"
     # VERIFICATION_TYPE: "NO_OP"
