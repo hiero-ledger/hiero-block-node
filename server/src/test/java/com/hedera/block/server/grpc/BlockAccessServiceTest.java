@@ -11,7 +11,7 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-import com.hedera.block.server.config.BlockNodeContext;
+import com.hedera.block.server.metrics.MetricsService;
 import com.hedera.block.server.pbj.PbjBlockAccessService;
 import com.hedera.block.server.pbj.PbjBlockAccessServiceProxy;
 import com.hedera.block.server.persistence.storage.PersistenceStorageConfig;
@@ -26,6 +26,7 @@ import com.hedera.hapi.block.SingleBlockResponseUnparsed;
 import com.hedera.pbj.runtime.ParseException;
 import com.hedera.pbj.runtime.grpc.Pipeline;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
+import com.swirlds.config.api.Configuration;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.List;
@@ -53,19 +54,19 @@ class BlockAccessServiceTest {
     @TempDir
     private Path testTempDir;
 
-    private BlockNodeContext blockNodeContext;
-    private PersistenceStorageConfig testConfig;
+    private MetricsService metricsService;
     private PbjBlockAccessService blockAccessService;
 
     @BeforeEach
     void setUp() throws IOException {
         final Path testLiveRootPath = testTempDir.resolve("live");
-        blockNodeContext = TestConfigUtil.getTestBlockNodeContext(
-                Map.of(PERSISTENCE_STORAGE_LIVE_ROOT_PATH_KEY, testLiveRootPath.toString()));
-        testConfig = blockNodeContext.configuration().getConfigData(PersistenceStorageConfig.class);
-        final Path testConfigLiveRootPath = testConfig.liveRootPath();
+        Map<String, String> configMap = Map.of(PERSISTENCE_STORAGE_LIVE_ROOT_PATH_KEY, testLiveRootPath.toString());
+        Configuration config = TestConfigUtil.getTestBlockNodeConfiguration(configMap);
+        metricsService = TestConfigUtil.getTestBlockNodeMetricsService(config);
+        PersistenceStorageConfig persistenceStorageConfig = config.getConfigData(PersistenceStorageConfig.class);
+        blockAccessService = new PbjBlockAccessServiceProxy(serviceStatus, blockReader, metricsService);
+        final Path testConfigLiveRootPath = persistenceStorageConfig.liveRootPath();
         assertThat(testConfigLiveRootPath).isEqualTo(testLiveRootPath);
-        blockAccessService = new PbjBlockAccessServiceProxy(serviceStatus, blockReader, blockNodeContext);
     }
 
     @Test

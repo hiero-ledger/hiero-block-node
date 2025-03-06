@@ -3,7 +3,6 @@ package com.hedera.block.server.metrics;
 
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 
-import com.hedera.block.server.config.BlockNodeContext;
 import com.hedera.block.server.util.TestConfigUtil;
 import com.swirlds.config.api.Configuration;
 import com.swirlds.metrics.api.Metrics;
@@ -17,8 +16,7 @@ class MetricsInjectionModuleTest {
 
     @Test
     void testProvideMetrics() throws IOException {
-        BlockNodeContext context = TestConfigUtil.getTestBlockNodeContext();
-        Configuration configuration = context.configuration();
+        Configuration configuration = TestConfigUtil.getTestBlockNodeConfiguration();
 
         // Call the method under test
         Metrics providedMetrics = MetricsInjectionModule.provideMetrics(configuration);

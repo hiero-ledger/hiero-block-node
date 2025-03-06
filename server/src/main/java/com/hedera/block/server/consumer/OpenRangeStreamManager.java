@@ -18,7 +18,6 @@ import com.hedera.hapi.block.SubscribeStreamRequest;
 import com.hedera.hapi.block.SubscribeStreamResponseCode;
 import com.hedera.hapi.block.stream.BlockProof;
 import com.hedera.pbj.runtime.ParseException;
-import com.swirlds.config.api.Configuration;
 import edu.umd.cs.findbugs.annotations.NonNull;
 import java.io.UncheckedIOException;
 import java.time.InstantSource;
@@ -72,11 +71,10 @@ public class OpenRangeStreamManager implements StreamManager {
             @NonNull final ConsumerStreamResponseObserver consumerStreamResponseObserver,
             @NonNull final ServiceStatus serviceStatus,
             @NonNull final MetricsService metricsService,
-            @NonNull final Configuration configuration) {
+            @NonNull final ConsumerConfig consumerConfig) {
 
-        this.livenessCalculator = new LivenessCalculator(
-                producerLivenessClock,
-                configuration.getConfigData(ConsumerConfig.class).timeoutThresholdMillis());
+        this.livenessCalculator =
+                new LivenessCalculator(producerLivenessClock, consumerConfig.timeoutThresholdMillis());
 
         this.currentLiveBlockNumber = new AtomicLong(0);
         this.currentHistoricBlockNumber = new AtomicLong(subscribeStreamRequest.startBlockNumber());

@@ -6,7 +6,6 @@ import com.hedera.block.server.persistence.storage.read.BlockReader;
 import com.hedera.hapi.block.BlockUnparsed;
 import com.hedera.hapi.block.SubscribeStreamResponseUnparsed;
 import com.hedera.pbj.runtime.grpc.Pipeline;
-import com.swirlds.config.api.Configuration;
 import edu.umd.cs.findbugs.annotations.NonNull;
 
 /**
@@ -23,7 +22,7 @@ public final class ClosedRangeHistoricStreamEventHandlerBuilder {
      * @param blockReader - the block reader to query for blocks
      * @param helidonConsumerObserver - the consumer observer used to send data to the consumer
      * @param metricsService - the service responsible for handling metrics
-     * @param configuration - the configuration settings for the block node
+     * @param consumerConfig - the configuration settings for the consumer
      * @return a new instance of a closed range historic stream event handler
      */
     @NonNull
@@ -33,9 +32,9 @@ public final class ClosedRangeHistoricStreamEventHandlerBuilder {
             @NonNull final BlockReader<BlockUnparsed> blockReader,
             @NonNull final Pipeline<? super SubscribeStreamResponseUnparsed> helidonConsumerObserver,
             @NonNull final MetricsService metricsService,
-            @NonNull final Configuration configuration) {
+            @NonNull final ConsumerConfig consumerConfig) {
 
         return new HistoricBlockStreamSupplier(
-                startBlockNumber, endBlockNumber, blockReader, helidonConsumerObserver, metricsService, configuration);
+                startBlockNumber, endBlockNumber, blockReader, helidonConsumerObserver, metricsService, consumerConfig);
     }
 }

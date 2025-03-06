@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 package com.hedera.block.server.util;
 
-import com.hedera.block.server.config.BlockNodeContext;
 import com.hedera.block.server.consumer.ConsumerConfig;
 import com.hedera.block.server.metrics.MetricsService;
 import com.hedera.block.server.metrics.MetricsServiceImpl;
@@ -24,7 +23,7 @@ public class TestConfigUtil {
     private TestConfigUtil() {}
 
     @NonNull
-    public static BlockNodeContext getTestBlockNodeContext(@NonNull Map<String, String> customProperties)
+    public static Configuration getTestBlockNodeConfiguration(@NonNull Map<String, String> customProperties)
             throws IOException {
 
         // create test configuration
@@ -39,18 +38,34 @@ public class TestConfigUtil {
         }
 
         testConfigBuilder = testConfigBuilder.withConfigDataType(ConsumerConfig.class);
-
-        Configuration testConfiguration = testConfigBuilder.build();
-
-        Metrics metrics = getTestMetrics(testConfiguration);
-
-        MetricsService metricsService = new MetricsServiceImpl(metrics);
-
-        return new BlockNodeContext(metricsService, testConfiguration);
+        return testConfigBuilder.build();
     }
 
-    public static BlockNodeContext getTestBlockNodeContext() throws IOException {
-        return getTestBlockNodeContext(Collections.emptyMap());
+    @NonNull
+    public static MetricsService getTestBlockNodeMetricsService(@NonNull Map<String, String> customProperties)
+            throws IOException {
+
+        Metrics metrics = getTestMetrics(getTestBlockNodeConfiguration(customProperties));
+        return new MetricsServiceImpl(metrics);
+    }
+
+    @NonNull
+    public static MetricsService getTestBlockNodeMetricsService(@NonNull Configuration configuration)
+            throws IOException {
+
+        Metrics metrics = getTestMetrics(configuration);
+        return new MetricsServiceImpl(metrics);
+    }
+
+    @NonNull
+    public static Configuration getTestBlockNodeConfiguration() throws IOException {
+        return getTestBlockNodeConfiguration(Collections.emptyMap());
+    }
+
+    @NonNull
+    public static MetricsService getTestBlockNodeMetricsService() throws IOException {
+        Metrics metrics = getTestMetrics(getTestBlockNodeConfiguration(Collections.emptyMap()));
+        return new MetricsServiceImpl(metrics);
     }
 
     // TODO: we need to create a Mock metrics, and avoid using the real metrics for tests

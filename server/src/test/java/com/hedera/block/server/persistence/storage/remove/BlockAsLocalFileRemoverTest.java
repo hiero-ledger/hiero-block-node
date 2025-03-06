@@ -8,11 +8,11 @@ import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.when;
 
 import com.hedera.block.server.Constants;
-import com.hedera.block.server.config.BlockNodeContext;
 import com.hedera.block.server.persistence.storage.PersistenceStorageConfig;
 import com.hedera.block.server.persistence.storage.path.BlockAsLocalFilePathResolver;
 import com.hedera.block.server.persistence.storage.path.BlockPathResolver;
 import com.hedera.block.server.util.TestConfigUtil;
+import com.swirlds.config.api.Configuration;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -39,12 +39,11 @@ class BlockAsLocalFileRemoverTest {
         final HashMap<String, String> props = new HashMap<>();
         final Path unverifiedRootPath = testTempPath.resolve("unverified");
         props.put(PERSISTENCE_STORAGE_UNVERIFIED_ROOT_PATH_KEY, unverifiedRootPath.toString());
-        final BlockNodeContext blockNodeContext = TestConfigUtil.getTestBlockNodeContext(props);
-        final PersistenceStorageConfig testConfig =
-                blockNodeContext.configuration().getConfigData(PersistenceStorageConfig.class);
-        final Path testConfigUnverifiedRootPath = testConfig.unverifiedRootPath();
+        Configuration config = TestConfigUtil.getTestBlockNodeConfiguration(props);
+        final PersistenceStorageConfig persistenceStorageConfig = config.getConfigData(PersistenceStorageConfig.class);
+        final Path testConfigUnverifiedRootPath = persistenceStorageConfig.unverifiedRootPath();
         assertThat(testConfigUnverifiedRootPath).isEqualTo(unverifiedRootPath);
-        blockPathResolverMock = spy(new BlockAsLocalFilePathResolver(testConfig));
+        blockPathResolverMock = spy(new BlockAsLocalFilePathResolver(persistenceStorageConfig));
         toTest = new BlockAsLocalFileRemover(blockPathResolverMock);
     }
 

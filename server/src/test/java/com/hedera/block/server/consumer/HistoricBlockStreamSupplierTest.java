@@ -2,7 +2,6 @@
 package com.hedera.block.server.consumer;
 
 import static com.hedera.block.server.util.PersistTestUtils.generateBlockItemsUnparsedForWithBlockNumber;
-import static com.hedera.block.server.util.TestConfigUtil.getTestBlockNodeContext;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.timeout;
 import static org.mockito.Mockito.times;
@@ -10,13 +9,15 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.hedera.block.common.utils.ChunkUtils;
-import com.hedera.block.server.config.BlockNodeContext;
+import com.hedera.block.server.metrics.MetricsService;
 import com.hedera.block.server.persistence.storage.read.BlockReader;
+import com.hedera.block.server.util.TestConfigUtil;
 import com.hedera.hapi.block.BlockItemUnparsed;
 import com.hedera.hapi.block.BlockUnparsed;
 import com.hedera.hapi.block.SubscribeStreamResponseUnparsed;
 import com.hedera.pbj.runtime.ParseException;
 import com.hedera.pbj.runtime.grpc.Pipeline;
+import com.swirlds.config.api.Configuration;
 import java.io.IOException;
 import java.util.LinkedList;
 import java.util.List;
@@ -44,8 +45,9 @@ public class HistoricBlockStreamSupplierTest {
     @Mock
     private Pipeline<? super SubscribeStreamResponseUnparsed> closedRangeHistoricStreamObserver;
 
-    @Mock
-    private BlockNodeContext blockNodeContext;
+    private MetricsService metricsService;
+
+    private ConsumerConfig consumerConfig;
 
     private HistoricBlockStreamSupplier historicBlockStreamSupplier;
 
@@ -55,20 +57,15 @@ public class HistoricBlockStreamSupplierTest {
 
     @BeforeEach
     public void setUp() throws IOException {
-        this.blockNodeContext = getTestBlockNodeContext(Map.of("consumer.maxBlockItemBatchSize", "10"));
-        this.maxBlockItemBatchSize = blockNodeContext
-                .configuration()
-                .getConfigData(ConsumerConfig.class)
-                .maxBlockItemBatchSize();
+        Map<String, String> configMap = Map.of("consumer.maxBlockItemBatchSize", "10");
+        Configuration config = TestConfigUtil.getTestBlockNodeConfiguration(configMap);
+        this.metricsService = TestConfigUtil.getTestBlockNodeMetricsService(config);
+        this.consumerConfig = config.getConfigData(ConsumerConfig.class);
+        this.maxBlockItemBatchSize = consumerConfig.maxBlockItemBatchSize();
 
         // The startBlockNumber and endBlockNumber don't matter for these tests
         this.historicBlockStreamSupplier = new HistoricBlockStreamSupplier(
-                0L,
-                10L,
-                blockReader,
-                helidonConsumerObserver,
-                blockNodeContext.metricsService(),
-                blockNodeContext.configuration());
+                0L, 10L, blockReader, helidonConsumerObserver, metricsService, consumerConfig);
     }
 
     @ParameterizedTest
@@ -94,12 +91,7 @@ public class HistoricBlockStreamSupplierTest {
         }
 
         final Runnable closedRangeHistoricStreamingRunnable = ClosedRangeHistoricStreamEventHandlerBuilder.build(
-                1L,
-                numberOfBlocks,
-                blockReader,
-                closedRangeHistoricStreamObserver,
-                blockNodeContext.metricsService(),
-                blockNodeContext.configuration());
+                1L, numberOfBlocks, blockReader, closedRangeHistoricStreamObserver, metricsService, consumerConfig);
 
         closedRangeHistoricStreamingRunnable.run();
 
@@ -116,12 +108,7 @@ public class HistoricBlockStreamSupplierTest {
         when(blockReader.read(1)).thenReturn(Optional.empty());
 
         final HistoricBlockStreamSupplier historicBlockStreamSupplier = new HistoricBlockStreamSupplier(
-                1L,
-                1L,
-                blockReader,
-                helidonConsumerObserver,
-                blockNodeContext.metricsService(),
-                blockNodeContext.configuration());
+                1L, 1L, blockReader, helidonConsumerObserver, metricsService, consumerConfig);
 
         historicBlockStreamSupplier.run();
 

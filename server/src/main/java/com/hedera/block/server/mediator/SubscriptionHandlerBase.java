@@ -15,7 +15,6 @@ import com.lmax.disruptor.EventPoller;
 import com.lmax.disruptor.RingBuffer;
 import com.lmax.disruptor.dsl.Disruptor;
 import com.lmax.disruptor.util.DaemonThreadFactory;
-import com.swirlds.config.api.Configuration;
 import com.swirlds.metrics.api.LongGauge;
 import edu.umd.cs.findbugs.annotations.NonNull;
 import java.util.Map;
@@ -41,7 +40,7 @@ public abstract class SubscriptionHandlerBase<V> implements SubscriptionHandler<
     /** The ring buffer to publish events to the subscribers. */
     protected final RingBuffer<ObjectEvent<V>> ringBuffer;
 
-    private final Configuration configuration;
+    private final MediatorConfig mediatorConfig;
 
     private final LongGauge consumerGauge;
     private final ExecutorService executor;
@@ -56,18 +55,18 @@ public abstract class SubscriptionHandlerBase<V> implements SubscriptionHandler<
      *     implementation is thread-safe
      *
      * @param metricsService the metrics service
-     * @param configuration the configuration
+     * @param mediatorConfig the configuration
      */
     protected SubscriptionHandlerBase(
             @NonNull final Map<BlockNodeEventHandler<ObjectEvent<V>>, BatchEventProcessor<ObjectEvent<V>>> subscribers,
             @NonNull final MetricsService metricsService,
-            @NonNull final Configuration configuration,
+            @NonNull final MediatorConfig mediatorConfig,
             final int ringBufferSize) {
 
         this.subscribers = subscribers;
         this.pollSubscribers = new ConcurrentHashMap<>();
         this.consumerGauge = metricsService.get(Consumers);
-        this.configuration = configuration;
+        this.mediatorConfig = mediatorConfig;
 
         // Initialize and start the disruptor
         final Disruptor<ObjectEvent<V>> disruptor =
@@ -113,7 +112,7 @@ public abstract class SubscriptionHandlerBase<V> implements SubscriptionHandler<
             consumerGauge.set(subscribers.size() + pollSubscribers.size());
             LOGGER.log(DEBUG, "Subscribed poller");
 
-            return new LiveStreamPoller<>(eventPoller, ringBuffer, configuration);
+            return new LiveStreamPoller<>(eventPoller, ringBuffer, mediatorConfig);
         } else {
             LOGGER.log(WARNING, "Poller already subscribed");
         }

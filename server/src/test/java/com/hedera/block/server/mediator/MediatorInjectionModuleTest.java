@@ -4,10 +4,11 @@ package com.hedera.block.server.mediator;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 
-import com.hedera.block.server.config.BlockNodeContext;
+import com.hedera.block.server.metrics.MetricsService;
 import com.hedera.block.server.service.ServiceStatus;
 import com.hedera.block.server.util.TestConfigUtil;
 import com.hedera.hapi.block.BlockItemUnparsed;
+import com.swirlds.config.api.Configuration;
 import java.io.IOException;
 import java.util.List;
 import java.util.Map;
@@ -31,11 +32,13 @@ class MediatorInjectionModuleTest {
     @Test
     void testProvidesStreamMediator() throws IOException {
 
-        BlockNodeContext blockNodeContext = TestConfigUtil.getTestBlockNodeContext();
+        Configuration configuration = TestConfigUtil.getTestBlockNodeConfiguration();
+        MetricsService metricsService = TestConfigUtil.getTestBlockNodeMetricsService();
 
         // Call the method under test
         StreamMediator<List<BlockItemUnparsed>, List<BlockItemUnparsed>> streamMediator =
-                MediatorInjectionModule.providesLiveStreamMediator(blockNodeContext, serviceStatus);
+                MediatorInjectionModule.providesLiveStreamMediator(
+                        configuration.getConfigData(MediatorConfig.class), metricsService, serviceStatus);
 
         // Verify that the streamMediator is correctly instantiated
         assertNotNull(streamMediator);
@@ -46,11 +49,13 @@ class MediatorInjectionModuleTest {
     void testNoOpProvidesStreamMediator() throws IOException {
 
         Map<String, String> properties = Map.of("mediator.type", MediatorConfig.MediatorType.NO_OP.toString());
-        BlockNodeContext blockNodeContext = TestConfigUtil.getTestBlockNodeContext(properties);
+        Configuration configuration = TestConfigUtil.getTestBlockNodeConfiguration(properties);
+        MetricsService metricsService = TestConfigUtil.getTestBlockNodeMetricsService(configuration);
 
         // Call the method under test
         StreamMediator<List<BlockItemUnparsed>, List<BlockItemUnparsed>> streamMediator =
-                MediatorInjectionModule.providesLiveStreamMediator(blockNodeContext, serviceStatus);
+                MediatorInjectionModule.providesLiveStreamMediator(
+                        configuration.getConfigData(MediatorConfig.class), metricsService, serviceStatus);
 
         // Verify that the streamMediator is correctly instantiated
         assertNotNull(streamMediator);

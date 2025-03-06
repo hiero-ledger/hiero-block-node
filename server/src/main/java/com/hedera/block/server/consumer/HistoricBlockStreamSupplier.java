@@ -14,7 +14,6 @@ import com.hedera.hapi.block.BlockItemUnparsed;
 import com.hedera.hapi.block.BlockUnparsed;
 import com.hedera.hapi.block.SubscribeStreamResponseUnparsed;
 import com.hedera.pbj.runtime.grpc.Pipeline;
-import com.swirlds.config.api.Configuration;
 import edu.umd.cs.findbugs.annotations.NonNull;
 import java.util.List;
 import java.util.Objects;
@@ -42,7 +41,7 @@ class HistoricBlockStreamSupplier implements Runnable {
      * @param blockReader - the block reader to query for blocks
      * @param helidonConsumerObserver - the consumer stream response observer to send the blocks
      * @param metricsService - the service responsible for handling metrics
-     * @param configuration - the configuration settings for the block node
+     * @param consumerConfig - the configuration settings for the consumer
      */
     public HistoricBlockStreamSupplier(
             long startBlockNumber,
@@ -50,15 +49,13 @@ class HistoricBlockStreamSupplier implements Runnable {
             @NonNull final BlockReader<BlockUnparsed> blockReader,
             @NonNull final Pipeline<? super SubscribeStreamResponseUnparsed> helidonConsumerObserver,
             @NonNull final MetricsService metricsService,
-            @NonNull final Configuration configuration) {
+            @NonNull final ConsumerConfig consumerConfig) {
         this.startBlockNumber = startBlockNumber;
         this.endBlockNumber = endBlockNumber;
         this.blockReader = Objects.requireNonNull(blockReader);
 
         this.metricsService = Objects.requireNonNull(metricsService);
-        final ConsumerConfig consumerConfig =
-                Objects.requireNonNull(configuration).getConfigData(ConsumerConfig.class);
-        this.maxBlockItemBatchSize = Objects.requireNonNull(consumerConfig).maxBlockItemBatchSize();
+        this.maxBlockItemBatchSize = consumerConfig.maxBlockItemBatchSize();
         this.helidonConsumerObserver = Objects.requireNonNull(helidonConsumerObserver);
     }
 

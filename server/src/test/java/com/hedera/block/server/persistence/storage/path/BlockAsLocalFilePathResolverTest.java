@@ -39,7 +39,7 @@ class BlockAsLocalFilePathResolverTest {
     private Path testLiveRootPath;
     private Path testArchiveRootPath;
     private Path testUnverifiedRootPath;
-    private PersistenceStorageConfig testConfig;
+    private PersistenceStorageConfig persistenceStorageConfig;
     private BlockAsLocalFilePathResolver toTest;
 
     @BeforeEach
@@ -54,14 +54,14 @@ class BlockAsLocalFilePathResolverTest {
                 .withValue(PERSISTENCE_STORAGE_UNVERIFIED_ROOT_PATH_KEY, testUnverifiedRootPath.toString())
                 .withValue(PERSISTENCE_STORAGE_ARCHIVE_GROUP_SIZE, "10")
                 .build();
-        testConfig = configBuilder.getConfigData(PersistenceStorageConfig.class);
-        final Path testConfigLiveRootPath = testConfig.liveRootPath();
+        persistenceStorageConfig = configBuilder.getConfigData(PersistenceStorageConfig.class);
+        final Path testConfigLiveRootPath = persistenceStorageConfig.liveRootPath();
         assertThat(testConfigLiveRootPath).isEqualTo(testLiveRootPath);
-        final Path testConfigArchiveRootPath = testConfig.archiveRootPath();
+        final Path testConfigArchiveRootPath = persistenceStorageConfig.archiveRootPath();
         assertThat(testConfigArchiveRootPath).isEqualTo(testArchiveRootPath);
-        final Path testConfigUnverifiedRootPath = testConfig.unverifiedRootPath();
+        final Path testConfigUnverifiedRootPath = persistenceStorageConfig.unverifiedRootPath();
         assertThat(testConfigUnverifiedRootPath).isEqualTo(testUnverifiedRootPath);
-        toTest = new BlockAsLocalFilePathResolver(testConfig);
+        toTest = new BlockAsLocalFilePathResolver(persistenceStorageConfig);
     }
 
     /**

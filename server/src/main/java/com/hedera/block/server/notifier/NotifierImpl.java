@@ -5,7 +5,7 @@ import static com.hedera.block.server.metrics.BlockNodeMetricTypes.Counter.Succe
 import static com.hedera.block.server.metrics.BlockNodeMetricTypes.Gauge.NotifierRingBufferRemainingCapacity;
 import static java.lang.System.Logger.Level.ERROR;
 
-import com.hedera.block.server.config.BlockNodeContext;
+import com.hedera.block.server.mediator.MediatorConfig;
 import com.hedera.block.server.mediator.SubscriptionHandlerBase;
 import com.hedera.block.server.metrics.MetricsService;
 import com.hedera.block.server.service.ServiceStatus;
@@ -46,27 +46,27 @@ public class NotifierImpl extends SubscriptionHandlerBase<PublishStreamResponse>
      * service status.
      *
      * @param mediator the mediator to notify of critical system events
-     * @param blockNodeContext the block node context
+     * @param metricsService the metrics service
+     * @param notifierConfig the notifier configuration
      * @param serviceStatus the service status to stop the service and web server if an exception
      *     occurs
      */
     @Inject
     public NotifierImpl(
             @NonNull final Notifiable mediator,
-            @NonNull final BlockNodeContext blockNodeContext,
+            @NonNull final MetricsService metricsService,
+            @NonNull final NotifierConfig notifierConfig,
+            @NonNull final MediatorConfig mediatorConfig,
             @NonNull final ServiceStatus serviceStatus) {
 
         super(
                 new ConcurrentHashMap<>(SUBSCRIBER_INIT_CAPACITY),
-                blockNodeContext.metricsService(),
-                blockNodeContext.configuration(),
-                blockNodeContext
-                        .configuration()
-                        .getConfigData(NotifierConfig.class)
-                        .ringBufferSize());
+                metricsService,
+                mediatorConfig,
+                notifierConfig.ringBufferSize());
 
         this.mediator = mediator;
-        this.metricsService = blockNodeContext.metricsService();
+        this.metricsService = metricsService;
         this.serviceStatus = serviceStatus;
     }
 

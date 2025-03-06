@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 package com.hedera.block.server.mediator;
 
-import com.hedera.block.server.config.BlockNodeContext;
 import com.hedera.block.server.events.BlockNodeEventHandler;
 import com.hedera.block.server.events.ObjectEvent;
+import com.hedera.block.server.metrics.MetricsService;
 import com.hedera.block.server.service.ServiceStatus;
 import com.hedera.hapi.block.BlockItemUnparsed;
 import com.lmax.disruptor.BatchEventProcessor;
@@ -22,7 +22,8 @@ import java.util.concurrent.ConcurrentHashMap;
  */
 public class LiveStreamMediatorBuilder {
 
-    private final BlockNodeContext blockNodeContext;
+    private final MetricsService metricsService;
+    private final MediatorConfig mediatorConfig;
     private final ServiceStatus serviceStatus;
 
     private Map<
@@ -34,25 +35,30 @@ public class LiveStreamMediatorBuilder {
     private static final int SUBSCRIBER_INIT_CAPACITY = 32;
 
     private LiveStreamMediatorBuilder(
-            @NonNull final BlockNodeContext blockNodeContext, @NonNull final ServiceStatus serviceStatus) {
+            @NonNull final MetricsService metricsService,
+            @NonNull final MediatorConfig mediatorConfig,
+            @NonNull final ServiceStatus serviceStatus) {
         this.subscribers = new ConcurrentHashMap<>(SUBSCRIBER_INIT_CAPACITY);
-        this.blockNodeContext = blockNodeContext;
+        this.metricsService = metricsService;
+        this.mediatorConfig = mediatorConfig;
         this.serviceStatus = serviceStatus;
     }
 
     /**
      * Create a new instance of the builder using the minimum required parameters.
      *
-     * @param blockNodeContext is required to provide metrics reporting mechanisms to the stream
-     *     mediator.
+     * @param metricsService - the service responsible for handling metrics
+     * @param mediatorConfig - the configuration settings for mediator
      * @param serviceStatus is required to provide the stream mediator with access to check the
      *     status of the server and to stop the web server if necessary.
      * @return a new stream mediator builder configured with required parameters.
      */
     @NonNull
     public static LiveStreamMediatorBuilder newBuilder(
-            @NonNull final BlockNodeContext blockNodeContext, @NonNull final ServiceStatus serviceStatus) {
-        return new LiveStreamMediatorBuilder(blockNodeContext, serviceStatus);
+            @NonNull final MetricsService metricsService,
+            @NonNull final MediatorConfig mediatorConfig,
+            @NonNull final ServiceStatus serviceStatus) {
+        return new LiveStreamMediatorBuilder(metricsService, mediatorConfig, serviceStatus);
     }
 
     /**
@@ -83,6 +89,6 @@ public class LiveStreamMediatorBuilder {
      */
     @NonNull
     public LiveStreamMediator build() {
-        return new LiveStreamMediatorImpl(subscribers, serviceStatus, blockNodeContext);
+        return new LiveStreamMediatorImpl(subscribers, serviceStatus, metricsService, mediatorConfig);
     }
 }

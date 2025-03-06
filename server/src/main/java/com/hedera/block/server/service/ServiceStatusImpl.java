@@ -5,7 +5,6 @@ import static java.lang.System.Logger.Level.DEBUG;
 import static java.lang.System.Logger.Level.ERROR;
 
 import com.hedera.block.server.block.BlockInfo;
-import com.hedera.block.server.config.BlockNodeContext;
 import edu.umd.cs.findbugs.annotations.NonNull;
 import io.helidon.webserver.WebServer;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -31,14 +30,11 @@ public class ServiceStatusImpl implements ServiceStatus {
      * Use the ServiceStatusImpl to check the status of the block node server and to shut it down if
      * necessary.
      *
-     * @param blockNodeContext the block node context
+     * @param serviceConfig the service configuration
      */
     @Inject
-    public ServiceStatusImpl(@NonNull final BlockNodeContext blockNodeContext) {
-        this.delayMillis = blockNodeContext
-                .configuration()
-                .getConfigData(ServiceConfig.class)
-                .shutdownDelayMillis();
+    public ServiceStatusImpl(@NonNull final ServiceConfig serviceConfig) {
+        this.delayMillis = serviceConfig.shutdownDelayMillis();
     }
 
     /**

@@ -9,6 +9,7 @@ import com.hedera.block.server.mediator.MediatorConfig;
 import com.hedera.block.server.notifier.NotifierConfig;
 import com.hedera.block.server.persistence.storage.PersistenceStorageConfig;
 import com.hedera.block.server.producer.ProducerConfig;
+import com.hedera.block.server.service.ServiceConfig;
 import com.hedera.block.server.verification.VerificationConfig;
 import com.swirlds.common.metrics.config.MetricsConfig;
 import com.swirlds.common.metrics.platform.prometheus.PrometheusConfig;
@@ -34,6 +35,18 @@ public interface ConfigInjectionModule {
     @Provides
     static PersistenceStorageConfig providePersistenceStorageConfig(Configuration configuration) {
         return configuration.getConfigData(PersistenceStorageConfig.class);
+    }
+
+    /**
+     * Provides a service configuration singleton using the configuration.
+     *
+     * @param configuration is the configuration singleton
+     * @return a service configuration singleton
+     */
+    @Singleton
+    @Provides
+    static ServiceConfig provideServiceConfig(Configuration configuration) {
+        return configuration.getConfigData(ServiceConfig.class);
     }
 
     /**

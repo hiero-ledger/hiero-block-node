@@ -10,7 +10,6 @@ import static java.lang.System.Logger.Level.ERROR;
 import static java.lang.System.Logger.Level.WARNING;
 
 import com.hedera.block.server.block.BlockInfo;
-import com.hedera.block.server.config.BlockNodeContext;
 import com.hedera.block.server.consumer.ConsumerConfig;
 import com.hedera.block.server.events.BlockNodeEventHandler;
 import com.hedera.block.server.events.LivenessCalculator;
@@ -71,30 +70,27 @@ public class ProducerBlockItemObserver
      * @param subscriptionHandler the subscription handler used to
      * @param publishStreamResponseObserver the response stream observer to send responses back to
      *     the upstream producer for each block item processed.
-     * @param blockNodeContext the block node context used to access context objects for the Block
-     *     Node (e.g. - the metrics service).
      * @param serviceStatus the service status used to stop the server in the event of an
      *     unrecoverable error.
+     * @param metricsService - the service responsible for handling metrics
+     * @param consumerConfig - the configuration settings for consumer
      */
     public ProducerBlockItemObserver(
             @NonNull final InstantSource producerLivenessClock,
             @NonNull final Publisher<List<BlockItemUnparsed>> publisher,
             @NonNull final SubscriptionHandler<PublishStreamResponse> subscriptionHandler,
             @NonNull final Pipeline<? super PublishStreamResponse> publishStreamResponseObserver,
-            @NonNull final BlockNodeContext blockNodeContext,
-            @NonNull final ServiceStatus serviceStatus) {
+            @NonNull final ServiceStatus serviceStatus,
+            @NonNull final ConsumerConfig consumerConfig,
+            @NonNull final MetricsService metricsService) {
 
-        this.livenessCalculator = new LivenessCalculator(
-                producerLivenessClock,
-                blockNodeContext
-                        .configuration()
-                        .getConfigData(ConsumerConfig.class)
-                        .timeoutThresholdMillis());
+        this.livenessCalculator =
+                new LivenessCalculator(producerLivenessClock, consumerConfig.timeoutThresholdMillis());
 
         this.publisher = publisher;
         this.publishStreamResponseObserver = publishStreamResponseObserver;
         this.subscriptionHandler = subscriptionHandler;
-        this.metricsService = blockNodeContext.metricsService();
+        this.metricsService = Objects.requireNonNull(metricsService);
         this.serviceStatus = serviceStatus;
     }
 

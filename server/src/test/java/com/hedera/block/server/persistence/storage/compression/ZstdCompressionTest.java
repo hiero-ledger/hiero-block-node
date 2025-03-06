@@ -6,10 +6,10 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.github.luben.zstd.ZstdOutputStream;
 import com.hedera.block.common.utils.FileUtilities;
-import com.hedera.block.server.config.BlockNodeContext;
 import com.hedera.block.server.persistence.storage.PersistenceStorageConfig;
 import com.hedera.block.server.persistence.storage.PersistenceStorageConfig.CompressionType;
 import com.hedera.block.server.util.TestConfigUtil;
+import com.swirlds.config.api.Configuration;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
@@ -33,16 +33,15 @@ class ZstdCompressionTest {
     @TempDir
     private Path testTempDir;
 
-    private BlockNodeContext blockNodeContext;
-    private PersistenceStorageConfig testConfig;
+    private PersistenceStorageConfig persistenceStorageConfig;
     private ZstdCompression toTest;
 
     @BeforeEach
     void setUp() throws IOException {
-        blockNodeContext = TestConfigUtil.getTestBlockNodeContext(
-                Map.of(PERSISTENCE_STORAGE_COMPRESSION_LEVEL, String.valueOf(6)));
-        testConfig = blockNodeContext.configuration().getConfigData(PersistenceStorageConfig.class);
-        toTest = ZstdCompression.of(testConfig);
+        Map<String, String> configMap = Map.of(PERSISTENCE_STORAGE_COMPRESSION_LEVEL, String.valueOf(6));
+        Configuration config = TestConfigUtil.getTestBlockNodeConfiguration(configMap);
+        persistenceStorageConfig = config.getConfigData(PersistenceStorageConfig.class);
+        toTest = ZstdCompression.of(persistenceStorageConfig);
     }
 
     /**
@@ -125,7 +124,7 @@ class ZstdCompressionTest {
         final Path tempFile = testTempDir.resolve(
                 FileUtilities.appendExtension(Path.of("tempComparisonFile.txt"), toTest.getCompressionFileExtension()));
         try (final ZstdOutputStream out =
-                new ZstdOutputStream(Files.newOutputStream(tempFile), testConfig.compressionLevel())) {
+                new ZstdOutputStream(Files.newOutputStream(tempFile), persistenceStorageConfig.compressionLevel())) {
             out.write(byteArrayTestData);
             return tempFile;
         }
