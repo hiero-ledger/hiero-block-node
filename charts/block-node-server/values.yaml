@@ -80,7 +80,29 @@ blockNode:
     # VERIFICATION_TYPE: "NO_OP"
     # MEDIATOR_TYPE: "NO_OP"
     MEDIATOR_RING_BUFFER_SIZE: "4096"
-
+  persistence:
+    archive:
+      # If false, the chart expects an externally provided PVC
+      create: true
+      # Name of the externally provided PVC
+      existingClaim: ""
+      # If create is true, the following values are used to create the PVC
+      # should match PERSISTENCE_STORAGE_ARCHIVE_ROOT_PATH, leave as is for default.
+      mountPath: "/opt/hashgraph/blocknode/data/archive"
+      size: 2Gi
+      # Optionally add a storage class name if needed
+      # storageClass: "your-storage-class"
+    live:
+      # If false, the chart expects an externally provided PVC
+      create: true
+      # Name of the externally provided PVC
+      existingClaim: ""
+      # If create is true, the following values are used to create the PVC
+      # should match PERSISTENCE_STORAGE_LIVE_ROOT_PATH, leave as is for default.
+      mountPath: "/opt/hashgraph/blocknode/data/live"
+      size: 5Gi
+      # Optionally add a storage class name if needed
+      # storageClass: "your-storage-class"
   secret:
     PRIVATE_KEY: "fake_private_key"
   health:
