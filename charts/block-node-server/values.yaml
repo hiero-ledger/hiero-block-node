@@ -100,7 +100,7 @@ blockNode:
       # If create is true, the following values are used to create the PVC
       # should match PERSISTENCE_STORAGE_LIVE_ROOT_PATH, leave as is for default.
       mountPath: "/opt/hashgraph/blocknode/data/live"
-      size: 10Gi
+      size: 20Gi
       # Optionally add a storage class name if needed
       # storageClass: "your-storage-class"
   secret:
