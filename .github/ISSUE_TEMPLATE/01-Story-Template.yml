@@ -1,31 +1,22 @@
 # SPDX-License-Identifier: Apache-2.0
 name: Agile Task or Feature
 description: Create a new task or feature
-title: "-"
-projects: "hiero-ledger/9"
+projects:
+  - "hiero-ledger/9"
+type: feature
 body:
-  - type: input
-    id: as-a-line
+  - type: textarea
+    id: Story-Form
     attributes:
-      label: Persona
-      description: As a "Persona"
-      value: "As a ?"
-    validations:
-      required: true
-  - type: input
-    id: i-want-to-line
-    attributes:
-      label: Request
-      description: I want to "Request"
-      value: "I want to ?"
-    validations:
-      required: true
-  - type: input
-    id: so-that-line
-    attributes:
-      label: Goal
-      description: So that "Goal"
-      value: "So that ?"
+      label: Story Form
+      description: |
+        As a "Persona"
+        I want to "Request"
+        So that "Goal"
+      value: |
+        As a ?
+        I want to ?
+        So that ?
     validations:
       required: true
   - type: textarea
@@ -33,7 +24,7 @@ body:
     attributes:
       label: Technical Notes
       description: Add any additional detail to describe this story.
-      value: |
+      placeholder: |
         Technical details, notes, suggestions, etc...
     validations:
       required: true
