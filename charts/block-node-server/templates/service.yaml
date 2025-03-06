@@ -5,10 +5,10 @@ SPDX-License-Identifier: Apache-2.0
 apiVersion: v1
 kind: Service
 metadata:
-  name: {{ include "hedera-block-node.fullname" . }}
+  name: {{ include "hiero-block-node.fullname" . }}
   labels:
-    app: {{ include "hedera-block-node.name" . }}
-    {{- include "hedera-block-node.labels" . | nindent 4 }}
+    app: {{ include "hiero-block-node.name" . }}
+    {{- include "hiero-block-node.labels" . | nindent 4 }}
 spec:
   type: {{ .Values.service.type }}
   ports:
@@ -20,4 +20,4 @@ spec:
       port: {{ .Values.blockNode.health.metrics.port }}
       targetPort: metrics
   selector:
-    {{- include "hedera-block-node.selectorLabels" . | nindent 4 }}
+    {{- include "hiero-block-node.selectorLabels" . | nindent 4 }}

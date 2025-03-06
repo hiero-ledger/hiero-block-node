@@ -6,7 +6,7 @@ SPDX-License-Identifier: Apache-2.0
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: {{ include "hedera-block-node.fullname" . }}-grafana-datasource
+  name: {{ include "hiero-block-node.fullname" . }}-grafana-datasource
   labels:
     grafana_datasource: "1"
 data:

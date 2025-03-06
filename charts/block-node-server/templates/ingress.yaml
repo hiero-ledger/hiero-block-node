@@ -3,7 +3,7 @@ SPDX-License-Identifier: Apache-2.0
 */}}
 
 {{- if .Values.ingress.enabled -}}
-{{- $fullName := include "hedera-block-node.fullname" . -}}
+{{- $fullName := include "hiero-block-node.fullname" . -}}
 {{- $svcPort := .Values.service.port -}}
 {{- if and .Values.ingress.className (not (semverCompare ">=1.18-0" .Capabilities.KubeVersion.GitVersion)) }}
   {{- if not (hasKey .Values.ingress.annotations "kubernetes.io/ingress.class") }}
@@ -21,7 +21,7 @@ kind: Ingress
 metadata:
   name: {{ $fullName }}
   labels:
-    {{- include "hedera-block-node.labels" . | nindent 4 }}
+    {{- include "hiero-block-node.labels" . | nindent 4 }}
   {{- with .Values.ingress.annotations }}
   annotations:
     {{- toYaml . | nindent 4 }}
