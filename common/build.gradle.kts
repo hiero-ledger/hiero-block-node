@@ -9,6 +9,7 @@ tasks.withType<JavaCompile>().configureEach { options.compilerArgs.add("-Xlint:-
 
 testModuleInfo {
     requiresStatic("com.github.spotbugs.annotations")
+    requiresStatic("com.hedera.pbj.runtime")
     requires("org.junit.jupiter.api")
     requires("org.junit.jupiter.params")
     requires("org.assertj.core")

@@ -11,7 +11,9 @@ description = "Hiero Block Stream Tools"
 application { mainClass = "org.hiero.block.tools.BlockStreamTool" }
 
 mainModuleInfo {
-    requires("com.hedera.block.stream") // use streams module to access protobuf generated classes
+    requiresStatic(
+        "org.hiero.block.stream"
+    ) // use streams module to access protobuf generated classes
     requires("com.hedera.pbj.runtime")
     requires("com.github.luben.zstd_jni")
     requires("com.google.api.gax")

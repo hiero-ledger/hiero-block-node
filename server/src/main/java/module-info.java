@@ -30,7 +30,6 @@ module org.hiero.block.server {
     exports org.hiero.block.server.verification.service;
     exports org.hiero.block.server.block;
 
-    requires com.hedera.block.stream;
     requires com.hedera.pbj.grpc.helidon.config;
     requires com.hedera.pbj.grpc.helidon;
     requires com.hedera.pbj.runtime;
@@ -39,6 +38,7 @@ module org.hiero.block.server {
     requires com.swirlds.config.extensions;
     requires com.swirlds.metrics.api;
     requires org.hiero.block.common;
+    requires org.hiero.block.stream;
     requires com.github.luben.zstd_jni;
     requires com.github.spotbugs.annotations;
     requires com.lmax.disruptor;

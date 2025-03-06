@@ -14,13 +14,13 @@ module org.hiero.block.simulator {
     exports org.hiero.block.simulator.mode;
     exports org.hiero.block.simulator.mode.impl;
 
-    requires com.hedera.block.stream;
     requires com.hedera.pbj.runtime;
     requires com.swirlds.common;
     requires com.swirlds.config.api;
     requires com.swirlds.config.extensions;
     requires com.swirlds.metrics.api;
     requires org.hiero.block.common;
+    requires org.hiero.block.stream; // javax.annotation.processing.Generated
     requires com.github.spotbugs.annotations;
     requires com.google.protobuf;
     requires dagger;
@@ -28,7 +28,7 @@ module org.hiero.block.simulator {
     requires io.grpc;
     requires java.logging;
     requires javax.inject;
-    requires static java.compiler; // javax.annotation.processing.Generated
+    requires static java.compiler;
 
     provides com.swirlds.config.api.ConfigurationExtension with
             SimulatorConfigExtension;
