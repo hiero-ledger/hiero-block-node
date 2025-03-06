@@ -20,6 +20,7 @@ import com.hedera.pbj.runtime.io.stream.WritableStreamingData;
 import edu.umd.cs.findbugs.annotations.NonNull;
 import java.io.IOException;
 import java.nio.file.Files;
+import java.nio.file.OpenOption;
 import java.nio.file.Path;
 import java.util.LinkedList;
 import java.util.List;
@@ -79,18 +80,17 @@ final class AsyncBlockAsLocalFileWriter implements AsyncBlockWriter {
     }
 
     private BlockPersistenceResult doPersistBlock() {
-        // @todo(545) think about possible race conditions, it is possible that
-        // the persistence handler to start two tasks for the same block number
-        // simultaneously theoretically. If that happens, then maybe both of them
-        // will enter in the else statement. Should the persistence handler
-        // follow along writers for which block numbers have been already started
-        // and if so, what kind of handling there must be?
+        // @todo(713) think about possible race conditions, it is possible that
+        //    the persistence handler to start two tasks for the same block number
+        //    simultaneously theoretically. If that happens, then maybe both of them
+        //    will enter in the else statement. Should the persistence handler
+        //    follow along writers for which block numbers have been already started
+        //    and if so, what kind of handling there must be?
         // @todo(599) have a way to stop long running writers
         if (blockPathResolver.existsVerifiedBlock(blockNumber)) {
             return new BlockPersistenceResult(blockNumber, BlockPersistenceStatus.DUPLICATE_BLOCK);
         } else {
             boolean blockComplete = false;
-            // @todo(598) write (append to file) items as they come in as an improvement
             final List<BlockItemUnparsed> localBlockItems = new LinkedList<>();
             while (!blockComplete) { // loop until received all items (until block proof arrives)
                 try {
@@ -105,8 +105,8 @@ final class AsyncBlockAsLocalFileWriter implements AsyncBlockWriter {
                         }
                     }
                 } catch (final InterruptedException e) {
-                    // @todo(545) if we have entered here, something has cancelled the task.
-                    // Is this the proper handling here?
+                    // @todo(713) if we have entered here, something has cancelled the task.
+                    //    Is this the proper handling here?
                     LOGGER.log(
                             ERROR,
                             "Interrupted while waiting for next block item for block [%d]".formatted(blockNumber));
@@ -116,6 +116,8 @@ final class AsyncBlockAsLocalFileWriter implements AsyncBlockWriter {
                 }
             }
             // proceed to persist the items
+            // providing no {@link OpenOption} to the newOutputStream method
+            // will create the file if it does not exist or truncate it if it does
             try (final WritableStreamingData wsd = new WritableStreamingData(
                     compression.wrap(Files.newOutputStream(getResolvedUnverifiedBlockPath())))) {
                 final BlockUnparsed blockToWrite =
@@ -129,25 +131,19 @@ final class AsyncBlockAsLocalFileWriter implements AsyncBlockWriter {
         }
     }
 
-    // @todo(582) implement the unverified block logic
-    private Path getResolvedUnverifiedBlockPath() throws IOException {
-        // for now, we will not use the unverified block logic, deferring it for
-        // a future PR - simply, we resolve the raw path to the block instead
-        // of resolving it as unverified
-        final Path rawBlockPath = blockPathResolver.resolveLiveRawPathToBlock(blockNumber);
-        final Path resolvedBlockPath =
-                FileUtilities.appendExtension(rawBlockPath, compression.getCompressionFileExtension());
-        //        if (Files.notExists(resolvedBlockPath)) {
-        // We should not throw, unverified blocks are allowed to be overwritten
-        // in the beginning of the task we check if the block is already persisted
-        // and verified. Those must never be overwritten! If we have reached
-        // here, we must know that the block has never been persisted before.
-        // Else we need not create the file, it will be overwritten since is
-        // unverified. If the createFile method throws an exception here,
-        // it is either a bug, or a potential race condition!
-        FileUtilities.createFile(resolvedBlockPath);
-        //        }
-        return resolvedBlockPath;
+    /**
+     * This method will resolve the path to where the unverified block must be
+     * written. We only need to resolve the path to the block. Unverified blocks
+     * can be overwritten. This path will be used to open a new output stream
+     * using {@link Files#newOutputStream(Path, OpenOption...)}. By default, if
+     * no options are provided, the file will be created if it does not exist or
+     * truncated if it does exist (effectively overwritten).
+     *
+     * @return the resolved path to the unverified block
+     */
+    private Path getResolvedUnverifiedBlockPath() {
+        final Path rawUnverifiedBlockPath = blockPathResolver.resolveLiveRawUnverifiedPathToBlock(blockNumber);
+        return FileUtilities.appendExtension(rawUnverifiedBlockPath, compression.getCompressionFileExtension());
     }
 
     /**
@@ -156,7 +152,7 @@ final class AsyncBlockAsLocalFileWriter implements AsyncBlockWriter {
      */
     private BlockPersistenceResult revertWrite(final BlockPersistenceStatus statusIfSuccessfulRevert) {
         try {
-            blockRemover.removeLiveUnverified(blockNumber);
+            blockRemover.removeUnverified(blockNumber);
             return new BlockPersistenceResult(blockNumber, statusIfSuccessfulRevert);
         } catch (final IOException e) {
             LOGGER.log(ERROR, "Failed to remove block [%d]".formatted(blockNumber), e);

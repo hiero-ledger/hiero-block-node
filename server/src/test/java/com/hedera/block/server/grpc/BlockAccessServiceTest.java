@@ -51,7 +51,7 @@ class BlockAccessServiceTest {
     private ServiceStatus serviceStatus;
 
     @TempDir
-    private Path testLiveRootPath;
+    private Path testTempDir;
 
     private BlockNodeContext blockNodeContext;
     private PersistenceStorageConfig testConfig;
@@ -59,14 +59,13 @@ class BlockAccessServiceTest {
 
     @BeforeEach
     void setUp() throws IOException {
+        final Path testLiveRootPath = testTempDir.resolve("live");
         blockNodeContext = TestConfigUtil.getTestBlockNodeContext(
                 Map.of(PERSISTENCE_STORAGE_LIVE_ROOT_PATH_KEY, testLiveRootPath.toString()));
         testConfig = blockNodeContext.configuration().getConfigData(PersistenceStorageConfig.class);
-
-        blockAccessService = new PbjBlockAccessServiceProxy(serviceStatus, blockReader, blockNodeContext);
-
         final Path testConfigLiveRootPath = testConfig.liveRootPath();
         assertThat(testConfigLiveRootPath).isEqualTo(testLiveRootPath);
+        blockAccessService = new PbjBlockAccessServiceProxy(serviceStatus, blockReader, blockNodeContext);
     }
 
     @Test

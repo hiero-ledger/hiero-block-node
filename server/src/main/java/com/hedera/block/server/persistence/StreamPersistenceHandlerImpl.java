@@ -5,6 +5,7 @@ import static com.hedera.block.server.metrics.BlockNodeMetricTypes.Counter.Strea
 import static java.lang.System.Logger.Level.DEBUG;
 import static java.lang.System.Logger.Level.ERROR;
 
+import com.hedera.block.common.utils.FileUtilities;
 import com.hedera.block.server.ack.AckHandler;
 import com.hedera.block.server.config.BlockNodeContext;
 import com.hedera.block.server.events.BlockNodeEventHandler;
@@ -15,6 +16,8 @@ import com.hedera.block.server.metrics.MetricsService;
 import com.hedera.block.server.notifier.Notifier;
 import com.hedera.block.server.persistence.storage.PersistenceStorageConfig;
 import com.hedera.block.server.persistence.storage.archive.LocalBlockArchiver;
+import com.hedera.block.server.persistence.storage.path.BlockPathResolver;
+import com.hedera.block.server.persistence.storage.path.UnverifiedBlockPath;
 import com.hedera.block.server.persistence.storage.write.AsyncBlockWriter;
 import com.hedera.block.server.persistence.storage.write.AsyncBlockWriterFactory;
 import com.hedera.block.server.persistence.storage.write.BlockPersistenceResult;
@@ -24,17 +27,21 @@ import com.hedera.hapi.block.BlockItemUnparsed;
 import com.hedera.hapi.block.stream.output.BlockHeader;
 import com.hedera.pbj.runtime.ParseException;
 import edu.umd.cs.findbugs.annotations.NonNull;
+import java.io.File;
+import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.concurrent.CompletionService;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Executor;
 import java.util.concurrent.ExecutorCompletionService;
 import java.util.concurrent.Future;
 import java.util.concurrent.TransferQueue;
+import java.util.stream.Stream;
 import javax.inject.Singleton;
 
 /**
@@ -56,6 +63,7 @@ public class StreamPersistenceHandlerImpl implements BlockNodeEventHandler<Objec
     private final AsyncBlockWriterFactory asyncBlockWriterFactory;
     private final CompletionService<Void> completionService;
     private final LocalBlockArchiver archiver;
+    private final BlockPathResolver pathResolver;
     private TransferQueue<BlockItemUnparsed> currentWriterQueue;
 
     /**
@@ -80,21 +88,69 @@ public class StreamPersistenceHandlerImpl implements BlockNodeEventHandler<Objec
             @NonNull final AsyncBlockWriterFactory asyncBlockWriterFactory,
             @NonNull final Executor writerExecutor,
             @NonNull final LocalBlockArchiver archiver,
+            @NonNull final BlockPathResolver pathResolver,
             @NonNull final PersistenceStorageConfig persistenceStorageConfig)
             throws IOException {
         this.subscriptionHandler = Objects.requireNonNull(subscriptionHandler);
         this.notifier = Objects.requireNonNull(notifier);
         this.metricsService = blockNodeContext.metricsService();
         this.serviceStatus = Objects.requireNonNull(serviceStatus);
-        this.ackHandler = Objects.requireNonNull(ackHandler);
         this.asyncBlockWriterFactory = Objects.requireNonNull(asyncBlockWriterFactory);
         this.archiver = Objects.requireNonNull(archiver);
+        this.pathResolver = Objects.requireNonNull(pathResolver);
         this.completionService = new ExecutorCompletionService<>(Objects.requireNonNull(writerExecutor));
         // Ensure that the root paths exist
         final Path liveRootPath = Objects.requireNonNull(persistenceStorageConfig.liveRootPath());
         final Path archiveRootPath = Objects.requireNonNull(persistenceStorageConfig.archiveRootPath());
+        final Path unverifiedRootPath = Objects.requireNonNull(persistenceStorageConfig.unverifiedRootPath());
         Files.createDirectories(liveRootPath);
         Files.createDirectories(archiveRootPath);
+        Files.createDirectories(unverifiedRootPath);
+
+        try (final Stream<Path> blockFilesInUnverified = Files.list(unverifiedRootPath)) {
+            // Clean up the unverified directory at startup. Any files under the
+            // unverified root at startup are to be considered unreliable
+            blockFilesInUnverified.map(Path::toFile).forEach(File::delete);
+        }
+
+        // It is indeed a very bad idea to expose `this` to the outside world
+        // for an object that has not finished initializing, unfortunately there
+        // is no way around this until we have much needed architectural
+        // changes. Generally, the whole concept of the ackHandler to be calling
+        // back to the persistence handler is a bad idea since it couples the
+        // two classes together and makes the ackHandler an overlord.
+        // As mentioned, we should get rid of this as soon as possible and
+        // be publishing results which would then be picked up instead of having
+        // direct method calls. As far as exposing `this`, thankfully the logic
+        // that would call `this` from the ackHandler is not executed until the
+        // persistence handler is fully initialized, so there is no risk of
+        // calling a method on an object that is not fully initialized, BUT we
+        // need to take extra care! Essentially, in order to ever call the
+        // `moveVerified` method, the ackHandler must be fully initialized, and
+        // the block which would be first in line for moving must be both
+        // verified and persisted into the unverified directory. Persisting into
+        // the unverified directory is done by `this`, so it would not be
+        // possible to call `moveVerified` before the persistence handler is
+        // fully initialized.
+        this.ackHandler = Objects.requireNonNull(ackHandler);
+        this.ackHandler.registerPersistence(this);
+    }
+
+    public void moveVerified(final long blockNumber) throws IOException {
+        final Optional<UnverifiedBlockPath> optUnverified = pathResolver.findUnverifiedBlock(blockNumber);
+        if (optUnverified.isPresent()) {
+            final UnverifiedBlockPath unverifiedBlockPath = optUnverified.get();
+            final Path source = unverifiedBlockPath.dirPath().resolve(unverifiedBlockPath.blockFileName());
+            final Path rawPathToLive = pathResolver.resolveLiveRawPathToBlock(unverifiedBlockPath.blockNumber());
+            final Path target = FileUtilities.appendExtension(
+                    rawPathToLive, unverifiedBlockPath.compressionType().getFileExtension());
+            Files.createDirectories(target.getParent());
+            Files.move(source, target);
+            archiver.notifyBlockPersisted(blockNumber);
+        } else {
+            throw new FileNotFoundException(
+                    "File for Block [%s] not found under unverified root".formatted(blockNumber));
+        }
     }
 
     /**
@@ -106,8 +162,7 @@ public class StreamPersistenceHandlerImpl implements BlockNodeEventHandler<Objec
      * @param b true if the event is the last in the sequence
      */
     @Override
-    public void onEvent(final ObjectEvent<List<BlockItemUnparsed>> event, long l, boolean b) {
-
+    public void onEvent(final ObjectEvent<List<BlockItemUnparsed>> event, final long l, final boolean b) {
         try {
             if (serviceStatus.isRunning()) {
                 final List<BlockItemUnparsed> blockItems = event.get();
@@ -115,7 +170,6 @@ public class StreamPersistenceHandlerImpl implements BlockNodeEventHandler<Objec
                     final String message = "BlockItems list is empty.";
                     throw new BlockStreamProtocolException(message);
                 }
-
                 handleBlockItems(blockItems);
             } else {
                 LOGGER.log(ERROR, "Service is not running. Block items will not be persisted.");
@@ -156,7 +210,6 @@ public class StreamPersistenceHandlerImpl implements BlockNodeEventHandler<Objec
                     final AsyncBlockWriter writer = asyncBlockWriterFactory.create(blockNumber);
                     currentWriterQueue = writer.getQueue();
                     completionService.submit(writer);
-                    archiver.notifyBlockPersisted(blockNumber);
                 } else {
                     // we need to notify the ackHandler that the block number is invalid
                     // IMPORTANT: the currentWriterQueue MUST be null after we have
@@ -203,7 +256,7 @@ public class StreamPersistenceHandlerImpl implements BlockNodeEventHandler<Objec
     private void handlePersistenceExecution(final Future<Void> completionResult) throws BlockStreamProtocolException {
         try {
             if (completionResult.isCancelled()) {
-                // @todo(545) submit cancelled to ackHandler when migrated
+                // @todo(713) submit cancelled to ackHandler when migrated
             } else {
                 // we call get here to verify that the task has run to completion
                 // we do not expect it to throw an exception, but to publish
@@ -217,8 +270,7 @@ public class StreamPersistenceHandlerImpl implements BlockNodeEventHandler<Objec
             // result otherwise, it is either a bug or an unhandled case
             throw new BlockStreamProtocolException("Unexpected exception during block persistence.", e);
         } catch (final InterruptedException e) {
-            // @todo(545) if we enter here, then the ring buffer thread was
-            // interrupted. What shall we do here? How to handle?
+            // @todo(713) What would be the proper handling here
             Thread.currentThread().interrupt();
         }
     }

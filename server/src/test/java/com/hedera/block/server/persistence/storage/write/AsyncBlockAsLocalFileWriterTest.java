@@ -24,6 +24,7 @@ import com.hedera.hapi.block.BlockUnparsed;
 import com.swirlds.metrics.api.Counter;
 import java.io.IOException;
 import java.io.OutputStream;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
@@ -95,13 +96,75 @@ class AsyncBlockAsLocalFileWriterTest {
 
         // when
         final Path expectedWrittenBlockFile = testTempDir.resolve(validBlockNumber + Constants.BLOCK_FILE_EXTENSION);
-        when(blockPathResolverMock.resolveLiveRawPathToBlock(validBlockNumber)).thenReturn(expectedWrittenBlockFile);
+        when(blockPathResolverMock.resolveLiveRawUnverifiedPathToBlock(validBlockNumber))
+                .thenReturn(expectedWrittenBlockFile);
         when(blockPathResolverMock.existsVerifiedBlock(validBlockNumber)).thenReturn(false);
         when(compressionMock.getCompressionFileExtension()).thenReturn("");
         when(compressionMock.wrap(any(OutputStream.class))).thenAnswer(invocation -> invocation.getArgument(0));
         when(metricsServiceMock.get(BlocksPersisted)).thenReturn(successfulPersistenceCounterMock);
 
         // then
+        toTest.call();
+        assertThat(expectedWrittenBlockFile)
+                .exists()
+                .isRegularFile()
+                .isReadable()
+                .hasBinaryContent(generateByteArrayOfTestBlock(validBlock));
+        final BlockPersistenceResult expectedResult =
+                new BlockPersistenceResult(validBlockNumber, BlockPersistenceStatus.SUCCESS);
+        verifySuccessfulPersistencePublish(expectedResult);
+    }
+
+    /**
+     * This test aims to verify that the {@link AsyncBlockAsLocalFileWriter#call()}
+     * correctly overwrites an already existing block if the call is executed.
+     * It is important to assert this since the writer writes blocks as
+     * unverified. These blocks are ephemeral and can be overwritten if they
+     * fail verification. This test ensures that the writer can overwrite an
+     * existing  unverified block. No duplicate is found and no problems arose
+     * during write.
+     *
+     * @param validBlockNumber parameterized, valid block number
+     */
+    @Timeout(value = TEST_TIMEOUT_MILLIS, unit = TimeUnit.MILLISECONDS)
+    @ParameterizedTest
+    @MethodSource("validBlockNumbers")
+    void testSuccessfulWriteOverwriteExisting(final long validBlockNumber) throws Exception {
+        // setup
+        final List<BlockItemUnparsed> validBlock =
+                PersistTestUtils.generateBlockItemsUnparsedForWithBlockNumber(validBlockNumber);
+        final AsyncBlockWriter toTest = new AsyncBlockAsLocalFileWriter(
+                validBlockNumber,
+                blockPathResolverMock,
+                blockRemoverMock,
+                compressionMock,
+                ackHandlerMock,
+                metricsServiceMock);
+        final TransferQueue<BlockItemUnparsed> q = toTest.getQueue();
+        validBlock.forEach(q::offer);
+
+        // when
+        final Path expectedWrittenBlockFile = testTempDir.resolve(validBlockNumber + Constants.BLOCK_FILE_EXTENSION);
+        when(blockPathResolverMock.resolveLiveRawUnverifiedPathToBlock(validBlockNumber))
+                .thenReturn(expectedWrittenBlockFile);
+        when(blockPathResolverMock.existsVerifiedBlock(validBlockNumber)).thenReturn(false);
+        when(compressionMock.getCompressionFileExtension()).thenReturn("");
+        when(compressionMock.wrap(any(OutputStream.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(metricsServiceMock.get(BlocksPersisted)).thenReturn(successfulPersistenceCounterMock);
+
+        // before call, create the expected file and pollute it with some data
+        // we expect that the writer will overwrite this file as it is writing
+        // to an unverified block file path that is permitted, since unverified
+        // blocks could fail verification so they need to be able to be overwritten
+        final String pollution = "block file is polluted";
+        Files.writeString(expectedWrittenBlockFile, pollution);
+        assertThat(expectedWrittenBlockFile)
+                .exists()
+                .isRegularFile()
+                .isReadable()
+                .hasContent(pollution);
+
+        // then (we expect overwrite to happen)
         toTest.call();
         assertThat(expectedWrittenBlockFile)
                 .exists()
@@ -139,7 +202,8 @@ class AsyncBlockAsLocalFileWriterTest {
 
         // when
         final Path expectedWrittenBlockFile = testTempDir.resolve(validBlockNumber + Constants.BLOCK_FILE_EXTENSION);
-        when(blockPathResolverMock.resolveLiveRawPathToBlock(validBlockNumber)).thenReturn(expectedWrittenBlockFile);
+        when(blockPathResolverMock.resolveLiveRawUnverifiedPathToBlock(validBlockNumber))
+                .thenReturn(expectedWrittenBlockFile);
         when(blockPathResolverMock.existsVerifiedBlock(validBlockNumber)).thenReturn(false);
         when(compressionMock.getCompressionFileExtension()).thenReturn("");
         when(compressionMock.wrap(any(OutputStream.class))).thenAnswer(invocation -> invocation.getArgument(0));
@@ -179,7 +243,8 @@ class AsyncBlockAsLocalFileWriterTest {
         // when
         final Path expectedWrittenBlockFile = testTempDir.resolve(validBlockNumber + Constants.BLOCK_FILE_EXTENSION);
         when(metricsServiceMock.get(BlockPersistenceError)).thenReturn(persistenceErrorCounterMock);
-        when(blockPathResolverMock.resolveLiveRawPathToBlock(validBlockNumber)).thenReturn(expectedWrittenBlockFile);
+        when(blockPathResolverMock.resolveLiveRawUnverifiedPathToBlock(validBlockNumber))
+                .thenReturn(expectedWrittenBlockFile);
         when(blockPathResolverMock.existsVerifiedBlock(validBlockNumber)).thenReturn(false);
         when(compressionMock.getCompressionFileExtension()).thenReturn("");
         when(compressionMock.wrap(any(OutputStream.class))).thenThrow(IOException.class);
@@ -218,11 +283,12 @@ class AsyncBlockAsLocalFileWriterTest {
 
         // when
         final Path expectedWrittenBlockFile = testTempDir.resolve(validBlockNumber + Constants.BLOCK_FILE_EXTENSION);
-        when(blockPathResolverMock.resolveLiveRawPathToBlock(validBlockNumber)).thenReturn(expectedWrittenBlockFile);
+        when(blockPathResolverMock.resolveLiveRawUnverifiedPathToBlock(validBlockNumber))
+                .thenReturn(expectedWrittenBlockFile);
         when(blockPathResolverMock.existsVerifiedBlock(validBlockNumber)).thenReturn(false);
         when(compressionMock.getCompressionFileExtension()).thenReturn("");
         when(compressionMock.wrap(any(OutputStream.class))).thenThrow(IOException.class);
-        when(blockRemoverMock.removeLiveUnverified(validBlockNumber)).thenThrow(IOException.class);
+        when(blockRemoverMock.removeUnverified(validBlockNumber)).thenThrow(IOException.class);
         when(metricsServiceMock.get(BlockPersistenceError)).thenReturn(persistenceErrorCounterMock);
 
         // then

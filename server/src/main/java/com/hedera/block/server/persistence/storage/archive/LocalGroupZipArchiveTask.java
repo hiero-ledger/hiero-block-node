@@ -44,8 +44,6 @@ public final class LocalGroupZipArchiveTask implements Callable<Long> {
     private static final String ADD_ENTRY_MESSAGE = "Adding Zip Entry [{0}] to zip file [{1}]";
     private static final String ADD_SUCCESS_MESSAGE = "Zip Entry [{0}] successfully added to zip file [{1}]";
     private static final String ZIP_FILE_SUCCESSFULLY_CREATED_MESSAGE = "Zip File [{0}] successfully created";
-    private static final String MUST_CREATE_SYMLINK_MESSAGE =
-            "Unable to create hard link [{0} <-> {1}], attempting to create a symbolic link instead";
     private static final String LINK_CREATED_MESSAGE = "Link [{0} <-> {1}] created";
     private static final int BUFFER_SIZE = 32768; // 32K should exactly contain one or two disk blocks in most cases.
     private final BlockPathResolver pathResolver;
@@ -143,6 +141,9 @@ public final class LocalGroupZipArchiveTask implements Callable<Long> {
         } else {
             LOGGER.log(Level.DEBUG, NO_FILES_TO_ARCHIVE_MESSAGE, rootToArchive);
         }
+        // @todo(737) update proper metrics
+        // @todo(739) the task should return meaningful result that would be
+        //    published
         // If no exception is thrown, then we expect that the archiving process is successful,
         // and we can return the number of blocks that were archived.
         return blockFilesArchived;
@@ -256,7 +257,10 @@ public final class LocalGroupZipArchiveTask implements Callable<Long> {
         try {
             Files.createLink(livelink, zipFilePath);
         } catch (final IOException e) {
-            LOGGER.log(Level.DEBUG, MUST_CREATE_SYMLINK_MESSAGE, livelink, zipFilePath, e);
+            final String message =
+                    "Unable to create hard link [%s <-> %s], attempting to create a symbolic link instead"
+                            .formatted(livelink, zipFilePath);
+            LOGGER.log(Level.DEBUG, message, e);
             // If we are unable to create a link, we need to attempt to create a symbolic link.
             Files.createSymbolicLink(livelink, zipFilePath);
         }

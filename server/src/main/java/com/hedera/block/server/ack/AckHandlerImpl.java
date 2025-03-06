@@ -1,10 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 package com.hedera.block.server.ack;
 
+import static java.lang.System.Logger.Level.ERROR;
+
 import com.hedera.block.server.block.BlockInfo;
 import com.hedera.block.server.metrics.BlockNodeMetricTypes;
 import com.hedera.block.server.metrics.MetricsService;
 import com.hedera.block.server.notifier.Notifier;
+import com.hedera.block.server.persistence.StreamPersistenceHandlerImpl;
 import com.hedera.block.server.persistence.storage.remove.BlockRemover;
 import com.hedera.block.server.persistence.storage.write.BlockPersistenceResult;
 import com.hedera.block.server.persistence.storage.write.BlockPersistenceResult.BlockPersistenceStatus;
@@ -35,6 +38,7 @@ public class AckHandlerImpl implements AckHandler {
     private final ServiceStatus serviceStatus;
     private final BlockRemover blockRemover;
     private final MetricsService metricsService;
+    private StreamPersistenceHandlerImpl streamPersistenceHandler;
 
     /**
      * Constructor. If either skipPersistence or skipVerification is true,
@@ -55,6 +59,11 @@ public class AckHandlerImpl implements AckHandler {
     }
 
     @Override
+    public void registerPersistence(@NonNull final StreamPersistenceHandlerImpl streamPersistenceHandler) {
+        this.streamPersistenceHandler = Objects.requireNonNull(streamPersistenceHandler);
+    }
+
+    @Override
     public void blockPersisted(@NonNull final BlockPersistenceResult blockPersistenceResult) {
         Objects.requireNonNull(blockPersistenceResult);
         if (!skipAcknowledgement) {
@@ -63,10 +72,11 @@ public class AckHandlerImpl implements AckHandler {
                 final BlockInfo info = blockInfo.computeIfAbsent(blockNumber, BlockInfo::new);
                 info.getBlockStatus().setPersisted();
             } else {
-                // @todo(545) handle other cases for the blockPersistenceResult
+                // @todo(774) handle other cases for the blockPersistenceResult
                 //   for now we will simply send an end of stream message
                 //   but more things need to be handled, like ensure the
-                //   blockInfo map will not be inserted
+                //   blockInfo map will not be inserted. We should use a
+                //   persistence failed response code as well.
                 blockVerificationFailed(blockNumber);
                 blockInfo.remove(blockNumber);
             }
@@ -101,9 +111,10 @@ public class AckHandlerImpl implements AckHandler {
     public void blockVerificationFailed(long blockNumber) {
         notifier.sendEndOfStream(lastAcknowledgedBlockNumber, PublishStreamResponseCode.STREAM_ITEMS_BAD_STATE_PROOF);
         try {
-            blockRemover.removeLiveUnverified(blockNumber);
-        } catch (IOException e) {
-            LOGGER.log(System.Logger.Level.ERROR, "Failed to remove block " + blockNumber, e);
+            blockRemover.removeUnverified(blockNumber);
+        } catch (final IOException e) {
+            final String message = "Failed to remove Block with number [%d]".formatted(blockNumber);
+            LOGGER.log(ERROR, message, e);
             throw new RuntimeException(e);
         }
         blockInfo.remove(blockNumber);
@@ -140,6 +151,25 @@ public class AckHandlerImpl implements AckHandler {
 
             // Attempt to mark ACK sent (CAS-protected to avoid duplicates)
             if (info.getBlockStatus().markAckSentIfNotAlready()) {
+                try {
+                    // @todo(582) if we are unable to move the block to the verified state,
+                    //   should we throw or for now simply take the same action as if the block
+                    //   failed persistence (for now since we lack infrastructure we simply
+                    //   call the verification failed method)
+                    streamPersistenceHandler.moveVerified(nextBlock);
+                } catch (final IOException e) {
+                    // @todo(582) if we do this, we must be aware that we will not increment
+                    //   lastAcknowledgedBlockNumber and the verification failed method will
+                    //   remove the info from the map. This means that the data needs to be requested
+                    //   again. What would be the best way to hande inability to move the block with
+                    //   the limitations we current have?
+                    // @todo(774) we should use a response code for failed persistence here
+                    final String message = "Failed to move Block with number [%d] from unverified to live storage"
+                            .formatted(nextBlock);
+                    LOGGER.log(ERROR, message, e);
+                    blockVerificationFailed(nextBlock);
+                    return;
+                }
                 // We "won" the race; we do the actual ACK
                 notifier.sendAck(nextBlock, info.getBlockHash(), false);
 

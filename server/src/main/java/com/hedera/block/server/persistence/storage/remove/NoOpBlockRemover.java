@@ -24,7 +24,7 @@ public final class NoOpBlockRemover implements BlockRemover {
      * check also.
      */
     @Override
-    public boolean removeLiveUnverified(final long blockNumber) {
+    public boolean removeUnverified(final long blockNumber) {
         return false;
     }
 }

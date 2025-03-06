@@ -1,22 +1,22 @@
 // SPDX-License-Identifier: Apache-2.0
 package com.hedera.block.server.persistence.storage.path;
 
-import static com.hedera.block.server.util.PersistTestUtils.PERSISTENCE_STORAGE_ARCHIVE_BATCH_SIZE;
+import static com.hedera.block.server.util.PersistTestUtils.PERSISTENCE_STORAGE_ARCHIVE_GROUP_SIZE;
 import static com.hedera.block.server.util.PersistTestUtils.PERSISTENCE_STORAGE_ARCHIVE_ROOT_PATH_KEY;
 import static com.hedera.block.server.util.PersistTestUtils.PERSISTENCE_STORAGE_LIVE_ROOT_PATH_KEY;
+import static com.hedera.block.server.util.PersistTestUtils.PERSISTENCE_STORAGE_UNVERIFIED_ROOT_PATH_KEY;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatIllegalArgumentException;
 
 import com.hedera.block.server.Constants;
-import com.hedera.block.server.config.BlockNodeContext;
 import com.hedera.block.server.persistence.storage.PersistenceStorageConfig;
 import com.hedera.block.server.persistence.storage.PersistenceStorageConfig.CompressionType;
-import com.hedera.block.server.util.TestConfigUtil;
+import com.swirlds.config.api.Configuration;
+import com.swirlds.config.api.ConfigurationBuilder;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.Map;
 import java.util.Optional;
 import java.util.stream.Stream;
 import java.util.zip.ZipEntry;
@@ -33,27 +33,34 @@ import org.junit.jupiter.params.provider.MethodSource;
  */
 @SuppressWarnings("FieldCanBeLocal")
 class BlockAsLocalFilePathResolverTest {
-    private BlockNodeContext blockNodeContext;
-    private PersistenceStorageConfig testConfig;
-
     @TempDir
-    private Path testLiveRootPath;
+    private Path testTempDir;
 
+    private Path testLiveRootPath;
+    private Path testArchiveRootPath;
+    private Path testUnverifiedRootPath;
+    private PersistenceStorageConfig testConfig;
     private BlockAsLocalFilePathResolver toTest;
 
     @BeforeEach
     void setUp() throws IOException {
-        blockNodeContext = TestConfigUtil.getTestBlockNodeContext(Map.of(
-                PERSISTENCE_STORAGE_LIVE_ROOT_PATH_KEY,
-                testLiveRootPath.toString(),
-                PERSISTENCE_STORAGE_ARCHIVE_ROOT_PATH_KEY,
-                testLiveRootPath.toString(),
-                PERSISTENCE_STORAGE_ARCHIVE_BATCH_SIZE,
-                "10"));
-        testConfig = blockNodeContext.configuration().getConfigData(PersistenceStorageConfig.class);
-
+        testLiveRootPath = testTempDir.resolve("live");
+        testArchiveRootPath = testTempDir.resolve("archive");
+        testUnverifiedRootPath = testTempDir.resolve("unverified");
+        final Configuration configBuilder = ConfigurationBuilder.create()
+                .withConfigDataType(PersistenceStorageConfig.class)
+                .withValue(PERSISTENCE_STORAGE_LIVE_ROOT_PATH_KEY, testLiveRootPath.toString())
+                .withValue(PERSISTENCE_STORAGE_ARCHIVE_ROOT_PATH_KEY, testArchiveRootPath.toString())
+                .withValue(PERSISTENCE_STORAGE_UNVERIFIED_ROOT_PATH_KEY, testUnverifiedRootPath.toString())
+                .withValue(PERSISTENCE_STORAGE_ARCHIVE_GROUP_SIZE, "10")
+                .build();
+        testConfig = configBuilder.getConfigData(PersistenceStorageConfig.class);
         final Path testConfigLiveRootPath = testConfig.liveRootPath();
         assertThat(testConfigLiveRootPath).isEqualTo(testLiveRootPath);
+        final Path testConfigArchiveRootPath = testConfig.archiveRootPath();
+        assertThat(testConfigArchiveRootPath).isEqualTo(testArchiveRootPath);
+        final Path testConfigUnverifiedRootPath = testConfig.unverifiedRootPath();
+        assertThat(testConfigUnverifiedRootPath).isEqualTo(testUnverifiedRootPath);
         toTest = new BlockAsLocalFilePathResolver(testConfig);
     }
 
@@ -93,20 +100,18 @@ class BlockAsLocalFilePathResolverTest {
      * This test aims to verify that the
      * {@link BlockAsLocalFilePathResolver#resolveLiveRawUnverifiedPathToBlock(long)}
      * correctly resolves the path to a block by a given number. For the
-     * block-as-file storage strategy, the path to a block is a trie structure
-     * where each digit of the block number is a directory and the block number
-     * itself is the file name.
+     * block-as-file storage strategy, the path to an unverified block is the
+     * full block file name directly resolved under the unverified root storage.
      *
      * @param toResolve parameterized, valid block number
      * @param expectedBlockFile parameterized, expected block file
      */
     @ParameterizedTest
     @MethodSource("validBlockNumbers")
-    void testSuccessfulLiveRawUnverifiedPathResolution(final long toResolve, final String expectedBlockFile) {
-        final String expectedUnverified =
-                expectedBlockFile.replace(Constants.BLOCK_FILE_EXTENSION, Constants.UNVERIFIED_BLOCK_FILE_EXTENSION);
+    void testSuccessfulLiveRawUnverifiedPathResolution(final long toResolve, final Path expectedBlockFile) {
+        final Path expectedFileName = testUnverifiedRootPath.resolve(expectedBlockFile.getFileName());
         final Path actual = toTest.resolveLiveRawUnverifiedPathToBlock(toResolve);
-        assertThat(actual).isNotNull().isAbsolute().isEqualByComparingTo(testLiveRootPath.resolve(expectedUnverified));
+        assertThat(actual).isNotNull().isAbsolute().isEqualByComparingTo(expectedFileName);
     }
 
     /**
@@ -139,7 +144,7 @@ class BlockAsLocalFilePathResolverTest {
     @MethodSource("validBlockNumbersArchivePathResolve")
     void testSuccessfulResolveParentToArchivedBlocks(final ArchiveBlockPath archiveBlockPath) {
         final Path expected =
-                testLiveRootPath.resolve(archiveBlockPath.dirPath().resolve(archiveBlockPath.zipFileName()));
+                testArchiveRootPath.resolve(archiveBlockPath.dirPath().resolve(archiveBlockPath.zipFileName()));
         final Path actual = toTest.resolveRawPathToArchiveParentUnderArchive(archiveBlockPath.blockNumber());
         assertThat(actual).isNotNull().isAbsolute().isEqualByComparingTo(expected);
     }
@@ -327,16 +332,11 @@ class BlockAsLocalFilePathResolverTest {
      * empty {@link Optional} when a block is not found.
      *
      * @param blockNumber parameterized, valid block number
-     * @param expectedBlockFile parameterized, expected block file
      */
     @ParameterizedTest
     @MethodSource("validBlockNumbers")
-    void testArchiveBlockNotFound(final long blockNumber, final String expectedBlockFile) {
-        final Path expected = testLiveRootPath.resolve(expectedBlockFile);
-
-        // assert block does not exist
-        assertThat(expected).doesNotExist();
-
+    void testArchiveBlockNotFound(final long blockNumber) {
+        // when nothing is persisted, we expect nothing to be found
         final Optional<ArchiveBlockPath> actual = toTest.findArchivedBlock(blockNumber);
         assertThat(actual).isNotNull().isEmpty();
     }
@@ -353,6 +353,102 @@ class BlockAsLocalFilePathResolverTest {
     @MethodSource("invalidBlockNumbers")
     void testInvalidBlockNumberFindArchiveBlock(final long blockNumber) {
         assertThatIllegalArgumentException().isThrownBy(() -> toTest.findArchivedBlock(blockNumber));
+    }
+
+    /**
+     * This test aims to verify that the
+     * {@link BlockAsLocalFilePathResolver#findLiveBlock(long)} correctly finds
+     * a block by a given number, with no compression.
+     *
+     * @param blockNumber parameterized, valid block number
+     * @param expectedBlockFile parameterized, expected block file
+     */
+    @ParameterizedTest
+    @MethodSource("validBlockNumbers")
+    void testSuccessfulFindUnverifiedBlockNoCompression(final long blockNumber, final Path expectedBlockFile)
+            throws IOException {
+        final Path expected = testUnverifiedRootPath.resolve(expectedBlockFile.getFileName());
+        Files.createDirectories(expected.getParent());
+        Files.createFile(expected);
+
+        // assert block was created successfully
+        assertThat(expected).exists().isRegularFile().isReadable();
+
+        final Optional<UnverifiedBlockPath> actual = toTest.findUnverifiedBlock(blockNumber);
+        assertThat(actual)
+                .isNotNull()
+                .isPresent()
+                .get(InstanceOfAssertFactories.type(UnverifiedBlockPath.class))
+                .returns(blockNumber, UnverifiedBlockPath::blockNumber)
+                .returns(expected.getParent(), UnverifiedBlockPath::dirPath)
+                .returns(expected.getFileName().toString(), UnverifiedBlockPath::blockFileName)
+                .returns(CompressionType.NONE, UnverifiedBlockPath::compressionType);
+    }
+
+    /**
+     * This test aims to verify that the
+     * {@link BlockAsLocalFilePathResolver#findUnverifiedBlock(long)} correctly
+     * finds a block by a given number, with zstd compression.
+     *
+     * @param blockNumber parameterized, valid block number
+     * @param expectedBlockFile parameterized, expected block file
+     */
+    @ParameterizedTest
+    @MethodSource("validBlockNumbers")
+    void testSuccessfulFindUnverifiedBlockZstdCompressed(final long blockNumber, final Path expectedBlockFile)
+            throws IOException {
+        final String expectedBlockFileWithExtension =
+                expectedBlockFile.getFileName().toString().concat(CompressionType.ZSTD.getFileExtension());
+        final Path expected = testUnverifiedRootPath.resolve(expectedBlockFileWithExtension);
+        Files.createDirectories(expected.getParent());
+        Files.createFile(expected);
+
+        // assert block was created successfully
+        assertThat(expected).exists().isRegularFile().isReadable();
+
+        final Optional<UnverifiedBlockPath> actual = toTest.findUnverifiedBlock(blockNumber);
+        assertThat(actual)
+                .isNotNull()
+                .isPresent()
+                .get(InstanceOfAssertFactories.type(UnverifiedBlockPath.class))
+                .returns(blockNumber, UnverifiedBlockPath::blockNumber)
+                .returns(expected.getParent(), UnverifiedBlockPath::dirPath)
+                .returns(expected.getFileName().toString(), UnverifiedBlockPath::blockFileName)
+                .returns(CompressionType.ZSTD, UnverifiedBlockPath::compressionType);
+    }
+
+    /**
+     * This test aims to verify that the
+     * {@link BlockAsLocalFilePathResolver#findUnverifiedBlock(long)} correctly
+     * returns an empty {@link Optional} when a block is not found.
+     *
+     * @param blockNumber parameterized, valid block number
+     * @param expectedBlockFile parameterized, expected block file
+     */
+    @ParameterizedTest
+    @MethodSource("validBlockNumbers")
+    void testUnverifiedBlockNotFound(final long blockNumber, final Path expectedBlockFile) {
+        final Path expected = testUnverifiedRootPath.resolve(expectedBlockFile.getFileName());
+
+        // assert block does not exist
+        assertThat(expected).doesNotExist();
+
+        final Optional<LiveBlockPath> actual = toTest.findLiveBlock(blockNumber);
+        assertThat(actual).isNotNull().isEmpty();
+    }
+
+    /**
+     * This test aims to verify that the
+     * {@link BlockAsLocalFilePathResolver#findUnverifiedBlock(long)} correctly
+     * throws an {@link IllegalArgumentException} when an invalid block number
+     * is provided.
+     *
+     * @param blockNumber parameterized, invalid block number
+     */
+    @ParameterizedTest
+    @MethodSource("invalidBlockNumbers")
+    void testInvalidBlockNumberFindUnverifiedBlock(final long blockNumber) {
+        assertThatIllegalArgumentException().isThrownBy(() -> toTest.findUnverifiedBlock(blockNumber));
     }
 
     /**
@@ -399,7 +495,8 @@ class BlockAsLocalFilePathResolverTest {
     /**
      * This test aims to verify that the
      * {@link BlockAsLocalFilePathResolver#existsVerifiedBlock(long)} correctly
-     * returns {@code false} when an unverified block is found.
+     * returns {@code false} when no block is found under live or archive, but
+     * could exist under unverified.
      *
      * @param blockNumber parameterized, valid block number
      */
@@ -409,9 +506,7 @@ class BlockAsLocalFilePathResolverTest {
         final boolean notExistYet = toTest.existsVerifiedBlock(blockNumber);
         assertThat(notExistYet).isFalse();
 
-        final String unverifiedFilename =
-                blockFile.replace(Constants.BLOCK_FILE_EXTENSION, Constants.UNVERIFIED_BLOCK_FILE_EXTENSION);
-        final Path expected = testLiveRootPath.resolve(unverifiedFilename);
+        final Path expected = testUnverifiedRootPath.resolve(blockFile);
         Files.createDirectories(expected.getParent());
         Files.createFile(expected);
 
@@ -446,34 +541,6 @@ class BlockAsLocalFilePathResolverTest {
                 .returns(expected.zipFileName(), ArchiveBlockPath::zipFileName)
                 .returns(expected.zipEntryName(), ArchiveBlockPath::zipEntryName)
                 .returns(expected.compressionType(), ArchiveBlockPath::compressionType);
-    }
-
-    /**
-     * This test aims to verify that the
-     * {@link BlockAsLocalFilePathResolver#markVerified (long)} correctly
-     * marks a block as verified.
-     *
-     * @param blockNumber parameterized, invalid block number
-     * @param expectedBlockFile parameterized, expected block file
-     */
-    @ParameterizedTest
-    @MethodSource("validBlockNumbers")
-    void testMarkVerified(final long blockNumber, final String expectedBlockFile) throws IOException {
-        final Path verifiedExpectedPath = testLiveRootPath.resolve(Path.of(expectedBlockFile));
-        assertThat(verifiedExpectedPath).doesNotExist();
-
-        final String expectedUnverified =
-                expectedBlockFile.replace(Constants.BLOCK_FILE_EXTENSION, Constants.UNVERIFIED_BLOCK_FILE_EXTENSION);
-        final Path unverifiedExpectedPath = testLiveRootPath.resolve(expectedUnverified);
-        Files.createDirectories(unverifiedExpectedPath.getParent());
-        Files.createFile(unverifiedExpectedPath);
-
-        assertThat(unverifiedExpectedPath).exists().isRegularFile().isReadable();
-
-        toTest.markVerified(blockNumber);
-
-        assertThat(unverifiedExpectedPath).doesNotExist();
-        assertThat(verifiedExpectedPath).exists().isRegularFile().isReadable();
     }
 
     /**
@@ -545,6 +612,7 @@ class BlockAsLocalFilePathResolverTest {
      * @return a stream of valid block numbers and their corresponding
      * {@link ArchiveBlockPath} instances
      */
+    @SuppressWarnings("all")
     private static Stream<Arguments> validBlockNumbersArchivePathResolve() {
         // spotless:off
         return Stream.of(

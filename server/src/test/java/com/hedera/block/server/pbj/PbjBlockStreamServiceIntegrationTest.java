@@ -5,6 +5,7 @@ import static com.hedera.block.server.util.PbjProtoTestUtils.buildEmptyPublishSt
 import static com.hedera.block.server.util.PbjProtoTestUtils.buildEmptySubscribeStreamRequest;
 import static com.hedera.block.server.util.PersistTestUtils.PERSISTENCE_STORAGE_ARCHIVE_ROOT_PATH_KEY;
 import static com.hedera.block.server.util.PersistTestUtils.PERSISTENCE_STORAGE_LIVE_ROOT_PATH_KEY;
+import static com.hedera.block.server.util.PersistTestUtils.PERSISTENCE_STORAGE_UNVERIFIED_ROOT_PATH_KEY;
 import static com.hedera.block.server.util.PersistTestUtils.generateBlockItemsUnparsed;
 import static com.hedera.hapi.block.SubscribeStreamResponseCode.READ_STREAM_NOT_AVAILABLE;
 import static org.assertj.core.api.Assertions.assertThat;
@@ -30,6 +31,7 @@ import com.hedera.block.server.notifier.NotifierImpl;
 import com.hedera.block.server.persistence.StreamPersistenceHandlerImpl;
 import com.hedera.block.server.persistence.storage.PersistenceStorageConfig;
 import com.hedera.block.server.persistence.storage.archive.LocalBlockArchiver;
+import com.hedera.block.server.persistence.storage.path.BlockPathResolver;
 import com.hedera.block.server.persistence.storage.read.BlockReader;
 import com.hedera.block.server.persistence.storage.remove.BlockRemover;
 import com.hedera.block.server.persistence.storage.write.AsyncBlockWriterFactory;
@@ -137,8 +139,11 @@ class PbjBlockStreamServiceIntegrationTest {
     @Mock
     private LocalBlockArchiver archiverMock;
 
+    @Mock
+    private BlockPathResolver pathResolverMock;
+
     @TempDir
-    private Path testLiveRootPath;
+    private Path testTempDir;
 
     private BlockNodeContext blockNodeContext;
     private PersistenceStorageConfig persistenceStorageConfig;
@@ -146,13 +151,20 @@ class PbjBlockStreamServiceIntegrationTest {
     @BeforeEach
     void setUp() throws IOException {
         final Map<String, String> properties = new HashMap<>();
+        final Path testLiveRootPath = testTempDir.resolve("live");
+        final Path testArchiveRootPath = testTempDir.resolve("archive");
+        final Path testUnverifiedRootPath = testTempDir.resolve("unverified");
         properties.put(PERSISTENCE_STORAGE_LIVE_ROOT_PATH_KEY, testLiveRootPath.toString());
-        properties.put(PERSISTENCE_STORAGE_ARCHIVE_ROOT_PATH_KEY, testLiveRootPath.toString());
+        properties.put(PERSISTENCE_STORAGE_ARCHIVE_ROOT_PATH_KEY, testArchiveRootPath.toString());
+        properties.put(PERSISTENCE_STORAGE_UNVERIFIED_ROOT_PATH_KEY, testUnverifiedRootPath.toString());
         blockNodeContext = TestConfigUtil.getTestBlockNodeContext(properties);
         persistenceStorageConfig = blockNodeContext.configuration().getConfigData(PersistenceStorageConfig.class);
-
         final Path testConfigLiveRootPath = persistenceStorageConfig.liveRootPath();
         assertThat(testConfigLiveRootPath).isEqualTo(testLiveRootPath);
+        final Path testConfigArchiveRootPath = persistenceStorageConfig.archiveRootPath();
+        assertThat(testConfigArchiveRootPath).isEqualTo(testArchiveRootPath);
+        final Path testConfigUnverifiedRootPath = persistenceStorageConfig.unverifiedRootPath();
+        assertThat(testConfigUnverifiedRootPath).isEqualTo(testUnverifiedRootPath);
     }
 
     @Disabled("@todo(642) make test deterministic via correct executor injection")
@@ -430,6 +442,7 @@ class PbjBlockStreamServiceIntegrationTest {
                 writerFactory,
                 executorMock,
                 archiverMock,
+                pathResolverMock,
                 persistenceStorageConfig);
         final StreamVerificationHandlerImpl streamVerificationHandler = new StreamVerificationHandlerImpl(
                 streamMediator,
@@ -588,6 +601,7 @@ class PbjBlockStreamServiceIntegrationTest {
                 asyncBlockWriterFactoryMock,
                 executorMock,
                 archiverMock,
+                pathResolverMock,
                 persistenceStorageConfig);
         final StreamVerificationHandlerImpl streamVerificationHandler = new StreamVerificationHandlerImpl(
                 streamMediator,
@@ -772,6 +786,7 @@ class PbjBlockStreamServiceIntegrationTest {
                 writerFactory,
                 persistenceExecutor,
                 archiverMock,
+                pathResolverMock,
                 persistenceStorageConfig);
         final StreamVerificationHandlerImpl streamVerificationHandler = new StreamVerificationHandlerImpl(
                 streamMediator, notifier, blockNodeContext.metricsService(), serviceStatus, BlockVerificationService);

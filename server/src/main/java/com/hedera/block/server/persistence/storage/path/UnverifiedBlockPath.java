@@ -8,15 +8,15 @@ import java.nio.file.Path;
 import java.util.Objects;
 
 /**
- * A record that represents a detailed path to a Block that is stored under the
- * live storage root.
+ * A record that represents a detailed path to an unverified Block that is
+ * stored under the unverified storage root.
  */
-public record LiveBlockPath(
+public record UnverifiedBlockPath(
         long blockNumber,
         @NonNull Path dirPath,
         @NonNull String blockFileName,
         @NonNull CompressionType compressionType) {
-    public LiveBlockPath {
+    public UnverifiedBlockPath {
         Preconditions.requireWhole(blockNumber);
         Objects.requireNonNull(dirPath);
         Objects.requireNonNull(blockFileName);

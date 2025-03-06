@@ -5,6 +5,8 @@ import static com.hedera.block.server.metrics.BlockNodeMetricTypes.Gauge.Produce
 import static com.hedera.block.server.util.PbjProtoTestUtils.buildEmptyPublishStreamRequest;
 import static com.hedera.block.server.util.PersistTestUtils.PERSISTENCE_STORAGE_ARCHIVE_ROOT_PATH_KEY;
 import static com.hedera.block.server.util.PersistTestUtils.PERSISTENCE_STORAGE_LIVE_ROOT_PATH_KEY;
+import static com.hedera.block.server.util.PersistTestUtils.PERSISTENCE_STORAGE_UNVERIFIED_ROOT_PATH_KEY;
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.timeout;
@@ -24,6 +26,7 @@ import com.hedera.block.server.pbj.PbjBlockStreamServiceProxy;
 import com.hedera.block.server.persistence.StreamPersistenceHandlerImpl;
 import com.hedera.block.server.persistence.storage.PersistenceStorageConfig;
 import com.hedera.block.server.persistence.storage.archive.LocalBlockArchiver;
+import com.hedera.block.server.persistence.storage.path.BlockPathResolver;
 import com.hedera.block.server.persistence.storage.read.BlockReader;
 import com.hedera.block.server.persistence.storage.write.AsyncBlockWriterFactory;
 import com.hedera.block.server.producer.ProducerBlockItemObserver;
@@ -117,6 +120,9 @@ class NotifierImplTest {
     @Mock
     private LocalBlockArchiver archiverMock;
 
+    @Mock
+    private BlockPathResolver pathResolverMock;
+
     @TempDir
     private Path testTempDir;
 
@@ -125,12 +131,21 @@ class NotifierImplTest {
 
     @BeforeEach
     void setUp() throws IOException {
-
         final Map<String, String> properties = new HashMap<>();
-        properties.put(PERSISTENCE_STORAGE_LIVE_ROOT_PATH_KEY, testTempDir.toString());
-        properties.put(PERSISTENCE_STORAGE_ARCHIVE_ROOT_PATH_KEY, testTempDir.toString());
+        final Path testLiveRootPath = testTempDir.resolve("live");
+        final Path testArchiveRootPath = testTempDir.resolve("archive");
+        final Path testUnverifiedRootPath = testTempDir.resolve("unverified");
+        properties.put(PERSISTENCE_STORAGE_LIVE_ROOT_PATH_KEY, testLiveRootPath.toString());
+        properties.put(PERSISTENCE_STORAGE_ARCHIVE_ROOT_PATH_KEY, testArchiveRootPath.toString());
+        properties.put(PERSISTENCE_STORAGE_UNVERIFIED_ROOT_PATH_KEY, testUnverifiedRootPath.toString());
         blockNodeContext = TestConfigUtil.getTestBlockNodeContext(properties);
         persistenceStorageConfig = blockNodeContext.configuration().getConfigData(PersistenceStorageConfig.class);
+        final Path testConfigLiveRootPath = persistenceStorageConfig.liveRootPath();
+        assertThat(testConfigLiveRootPath).isEqualTo(testLiveRootPath);
+        final Path testConfigArchiveRootPath = persistenceStorageConfig.archiveRootPath();
+        assertThat(testConfigArchiveRootPath).isEqualTo(testArchiveRootPath);
+        final Path testConfigUnverifiedRootPath = persistenceStorageConfig.unverifiedRootPath();
+        assertThat(testConfigUnverifiedRootPath).isEqualTo(testUnverifiedRootPath);
     }
 
     @Test
@@ -235,6 +250,7 @@ class NotifierImplTest {
                 asyncBlockWriterFactoryMock,
                 executorMock,
                 archiverMock,
+                pathResolverMock,
                 persistenceStorageConfig);
         final BlockVerificationService blockVerificationService = new NoOpBlockVerificationService();
         final StreamVerificationHandlerImpl streamVerificationHandler = new StreamVerificationHandlerImpl(

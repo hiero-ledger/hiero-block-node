@@ -2,9 +2,7 @@
 package com.hedera.block.server.persistence.storage.path;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatCode;
 
-import com.hedera.block.server.Constants;
 import java.nio.file.Path;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.BeforeEach;
@@ -130,28 +128,6 @@ class NoOpBlockPathResolverTest {
     @MethodSource({"validBlockNumbers", "invalidBlockNumbers"})
     void testSuccessfulExistsVerified(final long toResolve) {
         assertThat(toTest.existsVerifiedBlock(toResolve)).isFalse();
-    }
-
-    /**
-     * This test aims to verify that the
-     * {@link NoOpBlockPathResolver#markVerified(long)} does nothing.
-     *
-     * @param toResolve parameterized, block number
-     */
-    @ParameterizedTest
-    @MethodSource({"validBlockNumbers", "invalidBlockNumbers"})
-    void testSuccessfulMarkVerified(final long toResolve, final String blockPath) {
-        final Path verifiedBlockPath = Path.of(blockPath);
-        final Path unverifiedBlockPath =
-                Path.of(blockPath.replace(Constants.BLOCK_FILE_EXTENSION, Constants.UNVERIFIED_BLOCK_FILE_EXTENSION));
-
-        assertThat(verifiedBlockPath).doesNotExist();
-        assertThat(unverifiedBlockPath).doesNotExist();
-
-        assertThatCode(() -> toTest.markVerified(toResolve)).doesNotThrowAnyException();
-
-        assertThat(verifiedBlockPath).doesNotExist();
-        assertThat(unverifiedBlockPath).doesNotExist();
     }
 
     /**
