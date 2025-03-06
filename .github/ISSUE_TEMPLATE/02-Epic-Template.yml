@@ -1,15 +1,16 @@
 # SPDX-License-Identifier: Apache-2.0
 name: Epic
 description: Create a new Epic
-title: "-"
-projects: "hiero-ledger/9"
+projects:
+  - "hiero-ledger/9"
+type: "epic"
 body:
   - type: textarea
     id: epic-goal
     attributes:
       label: Goal
       description: Describe the goal of this epic in one or two sentences
-      value: |
+      placeholder: |
         Make the block node spectacular.
     validations:
       required: true
@@ -18,7 +19,7 @@ body:
     attributes:
       label: Intention
       description: Three to five sentences about what the team intends to accomplish in order to meet the epic goal.
-      value: |
+      placeholder: |
         Three to five sentences about what the team intends to accomplish in order to meet the epic goal.
     validations:
       required: true
@@ -27,21 +28,21 @@ body:
     attributes:
       label: Considerations
       description: A list of considerations that affect the completion of this epic.
-      value: |
+      placeholder: |
         A list of considerations that affect the completion of this epic.  This includes alternatives already considered before arriving at the intention above.
-        - Consideration
+        - Consideration 1
            - Added details
-        - Consideration
+        - Consideration 2
            - Added details
         - ...
     validations:
-      required: true
+      required: false
   - type: textarea
     id: epic-detail
     attributes:
       label: Technical Details
       description: Add any additional detail to describe this epic.
-      value: |
+      placeholder: |
         Technical details, notes, customer stories, etc...
     validations:
       required: false
@@ -50,10 +51,10 @@ body:
     attributes:
       label: Tasks and Features
       description: List features and tasks needed to complete this epic
-      value: |
+      placeholder: |
         - [ ] feature 1
         - [ ] feature 2
         - [ ] task 1
         - [ ] ...
     validations:
-      required: true
+      required: false

@@ -1,0 +1,46 @@
+#·SPDX-License-Identifier:·Apache-2.0
+name: Block Node Bug Report
+description: Create a report to help us improve
+labels:
+  - bug
+type: Bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ## Thanks for submitting a bug report!
+
+        Before submitting:
+        1. Try searching the existing issues and discussions to see if your issue has already been reported
+        2. If you're reporting a security vulnerability, please disclose responsibly via our [bug bounty program](https://hedera.com/bounty)
+  - type: textarea
+    id: description
+    attributes:
+      label: Description
+      description: What happened and what you did you expect to happen?
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to Reproduce
+      description: Steps to reproduce the behavior
+      placeholder: |
+        1. Run the block node
+        2. Send a '...' request
+        3. Response is '...'
+    validations:
+      required: false
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional context
+      description: Attach any logs or screenshots relevant to the problem.
+      placeholder: |
+        ![Screenshot](bug.png)
+
+        ```bash
+        2021-06-29T13:50:45.008-0600 INFO thread-1 Some logs
+        ```
+    validations:
+      required: false
