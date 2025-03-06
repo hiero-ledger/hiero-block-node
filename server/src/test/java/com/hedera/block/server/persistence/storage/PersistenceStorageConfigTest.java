@@ -24,7 +24,7 @@ import org.junit.jupiter.params.provider.MethodSource;
  */
 class PersistenceStorageConfigTest {
     private static final Path HASHGRAPH_ROOT_ABSOLUTE_PATH =
-            Path.of("/opt/hashgraph/").toAbsolutePath();
+            Path.of("./opt/hashgraph/").toAbsolutePath();
     private static final Path PERSISTENCE_STORAGE_ROOT_ABSOLUTE_PATH =
             HASHGRAPH_ROOT_ABSOLUTE_PATH.resolve("blocknode/data/");
     // Default compression level (as set in the config annotation)
@@ -266,6 +266,7 @@ class PersistenceStorageConfigTest {
         final PersistenceStorageConfig actual = new PersistenceStorageConfig(
                 Path.of(""),
                 Path.of(""),
+                Path.of(""),
                 StorageType.NO_OP,
                 CompressionType.NONE,
                 DEFAULT_COMPRESSION_LEVEL,
@@ -292,6 +293,7 @@ class PersistenceStorageConfigTest {
                 .isThrownBy(() -> new PersistenceStorageConfig(
                         Path.of(""),
                         Path.of(""),
+                        Path.of(""),
                         StorageType.NO_OP,
                         CompressionType.NONE,
                         DEFAULT_COMPRESSION_LEVEL,
@@ -313,6 +315,7 @@ class PersistenceStorageConfigTest {
     @MethodSource("validThreadCounts")
     void testPersistenceStorageConfigValidThreadCounts(final int threadCount) {
         final PersistenceStorageConfig actual = new PersistenceStorageConfig(
+                Path.of(""),
                 Path.of(""),
                 Path.of(""),
                 StorageType.NO_OP,
@@ -341,6 +344,7 @@ class PersistenceStorageConfigTest {
                 .isThrownBy(() -> new PersistenceStorageConfig(
                         Path.of(""),
                         Path.of(""),
+                        Path.of(""),
                         StorageType.NO_OP,
                         CompressionType.NONE,
                         DEFAULT_COMPRESSION_LEVEL,
@@ -362,6 +366,7 @@ class PersistenceStorageConfigTest {
     @MethodSource("validThreadKeepAliveTimes")
     void testPersistenceStorageConfigValidThreadKeepAliveTimes(final long threadKeepAliveTime) {
         final PersistenceStorageConfig actual = new PersistenceStorageConfig(
+                Path.of(""),
                 Path.of(""),
                 Path.of(""),
                 StorageType.NO_OP,
@@ -390,6 +395,7 @@ class PersistenceStorageConfigTest {
                 .isThrownBy(() -> new PersistenceStorageConfig(
                         Path.of(""),
                         Path.of(""),
+                        Path.of(""),
                         StorageType.NO_OP,
                         CompressionType.NONE,
                         DEFAULT_COMPRESSION_LEVEL,
@@ -411,6 +417,7 @@ class PersistenceStorageConfigTest {
     @MethodSource("validUseVirtualThreads")
     void testPersistenceStorageConfigValidUseVirtualThreads(final boolean useVirtualThreads) {
         final PersistenceStorageConfig actual = new PersistenceStorageConfig(
+                Path.of(""),
                 Path.of(""),
                 Path.of(""),
                 StorageType.NO_OP,

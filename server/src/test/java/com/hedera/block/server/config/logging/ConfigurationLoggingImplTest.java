@@ -25,7 +25,7 @@ public class ConfigurationLoggingImplTest {
         final ConfigurationLoggingImpl configurationLogging = new ConfigurationLoggingImpl(configuration);
         final Map<String, Object> config = configurationLogging.collectConfig(configuration);
         assertNotNull(config);
-        assertEquals(35, config.size());
+        assertEquals(40, config.size());
 
         for (Map.Entry<String, Object> entry : config.entrySet()) {
             String value = entry.getValue().toString();
@@ -42,7 +42,7 @@ public class ConfigurationLoggingImplTest {
         final ConfigurationLoggingImpl configurationLogging = new ConfigurationLoggingImpl(configuration);
         final Map<String, Object> config = configurationLogging.collectConfig(configuration);
         assertNotNull(config);
-        assertEquals(37, config.size());
+        assertEquals(42, config.size());
 
         assertEquals("*****", config.get("test.secret").toString());
         assertEquals("", config.get("test.emptySecret").toString());

@@ -209,8 +209,6 @@ class PersistenceInjectionModuleTest {
     @ParameterizedTest
     @EnumSource(StorageType.class)
     void testProvidesLocalBlockArchiver(final StorageType type) {
-        when(persistenceStorageConfigMock.executorType())
-                .thenReturn(PersistenceStorageConfig.ExecutorType.SINGLE_THREAD);
         final LocalBlockArchiver actual = PersistenceInjectionModule.providesLocalBlockArchiver(
                 persistenceStorageConfigMock, blockPathResolverMock);
         assertThat(actual).isNotNull().isExactlyInstanceOf(BlockAsLocalFileArchiver.class);
@@ -224,7 +222,6 @@ class PersistenceInjectionModuleTest {
         when(persistenceStorageConfigMock.unverifiedRootPath()).thenReturn(testLiveRootPath);
         // Call the method under test
         // Given
-        final BlockNodeContext blockNodeContext = TestConfigUtil.getTestBlockNodeContext();
         when(persistenceStorageConfigMock.liveRootPath()).thenReturn(testLiveRootPath);
         when(persistenceStorageConfigMock.archiveRootPath()).thenReturn(testLiveRootPath);
         when(persistenceStorageConfigMock.executorType())
@@ -239,8 +236,6 @@ class PersistenceInjectionModuleTest {
                         serviceStatusMock,
                         ackHandlerMock,
                         asyncBlockWriterFactoryMock,
-                        executorMock,
-                        archiverMock,
                         blockPathResolverMock,
                         persistenceStorageConfigMock,
                         archiverMock);
