@@ -58,8 +58,8 @@ ingress:
 
 resources:
   requests:
-    cpu: "3"
-    memory: "12Gi"
+    cpu: "8"
+    memory: "24Gi"
 
 nodeSelector: {}
 
@@ -74,12 +74,12 @@ blockNode:
     # Add any additional env configuration here
     # key: value
     JAVA_TOOL_OPTIONS: "-Djava.util.logging.config.file=/app/logs/config/logging.properties"
-    JAVA_OPTS: "-Xms8G -Xmx8G"
+    JAVA_OPTS: "-Xms16G -Xmx16G"
     # PRODUCER_TYPE: "NO_OP"
     # PERSISTENCE_STORAGE_TYPE: "NO_OP"
     # VERIFICATION_TYPE: "NO_OP"
     # MEDIATOR_TYPE: "NO_OP"
-    MEDIATOR_RING_BUFFER_SIZE: "4096"
+    MEDIATOR_RING_BUFFER_SIZE: "8192"
   persistence:
     archive:
       # If false, the chart expects an externally provided PVC
@@ -89,7 +89,7 @@ blockNode:
       # If create is true, the following values are used to create the PVC
       # should match PERSISTENCE_STORAGE_ARCHIVE_ROOT_PATH, leave as is for default.
       mountPath: "/opt/hashgraph/blocknode/data/archive"
-      size: 2Gi
+      size: 200Gi
       # Optionally add a storage class name if needed
       # storageClass: "your-storage-class"
     live:
@@ -100,7 +100,7 @@ blockNode:
       # If create is true, the following values are used to create the PVC
       # should match PERSISTENCE_STORAGE_LIVE_ROOT_PATH, leave as is for default.
       mountPath: "/opt/hashgraph/blocknode/data/live"
-      size: 5Gi
+      size: 500Gi
       # Optionally add a storage class name if needed
       # storageClass: "your-storage-class"
   secret:

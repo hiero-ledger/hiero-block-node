@@ -1,0 +1,21 @@
+# SPDX-License-Identifier: Apache-2.0
+
+# This override values for the block-node-server chart to deploy a mini version of the block-node-server.
+# This is useful for testing and development purposes with limited resources.
+# ie: minikube
+
+resources:
+  requests:
+    cpu: "3"
+    memory: "8Gi"
+
+blockNode:
+  config:
+    JAVA_TOOL_OPTIONS: "-Djava.util.logging.config.file=/app/logs/config/logging.properties"
+    JAVA_OPTS: "-Xms5G -Xmx5G"
+    MEDIATOR_RING_BUFFER_SIZE: "2048"
+  persistence:
+    archive:
+      size: 2Gi
+    live:
+      size: 5Gi
