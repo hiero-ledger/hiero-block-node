@@ -16,6 +16,6 @@ blockNode:
     MEDIATOR_RING_BUFFER_SIZE: "2048"
   persistence:
     archive:
-      size: 2Gi
+      size: 6Gi
     live:
-      size: 5Gi
+      size: 1Gi
