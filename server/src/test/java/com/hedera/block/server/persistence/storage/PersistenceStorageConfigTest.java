@@ -24,7 +24,7 @@ import org.junit.jupiter.params.provider.MethodSource;
  */
 class PersistenceStorageConfigTest {
     private static final Path HASHGRAPH_ROOT_ABSOLUTE_PATH =
-            Path.of("/opt/hashgraph/").toAbsolutePath();
+            Path.of("./opt/hashgraph/").toAbsolutePath();
     private static final Path PERSISTENCE_STORAGE_ROOT_ABSOLUTE_PATH =
             HASHGRAPH_ROOT_ABSOLUTE_PATH.resolve("blocknode/data/");
     // Default compression level (as set in the config annotation)
@@ -39,6 +39,13 @@ class PersistenceStorageConfigTest {
     private static final int UPPER_BOUNDARY_FOR_ZSTD_COMPRESSION = 20;
     // Archiving defaults
     private static final int DEFAULT_ARCHIVE_BATCH_SIZE = 1000;
+    // Concurrency defaults
+    private static final int DEFAULT_EXECUTION_QUEUE_LIMIT = 1024;
+    private static final PersistenceStorageConfig.ExecutorType DEFAULT_EXECUTOR_TYPE =
+            PersistenceStorageConfig.ExecutorType.THREAD_POOL;
+    private static final int DEFAULT_THREAD_COUNT = 6;
+    private static final int DEFAULT_THREAD_KEEP_ALIVE_TIME = 60000;
+    private static final boolean DEFAULT_USE_VIRTUAL_THREADS = false;
 
     @AfterEach
     void tearDown() {
@@ -74,7 +81,12 @@ class PersistenceStorageConfigTest {
                 storageType,
                 CompressionType.NONE,
                 DEFAULT_COMPRESSION_LEVEL,
-                DEFAULT_ARCHIVE_BATCH_SIZE);
+                DEFAULT_ARCHIVE_BATCH_SIZE,
+                DEFAULT_EXECUTION_QUEUE_LIMIT,
+                DEFAULT_EXECUTOR_TYPE,
+                DEFAULT_THREAD_COUNT,
+                DEFAULT_THREAD_KEEP_ALIVE_TIME,
+                DEFAULT_USE_VIRTUAL_THREADS);
         assertThat(actual).returns(storageType, from(PersistenceStorageConfig::type));
     }
 
@@ -102,7 +114,12 @@ class PersistenceStorageConfigTest {
                 StorageType.BLOCK_AS_LOCAL_FILE,
                 CompressionType.NONE,
                 DEFAULT_COMPRESSION_LEVEL,
-                DEFAULT_ARCHIVE_BATCH_SIZE);
+                DEFAULT_ARCHIVE_BATCH_SIZE,
+                DEFAULT_EXECUTION_QUEUE_LIMIT,
+                DEFAULT_EXECUTOR_TYPE,
+                DEFAULT_THREAD_COUNT,
+                DEFAULT_THREAD_KEEP_ALIVE_TIME,
+                DEFAULT_USE_VIRTUAL_THREADS);
         assertThat(actual)
                 .returns(expectedLiveRootPathToTest, from(PersistenceStorageConfig::liveRootPath))
                 .returns(expectedArchiveRootPathToTest, from(PersistenceStorageConfig::archiveRootPath));
@@ -125,7 +142,12 @@ class PersistenceStorageConfigTest {
                 StorageType.BLOCK_AS_LOCAL_FILE,
                 compressionType,
                 compressionLevel,
-                DEFAULT_ARCHIVE_BATCH_SIZE);
+                DEFAULT_ARCHIVE_BATCH_SIZE,
+                DEFAULT_EXECUTION_QUEUE_LIMIT,
+                DEFAULT_EXECUTOR_TYPE,
+                DEFAULT_THREAD_COUNT,
+                DEFAULT_THREAD_KEEP_ALIVE_TIME,
+                DEFAULT_USE_VIRTUAL_THREADS);
         assertThat(actual).returns(compressionLevel, from(PersistenceStorageConfig::compressionLevel));
     }
 
@@ -148,7 +170,12 @@ class PersistenceStorageConfigTest {
                         StorageType.BLOCK_AS_LOCAL_FILE,
                         compressionType,
                         compressionLevel,
-                        DEFAULT_ARCHIVE_BATCH_SIZE));
+                        DEFAULT_ARCHIVE_BATCH_SIZE,
+                        DEFAULT_EXECUTION_QUEUE_LIMIT,
+                        DEFAULT_EXECUTOR_TYPE,
+                        DEFAULT_THREAD_COUNT,
+                        DEFAULT_THREAD_KEEP_ALIVE_TIME,
+                        DEFAULT_USE_VIRTUAL_THREADS));
     }
 
     /**
@@ -167,7 +194,12 @@ class PersistenceStorageConfigTest {
                 StorageType.NO_OP,
                 compressionType,
                 DEFAULT_COMPRESSION_LEVEL,
-                DEFAULT_ARCHIVE_BATCH_SIZE);
+                DEFAULT_ARCHIVE_BATCH_SIZE,
+                DEFAULT_EXECUTION_QUEUE_LIMIT,
+                DEFAULT_EXECUTOR_TYPE,
+                DEFAULT_THREAD_COUNT,
+                DEFAULT_THREAD_KEEP_ALIVE_TIME,
+                DEFAULT_USE_VIRTUAL_THREADS);
         assertThat(actual).returns(compressionType, from(PersistenceStorageConfig::compression));
     }
 
@@ -187,7 +219,12 @@ class PersistenceStorageConfigTest {
                 StorageType.NO_OP,
                 CompressionType.NONE,
                 DEFAULT_COMPRESSION_LEVEL,
-                archiveGroupSize);
+                archiveGroupSize,
+                DEFAULT_EXECUTION_QUEUE_LIMIT,
+                DEFAULT_EXECUTOR_TYPE,
+                DEFAULT_THREAD_COUNT,
+                DEFAULT_THREAD_KEEP_ALIVE_TIME,
+                DEFAULT_USE_VIRTUAL_THREADS);
         assertThat(actual).returns(archiveGroupSize, from(PersistenceStorageConfig::archiveGroupSize));
     }
 
@@ -209,7 +246,190 @@ class PersistenceStorageConfigTest {
                         StorageType.NO_OP,
                         CompressionType.NONE,
                         DEFAULT_COMPRESSION_LEVEL,
-                        archiveGroupSize));
+                        archiveGroupSize,
+                        DEFAULT_EXECUTION_QUEUE_LIMIT,
+                        DEFAULT_EXECUTOR_TYPE,
+                        DEFAULT_THREAD_COUNT,
+                        DEFAULT_THREAD_KEEP_ALIVE_TIME,
+                        DEFAULT_USE_VIRTUAL_THREADS));
+    }
+
+    /**
+     * This test aims to verify that the {@link PersistenceStorageConfig} class
+     * correctly returns the execution queue limit that was set in the constructor.
+     *
+     * @param executionQueueLimit parameterized, the execution queue limit to test
+     */
+    @ParameterizedTest
+    @MethodSource("validExecutionQueueLimits")
+    void testPersistenceStorageConfigValidExecutionQueueLimits(final int executionQueueLimit) {
+        final PersistenceStorageConfig actual = new PersistenceStorageConfig(
+                Path.of(""),
+                Path.of(""),
+                Path.of(""),
+                StorageType.NO_OP,
+                CompressionType.NONE,
+                DEFAULT_COMPRESSION_LEVEL,
+                DEFAULT_ARCHIVE_BATCH_SIZE,
+                executionQueueLimit,
+                DEFAULT_EXECUTOR_TYPE,
+                DEFAULT_THREAD_COUNT,
+                DEFAULT_THREAD_KEEP_ALIVE_TIME,
+                DEFAULT_USE_VIRTUAL_THREADS);
+        assertThat(actual).returns(executionQueueLimit, from(PersistenceStorageConfig::executionQueueLimit));
+    }
+
+    /**
+     * This test aims to verify that the {@link PersistenceStorageConfig} class
+     * correctly throws an {@link IllegalArgumentException} when the execution queue
+     * limit is invalid.
+     *
+     * @param executionQueueLimit parameterized, the execution queue limit to test
+     */
+    @ParameterizedTest
+    @MethodSource("invalidExecutionQueueLimits")
+    void testPersistenceStorageConfigInvalidExecutionQueueLimits(final int executionQueueLimit) {
+        assertThatIllegalArgumentException()
+                .isThrownBy(() -> new PersistenceStorageConfig(
+                        Path.of(""),
+                        Path.of(""),
+                        Path.of(""),
+                        StorageType.NO_OP,
+                        CompressionType.NONE,
+                        DEFAULT_COMPRESSION_LEVEL,
+                        DEFAULT_ARCHIVE_BATCH_SIZE,
+                        executionQueueLimit,
+                        DEFAULT_EXECUTOR_TYPE,
+                        DEFAULT_THREAD_COUNT,
+                        DEFAULT_THREAD_KEEP_ALIVE_TIME,
+                        DEFAULT_USE_VIRTUAL_THREADS));
+    }
+
+    /**
+     * This test aims to verify that the {@link PersistenceStorageConfig} class
+     * correctly returns the thread count that was set in the constructor.
+     *
+     * @param threadCount parameterized, the thread count to test
+     */
+    @ParameterizedTest
+    @MethodSource("validThreadCounts")
+    void testPersistenceStorageConfigValidThreadCounts(final int threadCount) {
+        final PersistenceStorageConfig actual = new PersistenceStorageConfig(
+                Path.of(""),
+                Path.of(""),
+                Path.of(""),
+                StorageType.NO_OP,
+                CompressionType.NONE,
+                DEFAULT_COMPRESSION_LEVEL,
+                DEFAULT_ARCHIVE_BATCH_SIZE,
+                DEFAULT_EXECUTION_QUEUE_LIMIT,
+                DEFAULT_EXECUTOR_TYPE,
+                threadCount,
+                DEFAULT_THREAD_KEEP_ALIVE_TIME,
+                DEFAULT_USE_VIRTUAL_THREADS);
+        assertThat(actual).returns(threadCount, from(PersistenceStorageConfig::threadCount));
+    }
+
+    /**
+     * This test aims to verify that the {@link PersistenceStorageConfig} class
+     * correctly throws an {@link IllegalArgumentException} when the thread count
+     * is invalid.
+     *
+     * @param threadCount parameterized, the thread count to test
+     */
+    @ParameterizedTest
+    @MethodSource("invalidThreadCounts")
+    void testPersistenceStorageConfigInvalidThreadCounts(final int threadCount) {
+        assertThatIllegalArgumentException()
+                .isThrownBy(() -> new PersistenceStorageConfig(
+                        Path.of(""),
+                        Path.of(""),
+                        Path.of(""),
+                        StorageType.NO_OP,
+                        CompressionType.NONE,
+                        DEFAULT_COMPRESSION_LEVEL,
+                        DEFAULT_ARCHIVE_BATCH_SIZE,
+                        DEFAULT_EXECUTION_QUEUE_LIMIT,
+                        DEFAULT_EXECUTOR_TYPE,
+                        threadCount,
+                        DEFAULT_THREAD_KEEP_ALIVE_TIME,
+                        DEFAULT_USE_VIRTUAL_THREADS));
+    }
+
+    /**
+     * This test aims to verify that the {@link PersistenceStorageConfig} class
+     * correctly returns the thread keep alive time that was set in the constructor.
+     *
+     * @param threadKeepAliveTime parameterized, the thread keep alive time to test
+     */
+    @ParameterizedTest
+    @MethodSource("validThreadKeepAliveTimes")
+    void testPersistenceStorageConfigValidThreadKeepAliveTimes(final long threadKeepAliveTime) {
+        final PersistenceStorageConfig actual = new PersistenceStorageConfig(
+                Path.of(""),
+                Path.of(""),
+                Path.of(""),
+                StorageType.NO_OP,
+                CompressionType.NONE,
+                DEFAULT_COMPRESSION_LEVEL,
+                DEFAULT_ARCHIVE_BATCH_SIZE,
+                DEFAULT_EXECUTION_QUEUE_LIMIT,
+                DEFAULT_EXECUTOR_TYPE,
+                DEFAULT_THREAD_COUNT,
+                threadKeepAliveTime,
+                DEFAULT_USE_VIRTUAL_THREADS);
+        assertThat(actual).returns(threadKeepAliveTime, from(PersistenceStorageConfig::threadKeepAliveTime));
+    }
+
+    /**
+     * This test aims to verify that the {@link PersistenceStorageConfig} class
+     * correctly throws an {@link IllegalArgumentException} when the thread keep
+     * alive time is invalid.
+     *
+     * @param threadKeepAliveTime parameterized, the thread keep alive time to test
+     */
+    @ParameterizedTest
+    @MethodSource("invalidThreadKeepAliveTimes")
+    void testPersistenceStorageConfigInvalidThreadKeepAliveTimes(final int threadKeepAliveTime) {
+        assertThatIllegalArgumentException()
+                .isThrownBy(() -> new PersistenceStorageConfig(
+                        Path.of(""),
+                        Path.of(""),
+                        Path.of(""),
+                        StorageType.NO_OP,
+                        CompressionType.NONE,
+                        DEFAULT_COMPRESSION_LEVEL,
+                        DEFAULT_ARCHIVE_BATCH_SIZE,
+                        DEFAULT_EXECUTION_QUEUE_LIMIT,
+                        DEFAULT_EXECUTOR_TYPE,
+                        DEFAULT_THREAD_COUNT,
+                        threadKeepAliveTime,
+                        DEFAULT_USE_VIRTUAL_THREADS));
+    }
+
+    /**
+     * This test aims to verify that the {@link PersistenceStorageConfig} class
+     * correctly returns the use virtual threads flag that was set in the constructor.
+     *
+     * @param useVirtualThreads parameterized, the use virtual threads flag to test
+     */
+    @ParameterizedTest
+    @MethodSource("validUseVirtualThreads")
+    void testPersistenceStorageConfigValidUseVirtualThreads(final boolean useVirtualThreads) {
+        final PersistenceStorageConfig actual = new PersistenceStorageConfig(
+                Path.of(""),
+                Path.of(""),
+                Path.of(""),
+                StorageType.NO_OP,
+                CompressionType.NONE,
+                DEFAULT_COMPRESSION_LEVEL,
+                DEFAULT_ARCHIVE_BATCH_SIZE,
+                DEFAULT_EXECUTION_QUEUE_LIMIT,
+                DEFAULT_EXECUTOR_TYPE,
+                DEFAULT_THREAD_COUNT,
+                DEFAULT_THREAD_KEEP_ALIVE_TIME,
+                useVirtualThreads);
+        assertThat(actual).returns(useVirtualThreads, from(PersistenceStorageConfig::useVirtualThreads));
     }
 
     /**
@@ -338,5 +558,71 @@ class PersistenceStorageConfigTest {
                 Arguments.of(-10_000_000),
                 Arguments.of(-100_000_000),
                 Arguments.of(-1_000_000_000));
+    }
+
+    private static Stream<Arguments> validExecutionQueueLimits() {
+        return Stream.of(Arguments.of(100), Arguments.of(1_000));
+    }
+
+    private static Stream<Arguments> invalidExecutionQueueLimits() {
+        return Stream.of(
+                Arguments.of(0),
+                Arguments.of(-1),
+                Arguments.of(-2),
+                Arguments.of(-10),
+                Arguments.of(-20),
+                Arguments.of(-50),
+                Arguments.of(-100),
+                Arguments.of(-1_000),
+                Arguments.of(-10_000),
+                Arguments.of(-100_000),
+                Arguments.of(-1_000_000),
+                Arguments.of(-10_000_000));
+    }
+
+    private static Stream<Arguments> validThreadCounts() {
+        return Stream.of(Arguments.of(1), Arguments.of(2), Arguments.of(4), Arguments.of(8), Arguments.of(16));
+    }
+
+    private static Stream<Arguments> invalidThreadCounts() {
+        return Stream.of(
+                Arguments.of(0),
+                Arguments.of(-1),
+                Arguments.of(-2),
+                Arguments.of(-4),
+                Arguments.of(-8),
+                Arguments.of(-16));
+    }
+
+    private static Stream<Arguments> validThreadKeepAliveTimes() {
+        return Stream.of(
+                Arguments.of(0),
+                Arguments.of(1000),
+                Arguments.of(5000),
+                Arguments.of(10000),
+                Arguments.of(30000),
+                Arguments.of(60000),
+                Arguments.of(120000),
+                Arguments.of(300000),
+                Arguments.of(600000),
+                Arguments.of(3600000));
+    }
+
+    private static Stream<Arguments> invalidThreadKeepAliveTimes() {
+        return Stream.of(
+                Arguments.of(-1),
+                Arguments.of(-1000),
+                Arguments.of(-5000),
+                Arguments.of(-10000),
+                Arguments.of(-30000),
+                Arguments.of(-60000),
+                Arguments.of(-120000),
+                Arguments.of(-300000),
+                Arguments.of(-600000),
+                Arguments.of(-3600000));
+    }
+
+    private static Stream<Arguments> validUseVirtualThreads() {
+        return Stream.of(Arguments.of(true), Arguments.of(false));
     }
 }

@@ -27,6 +27,7 @@ import com.hedera.block.server.persistence.storage.remove.NoOpBlockRemover;
 import com.hedera.block.server.persistence.storage.write.AsyncBlockAsLocalFileWriterFactory;
 import com.hedera.block.server.persistence.storage.write.AsyncBlockWriterFactory;
 import com.hedera.block.server.persistence.storage.write.AsyncNoOpWriterFactory;
+import com.hedera.block.server.persistence.storage.write.AsyncWriterExecutorFactory;
 import com.hedera.block.server.service.ServiceStatus;
 import com.hedera.hapi.block.BlockItemUnparsed;
 import com.hedera.hapi.block.BlockUnparsed;
@@ -37,6 +38,7 @@ import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.util.List;
 import java.util.Objects;
+import java.util.concurrent.Executor;
 import java.util.concurrent.Executors;
 import javax.inject.Singleton;
 
@@ -181,6 +183,7 @@ public interface PersistenceInjectionModule {
             @NonNull final PersistenceStorageConfig persistenceStorageConfig,
             @NonNull final LocalBlockArchiver localBlockArchiver) {
         try {
+            final Executor executor = AsyncWriterExecutorFactory.createExecutor(persistenceStorageConfig);
             return new StreamPersistenceHandlerImpl(
                     subscriptionHandler,
                     notifier,
@@ -188,7 +191,7 @@ public interface PersistenceInjectionModule {
                     serviceStatus,
                     ackHandler,
                     asyncBlockWriterFactory,
-                    Executors.newFixedThreadPool(5),
+                    executor,
                     localBlockArchiver,
                     blockPathResolver,
                     persistenceStorageConfig);

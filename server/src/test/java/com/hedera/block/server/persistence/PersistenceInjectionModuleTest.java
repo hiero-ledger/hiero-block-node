@@ -221,18 +221,27 @@ class PersistenceInjectionModuleTest {
         when(persistenceStorageConfigMock.archiveRootPath()).thenReturn(testLiveRootPath);
         when(persistenceStorageConfigMock.unverifiedRootPath()).thenReturn(testLiveRootPath);
         // Call the method under test
+        // Given
+        when(persistenceStorageConfigMock.liveRootPath()).thenReturn(testLiveRootPath);
+        when(persistenceStorageConfigMock.archiveRootPath()).thenReturn(testLiveRootPath);
+        when(persistenceStorageConfigMock.executorType())
+                .thenReturn(PersistenceStorageConfig.ExecutorType.SINGLE_THREAD);
+
+        // When
         final BlockNodeEventHandler<ObjectEvent<List<BlockItemUnparsed>>> streamVerifier =
-                new StreamPersistenceHandlerImpl(
+                PersistenceInjectionModule.providesBlockNodeEventHandler(
                         subscriptionHandlerMock,
                         notifierMock,
                         metricsService,
                         serviceStatusMock,
                         ackHandlerMock,
                         asyncBlockWriterFactoryMock,
-                        executorMock,
-                        archiverMock,
                         blockPathResolverMock,
-                        persistenceStorageConfigMock);
+                        persistenceStorageConfigMock,
+                        archiverMock);
+
+        // Then
         assertNotNull(streamVerifier);
+        assertThat(streamVerifier).isExactlyInstanceOf(StreamPersistenceHandlerImpl.class);
     }
 }

@@ -41,6 +41,11 @@ public final class ServerMappedConfigSourceInitializer {
             new ConfigMapping("persistence.storage.type", "PERSISTENCE_STORAGE_TYPE"),
             new ConfigMapping("persistence.storage.archiveGroupSize", "PERSISTENCE_STORAGE_ARCHIVE_GROUP_SIZE"),
             new ConfigMapping("persistence.storage.unverifiedRootPath", "PERSISTENCE_STORAGE_UNVERIFIED_ROOT_PATH"),
+            new ConfigMapping("persistence.storage.executionQueueLimit", "PERSISTENCE_STORAGE_EXECUTION_QUEUE_LIMIT"),
+            new ConfigMapping("persistence.storage.executorType", "PERSISTENCE_STORAGE_EXECUTOR_TYPE"),
+            new ConfigMapping("persistence.storage.threadCount", "PERSISTENCE_STORAGE_THREAD_COUNT"),
+            new ConfigMapping("persistence.storage.threadKeepAliveTime", "PERSISTENCE_STORAGE_THREAD_KEEP_ALIVE_TIME"),
+            new ConfigMapping("persistence.storage.useVirtualThreads", "PERSISTENCE_STORAGE_USE_VIRTUAL_THREADS"),
 
             // Producer Config
             new ConfigMapping("producer.type", "PRODUCER_TYPE"),
