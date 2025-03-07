@@ -131,7 +131,7 @@ class AckHandlerImplTest {
     @DisplayName("blockPersisted + blockVerified triggers a single ACK")
     void blockPersistedThenBlockVerified_triggersAck() {
         // given
-        final long blockNumber = 1L;
+        final long blockNumber = 0L;
         final Bytes blockHash = Bytes.wrap("hash1".getBytes());
 
         // when
@@ -149,9 +149,9 @@ class AckHandlerImplTest {
             "Multiple consecutive blocks can be ACKed in sequence if they are both persisted and verified in order")
     void multipleBlocksAckInSequence() {
         // given
-        final long block1 = 1L;
-        final long block2 = 2L;
-        final long block3 = 3L;
+        final long block1 = 0L;
+        final long block2 = 1L;
+        final long block3 = 2L;
         final Bytes hash1 = Bytes.wrap("hash1".getBytes());
         final Bytes hash2 = Bytes.wrap("hash2".getBytes());
         final Bytes hash3 = Bytes.wrap("hash3".getBytes());
@@ -181,9 +181,9 @@ class AckHandlerImplTest {
         final List<Bytes> capturedHashes = blockHashCaptor.getAllValues();
 
         assertEquals(3, capturedBlockNumbers.size(), "We should have exactly 3 ACK calls");
-        assertEquals(1L, capturedBlockNumbers.get(0));
-        assertEquals(2L, capturedBlockNumbers.get(1));
-        assertEquals(3L, capturedBlockNumbers.get(2));
+        assertEquals(0L, capturedBlockNumbers.get(0));
+        assertEquals(1L, capturedBlockNumbers.get(1));
+        assertEquals(2L, capturedBlockNumbers.get(2));
 
         assertEquals(hash1, capturedHashes.get(0));
         assertEquals(hash2, capturedHashes.get(1));
@@ -196,8 +196,8 @@ class AckHandlerImplTest {
     @DisplayName("Blocks are ACKed in order; partial readiness doesn't skip ahead")
     void ackStopsIfNextBlockIsNotReady() {
         // given
-        final long block1 = 1L;
-        final long block2 = 2L;
+        final long block1 = 0L;
+        final long block2 = 1L;
         final Bytes hash1 = Bytes.wrap("hash1".getBytes());
         final Bytes hash2 = Bytes.wrap("hash2".getBytes());
 
@@ -248,9 +248,9 @@ class AckHandlerImplTest {
      */
     @Test
     public void testAckOrderWhenLowerBlockArrivesLate() {
-        final long block2 = 2L;
+        final long block2 = 1L;
         final Bytes blockHash2 = Bytes.wrap("hash2".getBytes());
-        final long block1 = 1L;
+        final long block1 = 0L;
         final Bytes blockHash1 = Bytes.wrap("hash1".getBytes());
 
         // First, process events for block 2.
@@ -292,7 +292,7 @@ class AckHandlerImplTest {
         final Runnable persistTask = () -> {
             try {
                 startLatch.await();
-                for (int i = 1; i <= blockCount; i++) {
+                for (int i = 0; i <= blockCount - 1; i++) {
                     ackHandler.blockPersisted(new BlockPersistenceResult(i, BlockPersistenceStatus.SUCCESS));
                     if (maxPersistDelayNanos > 0) {
                         long delay = random.nextInt(maxPersistDelayNanos + 1);
@@ -310,7 +310,7 @@ class AckHandlerImplTest {
         final Runnable verifyTask = () -> {
             try {
                 startLatch.await();
-                for (int i = 1; i <= blockCount; i++) {
+                for (int i = 0; i <= blockCount - 1; i++) {
                     final Bytes blockHash = bytesFromLong(i);
                     ackHandler.blockVerified(i, blockHash);
                     if (maxVerifyDelayNanos > 0) {
@@ -331,7 +331,7 @@ class AckHandlerImplTest {
         assertTrue(doneLatch.await(60, TimeUnit.SECONDS), "Tasks did not complete in time");
         executor.shutdown();
         // Wait a bit to ensure all ACKs are processed.
-        Thread.sleep(1_000);
+        Thread.sleep(100);
 
         final ArgumentCaptor<Long> blockNumberCaptor = ArgumentCaptor.forClass(Long.class);
         final ArgumentCaptor<Bytes> blockHashCaptor = ArgumentCaptor.forClass(Bytes.class);
@@ -342,7 +342,7 @@ class AckHandlerImplTest {
 
         assertEquals(blockCount, capturedBlockNumbers.size(), "Number of ACKs mismatch");
         for (int i = 0; i < blockCount; i++) {
-            long expected = i + 1;
+            long expected = i;
             assertEquals(expected, capturedBlockNumbers.get(i), "ACK order mismatch at index " + i);
             assertEquals(
                     bytesFromLong(expected), capturedBlockHashes.get(i), "Block hash mismatch at block " + expected);
@@ -352,7 +352,7 @@ class AckHandlerImplTest {
         verify(serviceStatus, atLeastOnce()).setLatestAckedBlock(blockInfoCaptor.capture());
         final BlockInfo latest = blockInfoCaptor.getValue();
         assertNotNull(latest, "Latest acked block should not be null");
-        assertEquals(blockCount, latest.getBlockNumber(), "Latest acknowledged block number mismatch");
+        assertEquals(blockCount - 1, latest.getBlockNumber(), "Latest acknowledged block number mismatch");
     }
 
     // Helper method to create a dummy Bytes object from a long.
