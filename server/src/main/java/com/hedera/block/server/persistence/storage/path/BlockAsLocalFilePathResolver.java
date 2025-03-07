@@ -1,8 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 package com.hedera.block.server.persistence.storage.path;
 
-import static java.lang.System.Logger.Level.INFO;
-
 import com.hedera.block.common.utils.FileUtilities;
 import com.hedera.block.common.utils.Preconditions;
 import com.hedera.block.server.Constants;
@@ -12,7 +10,6 @@ import edu.umd.cs.findbugs.annotations.NonNull;
 import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.UncheckedIOException;
-import java.lang.System.Logger;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.text.DecimalFormat;
@@ -27,7 +24,6 @@ import java.util.zip.ZipFile;
  * A Block path resolver for block-as-file.
  */
 public final class BlockAsLocalFilePathResolver implements BlockPathResolver {
-    private static final Logger LOGGER = System.getLogger(BlockAsLocalFilePathResolver.class.getName());
     private static final int MAX_LONG_DIGITS = 19;
     private final Path liveRootPath;
     private final Path archiveRootPath;
@@ -175,10 +171,8 @@ public final class BlockAsLocalFilePathResolver implements BlockPathResolver {
             try (final Stream<Path> list = Files.list(root)) {
                 final Optional<Path> nextPath = list.sorted().findAny();
                 if (nextPath.isPresent()) {
-                    LOGGER.log(INFO, "traversing first dfs - " + nextPath.get().toString());
                     return dfsFindFistLive(nextPath.get());
                 } else {
-                    LOGGER.log(INFO, "traversing first dfs - empty");
                     return Optional.empty();
                 }
             }
@@ -201,10 +195,7 @@ public final class BlockAsLocalFilePathResolver implements BlockPathResolver {
                     try (final ZipFile zipFile = new ZipFile(pathToBlock.toFile())) {
                         return zipFile.stream()
                                 .sorted(Comparator.comparing(ZipEntry::getName))
-                                .filter(e -> {
-                                    LOGGER.log(INFO, "first available from zip - " + e.getName());
-                                    return !e.isDirectory();
-                                })
+                                .filter(e -> !e.isDirectory())
                                 .findAny()
                                 .map(ze -> {
                                     final String entryName = ze.getName();
@@ -230,10 +221,8 @@ public final class BlockAsLocalFilePathResolver implements BlockPathResolver {
                 final Optional<Path> nextPath =
                         list.sorted(Comparator.reverseOrder()).findAny();
                 if (nextPath.isPresent()) {
-                    LOGGER.log(INFO, "traversing last dfs - " + nextPath.get().toString());
                     return dfsFindLatestLive(nextPath.get());
                 } else {
-                    LOGGER.log(INFO, "traversing last dfs - empty");
                     return Optional.empty();
                 }
             }
@@ -256,10 +245,7 @@ public final class BlockAsLocalFilePathResolver implements BlockPathResolver {
                     try (final ZipFile zipFile = new ZipFile(pathToBlock.toFile())) {
                         return zipFile.stream()
                                 .sorted(Comparator.comparing(ZipEntry::getName).reversed())
-                                .filter(e -> {
-                                    LOGGER.log(INFO, "last available from zip - " + e.getName());
-                                    return !e.isDirectory();
-                                })
+                                .filter(e -> !e.isDirectory())
                                 .findAny()
                                 .map(ze -> {
                                     final String entryName = ze.getName();
