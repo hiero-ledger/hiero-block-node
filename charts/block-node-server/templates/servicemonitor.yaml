@@ -6,15 +6,15 @@ SPDX-License-Identifier: Apache-2.0
 apiVersion: monitoring.coreos.com/v1
 kind: ServiceMonitor
 metadata:
-  name: {{ include "hedera-block-node.fullname" . }}
+  name: {{ include "hiero-block-node.fullname" . }}
   labels:
-    app: {{ include "hedera-block-node.name" . }}
+    app: {{ include "hiero-block-node.name" . }}
     release: {{ .Release.Name }}
-    {{- include "hedera-block-node.labels" . | nindent 4 }}
+    {{- include "hiero-block-node.labels" . | nindent 4 }}
 spec:
   selector:
     matchLabels:
-      app: {{ include "hedera-block-node.name" . }}
+      app: {{ include "hiero-block-node.name" . }}
   namespaceSelector:
     matchNames:
       - {{ .Release.Namespace }}

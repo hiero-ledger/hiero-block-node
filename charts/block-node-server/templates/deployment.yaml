@@ -5,14 +5,14 @@ SPDX-License-Identifier: Apache-2.0
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: {{ include "hedera-block-node.fullname" . }}
+  name: {{ include "hiero-block-node.fullname" . }}
   labels:
-    {{- include "hedera-block-node.labels" . | nindent 4 }}
+    {{- include "hiero-block-node.labels" . | nindent 4 }}
 spec:
   replicas: 1
   selector:
     matchLabels:
-      {{- include "hedera-block-node.selectorLabels" . | nindent 6 }}
+      {{- include "hiero-block-node.selectorLabels" . | nindent 6 }}
   template:
     metadata:
       {{- with .Values.podAnnotations }}
@@ -20,19 +20,27 @@ spec:
         {{- toYaml . | nindent 8 }}
       {{- end }}
       labels:
-        {{- include "hedera-block-node.selectorLabels" . | nindent 8 }}
+        {{- include "hiero-block-node.selectorLabels" . | nindent 8 }}
     spec:
       {{- with .Values.imagePullSecrets }}
       imagePullSecrets:
         {{- toYaml . | nindent 8 }}
       {{- end }}
-      serviceAccountName: {{ include "hedera-block-node.serviceAccountName" . }}
+      serviceAccountName: {{ include "hiero-block-node.serviceAccountName" . }}
       securityContext:
         {{- toYaml .Values.podSecurityContext | nindent 8 }}
       volumes:
         - name: logging-config
           configMap:
-            name: {{ include "hedera-block-node.fullname" . }}-logging-config
+            name: {{ include "hiero-block-node.fullname" . }}-logging-config
+        - name: archive-storage
+          persistentVolumeClaim:
+            claimName: {{ if .Values.blockNode.persistence.archive.create }}{{ include "hiero-block-node.fullname" . }}-archive{{ else }}{{ .Values.blockNode.persistence.archive.existingClaim }}{{ end }}
+        - name: live-storage
+          persistentVolumeClaim:
+            claimName: {{ if .Values.blockNode.persistence.live.create }}{{ include "hiero-block-node.fullname" . }}-live{{ else }}{{ .Values.blockNode.persistence.live.existingClaim }}{{ end }}
+        - name: unverified-ephemeral-storage
+          emptyDir: {}
       containers:
       - name: {{ .Chart.Name }}
         securityContext:
@@ -48,13 +56,19 @@ spec:
             protocol: TCP
         envFrom:
           - configMapRef:
-              name: {{ include "hedera-block-node.fullname" . }}-config
+              name: {{ include "hiero-block-node.fullname" . }}-config
           - secretRef:
-              name: {{ include "hedera-block-node.fullname" . }}-secret
+              name: {{ include "hiero-block-node.fullname" . }}-secret
         volumeMounts:
           - name: logging-config
             mountPath: /app/logs/config
             readOnly: true
+          - name: archive-storage
+            mountPath: {{ .Values.blockNode.persistence.archive.mountPath }}
+          - name: live-storage
+            mountPath: {{ .Values.blockNode.persistence.live.mountPath }}
+          - name: unverified-ephemeral-storage
+            mountPath: {{ .Values.blockNode.persistence.unverified.mountPath }}
         {{- with  .Values.resources }}
         resources:
           requests:
