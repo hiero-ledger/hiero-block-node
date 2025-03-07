@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 package com.hedera.block.server.persistence.storage.path;
 
+import static java.lang.System.Logger.Level.INFO;
+
 import com.hedera.block.common.utils.FileUtilities;
 import com.hedera.block.common.utils.Preconditions;
 import com.hedera.block.server.Constants;
@@ -9,17 +11,22 @@ import com.hedera.block.server.persistence.storage.PersistenceStorageConfig.Comp
 import edu.umd.cs.findbugs.annotations.NonNull;
 import java.io.IOException;
 import java.io.UncheckedIOException;
+import java.lang.System.Logger;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.text.DecimalFormat;
+import java.util.Comparator;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.stream.Stream;
+import java.util.zip.ZipEntry;
 import java.util.zip.ZipFile;
 
 /**
  * A Block path resolver for block-as-file.
  */
 public final class BlockAsLocalFilePathResolver implements BlockPathResolver {
+    private static final Logger LOGGER = System.getLogger(BlockAsLocalFilePathResolver.class.getName());
     private static final int MAX_LONG_DIGITS = 19;
     private final Path liveRootPath;
     private final Path archiveRootPath;
@@ -164,14 +171,81 @@ public final class BlockAsLocalFilePathResolver implements BlockPathResolver {
 
     @NonNull
     @Override
-    public Optional<Long> getFirstAvailableBlockNumber() {
-        return Optional.empty();
+    public Optional<Long> getFirstAvailableBlockNumber() throws IOException {
+        try (final Stream<Path> tree = Files.walk(liveRootPath)) {
+            return tree.sorted()
+                    .filter(f -> {
+                        final String fileName = f.getFileName().toString();
+                        LOGGER.log(INFO, "first available - " + fileName);
+
+                        if (Files.isRegularFile(f)) {
+                            return true;
+                        }
+
+                        return false;
+                    })
+                    .findAny()
+                    .map(f -> {
+                        final String fileName = f.getFileName().toString();
+                        if (fileName.endsWith(Constants.ZIP_FILE_EXTENSION)) {
+                            try (final ZipFile zipFile = new ZipFile(f.toFile())) {
+                                return zipFile.stream()
+                                        .sorted(Comparator.comparing(ZipEntry::getName))
+                                        .filter(e -> {
+                                            LOGGER.log(INFO, "first available from zip - " + e.getName());
+                                            return !e.isDirectory();
+                                        })
+                                        .findAny()
+                                        .map(ze -> Long.parseLong(ze.getName()
+                                                .substring(0, ze.getName().indexOf('.'))))
+                                        .orElse(-1L);
+                            } catch (IOException e) {
+                                throw new RuntimeException(e);
+                            }
+                        } else {
+                            return Long.parseLong(fileName.substring(0, fileName.indexOf('.')));
+                        }
+                    });
+        }
     }
 
     @NonNull
     @Override
-    public Optional<Long> getLatestAvailableBlockNumber() {
-        return Optional.empty();
+    public Optional<Long> getLatestAvailableBlockNumber() throws IOException {
+        try (final Stream<Path> tree = Files.walk(liveRootPath)) {
+            return tree.sorted(Comparator.reverseOrder())
+                    .filter(f -> {
+                        final String fileName = f.getFileName().toString();
+                        LOGGER.log(INFO, "last available - " + fileName);
+                        if (Files.isRegularFile(f)) {
+                            return true;
+                        }
+                        return false;
+                    })
+                    .findAny()
+                    .map(f -> {
+                        final String fileName = f.getFileName().toString();
+                        if (fileName.endsWith(Constants.ZIP_FILE_EXTENSION)) {
+                            try (final ZipFile zipFile = new ZipFile(f.toFile())) {
+                                return zipFile.stream()
+                                        .sorted(Comparator.comparing(ZipEntry::getName)
+                                                .reversed())
+                                        .filter(e -> {
+                                            LOGGER.log(INFO, "last available from zip - " + e.getName());
+                                            return !e.isDirectory();
+                                        })
+                                        .findAny()
+                                        .map(ze -> Long.parseLong(ze.getName()
+                                                .substring(0, ze.getName().indexOf('.'))))
+                                        .orElse(-1L);
+                            } catch (IOException e) {
+                                throw new RuntimeException(e);
+                            }
+                        } else {
+                            return Long.parseLong(fileName.substring(0, fileName.indexOf('.')));
+                        }
+                    });
+        }
     }
 
     /**

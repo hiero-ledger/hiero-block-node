@@ -6,6 +6,7 @@ import static java.lang.System.Logger.Level.DEBUG;
 import static java.lang.System.Logger.Level.ERROR;
 
 import com.hedera.block.common.utils.FileUtilities;
+import com.hedera.block.server.ack.AckBlockStatus;
 import com.hedera.block.server.ack.AckHandler;
 import com.hedera.block.server.block.BlockInfo;
 import com.hedera.block.server.events.BlockNodeEventHandler;
@@ -129,12 +130,13 @@ public class StreamPersistenceHandlerImpl implements BlockNodeEventHandler<Objec
         final Optional<Long> latestAvailableBlockNumberOpt = pathResolver.getLatestAvailableBlockNumber();
         if (latestAvailableBlockNumberOpt.isPresent()) {
             final long latestAvailableBlockNumber = latestAvailableBlockNumberOpt.get();
-            serviceStatus.setLatestReceivedBlockNumber(latestAvailableBlockNumber);
             final BlockInfo latestAckedBlockInfo = new BlockInfo(latestAvailableBlockNumber);
-            latestAckedBlockInfo.getBlockStatus().setPersisted();
-            latestAckedBlockInfo.getBlockStatus().setVerified();
-            latestAckedBlockInfo.getBlockStatus().markAckSentIfNotAlready();
+            final AckBlockStatus blockStatus = latestAckedBlockInfo.getBlockStatus();
+            blockStatus.setPersisted();
+            blockStatus.setVerified();
+            blockStatus.markAckSentIfNotAlready();
             serviceStatus.setLatestAckedBlock(latestAckedBlockInfo);
+            serviceStatus.setLatestReceivedBlockNumber(latestAvailableBlockNumber);
         }
 
         // It is indeed a very bad idea to expose `this` to the outside world

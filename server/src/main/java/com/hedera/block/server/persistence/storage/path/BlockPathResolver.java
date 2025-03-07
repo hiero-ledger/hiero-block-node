@@ -2,6 +2,7 @@
 package com.hedera.block.server.persistence.storage.path;
 
 import edu.umd.cs.findbugs.annotations.NonNull;
+import java.io.IOException;
 import java.nio.file.Path;
 import java.util.Optional;
 
@@ -151,8 +152,8 @@ public interface BlockPathResolver {
     boolean existsVerifiedBlock(final long blockNumber);
 
     @NonNull
-    Optional<Long> getFirstAvailableBlockNumber();
+    Optional<Long> getFirstAvailableBlockNumber() throws IOException;
 
     @NonNull
-    Optional<Long> getLatestAvailableBlockNumber();
+    Optional<Long> getLatestAvailableBlockNumber() throws IOException;
 }
