@@ -169,22 +169,55 @@ public final class BlockAsLocalFilePathResolver implements BlockPathResolver {
                 || findArchivedBlock(blockNumber).isPresent();
     }
 
+    private Optional<Path> dfsFindFistLive(final Path root) throws IOException {
+        if (Files.isDirectory(root)) {
+            try (final Stream<Path> list = Files.list(root)) {
+                final Optional<Path> nextPath = list.sorted().findAny();
+                if (nextPath.isPresent()) {
+                    LOGGER.log(INFO, "traversing first dfs - " + nextPath.get().toString());
+                    return dfsFindFistLive(nextPath.get());
+                } else {
+                    return Optional.empty();
+                }
+            }
+        } else {
+            return Optional.of(root);
+        }
+    }
+
+    private Optional<Path> dfsFindLatestLive(final Path root) throws IOException {
+        if (Files.isDirectory(root)) {
+            try (final Stream<Path> list = Files.list(root)) {
+                final Optional<Path> nextPath =
+                        list.sorted(Comparator.reverseOrder()).findAny();
+                if (nextPath.isPresent()) {
+                    LOGGER.log(INFO, "traversing last dfs - " + nextPath.get().toString());
+                    return dfsFindLatestLive(nextPath.get());
+                } else {
+                    return Optional.empty();
+                }
+            }
+        } else {
+            return Optional.of(root);
+        }
+    }
+
     @NonNull
     @Override
     public Optional<Long> getFirstAvailableBlockNumber() throws IOException {
-        final Optional<Path> blockOpt;
-        try (final Stream<Path> tree = Files.walk(liveRootPath)) {
-            blockOpt = tree.sorted()
-                    .filter(f -> {
-                        final String fileName = f.getFileName().toString();
-                        LOGGER.log(INFO, "first available - " + fileName);
-                        if (Files.isRegularFile(f)) {
-                            return true;
-                        }
-                        return false;
-                    })
-                    .findAny();
-        }
+        final Optional<Path> blockOpt = dfsFindFistLive(liveRootPath);
+//        try (final Stream<Path> tree = Files.walk(liveRootPath)) {
+//            blockOpt = tree.sorted()
+//                    .filter(f -> {
+//                        final String fileName = f.getFileName().toString();
+//                        LOGGER.log(INFO, "first available - " + fileName);
+//                        if (Files.isRegularFile(f)) {
+//                            return true;
+//                        }
+//                        return false;
+//                    })
+//                    .findAny();
+//        }
         if (blockOpt.isPresent()) {
             final Path pathToBlock = blockOpt.get();
             final String fileName = pathToBlock.getFileName().toString();
@@ -219,19 +252,19 @@ public final class BlockAsLocalFilePathResolver implements BlockPathResolver {
     @NonNull
     @Override
     public Optional<Long> getLatestAvailableBlockNumber() throws IOException {
-        final Optional<Path> blockOpt;
-        try (final Stream<Path> tree = Files.walk(liveRootPath)) {
-            blockOpt = tree.sorted(Comparator.reverseOrder())
-                    .filter(f -> {
-                        final String fileName = f.getFileName().toString();
-                        LOGGER.log(INFO, "last available - " + fileName);
-                        if (Files.isRegularFile(f)) {
-                            return true;
-                        }
-                        return false;
-                    })
-                    .findAny();
-        }
+        final Optional<Path> blockOpt = dfsFindLatestLive(liveRootPath);
+//        try (final Stream<Path> tree = Files.walk(liveRootPath)) {
+//            blockOpt = tree.sorted(Comparator.reverseOrder())
+//                    .filter(f -> {
+//                        final String fileName = f.getFileName().toString();
+//                        LOGGER.log(INFO, "last available - " + fileName);
+//                        if (Files.isRegularFile(f)) {
+//                            return true;
+//                        }
+//                        return false;
+//                    })
+//                    .findAny();
+//        }
         if (blockOpt.isPresent()) {
             final Path pathToBlock = blockOpt.get();
             final String fileName = pathToBlock.getFileName().toString();
