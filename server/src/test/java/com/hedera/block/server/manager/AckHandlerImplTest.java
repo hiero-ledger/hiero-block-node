@@ -331,7 +331,7 @@ class AckHandlerImplTest {
         assertTrue(doneLatch.await(60, TimeUnit.SECONDS), "Tasks did not complete in time");
         executor.shutdown();
         // Wait a bit to ensure all ACKs are processed.
-        Thread.sleep(100);
+        Thread.sleep(1_000);
 
         final ArgumentCaptor<Long> blockNumberCaptor = ArgumentCaptor.forClass(Long.class);
         final ArgumentCaptor<Bytes> blockHashCaptor = ArgumentCaptor.forClass(Bytes.class);
