@@ -173,39 +173,39 @@ public final class BlockAsLocalFilePathResolver implements BlockPathResolver {
     @Override
     public Optional<Long> getFirstAvailableBlockNumber() throws IOException {
         try (final Stream<Path> tree = Files.walk(liveRootPath)) {
-            return tree.sorted()
+            final Optional<Path> blockOpt = tree.sorted()
                     .filter(f -> {
                         final String fileName = f.getFileName().toString();
                         LOGGER.log(INFO, "first available - " + fileName);
-
                         if (Files.isRegularFile(f)) {
                             return true;
                         }
-
                         return false;
                     })
-                    .findAny()
-                    .map(f -> {
-                        final String fileName = f.getFileName().toString();
-                        if (fileName.endsWith(Constants.ZIP_FILE_EXTENSION)) {
-                            try (final ZipFile zipFile = new ZipFile(f.toFile())) {
-                                return zipFile.stream()
-                                        .sorted(Comparator.comparing(ZipEntry::getName))
-                                        .filter(e -> {
-                                            LOGGER.log(INFO, "first available from zip - " + e.getName());
-                                            return !e.isDirectory();
-                                        })
-                                        .findAny()
-                                        .map(ze -> Long.parseLong(ze.getName()
-                                                .substring(0, ze.getName().indexOf('.'))))
-                                        .orElse(-1L);
-                            } catch (IOException e) {
-                                throw new RuntimeException(e);
-                            }
-                        } else {
-                            return Long.parseLong(fileName.substring(0, fileName.indexOf('.')));
-                        }
-                    });
+                    .findAny();
+            if (blockOpt.isPresent()) {
+                final Path pathToBlock = blockOpt.get();
+                final String fileName = pathToBlock.getFileName().toString();
+                if (fileName.endsWith(Constants.ZIP_FILE_EXTENSION)) {
+                    try (final ZipFile zipFile = new ZipFile(pathToBlock.toFile())) {
+                        return zipFile.stream()
+                                .sorted(Comparator.comparing(ZipEntry::getName))
+                                .filter(e -> {
+                                    LOGGER.log(INFO, "first available from zip - " + e.getName());
+                                    return !e.isDirectory();
+                                })
+                                .findAny()
+                                .map(ze -> Long.parseLong(
+                                        ze.getName().substring(0, ze.getName().indexOf('.'))))
+                                .orElse(-1L)
+                                .describeConstable();
+                    }
+                } else {
+                    return Optional.of(Long.parseLong(fileName.substring(0, fileName.indexOf('.'))));
+                }
+            } else {
+                return Optional.empty();
+            }
         }
     }
 
@@ -213,7 +213,7 @@ public final class BlockAsLocalFilePathResolver implements BlockPathResolver {
     @Override
     public Optional<Long> getLatestAvailableBlockNumber() throws IOException {
         try (final Stream<Path> tree = Files.walk(liveRootPath)) {
-            return tree.sorted(Comparator.reverseOrder())
+            final Optional<Path> blockOpt = tree.sorted(Comparator.reverseOrder())
                     .filter(f -> {
                         final String fileName = f.getFileName().toString();
                         LOGGER.log(INFO, "last available - " + fileName);
@@ -222,29 +222,30 @@ public final class BlockAsLocalFilePathResolver implements BlockPathResolver {
                         }
                         return false;
                     })
-                    .findAny()
-                    .map(f -> {
-                        final String fileName = f.getFileName().toString();
-                        if (fileName.endsWith(Constants.ZIP_FILE_EXTENSION)) {
-                            try (final ZipFile zipFile = new ZipFile(f.toFile())) {
-                                return zipFile.stream()
-                                        .sorted(Comparator.comparing(ZipEntry::getName)
-                                                .reversed())
-                                        .filter(e -> {
-                                            LOGGER.log(INFO, "last available from zip - " + e.getName());
-                                            return !e.isDirectory();
-                                        })
-                                        .findAny()
-                                        .map(ze -> Long.parseLong(ze.getName()
-                                                .substring(0, ze.getName().indexOf('.'))))
-                                        .orElse(-1L);
-                            } catch (IOException e) {
-                                throw new RuntimeException(e);
-                            }
-                        } else {
-                            return Long.parseLong(fileName.substring(0, fileName.indexOf('.')));
-                        }
-                    });
+                    .findAny();
+            if (blockOpt.isPresent()) {
+                final Path pathToBlock = blockOpt.get();
+                final String fileName = pathToBlock.getFileName().toString();
+                if (fileName.endsWith(Constants.ZIP_FILE_EXTENSION)) {
+                    try (final ZipFile zipFile = new ZipFile(pathToBlock.toFile())) {
+                        return zipFile.stream()
+                                .sorted(Comparator.comparing(ZipEntry::getName).reversed())
+                                .filter(e -> {
+                                    LOGGER.log(INFO, "last available from zip - " + e.getName());
+                                    return !e.isDirectory();
+                                })
+                                .findAny()
+                                .map(ze -> Long.parseLong(
+                                        ze.getName().substring(0, ze.getName().indexOf('.'))))
+                                .orElse(-1L)
+                                .describeConstable();
+                    }
+                } else {
+                    return Optional.of(Long.parseLong(fileName.substring(0, fileName.indexOf('.'))));
+                }
+            } else {
+                return Optional.empty();
+            }
         }
     }
 
