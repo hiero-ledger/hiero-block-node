@@ -103,6 +103,11 @@ blockNode:
       size: 20Gi
       # Optionally add a storage class name if needed
       # storageClass: "your-storage-class"
+    unverified:
+      # unverified does a hard-coded emptyDir and is ephemeral, however needs to be mounted
+      # this does not create a PVC.
+      # should match PERSISTENCE_STORAGE_UNVERIFIED_ROOT_PATH, leave as is for default.
+      mountPath: "/opt/hashgraph/blocknode/data/unverified"
   secret:
     PRIVATE_KEY: "fake_private_key"
   health:

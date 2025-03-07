@@ -39,6 +39,8 @@ spec:
         - name: live-storage
           persistentVolumeClaim:
             claimName: {{ if .Values.blockNode.persistence.live.create }}{{ include "hiero-block-node.fullname" . }}-live{{ else }}{{ .Values.blockNode.persistence.live.existingClaim }}{{ end }}
+        - name: unverified-ephemeral-storage
+          emptyDir: {}
       containers:
       - name: {{ .Chart.Name }}
         securityContext:
@@ -65,6 +67,8 @@ spec:
             mountPath: {{ .Values.blockNode.persistence.archive.mountPath }}
           - name: live-storage
             mountPath: {{ .Values.blockNode.persistence.live.mountPath }}
+          - name: unverified-ephemeral-storage
+            mountPath: {{ .Values.blockNode.persistence.unverified.mountPath }}
         {{- with  .Values.resources }}
         resources:
           requests:
