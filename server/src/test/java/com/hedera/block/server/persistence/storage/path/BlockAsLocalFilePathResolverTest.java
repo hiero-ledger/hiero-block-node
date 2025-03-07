@@ -12,6 +12,7 @@ import static org.assertj.core.api.Assertions.assertThatIllegalArgumentException
 import com.hedera.block.server.Constants;
 import com.hedera.block.server.persistence.storage.PersistenceStorageConfig;
 import com.hedera.block.server.persistence.storage.PersistenceStorageConfig.CompressionType;
+import com.hedera.block.server.persistence.storage.archive.LocalGroupZipArchiveTask;
 import com.swirlds.config.api.Configuration;
 import com.swirlds.config.api.ConfigurationBuilder;
 import java.io.IOException;
@@ -554,12 +555,26 @@ class BlockAsLocalFilePathResolverTest {
      */
     @Test
     void testSuccessfulFindFirstAvailableBlockNumber() throws IOException {
-        //         create actual files
-        for (final String path : first10BlocksLocations()) {
-            final Path expected = testLiveRootPath.resolve(path);
-            Files.createDirectories(expected.getParent());
-            Files.createFile(expected);
-        }
+        ensureFirst10Blocks(false);
+
+        // call actual
+        final Optional<Long> actual = toTest.findFirstAvailableBlockNumber();
+        assertThat(actual)
+                .isNotNull()
+                .isPresent()
+                .get(InstanceOfAssertFactories.LONG)
+                .isEqualTo(0L);
+    }
+
+    /**
+     * This test aims to verify that the
+     * {@link BlockAsLocalFilePathResolver#findFirstAvailableBlockNumber()}
+     * correctly returns a non-empty {@link Optional} with the first available
+     * block number found inside a zip.
+     */
+    @Test
+    void testSuccessfulZippedFindFirstAvailableBlockNumber() throws IOException {
+        ensureFirst10Blocks(true);
 
         // call actual
         final Optional<Long> actual = toTest.findFirstAvailableBlockNumber();
@@ -579,9 +594,7 @@ class BlockAsLocalFilePathResolverTest {
     void testEmptyOptFindFirstAvailableBlockNumber() throws IOException {
         // ensure live root path and that it is empty
         Files.createDirectories(testLiveRootPath);
-        try (final Stream<Path> files = Files.list(testLiveRootPath)) {
-            assertThat(files).isEmpty();
-        }
+        assertThat(testLiveRootPath).isEmptyDirectory();
 
         // call actual
         final Optional<Long> actual = toTest.findFirstAvailableBlockNumber();
@@ -610,12 +623,26 @@ class BlockAsLocalFilePathResolverTest {
      */
     @Test
     void testSuccessfulFindLatestAvailableBlockNumber() throws IOException {
-        // create actual files
-        for (final String path : first10BlocksLocations()) {
-            final Path expected = testLiveRootPath.resolve(path);
-            Files.createDirectories(expected.getParent());
-            Files.createFile(expected);
-        }
+        ensureFirst10Blocks(false);
+
+        // call actual
+        final Optional<Long> actual = toTest.findLatestAvailableBlockNumber();
+        assertThat(actual)
+                .isNotNull()
+                .isPresent()
+                .get(InstanceOfAssertFactories.LONG)
+                .isEqualTo(9L);
+    }
+
+    /**
+     * This test aims to verify that the
+     * {@link BlockAsLocalFilePathResolver#findLatestAvailableBlockNumber()}
+     * correctly returns a non-empty {@link Optional} with the latest available
+     * block number found inside a zip.
+     */
+    @Test
+    void testSuccessfulZippedFindLatestAvailableBlockNumber() throws IOException {
+        ensureFirst10Blocks(true);
 
         // call actual
         final Optional<Long> actual = toTest.findLatestAvailableBlockNumber();
@@ -635,9 +662,7 @@ class BlockAsLocalFilePathResolverTest {
     void testEmptyOptFindLatestAvailableBlockNumber() throws IOException {
         // ensure live root path and that it is empty
         Files.createDirectories(testLiveRootPath);
-        try (final Stream<Path> files = Files.list(testLiveRootPath)) {
-            assertThat(files).isEmpty();
-        }
+        assertThat(testLiveRootPath).isEmptyDirectory();
 
         // call actual
         final Optional<Long> actual = toTest.findLatestAvailableBlockNumber();
@@ -658,7 +683,7 @@ class BlockAsLocalFilePathResolverTest {
         assertThatIOException().isThrownBy(() -> toTest.findLatestAvailableBlockNumber());
     }
 
-    private List<String> first10BlocksLocations() {
+    private List<String> first10BlocksRelativeLocations() {
         return List.of(
                 "0/0/0/0/0/0/0/0/0/0/0/0/0/0/0/0/0/0/0000000000000000000.blk",
                 "0/0/0/0/0/0/0/0/0/0/0/0/0/0/0/0/0/0/0000000000000000001.blk",
@@ -670,6 +695,38 @@ class BlockAsLocalFilePathResolverTest {
                 "0/0/0/0/0/0/0/0/0/0/0/0/0/0/0/0/0/0/0000000000000000007.blk",
                 "0/0/0/0/0/0/0/0/0/0/0/0/0/0/0/0/0/0/0000000000000000008.blk",
                 "0/0/0/0/0/0/0/0/0/0/0/0/0/0/0/0/0/0/0000000000000000009.blk");
+    }
+
+    /**
+     * Ensures that the first 10 blocks are created, could be zipped or not.
+     */
+    private void ensureFirst10Blocks(final boolean zip) throws IOException {
+        // create actual files
+        final List<String> first10BLocks = first10BlocksRelativeLocations();
+        for (final String path : first10BLocks) {
+            final Path expected = testLiveRootPath.resolve(path);
+            Files.createDirectories(expected.getParent());
+            Files.createFile(expected);
+            assertThat(expected).exists().isRegularFile().isReadable();
+        }
+        if (zip) {
+            // zip the files so the find will look inside the zip
+            new LocalGroupZipArchiveTask(
+                            10, persistenceStorageConfig, new BlockAsLocalFilePathResolver(persistenceStorageConfig))
+                    .call();
+            // assert that files are actually moved
+            for (final String block : first10BLocks) {
+                final Path pathToBlock = testLiveRootPath.resolve(block);
+                assertThat(pathToBlock).doesNotExist();
+            }
+            // assert that the zip is in the right place, in place of the parent
+            // of the just now archived blocks, both link and actual
+            final String rawPathToZip = "0/0/0/0/0/0/0/0/0/0/0/0/0/0/0/0/0/0.zip";
+            final Path linkPath = testLiveRootPath.resolve(rawPathToZip);
+            assertThat(linkPath).exists().isRegularFile().isReadable();
+            final Path actualZipPath = testArchiveRootPath.resolve(rawPathToZip);
+            assertThat(actualZipPath).exists().isRegularFile().isReadable();
+        }
     }
 
     /**
