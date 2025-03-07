@@ -162,6 +162,18 @@ public final class BlockAsLocalFilePathResolver implements BlockPathResolver {
                 || findArchivedBlock(blockNumber).isPresent();
     }
 
+    @NonNull
+    @Override
+    public Optional<Long> getFirstAvailableBlockNumber() {
+        return Optional.empty();
+    }
+
+    @NonNull
+    @Override
+    public Optional<Long> getLatestAvailableBlockNumber() {
+        return Optional.empty();
+    }
+
     /**
      * This method resolves the path to where an archived block would reside. No
      * compression extension is appended to the file name.

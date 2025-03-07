@@ -149,4 +149,10 @@ public interface BlockPathResolver {
      * @throws IllegalArgumentException if the blockNumber IS NOT a whole number
      */
     boolean existsVerifiedBlock(final long blockNumber);
+
+    @NonNull
+    Optional<Long> getFirstAvailableBlockNumber();
+
+    @NonNull
+    Optional<Long> getLatestAvailableBlockNumber();
 }

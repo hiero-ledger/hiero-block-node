@@ -86,4 +86,22 @@ public final class NoOpBlockPathResolver implements BlockPathResolver {
     public boolean existsVerifiedBlock(final long blockNumber) {
         return false;
     }
+
+    /**
+     * No-op resolver. Does nothing and always returns an empty optional.
+     */
+    @NonNull
+    @Override
+    public Optional<Long> getFirstAvailableBlockNumber() {
+        return Optional.empty();
+    }
+
+    /**
+     * No-op resolver. Does nothing and always returns an empty optional.
+     */
+    @NonNull
+    @Override
+    public Optional<Long> getLatestAvailableBlockNumber() {
+        return Optional.empty();
+    }
 }

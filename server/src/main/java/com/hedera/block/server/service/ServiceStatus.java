@@ -68,4 +68,8 @@ public interface ServiceStatus {
      * @param latestReceivedBlockNumber the latest received block number
      */
     void setLatestReceivedBlockNumber(long latestReceivedBlockNumber);
+
+    long getFirstAvailableBlockNumber();
+
+    void setFirstAvailableBlockNumber(long firstAvailableBlockNumber);
 }
