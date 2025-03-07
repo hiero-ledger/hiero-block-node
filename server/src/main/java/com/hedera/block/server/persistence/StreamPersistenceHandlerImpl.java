@@ -121,13 +121,13 @@ public class StreamPersistenceHandlerImpl implements BlockNodeEventHandler<Objec
         //   initial one, so we know that if we get it, nothing has ever set
         //   changed the value yet.
 
-        final Optional<Long> firstAvailableBlockNumberOpt = pathResolver.getFirstAvailableBlockNumber();
+        final Optional<Long> firstAvailableBlockNumberOpt = pathResolver.findFirstAvailableBlockNumber();
         if (firstAvailableBlockNumberOpt.isPresent()) {
             final long firstAvailableBlockNumber = firstAvailableBlockNumberOpt.get();
             serviceStatus.setFirstAvailableBlockNumber(firstAvailableBlockNumber);
         }
 
-        final Optional<Long> latestAvailableBlockNumberOpt = pathResolver.getLatestAvailableBlockNumber();
+        final Optional<Long> latestAvailableBlockNumberOpt = pathResolver.findLatestAvailableBlockNumber();
         if (latestAvailableBlockNumberOpt.isPresent()) {
             final long latestAvailableBlockNumber = latestAvailableBlockNumberOpt.get();
             final BlockInfo latestAckedBlockInfo = new BlockInfo(latestAvailableBlockNumber);

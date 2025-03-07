@@ -92,7 +92,7 @@ public final class NoOpBlockPathResolver implements BlockPathResolver {
      */
     @NonNull
     @Override
-    public Optional<Long> getFirstAvailableBlockNumber() {
+    public Optional<Long> findFirstAvailableBlockNumber() {
         return Optional.empty();
     }
 
@@ -101,7 +101,7 @@ public final class NoOpBlockPathResolver implements BlockPathResolver {
      */
     @NonNull
     @Override
-    public Optional<Long> getLatestAvailableBlockNumber() {
+    public Optional<Long> findLatestAvailableBlockNumber() {
         return Optional.empty();
     }
 }

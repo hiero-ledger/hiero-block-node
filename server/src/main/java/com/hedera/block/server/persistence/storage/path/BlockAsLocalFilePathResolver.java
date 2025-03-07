@@ -188,7 +188,7 @@ public final class BlockAsLocalFilePathResolver implements BlockPathResolver {
 
     @NonNull
     @Override
-    public Optional<Long> getFirstAvailableBlockNumber() throws IOException {
+    public Optional<Long> findFirstAvailableBlockNumber() throws IOException {
         final Optional<Path> blockOpt = dfsFindFistLive(liveRootPath);
         if (blockOpt.isPresent()) {
             final Path pathToBlock = blockOpt.get();
@@ -239,7 +239,7 @@ public final class BlockAsLocalFilePathResolver implements BlockPathResolver {
 
     @NonNull
     @Override
-    public Optional<Long> getLatestAvailableBlockNumber() throws IOException {
+    public Optional<Long> findLatestAvailableBlockNumber() throws IOException {
         final Optional<Path> blockOpt = dfsFindLatestLive(liveRootPath);
         if (blockOpt.isPresent()) {
             final Path pathToBlock = blockOpt.get();

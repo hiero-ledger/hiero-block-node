@@ -152,8 +152,8 @@ public interface BlockPathResolver {
     boolean existsVerifiedBlock(final long blockNumber);
 
     @NonNull
-    Optional<Long> getFirstAvailableBlockNumber() throws IOException;
+    Optional<Long> findFirstAvailableBlockNumber() throws IOException;
 
     @NonNull
-    Optional<Long> getLatestAvailableBlockNumber() throws IOException;
+    Optional<Long> findLatestAvailableBlockNumber() throws IOException;
 }
