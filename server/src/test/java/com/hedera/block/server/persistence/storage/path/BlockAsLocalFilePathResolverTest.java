@@ -6,6 +6,7 @@ import static com.hedera.block.server.util.PersistTestUtils.PERSISTENCE_STORAGE_
 import static com.hedera.block.server.util.PersistTestUtils.PERSISTENCE_STORAGE_LIVE_ROOT_PATH_KEY;
 import static com.hedera.block.server.util.PersistTestUtils.PERSISTENCE_STORAGE_UNVERIFIED_ROOT_PATH_KEY;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatIOException;
 import static org.assertj.core.api.Assertions.assertThatIllegalArgumentException;
 
 import com.hedera.block.server.Constants;
@@ -17,12 +18,14 @@ import java.io.IOException;
 import java.io.OutputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.List;
 import java.util.Optional;
 import java.util.stream.Stream;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipOutputStream;
 import org.assertj.core.api.InstanceOfAssertFactories;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
@@ -541,6 +544,132 @@ class BlockAsLocalFilePathResolverTest {
                 .returns(expected.zipFileName(), ArchiveBlockPath::zipFileName)
                 .returns(expected.zipEntryName(), ArchiveBlockPath::zipEntryName)
                 .returns(expected.compressionType(), ArchiveBlockPath::compressionType);
+    }
+
+    /**
+     * This test aims to verify that the
+     * {@link BlockAsLocalFilePathResolver#findFirstAvailableBlockNumber()}
+     * correctly returns a non-empty {@link Optional} with the first available
+     * block number.
+     */
+    @Test
+    void testSuccessfulFindFirstAvailableBlockNumber() throws IOException {
+        //         create actual files
+        for (final String path : first10BlocksLocations()) {
+            final Path expected = testLiveRootPath.resolve(path);
+            Files.createDirectories(expected.getParent());
+            Files.createFile(expected);
+        }
+
+        // call actual
+        final Optional<Long> actual = toTest.findFirstAvailableBlockNumber();
+        assertThat(actual)
+                .isNotNull()
+                .isPresent()
+                .get(InstanceOfAssertFactories.LONG)
+                .isEqualTo(0L);
+    }
+
+    /**
+     * This test aims to verify that the
+     * {@link BlockAsLocalFilePathResolver#findFirstAvailableBlockNumber()}
+     * correctly returns an empty {@link Optional} if no block is found.
+     */
+    @Test
+    void testEmptyOptFindFirstAvailableBlockNumber() throws IOException {
+        // ensure live root path and that it is empty
+        Files.createDirectories(testLiveRootPath);
+        try (final Stream<Path> files = Files.list(testLiveRootPath)) {
+            assertThat(files).isEmpty();
+        }
+
+        // call actual
+        final Optional<Long> actual = toTest.findFirstAvailableBlockNumber();
+        assertThat(actual).isNotNull().isEmpty();
+    }
+
+    /**
+     * This test aims to verify that the
+     * {@link BlockAsLocalFilePathResolver#findFirstAvailableBlockNumber()}
+     * correctly throws an {@link IOException} when the root path does not exist.
+     */
+    @Test
+    void testThrowsNonExistingRootFindFirstAvailableBlockNumber() {
+        // ensure live root path does not exist
+        assertThat(testLiveRootPath).doesNotExist();
+
+        // call actual
+        assertThatIOException().isThrownBy(() -> toTest.findFirstAvailableBlockNumber());
+    }
+
+    /**
+     * This test aims to verify that the
+     * {@link BlockAsLocalFilePathResolver#findLatestAvailableBlockNumber()}
+     * correctly returns a non-empty {@link Optional} with the latest available
+     * block number.
+     */
+    @Test
+    void testSuccessfulFindLatestAvailableBlockNumber() throws IOException {
+        // create actual files
+        for (final String path : first10BlocksLocations()) {
+            final Path expected = testLiveRootPath.resolve(path);
+            Files.createDirectories(expected.getParent());
+            Files.createFile(expected);
+        }
+
+        // call actual
+        final Optional<Long> actual = toTest.findLatestAvailableBlockNumber();
+        assertThat(actual)
+                .isNotNull()
+                .isPresent()
+                .get(InstanceOfAssertFactories.LONG)
+                .isEqualTo(9L);
+    }
+
+    /**
+     * This test aims to verify that the
+     * {@link BlockAsLocalFilePathResolver#findLatestAvailableBlockNumber()}
+     * correctly returns an empty {@link Optional} if no block is found.
+     */
+    @Test
+    void testEmptyOptFindLatestAvailableBlockNumber() throws IOException {
+        // ensure live root path and that it is empty
+        Files.createDirectories(testLiveRootPath);
+        try (final Stream<Path> files = Files.list(testLiveRootPath)) {
+            assertThat(files).isEmpty();
+        }
+
+        // call actual
+        final Optional<Long> actual = toTest.findLatestAvailableBlockNumber();
+        assertThat(actual).isNotNull().isEmpty();
+    }
+
+    /**
+     * This test aims to verify that the
+     * {@link BlockAsLocalFilePathResolver#findLatestAvailableBlockNumber()}
+     * correctly throws an {@link IOException} when the root path does not exist.
+     */
+    @Test
+    void testThrowsNonExistingRootFindLatestAvailableBlockNumber() {
+        // ensure live root path does not exist
+        assertThat(testLiveRootPath).doesNotExist();
+
+        // call actual
+        assertThatIOException().isThrownBy(() -> toTest.findLatestAvailableBlockNumber());
+    }
+
+    private List<String> first10BlocksLocations() {
+        return List.of(
+                "0/0/0/0/0/0/0/0/0/0/0/0/0/0/0/0/0/0/0000000000000000000.blk",
+                "0/0/0/0/0/0/0/0/0/0/0/0/0/0/0/0/0/0/0000000000000000001.blk",
+                "0/0/0/0/0/0/0/0/0/0/0/0/0/0/0/0/0/0/0000000000000000002.blk",
+                "0/0/0/0/0/0/0/0/0/0/0/0/0/0/0/0/0/0/0000000000000000003.blk",
+                "0/0/0/0/0/0/0/0/0/0/0/0/0/0/0/0/0/0/0000000000000000004.blk",
+                "0/0/0/0/0/0/0/0/0/0/0/0/0/0/0/0/0/0/0000000000000000005.blk",
+                "0/0/0/0/0/0/0/0/0/0/0/0/0/0/0/0/0/0/0000000000000000006.blk",
+                "0/0/0/0/0/0/0/0/0/0/0/0/0/0/0/0/0/0/0000000000000000007.blk",
+                "0/0/0/0/0/0/0/0/0/0/0/0/0/0/0/0/0/0/0000000000000000008.blk",
+                "0/0/0/0/0/0/0/0/0/0/0/0/0/0/0/0/0/0/0000000000000000009.blk");
     }
 
     /**

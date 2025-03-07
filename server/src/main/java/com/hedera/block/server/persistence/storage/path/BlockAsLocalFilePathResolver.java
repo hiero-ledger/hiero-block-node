@@ -9,6 +9,7 @@ import com.hedera.block.server.Constants;
 import com.hedera.block.server.persistence.storage.PersistenceStorageConfig;
 import com.hedera.block.server.persistence.storage.PersistenceStorageConfig.CompressionType;
 import edu.umd.cs.findbugs.annotations.NonNull;
+import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.lang.System.Logger;
@@ -189,33 +190,37 @@ public final class BlockAsLocalFilePathResolver implements BlockPathResolver {
     @NonNull
     @Override
     public Optional<Long> findFirstAvailableBlockNumber() throws IOException {
-        final Optional<Path> blockOpt = dfsFindFistLive(liveRootPath);
-        if (blockOpt.isPresent()) {
-            final Path pathToBlock = blockOpt.get();
-            final String fileName = pathToBlock.getFileName().toString();
-            if (fileName.endsWith(Constants.ZIP_FILE_EXTENSION)) {
-                try (final ZipFile zipFile = new ZipFile(pathToBlock.toFile())) {
-                    return zipFile.stream()
-                            .sorted(Comparator.comparing(ZipEntry::getName))
-                            .filter(e -> {
-                                LOGGER.log(INFO, "first available from zip - " + e.getName());
-                                return !e.isDirectory();
-                            })
-                            .findAny()
-                            .map(ze -> {
-                                final String entryName = ze.getName();
-                                // remove leading dir as part of the zip entry name
-                                final String rawEntryName = entryName.substring(entryName.lastIndexOf('/') + 1);
-                                // remove extensions
-                                final String toParse = rawEntryName.substring(0, rawEntryName.indexOf('.'));
-                                return Long.parseLong(toParse);
-                            });
+        if (Files.notExists(liveRootPath)) {
+            throw new FileNotFoundException("Live root does not exist [%s]".formatted(liveRootPath));
+        } else {
+            final Optional<Path> blockOpt = dfsFindFistLive(liveRootPath);
+            if (blockOpt.isPresent()) {
+                final Path pathToBlock = blockOpt.get();
+                final String fileName = pathToBlock.getFileName().toString();
+                if (fileName.endsWith(Constants.ZIP_FILE_EXTENSION)) {
+                    try (final ZipFile zipFile = new ZipFile(pathToBlock.toFile())) {
+                        return zipFile.stream()
+                                .sorted(Comparator.comparing(ZipEntry::getName))
+                                .filter(e -> {
+                                    LOGGER.log(INFO, "first available from zip - " + e.getName());
+                                    return !e.isDirectory();
+                                })
+                                .findAny()
+                                .map(ze -> {
+                                    final String entryName = ze.getName();
+                                    // remove leading dir as part of the zip entry name
+                                    final String rawEntryName = entryName.substring(entryName.lastIndexOf('/') + 1);
+                                    // remove extensions
+                                    final String toParse = rawEntryName.substring(0, rawEntryName.indexOf('.'));
+                                    return Long.parseLong(toParse);
+                                });
+                    }
+                } else {
+                    return Optional.of(Long.parseLong(fileName.substring(0, fileName.indexOf('.'))));
                 }
             } else {
-                return Optional.of(Long.parseLong(fileName.substring(0, fileName.indexOf('.'))));
+                return Optional.empty();
             }
-        } else {
-            return Optional.empty();
         }
     }
 
@@ -240,33 +245,37 @@ public final class BlockAsLocalFilePathResolver implements BlockPathResolver {
     @NonNull
     @Override
     public Optional<Long> findLatestAvailableBlockNumber() throws IOException {
-        final Optional<Path> blockOpt = dfsFindLatestLive(liveRootPath);
-        if (blockOpt.isPresent()) {
-            final Path pathToBlock = blockOpt.get();
-            final String fileName = pathToBlock.getFileName().toString();
-            if (fileName.endsWith(Constants.ZIP_FILE_EXTENSION)) {
-                try (final ZipFile zipFile = new ZipFile(pathToBlock.toFile())) {
-                    return zipFile.stream()
-                            .sorted(Comparator.comparing(ZipEntry::getName).reversed())
-                            .filter(e -> {
-                                LOGGER.log(INFO, "last available from zip - " + e.getName());
-                                return !e.isDirectory();
-                            })
-                            .findAny()
-                            .map(ze -> {
-                                final String entryName = ze.getName();
-                                // remove leading dir as part of the zip entry name
-                                final String rawEntryName = entryName.substring(entryName.lastIndexOf('/') + 1);
-                                // remove extensions
-                                final String toParse = rawEntryName.substring(0, rawEntryName.indexOf('.'));
-                                return Long.parseLong(toParse);
-                            });
+        if (Files.notExists(liveRootPath)) {
+            throw new FileNotFoundException("Live root does not exist [%s]".formatted(liveRootPath));
+        } else {
+            final Optional<Path> blockOpt = dfsFindLatestLive(liveRootPath);
+            if (blockOpt.isPresent()) {
+                final Path pathToBlock = blockOpt.get();
+                final String fileName = pathToBlock.getFileName().toString();
+                if (fileName.endsWith(Constants.ZIP_FILE_EXTENSION)) {
+                    try (final ZipFile zipFile = new ZipFile(pathToBlock.toFile())) {
+                        return zipFile.stream()
+                                .sorted(Comparator.comparing(ZipEntry::getName).reversed())
+                                .filter(e -> {
+                                    LOGGER.log(INFO, "last available from zip - " + e.getName());
+                                    return !e.isDirectory();
+                                })
+                                .findAny()
+                                .map(ze -> {
+                                    final String entryName = ze.getName();
+                                    // remove leading dir as part of the zip entry name
+                                    final String rawEntryName = entryName.substring(entryName.lastIndexOf('/') + 1);
+                                    // remove extensions
+                                    final String toParse = rawEntryName.substring(0, rawEntryName.indexOf('.'));
+                                    return Long.parseLong(toParse);
+                                });
+                    }
+                } else {
+                    return Optional.of(Long.parseLong(fileName.substring(0, fileName.indexOf('.'))));
                 }
             } else {
-                return Optional.of(Long.parseLong(fileName.substring(0, fileName.indexOf('.'))));
+                return Optional.empty();
             }
-        } else {
-            return Optional.empty();
         }
     }
 
