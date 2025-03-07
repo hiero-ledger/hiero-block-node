@@ -22,6 +22,7 @@ import com.hedera.block.server.persistence.storage.write.AsyncBlockWriterFactory
 import com.hedera.block.server.persistence.storage.write.BlockPersistenceResult;
 import com.hedera.block.server.persistence.storage.write.BlockPersistenceResult.BlockPersistenceStatus;
 import com.hedera.block.server.service.ServiceStatus;
+import com.hedera.block.server.service.WebServerStatus;
 import com.hedera.hapi.block.BlockItemUnparsed;
 import com.hedera.hapi.block.stream.output.BlockHeader;
 import com.hedera.pbj.runtime.ParseException;
@@ -58,6 +59,7 @@ public class StreamPersistenceHandlerImpl implements BlockNodeEventHandler<Objec
     private final Notifier notifier;
     private final MetricsService metricsService;
     private final ServiceStatus serviceStatus;
+    private final WebServerStatus webServerStatus;
     private final AckHandler ackHandler;
     private final AsyncBlockWriterFactory asyncBlockWriterFactory;
     private final CompletionService<Void> completionService;
@@ -83,6 +85,7 @@ public class StreamPersistenceHandlerImpl implements BlockNodeEventHandler<Objec
             @NonNull final Notifier notifier,
             @NonNull final MetricsService metricsService,
             @NonNull final ServiceStatus serviceStatus,
+            @NonNull final WebServerStatus webServerStatus,
             @NonNull final AckHandler ackHandler,
             @NonNull final AsyncBlockWriterFactory asyncBlockWriterFactory,
             @NonNull final Executor writerExecutor,
@@ -98,6 +101,7 @@ public class StreamPersistenceHandlerImpl implements BlockNodeEventHandler<Objec
         this.archiver = Objects.requireNonNull(archiver);
         this.pathResolver = Objects.requireNonNull(pathResolver);
         this.completionService = new ExecutorCompletionService<>(Objects.requireNonNull(writerExecutor));
+        this.webServerStatus = Objects.requireNonNull(webServerStatus);
         // Ensure that the root paths exist
         final Path liveRootPath = Objects.requireNonNull(persistenceStorageConfig.liveRootPath());
         final Path archiveRootPath = Objects.requireNonNull(persistenceStorageConfig.archiveRootPath());
@@ -163,7 +167,7 @@ public class StreamPersistenceHandlerImpl implements BlockNodeEventHandler<Objec
     @Override
     public void onEvent(final ObjectEvent<List<BlockItemUnparsed>> event, final long l, final boolean b) {
         try {
-            if (serviceStatus.isRunning()) {
+            if (webServerStatus.isRunning()) {
                 final List<BlockItemUnparsed> blockItems = event.get();
                 if (blockItems.isEmpty()) {
                     final String message = "BlockItems list is empty.";
@@ -278,7 +282,7 @@ public class StreamPersistenceHandlerImpl implements BlockNodeEventHandler<Objec
         metricsService.get(StreamPersistenceHandlerError).increment();
 
         // Trigger the server to stop accepting new requests
-        serviceStatus.stopRunning(getClass().getName());
+        webServerStatus.stopRunning(getClass().getName());
 
         // Unsubscribe from the mediator to avoid additional onEvent calls.
         unsubscribe();

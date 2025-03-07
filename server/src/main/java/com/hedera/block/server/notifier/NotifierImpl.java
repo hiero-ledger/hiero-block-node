@@ -9,6 +9,7 @@ import com.hedera.block.server.mediator.MediatorConfig;
 import com.hedera.block.server.mediator.SubscriptionHandlerBase;
 import com.hedera.block.server.metrics.MetricsService;
 import com.hedera.block.server.service.ServiceStatus;
+import com.hedera.block.server.service.WebServerStatus;
 import com.hedera.hapi.block.Acknowledgement;
 import com.hedera.hapi.block.BlockAcknowledgement;
 import com.hedera.hapi.block.EndOfStream;
@@ -40,6 +41,7 @@ public class NotifierImpl extends SubscriptionHandlerBase<PublishStreamResponse>
     private final Notifiable mediator;
     private final MetricsService metricsService;
     private final ServiceStatus serviceStatus;
+    private final WebServerStatus webServerStatus;
 
     /**
      * Constructs a new NotifierImpl instance with the given mediator, block node context, and
@@ -57,7 +59,8 @@ public class NotifierImpl extends SubscriptionHandlerBase<PublishStreamResponse>
             @NonNull final MetricsService metricsService,
             @NonNull final NotifierConfig notifierConfig,
             @NonNull final MediatorConfig mediatorConfig,
-            @NonNull final ServiceStatus serviceStatus) {
+            @NonNull final ServiceStatus serviceStatus,
+            @NonNull final WebServerStatus webServerStatus) {
 
         super(
                 new ConcurrentHashMap<>(SUBSCRIBER_INIT_CAPACITY),
@@ -68,6 +71,7 @@ public class NotifierImpl extends SubscriptionHandlerBase<PublishStreamResponse>
         this.mediator = mediator;
         this.metricsService = metricsService;
         this.serviceStatus = serviceStatus;
+        this.webServerStatus = webServerStatus;
     }
 
     @Override
@@ -80,7 +84,7 @@ public class NotifierImpl extends SubscriptionHandlerBase<PublishStreamResponse>
         ringBuffer.publishEvent((event, sequence) -> event.set(errorStreamResponse));
 
         // Stop the server
-        serviceStatus.stopWebServer(getClass().getName());
+        webServerStatus.stopWebServer(getClass().getName());
     }
 
     /**
@@ -90,7 +94,7 @@ public class NotifierImpl extends SubscriptionHandlerBase<PublishStreamResponse>
      */
     @Override
     public void publish(@NonNull PublishStreamResponse response) {
-        if (serviceStatus.isRunning()) {
+        if (webServerStatus.isRunning()) {
             // Publish the block item to the subscribers
             ringBuffer.publishEvent((event, sequence) -> event.set(response));
 

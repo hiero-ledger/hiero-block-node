@@ -12,6 +12,7 @@ import com.hedera.block.server.events.BlockNodeEventHandler;
 import com.hedera.block.server.events.ObjectEvent;
 import com.hedera.block.server.metrics.MetricsService;
 import com.hedera.block.server.service.ServiceStatus;
+import com.hedera.block.server.service.WebServerStatus;
 import com.hedera.hapi.block.BlockItemUnparsed;
 import com.lmax.disruptor.BatchEventProcessor;
 import edu.umd.cs.findbugs.annotations.NonNull;
@@ -30,7 +31,7 @@ class LiveStreamMediatorImpl extends SubscriptionHandlerBase<List<BlockItemUnpar
 
     private final Logger LOGGER = System.getLogger(getClass().getName());
 
-    private final ServiceStatus serviceStatus;
+    private final WebServerStatus webServerStatus;
     private final MetricsService metricsService;
 
     /**
@@ -41,7 +42,7 @@ class LiveStreamMediatorImpl extends SubscriptionHandlerBase<List<BlockItemUnpar
      *
      * @param subscribers the map of subscribers to batch event processors. It's recommended the map
      *     implementation is thread-safe
-     * @param serviceStatus the service status to stop the service and web server if an exception
+     * @param webServerStatus the service status to stop the service and web server if an exception
      *     occurs while persisting a block item, stop the web server for maintenance, etc
      * @param metricsService - the service responsible for handling metrics
      * @param mediatorConfig - the configuration settings for the mediator
@@ -54,12 +55,13 @@ class LiveStreamMediatorImpl extends SubscriptionHandlerBase<List<BlockItemUnpar
                             subscribers,
             @NonNull final ServiceStatus serviceStatus,
             @NonNull final MetricsService metricsService,
-            @NonNull final MediatorConfig mediatorConfig) {
+            @NonNull final MediatorConfig mediatorConfig,
+            @NonNull final WebServerStatus webServerStatus) {
 
         super(subscribers, metricsService, mediatorConfig, mediatorConfig.ringBufferSize());
 
-        this.serviceStatus = serviceStatus;
         this.metricsService = metricsService;
+        this.webServerStatus = webServerStatus;
     }
 
     /**
@@ -73,7 +75,7 @@ class LiveStreamMediatorImpl extends SubscriptionHandlerBase<List<BlockItemUnpar
     @Override
     public void publish(@NonNull final List<BlockItemUnparsed> blockItems) {
 
-        if (serviceStatus.isRunning()) {
+        if (webServerStatus.isRunning()) {
             LOGGER.log(DEBUG, "Publishing BlockItems: " + blockItems.size());
             ringBuffer.publishEvent((event, sequence) -> event.set(blockItems));
 
@@ -91,7 +93,7 @@ class LiveStreamMediatorImpl extends SubscriptionHandlerBase<List<BlockItemUnpar
     public void notifyUnrecoverableError() {
 
         // Disable BlockItem publication for upstream producers
-        serviceStatus.stopRunning(this.getClass().getName());
+        webServerStatus.stopRunning(this.getClass().getName());
         LOGGER.log(ERROR, "An exception occurred. Stopping the service.");
 
         // Increment the error counter

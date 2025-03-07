@@ -29,6 +29,7 @@ import com.hedera.block.server.persistence.storage.write.AsyncBlockWriterFactory
 import com.hedera.block.server.persistence.storage.write.AsyncNoOpWriterFactory;
 import com.hedera.block.server.persistence.storage.write.AsyncWriterExecutorFactory;
 import com.hedera.block.server.service.ServiceStatus;
+import com.hedera.block.server.service.WebServerStatus;
 import com.hedera.hapi.block.BlockItemUnparsed;
 import com.hedera.hapi.block.BlockUnparsed;
 import dagger.Module;
@@ -177,6 +178,7 @@ public interface PersistenceInjectionModule {
             @NonNull final Notifier notifier,
             @NonNull final MetricsService metricsService,
             @NonNull final ServiceStatus serviceStatus,
+            @NonNull final WebServerStatus webServerStatus,
             @NonNull final AckHandler ackHandler,
             @NonNull final AsyncBlockWriterFactory asyncBlockWriterFactory,
             @NonNull final BlockPathResolver blockPathResolver,
@@ -189,6 +191,7 @@ public interface PersistenceInjectionModule {
                     notifier,
                     metricsService,
                     serviceStatus,
+                    webServerStatus,
                     ackHandler,
                     asyncBlockWriterFactory,
                     executor,

@@ -14,6 +14,7 @@ import com.hedera.block.server.mediator.MediatorConfig;
 import com.hedera.block.server.metrics.MetricsService;
 import com.hedera.block.server.persistence.storage.read.BlockReader;
 import com.hedera.block.server.service.ServiceStatus;
+import com.hedera.block.server.service.WebServerStatus;
 import com.hedera.block.server.util.TestConfigUtil;
 import com.hedera.hapi.block.BlockItemSetUnparsed;
 import com.hedera.hapi.block.BlockItemUnparsed;
@@ -60,6 +61,9 @@ public class ConsumerStreamResponseObserverTest {
     private ServiceStatus serviceStatus;
 
     @Mock
+    private WebServerStatus webServerStatus;
+
+    @Mock
     private BlockReader<BlockUnparsed> blockReader;
 
     private MetricsService metricsService;
@@ -80,13 +84,13 @@ public class ConsumerStreamResponseObserverTest {
     public void testProducerTimeoutWithinWindow() {
 
         final LiveStreamMediator streamMediator = LiveStreamMediatorBuilder.newBuilder(
-                        metricsService, mediatorConfig, serviceStatus)
+                        metricsService, mediatorConfig, serviceStatus, webServerStatus)
                 .build();
         when(testClock.millis()).thenReturn(TEST_TIME, TEST_TIME + TIMEOUT_THRESHOLD_MILLIS);
 
         // Mock live streaming
         when(subscribeStreamRequest.startBlockNumber()).thenReturn(0L);
-        when(serviceStatus.isRunning()).thenReturn(true);
+        when(webServerStatus.isRunning()).thenReturn(true);
 
         final StreamManager streamManager = ConsumerStreamBuilder.buildStreamManager(
                 testClock,
@@ -134,13 +138,13 @@ public class ConsumerStreamResponseObserverTest {
     public void testProducerTimeoutOutsideWindow() {
 
         final LiveStreamMediator streamMediator = LiveStreamMediatorBuilder.newBuilder(
-                        metricsService, mediatorConfig, serviceStatus)
+                        metricsService, mediatorConfig, serviceStatus, webServerStatus)
                 .build();
         when(testClock.millis()).thenReturn(TEST_TIME, TEST_TIME + TIMEOUT_THRESHOLD_MILLIS + 1);
 
         // Mock live streaming
         when(subscribeStreamRequest.startBlockNumber()).thenReturn(0L);
-        when(serviceStatus.isRunning()).thenReturn(true);
+        when(webServerStatus.isRunning()).thenReturn(true);
 
         final StreamManager streamManager = ConsumerStreamBuilder.buildStreamManager(
                 testClock,
@@ -179,13 +183,13 @@ public class ConsumerStreamResponseObserverTest {
     public void testConsumerNotToSendBeforeBlockHeader() {
 
         final LiveStreamMediator streamMediator = LiveStreamMediatorBuilder.newBuilder(
-                        metricsService, mediatorConfig, serviceStatus)
+                        metricsService, mediatorConfig, serviceStatus, webServerStatus)
                 .build();
         when(testClock.millis()).thenReturn(TEST_TIME, TEST_TIME + TIMEOUT_THRESHOLD_MILLIS);
 
         // Mock live streaming
         when(subscribeStreamRequest.startBlockNumber()).thenReturn(0L);
-        when(serviceStatus.isRunning()).thenReturn(true);
+        when(webServerStatus.isRunning()).thenReturn(true);
 
         final StreamManager streamManager = ConsumerStreamBuilder.buildStreamManager(
                 testClock,
@@ -255,13 +259,13 @@ public class ConsumerStreamResponseObserverTest {
 
         // Create a stream mediator
         final LiveStreamMediator streamMediator = LiveStreamMediatorBuilder.newBuilder(
-                        metricsService, mediatorConfig, serviceStatus)
+                        metricsService, mediatorConfig, serviceStatus, webServerStatus)
                 .build();
         when(testClock.millis()).thenReturn(TEST_TIME, TEST_TIME + TIMEOUT_THRESHOLD_MILLIS);
 
         // Mock live streaming
         when(subscribeStreamRequest.startBlockNumber()).thenReturn(0L);
-        when(serviceStatus.isRunning()).thenReturn(true);
+        when(webServerStatus.isRunning()).thenReturn(true);
 
         final StreamManager streamManager = ConsumerStreamBuilder.buildStreamManager(
                 testClock,

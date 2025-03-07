@@ -31,6 +31,8 @@ import com.hedera.block.server.persistence.storage.write.AsyncNoOpWriterFactory;
 import com.hedera.block.server.service.ServiceConfig;
 import com.hedera.block.server.service.ServiceStatus;
 import com.hedera.block.server.service.ServiceStatusImpl;
+import com.hedera.block.server.service.WebServerStatus;
+import com.hedera.block.server.service.WebServerStatusImpl;
 import com.hedera.block.server.util.PersistTestUtils;
 import com.hedera.block.server.util.TestConfigUtil;
 import com.hedera.hapi.block.BlockItemSetUnparsed;
@@ -145,7 +147,10 @@ class LiveStreamMediatorImplTest {
     @Test
     void testUnsubscribeEach() throws InterruptedException {
         final LiveStreamMediatorBuilder streamMediatorBuilder = LiveStreamMediatorBuilder.newBuilder(
-                metricsService, mediatorConfig, new ServiceStatusImpl(serviceConfig));
+                metricsService,
+                mediatorConfig,
+                new ServiceStatusImpl(serviceConfig),
+                new WebServerStatusImpl(serviceConfig));
         final LiveStreamMediator streamMediator = streamMediatorBuilder.build();
 
         // Set up the subscribers
@@ -175,8 +180,9 @@ class LiveStreamMediatorImplTest {
     @Test
     void testMediatorPersistenceWithoutSubscribers() throws IOException {
         final ServiceStatus serviceStatus = new ServiceStatusImpl(serviceConfig);
+        final WebServerStatus webServerStatus = new WebServerStatusImpl(serviceConfig);
         final LiveStreamMediator streamMediator = LiveStreamMediatorBuilder.newBuilder(
-                        metricsService, mediatorConfig, serviceStatus)
+                        metricsService, mediatorConfig, serviceStatus, webServerStatus)
                 .build();
 
         final List<BlockItemUnparsed> blockItemUnparsed =
@@ -189,6 +195,7 @@ class LiveStreamMediatorImplTest {
                 notifier,
                 metricsService,
                 serviceStatus,
+                webServerStatus,
                 ackHandlerMock,
                 writerFactory,
                 executorMock,
@@ -212,8 +219,9 @@ class LiveStreamMediatorImplTest {
     @Test
     void testMediatorPublishEventToSubscribers() throws IOException {
         final ServiceStatus serviceStatus = new ServiceStatusImpl(serviceConfig);
+        final WebServerStatus webServerStatus = new WebServerStatusImpl(serviceConfig);
         final LiveStreamMediator streamMediator = LiveStreamMediatorBuilder.newBuilder(
-                        metricsService, mediatorConfig, serviceStatus)
+                        metricsService, mediatorConfig, serviceStatus, webServerStatus)
                 .build();
 
         when(testClock.millis()).thenReturn(TEST_TIME, TEST_TIME + TIMEOUT_THRESHOLD_MILLIS);
@@ -283,6 +291,7 @@ class LiveStreamMediatorImplTest {
                 notifier,
                 metricsService,
                 serviceStatus,
+                webServerStatus,
                 ackHandlerMock,
                 asyncBlockWriterFactoryMock,
                 executorMock,

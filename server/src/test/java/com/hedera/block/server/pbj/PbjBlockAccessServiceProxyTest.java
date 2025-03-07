@@ -10,6 +10,7 @@ import static org.mockito.Mockito.when;
 import com.hedera.block.server.metrics.MetricsService;
 import com.hedera.block.server.persistence.storage.read.BlockReader;
 import com.hedera.block.server.service.ServiceStatus;
+import com.hedera.block.server.service.WebServerStatus;
 import com.hedera.block.server.util.TestConfigUtil;
 import com.hedera.hapi.block.BlockItemUnparsed;
 import com.hedera.hapi.block.BlockUnparsed;
@@ -39,6 +40,9 @@ public class PbjBlockAccessServiceProxyTest {
     private ServiceStatus serviceStatus;
 
     @Mock
+    private WebServerStatus webServerStatus;
+
+    @Mock
     private BlockReader<BlockUnparsed> blockReader;
 
     @Mock
@@ -61,7 +65,7 @@ public class PbjBlockAccessServiceProxyTest {
     public void testOpenWithIncorrectMethod() {
 
         final PbjBlockAccessServiceProxy pbjBlockAccessServiceProxy =
-                new PbjBlockAccessServiceProxy(serviceStatus, blockReader, metricsService);
+                new PbjBlockAccessServiceProxy(serviceStatus, webServerStatus, blockReader, metricsService);
         Pipeline<? super Bytes> pipeline = pbjBlockAccessServiceProxy.open(
                 PbjBlockStreamService.BlockStreamMethod.publishBlockStream, options, replies);
 
@@ -72,12 +76,12 @@ public class PbjBlockAccessServiceProxyTest {
     @Test
     public void testSingleBlock() throws IOException, ParseException {
         final PbjBlockAccessServiceProxy pbjBlockAccessServiceProxy =
-                new PbjBlockAccessServiceProxy(serviceStatus, blockReader, metricsService);
+                new PbjBlockAccessServiceProxy(serviceStatus, webServerStatus, blockReader, metricsService);
         final Pipeline<? super Bytes> pipeline =
                 pbjBlockAccessServiceProxy.open(PbjBlockAccessService.BlockAccessMethod.singleBlock, options, replies);
         assertNotNull(pipeline);
 
-        when(serviceStatus.isRunning()).thenReturn(true);
+        when(webServerStatus.isRunning()).thenReturn(true);
 
         final var blockItems = BlockItemUnparsed.newBuilder()
                 .blockHeader(BlockHeader.PROTOBUF.toBytes(
@@ -104,12 +108,12 @@ public class PbjBlockAccessServiceProxyTest {
     @Test
     public void testSingleBlockNotFound() throws IOException, ParseException {
         final PbjBlockAccessServiceProxy pbjBlockAccessServiceProxy =
-                new PbjBlockAccessServiceProxy(serviceStatus, blockReader, metricsService);
+                new PbjBlockAccessServiceProxy(serviceStatus, webServerStatus, blockReader, metricsService);
         final Pipeline<? super Bytes> pipeline =
                 pbjBlockAccessServiceProxy.open(PbjBlockAccessService.BlockAccessMethod.singleBlock, options, replies);
         assertNotNull(pipeline);
 
-        when(serviceStatus.isRunning()).thenReturn(true);
+        when(webServerStatus.isRunning()).thenReturn(true);
         when(blockReader.read(1)).thenReturn(Optional.empty());
 
         final SingleBlockRequest singleBlockRequest =
@@ -127,12 +131,12 @@ public class PbjBlockAccessServiceProxyTest {
     @Test
     public void testSingleBlockIOException() throws IOException, ParseException {
         final PbjBlockAccessServiceProxy pbjBlockAccessServiceProxy =
-                new PbjBlockAccessServiceProxy(serviceStatus, blockReader, metricsService);
+                new PbjBlockAccessServiceProxy(serviceStatus, webServerStatus, blockReader, metricsService);
         final Pipeline<? super Bytes> pipeline =
                 pbjBlockAccessServiceProxy.open(PbjBlockAccessService.BlockAccessMethod.singleBlock, options, replies);
         assertNotNull(pipeline);
 
-        when(serviceStatus.isRunning()).thenReturn(true);
+        when(webServerStatus.isRunning()).thenReturn(true);
         when(blockReader.read(1)).thenThrow(new IOException("Test IOException"));
 
         final SingleBlockRequest singleBlockRequest =

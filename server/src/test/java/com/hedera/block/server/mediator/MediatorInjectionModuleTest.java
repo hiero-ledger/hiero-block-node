@@ -6,6 +6,7 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 
 import com.hedera.block.server.metrics.MetricsService;
 import com.hedera.block.server.service.ServiceStatus;
+import com.hedera.block.server.service.WebServerStatus;
 import com.hedera.block.server.util.TestConfigUtil;
 import com.hedera.hapi.block.BlockItemUnparsed;
 import com.swirlds.config.api.Configuration;
@@ -24,6 +25,9 @@ class MediatorInjectionModuleTest {
     @Mock
     private ServiceStatus serviceStatus;
 
+    @Mock
+    private WebServerStatus webServerStatus;
+
     @BeforeEach
     void setup() {
         // Any setup before each test can be done here
@@ -38,7 +42,10 @@ class MediatorInjectionModuleTest {
         // Call the method under test
         StreamMediator<List<BlockItemUnparsed>, List<BlockItemUnparsed>> streamMediator =
                 MediatorInjectionModule.providesLiveStreamMediator(
-                        configuration.getConfigData(MediatorConfig.class), metricsService, serviceStatus);
+                        configuration.getConfigData(MediatorConfig.class),
+                        metricsService,
+                        serviceStatus,
+                        webServerStatus);
 
         // Verify that the streamMediator is correctly instantiated
         assertNotNull(streamMediator);
@@ -55,7 +62,10 @@ class MediatorInjectionModuleTest {
         // Call the method under test
         StreamMediator<List<BlockItemUnparsed>, List<BlockItemUnparsed>> streamMediator =
                 MediatorInjectionModule.providesLiveStreamMediator(
-                        configuration.getConfigData(MediatorConfig.class), metricsService, serviceStatus);
+                        configuration.getConfigData(MediatorConfig.class),
+                        metricsService,
+                        serviceStatus,
+                        webServerStatus);
 
         // Verify that the streamMediator is correctly instantiated
         assertNotNull(streamMediator);

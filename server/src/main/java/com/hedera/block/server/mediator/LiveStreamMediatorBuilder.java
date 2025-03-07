@@ -5,6 +5,7 @@ import com.hedera.block.server.events.BlockNodeEventHandler;
 import com.hedera.block.server.events.ObjectEvent;
 import com.hedera.block.server.metrics.MetricsService;
 import com.hedera.block.server.service.ServiceStatus;
+import com.hedera.block.server.service.WebServerStatus;
 import com.hedera.hapi.block.BlockItemUnparsed;
 import com.lmax.disruptor.BatchEventProcessor;
 import edu.umd.cs.findbugs.annotations.NonNull;
@@ -25,6 +26,7 @@ public class LiveStreamMediatorBuilder {
     private final MetricsService metricsService;
     private final MediatorConfig mediatorConfig;
     private final ServiceStatus serviceStatus;
+    private final WebServerStatus webServerStatus;
 
     private Map<
                     BlockNodeEventHandler<ObjectEvent<List<BlockItemUnparsed>>>,
@@ -37,7 +39,9 @@ public class LiveStreamMediatorBuilder {
     private LiveStreamMediatorBuilder(
             @NonNull final MetricsService metricsService,
             @NonNull final MediatorConfig mediatorConfig,
-            @NonNull final ServiceStatus serviceStatus) {
+            @NonNull final ServiceStatus serviceStatus,
+            @NonNull final WebServerStatus webServerStatus) {
+        this.webServerStatus = webServerStatus;
         this.subscribers = new ConcurrentHashMap<>(SUBSCRIBER_INIT_CAPACITY);
         this.metricsService = metricsService;
         this.mediatorConfig = mediatorConfig;
@@ -57,8 +61,9 @@ public class LiveStreamMediatorBuilder {
     public static LiveStreamMediatorBuilder newBuilder(
             @NonNull final MetricsService metricsService,
             @NonNull final MediatorConfig mediatorConfig,
-            @NonNull final ServiceStatus serviceStatus) {
-        return new LiveStreamMediatorBuilder(metricsService, mediatorConfig, serviceStatus);
+            @NonNull final ServiceStatus serviceStatus,
+            @NonNull final WebServerStatus webServerStatus) {
+        return new LiveStreamMediatorBuilder(metricsService, mediatorConfig, serviceStatus, webServerStatus);
     }
 
     /**
@@ -89,6 +94,6 @@ public class LiveStreamMediatorBuilder {
      */
     @NonNull
     public LiveStreamMediator build() {
-        return new LiveStreamMediatorImpl(subscribers, serviceStatus, metricsService, mediatorConfig);
+        return new LiveStreamMediatorImpl(subscribers, serviceStatus, metricsService, mediatorConfig, webServerStatus);
     }
 }

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 package com.hedera.block.server.health;
 
-import com.hedera.block.server.service.ServiceStatus;
+import com.hedera.block.server.service.WebServerStatus;
 import edu.umd.cs.findbugs.annotations.NonNull;
 import io.helidon.webserver.http.HttpRules;
 import io.helidon.webserver.http.ServerRequest;
@@ -16,16 +16,16 @@ public class HealthServiceImpl implements HealthService {
     private static final String LIVEZ_PATH = "/livez";
     private static final String READYZ_PATH = "/readyz";
 
-    private final ServiceStatus serviceStatus;
+    private final WebServerStatus webServerStatus;
 
     /**
      * It initializes the HealthService with needed dependencies.
      *
-     * @param serviceStatus is used to check the status of the service
+     * @param webServerStatus is used to check the status of the service
      */
     @Inject
-    public HealthServiceImpl(@NonNull ServiceStatus serviceStatus) {
-        this.serviceStatus = serviceStatus;
+    public HealthServiceImpl(@NonNull WebServerStatus webServerStatus) {
+        this.webServerStatus = webServerStatus;
     }
 
     @Override
@@ -52,7 +52,7 @@ public class HealthServiceImpl implements HealthService {
      */
     @Override
     public final void handleLivez(@NonNull final ServerRequest req, @NonNull final ServerResponse res) {
-        if (serviceStatus.isRunning()) {
+        if (webServerStatus.isRunning()) {
             res.status(200).send("OK");
         } else {
             res.status(503).send("Service is not running");
@@ -68,7 +68,7 @@ public class HealthServiceImpl implements HealthService {
      */
     @Override
     public final void handleReadyz(@NonNull final ServerRequest req, @NonNull final ServerResponse res) {
-        if (serviceStatus.isRunning()) {
+        if (webServerStatus.isRunning()) {
             res.status(200).send("OK");
         } else {
             res.status(503).send("Service is not running");

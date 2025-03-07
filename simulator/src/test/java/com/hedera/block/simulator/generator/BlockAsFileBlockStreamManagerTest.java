@@ -58,7 +58,8 @@ class BlockAsFileBlockStreamManagerTest {
     void BlockAsFileBlockStreamManagerInvalidRootPath() {
         assertThrows(
                 RuntimeException.class,
-                () -> getBlockAsFileBlockStreamManager(getAbsoluteFolder("build/resources/test//BlockAsDirException/1/")));
+                () -> getBlockAsFileBlockStreamManager(
+                        getAbsoluteFolder("build/resources/test//BlockAsDirException/1/")));
     }
 
     private BlockStreamManager getBlockAsFileBlockStreamManager(String rootFolder) {
