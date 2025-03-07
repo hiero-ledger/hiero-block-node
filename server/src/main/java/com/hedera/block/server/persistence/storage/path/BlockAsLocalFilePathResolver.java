@@ -177,6 +177,7 @@ public final class BlockAsLocalFilePathResolver implements BlockPathResolver {
                     LOGGER.log(INFO, "traversing first dfs - " + nextPath.get().toString());
                     return dfsFindFistLive(nextPath.get());
                 } else {
+                    LOGGER.log(INFO, "traversing first dfs - empty");
                     return Optional.empty();
                 }
             }
@@ -194,6 +195,7 @@ public final class BlockAsLocalFilePathResolver implements BlockPathResolver {
                     LOGGER.log(INFO, "traversing last dfs - " + nextPath.get().toString());
                     return dfsFindLatestLive(nextPath.get());
                 } else {
+                    LOGGER.log(INFO, "traversing last dfs - empty");
                     return Optional.empty();
                 }
             }
