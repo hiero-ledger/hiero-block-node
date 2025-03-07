@@ -1,14 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 package com.hedera.block.server.mediator;
 
-import static com.hedera.block.server.metrics.BlockNodeMetricTypes.Gauge.Consumers;
 import static java.lang.System.Logger.Level.DEBUG;
 import static java.lang.System.Logger.Level.WARNING;
 
 import com.hedera.block.server.consumer.StreamManager;
 import com.hedera.block.server.events.BlockNodeEventHandler;
 import com.hedera.block.server.events.ObjectEvent;
-import com.hedera.block.server.metrics.MetricsService;
 import com.lmax.disruptor.BatchEventProcessor;
 import com.lmax.disruptor.BatchEventProcessorBuilder;
 import com.lmax.disruptor.EventPoller;
@@ -18,7 +16,7 @@ import com.lmax.disruptor.util.DaemonThreadFactory;
 import com.swirlds.metrics.api.LongGauge;
 import edu.umd.cs.findbugs.annotations.NonNull;
 import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
+import java.util.Objects;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
@@ -42,7 +40,7 @@ public abstract class SubscriptionHandlerBase<V> implements SubscriptionHandler<
 
     private final MediatorConfig mediatorConfig;
 
-    private final LongGauge consumerGauge;
+    private final LongGauge subscriptionGauge;
     private final ExecutorService executor;
 
     /**
@@ -53,20 +51,21 @@ public abstract class SubscriptionHandlerBase<V> implements SubscriptionHandler<
      *
      * @param subscribers the map of subscribers to batch event processors. It's recommended the map
      *     implementation is thread-safe
-     *
-     * @param metricsService the metrics service
+     * @param pollSubscribers the map of poll subscribers to event pollers. It's recommended the map
+     *     implementation is thread-safe
+     * @param subscriptionGauge the gauge to track the number of subscribers
      * @param mediatorConfig the configuration
      */
     protected SubscriptionHandlerBase(
             @NonNull final Map<BlockNodeEventHandler<ObjectEvent<V>>, BatchEventProcessor<ObjectEvent<V>>> subscribers,
-            @NonNull final MetricsService metricsService,
+            @NonNull final Map<StreamManager, EventPoller<ObjectEvent<V>>> pollSubscribers,
+            @NonNull final LongGauge subscriptionGauge,
             @NonNull final MediatorConfig mediatorConfig,
             final int ringBufferSize) {
-
         this.subscribers = subscribers;
-        this.pollSubscribers = new ConcurrentHashMap<>();
-        this.consumerGauge = metricsService.get(Consumers);
+        this.pollSubscribers = pollSubscribers;
         this.mediatorConfig = mediatorConfig;
+        this.subscriptionGauge = Objects.requireNonNull(subscriptionGauge);
 
         // Initialize and start the disruptor
         final Disruptor<ObjectEvent<V>> disruptor =
@@ -95,7 +94,7 @@ public abstract class SubscriptionHandlerBase<V> implements SubscriptionHandler<
             subscribers.put(handler, batchEventProcessor);
 
             // Update the subscriber metrics.
-            consumerGauge.set(subscribers.size() + pollSubscribers.size());
+            subscriptionGauge.set(subscribers.size() + pollSubscribers.size());
         }
     }
 
@@ -109,7 +108,7 @@ public abstract class SubscriptionHandlerBase<V> implements SubscriptionHandler<
             pollSubscribers.put(streamManager, eventPoller);
 
             // Update the subscriber metrics.
-            consumerGauge.set(subscribers.size() + pollSubscribers.size());
+            subscriptionGauge.set(subscribers.size() + pollSubscribers.size());
             LOGGER.log(DEBUG, "Subscribed poller");
 
             return new LiveStreamPoller<>(eventPoller, ringBuffer, mediatorConfig);
@@ -128,7 +127,7 @@ public abstract class SubscriptionHandlerBase<V> implements SubscriptionHandler<
         }
 
         // Update the subscriber metrics.
-        consumerGauge.set(subscribers.size() + pollSubscribers.size());
+        subscriptionGauge.set(subscribers.size() + pollSubscribers.size());
         LOGGER.log(DEBUG, "Unsubscribed poller");
     }
 
@@ -162,7 +161,7 @@ public abstract class SubscriptionHandlerBase<V> implements SubscriptionHandler<
         }
 
         // Update the subscriber metrics.
-        consumerGauge.set(subscribers.size() + pollSubscribers.size());
+        subscriptionGauge.set(subscribers.size() + pollSubscribers.size());
     }
 
     /**

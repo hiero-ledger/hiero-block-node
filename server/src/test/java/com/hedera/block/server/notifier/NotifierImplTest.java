@@ -60,7 +60,6 @@ import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executor;
 import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.api.io.TempDir;
@@ -166,7 +165,6 @@ class NotifierImplTest {
     }
 
     @Test
-    @Disabled("@todo(751) - adapt this test to the new streaming consumer model")
     void testRegistration() throws IOException {
         when(serviceStatus.isRunning()).thenReturn(true);
 

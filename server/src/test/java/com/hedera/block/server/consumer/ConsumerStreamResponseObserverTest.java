@@ -107,7 +107,7 @@ public class ConsumerStreamResponseObserverTest {
 
         // Set up the StreamManager to poll for
         // block items
-        streamManager.execute();
+        assertTrue(streamManager.execute());
 
         // Now publish the block items to the mediator
         streamMediator.publish(blockItems);
@@ -115,7 +115,7 @@ public class ConsumerStreamResponseObserverTest {
         // Call the StreamManager to poll for
         // the block items and send them to the
         // client
-        streamManager.execute();
+        assertTrue(streamManager.execute());
 
         final BlockItemSetUnparsed blockItemSet =
                 BlockItemSetUnparsed.newBuilder().blockItems(blockItems).build();
@@ -136,7 +136,8 @@ public class ConsumerStreamResponseObserverTest {
         final LiveStreamMediator streamMediator = LiveStreamMediatorBuilder.newBuilder(
                         metricsService, mediatorConfig, serviceStatus)
                 .build();
-        when(testClock.millis()).thenReturn(TEST_TIME, TEST_TIME + TIMEOUT_THRESHOLD_MILLIS + 1);
+        when(testClock.millis())
+                .thenReturn(TEST_TIME, TEST_TIME + TIMEOUT_THRESHOLD_MILLIS, TEST_TIME + TIMEOUT_THRESHOLD_MILLIS + 1);
 
         // Mock live streaming
         when(subscribeStreamRequest.startBlockNumber()).thenReturn(0L);
@@ -161,7 +162,7 @@ public class ConsumerStreamResponseObserverTest {
 
         // Set up the StreamManager to poll for
         // block items
-        streamManager.execute();
+        assertTrue(streamManager.execute());
 
         // Now publish the block items to the mediator
         streamMediator.publish(blockItems);
@@ -169,7 +170,7 @@ public class ConsumerStreamResponseObserverTest {
         // Call the StreamManager to poll for
         // the block items and send them to the
         // client
-        streamManager.execute();
+        assertFalse(streamManager.execute());
 
         // verify the mediator unsubscribed the observer
         assertFalse(streamMediator.isSubscribed(streamManager));

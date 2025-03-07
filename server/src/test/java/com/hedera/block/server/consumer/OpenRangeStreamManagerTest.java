@@ -12,6 +12,7 @@ import static com.hedera.block.server.metrics.BlockNodeMetricTypes.Counter.LiveB
 import static com.hedera.block.server.metrics.BlockNodeMetricTypes.Gauge.CurrentBlockNumberOutbound;
 import static com.hedera.block.server.util.PersistTestUtils.generateBlockItemsUnparsedForWithBlockNumber;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.times;
@@ -48,6 +49,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 @ExtendWith(MockitoExtension.class)
 public class OpenRangeStreamManagerTest {
 
+    private static final int TIMEOUT_THRESHOLD_MILLIS = 100;
     private static final long TEST_TIME = 1_719_427_664_950L;
 
     @Mock
@@ -96,14 +98,14 @@ public class OpenRangeStreamManagerTest {
     public void setUp() {
         // Set up the ConsumerConfig
         when(consumerConfig.maxBlockItemBatchSize()).thenReturn(1000);
-        when(consumerConfig.timeoutThresholdMillis()).thenReturn(1500);
-
-        // Set up the test clock within the time range
-        when(testClock.millis()).thenReturn(TEST_TIME, TEST_TIME + 1);
+        when(consumerConfig.timeoutThresholdMillis()).thenReturn(TIMEOUT_THRESHOLD_MILLIS);
     }
 
     @Test
     public void testHappyPathLiveStream() throws Exception {
+
+        // Set up the test clock within the time range
+        when(testClock.millis()).thenReturn(TEST_TIME, TEST_TIME + 1);
 
         final int NUM_OF_BLOCKS = 15;
 
@@ -158,6 +160,9 @@ public class OpenRangeStreamManagerTest {
 
     @Test
     public void testHappyPathHistoricToLiveStreamTransition() throws Exception {
+
+        // Set up the test clock within the time range
+        when(testClock.millis()).thenReturn(TEST_TIME, TEST_TIME + 1);
 
         final int NUM_OF_BLOCKS = 16;
         final int liveStreamInitialBlock = 8;
@@ -349,6 +354,46 @@ public class OpenRangeStreamManagerTest {
         //        assertEquals(HISTORIC_STREAMING, streamManager.getState());
         //        verify(helidonConsumerObserver, times(1))
         //                .onNext(buildResponse(blocks.get(15).blockItems()));
+    }
+
+    @Test
+    public void testSubscribeAndUnsubscribeHandlingWithTimeout() {
+
+        // Prep the subscriptionHandler to return the poller when subscribing
+        when(subscriptionHandler.subscribePoller(any())).thenReturn(liveBlockItemPoller);
+
+        // Mock a subscribeStreamRequest indicating a live-streaming request
+        when(subscribeStreamRequest.startBlockNumber()).thenReturn(0L);
+
+        // Set up the test clock with a timeout
+        when(testClock.millis())
+                .thenReturn(TEST_TIME, TEST_TIME + TIMEOUT_THRESHOLD_MILLIS, TEST_TIME + TIMEOUT_THRESHOLD_MILLIS + 1);
+
+        final OpenRangeStreamManager streamManager = ConsumerStreamBuilder.buildStreamManager(
+                testClock,
+                subscribeStreamRequest,
+                subscriptionHandler,
+                helidonConsumerObserver,
+                blockReader,
+                serviceStatus,
+                metricsService,
+                consumerConfig);
+
+        // INIT_LIVE - transition
+        assertEquals(INIT_LIVE, streamManager.getState());
+
+        // First execute() should subscribe to the poller
+        assertTrue(streamManager.execute());
+        assertEquals(LIVE_STREAMING, streamManager.getState());
+
+        // Second execute() should fail because of the timeout
+        assertFalse(streamManager.execute());
+
+        // Verify the subscriptionHandler is called to subscribe
+        verify(subscriptionHandler, times(1)).subscribePoller(any());
+
+        // Verify the subscriptionHandler is called to unsubscribe
+        verify(subscriptionHandler, times(1)).unsubscribePoller(any());
     }
 
     private static long parseBlockNumber(List<BlockItemUnparsed> blockItems) throws ParseException {
