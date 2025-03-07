@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-package com.hedera.block.server.manager;
+package com.hedera.block.server.ack;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
@@ -16,8 +16,8 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.verifyNoMoreInteractions;
+import static org.mockito.Mockito.when;
 
-import com.hedera.block.server.ack.AckHandlerImpl;
 import com.hedera.block.server.block.BlockInfo;
 import com.hedera.block.server.metrics.BlockNodeMetricTypes;
 import com.hedera.block.server.metrics.MetricsService;
@@ -131,7 +131,7 @@ class AckHandlerImplTest {
     @DisplayName("blockPersisted + blockVerified triggers a single ACK")
     void blockPersistedThenBlockVerified_triggersAck() {
         // given
-        final long blockNumber = 1L;
+        final long blockNumber = 0L;
         final Bytes blockHash = Bytes.wrap("hash1".getBytes());
 
         // when
@@ -149,9 +149,9 @@ class AckHandlerImplTest {
             "Multiple consecutive blocks can be ACKed in sequence if they are both persisted and verified in order")
     void multipleBlocksAckInSequence() {
         // given
-        final long block1 = 1L;
-        final long block2 = 2L;
-        final long block3 = 3L;
+        final long block1 = 0L;
+        final long block2 = 1L;
+        final long block3 = 2L;
         final Bytes hash1 = Bytes.wrap("hash1".getBytes());
         final Bytes hash2 = Bytes.wrap("hash2".getBytes());
         final Bytes hash3 = Bytes.wrap("hash3".getBytes());
@@ -181,9 +181,9 @@ class AckHandlerImplTest {
         final List<Bytes> capturedHashes = blockHashCaptor.getAllValues();
 
         assertEquals(3, capturedBlockNumbers.size(), "We should have exactly 3 ACK calls");
-        assertEquals(1L, capturedBlockNumbers.get(0));
-        assertEquals(2L, capturedBlockNumbers.get(1));
-        assertEquals(3L, capturedBlockNumbers.get(2));
+        assertEquals(0L, capturedBlockNumbers.get(0));
+        assertEquals(1L, capturedBlockNumbers.get(1));
+        assertEquals(2L, capturedBlockNumbers.get(2));
 
         assertEquals(hash1, capturedHashes.get(0));
         assertEquals(hash2, capturedHashes.get(1));
@@ -196,10 +196,46 @@ class AckHandlerImplTest {
     @DisplayName("Blocks are ACKed in order; partial readiness doesn't skip ahead")
     void ackStopsIfNextBlockIsNotReady() {
         // given
-        final long block1 = 1L;
-        final long block2 = 2L;
+        final long block1 = 0L;
+        final long block2 = 1L;
         final Bytes hash1 = Bytes.wrap("hash1".getBytes());
         final Bytes hash2 = Bytes.wrap("hash2".getBytes());
+
+        // when
+        // Fully persist & verify block #0 -> Should ACK
+        ackHandler.blockPersisted(new BlockPersistenceResult(block1, BlockPersistenceStatus.SUCCESS));
+        ackHandler.blockVerified(block1, hash1);
+
+        // Partially persist block #1
+        ackHandler.blockPersisted(new BlockPersistenceResult(block2, BlockPersistenceStatus.SUCCESS));
+        // We do NOT verify block #1 yet
+
+        // then
+        // Should only ACK block #0
+        verify(notifier, times(1)).sendAck(eq(block1), eq(hash1), eq(false));
+        verifyNoMoreInteractions(notifier);
+
+        // Now verify block #1
+        ackHandler.blockVerified(block2, hash2);
+
+        // Expect the second ACK
+        verify(notifier, times(1)).sendAck(eq(block2), eq(hash2), eq(false));
+        verifyNoMoreInteractions(notifier);
+    }
+
+    @Test
+    @DisplayName("When ServiceStatus has Non-Null LastAckedBlock and should start from that on")
+    void lastAckedBlockNotNull() {
+
+        when(serviceStatus.getLatestAckedBlock()).thenReturn(new BlockInfo(9));
+        ackHandler = new AckHandlerImpl(notifier, false, serviceStatus, blockRemover, metricsService);
+        ackHandler.registerPersistence(persistenceHandlerMock);
+
+        // given
+        final long block1 = 10L;
+        final long block2 = 11L;
+        final Bytes hash1 = Bytes.wrap("hash10".getBytes());
+        final Bytes hash2 = Bytes.wrap("hash11".getBytes());
 
         // when
         // Fully persist & verify block #10 -> Should ACK
@@ -220,6 +256,44 @@ class AckHandlerImplTest {
 
         // Expect the second ACK
         verify(notifier, times(1)).sendAck(eq(block2), eq(hash2), eq(false));
+        verifyNoMoreInteractions(notifier);
+    }
+
+    @Test
+    @DisplayName("When ServiceStatus has Non-Null LastAckedBlock but older block number is received")
+    void lastAckedBlockNotNull_duplicateVariation() {
+        when(serviceStatus.getLatestAckedBlock()).thenReturn(new BlockInfo(9));
+        ackHandler = new AckHandlerImpl(notifier, false, serviceStatus, blockRemover, metricsService);
+        ackHandler.registerPersistence(persistenceHandlerMock);
+
+        // given
+        final long block = 8L;
+        final Bytes hash = Bytes.wrap("hash8".getBytes());
+
+        ackHandler.blockPersisted(new BlockPersistenceResult(block, BlockPersistenceStatus.SUCCESS));
+        ackHandler.blockVerified(block, hash);
+
+        // Expect the second ACK
+        verify(notifier, times(0)).sendAck(eq(block), eq(hash), anyBoolean());
+        verifyNoMoreInteractions(notifier);
+    }
+
+    @Test
+    @DisplayName("When ServiceStatus has Non-Null LastAckedBlock but future block number is received")
+    void lastAckedBlockNotNull_aheadVariation() {
+        when(serviceStatus.getLatestAckedBlock()).thenReturn(new BlockInfo(9));
+        ackHandler = new AckHandlerImpl(notifier, false, serviceStatus, blockRemover, metricsService);
+        ackHandler.registerPersistence(persistenceHandlerMock);
+
+        // given
+        final long block = 11L;
+        final Bytes hash = Bytes.wrap("hash11".getBytes());
+
+        ackHandler.blockPersisted(new BlockPersistenceResult(block, BlockPersistenceStatus.SUCCESS));
+        ackHandler.blockVerified(block, hash);
+
+        // Expect the second ACK
+        verify(notifier, times(0)).sendAck(eq(block), eq(hash), anyBoolean());
         verifyNoMoreInteractions(notifier);
     }
 
@@ -248,9 +322,9 @@ class AckHandlerImplTest {
      */
     @Test
     public void testAckOrderWhenLowerBlockArrivesLate() {
-        final long block2 = 2L;
+        final long block2 = 1L;
         final Bytes blockHash2 = Bytes.wrap("hash2".getBytes());
-        final long block1 = 1L;
+        final long block1 = 0L;
         final Bytes blockHash1 = Bytes.wrap("hash1".getBytes());
 
         // First, process events for block 2.
@@ -292,7 +366,7 @@ class AckHandlerImplTest {
         final Runnable persistTask = () -> {
             try {
                 startLatch.await();
-                for (int i = 1; i <= blockCount; i++) {
+                for (int i = 0; i <= blockCount - 1; i++) {
                     ackHandler.blockPersisted(new BlockPersistenceResult(i, BlockPersistenceStatus.SUCCESS));
                     if (maxPersistDelayNanos > 0) {
                         long delay = random.nextInt(maxPersistDelayNanos + 1);
@@ -310,7 +384,7 @@ class AckHandlerImplTest {
         final Runnable verifyTask = () -> {
             try {
                 startLatch.await();
-                for (int i = 1; i <= blockCount; i++) {
+                for (int i = 0; i <= blockCount - 1; i++) {
                     final Bytes blockHash = bytesFromLong(i);
                     ackHandler.blockVerified(i, blockHash);
                     if (maxVerifyDelayNanos > 0) {
@@ -342,7 +416,7 @@ class AckHandlerImplTest {
 
         assertEquals(blockCount, capturedBlockNumbers.size(), "Number of ACKs mismatch");
         for (int i = 0; i < blockCount; i++) {
-            long expected = i + 1;
+            long expected = i;
             assertEquals(expected, capturedBlockNumbers.get(i), "ACK order mismatch at index " + i);
             assertEquals(
                     bytesFromLong(expected), capturedBlockHashes.get(i), "Block hash mismatch at block " + expected);
@@ -352,7 +426,7 @@ class AckHandlerImplTest {
         verify(serviceStatus, atLeastOnce()).setLatestAckedBlock(blockInfoCaptor.capture());
         final BlockInfo latest = blockInfoCaptor.getValue();
         assertNotNull(latest, "Latest acked block should not be null");
-        assertEquals(blockCount, latest.getBlockNumber(), "Latest acknowledged block number mismatch");
+        assertEquals(blockCount - 1, latest.getBlockNumber(), "Latest acknowledged block number mismatch");
     }
 
     // Helper method to create a dummy Bytes object from a long.

@@ -7,13 +7,17 @@ import com.hedera.block.server.Constants;
 import com.hedera.block.server.persistence.storage.PersistenceStorageConfig;
 import com.hedera.block.server.persistence.storage.PersistenceStorageConfig.CompressionType;
 import edu.umd.cs.findbugs.annotations.NonNull;
+import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.text.DecimalFormat;
+import java.util.Comparator;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.stream.Stream;
+import java.util.zip.ZipEntry;
 import java.util.zip.ZipFile;
 
 /**
@@ -160,6 +164,105 @@ public final class BlockAsLocalFilePathResolver implements BlockPathResolver {
         Preconditions.requireWhole(blockNumber);
         return findLiveBlock(blockNumber).isPresent()
                 || findArchivedBlock(blockNumber).isPresent();
+    }
+
+    private Optional<Path> dfsFindFistLive(final Path root) throws IOException {
+        if (Files.isDirectory(root)) {
+            try (final Stream<Path> list = Files.list(root)) {
+                final Optional<Path> nextPath = list.sorted().findAny();
+                if (nextPath.isPresent()) {
+                    return dfsFindFistLive(nextPath.get());
+                } else {
+                    return Optional.empty();
+                }
+            }
+        } else {
+            return Optional.of(root);
+        }
+    }
+
+    @NonNull
+    @Override
+    public Optional<Long> findFirstAvailableBlockNumber() throws IOException {
+        if (Files.notExists(liveRootPath)) {
+            throw new FileNotFoundException("Live root does not exist [%s]".formatted(liveRootPath));
+        } else {
+            final Optional<Path> blockOpt = dfsFindFistLive(liveRootPath);
+            if (blockOpt.isPresent()) {
+                final Path pathToBlock = blockOpt.get();
+                final String fileName = pathToBlock.getFileName().toString();
+                if (fileName.endsWith(Constants.ZIP_FILE_EXTENSION)) {
+                    try (final ZipFile zipFile = new ZipFile(pathToBlock.toFile())) {
+                        return zipFile.stream()
+                                .sorted(Comparator.comparing(ZipEntry::getName))
+                                .filter(e -> !e.isDirectory())
+                                .findAny()
+                                .map(ze -> {
+                                    final String entryName = ze.getName();
+                                    // remove leading dir as part of the zip entry name
+                                    final String rawEntryName = entryName.substring(entryName.lastIndexOf('/') + 1);
+                                    // remove extensions
+                                    final String toParse = rawEntryName.substring(0, rawEntryName.indexOf('.'));
+                                    return Long.parseLong(toParse);
+                                });
+                    }
+                } else {
+                    return Optional.of(Long.parseLong(fileName.substring(0, fileName.indexOf('.'))));
+                }
+            } else {
+                return Optional.empty();
+            }
+        }
+    }
+
+    private Optional<Path> dfsFindLatestLive(final Path root) throws IOException {
+        if (Files.isDirectory(root)) {
+            try (final Stream<Path> list = Files.list(root)) {
+                final Optional<Path> nextPath =
+                        list.sorted(Comparator.reverseOrder()).findAny();
+                if (nextPath.isPresent()) {
+                    return dfsFindLatestLive(nextPath.get());
+                } else {
+                    return Optional.empty();
+                }
+            }
+        } else {
+            return Optional.of(root);
+        }
+    }
+
+    @NonNull
+    @Override
+    public Optional<Long> findLatestAvailableBlockNumber() throws IOException {
+        if (Files.notExists(liveRootPath)) {
+            throw new FileNotFoundException("Live root does not exist [%s]".formatted(liveRootPath));
+        } else {
+            final Optional<Path> blockOpt = dfsFindLatestLive(liveRootPath);
+            if (blockOpt.isPresent()) {
+                final Path pathToBlock = blockOpt.get();
+                final String fileName = pathToBlock.getFileName().toString();
+                if (fileName.endsWith(Constants.ZIP_FILE_EXTENSION)) {
+                    try (final ZipFile zipFile = new ZipFile(pathToBlock.toFile())) {
+                        return zipFile.stream()
+                                .sorted(Comparator.comparing(ZipEntry::getName).reversed())
+                                .filter(e -> !e.isDirectory())
+                                .findAny()
+                                .map(ze -> {
+                                    final String entryName = ze.getName();
+                                    // remove leading dir as part of the zip entry name
+                                    final String rawEntryName = entryName.substring(entryName.lastIndexOf('/') + 1);
+                                    // remove extensions
+                                    final String toParse = rawEntryName.substring(0, rawEntryName.indexOf('.'));
+                                    return Long.parseLong(toParse);
+                                });
+                    }
+                } else {
+                    return Optional.of(Long.parseLong(fileName.substring(0, fileName.indexOf('.'))));
+                }
+            } else {
+                return Optional.empty();
+            }
+        }
     }
 
     /**

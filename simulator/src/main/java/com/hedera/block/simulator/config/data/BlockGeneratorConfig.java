@@ -32,7 +32,7 @@ public record BlockGeneratorConfig(
         @ConfigProperty(defaultValue = "36") int paddedLength,
         @ConfigProperty(defaultValue = ".blk.gz") String fileExtension,
         // Optional block number range for the BlockAsFileLargeDataSets manager
-        @ConfigProperty(defaultValue = "1") @Min(0) int startBlockNumber,
+        @ConfigProperty(defaultValue = "0") @Min(0) int startBlockNumber,
         @ConfigProperty(defaultValue = "-1") int endBlockNumber) {
 
     /**

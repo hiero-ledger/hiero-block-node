@@ -6,7 +6,9 @@ import static java.lang.System.Logger.Level.DEBUG;
 import static java.lang.System.Logger.Level.ERROR;
 
 import com.hedera.block.common.utils.FileUtilities;
+import com.hedera.block.server.ack.AckBlockStatus;
 import com.hedera.block.server.ack.AckHandler;
+import com.hedera.block.server.block.BlockInfo;
 import com.hedera.block.server.events.BlockNodeEventHandler;
 import com.hedera.block.server.events.ObjectEvent;
 import com.hedera.block.server.exception.BlockStreamProtocolException;
@@ -110,6 +112,31 @@ public class StreamPersistenceHandlerImpl implements BlockNodeEventHandler<Objec
             // Clean up the unverified directory at startup. Any files under the
             // unverified root at startup are to be considered unreliable
             blockFilesInUnverified.map(Path::toFile).forEach(File::delete);
+        }
+
+        // @todo(796) default value for long is a 0, so this means that if no
+        //   value is set to the service status for these numbers, the default
+        //   in the beginning will be 0, which is a valid number for us. This
+        //   maybe makes it erroneous. Maybe we should have a value of -1 as
+        //   initial one, so we know that if we get it, nothing has ever set
+        //   changed the value yet.
+
+        final Optional<Long> firstAvailableBlockNumberOpt = pathResolver.findFirstAvailableBlockNumber();
+        if (firstAvailableBlockNumberOpt.isPresent()) {
+            final long firstAvailableBlockNumber = firstAvailableBlockNumberOpt.get();
+            serviceStatus.setFirstAvailableBlockNumber(firstAvailableBlockNumber);
+        }
+
+        final Optional<Long> latestAvailableBlockNumberOpt = pathResolver.findLatestAvailableBlockNumber();
+        if (latestAvailableBlockNumberOpt.isPresent()) {
+            final long latestAvailableBlockNumber = latestAvailableBlockNumberOpt.get();
+            final BlockInfo latestAckedBlockInfo = new BlockInfo(latestAvailableBlockNumber);
+            final AckBlockStatus blockStatus = latestAckedBlockInfo.getBlockStatus();
+            blockStatus.setPersisted();
+            blockStatus.setVerified();
+            blockStatus.markAckSentIfNotAlready();
+            serviceStatus.setLatestAckedBlock(latestAckedBlockInfo);
+            serviceStatus.setLatestReceivedBlockNumber(latestAvailableBlockNumber);
         }
 
         // It is indeed a very bad idea to expose `this` to the outside world

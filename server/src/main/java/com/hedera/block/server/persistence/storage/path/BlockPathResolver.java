@@ -2,6 +2,7 @@
 package com.hedera.block.server.persistence.storage.path;
 
 import edu.umd.cs.findbugs.annotations.NonNull;
+import java.io.IOException;
 import java.nio.file.Path;
 import java.util.Optional;
 
@@ -149,4 +150,32 @@ public interface BlockPathResolver {
      * @throws IllegalArgumentException if the blockNumber IS NOT a whole number
      */
     boolean existsVerifiedBlock(final long blockNumber);
+
+    /**
+     * This method attempts to find the first available Block Number. A Block
+     * that is considered available is one that is PERSISTED and VERIFIED!
+     * If the Block is found, the method returns a non-empty
+     * {@link Optional} of {@link Long}, else an empty {@link Optional} is
+     * returned.
+     *
+     * @return a {@link Optional} of {@link Long} with the first available Block
+     * Number if it is found, else an empty {@link Optional}
+     * @throws IOException if an I/O error occurs
+     */
+    @NonNull
+    Optional<Long> findFirstAvailableBlockNumber() throws IOException;
+
+    /**
+     * This method attempts to find the latest available Block Number. A Block
+     * that is considered available is one that is PERSISTED and VERIFIED!
+     * If the Block is found, the method returns a non-empty
+     * {@link Optional} of {@link Long}, else an empty {@link Optional} is
+     * returned.
+     *
+     * @return a {@link Optional} of {@link Long} with the latest available
+     * Block Number if it is found, else an empty {@link Optional}
+     * @throws IOException if an I/O error occurs
+     */
+    @NonNull
+    Optional<Long> findLatestAvailableBlockNumber() throws IOException;
 }

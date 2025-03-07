@@ -6,6 +6,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import java.nio.file.Path;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
@@ -128,6 +129,26 @@ class NoOpBlockPathResolverTest {
     @MethodSource({"validBlockNumbers", "invalidBlockNumbers"})
     void testSuccessfulExistsVerified(final long toResolve) {
         assertThat(toTest.existsVerifiedBlock(toResolve)).isFalse();
+    }
+
+    /**
+     * This test aims to verify that the
+     * {@link NoOpBlockPathResolver#findFirstAvailableBlockNumber()}
+     * always returns an empty optional.
+     */
+    @Test
+    void testFindFirstAvailableBlockNumber() {
+        assertThat(toTest.findFirstAvailableBlockNumber()).isNotNull().isEmpty();
+    }
+
+    /**
+     * This test aims to verify that the
+     * {@link NoOpBlockPathResolver#findLatestAvailableBlockNumber()}
+     * always returns an empty optional.
+     */
+    @Test
+    void testFindLatestAvailableBlockNumber() {
+        assertThat(toTest.findLatestAvailableBlockNumber()).isNotNull().isEmpty();
     }
 
     /**
