@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-package com.hedera.block.server.manager;
+package com.hedera.block.server.ack;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
@@ -16,8 +16,8 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.verifyNoMoreInteractions;
+import static org.mockito.Mockito.when;
 
-import com.hedera.block.server.ack.AckHandlerImpl;
 import com.hedera.block.server.block.BlockInfo;
 import com.hedera.block.server.metrics.BlockNodeMetricTypes;
 import com.hedera.block.server.metrics.MetricsService;
@@ -202,6 +202,42 @@ class AckHandlerImplTest {
         final Bytes hash2 = Bytes.wrap("hash2".getBytes());
 
         // when
+        // Fully persist & verify block #0 -> Should ACK
+        ackHandler.blockPersisted(new BlockPersistenceResult(block1, BlockPersistenceStatus.SUCCESS));
+        ackHandler.blockVerified(block1, hash1);
+
+        // Partially persist block #1
+        ackHandler.blockPersisted(new BlockPersistenceResult(block2, BlockPersistenceStatus.SUCCESS));
+        // We do NOT verify block #1 yet
+
+        // then
+        // Should only ACK block #0
+        verify(notifier, times(1)).sendAck(eq(block1), eq(hash1), eq(false));
+        verifyNoMoreInteractions(notifier);
+
+        // Now verify block #1
+        ackHandler.blockVerified(block2, hash2);
+
+        // Expect the second ACK
+        verify(notifier, times(1)).sendAck(eq(block2), eq(hash2), eq(false));
+        verifyNoMoreInteractions(notifier);
+    }
+
+    @Test
+    @DisplayName("When ServiceStatus has Non-Null LastAckedBlock and should start from that on")
+    void lastAckedBlockNotNull() {
+
+        when(serviceStatus.getLatestAckedBlock()).thenReturn(new BlockInfo(9));
+        ackHandler = new AckHandlerImpl(notifier, false, serviceStatus, blockRemover, metricsService);
+        ackHandler.registerPersistence(persistenceHandlerMock);
+
+        // given
+        final long block1 = 10L;
+        final long block2 = 11L;
+        final Bytes hash1 = Bytes.wrap("hash10".getBytes());
+        final Bytes hash2 = Bytes.wrap("hash11".getBytes());
+
+        // when
         // Fully persist & verify block #10 -> Should ACK
         ackHandler.blockPersisted(new BlockPersistenceResult(block1, BlockPersistenceStatus.SUCCESS));
         ackHandler.blockVerified(block1, hash1);
@@ -220,6 +256,44 @@ class AckHandlerImplTest {
 
         // Expect the second ACK
         verify(notifier, times(1)).sendAck(eq(block2), eq(hash2), eq(false));
+        verifyNoMoreInteractions(notifier);
+    }
+
+    @Test
+    @DisplayName("When ServiceStatus has Non-Null LastAckedBlock but older block number is received")
+    void lastAckedBlockNotNull_duplicateVariation() {
+        when(serviceStatus.getLatestAckedBlock()).thenReturn(new BlockInfo(9));
+        ackHandler = new AckHandlerImpl(notifier, false, serviceStatus, blockRemover, metricsService);
+        ackHandler.registerPersistence(persistenceHandlerMock);
+
+        // given
+        final long block = 8L;
+        final Bytes hash = Bytes.wrap("hash8".getBytes());
+
+        ackHandler.blockPersisted(new BlockPersistenceResult(block, BlockPersistenceStatus.SUCCESS));
+        ackHandler.blockVerified(block, hash);
+
+        // Expect the second ACK
+        verify(notifier, times(0)).sendAck(eq(block), eq(hash), anyBoolean());
+        verifyNoMoreInteractions(notifier);
+    }
+
+    @Test
+    @DisplayName("When ServiceStatus has Non-Null LastAckedBlock but future block number is received")
+    void lastAckedBlockNotNull_aheadVariation() {
+        when(serviceStatus.getLatestAckedBlock()).thenReturn(new BlockInfo(9));
+        ackHandler = new AckHandlerImpl(notifier, false, serviceStatus, blockRemover, metricsService);
+        ackHandler.registerPersistence(persistenceHandlerMock);
+
+        // given
+        final long block = 11L;
+        final Bytes hash = Bytes.wrap("hash11".getBytes());
+
+        ackHandler.blockPersisted(new BlockPersistenceResult(block, BlockPersistenceStatus.SUCCESS));
+        ackHandler.blockVerified(block, hash);
+
+        // Expect the second ACK
+        verify(notifier, times(0)).sendAck(eq(block), eq(hash), anyBoolean());
         verifyNoMoreInteractions(notifier);
     }
 
