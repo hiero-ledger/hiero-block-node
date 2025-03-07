@@ -23,7 +23,7 @@ public class ServiceStatusImpl implements ServiceStatus {
     private WebServer webServer;
     private volatile BlockInfo latestAckedBlock;
     private volatile long latestReceivedBlockNumber;
-    private volatile long firstAvailableBlockNumber;
+    private volatile long firstAvailableBlockNumber = Long.MIN_VALUE;
 
     /**
      * Use the ServiceStatusImpl to check the status of the block node server and to shut it down if
