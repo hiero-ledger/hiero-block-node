@@ -195,8 +195,14 @@ public final class BlockAsLocalFilePathResolver implements BlockPathResolver {
                                     return !e.isDirectory();
                                 })
                                 .findAny()
-                                .map(ze -> Long.parseLong(
-                                        ze.getName().substring(0, ze.getName().indexOf('.'))))
+                                .map(ze -> {
+                                    final String entryName = ze.getName();
+                                    // remove leading dir as part of the zip entry name
+                                    final String rawEntryName = entryName.substring(entryName.lastIndexOf('/') + 1);
+                                    // remove extensions
+                                    final String toParse = rawEntryName.substring(0, rawEntryName.indexOf('.'));
+                                    return Long.parseLong(toParse);
+                                })
                                 .orElse(-1L)
                                 .describeConstable();
                     }
@@ -235,8 +241,14 @@ public final class BlockAsLocalFilePathResolver implements BlockPathResolver {
                                     return !e.isDirectory();
                                 })
                                 .findAny()
-                                .map(ze -> Long.parseLong(
-                                        ze.getName().substring(0, ze.getName().indexOf('.'))))
+                                .map(ze -> {
+                                    final String entryName = ze.getName();
+                                    // remove leading dir as part of the zip entry name
+                                    final String rawEntryName = entryName.substring(entryName.lastIndexOf('/') + 1);
+                                    // remove extensions
+                                    final String toParse = rawEntryName.substring(0, rawEntryName.indexOf('.'));
+                                    return Long.parseLong(toParse);
+                                })
                                 .orElse(-1L)
                                 .describeConstable();
                     }
