@@ -10,6 +10,7 @@ import edu.umd.cs.findbugs.annotations.NonNull;
 import java.nio.ByteBuffer;
 import java.security.MessageDigest;
 import java.util.ArrayList;
+import java.util.LinkedList;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
@@ -56,6 +57,10 @@ public class ConcurrentStreamingTreeHasher implements StreamingTreeHasher {
      */
     private boolean rootHashRequested = false;
 
+    private final CompletableFuture<List<List<Bytes>>> futureMerkleTree = new CompletableFuture<>();
+
+    private final List<List<Bytes>> merkleTree = new ArrayList<>();
+
     /**
      * Constructs a new {@link ConcurrentStreamingTreeHasher} with the given {@link ExecutorService}.
      *
@@ -78,6 +83,7 @@ public class ConcurrentStreamingTreeHasher implements StreamingTreeHasher {
         this.executorService = requireNonNull(executorService);
         this.hashCombineBatchSize =
                 Preconditions.requireEven(hashCombineBatchSize, "Hash combine batch size must be an even number");
+        merkleTree.add(new LinkedList<>());
         ;
     }
 
@@ -93,6 +99,7 @@ public class ConcurrentStreamingTreeHasher implements StreamingTreeHasher {
         numLeaves++;
         final byte[] bytes = new byte[HASH_LENGTH];
         hash.get(bytes);
+        merkleTree.getFirst().add(Bytes.wrap(bytes)); // adding leafs as they come.
         combiner.combine(bytes);
     }
 
@@ -101,6 +108,18 @@ public class ConcurrentStreamingTreeHasher implements StreamingTreeHasher {
         rootHashRequested = true;
         rootHeight = rootHeightFor(numLeaves);
         return combiner.finalCombination();
+    }
+
+    /**
+     * Returns the complete Merkle tree as a list of levels (each level is a {@code List<Bytes>}).
+     * Level 0 contains the original leaves.
+     * The last level contains the root hash.
+     *
+     * @return a future that completes with the full Merkle tree
+     */
+    @Override
+    public CompletableFuture<List<List<Bytes>>> merkleTree() {
+        return rootHash().thenCompose(ignore -> futureMerkleTree);
     }
 
     @Override
@@ -176,6 +195,7 @@ public class ConcurrentStreamingTreeHasher implements StreamingTreeHasher {
         public CompletableFuture<Bytes> finalCombination() {
             if (height == rootHeight) {
                 final byte[] rootHash = pendingHashes.isEmpty() ? EMPTY_HASHES[0] : pendingHashes.getFirst();
+                completeMerkleTree();
                 return CompletableFuture.completedFuture(Bytes.wrap(rootHash));
             } else {
                 if (!pendingHashes.isEmpty()) {
@@ -183,6 +203,19 @@ public class ConcurrentStreamingTreeHasher implements StreamingTreeHasher {
                 }
                 return combination.thenCompose(ignore -> delegate.finalCombination());
             }
+        }
+
+        private void completeMerkleTree() {
+
+            // pad right-most hashes with empty hashes if needed to keep the tree balanced
+            for(int i = 0; i < merkleTree.size(); i++){
+                int leaves = merkleTree.get(i).size();
+                if(leaves % 2 != 0){
+                    merkleTree.get(i).add(Bytes.wrap(EMPTY_HASHES[i]));
+                }
+            }
+
+            futureMerkleTree.complete(merkleTree);
         }
 
         public void flushAvailable(@NonNull final List<Bytes> rightmostHashes, final int stopHeight) {
@@ -212,10 +245,18 @@ public class ConcurrentStreamingTreeHasher implements StreamingTreeHasher {
                 pendingCombination = CompletableFuture.supplyAsync(() -> combine(hashes), executorService);
             }
             combination = combination.thenCombine(pendingCombination, (ignore, combined) -> {
+                appendLevelToMerkleTree(combined);
                 combined.forEach(delegate::combine);
                 return null;
             });
             pendingHashes = new ArrayList<>();
+        }
+
+        private void appendLevelToMerkleTree(List<byte[]> combined){
+            if(merkleTree.size() <= height + 1) {
+                merkleTree.add(new LinkedList<>());
+            }
+            merkleTree.get(height + 1).addAll(combined.stream().map(Bytes::wrap).toList());
         }
 
         private List<byte[]> combine(@NonNull final List<byte[]> hashes) {
