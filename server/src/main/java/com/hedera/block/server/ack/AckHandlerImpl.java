@@ -129,7 +129,12 @@ public class AckHandlerImpl implements AckHandler {
         // Temporarily if lastAcknowledgedBlockNumber is -1, we get the first block in the map
         if (lastAcknowledgedBlockNumber == -1) {
             // @todo(147): once we have a way to get the last acknowledged block from the store we should use that
-            lastAcknowledgedBlockNumber = 0;
+            final BlockInfo latestAckedBlock = serviceStatus.getLatestAckedBlock();
+            if (latestAckedBlock != null) {
+                lastAcknowledgedBlockNumber = latestAckedBlock.getBlockNumber();
+            } else {
+                lastAcknowledgedBlockNumber = 0;
+            }
         }
 
         // Keep ACK-ing starting from the next block in sequence
