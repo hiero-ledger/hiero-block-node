@@ -2,7 +2,7 @@
 package com.hedera.block.server.pbj;
 
 import static com.hedera.block.server.util.PbjProtoTestUtils.buildEmptyPublishStreamRequest;
-import static com.hedera.block.server.util.PbjProtoTestUtils.buildEmptySubscribeStreamRequest;
+import static com.hedera.block.server.util.PbjProtoTestUtils.buildLiveStreamSubscribeStreamRequest;
 import static com.hedera.block.server.util.PersistTestUtils.PERSISTENCE_STORAGE_ARCHIVE_ROOT_PATH_KEY;
 import static com.hedera.block.server.util.PersistTestUtils.PERSISTENCE_STORAGE_LIVE_ROOT_PATH_KEY;
 import static com.hedera.block.server.util.PersistTestUtils.PERSISTENCE_STORAGE_UNVERIFIED_ROOT_PATH_KEY;
@@ -22,6 +22,7 @@ import com.hedera.block.server.ack.AckHandler;
 import com.hedera.block.server.ack.AckHandlerImpl;
 import com.hedera.block.server.block.BlockInfo;
 import com.hedera.block.server.consumer.ConsumerConfig;
+import com.hedera.block.server.consumer.StreamManager;
 import com.hedera.block.server.events.BlockNodeEventHandler;
 import com.hedera.block.server.events.ObjectEvent;
 import com.hedera.block.server.mediator.LiveStreamMediator;
@@ -67,6 +68,7 @@ import com.hedera.pbj.runtime.grpc.Pipeline;
 import com.hedera.pbj.runtime.grpc.ServiceInterface;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import com.lmax.disruptor.BatchEventProcessor;
+import com.lmax.disruptor.EventPoller;
 import com.swirlds.config.api.Configuration;
 import io.helidon.webserver.WebServer;
 import java.io.IOException;
@@ -95,6 +97,8 @@ import org.mockito.junit.jupiter.MockitoExtension;
 class PbjBlockStreamServiceIntegrationTest {
     private static final int JUNIT_TIMEOUT = 5_000;
     private static final int testTimeout = 2_000;
+
+    private static final int POLLER_SUBSCRIBER_SLEEP = 100;
 
     @Mock
     private Pipeline<? super Bytes> helidonPublishStreamObserver1;
@@ -222,19 +226,19 @@ class PbjBlockStreamServiceIntegrationTest {
                         PbjBlockStreamService.BlockStreamMethod.subscribeBlockStream,
                         optionsMock,
                         subscribeStreamObserver1)
-                .onNext(buildEmptySubscribeStreamRequest());
+                .onNext(buildLiveStreamSubscribeStreamRequest());
         pbjBlockStreamServiceProxy
                 .open(
                         PbjBlockStreamService.BlockStreamMethod.subscribeBlockStream,
                         optionsMock,
                         subscribeStreamObserver2)
-                .onNext(buildEmptySubscribeStreamRequest());
+                .onNext(buildLiveStreamSubscribeStreamRequest());
         pbjBlockStreamServiceProxy
                 .open(
                         PbjBlockStreamService.BlockStreamMethod.subscribeBlockStream,
                         optionsMock,
                         subscribeStreamObserver3)
-                .onNext(buildEmptySubscribeStreamRequest());
+                .onNext(buildLiveStreamSubscribeStreamRequest());
 
         final List<BlockItemUnparsed> blockItems = generateBlockItemsUnparsed(numberOfBlocks);
         for (final BlockItemUnparsed blockItem : blockItems) {
@@ -315,19 +319,19 @@ class PbjBlockStreamServiceIntegrationTest {
                         PbjBlockStreamService.BlockStreamMethod.subscribeBlockStream,
                         optionsMock,
                         subscribeStreamObserver1)
-                .onNext(buildEmptySubscribeStreamRequest());
+                .onNext(buildLiveStreamSubscribeStreamRequest());
         pbjBlockStreamServiceProxy
                 .open(
                         PbjBlockStreamService.BlockStreamMethod.subscribeBlockStream,
                         optionsMock,
                         subscribeStreamObserver2)
-                .onNext(buildEmptySubscribeStreamRequest());
+                .onNext(buildLiveStreamSubscribeStreamRequest());
         pbjBlockStreamServiceProxy
                 .open(
                         PbjBlockStreamService.BlockStreamMethod.subscribeBlockStream,
                         optionsMock,
                         subscribeStreamObserver3)
-                .onNext(buildEmptySubscribeStreamRequest());
+                .onNext(buildLiveStreamSubscribeStreamRequest());
 
         final List<BlockItemUnparsed> blockItems = generateBlockItemsUnparsed(numberOfBlocks);
         for (BlockItemUnparsed blockItem : blockItems) {
@@ -356,8 +360,7 @@ class PbjBlockStreamServiceIntegrationTest {
 
     @Test
     @Timeout(value = JUNIT_TIMEOUT, unit = TimeUnit.MILLISECONDS)
-    @Disabled("@todo(751) - adapt this test to the new streaming consumer model")
-    void testFullWithSubscribersAddedDynamically() throws IOException {
+    void testFullWithSubscribersAddedDynamically() throws IOException, InterruptedException {
         final int numberOfBlocks = 100;
 
         final ExecutorService executor = Executors.newFixedThreadPool(1);
@@ -375,19 +378,19 @@ class PbjBlockStreamServiceIntegrationTest {
                         PbjBlockStreamService.BlockStreamMethod.subscribeBlockStream,
                         optionsMock,
                         subscribeStreamObserver1)
-                .onNext(buildEmptySubscribeStreamRequest());
+                .onNext(buildLiveStreamSubscribeStreamRequest());
         pbjBlockStreamServiceProxy
                 .open(
                         PbjBlockStreamService.BlockStreamMethod.subscribeBlockStream,
                         optionsMock,
                         subscribeStreamObserver2)
-                .onNext(buildEmptySubscribeStreamRequest());
+                .onNext(buildLiveStreamSubscribeStreamRequest());
         pbjBlockStreamServiceProxy
                 .open(
                         PbjBlockStreamService.BlockStreamMethod.subscribeBlockStream,
                         optionsMock,
                         subscribeStreamObserver3)
-                .onNext(buildEmptySubscribeStreamRequest());
+                .onNext(buildLiveStreamSubscribeStreamRequest());
 
         final List<BlockItemUnparsed> blockItems = generateBlockItemsUnparsed(numberOfBlocks);
         for (int i = 0; i < blockItems.size(); i++) {
@@ -401,7 +404,10 @@ class PbjBlockStreamServiceIntegrationTest {
                                 PbjBlockStreamService.BlockStreamMethod.subscribeBlockStream,
                                 optionsMock,
                                 subscribeStreamObserver4)
-                        .onNext(buildEmptySubscribeStreamRequest());
+                        .onNext(buildLiveStreamSubscribeStreamRequest());
+                // Pause here for the StreamManager to
+                // subscribe to the StreamMediator
+                Thread.sleep(POLLER_SUBSCRIBER_SLEEP);
             }
             // Transmit the BlockItem
             producerPipeline.onNext(PublishStreamRequestUnparsed.PROTOBUF.toBytes(publishStreamRequest));
@@ -412,7 +418,10 @@ class PbjBlockStreamServiceIntegrationTest {
                                 PbjBlockStreamService.BlockStreamMethod.subscribeBlockStream,
                                 optionsMock,
                                 subscribeStreamObserver5)
-                        .onNext(buildEmptySubscribeStreamRequest());
+                        .onNext(buildLiveStreamSubscribeStreamRequest());
+                // Pause here for the StreamManager to
+                // subscribe to the StreamMediator
+                Thread.sleep(POLLER_SUBSCRIBER_SLEEP);
             }
             // Add a new subscriber
             if (i == 88) {
@@ -421,7 +430,10 @@ class PbjBlockStreamServiceIntegrationTest {
                                 PbjBlockStreamService.BlockStreamMethod.subscribeBlockStream,
                                 optionsMock,
                                 subscribeStreamObserver6)
-                        .onNext(buildEmptySubscribeStreamRequest());
+                        .onNext(buildLiveStreamSubscribeStreamRequest());
+                // Pause here for the StreamManager to
+                // subscribe to the StreamMediator
+                Thread.sleep(POLLER_SUBSCRIBER_SLEEP);
             }
         }
 
@@ -442,18 +454,20 @@ class PbjBlockStreamServiceIntegrationTest {
 
     @Test
     @Timeout(value = JUNIT_TIMEOUT, unit = TimeUnit.MILLISECONDS)
-    @Disabled("@todo(751) - adapt this test to the new streaming consumer model")
     void testSubAndUnsubWhileStreaming() throws InterruptedException, IOException {
         final int numberOfBlocks = 100;
-        final LinkedHashMap<
+        final Map<
                         BlockNodeEventHandler<ObjectEvent<List<BlockItemUnparsed>>>,
                         BatchEventProcessor<ObjectEvent<List<BlockItemUnparsed>>>>
-                consumers = new LinkedHashMap<>();
+                consumers = new ConcurrentHashMap<>();
+        final LinkedHashMap<StreamManager, EventPoller<ObjectEvent<List<BlockItemUnparsed>>>> pollConsumers =
+                new LinkedHashMap<>();
         final ServiceStatus serviceStatus = new ServiceStatusImpl(serviceConfig);
         final WebServerStatus webServerStatus = new WebServerStatusImpl(serviceConfig);
         final BlockInfo blockInfo = new BlockInfo(1L);
         serviceStatus.setLatestAckedBlock(blockInfo);
-        final LiveStreamMediator streamMediator = buildStreamMediator(consumers, serviceStatus, webServerStatus);
+        final LiveStreamMediator streamMediator =
+                buildStreamMediator(consumers, pollConsumers, serviceStatus, webServerStatus);
         final AsyncNoOpWriterFactory writerFactory = new AsyncNoOpWriterFactory(ackHandlerMock, metricsService);
         final StreamPersistenceHandlerImpl blockNodeEventHandler = new StreamPersistenceHandlerImpl(
                 streamMediator,
@@ -496,19 +510,19 @@ class PbjBlockStreamServiceIntegrationTest {
                         PbjBlockStreamService.BlockStreamMethod.subscribeBlockStream,
                         optionsMock,
                         subscribeStreamObserver1)
-                .onNext(buildEmptySubscribeStreamRequest());
+                .onNext(buildLiveStreamSubscribeStreamRequest());
         pbjBlockStreamServiceProxy
                 .open(
                         PbjBlockStreamService.BlockStreamMethod.subscribeBlockStream,
                         optionsMock,
                         subscribeStreamObserver2)
-                .onNext(buildEmptySubscribeStreamRequest());
+                .onNext(buildLiveStreamSubscribeStreamRequest());
         pbjBlockStreamServiceProxy
                 .open(
                         PbjBlockStreamService.BlockStreamMethod.subscribeBlockStream,
                         optionsMock,
                         subscribeStreamObserver3)
-                .onNext(buildEmptySubscribeStreamRequest());
+                .onNext(buildLiveStreamSubscribeStreamRequest());
 
         final List<BlockItemUnparsed> blockItems = generateBlockItemsUnparsed(numberOfBlocks);
         for (int i = 0; i < blockItems.size(); i++) {
@@ -523,20 +537,18 @@ class PbjBlockStreamServiceIntegrationTest {
             if (i == 10) {
                 // Pause here to ensure the last sent block item is received.
                 // This makes the test deterministic.
-                Thread.sleep(50);
-                final BlockNodeEventHandler<ObjectEvent<List<BlockItemUnparsed>>> k =
-                        consumers.firstEntry().getKey();
-                streamMediator.unsubscribe(k);
+                Thread.sleep(POLLER_SUBSCRIBER_SLEEP);
+                final StreamManager k = pollConsumers.firstEntry().getKey();
+                streamMediator.unsubscribePoller(k);
             }
 
             // Remove 2nd subscriber
             if (i == 60) {
                 // Pause here to ensure the last sent block item is received.
                 // This makes the test deterministic.
-                Thread.sleep(50);
-                final BlockNodeEventHandler<ObjectEvent<List<BlockItemUnparsed>>> k =
-                        consumers.firstEntry().getKey();
-                streamMediator.unsubscribe(k);
+                Thread.sleep(POLLER_SUBSCRIBER_SLEEP);
+                final StreamManager k = pollConsumers.firstEntry().getKey();
+                streamMediator.unsubscribePoller(k);
             }
 
             // Add a new subscriber
@@ -546,17 +558,18 @@ class PbjBlockStreamServiceIntegrationTest {
                                 PbjBlockStreamService.BlockStreamMethod.subscribeBlockStream,
                                 optionsMock,
                                 subscribeStreamObserver4)
-                        .onNext(buildEmptySubscribeStreamRequest());
+                        .onNext(buildLiveStreamSubscribeStreamRequest());
+                Thread.sleep(POLLER_SUBSCRIBER_SLEEP);
             }
 
             // Remove 3rd subscriber
             if (i == 70) {
                 // Pause here to ensure the last sent block item is received.
                 // This makes the test deterministic.
-                Thread.sleep(50);
-                final BlockNodeEventHandler<ObjectEvent<List<BlockItemUnparsed>>> k =
-                        consumers.firstEntry().getKey();
-                streamMediator.unsubscribe(k);
+                Thread.sleep(POLLER_SUBSCRIBER_SLEEP);
+                final StreamManager k = pollConsumers.firstEntry().getKey();
+                streamMediator.unsubscribePoller(k);
+                Thread.sleep(POLLER_SUBSCRIBER_SLEEP);
             }
 
             // Add a new subscriber
@@ -566,7 +579,8 @@ class PbjBlockStreamServiceIntegrationTest {
                                 PbjBlockStreamService.BlockStreamMethod.subscribeBlockStream,
                                 optionsMock,
                                 subscribeStreamObserver5)
-                        .onNext(buildEmptySubscribeStreamRequest());
+                        .onNext(buildLiveStreamSubscribeStreamRequest());
+                Thread.sleep(POLLER_SUBSCRIBER_SLEEP);
             }
 
             // Add a new subscriber
@@ -576,7 +590,8 @@ class PbjBlockStreamServiceIntegrationTest {
                                 PbjBlockStreamService.BlockStreamMethod.subscribeBlockStream,
                                 optionsMock,
                                 subscribeStreamObserver6)
-                        .onNext(buildEmptySubscribeStreamRequest());
+                        .onNext(buildLiveStreamSubscribeStreamRequest());
+                Thread.sleep(POLLER_SUBSCRIBER_SLEEP);
             }
         }
 
@@ -599,12 +614,13 @@ class PbjBlockStreamServiceIntegrationTest {
 
     @Test
     @Timeout(value = JUNIT_TIMEOUT, unit = TimeUnit.MILLISECONDS)
-    @Disabled("@todo(751) - adapt this test to the new streaming consumer model")
-    void testMediatorExceptionHandlingWhenPersistenceFailure() throws IOException {
-        final ConcurrentHashMap<
+    void testMediatorExceptionHandlingWhenPersistenceFailure() throws IOException, InterruptedException {
+        final Map<
                         BlockNodeEventHandler<ObjectEvent<List<BlockItemUnparsed>>>,
                         BatchEventProcessor<ObjectEvent<List<BlockItemUnparsed>>>>
                 consumers = new ConcurrentHashMap<>();
+        final ConcurrentHashMap<StreamManager, EventPoller<ObjectEvent<List<BlockItemUnparsed>>>> pollConsumers =
+                new ConcurrentHashMap<>();
         // Use a spy to use the real object but also verify the behavior.
         final ServiceStatus serviceStatus = spy(new ServiceStatusImpl(serviceConfig));
         final WebServerStatus webServerStatus = spy(new WebServerStatusImpl(serviceConfig));
@@ -618,7 +634,8 @@ class PbjBlockStreamServiceIntegrationTest {
         final List<BlockItemUnparsed> blockItems = generateBlockItemsUnparsed(1);
 
         // the mocked factory will throw a npe
-        final LiveStreamMediator streamMediator = buildStreamMediator(consumers, serviceStatus, webServerStatus);
+        final LiveStreamMediator streamMediator =
+                buildStreamMediator(consumers, pollConsumers, serviceStatus, webServerStatus);
         final Notifier notifier = new NotifierImpl(
                 streamMediator, metricsService, notifierConfig, mediatorConfig, serviceStatus, webServerStatus);
         final StreamPersistenceHandlerImpl blockNodeEventHandler = new StreamPersistenceHandlerImpl(
@@ -663,22 +680,24 @@ class PbjBlockStreamServiceIntegrationTest {
                         PbjBlockStreamService.BlockStreamMethod.subscribeBlockStream,
                         optionsMock,
                         subscribeStreamObserver1)
-                .onNext(buildEmptySubscribeStreamRequest());
+                .onNext(buildLiveStreamSubscribeStreamRequest());
         pbjBlockStreamServiceProxy
                 .open(
                         PbjBlockStreamService.BlockStreamMethod.subscribeBlockStream,
                         optionsMock,
                         subscribeStreamObserver2)
-                .onNext(buildEmptySubscribeStreamRequest());
+                .onNext(buildLiveStreamSubscribeStreamRequest());
         pbjBlockStreamServiceProxy
                 .open(
                         PbjBlockStreamService.BlockStreamMethod.subscribeBlockStream,
                         optionsMock,
                         subscribeStreamObserver3)
-                .onNext(buildEmptySubscribeStreamRequest());
+                .onNext(buildLiveStreamSubscribeStreamRequest());
 
-        // 3 subscribers + 1 streamPersistenceHandler
-        assertEquals(5, consumers.size());
+        Thread.sleep(POLLER_SUBSCRIBER_SLEEP);
+
+        // 3 subscribers + 2 static handlers
+        assertEquals(5, pollConsumers.size() + consumers.size());
 
         // Transmit a BlockItem
         final Bytes publishStreamRequest =
@@ -718,7 +737,7 @@ class PbjBlockStreamServiceIntegrationTest {
                         PbjBlockStreamService.BlockStreamMethod.subscribeBlockStream,
                         optionsMock,
                         subscribeStreamObserver4)
-                .onNext(buildEmptySubscribeStreamRequest());
+                .onNext(buildLiveStreamSubscribeStreamRequest());
 
         // The BlockItem expected to pass through since it was published
         // before the IOException was thrown.
@@ -803,8 +822,8 @@ class PbjBlockStreamServiceIntegrationTest {
         final WebServerStatus webServerStatus = new WebServerStatusImpl(serviceConfig);
 
         serviceStatus.setLatestAckedBlock(new BlockInfo(1L));
-        final LiveStreamMediator streamMediator =
-                buildStreamMediator(new ConcurrentHashMap<>(32), serviceStatus, webServerStatus);
+        final LiveStreamMediator streamMediator = buildStreamMediator(
+                new ConcurrentHashMap<>(32), new ConcurrentHashMap<>(32), serviceStatus, webServerStatus);
         final Notifier notifier = new NotifierImpl(
                 streamMediator, metricsService, notifierConfig, mediatorConfig, serviceStatus, webServerStatus);
         final AckHandler blockManager =
@@ -845,11 +864,13 @@ class PbjBlockStreamServiceIntegrationTest {
                             BlockNodeEventHandler<ObjectEvent<List<BlockItemUnparsed>>>,
                             BatchEventProcessor<ObjectEvent<List<BlockItemUnparsed>>>>
                     subscribers,
+            final Map<StreamManager, EventPoller<ObjectEvent<List<BlockItemUnparsed>>>> pollSubscribers,
             final ServiceStatus serviceStatus,
             final WebServerStatus webServerStatus) {
         webServerStatus.setWebServer(webServerMock);
         return LiveStreamMediatorBuilder.newBuilder(metricsService, mediatorConfig, serviceStatus, webServerStatus)
                 .subscribers(subscribers)
+                .pollSubscribers(pollSubscribers)
                 .build();
     }
 }

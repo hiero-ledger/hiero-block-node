@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 package com.hedera.block.server.mediator;
 
+import com.hedera.block.server.consumer.StreamManager;
 import com.hedera.block.server.events.BlockNodeEventHandler;
 import com.hedera.block.server.events.ObjectEvent;
 import com.hedera.block.server.metrics.MetricsService;
@@ -8,6 +9,7 @@ import com.hedera.block.server.service.ServiceStatus;
 import com.hedera.block.server.service.WebServerStatus;
 import com.hedera.hapi.block.BlockItemUnparsed;
 import com.lmax.disruptor.BatchEventProcessor;
+import com.lmax.disruptor.EventPoller;
 import edu.umd.cs.findbugs.annotations.NonNull;
 import java.util.List;
 import java.util.Map;
@@ -33,6 +35,8 @@ public class LiveStreamMediatorBuilder {
                     BatchEventProcessor<ObjectEvent<List<BlockItemUnparsed>>>>
             subscribers;
 
+    private Map<StreamManager, EventPoller<ObjectEvent<List<BlockItemUnparsed>>>> pollSubscribers;
+
     /** The initial capacity of the subscriber map. */
     private static final int SUBSCRIBER_INIT_CAPACITY = 32;
 
@@ -43,6 +47,7 @@ public class LiveStreamMediatorBuilder {
             @NonNull final WebServerStatus webServerStatus) {
         this.webServerStatus = webServerStatus;
         this.subscribers = new ConcurrentHashMap<>(SUBSCRIBER_INIT_CAPACITY);
+        this.pollSubscribers = new ConcurrentHashMap<>(SUBSCRIBER_INIT_CAPACITY);
         this.metricsService = metricsService;
         this.mediatorConfig = mediatorConfig;
         this.serviceStatus = serviceStatus;
@@ -75,16 +80,25 @@ public class LiveStreamMediatorBuilder {
      * @param subscribers is the map of subscribers to set
      * @return the builder
      */
+    // spotless:off
     @NonNull
     public LiveStreamMediatorBuilder subscribers(
-            @NonNull
-                    final Map<
-                                    BlockNodeEventHandler<ObjectEvent<List<BlockItemUnparsed>>>,
-                                    BatchEventProcessor<ObjectEvent<List<BlockItemUnparsed>>>>
-                            subscribers) {
+            @NonNull final Map<BlockNodeEventHandler<ObjectEvent<List<BlockItemUnparsed>>>,
+                               BatchEventProcessor<ObjectEvent<List<BlockItemUnparsed>>>> subscribers) {
         this.subscribers = subscribers;
         return this;
     }
+    // spotless:on
+
+    // spotless:off
+    @NonNull
+    public LiveStreamMediatorBuilder pollSubscribers(
+            @NonNull final Map<StreamManager,
+                               EventPoller<ObjectEvent<List<BlockItemUnparsed>>>> pollSubscribers) {
+        this.pollSubscribers = pollSubscribers;
+        return this;
+    }
+    // spotless:on
 
     /**
      * Use the build method to construct a stream mediator to handle live stream events from a
@@ -94,6 +108,7 @@ public class LiveStreamMediatorBuilder {
      */
     @NonNull
     public LiveStreamMediator build() {
-        return new LiveStreamMediatorImpl(subscribers, serviceStatus, metricsService, mediatorConfig, webServerStatus);
+        return new LiveStreamMediatorImpl(
+                subscribers, pollSubscribers, serviceStatus, metricsService, mediatorConfig, webServerStatus);
     }
 }

@@ -29,8 +29,10 @@ public final class PbjProtoTestUtils {
                 .build());
     }
 
-    public static Bytes buildEmptySubscribeStreamRequest() {
-        return SubscribeStreamRequest.PROTOBUF.toBytes(
-                SubscribeStreamRequest.newBuilder().build());
+    public static Bytes buildLiveStreamSubscribeStreamRequest() {
+        return SubscribeStreamRequest.PROTOBUF.toBytes(SubscribeStreamRequest.newBuilder()
+                .startBlockNumber(0L)
+                .endBlockNumber(0L)
+                .build());
     }
 }

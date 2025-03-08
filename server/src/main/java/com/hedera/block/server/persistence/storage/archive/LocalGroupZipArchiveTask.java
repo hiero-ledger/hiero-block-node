@@ -75,7 +75,7 @@ public final class LocalGroupZipArchiveTask implements Callable<Long> {
      * @param config valid, non-null {@link PersistenceStorageConfig} instance
      * @param pathResolver valid, non-null {@link BlockPathResolver} instance
      */
-    LocalGroupZipArchiveTask(
+    public LocalGroupZipArchiveTask(
             final long blockNumberThreshold,
             @NonNull final PersistenceStorageConfig config,
             @NonNull final BlockPathResolver pathResolver) {

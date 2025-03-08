@@ -37,4 +37,20 @@ public interface ServiceStatus {
      * @param latestReceivedBlockNumber the latest received block number
      */
     void setLatestReceivedBlockNumber(long latestReceivedBlockNumber);
+
+    /**
+     * Gets the first available block number. The first available Block Number
+     * is the number of the first Block that is both PERSISTED and VERIFIED.
+     *
+     * @return the first available block number
+     */
+    long getFirstAvailableBlockNumber();
+
+    /**
+     * Sets the first available block number. The first available Block Number
+     * must be the number of the first Block that is both PERSISTED and VERIFIED.
+     *
+     * @param firstAvailableBlockNumber the first available block number
+     */
+    void setFirstAvailableBlockNumber(long firstAvailableBlockNumber);
 }

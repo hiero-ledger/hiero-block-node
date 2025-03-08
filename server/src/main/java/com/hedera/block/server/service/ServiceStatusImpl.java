@@ -14,14 +14,13 @@ import javax.inject.Singleton;
  */
 @Singleton
 public class ServiceStatusImpl implements ServiceStatus {
-
     private final System.Logger LOGGER = System.getLogger(getClass().getName());
-
     private final AtomicBoolean isRunning = new AtomicBoolean(true);
+    private final int delayMillis;
     private WebServer webServer;
     private volatile BlockInfo latestAckedBlock;
     private volatile long latestReceivedBlockNumber;
-    private final int delayMillis;
+    private volatile long firstAvailableBlockNumber = Long.MIN_VALUE;
 
     /**
      * Use the ServiceStatusImpl to check the status of the block node server and to shut it down if
@@ -52,5 +51,15 @@ public class ServiceStatusImpl implements ServiceStatus {
     @Override
     public void setLatestReceivedBlockNumber(long latestReceivedBlockNumber) {
         this.latestReceivedBlockNumber = latestReceivedBlockNumber;
+    }
+
+    @Override
+    public long getFirstAvailableBlockNumber() {
+        return firstAvailableBlockNumber;
+    }
+
+    @Override
+    public void setFirstAvailableBlockNumber(final long firstAvailableBlockNumber) {
+        this.firstAvailableBlockNumber = firstAvailableBlockNumber;
     }
 }

@@ -12,6 +12,9 @@ import org.mockito.junit.jupiter.MockitoExtension;
 
 @ExtendWith(MockitoExtension.class)
 public class ConsumerStreamRunnableTest {
+
+    private static final int TEST_TIMEOUT = 1000;
+
     @Mock
     private StreamManager streamManager;
 
@@ -24,6 +27,6 @@ public class ConsumerStreamRunnableTest {
         final ConsumerStreamRunnable consumerStreamRunnable = new ConsumerStreamRunnable(streamManager);
         consumerStreamRunnable.run();
 
-        verify(streamManager, timeout(1000).times(3)).execute();
+        verify(streamManager, timeout(TEST_TIMEOUT).times(3)).execute();
     }
 }

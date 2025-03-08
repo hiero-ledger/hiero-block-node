@@ -3,11 +3,13 @@ package com.hedera.block.server.mediator;
 
 import static com.hedera.block.server.metrics.BlockNodeMetricTypes.Counter.LiveBlockItems;
 import static com.hedera.block.server.metrics.BlockNodeMetricTypes.Counter.LiveBlockStreamMediatorError;
+import static com.hedera.block.server.metrics.BlockNodeMetricTypes.Gauge.Consumers;
 import static com.hedera.block.server.metrics.BlockNodeMetricTypes.Gauge.MediatorRingBufferRemainingCapacity;
 import static java.lang.System.Logger;
 import static java.lang.System.Logger.Level.DEBUG;
 import static java.lang.System.Logger.Level.ERROR;
 
+import com.hedera.block.server.consumer.StreamManager;
 import com.hedera.block.server.events.BlockNodeEventHandler;
 import com.hedera.block.server.events.ObjectEvent;
 import com.hedera.block.server.metrics.MetricsService;
@@ -15,6 +17,7 @@ import com.hedera.block.server.service.ServiceStatus;
 import com.hedera.block.server.service.WebServerStatus;
 import com.hedera.hapi.block.BlockItemUnparsed;
 import com.lmax.disruptor.BatchEventProcessor;
+import com.lmax.disruptor.EventPoller;
 import edu.umd.cs.findbugs.annotations.NonNull;
 import java.util.List;
 import java.util.Map;
@@ -53,12 +56,18 @@ class LiveStreamMediatorImpl extends SubscriptionHandlerBase<List<BlockItemUnpar
                                     BlockNodeEventHandler<ObjectEvent<List<BlockItemUnparsed>>>,
                                     BatchEventProcessor<ObjectEvent<List<BlockItemUnparsed>>>>
                             subscribers,
+            @NonNull final Map<StreamManager, EventPoller<ObjectEvent<List<BlockItemUnparsed>>>> pollSubscribers,
             @NonNull final ServiceStatus serviceStatus,
             @NonNull final MetricsService metricsService,
             @NonNull final MediatorConfig mediatorConfig,
             @NonNull final WebServerStatus webServerStatus) {
 
-        super(subscribers, metricsService, mediatorConfig, mediatorConfig.ringBufferSize());
+        super(
+                subscribers,
+                pollSubscribers,
+                metricsService.get(Consumers),
+                mediatorConfig,
+                mediatorConfig.ringBufferSize());
 
         this.metricsService = metricsService;
         this.webServerStatus = webServerStatus;

@@ -32,7 +32,7 @@ import javax.inject.Inject;
 public class AckHandlerImpl implements AckHandler {
     private final System.Logger LOGGER = System.getLogger(getClass().getName());
     private final Map<Long, BlockInfo> blockInfo = new ConcurrentHashMap<>();
-    private volatile long lastAcknowledgedBlockNumber = -1;
+    private volatile long lastAcknowledgedBlockNumber;
     private final Notifier notifier;
     private final boolean skipAcknowledgement;
     private final ServiceStatus serviceStatus;
@@ -56,6 +56,18 @@ public class AckHandlerImpl implements AckHandler {
         this.serviceStatus = Objects.requireNonNull(serviceStatus);
         this.blockRemover = Objects.requireNonNull(blockRemover);
         this.metricsService = metricsService;
+
+        // Initialize lastAcknowledgedBlockNumber from the service status if available
+        final BlockInfo latestAckedBlock = serviceStatus.getLatestAckedBlock();
+        if (latestAckedBlock != null) {
+            lastAcknowledgedBlockNumber = latestAckedBlock.getBlockNumber();
+        } else {
+            // if it enters here the service is starting for the first time
+            // since we don't have a `first_intended_block_number` value that should come from config
+            // we will assume that we expect 0 to be the next block.
+            // @todo(147) we need to handle new instances that need to start from a different block than 0.
+            lastAcknowledgedBlockNumber = -1;
+        }
     }
 
     @Override
@@ -126,12 +138,6 @@ public class AckHandlerImpl implements AckHandler {
      * It ACKs all blocks in sequence that are both persisted and verified.
      */
     private void attemptAcks() {
-        // Temporarily if lastAcknowledgedBlockNumber is -1, we get the first block in the map
-        if (lastAcknowledgedBlockNumber == -1) {
-            // @todo(147): once we have a way to get the last acknowledged block from the store we should use that
-            lastAcknowledgedBlockNumber = 0;
-        }
-
         // Keep ACK-ing starting from the next block in sequence
         while (true) {
             long nextBlock = lastAcknowledgedBlockNumber + 1;
