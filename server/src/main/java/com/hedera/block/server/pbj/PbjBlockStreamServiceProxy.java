@@ -18,6 +18,7 @@ import com.hedera.block.server.producer.NoOpProducerObserver;
 import com.hedera.block.server.producer.ProducerBlockItemObserver;
 import com.hedera.block.server.producer.ProducerConfig;
 import com.hedera.block.server.service.ServiceStatus;
+import com.hedera.block.server.service.WebServerStatus;
 import com.hedera.block.server.verification.StreamVerificationHandlerImpl;
 import com.hedera.hapi.block.BlockItemUnparsed;
 import com.hedera.hapi.block.BlockUnparsed;
@@ -50,6 +51,7 @@ public class PbjBlockStreamServiceProxy implements PbjBlockStreamService {
 
     private final LiveStreamMediator streamMediator;
     private final ServiceStatus serviceStatus;
+    private final WebServerStatus webServerStatus;
     private final MetricsService metricsService;
     private final ConsumerConfig consumerConfig;
     private final ProducerConfig producerConfig;
@@ -97,6 +99,7 @@ public class PbjBlockStreamServiceProxy implements PbjBlockStreamService {
     public PbjBlockStreamServiceProxy(
             @NonNull final LiveStreamMediator streamMediator,
             @NonNull final ServiceStatus serviceStatus,
+            @NonNull final WebServerStatus webServerStatus,
             @NonNull final BlockNodeEventHandler<ObjectEvent<List<BlockItemUnparsed>>> streamPersistenceHandler,
             @NonNull final StreamVerificationHandlerImpl streamVerificationHandler,
             @NonNull final BlockReader<BlockUnparsed> blockReader,
@@ -106,6 +109,7 @@ public class PbjBlockStreamServiceProxy implements PbjBlockStreamService {
             @NonNull final ProducerConfig producerConfig) {
 
         this.serviceStatus = Objects.requireNonNull(serviceStatus);
+        this.webServerStatus = webServerStatus;
         this.notifier = Objects.requireNonNull(notifier);
         streamMediator.subscribe(Objects.requireNonNull(streamPersistenceHandler));
         streamMediator.subscribe(Objects.requireNonNull(streamVerificationHandler));
@@ -181,10 +185,11 @@ public class PbjBlockStreamServiceProxy implements PbjBlockStreamService {
                 notifier,
                 helidonProducerObserver,
                 serviceStatus,
+                webServerStatus,
                 consumerConfig,
                 metricsService);
 
-        if (serviceStatus.isRunning()) {
+        if (webServerStatus.isRunning()) {
             // Register the producer observer with the notifier to publish responses back to the
             // producer
             notifier.subscribe(producerBlockItemObserver);
@@ -208,7 +213,7 @@ public class PbjBlockStreamServiceProxy implements PbjBlockStreamService {
         Objects.requireNonNull(subscribeStreamRequest);
         Objects.requireNonNull(helidonConsumerObserver);
 
-        if (serviceStatus.isRunning()) {
+        if (webServerStatus.isRunning()) {
             // Unsubscribe any expired notifiers
             streamMediator.unsubscribeAllExpired();
 

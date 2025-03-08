@@ -9,6 +9,7 @@ import static java.lang.System.Logger.Level.ERROR;
 import com.hedera.block.server.metrics.MetricsService;
 import com.hedera.block.server.persistence.storage.read.BlockReader;
 import com.hedera.block.server.service.ServiceStatus;
+import com.hedera.block.server.service.WebServerStatus;
 import com.hedera.hapi.block.BlockUnparsed;
 import com.hedera.hapi.block.SingleBlockRequest;
 import com.hedera.hapi.block.SingleBlockResponseCode;
@@ -33,6 +34,7 @@ public class PbjBlockAccessServiceProxy implements PbjBlockAccessService {
     private final System.Logger LOGGER = System.getLogger(getClass().getName());
 
     private final ServiceStatus serviceStatus;
+    private final WebServerStatus webServerStatus;
     private final BlockReader<BlockUnparsed> blockReader;
     private final MetricsService metricsService;
 
@@ -46,9 +48,11 @@ public class PbjBlockAccessServiceProxy implements PbjBlockAccessService {
     @Inject
     public PbjBlockAccessServiceProxy(
             @NonNull final ServiceStatus serviceStatus,
+            @NonNull final WebServerStatus webServerStatus,
             @NonNull final BlockReader<BlockUnparsed> blockReader,
             @NonNull final MetricsService metricsService) {
         this.serviceStatus = serviceStatus;
+        this.webServerStatus = webServerStatus;
         this.blockReader = blockReader;
         this.metricsService = metricsService;
     }
@@ -89,7 +93,7 @@ public class PbjBlockAccessServiceProxy implements PbjBlockAccessService {
 
         LOGGER.log(DEBUG, "Executing Unary singleBlock gRPC method");
 
-        if (serviceStatus.isRunning()) {
+        if (webServerStatus.isRunning()) {
             final long blockNumber = singleBlockRequest.blockNumber();
             try {
                 final Optional<BlockUnparsed> blockOpt = blockReader.read(blockNumber);

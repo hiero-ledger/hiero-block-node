@@ -18,6 +18,8 @@ import com.hedera.block.server.metrics.MetricsService;
 import com.hedera.block.server.service.ServiceConfig;
 import com.hedera.block.server.service.ServiceStatus;
 import com.hedera.block.server.service.ServiceStatusImpl;
+import com.hedera.block.server.service.WebServerStatus;
+import com.hedera.block.server.service.WebServerStatusImpl;
 import com.hedera.block.server.util.TestConfigUtil;
 import com.hedera.hapi.block.Acknowledgement;
 import com.hedera.hapi.block.BlockAcknowledgement;
@@ -58,6 +60,9 @@ public class ProducerBlockItemObserverTest {
     private ServiceStatus serviceStatus;
 
     @Mock
+    private WebServerStatus webServerStatus;
+
+    @Mock
     private ObjectEvent<PublishStreamResponse> objectEvent;
 
     private final long TEST_TIME = 1_719_427_664_950L;
@@ -87,6 +92,7 @@ public class ProducerBlockItemObserverTest {
                 subscriptionHandler,
                 helidonPublishPipeline,
                 serviceStatus,
+                webServerStatus,
                 consumerConfig,
                 metricsService);
 
@@ -112,6 +118,7 @@ public class ProducerBlockItemObserverTest {
                 subscriptionHandler,
                 helidonPublishPipeline,
                 serviceStatus,
+                webServerStatus,
                 consumerConfig,
                 metricsService);
 
@@ -130,6 +137,7 @@ public class ProducerBlockItemObserverTest {
                 subscriptionHandler,
                 helidonPublishPipeline,
                 serviceStatus,
+                webServerStatus,
                 consumerConfig,
                 metricsService);
 
@@ -147,6 +155,7 @@ public class ProducerBlockItemObserverTest {
                 subscriptionHandler,
                 helidonPublishPipeline,
                 serviceStatus,
+                webServerStatus,
                 consumerConfig,
                 metricsService);
 
@@ -159,12 +168,15 @@ public class ProducerBlockItemObserverTest {
 
         final ServiceStatus serviceStatus = new ServiceStatusImpl(serviceConfig);
 
+        final WebServerStatus webServerStatus1 = new WebServerStatusImpl(serviceConfig);
+
         final ProducerBlockItemObserver producerBlockItemObserver = new ProducerBlockItemObserver(
                 testClock,
                 publisher,
                 subscriptionHandler,
                 helidonPublishPipeline,
                 serviceStatus,
+                webServerStatus1,
                 consumerConfig,
                 metricsService);
 
@@ -174,7 +186,7 @@ public class ProducerBlockItemObserverTest {
         producerBlockItemObserver.onNext(blockItems);
 
         // Change the status of the service
-        serviceStatus.stopRunning(getClass().getName());
+        webServerStatus1.stopRunning(getClass().getName());
 
         // Send another request
         producerBlockItemObserver.onNext(blockItems);
@@ -192,6 +204,7 @@ public class ProducerBlockItemObserverTest {
                 subscriptionHandler,
                 helidonPublishPipeline,
                 serviceStatus,
+                webServerStatus,
                 consumerConfig,
                 metricsService);
 
@@ -206,7 +219,7 @@ public class ProducerBlockItemObserverTest {
     public void testDuplicateBlockReceived() {
 
         // given
-        when(serviceStatus.isRunning()).thenReturn(true);
+        when(webServerStatus.isRunning()).thenReturn(true);
         long latestAckedBlockNumber = 10L;
         Bytes fakeHash = Bytes.wrap("fake_hash");
         BlockInfo latestAckedBlock = new BlockInfo(latestAckedBlockNumber);
@@ -221,6 +234,7 @@ public class ProducerBlockItemObserverTest {
                 subscriptionHandler,
                 helidonPublishPipeline,
                 serviceStatus,
+                webServerStatus,
                 consumerConfig,
                 metricsService);
 
@@ -251,7 +265,7 @@ public class ProducerBlockItemObserverTest {
     @DisplayName("Test future (ahead of expected) block received")
     public void testFutureBlockReceived() {
         // given
-        when(serviceStatus.isRunning()).thenReturn(true);
+        when(webServerStatus.isRunning()).thenReturn(true);
         long latestAckedBlockNumber = 10L;
         Bytes fakeHash = Bytes.wrap("fake_hash");
         BlockInfo latestAckedBlock = new BlockInfo(latestAckedBlockNumber);
@@ -265,6 +279,7 @@ public class ProducerBlockItemObserverTest {
                 subscriptionHandler,
                 helidonPublishPipeline,
                 serviceStatus,
+                webServerStatus,
                 consumerConfig,
                 metricsService);
 

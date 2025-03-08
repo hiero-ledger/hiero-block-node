@@ -4,7 +4,7 @@ package com.hedera.block.server.health;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.Mockito.*;
 
-import com.hedera.block.server.service.ServiceStatus;
+import com.hedera.block.server.service.WebServerStatus;
 import io.helidon.webserver.http.HttpRules;
 import io.helidon.webserver.http.ServerRequest;
 import io.helidon.webserver.http.ServerResponse;
@@ -21,7 +21,7 @@ class HealthServiceTest {
     private static final String HEALTH_PATH = "/healthz";
 
     @Mock
-    private ServiceStatus serviceStatus;
+    private WebServerStatus webServerStatus;
 
     @Mock
     ServerRequest serverRequest;
@@ -32,10 +32,10 @@ class HealthServiceTest {
     @Test
     public void testHandleLivez() {
         // given
-        when(serviceStatus.isRunning()).thenReturn(true);
+        when(webServerStatus.isRunning()).thenReturn(true);
         when(serverResponse.status(200)).thenReturn(serverResponse);
         doNothing().when(serverResponse).send("OK");
-        HealthService healthService = new HealthServiceImpl(serviceStatus);
+        HealthService healthService = new HealthServiceImpl(webServerStatus);
 
         // when
         healthService.handleLivez(serverRequest, serverResponse);
@@ -48,10 +48,10 @@ class HealthServiceTest {
     @Test
     public void testHandleLivez_notRunning() {
         // given
-        when(serviceStatus.isRunning()).thenReturn(false);
+        when(webServerStatus.isRunning()).thenReturn(false);
         when(serverResponse.status(503)).thenReturn(serverResponse);
         doNothing().when(serverResponse).send("Service is not running");
-        HealthService healthService = new HealthServiceImpl(serviceStatus);
+        HealthService healthService = new HealthServiceImpl(webServerStatus);
 
         // when
         healthService.handleLivez(serverRequest, serverResponse);
@@ -64,10 +64,10 @@ class HealthServiceTest {
     @Test
     public void testHandleReadyz() {
         // given
-        when(serviceStatus.isRunning()).thenReturn(true);
+        when(webServerStatus.isRunning()).thenReturn(true);
         when(serverResponse.status(200)).thenReturn(serverResponse);
         doNothing().when(serverResponse).send("OK");
-        HealthService healthService = new HealthServiceImpl(serviceStatus);
+        HealthService healthService = new HealthServiceImpl(webServerStatus);
 
         // when
         healthService.handleReadyz(serverRequest, serverResponse);
@@ -80,10 +80,10 @@ class HealthServiceTest {
     @Test
     public void testHandleReadyz_notRunning() {
         // given
-        when(serviceStatus.isRunning()).thenReturn(false);
+        when(webServerStatus.isRunning()).thenReturn(false);
         when(serverResponse.status(503)).thenReturn(serverResponse);
         doNothing().when(serverResponse).send("Service is not running");
-        HealthService healthService = new HealthServiceImpl(serviceStatus);
+        HealthService healthService = new HealthServiceImpl(webServerStatus);
 
         // when
         healthService.handleReadyz(serverRequest, serverResponse);
@@ -96,7 +96,7 @@ class HealthServiceTest {
     @Test
     public void testRouting() {
         // given
-        HealthService healthService = new HealthServiceImpl(serviceStatus);
+        HealthService healthService = new HealthServiceImpl(webServerStatus);
         HttpRules httpRules = mock(HttpRules.class);
         when(httpRules.get(anyString(), any())).thenReturn(httpRules);
 

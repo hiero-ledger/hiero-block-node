@@ -17,6 +17,7 @@ import com.hedera.block.server.pbj.PbjBlockAccessServiceProxy;
 import com.hedera.block.server.persistence.storage.PersistenceStorageConfig;
 import com.hedera.block.server.persistence.storage.read.BlockReader;
 import com.hedera.block.server.service.ServiceStatus;
+import com.hedera.block.server.service.WebServerStatus;
 import com.hedera.block.server.util.TestConfigUtil;
 import com.hedera.hapi.block.BlockItemUnparsed;
 import com.hedera.hapi.block.BlockUnparsed;
@@ -51,6 +52,9 @@ class BlockAccessServiceTest {
     @Mock
     private ServiceStatus serviceStatus;
 
+    @Mock
+    private WebServerStatus webServerStatus;
+
     @TempDir
     private Path testTempDir;
 
@@ -64,7 +68,8 @@ class BlockAccessServiceTest {
         Configuration config = TestConfigUtil.getTestBlockNodeConfiguration(configMap);
         metricsService = TestConfigUtil.getTestBlockNodeMetricsService(config);
         PersistenceStorageConfig persistenceStorageConfig = config.getConfigData(PersistenceStorageConfig.class);
-        blockAccessService = new PbjBlockAccessServiceProxy(serviceStatus, blockReader, metricsService);
+        blockAccessService =
+                new PbjBlockAccessServiceProxy(serviceStatus, webServerStatus, blockReader, metricsService);
         final Path testConfigLiveRootPath = persistenceStorageConfig.liveRootPath();
         assertThat(testConfigLiveRootPath).isEqualTo(testLiveRootPath);
     }
@@ -92,7 +97,7 @@ class BlockAccessServiceTest {
                 BlockUnparsed.newBuilder().blockItems(blockItems).build();
 
         when(blockReader.read(blockNumber)).thenReturn(Optional.of(targetBlock));
-        when(serviceStatus.isRunning()).thenReturn(true);
+        when(webServerStatus.isRunning()).thenReturn(true);
 
         // Build a response to verify what's passed to the response observer
         final SingleBlockResponseUnparsed expectedSingleBlockResponse = SingleBlockResponseUnparsed.newBuilder()
@@ -127,8 +132,8 @@ class BlockAccessServiceTest {
         final SingleBlockRequest singleBlockRequest =
                 SingleBlockRequest.newBuilder().blockNumber(1).build();
 
-        // Enable the serviceStatus
-        when(serviceStatus.isRunning()).thenReturn(true);
+        // Enable the webServerStatus
+        when(webServerStatus.isRunning()).thenReturn(true);
 
         final Pipeline<? super Bytes> pipeline =
                 blockAccessService.open(PbjBlockAccessService.BlockAccessMethod.singleBlock, null, responseObserver);
@@ -140,8 +145,8 @@ class BlockAccessServiceTest {
 
     @Test
     void testSingleBlockServiceNotAvailable() {
-        // Set the service status to not running
-        when(serviceStatus.isRunning()).thenReturn(false);
+        // Set the web server status to not running
+        when(webServerStatus.isRunning()).thenReturn(false);
 
         final SingleBlockResponseUnparsed expectedNotAvailable = SingleBlockResponseUnparsed.newBuilder()
                 .status(SingleBlockResponseCode.READ_BLOCK_NOT_AVAILABLE)
@@ -161,7 +166,7 @@ class BlockAccessServiceTest {
 
     @Test
     void testSingleBlockIOExceptionPath() throws IOException, ParseException {
-        when(serviceStatus.isRunning()).thenReturn(true);
+        when(webServerStatus.isRunning()).thenReturn(true);
         when(blockReader.read(1)).thenThrow(new IOException("Test exception"));
 
         final SingleBlockResponseUnparsed expectedNotAvailable = SingleBlockResponseUnparsed.newBuilder()
@@ -182,7 +187,7 @@ class BlockAccessServiceTest {
 
     @Test
     void testSingleBlockParseExceptionPath() throws IOException, ParseException {
-        when(serviceStatus.isRunning()).thenReturn(true);
+        when(webServerStatus.isRunning()).thenReturn(true);
         when(blockReader.read(1)).thenThrow(new ParseException("Test exception"));
 
         final SingleBlockResponseUnparsed expectedNotAvailable = SingleBlockResponseUnparsed.newBuilder()

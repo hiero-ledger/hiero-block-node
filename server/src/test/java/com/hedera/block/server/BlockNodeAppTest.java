@@ -18,6 +18,7 @@ import com.hedera.block.server.pbj.PbjBlockStreamServiceProxy;
 import com.hedera.block.server.persistence.storage.read.BlockReader;
 import com.hedera.block.server.producer.ProducerConfig;
 import com.hedera.block.server.service.ServiceStatus;
+import com.hedera.block.server.service.WebServerStatus;
 import com.hedera.block.server.util.TestConfigUtil;
 import com.hedera.block.server.verification.StreamVerificationHandlerImpl;
 import com.hedera.hapi.block.BlockItemUnparsed;
@@ -42,6 +43,9 @@ class BlockNodeAppTest {
 
     @Mock
     private ServiceStatus serviceStatus;
+
+    @Mock
+    private WebServerStatus webServerStatus;
 
     @Mock
     private HealthService healthService;
@@ -88,10 +92,12 @@ class BlockNodeAppTest {
 
         blockNodeApp = new BlockNodeApp(
                 serviceStatus,
+                webServerStatus,
                 healthService,
                 new PbjBlockStreamServiceProxy(
                         liveStreamMediator,
                         serviceStatus,
+                        webServerStatus,
                         blockNodeEventHandler,
                         streamVerificationHandler,
                         blockReader,
@@ -99,7 +105,7 @@ class BlockNodeAppTest {
                         metricsService,
                         consumerConfig,
                         producerConfig),
-                new PbjBlockAccessServiceProxy(serviceStatus, blockReader, metricsService),
+                new PbjBlockAccessServiceProxy(serviceStatus, webServerStatus, blockReader, metricsService),
                 webServerBuilder,
                 serverConfig,
                 configurationLogging);
@@ -119,7 +125,7 @@ class BlockNodeAppTest {
         blockNodeApp.start();
 
         // Assert
-        verify(serviceStatus).setWebServer(webServer);
+        verify(webServerStatus).setWebServer(webServer);
         verify(webServer).start();
         verify(healthService).getHealthRootPath();
         verify(webServerBuilder).port(8080);

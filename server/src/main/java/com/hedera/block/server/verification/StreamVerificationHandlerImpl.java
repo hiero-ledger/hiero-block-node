@@ -9,6 +9,7 @@ import com.hedera.block.server.mediator.SubscriptionHandler;
 import com.hedera.block.server.metrics.MetricsService;
 import com.hedera.block.server.notifier.Notifier;
 import com.hedera.block.server.service.ServiceStatus;
+import com.hedera.block.server.service.WebServerStatus;
 import com.hedera.block.server.verification.service.BlockVerificationService;
 import com.hedera.hapi.block.BlockItemUnparsed;
 import edu.umd.cs.findbugs.annotations.NonNull;
@@ -28,6 +29,7 @@ public class StreamVerificationHandlerImpl implements BlockNodeEventHandler<Obje
     private final Notifier notifier;
     private final MetricsService metricsService;
     private final ServiceStatus serviceStatus;
+    private final WebServerStatus webServerStatus;
     private final BlockVerificationService blockVerificationService;
 
     /**
@@ -45,11 +47,13 @@ public class StreamVerificationHandlerImpl implements BlockNodeEventHandler<Obje
             @NonNull final Notifier notifier,
             @NonNull final MetricsService metricsService,
             @NonNull final ServiceStatus serviceStatus,
+            @NonNull final WebServerStatus webServerStatus,
             @NonNull final BlockVerificationService blockVerificationService) {
         this.subscriptionHandler = Objects.requireNonNull(subscriptionHandler);
         this.notifier = Objects.requireNonNull(notifier);
         this.metricsService = Objects.requireNonNull(metricsService);
         this.serviceStatus = Objects.requireNonNull(serviceStatus);
+        this.webServerStatus = webServerStatus;
         this.blockVerificationService = Objects.requireNonNull(blockVerificationService);
     }
 
@@ -60,7 +64,7 @@ public class StreamVerificationHandlerImpl implements BlockNodeEventHandler<Obje
     public void onEvent(ObjectEvent<List<BlockItemUnparsed>> event, long l, boolean b) {
 
         try {
-            if (!serviceStatus.isRunning()) {
+            if (!webServerStatus.isRunning()) {
                 LOGGER.log(ERROR, "Service is not running. Block item will not be processed further.");
                 return;
             }
@@ -71,7 +75,7 @@ public class StreamVerificationHandlerImpl implements BlockNodeEventHandler<Obje
 
             LOGGER.log(ERROR, "Failed to verify BlockItems: ", e);
             // Trigger the server to stop accepting new requests
-            serviceStatus.stopRunning(getClass().getName());
+            webServerStatus.stopRunning(getClass().getName());
 
             // Unsubscribe from the mediator to avoid additional onEvent calls.
             unsubscribe();

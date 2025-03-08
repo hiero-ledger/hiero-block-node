@@ -31,6 +31,7 @@ import com.hedera.block.server.persistence.storage.remove.BlockRemover;
 import com.hedera.block.server.persistence.storage.remove.NoOpBlockRemover;
 import com.hedera.block.server.persistence.storage.write.AsyncBlockWriterFactory;
 import com.hedera.block.server.service.ServiceStatus;
+import com.hedera.block.server.service.WebServerStatus;
 import com.hedera.block.server.util.TestConfigUtil;
 import com.hedera.hapi.block.BlockItemUnparsed;
 import com.hedera.hapi.block.BlockUnparsed;
@@ -65,6 +66,9 @@ class PersistenceInjectionModuleTest {
 
     @Mock
     private ServiceStatus serviceStatusMock;
+
+    @Mock
+    private WebServerStatus webServerStatusMock;
 
     @Mock
     private AckHandler ackHandlerMock;
@@ -234,6 +238,7 @@ class PersistenceInjectionModuleTest {
                         notifierMock,
                         metricsService,
                         serviceStatusMock,
+                        webServerStatusMock,
                         ackHandlerMock,
                         asyncBlockWriterFactoryMock,
                         blockPathResolverMock,

@@ -6,6 +6,7 @@ import static com.hedera.block.server.mediator.MediatorConfig.MediatorType.NO_OP
 import com.hedera.block.server.metrics.MetricsService;
 import com.hedera.block.server.notifier.Notifiable;
 import com.hedera.block.server.service.ServiceStatus;
+import com.hedera.block.server.service.WebServerStatus;
 import com.hedera.hapi.block.BlockItemUnparsed;
 import dagger.Binds;
 import dagger.Module;
@@ -31,13 +32,14 @@ public interface MediatorInjectionModule {
     static LiveStreamMediator providesLiveStreamMediator(
             @NonNull MediatorConfig mediatorConfig,
             @NonNull MetricsService metricsService,
-            @NonNull ServiceStatus serviceStatus) {
+            @NonNull ServiceStatus serviceStatus,
+            @NonNull WebServerStatus webServerStatus) {
         final MediatorConfig.MediatorType mediatorType = mediatorConfig.type();
         if (mediatorType == NO_OP) {
             return new NoOpLiveStreamMediator(metricsService);
         }
 
-        return LiveStreamMediatorBuilder.newBuilder(metricsService, mediatorConfig, serviceStatus)
+        return LiveStreamMediatorBuilder.newBuilder(metricsService, mediatorConfig, serviceStatus, webServerStatus)
                 .build();
     }
 
