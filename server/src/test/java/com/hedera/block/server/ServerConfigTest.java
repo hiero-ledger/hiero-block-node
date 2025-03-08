@@ -15,6 +15,7 @@ import org.junit.jupiter.params.provider.MethodSource;
 class ServerConfigTest {
 
     private static final String RANGE_ERROR_TEMPLATE = "%s value %d is out of range [%d, %d]";
+    private static final int DEFAULT_PORT = 40840;
 
     @BeforeEach
     void setUp() {}
@@ -24,16 +25,16 @@ class ServerConfigTest {
 
     @Test
     void testValidValues() {
-        ServerConfig serverConfig = new ServerConfig(4_194_304, 32_768, 32_768, 8080);
+        ServerConfig serverConfig = new ServerConfig(4_194_304, 32_768, 32_768, DEFAULT_PORT);
         assertEquals(4_194_304, serverConfig.maxMessageSizeBytes());
-        assertEquals(8080, serverConfig.port());
+        assertEquals(DEFAULT_PORT, serverConfig.port());
     }
 
     @ParameterizedTest
     @MethodSource("outOfRangeMaxMessageSizes")
     void testMessageSizesOutOfBounds(final int messageSize, final String message) {
         assertThatIllegalArgumentException()
-                .isThrownBy(() -> new ServerConfig(messageSize, 32_768, 32_768, 8080))
+                .isThrownBy(() -> new ServerConfig(messageSize, 32_768, 32_768, DEFAULT_PORT))
                 .withMessage(message);
     }
 
@@ -41,7 +42,7 @@ class ServerConfigTest {
     @MethodSource("outOfRangeSendBufferSizes")
     void testSocketSendBufferSize(int sendBufferSize, String message) {
         assertThatIllegalArgumentException()
-                .isThrownBy(() -> new ServerConfig(4_194_304, sendBufferSize, 32_768, 8080))
+                .isThrownBy(() -> new ServerConfig(4_194_304, sendBufferSize, 32_768, DEFAULT_PORT))
                 .withMessage(message);
     }
 
@@ -49,7 +50,7 @@ class ServerConfigTest {
     @MethodSource("outOfRangeReceiveBufferSizes")
     void testSocketReceiveBufferSize(int receiveBufferSize, String message) {
         assertThatIllegalArgumentException()
-                .isThrownBy(() -> new ServerConfig(4_194_304, 32_768, receiveBufferSize, 8080))
+                .isThrownBy(() -> new ServerConfig(4_194_304, 32_768, receiveBufferSize, DEFAULT_PORT))
                 .withMessage(message);
     }
 

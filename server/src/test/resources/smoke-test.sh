@@ -60,7 +60,7 @@ readiness() {
 trap "shutdown; exit 1" ERR SIGINT SIGTERM
 
 # 1. Call the endpoints /health/livez and /health/readyz
-export SERVER_URL="http://localhost:8080"
+export SERVER_URL="http://localhost:40840"
 export LIVENESS_ENDPOINT="/healthz/livez"
 export READINESS_ENDPOINT="/healthz/readyz"
 

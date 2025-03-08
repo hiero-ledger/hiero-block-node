@@ -40,6 +40,8 @@ import org.mockito.junit.jupiter.MockitoExtension;
 @ExtendWith(MockitoExtension.class)
 class BlockNodeAppTest {
 
+    private static final int DEFAULT_PORT = 40840;
+
     @Mock
     private ServiceStatus serviceStatus;
 
@@ -84,7 +86,7 @@ class BlockNodeAppTest {
         ConsumerConfig consumerConfig = config.getConfigData(ConsumerConfig.class);
         ProducerConfig producerConfig = config.getConfigData(ProducerConfig.class);
 
-        serverConfig = new ServerConfig(4_194_304, 32_768, 32_768, 8080);
+        serverConfig = new ServerConfig(4_194_304, 32_768, 32_768, DEFAULT_PORT);
 
         blockNodeApp = new BlockNodeApp(
                 serviceStatus,
@@ -104,7 +106,7 @@ class BlockNodeAppTest {
                 serverConfig,
                 configurationLogging);
 
-        when(webServerBuilder.port(8080)).thenReturn(webServerBuilder);
+        when(webServerBuilder.port(DEFAULT_PORT)).thenReturn(webServerBuilder);
         when(webServerBuilder.addProtocol(any(PbjConfig.class))).thenReturn(webServerBuilder);
         when(webServerBuilder.addRouting(any(PbjRouting.Builder.class))).thenReturn(webServerBuilder);
         when(webServerBuilder.addRouting(any(HttpRouting.Builder.class))).thenReturn(webServerBuilder);
@@ -122,7 +124,7 @@ class BlockNodeAppTest {
         verify(serviceStatus).setWebServer(webServer);
         verify(webServer).start();
         verify(healthService).getHealthRootPath();
-        verify(webServerBuilder).port(8080);
+        verify(webServerBuilder).port(DEFAULT_PORT);
         verify(webServerBuilder).addRouting(any(PbjRouting.Builder.class));
         verify(webServerBuilder).addRouting(any(HttpRouting.Builder.class));
         verify(webServerBuilder).addProtocol(any(PbjConfig.class));

@@ -53,7 +53,7 @@ generate_block_proof() {
     echo "$result"
 }
 
-GRPC_SERVER="localhost:8080"
+GRPC_SERVER="localhost:40840"
 GRPC_METHOD="com.hedera.hapi.block.BlockStreamService/publishBlockStream"
 PATH_TO_PROTO="./block_service.proto"
 

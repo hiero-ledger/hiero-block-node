@@ -15,4 +15,4 @@ import com.swirlds.config.api.validation.annotation.Min;
 @ConfigData("grpc")
 public record GrpcConfig(
         @ConfigProperty(defaultValue = "localhost") String serverAddress,
-        @ConfigProperty(defaultValue = "8080") @Min(0) @Max(65535) int port) {}
+        @ConfigProperty(defaultValue = "40840") @Min(0) @Max(65535) int port) {}

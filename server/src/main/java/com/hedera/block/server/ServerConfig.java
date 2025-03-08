@@ -49,7 +49,7 @@ public record ServerConfig(
     static final int minSocketReceiveBufferSizeBytes = 32768;
 
     // Constants for port property
-    static final String defaultPort = "8080";
+    static final String defaultPort = "40840";
     static final int minPort = 1024;
     static final int maxPort = 65_535;
 
