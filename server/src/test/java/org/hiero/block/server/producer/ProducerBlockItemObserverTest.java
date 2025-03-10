@@ -345,7 +345,8 @@ public class ProducerBlockItemObserverTest {
         when(serviceStatus.getLatestAckedBlock()).thenReturn(latestAckedBlock);
         when(serviceStatus.getLatestReceivedBlockNumber()).thenReturn(latestReceivedBlockNumber);
 
-        final List<BlockItemUnparsed> blockItems = generateBlockItemsUnparsedForWithBlockNumber(latestReceivedBlockNumber);
+        final List<BlockItemUnparsed> blockItems =
+                generateBlockItemsUnparsedForWithBlockNumber(latestReceivedBlockNumber);
         final ProducerBlockItemObserver producerBlockItemObserver = new ProducerBlockItemObserver(
                 testClock,
                 publisher,
