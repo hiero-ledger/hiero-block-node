@@ -7,7 +7,6 @@ import com.hedera.hapi.block.BlockItemUnparsed;
 import edu.umd.cs.findbugs.annotations.NonNull;
 import java.util.List;
 import java.util.Objects;
-import javax.inject.Inject;
 import javax.inject.Singleton;
 import org.hiero.block.server.events.BlockNodeEventHandler;
 import org.hiero.block.server.events.ObjectEvent;
@@ -39,7 +38,6 @@ public class StreamVerificationHandlerImpl implements BlockNodeEventHandler<Obje
      * @param serviceStatus           the service status
      * @param blockVerificationService the block verification service
      */
-    @Inject
     public StreamVerificationHandlerImpl(
             @NonNull final SubscriptionHandler<List<BlockItemUnparsed>> subscriptionHandler,
             @NonNull final Notifier notifier,
