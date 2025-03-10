@@ -248,6 +248,90 @@ public class ProducerBlockItemObserverTest {
     }
 
     @Test
+    @DisplayName("Test duplicate block items with null blockHash of ACK variation")
+    public void testDuplicateBlockReceived_NullAckHashVariation() {
+
+        // given
+        when(serviceStatus.isRunning()).thenReturn(true);
+        long latestAckedBlockNumber = 10L;
+        BlockInfo latestAckedBlock = new BlockInfo(latestAckedBlockNumber);
+        when(serviceStatus.getLatestAckedBlock()).thenReturn(latestAckedBlock);
+        when(serviceStatus.getLatestReceivedBlockNumber()).thenReturn(latestAckedBlockNumber);
+
+        final List<BlockItemUnparsed> blockItems = generateBlockItemsUnparsedForWithBlockNumber(10);
+        final ProducerBlockItemObserver producerBlockItemObserver = new ProducerBlockItemObserver(
+                testClock,
+                publisher,
+                subscriptionHandler,
+                helidonPublishPipeline,
+                serviceStatus,
+                consumerConfig,
+                metricsService);
+
+        // when
+        producerBlockItemObserver.onNext(blockItems);
+
+        // then
+        final BlockAcknowledgement blockAcknowledgement = BlockAcknowledgement.newBuilder()
+                .blockNumber(10L)
+                .blockAlreadyExists(true)
+                .build();
+
+        final Acknowledgement acknowledgement =
+                Acknowledgement.newBuilder().blockAck(blockAcknowledgement).build();
+
+        final PublishStreamResponse publishStreamResponse = PublishStreamResponse.newBuilder()
+                .acknowledgement(acknowledgement)
+                .build();
+
+        // verify helidonPublishPipeline.onNext() is called once with publishStreamResponse
+        verify(helidonPublishPipeline, timeout(testTimeout).times(1)).onNext(publishStreamResponse);
+        // verify that the duplicate block is not published
+        verify(publisher, never()).publish(any());
+    }
+
+    @Test
+    @DisplayName("Test duplicate block items with null ACK variation")
+    public void testDuplicateBlockReceived_NullAckVariation() {
+
+        // given
+        when(serviceStatus.isRunning()).thenReturn(true);
+        when(serviceStatus.getLatestAckedBlock()).thenReturn(null);
+        when(serviceStatus.getLatestReceivedBlockNumber()).thenReturn(10L);
+
+        final List<BlockItemUnparsed> blockItems = generateBlockItemsUnparsedForWithBlockNumber(10);
+        final ProducerBlockItemObserver producerBlockItemObserver = new ProducerBlockItemObserver(
+                testClock,
+                publisher,
+                subscriptionHandler,
+                helidonPublishPipeline,
+                serviceStatus,
+                consumerConfig,
+                metricsService);
+
+        // when
+        producerBlockItemObserver.onNext(blockItems);
+
+        // then
+        final BlockAcknowledgement blockAcknowledgement = BlockAcknowledgement.newBuilder()
+                .blockNumber(10L)
+                .blockAlreadyExists(true)
+                .build();
+
+        final Acknowledgement acknowledgement =
+                Acknowledgement.newBuilder().blockAck(blockAcknowledgement).build();
+
+        final PublishStreamResponse publishStreamResponse = PublishStreamResponse.newBuilder()
+                .acknowledgement(acknowledgement)
+                .build();
+
+        // verify helidonPublishPipeline.onNext() is called once with publishStreamResponse
+        verify(helidonPublishPipeline, timeout(testTimeout).times(1)).onNext(publishStreamResponse);
+        // verify that the duplicate block is not published
+        verify(publisher, never()).publish(any());
+    }
+
+    @Test
     @DisplayName("Test future (ahead of expected) block received")
     public void testFutureBlockReceived() {
         // given
