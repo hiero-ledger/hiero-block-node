@@ -5,6 +5,7 @@ import static java.lang.System.Logger.Level.DEBUG;
 import static java.lang.System.Logger.Level.ERROR;
 
 import com.hedera.block.server.block.BlockInfo;
+import com.hedera.hapi.block.BlockNodeVersions;
 import edu.umd.cs.findbugs.annotations.NonNull;
 import io.helidon.webserver.WebServer;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -24,6 +25,9 @@ public class ServiceStatusImpl implements ServiceStatus {
     private volatile BlockInfo latestAckedBlock;
     private volatile long latestReceivedBlockNumber;
     private volatile long firstAvailableBlockNumber = Long.MIN_VALUE;
+    private volatile long lastAvailableBlockNumber = Long.MIN_VALUE;
+    private volatile boolean onlyLatestState;
+    private BlockNodeVersions blockNodeVersions;
 
     /**
      * Use the ServiceStatusImpl to check the status of the block node server and to shut it down if
@@ -118,5 +122,35 @@ public class ServiceStatusImpl implements ServiceStatus {
     @Override
     public void setFirstAvailableBlockNumber(final long firstAvailableBlockNumber) {
         this.firstAvailableBlockNumber = firstAvailableBlockNumber;
+    }
+
+    @Override
+    public long getLastAvailableBlockNumber() {
+        return lastAvailableBlockNumber;
+    }
+
+    @Override
+    public void setLastAvailableBlockNumber(long lastAvailableBlockNumber) {
+        this.lastAvailableBlockNumber = lastAvailableBlockNumber;
+    }
+
+    @Override
+    public boolean getOnlyLatestState() {
+        return onlyLatestState;
+    }
+
+    @Override
+    public void setOnlyLatestState(boolean onlyLatestState) {
+        this.onlyLatestState = onlyLatestState;
+    }
+
+    @Override
+    public BlockNodeVersions getVersionInformation() {
+        return blockNodeVersions;
+    }
+
+    @Override
+    public void setVersionInformation(BlockNodeVersions versionInformation) {
+        this.blockNodeVersions = versionInformation;
     }
 }

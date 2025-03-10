@@ -12,6 +12,8 @@ public final class Constants {
     /** Constant mapped to the name of the BlockAccess service in the .proto file */
     public static final String SERVICE_NAME_BLOCK_ACCESS = "BlockAccessService";
 
+    public static final String SERVICE_NAME_BLOCK_NODE = "BlockNodeService";
+
     /** Constant representing the service domain */
     public static final String SERVICE_DOMAIN = "com.hedera.hapi.block.";
 
@@ -20,6 +22,8 @@ public final class Constants {
 
     /** Constant mapped to the full name of the BlockAccess service */
     public static final String FULL_SERVICE_NAME_BLOCK_ACCESS = SERVICE_DOMAIN + SERVICE_NAME_BLOCK_ACCESS;
+
+    public static final String FULL_SERVICE_NAME_BLOCK_NODE = SERVICE_DOMAIN + SERVICE_NAME_BLOCK_NODE;
 
     /** Constant defining the block file extension */
     public static final String BLOCK_FILE_EXTENSION = ".blk";

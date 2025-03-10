@@ -15,6 +15,7 @@ import com.hedera.block.server.metrics.MetricsService;
 import com.hedera.block.server.notifier.Notifier;
 import com.hedera.block.server.pbj.PbjBlockAccessServiceProxy;
 import com.hedera.block.server.pbj.PbjBlockStreamServiceProxy;
+import com.hedera.block.server.pbj.PbjServerStatusServiceProxy;
 import com.hedera.block.server.persistence.storage.read.BlockReader;
 import com.hedera.block.server.producer.ProducerConfig;
 import com.hedera.block.server.service.ServiceStatus;
@@ -100,6 +101,7 @@ class BlockNodeAppTest {
                         consumerConfig,
                         producerConfig),
                 new PbjBlockAccessServiceProxy(serviceStatus, blockReader, metricsService),
+                new PbjServerStatusServiceProxy(serviceStatus, blockReader, metricsService),
                 webServerBuilder,
                 serverConfig,
                 configurationLogging);

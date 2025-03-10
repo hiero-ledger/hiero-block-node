@@ -2,6 +2,7 @@
 package com.hedera.block.server.service;
 
 import com.hedera.block.server.block.BlockInfo;
+import com.hedera.hapi.block.BlockNodeVersions;
 import edu.umd.cs.findbugs.annotations.NonNull;
 import io.helidon.webserver.WebServer;
 
@@ -84,4 +85,16 @@ public interface ServiceStatus {
      * @param firstAvailableBlockNumber the first available block number
      */
     void setFirstAvailableBlockNumber(long firstAvailableBlockNumber);
+
+    long getLastAvailableBlockNumber();
+
+    void setLastAvailableBlockNumber(long lastAvailableBlockNumber);
+
+    boolean getOnlyLatestState();
+
+    void setOnlyLatestState(boolean onlyLatestState);
+
+    BlockNodeVersions getVersionInformation();
+
+    void setVersionInformation(BlockNodeVersions versionInformation);
 }
