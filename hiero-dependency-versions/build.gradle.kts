@@ -53,7 +53,7 @@ dependencies.constraints {
     api("io.grpc:grpc-stub:$grpcIoVersion") { because("io.grpc.stub") }
     api("io.grpc:grpc-protobuf:$grpcIoVersion") { because("io.grpc.protobuf") }
     api("io.grpc:grpc-netty:$grpcIoVersion") { because("io.grpc.netty") }
-    api("io.grpc:protoc-gen-grpc-java:1.70.0")
+    api("io.grpc:protoc-gen-grpc-java:1.71.0")
 
     // command line tool
     api("info.picocli:picocli:4.7.6") { because("info.picocli") }
