@@ -25,7 +25,6 @@ public class ServiceStatusImpl implements ServiceStatus {
     private volatile BlockInfo latestAckedBlock;
     private volatile long latestReceivedBlockNumber;
     private volatile long firstAvailableBlockNumber = Long.MIN_VALUE;
-    private volatile long lastAvailableBlockNumber = Long.MIN_VALUE;
     private volatile boolean onlyLatestState;
     private BlockNodeVersions blockNodeVersions;
 
@@ -122,16 +121,6 @@ public class ServiceStatusImpl implements ServiceStatus {
     @Override
     public void setFirstAvailableBlockNumber(final long firstAvailableBlockNumber) {
         this.firstAvailableBlockNumber = firstAvailableBlockNumber;
-    }
-
-    @Override
-    public long getLastAvailableBlockNumber() {
-        return lastAvailableBlockNumber;
-    }
-
-    @Override
-    public void setLastAvailableBlockNumber(long lastAvailableBlockNumber) {
-        this.lastAvailableBlockNumber = lastAvailableBlockNumber;
     }
 
     @Override

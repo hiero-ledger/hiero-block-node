@@ -86,10 +86,6 @@ public interface ServiceStatus {
      */
     void setFirstAvailableBlockNumber(long firstAvailableBlockNumber);
 
-    long getLastAvailableBlockNumber();
-
-    void setLastAvailableBlockNumber(long lastAvailableBlockNumber);
-
     boolean getOnlyLatestState();
 
     void setOnlyLatestState(boolean onlyLatestState);
