@@ -93,11 +93,6 @@ class BlockVerificationServiceImplTest {
         verifyNoInteractions(verificationBlocksReceived, verificationBlocksFailed);
     }
 
-    private VerificationResult getVerificationResult(long blockNumber) {
-        return new VerificationResult(
-                blockNumber, Bytes.wrap(("hash" + blockNumber).getBytes()), BlockVerificationStatus.VERIFIED);
-    }
-
     private BlockHeader getBlockHeader(long blockNumber) {
         long previousBlockNumber = blockNumber - 1;
 
