@@ -13,7 +13,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.HashMap;
 import java.util.stream.Stream;
-import org.hiero.block.server.Constants;
+import org.hiero.block.server.service.Constants;
 import org.hiero.block.server.persistence.storage.PersistenceStorageConfig;
 import org.hiero.block.server.persistence.storage.path.BlockAsLocalFilePathResolver;
 import org.hiero.block.server.persistence.storage.path.BlockPathResolver;

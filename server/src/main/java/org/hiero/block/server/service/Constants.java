@@ -1,5 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
-package org.hiero.block.server;
+package org.hiero.block.server.service;
+
+import com.hedera.hapi.block.SubscribeStreamResponseUnparsed;
+import com.hedera.hapi.block.SubscribeStreamResponseCode;
 
 /** Constants used in the BlockNode service. */
 public final class Constants {
@@ -26,6 +29,23 @@ public final class Constants {
 
     /** Constant defining zip file extension */
     public static final String ZIP_FILE_EXTENSION = ".zip";
+
+    public static final SubscribeStreamResponseUnparsed READ_STREAM_INVALID_START_BLOCK_NUMBER_RESPONSE =
+            SubscribeStreamResponseUnparsed.newBuilder()
+            .status(SubscribeStreamResponseCode.READ_STREAM_INVALID_START_BLOCK_NUMBER)
+            .build();
+    public static final SubscribeStreamResponseUnparsed READ_STREAM_INVALID_END_BLOCK_NUMBER_RESPONSE =
+            SubscribeStreamResponseUnparsed.newBuilder()
+            .status(SubscribeStreamResponseCode.READ_STREAM_INVALID_END_BLOCK_NUMBER)
+            .build();
+    public static final SubscribeStreamResponseUnparsed READ_STREAM_SUCCESS_RESPONSE =
+            SubscribeStreamResponseUnparsed.newBuilder()
+            .status(SubscribeStreamResponseCode.READ_STREAM_SUCCESS)
+            .build();
+    public static final SubscribeStreamResponseUnparsed READ_STREAM_NOT_AVAILABLE =
+            SubscribeStreamResponseUnparsed.newBuilder()
+            .status(SubscribeStreamResponseCode.READ_STREAM_NOT_AVAILABLE)
+            .build();
 
     private Constants() {}
 }

@@ -22,7 +22,7 @@ import java.util.List;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TransferQueue;
 import java.util.stream.Stream;
-import org.hiero.block.server.Constants;
+import org.hiero.block.server.service.Constants;
 import org.hiero.block.server.ack.AckHandler;
 import org.hiero.block.server.metrics.MetricsService;
 import org.hiero.block.server.persistence.storage.compression.Compression;

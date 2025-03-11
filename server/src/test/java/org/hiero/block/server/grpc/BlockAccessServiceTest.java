@@ -2,8 +2,8 @@
 package org.hiero.block.server.grpc;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.hiero.block.server.Constants.FULL_SERVICE_NAME_BLOCK_ACCESS;
-import static org.hiero.block.server.Constants.SERVICE_NAME_BLOCK_ACCESS;
+import static org.hiero.block.server.service.Constants.FULL_SERVICE_NAME_BLOCK_ACCESS;
+import static org.hiero.block.server.service.Constants.SERVICE_NAME_BLOCK_ACCESS;
 import static org.hiero.block.server.util.PersistTestUtils.PERSISTENCE_STORAGE_LIVE_ROOT_PATH_KEY;
 import static org.hiero.block.server.util.PersistTestUtils.generateBlockItemsUnparsedForWithBlockNumber;
 import static org.junit.jupiter.api.Assertions.assertEquals;

@@ -25,7 +25,7 @@ import java.util.zip.ZipEntry;
 import java.util.zip.ZipOutputStream;
 import org.hiero.block.common.utils.FileUtilities;
 import org.hiero.block.common.utils.Preconditions;
-import org.hiero.block.server.Constants;
+import org.hiero.block.server.service.Constants;
 import org.hiero.block.server.persistence.storage.PersistenceStorageConfig;
 import org.hiero.block.server.persistence.storage.path.BlockPathResolver;
 

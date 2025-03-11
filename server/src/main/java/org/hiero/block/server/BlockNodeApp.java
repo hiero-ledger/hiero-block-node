@@ -4,7 +4,7 @@ package org.hiero.block.server;
 import static java.lang.System.Logger;
 import static java.lang.System.Logger.Level.INFO;
 import static java.util.Objects.requireNonNull;
-import static org.hiero.block.server.Constants.PBJ_PROTOCOL_PROVIDER_CONFIG_NAME;
+import static org.hiero.block.server.service.Constants.PBJ_PROTOCOL_PROVIDER_CONFIG_NAME;
 
 import com.hedera.pbj.grpc.helidon.PbjRouting;
 import com.hedera.pbj.grpc.helidon.config.PbjConfig;
@@ -16,6 +16,7 @@ import io.helidon.webserver.http.HttpRouting;
 import java.io.IOException;
 import javax.inject.Inject;
 import javax.inject.Singleton;
+import org.hiero.block.server.config.ServerConfig;
 import org.hiero.block.server.config.logging.ConfigurationLogging;
 import org.hiero.block.server.health.HealthService;
 import org.hiero.block.server.pbj.PbjBlockAccessService;

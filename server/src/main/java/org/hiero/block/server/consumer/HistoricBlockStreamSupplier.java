@@ -3,8 +3,8 @@ package org.hiero.block.server.consumer;
 
 import static java.lang.System.Logger.Level.ERROR;
 import static org.hiero.block.server.metrics.BlockNodeMetricTypes.Counter.ClosedRangeHistoricBlocksRetrieved;
-import static org.hiero.block.server.pbj.PbjBlockStreamServiceProxy.READ_STREAM_NOT_AVAILABLE;
-import static org.hiero.block.server.pbj.PbjBlockStreamServiceProxy.READ_STREAM_SUCCESS_RESPONSE;
+import static org.hiero.block.server.service.Constants.READ_STREAM_NOT_AVAILABLE;
+import static org.hiero.block.server.service.Constants.READ_STREAM_SUCCESS_RESPONSE;
 
 import com.hedera.hapi.block.BlockItemSetUnparsed;
 import com.hedera.hapi.block.BlockItemUnparsed;

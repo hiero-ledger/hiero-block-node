@@ -21,7 +21,7 @@ import java.util.stream.Stream;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipOutputStream;
 import org.assertj.core.api.InstanceOfAssertFactories;
-import org.hiero.block.server.Constants;
+import org.hiero.block.server.service.Constants;
 import org.hiero.block.server.persistence.storage.PersistenceStorageConfig;
 import org.hiero.block.server.persistence.storage.PersistenceStorageConfig.CompressionType;
 import org.hiero.block.server.persistence.storage.archive.LocalGroupZipArchiveTask;

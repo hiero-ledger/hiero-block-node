@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.server.pbj;
 
-import static org.hiero.block.server.Constants.FULL_SERVICE_NAME_BLOCK_ACCESS;
-import static org.hiero.block.server.Constants.SERVICE_NAME_BLOCK_ACCESS;
+import static org.hiero.block.server.service.Constants.FULL_SERVICE_NAME_BLOCK_ACCESS;
+import static org.hiero.block.server.service.Constants.SERVICE_NAME_BLOCK_ACCESS;
 
 import com.hedera.pbj.runtime.grpc.ServiceInterface;
 import edu.umd.cs.findbugs.annotations.NonNull;

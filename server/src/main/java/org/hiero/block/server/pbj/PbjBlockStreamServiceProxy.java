@@ -35,6 +35,7 @@ import org.hiero.block.server.persistence.storage.read.BlockReader;
 import org.hiero.block.server.producer.NoOpProducerObserver;
 import org.hiero.block.server.producer.ProducerBlockItemObserver;
 import org.hiero.block.server.producer.ProducerConfig;
+import org.hiero.block.server.service.Constants;
 import org.hiero.block.server.service.ServiceStatus;
 import org.hiero.block.server.verification.StreamVerificationHandlerImpl;
 
@@ -58,29 +59,6 @@ public class PbjBlockStreamServiceProxy implements PbjBlockStreamService {
     private final ExecutorService closedRangeHistoricStreamingExecutorService;
     private final ExecutorService openRangeHistoricStreamingExecutorService;
 
-    public static SubscribeStreamResponseUnparsed READ_STREAM_INVALID_START_BLOCK_NUMBER_RESPONSE;
-    public static SubscribeStreamResponseUnparsed READ_STREAM_INVALID_END_BLOCK_NUMBER_RESPONSE;
-    public static SubscribeStreamResponseUnparsed READ_STREAM_SUCCESS_RESPONSE;
-    public static SubscribeStreamResponseUnparsed READ_STREAM_NOT_AVAILABLE;
-
-    static {
-        // Initialize these responses as flyweights
-        READ_STREAM_INVALID_START_BLOCK_NUMBER_RESPONSE = SubscribeStreamResponseUnparsed.newBuilder()
-                .status(SubscribeStreamResponseCode.READ_STREAM_INVALID_START_BLOCK_NUMBER)
-                .build();
-
-        READ_STREAM_INVALID_END_BLOCK_NUMBER_RESPONSE = SubscribeStreamResponseUnparsed.newBuilder()
-                .status(SubscribeStreamResponseCode.READ_STREAM_INVALID_END_BLOCK_NUMBER)
-                .build();
-
-        READ_STREAM_SUCCESS_RESPONSE = SubscribeStreamResponseUnparsed.newBuilder()
-                .status(SubscribeStreamResponseCode.READ_STREAM_SUCCESS)
-                .build();
-
-        READ_STREAM_NOT_AVAILABLE = SubscribeStreamResponseUnparsed.newBuilder()
-                .status(SubscribeStreamResponseCode.READ_STREAM_NOT_AVAILABLE)
-                .build();
-    }
     /**
      * Creates a new PbjBlockStreamServiceProxy instance.
      *
@@ -321,7 +299,7 @@ public class PbjBlockStreamServiceProxy implements PbjBlockStreamService {
         final long endBlockNumber = subscribeStreamRequest.endBlockNumber();
         if (startBlockNumber < 0) {
             LOGGER.log(DEBUG, "Requested start block number {0} is less than 0", startBlockNumber);
-            helidonConsumerObserver.onNext(READ_STREAM_INVALID_START_BLOCK_NUMBER_RESPONSE);
+            helidonConsumerObserver.onNext(Constants.READ_STREAM_INVALID_START_BLOCK_NUMBER_RESPONSE);
             helidonConsumerObserver.onComplete();
             return false;
         }
@@ -329,7 +307,7 @@ public class PbjBlockStreamServiceProxy implements PbjBlockStreamService {
         // endBlockNumber can be 0 but not negative
         if (endBlockNumber < 0) {
             LOGGER.log(DEBUG, "Requested end block number {0} is less than 0", endBlockNumber);
-            helidonConsumerObserver.onNext(READ_STREAM_INVALID_END_BLOCK_NUMBER_RESPONSE);
+            helidonConsumerObserver.onNext(Constants.READ_STREAM_INVALID_END_BLOCK_NUMBER_RESPONSE);
             helidonConsumerObserver.onComplete();
             return false;
         }
@@ -341,7 +319,7 @@ public class PbjBlockStreamServiceProxy implements PbjBlockStreamService {
                     "Requested end block number {0} is less than the requested start block number {1}",
                     endBlockNumber,
                     startBlockNumber);
-            helidonConsumerObserver.onNext(READ_STREAM_INVALID_END_BLOCK_NUMBER_RESPONSE);
+            helidonConsumerObserver.onNext(Constants.READ_STREAM_INVALID_END_BLOCK_NUMBER_RESPONSE);
             helidonConsumerObserver.onComplete();
             return false;
         }
@@ -364,7 +342,7 @@ public class PbjBlockStreamServiceProxy implements PbjBlockStreamService {
                     "Requested start block number {0} is greater than the current block number {1}",
                     startBlockNumber,
                     currentBlockNumber);
-            helidonConsumerObserver.onNext(READ_STREAM_INVALID_START_BLOCK_NUMBER_RESPONSE);
+            helidonConsumerObserver.onNext(Constants.READ_STREAM_INVALID_START_BLOCK_NUMBER_RESPONSE);
             helidonConsumerObserver.onComplete();
             return false;
         }
@@ -376,7 +354,7 @@ public class PbjBlockStreamServiceProxy implements PbjBlockStreamService {
                     "Requested end block number {0} is greater than the current block number {1}",
                     endBlockNumber,
                     currentBlockNumber);
-            helidonConsumerObserver.onNext(READ_STREAM_INVALID_END_BLOCK_NUMBER_RESPONSE);
+            helidonConsumerObserver.onNext(Constants.READ_STREAM_INVALID_END_BLOCK_NUMBER_RESPONSE);
             helidonConsumerObserver.onComplete();
             return false;
         }

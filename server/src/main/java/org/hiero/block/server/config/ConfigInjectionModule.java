@@ -7,7 +7,6 @@ import com.swirlds.config.api.Configuration;
 import dagger.Module;
 import dagger.Provides;
 import javax.inject.Singleton;
-import org.hiero.block.server.ServerConfig;
 import org.hiero.block.server.config.logging.ConfigurationLogging;
 import org.hiero.block.server.config.logging.ConfigurationLoggingImpl;
 import org.hiero.block.server.consumer.ConsumerConfig;

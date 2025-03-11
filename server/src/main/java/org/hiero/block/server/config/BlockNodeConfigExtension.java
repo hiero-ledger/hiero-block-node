@@ -7,7 +7,6 @@ import com.swirlds.common.metrics.platform.prometheus.PrometheusConfig;
 import com.swirlds.config.api.ConfigurationExtension;
 import edu.umd.cs.findbugs.annotations.NonNull;
 import java.util.Set;
-import org.hiero.block.server.ServerConfig;
 import org.hiero.block.server.consumer.ConsumerConfig;
 import org.hiero.block.server.mediator.MediatorConfig;
 import org.hiero.block.server.notifier.NotifierConfig;

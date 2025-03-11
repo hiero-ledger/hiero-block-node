@@ -5,7 +5,7 @@ import edu.umd.cs.findbugs.annotations.NonNull;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.Optional;
-import org.hiero.block.server.Constants;
+import org.hiero.block.server.service.Constants;
 import org.hiero.block.server.persistence.storage.PersistenceStorageConfig;
 
 /**

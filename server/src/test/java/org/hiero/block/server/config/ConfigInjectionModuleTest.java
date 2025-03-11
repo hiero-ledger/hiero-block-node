@@ -7,7 +7,6 @@ import com.swirlds.common.metrics.config.MetricsConfig;
 import com.swirlds.common.metrics.platform.prometheus.PrometheusConfig;
 import com.swirlds.config.api.Configuration;
 import java.io.IOException;
-import org.hiero.block.server.ServerConfig;
 import org.hiero.block.server.config.logging.ConfigurationLogging;
 import org.hiero.block.server.consumer.ConsumerConfig;
 import org.hiero.block.server.mediator.MediatorConfig;
