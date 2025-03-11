@@ -26,6 +26,12 @@ public final class BlockNodeMetricTypes {
         /** The number of live block items received before publishing to the RingBuffer. */
         LiveBlockItems("live_block_items", "Live BlockItems"),
 
+        /** The number of requests received by the ServerStatus API */
+        RequestsReceived("requests_received", "Total Requests Received by ServerStatus API"),
+
+        /** The number of errors encountered while handling requests */
+        RequestsFailed("requests_failed", "Total Requests Failed in ServerStatus API"),
+
         /** The number of PublishStreamResponses generated and published to the subscribers. */
         SuccessfulPubStreamResp("successful_pub_stream_resp", "Successful Publish Stream Responses"),
 

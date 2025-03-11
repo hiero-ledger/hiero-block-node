@@ -1,13 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 package com.hedera.block.server.pbj;
 
+import static com.hedera.block.server.metrics.BlockNodeMetricTypes.Counter.RequestsFailed;
+import static com.hedera.block.server.metrics.BlockNodeMetricTypes.Counter.RequestsReceived;
 import static java.lang.System.Logger.Level.DEBUG;
 import static java.lang.System.Logger.Level.ERROR;
 
 import com.hedera.block.server.metrics.MetricsService;
-import com.hedera.block.server.persistence.storage.read.BlockReader;
 import com.hedera.block.server.service.ServiceStatus;
-import com.hedera.hapi.block.BlockUnparsed;
 import com.hedera.hapi.block.ServerStatusRequest;
 import com.hedera.hapi.block.ServerStatusResponse;
 import com.hedera.pbj.runtime.ParseException;
@@ -16,6 +16,7 @@ import com.hedera.pbj.runtime.grpc.Pipeline;
 import com.hedera.pbj.runtime.grpc.Pipelines;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import edu.umd.cs.findbugs.annotations.NonNull;
+import java.util.Objects;
 import javax.inject.Inject;
 
 public class PbjServerStatusServiceProxy implements PbjServerStatusService {
@@ -23,24 +24,20 @@ public class PbjServerStatusServiceProxy implements PbjServerStatusService {
     private final System.Logger LOGGER = System.getLogger(getClass().getName());
 
     private final ServiceStatus serviceStatus;
-    private final BlockReader<BlockUnparsed> blockReader;
     private final MetricsService metricsService;
 
     /**
      * Creates a new PbjBlockAccessServiceProxy instance.
      *
      * @param serviceStatus the service status
-     * @param blockReader the block reader
+     * //     * @param blockReader the block reader
      * @param metricsService the metrics service
      */
     @Inject
     public PbjServerStatusServiceProxy(
-            @NonNull final ServiceStatus serviceStatus,
-            @NonNull final BlockReader<BlockUnparsed> blockReader,
-            @NonNull final MetricsService metricsService) {
-        this.serviceStatus = serviceStatus;
-        this.blockReader = blockReader;
-        this.metricsService = metricsService;
+            @NonNull final ServiceStatus serviceStatus, @NonNull final MetricsService metricsService) {
+        this.serviceStatus = Objects.requireNonNull(serviceStatus);
+        this.metricsService = Objects.requireNonNull(metricsService);
     }
 
     @NonNull
@@ -71,8 +68,8 @@ public class PbjServerStatusServiceProxy implements PbjServerStatusService {
 
     ServerStatusResponse serverStatus(ServerStatusRequest serverStatusRequest) {
         LOGGER.log(DEBUG, "Executing Unary serverStatus gRPC method");
-
         if (serviceStatus.isRunning()) {
+            metricsService.get(RequestsReceived).increment();
             return ServerStatusResponse.newBuilder()
                     .firstAvailableBlock(serviceStatus.getFirstAvailableBlockNumber())
                     .lastAvailableBlock(serviceStatus.getLatestReceivedBlockNumber())
@@ -80,6 +77,7 @@ public class PbjServerStatusServiceProxy implements PbjServerStatusService {
                     .versionInformation(serviceStatus.getVersionInformation())
                     .build();
         } else {
+            metricsService.get(RequestsFailed).increment();
             LOGGER.log(ERROR, "Unary serverStatus gRPC method is not currently running");
 
             return ServerStatusResponse.newBuilder().build();

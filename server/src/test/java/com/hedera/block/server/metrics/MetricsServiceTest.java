@@ -4,6 +4,7 @@ package com.hedera.block.server.metrics;
 import static com.hedera.block.server.metrics.BlockNodeMetricTypes.Counter.BlocksPersisted;
 import static com.hedera.block.server.metrics.BlockNodeMetricTypes.Counter.LiveBlockItems;
 import static com.hedera.block.server.metrics.BlockNodeMetricTypes.Counter.LiveBlockItemsConsumed;
+import static com.hedera.block.server.metrics.BlockNodeMetricTypes.Counter.RequestsReceived;
 import static com.hedera.block.server.metrics.BlockNodeMetricTypes.Counter.SingleBlocksRetrieved;
 import static com.hedera.block.server.metrics.BlockNodeMetricTypes.Gauge.Consumers;
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -54,6 +55,21 @@ public class MetricsServiceTest {
         assertEquals(
                 LiveBlockItems.description(), metricsService.get(LiveBlockItems).getDescription());
         assertEquals(10, metricsService.get(LiveBlockItems).get());
+    }
+
+    @Test
+    void MetricsService_verifyRequestsReceivedCounter() {
+        for (int i = 0; i < 5; i++) {
+            metricsService.get(RequestsReceived).increment();
+        }
+
+        assertEquals(
+                RequestsReceived.grafanaLabel(),
+                metricsService.get(RequestsReceived).getName());
+        assertEquals(
+                RequestsReceived.description(),
+                metricsService.get(RequestsReceived).getDescription());
+        assertEquals(5, metricsService.get(RequestsReceived).get());
     }
 
     @Test

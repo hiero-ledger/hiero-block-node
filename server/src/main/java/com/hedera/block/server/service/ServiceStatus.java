@@ -86,11 +86,31 @@ public interface ServiceStatus {
      */
     void setFirstAvailableBlockNumber(long firstAvailableBlockNumber);
 
+    /**
+     * Checks if only the latest state should be maintained.
+     *
+     * @return true if only the latest state is maintained, false otherwise.
+     */
     boolean getOnlyLatestState();
 
+    /**
+     * Sets whether only the latest state should be maintained.
+     *
+     * @param onlyLatestState true to maintain only the latest state, false otherwise.
+     */
     void setOnlyLatestState(boolean onlyLatestState);
 
+    /**
+     * Retrieves the version information of the Block Node.
+     *
+     * @return the {@link BlockNodeVersions} containing version details.
+     */
     BlockNodeVersions getVersionInformation();
 
+    /**
+     * Sets the version information of the Block Node.
+     *
+     * @param versionInformation the {@link BlockNodeVersions} containing version details.
+     */
     void setVersionInformation(BlockNodeVersions versionInformation);
 }

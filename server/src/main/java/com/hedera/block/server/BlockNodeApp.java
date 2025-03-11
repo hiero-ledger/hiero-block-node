@@ -66,7 +66,7 @@ public class BlockNodeApp {
         this.pbjBlockStreamService = requireNonNull(pbjBlockStreamService);
         this.pbjBlockAccessService = requireNonNull(pbjBlockAccessService);
         this.webServerBuilder = requireNonNull(webServerBuilder);
-        this.pbjServerStatusService = pbjServerStatusService;
+        this.pbjServerStatusService = requireNonNull(pbjServerStatusService);
         this.serverConfig = requireNonNull(serverConfig);
         this.configurationLogging = requireNonNull(configurationLogging);
     }

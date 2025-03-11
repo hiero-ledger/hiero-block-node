@@ -52,8 +52,7 @@ public class PbjServerStatusServiceProxyTest {
 
     @Test
     public void testServerStatus() {
-        final PbjServerStatusServiceProxy serviceProxy =
-                new PbjServerStatusServiceProxy(serviceStatus, blockReader, metricsService);
+        final PbjServerStatusServiceProxy serviceProxy = new PbjServerStatusServiceProxy(serviceStatus, metricsService);
 
         Pipeline<? super Bytes> pipeline =
                 serviceProxy.open(PbjServerStatusService.ServerStatusMethod.serverStatus, options, replies);
@@ -88,8 +87,7 @@ public class PbjServerStatusServiceProxyTest {
 
     @Test
     public void testServerStatusWhenNotRunning() {
-        final PbjServerStatusServiceProxy serviceProxy =
-                new PbjServerStatusServiceProxy(serviceStatus, blockReader, metricsService);
+        final PbjServerStatusServiceProxy serviceProxy = new PbjServerStatusServiceProxy(serviceStatus, metricsService);
 
         Pipeline<? super Bytes> pipeline =
                 serviceProxy.open(PbjServerStatusService.ServerStatusMethod.serverStatus, options, replies);

@@ -12,6 +12,7 @@ public final class Constants {
     /** Constant mapped to the name of the BlockAccess service in the .proto file */
     public static final String SERVICE_NAME_BLOCK_ACCESS = "BlockAccessService";
 
+    /** Constant mapped to the name of the BlockNode service in the .proto file */
     public static final String SERVICE_NAME_BLOCK_NODE = "BlockNodeService";
 
     /** Constant representing the service domain */
@@ -23,6 +24,7 @@ public final class Constants {
     /** Constant mapped to the full name of the BlockAccess service */
     public static final String FULL_SERVICE_NAME_BLOCK_ACCESS = SERVICE_DOMAIN + SERVICE_NAME_BLOCK_ACCESS;
 
+    /** Constant mapped to the full name of the BlockNode service */
     public static final String FULL_SERVICE_NAME_BLOCK_NODE = SERVICE_DOMAIN + SERVICE_NAME_BLOCK_NODE;
 
     /** Constant defining the block file extension */

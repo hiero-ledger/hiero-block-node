@@ -101,7 +101,7 @@ class BlockNodeAppTest {
                         consumerConfig,
                         producerConfig),
                 new PbjBlockAccessServiceProxy(serviceStatus, blockReader, metricsService),
-                new PbjServerStatusServiceProxy(serviceStatus, blockReader, metricsService),
+                new PbjServerStatusServiceProxy(serviceStatus, metricsService),
                 webServerBuilder,
                 serverConfig,
                 configurationLogging);
