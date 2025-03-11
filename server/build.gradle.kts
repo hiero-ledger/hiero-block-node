@@ -4,15 +4,15 @@ plugins {
     id("application")
 }
 
-description = "Hedera Block Node Server"
+description = "Hiero Block Node Server"
 
 // Remove the following line to enable all 'javac' lint checks that we have turned on by default
 // and then fix the reported issues.
 tasks.withType<JavaCompile>().configureEach { options.compilerArgs.add("-Xlint:-exports") }
 
 application {
-    mainModule = "com.hedera.block.server"
-    mainClass = "com.hedera.block.server.Server"
+    mainModule = "org.hiero.block.server"
+    mainClass = "org.hiero.block.server.Server"
 }
 
 mainModuleInfo {
