@@ -13,16 +13,9 @@ WORKDIR /app
 COPY simulator-*.tar ./simulator.tar
 COPY logging.properties .
 
-# Create resources directory and copy block data
-RUN mkdir -p src/main/resources
-COPY block-0.0.3.tar.gz src/main/resources/
-
 # Extract the distribution and block data
 RUN tar -xf simulator.tar && \
     rm simulator.tar && \
-    cd src/main/resources && \
-    tar -xzf block-0.0.3.tar.gz && \
-    rm block-0.0.3.tar.gz && \
     cd /app && \
     chown -R $UNAME:$UNAME /app
 

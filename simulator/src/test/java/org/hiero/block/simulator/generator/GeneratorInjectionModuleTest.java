@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.simulator.generator;
 
+import static org.hiero.block.simulator.TestUtils.getAbsoluteFolder;
 import static org.junit.jupiter.api.Assertions.*;
 
 import java.io.IOException;
@@ -18,7 +19,9 @@ class GeneratorInjectionModuleTest {
                         "generator.generationMode",
                         "DIR",
                         "generator.managerImplementation",
-                        "BlockAsFileLargeDataSets"))
+                        "BlockAsFileLargeDataSets",
+                        "generator.folderRootPath",
+                        getAbsoluteFolder("build/resources/test//block-0.0.3-blk/")))
                 .getConfigData(BlockGeneratorConfig.class);
 
         BlockStreamManager blockStreamManager =
@@ -35,7 +38,7 @@ class GeneratorInjectionModuleTest {
                         "generator.managerImplementation",
                         "BlockAsFileBlockStreamManager",
                         "generator.folderRootPath",
-                        ""))
+                        getAbsoluteFolder("build/resources/test//block-0.0.3-blk/")))
                 .getConfigData(BlockGeneratorConfig.class);
 
         BlockStreamManager blockStreamManager =
@@ -50,7 +53,9 @@ class GeneratorInjectionModuleTest {
                         "generator.generationMode",
                         "DIR",
                         "generator.managerImplementation",
-                        "BlockAsDirBlockStreamManager"))
+                        "BlockAsDirBlockStreamManager",
+                        "generator.folderRootPath",
+                        getAbsoluteFolder("build/resources/test//block-0.0.3-blk/")))
                 .getConfigData(BlockGeneratorConfig.class);
 
         BlockStreamManager blockStreamManager =
@@ -69,7 +74,7 @@ class GeneratorInjectionModuleTest {
                         "generator.managerImplementation",
                         "",
                         "generator.folderRootPath",
-                        ""))
+                        getAbsoluteFolder("build/resources/test//block-0.0.3-blk/")))
                 .getConfigData(BlockGeneratorConfig.class);
 
         BlockStreamManager blockStreamManager =
