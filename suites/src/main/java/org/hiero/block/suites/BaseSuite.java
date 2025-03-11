@@ -1,9 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.suites;
 
-import com.hedera.block.simulator.BlockStreamSimulatorApp;
-import com.hedera.block.simulator.BlockStreamSimulatorInjectionComponent;
-import com.hedera.block.simulator.DaggerBlockStreamSimulatorInjectionComponent;
 import com.swirlds.config.api.Configuration;
 import com.swirlds.config.api.ConfigurationBuilder;
 import com.swirlds.config.extensions.sources.ClasspathFileConfigSource;
@@ -15,6 +12,9 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.Future;
+import org.hiero.block.simulator.BlockStreamSimulatorApp;
+import org.hiero.block.simulator.BlockStreamSimulatorInjectionComponent;
+import org.hiero.block.simulator.DaggerBlockStreamSimulatorInjectionComponent;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.testcontainers.containers.GenericContainer;
