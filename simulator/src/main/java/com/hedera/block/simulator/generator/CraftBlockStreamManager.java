@@ -5,10 +5,6 @@ import static java.lang.System.Logger.Level.DEBUG;
 import static java.lang.System.Logger.Level.INFO;
 import static java.util.Objects.requireNonNull;
 
-import com.hedera.block.common.hasher.Hashes;
-import com.hedera.block.common.hasher.HashingUtilities;
-import com.hedera.block.common.hasher.NaiveStreamingTreeHasher;
-import com.hedera.block.common.hasher.StreamingTreeHasher;
 import com.hedera.block.simulator.config.data.BlockGeneratorConfig;
 import com.hedera.block.simulator.config.types.GenerationMode;
 import com.hedera.block.simulator.exception.BlockSimulatorParsingException;
@@ -27,6 +23,10 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Random;
+import org.hiero.block.common.hasher.Hashes;
+import org.hiero.block.common.hasher.HashingUtilities;
+import org.hiero.block.common.hasher.NaiveStreamingTreeHasher;
+import org.hiero.block.common.hasher.StreamingTreeHasher;
 
 /**
  * Implementation of BlockStreamManager that crafts blocks from scratch rather than reading from an existing stream.

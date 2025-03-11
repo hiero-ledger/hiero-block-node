@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 package com.hedera.block.server;
 
-import com.hedera.block.common.utils.Preconditions;
 import com.hedera.block.server.config.logging.Loggable;
 import com.swirlds.config.api.ConfigData;
 import com.swirlds.config.api.ConfigProperty;
 import com.swirlds.config.api.validation.annotation.Max;
 import com.swirlds.config.api.validation.annotation.Min;
+import org.hiero.block.common.utils.Preconditions;
 
 /**
  * Use this configuration across the server features

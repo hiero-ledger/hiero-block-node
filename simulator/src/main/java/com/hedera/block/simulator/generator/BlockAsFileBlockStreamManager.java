@@ -7,7 +7,6 @@ import static java.lang.System.Logger.Level.DEBUG;
 import static java.lang.System.Logger.Level.ERROR;
 import static java.lang.System.Logger.Level.INFO;
 
-import com.hedera.block.common.utils.FileUtilities;
 import com.hedera.block.simulator.config.data.BlockGeneratorConfig;
 import com.hedera.block.simulator.config.types.GenerationMode;
 import com.hedera.hapi.block.stream.protoc.Block;
@@ -22,6 +21,7 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.stream.Stream;
 import javax.inject.Inject;
+import org.hiero.block.common.utils.FileUtilities;
 
 /** The block as file block stream manager. */
 public class BlockAsFileBlockStreamManager implements BlockStreamManager {

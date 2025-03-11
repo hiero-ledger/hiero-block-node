@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 package com.hedera.block.simulator.generator.itemhandler;
 
-import com.hedera.block.common.utils.Preconditions;
 import com.hedera.hapi.block.stream.output.protoc.TransactionResult;
 import com.hedera.hapi.block.stream.protoc.BlockItem;
 import com.hederahashgraph.api.proto.java.AccountAmount;
@@ -10,6 +9,7 @@ import com.hederahashgraph.api.proto.java.ResponseCodeEnum;
 import com.hederahashgraph.api.proto.java.TokenID;
 import com.hederahashgraph.api.proto.java.TokenTransferList;
 import com.hederahashgraph.api.proto.java.TransferList;
+import org.hiero.block.common.utils.Preconditions;
 
 /**
  * Handler for transaction results in the block stream.

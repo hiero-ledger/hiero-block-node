@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 package com.hedera.block.server.persistence.storage.remove;
 
-import com.hedera.block.common.utils.Preconditions;
 import com.hedera.block.server.persistence.storage.path.BlockPathResolver;
 import com.hedera.block.server.persistence.storage.path.UnverifiedBlockPath;
 import edu.umd.cs.findbugs.annotations.NonNull;
@@ -10,6 +9,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Objects;
 import java.util.Optional;
+import org.hiero.block.common.utils.Preconditions;
 
 /**
  * A Block remover that handles block-as-local-file.

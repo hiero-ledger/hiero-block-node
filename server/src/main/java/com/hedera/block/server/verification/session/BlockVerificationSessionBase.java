@@ -3,9 +3,6 @@ package com.hedera.block.server.verification.session;
 
 import static java.lang.System.Logger.Level.WARNING;
 
-import com.hedera.block.common.hasher.Hashes;
-import com.hedera.block.common.hasher.HashingUtilities;
-import com.hedera.block.common.hasher.StreamingTreeHasher;
 import com.hedera.block.server.metrics.BlockNodeMetricTypes;
 import com.hedera.block.server.metrics.MetricsService;
 import com.hedera.block.server.verification.BlockVerificationStatus;
@@ -20,6 +17,9 @@ import edu.umd.cs.findbugs.annotations.NonNull;
 import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
+import org.hiero.block.common.hasher.Hashes;
+import org.hiero.block.common.hasher.HashingUtilities;
+import org.hiero.block.common.hasher.StreamingTreeHasher;
 
 /**
  * An abstract base class providing common functionality for block verification sessions.

@@ -5,7 +5,6 @@ import static com.hedera.block.server.metrics.BlockNodeMetricTypes.Counter.Strea
 import static java.lang.System.Logger.Level.DEBUG;
 import static java.lang.System.Logger.Level.ERROR;
 
-import com.hedera.block.common.utils.FileUtilities;
 import com.hedera.block.server.ack.AckBlockStatus;
 import com.hedera.block.server.ack.AckHandler;
 import com.hedera.block.server.block.BlockInfo;
@@ -44,6 +43,7 @@ import java.util.concurrent.Future;
 import java.util.concurrent.TransferQueue;
 import java.util.stream.Stream;
 import javax.inject.Singleton;
+import org.hiero.block.common.utils.FileUtilities;
 
 /**
  * Use the StreamPersistenceHandlerImpl to persist live block items passed asynchronously through

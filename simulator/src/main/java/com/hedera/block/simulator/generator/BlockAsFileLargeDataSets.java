@@ -5,7 +5,6 @@ import static com.hedera.block.simulator.Constants.GZ_EXTENSION;
 import static com.hedera.block.simulator.Constants.RECORD_EXTENSION;
 import static java.lang.System.Logger.Level.INFO;
 
-import com.hedera.block.common.utils.FileUtilities;
 import com.hedera.block.simulator.config.data.BlockGeneratorConfig;
 import com.hedera.block.simulator.config.types.GenerationMode;
 import com.hedera.block.simulator.exception.BlockSimulatorParsingException;
@@ -17,6 +16,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Objects;
 import javax.inject.Inject;
+import org.hiero.block.common.utils.FileUtilities;
 
 /** A block stream manager that reads blocks from files in a directory. */
 public class BlockAsFileLargeDataSets implements BlockStreamManager {

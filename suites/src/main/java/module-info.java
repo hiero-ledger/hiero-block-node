@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-module com.hedera.block.node.suites {
+module org.hiero.block.node.suites {
     requires com.hedera.block.simulator;
     requires com.swirlds.config.api;
     requires com.swirlds.config.extensions;
@@ -9,6 +9,6 @@ module com.hedera.block.node.suites {
     requires org.testcontainers;
     requires static dagger;
 
-    exports com.hedera.block.suites to
+    exports org.hiero.block.suites to
             org.junit.platform.commons;
 }

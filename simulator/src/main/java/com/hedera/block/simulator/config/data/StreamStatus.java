@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 package com.hedera.block.simulator.config.data;
 
-import static com.hedera.block.common.utils.Preconditions.requireWhole;
 import static java.util.Objects.requireNonNull;
+import static org.hiero.block.common.utils.Preconditions.requireWhole;
 
 import java.util.ArrayDeque;
 import java.util.Deque;

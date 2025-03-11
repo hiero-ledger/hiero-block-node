@@ -8,7 +8,6 @@ import static java.lang.System.Logger.Level.ERROR;
 import static java.lang.System.Logger.Level.INFO;
 import static java.util.Objects.requireNonNull;
 
-import com.hedera.block.common.utils.ChunkUtils;
 import com.hedera.block.simulator.config.data.BlockStreamConfig;
 import com.hedera.block.simulator.config.data.GrpcConfig;
 import com.hedera.block.simulator.grpc.PublishStreamGrpcClient;
@@ -27,6 +26,7 @@ import java.util.Deque;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
 import javax.inject.Inject;
+import org.hiero.block.common.utils.ChunkUtils;
 
 /**
  * Implementation of {@link PublishStreamGrpcClient} that handles the publication of blocks

@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 package com.hedera.block.server.verification.session;
 
-import com.hedera.block.common.hasher.ConcurrentStreamingTreeHasher;
 import com.hedera.block.server.metrics.MetricsService;
 import com.hedera.block.server.verification.signature.SignatureVerifier;
 import com.hedera.hapi.block.BlockItemUnparsed;
@@ -11,6 +10,7 @@ import java.util.List;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import org.hiero.block.common.hasher.ConcurrentStreamingTreeHasher;
 
 /**
  * An asynchronous implementation of the BlockVerificationSession. It processes the block items

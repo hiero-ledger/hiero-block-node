@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 package com.hedera.block.simulator;
 
-import static com.hedera.block.common.constants.StringsConstants.APPLICATION_PROPERTIES;
 import static java.lang.System.Logger.Level.INFO;
+import static org.hiero.block.common.constants.StringsConstants.APPLICATION_PROPERTIES;
 
 import com.hedera.block.simulator.config.SimulatorMappedConfigSourceInitializer;
 import com.hedera.block.simulator.exception.BlockSimulatorParsingException;

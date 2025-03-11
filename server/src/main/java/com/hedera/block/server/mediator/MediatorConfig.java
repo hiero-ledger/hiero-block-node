@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 package com.hedera.block.server.mediator;
 
-import com.hedera.block.common.utils.Preconditions;
 import com.hedera.block.server.config.logging.Loggable;
 import com.swirlds.config.api.ConfigData;
 import com.swirlds.config.api.ConfigProperty;
+import org.hiero.block.common.utils.Preconditions;
 
 /**
  * Constructor to initialize the Mediator configuration.

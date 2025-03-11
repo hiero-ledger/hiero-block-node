@@ -4,11 +4,11 @@ package com.hedera.block.simulator.generator.itemhandler;
 import static java.util.Objects.requireNonNull;
 
 import com.google.protobuf.ByteString;
-import com.hedera.block.common.hasher.HashingUtilities;
-import com.hedera.block.common.hasher.StreamingTreeHasher;
 import com.hedera.hapi.block.stream.protoc.BlockItem;
 import com.hedera.hapi.block.stream.protoc.BlockProof;
 import edu.umd.cs.findbugs.annotations.NonNull;
+import org.hiero.block.common.hasher.HashingUtilities;
+import org.hiero.block.common.hasher.StreamingTreeHasher;
 
 /**
  * Handler for block proofs in the block stream.

@@ -6,7 +6,6 @@ import static com.hedera.block.server.pbj.PbjBlockStreamServiceProxy.READ_STREAM
 import static com.hedera.block.server.pbj.PbjBlockStreamServiceProxy.READ_STREAM_SUCCESS_RESPONSE;
 import static java.lang.System.Logger.Level.ERROR;
 
-import com.hedera.block.common.utils.ChunkUtils;
 import com.hedera.block.server.metrics.MetricsService;
 import com.hedera.block.server.persistence.storage.read.BlockReader;
 import com.hedera.hapi.block.BlockItemSetUnparsed;
@@ -18,6 +17,7 @@ import edu.umd.cs.findbugs.annotations.NonNull;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import org.hiero.block.common.utils.ChunkUtils;
 
 /**
  * Use this supplier to send historic blocks to the consumer.

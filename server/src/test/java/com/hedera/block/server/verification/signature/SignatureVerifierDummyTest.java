@@ -3,8 +3,8 @@ package com.hedera.block.server.verification.signature;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
-import com.hedera.block.common.hasher.HashingUtilities;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
+import org.hiero.block.common.hasher.HashingUtilities;
 import org.junit.jupiter.api.Test;
 
 class SignatureVerifierDummyTest {

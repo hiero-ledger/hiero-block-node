@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 package com.hedera.block.server;
 
-import static com.hedera.block.common.constants.StringsConstants.APPLICATION_PROPERTIES;
 import static java.lang.System.Logger;
 import static java.lang.System.Logger.Level.INFO;
+import static org.hiero.block.common.constants.StringsConstants.APPLICATION_PROPERTIES;
 
 import com.hedera.block.server.config.ServerMappedConfigSourceInitializer;
 import com.swirlds.config.api.Configuration;

@@ -4,7 +4,6 @@ package com.hedera.block.simulator.grpc.impl;
 import static com.hedera.block.simulator.metrics.SimulatorMetricTypes.Counter.LiveBlocksConsumed;
 import static java.util.Objects.requireNonNull;
 
-import com.hedera.block.common.utils.Preconditions;
 import com.hedera.block.simulator.config.data.BlockStreamConfig;
 import com.hedera.block.simulator.config.data.ConsumerConfig;
 import com.hedera.block.simulator.config.data.GrpcConfig;
@@ -22,6 +21,7 @@ import java.util.Deque;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import javax.inject.Inject;
+import org.hiero.block.common.utils.Preconditions;
 
 /**
  * Implementation of {@link ConsumerStreamGrpcClient} that handles the consumption of blocks

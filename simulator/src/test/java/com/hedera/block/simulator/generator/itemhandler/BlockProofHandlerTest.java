@@ -9,9 +9,9 @@ import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import com.hedera.block.common.hasher.StreamingTreeHasher;
 import com.hedera.hapi.block.stream.protoc.BlockItem;
 import com.hedera.hapi.block.stream.protoc.BlockProof;
+import org.hiero.block.common.hasher.StreamingTreeHasher;
 import org.junit.jupiter.api.Test;
 
 class BlockProofHandlerTest {
