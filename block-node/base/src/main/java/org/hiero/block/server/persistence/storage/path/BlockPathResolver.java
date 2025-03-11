@@ -5,8 +5,8 @@ import edu.umd.cs.findbugs.annotations.NonNull;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.Optional;
-import org.hiero.block.server.service.Constants;
 import org.hiero.block.server.persistence.storage.PersistenceStorageConfig;
+import org.hiero.block.server.service.Constants;
 
 /**
  * A Block path resolver. Used to resolve path to a given Block and all the

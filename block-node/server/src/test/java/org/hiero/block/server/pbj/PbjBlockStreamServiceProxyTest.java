@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.server.pbj;
 
+import static org.hiero.block.server.pbj.TestUtils.buildSubscribeStreamRequest;
 import static org.hiero.block.server.service.Constants.READ_STREAM_INVALID_END_BLOCK_NUMBER_RESPONSE;
 import static org.hiero.block.server.service.Constants.READ_STREAM_INVALID_START_BLOCK_NUMBER_RESPONSE;
-import static org.hiero.block.server.pbj.TestUtils.buildSubscribeStreamRequest;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;

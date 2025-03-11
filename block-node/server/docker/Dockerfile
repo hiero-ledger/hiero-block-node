@@ -11,7 +11,7 @@ ARG SOURCE_DATE_EPOCH="0"
 # Setup Builder Image
 #
 ########################################################################################################################
-FROM ubuntu:${UBUNTU_TAG} AS java-builder-interim
+FROM ubuntu:${UBUNTU_TAG} AS ubuntu-origin
 # Define Build Arguments
 ARG SOURCE_DATE_EPOCH
 
@@ -24,7 +24,7 @@ ENV LC_ALL=C.UTF-8
 RUN --mount=type=bind,source=./repro-sources-list.sh,target=/usr/local/bin/repro-sources-list.sh \
     repro-sources-list.sh && \
     apt-get update && \
-	apt-get install --yes --no-install-recommends tar gzip curl ca-certificates && \
+    apt-get install --yes --no-install-recommends tar gzip curl ca-certificates && \
     apt-get autoclean --yes && \
     apt-get clean all --yes && \
     rm -rf /var/log/ && \
@@ -56,11 +56,11 @@ RUN set -eux; \
     echo "${ESUM} */tmp/openjdk.tar.gz" | sha256sum -c -; \
     mkdir -p /usr/local/java; \
     tar --extract \
-    	      --file /tmp/openjdk.tar.gz \
-    	      --directory "/usr/local/java" \
-    	      --strip-components 1 \
-    	      --no-same-owner \
-    	  ; \
+        --file /tmp/openjdk.tar.gz \
+        --directory "/usr/local/java" \
+        --strip-components 1 \
+        --no-same-owner \
+        ; \
     rm -f /tmp/openjdk.tar.gz /usr/local/java/lib/src.zip;
 
 
@@ -74,6 +74,8 @@ ARG VERSION
 WORKDIR /app
 
 # Copy Distribution TAR file
+# Ignore Codacy, the `distributions` context is set on command line and
+# _must be_ so set in order to work with the wonky CI setup.
 COPY --from=distributions block-node-server-${VERSION}.tar .
 
 # Extract the TAR file
@@ -105,7 +107,10 @@ RUN find $( ls / | grep -E -v "^(dev|mnt|proc|sys)$" ) \
 ##########################
 
 FROM scratch AS java-builder
-COPY --from=java-builder-interim / /
+COPY --from=ubuntu-origin / /
+
+# Necessary to prevent circular dependency in java-builder error
+FROM java-builder AS production-image
 
 
 ########################################################################################################################
@@ -113,7 +118,6 @@ COPY --from=java-builder-interim / /
 # Build Final Image
 #
 ########################################################################################################################
-FROM java-builder AS production-image
 
 # Define Build Arguments
 ARG SOURCE_DATE_EPOCH
@@ -142,4 +146,4 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=3s --retries=3 \
       curl -f http://localhost:8080/healthz/readyz || exit 1
 
 # RUN the bin script for starting the server
-ENTRYPOINT ["/bin/bash", "-c", "/app/block-node-server-${VERSION}/bin/server"]
+ENTRYPOINT ["/bin/bash", "-c", "/app/block-node-server-${VERSION}/bin/block-node-server"]

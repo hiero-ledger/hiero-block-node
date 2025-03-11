@@ -28,18 +28,18 @@ module org.hiero.block.base {
     exports org.hiero.block.server.verification.service;
     exports org.hiero.block.server.block;
 
-    requires org.hiero.block.common;
-    requires com.hedera.block.stream;
-    requires com.hedera.pbj.runtime;
-    requires com.swirlds.common;
-    requires com.swirlds.config.api;
-    requires com.swirlds.config.extensions;
-    requires com.swirlds.metrics.api;
+    requires transitive com.hedera.block.stream;
+    requires transitive com.hedera.pbj.runtime;
+    requires transitive com.swirlds.common;
+    requires transitive com.swirlds.config.api;
+    requires transitive com.swirlds.config.extensions;
+    requires transitive com.swirlds.metrics.api;
+    requires transitive org.hiero.block.common;
+    requires transitive com.lmax.disruptor;
+    requires transitive dagger;
+    requires transitive io.helidon.webserver;
+    requires transitive javax.inject;
     requires com.github.luben.zstd_jni;
-    requires com.lmax.disruptor;
-    requires dagger;
-    requires io.helidon.webserver;
-    requires javax.inject;
     requires static transitive com.github.spotbugs.annotations;
     requires static transitive com.google.auto.service;
     requires static java.compiler; // javax.annotation.processing.Generated

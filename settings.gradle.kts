@@ -26,4 +26,3 @@ javaModules {
         // module("facilities-api") { artifact = "facilities-api" }
     }
 }
-

@@ -3,11 +3,11 @@
 ## Table of Contents
 
 1. [Configuration](#configuration)
-1. [Running locally](#running-locally)
+2. [Running locally](#running-locally)
    1. [Build the Server](#build-the-server)
-   1. [Run the Server](#run-the-server)
-   1. [Run the Server with Debug](#run-the-server-with-debug)
-   1. [Stop the Server](#stop-the-server)
+   2. [Run the Server](#run-the-server)
+   3. [Run the Server with Debug](#run-the-server-with-debug)
+   4. [Stop the Server](#stop-the-server)
 
 ## Configuration
 
@@ -28,16 +28,18 @@ Refer to the [Configuration](configuration.md) for configuration options.
 
 > **NOTE:** if you have not done so already, it is
 > generally recommended to build the entire repo first:
+>
 > ```bash
 > ./gradlew clean build -x test
 > ```
 
 1. To quickly build the Server sources (without running tests), do the following:
+
    ```bash
    ./gradlew -p server clean build -x test
    ```
+2. To build the Server docker image, do the following:
 
-1. To build the Server docker image, do the following:
    ```bash
    ./gradlew :server:createDockerImage
    ```
@@ -45,6 +47,7 @@ Refer to the [Configuration](configuration.md) for configuration options.
 ### Run the Server
 
 1. To start the Server, do the following:
+
    ```bash
    ./gradlew :server:startDockerContainer
    ```
@@ -52,15 +55,16 @@ Refer to the [Configuration](configuration.md) for configuration options.
 ### Run the Server with Debug
 
 1. To start the Server with debug enabled, do the following:
+
    ```bash
    ./gradlew :server:startDockerDebugContainer
    ```
-
-1. Attach your remote jvm debugger to port 5005.
+2. Attach your remote jvm debugger to port 5005.
 
 ### Stop the Server
 
 1. To stop the Server do the following:
+
    ```bash
    ./gradlew :server:stopDockerContainer
    ```

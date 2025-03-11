@@ -1,6 +1,4 @@
 // SPDX-License-Identifier: Apache-2.0
-import org.hiero.block.server.config.BlockNodeConfigExtension;
-
 module org.hiero.block.server {
     exports org.hiero.block.server;
 
@@ -8,8 +6,6 @@ module org.hiero.block.server {
     requires com.hedera.pbj.grpc.helidon.config;
     requires com.hedera.pbj.grpc.helidon;
     requires com.hedera.pbj.runtime;
-    requires com.lmax.disruptor;
-    requires com.swirlds.common;
     requires com.swirlds.config.api;
     requires com.swirlds.config.extensions;
     requires com.swirlds.metrics.api;

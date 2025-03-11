@@ -2,7 +2,7 @@
 set -o pipefail
 set +e
 
-readonly RELEASE_APPS_PATH="server/build/libs"
+readonly RELEASE_APPS_PATH="block-node/server/build/libs"
 
 GROUP_ACTIVE="false"
 
