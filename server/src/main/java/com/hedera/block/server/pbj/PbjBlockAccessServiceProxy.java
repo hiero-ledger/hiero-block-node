@@ -20,6 +20,7 @@ import com.hedera.pbj.runtime.grpc.Pipelines;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import edu.umd.cs.findbugs.annotations.NonNull;
 import java.io.IOException;
+import java.util.Objects;
 import java.util.Optional;
 import javax.inject.Inject;
 
@@ -51,10 +52,10 @@ public class PbjBlockAccessServiceProxy implements PbjBlockAccessService {
             @NonNull final WebServerStatus webServerStatus,
             @NonNull final BlockReader<BlockUnparsed> blockReader,
             @NonNull final MetricsService metricsService) {
-        this.serviceStatus = serviceStatus;
-        this.webServerStatus = webServerStatus;
-        this.blockReader = blockReader;
-        this.metricsService = metricsService;
+        this.serviceStatus = Objects.requireNonNull(serviceStatus);
+        this.webServerStatus = Objects.requireNonNull(webServerStatus);
+        this.blockReader = Objects.requireNonNull(blockReader);
+        this.metricsService = Objects.requireNonNull(metricsService);
     }
 
     /**

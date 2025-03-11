@@ -324,8 +324,9 @@ class LiveStreamMediatorImplTest {
     void testPollSubscribeWhenHandlerAlreadySubscribed() {
 
         final ServiceStatus serviceStatus = new ServiceStatusImpl(serviceConfig);
+        final WebServerStatus webServerStatus = new WebServerStatusImpl(serviceConfig);
         final LiveStreamMediator streamMediator = LiveStreamMediatorBuilder.newBuilder(
-                        metricsService, mediatorConfig, serviceStatus)
+                        metricsService, mediatorConfig, serviceStatus, webServerStatus)
                 .build();
 
         final StreamManager streamManager = ConsumerStreamBuilder.buildStreamManager(
@@ -571,8 +572,9 @@ class LiveStreamMediatorImplTest {
     @Test
     void testUnsubscribeWhenNotSubscribed() throws IOException {
         final ServiceStatus serviceStatus = new ServiceStatusImpl(serviceConfig);
+        final WebServerStatus webServerStatus = new WebServerStatusImpl(serviceConfig);
         final LiveStreamMediator streamMediator = LiveStreamMediatorBuilder.newBuilder(
-                        metricsService, mediatorConfig, serviceStatus)
+                        metricsService, mediatorConfig, serviceStatus, webServerStatus)
                 .build();
 
         final StreamPersistenceHandlerImpl handler = new StreamPersistenceHandlerImpl(
@@ -580,6 +582,7 @@ class LiveStreamMediatorImplTest {
                 notifier,
                 metricsService,
                 serviceStatus,
+                webServerStatus,
                 ackHandlerMock,
                 asyncBlockWriterFactoryMock,
                 executorMock,

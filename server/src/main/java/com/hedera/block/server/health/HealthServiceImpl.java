@@ -6,6 +6,7 @@ import edu.umd.cs.findbugs.annotations.NonNull;
 import io.helidon.webserver.http.HttpRules;
 import io.helidon.webserver.http.ServerRequest;
 import io.helidon.webserver.http.ServerResponse;
+import java.util.Objects;
 import javax.inject.Inject;
 import javax.inject.Singleton;
 
@@ -25,7 +26,7 @@ public class HealthServiceImpl implements HealthService {
      */
     @Inject
     public HealthServiceImpl(@NonNull WebServerStatus webServerStatus) {
-        this.webServerStatus = webServerStatus;
+        this.webServerStatus = Objects.requireNonNull(webServerStatus);
     }
 
     @Override

@@ -18,6 +18,7 @@ import com.hedera.hapi.block.PublishStreamResponse;
 import com.hedera.hapi.block.PublishStreamResponseCode;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import edu.umd.cs.findbugs.annotations.NonNull;
+import java.util.Objects;
 import java.util.concurrent.ConcurrentHashMap;
 import javax.inject.Inject;
 import javax.inject.Singleton;
@@ -70,10 +71,10 @@ public class NotifierImpl extends SubscriptionHandlerBase<PublishStreamResponse>
                 mediatorConfig,
                 notifierConfig.ringBufferSize());
 
-        this.mediator = mediator;
-        this.metricsService = metricsService;
-        this.serviceStatus = serviceStatus;
-        this.webServerStatus = webServerStatus;
+        this.mediator = Objects.requireNonNull(mediator);
+        this.metricsService = Objects.requireNonNull(metricsService);
+        this.serviceStatus = Objects.requireNonNull(serviceStatus);
+        this.webServerStatus = Objects.requireNonNull(webServerStatus);
     }
 
     @Override

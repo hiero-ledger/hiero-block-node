@@ -109,7 +109,7 @@ public class PbjBlockStreamServiceProxy implements PbjBlockStreamService {
             @NonNull final ProducerConfig producerConfig) {
 
         this.serviceStatus = Objects.requireNonNull(serviceStatus);
-        this.webServerStatus = webServerStatus;
+        this.webServerStatus = Objects.requireNonNull(webServerStatus);
         this.notifier = Objects.requireNonNull(notifier);
         streamMediator.subscribe(Objects.requireNonNull(streamPersistenceHandler));
         streamMediator.subscribe(Objects.requireNonNull(streamVerificationHandler));

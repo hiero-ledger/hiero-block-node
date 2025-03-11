@@ -21,6 +21,7 @@ import com.lmax.disruptor.EventPoller;
 import edu.umd.cs.findbugs.annotations.NonNull;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 
 /**
  * Use LiveStreamMediatorImpl to mediate the live stream of blocks from a producer to multiple
@@ -69,8 +70,8 @@ class LiveStreamMediatorImpl extends SubscriptionHandlerBase<List<BlockItemUnpar
                 mediatorConfig,
                 mediatorConfig.ringBufferSize());
 
-        this.metricsService = metricsService;
-        this.webServerStatus = webServerStatus;
+        this.metricsService = Objects.requireNonNull(metricsService);
+        this.webServerStatus = Objects.requireNonNull(webServerStatus);
     }
 
     /**

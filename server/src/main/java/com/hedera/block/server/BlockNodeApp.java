@@ -62,7 +62,7 @@ public class BlockNodeApp {
             @NonNull final ServerConfig serverConfig,
             @NonNull final ConfigurationLogging configurationLogging) {
         this.serviceStatus = requireNonNull(serviceStatus);
-        this.webServerStatus = webServerStatus;
+        this.webServerStatus = requireNonNull(webServerStatus);
         this.healthService = requireNonNull(healthService);
         this.pbjBlockStreamService = requireNonNull(pbjBlockStreamService);
         this.pbjBlockAccessService = requireNonNull(pbjBlockAccessService);
