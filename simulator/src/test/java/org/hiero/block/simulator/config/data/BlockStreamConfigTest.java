@@ -33,7 +33,7 @@ class BlockStreamConfigTest {
     }
 
     private BlockGeneratorConfig.Builder getBlockGeneratorConfigBuilder() {
-        String folderRootPath = "build/resources/main//block-0.0.3/";
+        String folderRootPath = "build/resources/test/block-0.0.3-blk/";
         GenerationMode generationMode = GenerationMode.DIR;
 
         String blockStreamManagerImplementation = "BlockAsFileBlockStreamManager";
@@ -85,7 +85,7 @@ class BlockStreamConfigTest {
     @Test
     void testValidAbsolutePath() {
         // Setup valid folder path and generation mode
-        String gzRootFolder = "build/resources/main//block-0.0.3/";
+        String gzRootFolder = "build/resources/test/block-0.0.3-blk/";
         String folderRootPath = getAbsoluteFolder(gzRootFolder);
         GenerationMode generationMode = GenerationMode.DIR;
 
@@ -108,15 +108,15 @@ class BlockStreamConfigTest {
         // Setup empty folder root path and generation mode
         String folderRootPath = "";
         GenerationMode generationMode = GenerationMode.DIR;
-        BlockGeneratorConfig.Builder builder =
-                getBlockGeneratorConfigBuilder().folderRootPath(folderRootPath).generationMode(generationMode);
 
-        BlockGeneratorConfig config = builder.build();
+        // Verify that an exception is thrown
+        IllegalArgumentException exception =
+                assertThrows(IllegalArgumentException.class, () -> getBlockGeneratorConfigBuilder()
+                        .folderRootPath(folderRootPath)
+                        .generationMode(generationMode)
+                        .build());
 
-        // Verify that the path is set to the default
-        Path expectedPath = Paths.get("build/resources/main//block-0.0.3/").toAbsolutePath();
-        assertEquals(expectedPath.toString(), config.folderRootPath());
-        assertEquals(GenerationMode.DIR, config.generationMode());
+        assertEquals("Root path is not provided", exception.getMessage());
     }
 
     @Test
