@@ -8,7 +8,11 @@ import java.util.concurrent.atomic.AtomicBoolean;
  *  - Uses volatile booleans for 'persisted' and 'verified' (set once, from false to true).
  *  - Uses an AtomicBoolean 'ackSent' for lock-free compare-and-set if a block has been ACKed.
  */
-public class AckBlockStatus {
+public class AckBlockStatus
+
+
+
+{
 
     private volatile boolean persisted = false;
     private volatile boolean verified = false;
