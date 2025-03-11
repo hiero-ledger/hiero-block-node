@@ -35,6 +35,7 @@ import org.hiero.block.server.mediator.Publisher;
 import org.hiero.block.server.mediator.SubscriptionHandler;
 import org.hiero.block.server.metrics.MetricsService;
 import org.hiero.block.server.service.ServiceStatus;
+import org.hiero.block.server.service.WebServerStatus;
 
 /**
  * The ProducerBlockStreamObserver class plugs into Helidon's server-initiated bidirectional gRPC
@@ -50,6 +51,7 @@ public class ProducerBlockItemObserver
     private final SubscriptionHandler<PublishStreamResponse> subscriptionHandler;
     private final Publisher<List<BlockItemUnparsed>> publisher;
     private final ServiceStatus serviceStatus;
+    private final WebServerStatus webServerStatus;
     private final MetricsService metricsService;
     private final Flow.Subscriber<? super PublishStreamResponse> publishStreamResponseObserver;
 
@@ -81,9 +83,9 @@ public class ProducerBlockItemObserver
             @NonNull final SubscriptionHandler<PublishStreamResponse> subscriptionHandler,
             @NonNull final Pipeline<? super PublishStreamResponse> publishStreamResponseObserver,
             @NonNull final ServiceStatus serviceStatus,
+            @NonNull final WebServerStatus webServerStatus,
             @NonNull final ConsumerConfig consumerConfig,
             @NonNull final MetricsService metricsService) {
-
         this.livenessCalculator =
                 new LivenessCalculator(producerLivenessClock, consumerConfig.timeoutThresholdMillis());
 
@@ -92,6 +94,7 @@ public class ProducerBlockItemObserver
         this.subscriptionHandler = subscriptionHandler;
         this.metricsService = Objects.requireNonNull(metricsService);
         this.serviceStatus = serviceStatus;
+        this.webServerStatus = webServerStatus;
     }
 
     @Override
@@ -118,7 +121,7 @@ public class ProducerBlockItemObserver
 
             // Publish the block to all the subscribers unless
             // there's an issue with the StreamMediator.
-            if (serviceStatus.isRunning()) {
+            if (webServerStatus.isRunning()) {
                 // Refresh the producer liveness
                 livenessCalculator.refresh();
 

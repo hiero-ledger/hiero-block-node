@@ -16,11 +16,13 @@ import com.hedera.pbj.runtime.grpc.Pipelines;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import edu.umd.cs.findbugs.annotations.NonNull;
 import java.io.IOException;
+import java.util.Objects;
 import java.util.Optional;
 import javax.inject.Inject;
 import org.hiero.block.server.metrics.MetricsService;
 import org.hiero.block.server.persistence.storage.read.BlockReader;
 import org.hiero.block.server.service.ServiceStatus;
+import org.hiero.block.server.service.WebServerStatus;
 
 /**
  * PbjBlockAccessServiceProxy is the runtime binding between the PBJ Helidon Plugin and the
@@ -33,6 +35,7 @@ public class PbjBlockAccessServiceProxy implements PbjBlockAccessService {
     private final System.Logger LOGGER = System.getLogger(getClass().getName());
 
     private final ServiceStatus serviceStatus;
+    private final WebServerStatus webServerStatus;
     private final BlockReader<BlockUnparsed> blockReader;
     private final MetricsService metricsService;
 
@@ -46,11 +49,13 @@ public class PbjBlockAccessServiceProxy implements PbjBlockAccessService {
     @Inject
     public PbjBlockAccessServiceProxy(
             @NonNull final ServiceStatus serviceStatus,
+            @NonNull final WebServerStatus webServerStatus,
             @NonNull final BlockReader<BlockUnparsed> blockReader,
             @NonNull final MetricsService metricsService) {
-        this.serviceStatus = serviceStatus;
-        this.blockReader = blockReader;
-        this.metricsService = metricsService;
+        this.serviceStatus = Objects.requireNonNull(serviceStatus);
+        this.webServerStatus = Objects.requireNonNull(webServerStatus);
+        this.blockReader = Objects.requireNonNull(blockReader);
+        this.metricsService = Objects.requireNonNull(metricsService);
     }
 
     /**
@@ -89,7 +94,7 @@ public class PbjBlockAccessServiceProxy implements PbjBlockAccessService {
 
         LOGGER.log(DEBUG, "Executing Unary singleBlock gRPC method");
 
-        if (serviceStatus.isRunning()) {
+        if (webServerStatus.isRunning()) {
             final long blockNumber = singleBlockRequest.blockNumber();
             try {
                 final Optional<BlockUnparsed> blockOpt = blockReader.read(blockNumber);

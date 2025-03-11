@@ -13,6 +13,7 @@ import javax.inject.Singleton;
 import org.hiero.block.server.metrics.MetricsService;
 import org.hiero.block.server.notifier.Notifiable;
 import org.hiero.block.server.service.ServiceStatus;
+import org.hiero.block.server.service.WebServerStatus;
 
 /** A Dagger module for providing dependencies for Mediator Module.` */
 @Module
@@ -31,13 +32,14 @@ public interface MediatorInjectionModule {
     static LiveStreamMediator providesLiveStreamMediator(
             @NonNull MediatorConfig mediatorConfig,
             @NonNull MetricsService metricsService,
-            @NonNull ServiceStatus serviceStatus) {
+            @NonNull ServiceStatus serviceStatus,
+            @NonNull WebServerStatus webServerStatus) {
         final MediatorConfig.MediatorType mediatorType = mediatorConfig.type();
         if (mediatorType == NO_OP) {
             return new NoOpLiveStreamMediator(metricsService);
         }
 
-        return LiveStreamMediatorBuilder.newBuilder(metricsService, mediatorConfig, serviceStatus)
+        return LiveStreamMediatorBuilder.newBuilder(metricsService, mediatorConfig, serviceStatus, webServerStatus)
                 .build();
     }
 

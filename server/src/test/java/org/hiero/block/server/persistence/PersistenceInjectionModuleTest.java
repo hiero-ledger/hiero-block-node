@@ -37,6 +37,7 @@ import org.hiero.block.server.persistence.storage.remove.BlockRemover;
 import org.hiero.block.server.persistence.storage.remove.NoOpBlockRemover;
 import org.hiero.block.server.persistence.storage.write.AsyncBlockWriterFactory;
 import org.hiero.block.server.service.ServiceStatus;
+import org.hiero.block.server.service.WebServerStatus;
 import org.hiero.block.server.util.TestConfigUtil;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -65,6 +66,9 @@ class PersistenceInjectionModuleTest {
 
     @Mock
     private ServiceStatus serviceStatusMock;
+
+    @Mock
+    private WebServerStatus webServerStatusMock;
 
     @Mock
     private AckHandler ackHandlerMock;
@@ -234,6 +238,7 @@ class PersistenceInjectionModuleTest {
                         notifierMock,
                         metricsService,
                         serviceStatusMock,
+                        webServerStatusMock,
                         ackHandlerMock,
                         asyncBlockWriterFactoryMock,
                         blockPathResolverMock,

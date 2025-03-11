@@ -13,6 +13,7 @@ import com.hedera.hapi.block.PublishStreamResponse;
 import com.hedera.hapi.block.PublishStreamResponseCode;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import edu.umd.cs.findbugs.annotations.NonNull;
+import java.util.Objects;
 import java.util.concurrent.ConcurrentHashMap;
 import javax.inject.Inject;
 import javax.inject.Singleton;
@@ -20,6 +21,7 @@ import org.hiero.block.server.mediator.MediatorConfig;
 import org.hiero.block.server.mediator.SubscriptionHandlerBase;
 import org.hiero.block.server.metrics.MetricsService;
 import org.hiero.block.server.service.ServiceStatus;
+import org.hiero.block.server.service.WebServerStatus;
 
 /**
  * Use NotifierImpl to mediate the stream of responses from the persistence layer back to multiple
@@ -41,6 +43,7 @@ public class NotifierImpl extends SubscriptionHandlerBase<PublishStreamResponse>
     private final Notifiable mediator;
     private final MetricsService metricsService;
     private final ServiceStatus serviceStatus;
+    private final WebServerStatus webServerStatus;
 
     /**
      * Constructs a new NotifierImpl instance with the given mediator, block node context, and
@@ -58,7 +61,8 @@ public class NotifierImpl extends SubscriptionHandlerBase<PublishStreamResponse>
             @NonNull final MetricsService metricsService,
             @NonNull final NotifierConfig notifierConfig,
             @NonNull final MediatorConfig mediatorConfig,
-            @NonNull final ServiceStatus serviceStatus) {
+            @NonNull final ServiceStatus serviceStatus,
+            @NonNull final WebServerStatus webServerStatus) {
 
         super(
                 new ConcurrentHashMap<>(SUBSCRIBER_INIT_CAPACITY),
@@ -67,9 +71,10 @@ public class NotifierImpl extends SubscriptionHandlerBase<PublishStreamResponse>
                 mediatorConfig,
                 notifierConfig.ringBufferSize());
 
-        this.mediator = mediator;
-        this.metricsService = metricsService;
-        this.serviceStatus = serviceStatus;
+        this.mediator = Objects.requireNonNull(mediator);
+        this.metricsService = Objects.requireNonNull(metricsService);
+        this.serviceStatus = Objects.requireNonNull(serviceStatus);
+        this.webServerStatus = Objects.requireNonNull(webServerStatus);
     }
 
     @Override
@@ -82,7 +87,7 @@ public class NotifierImpl extends SubscriptionHandlerBase<PublishStreamResponse>
         ringBuffer.publishEvent((event, sequence) -> event.set(errorStreamResponse));
 
         // Stop the server
-        serviceStatus.stopWebServer(getClass().getName());
+        webServerStatus.stopWebServer(getClass().getName());
     }
 
     /**
@@ -92,7 +97,7 @@ public class NotifierImpl extends SubscriptionHandlerBase<PublishStreamResponse>
      */
     @Override
     public void publish(@NonNull PublishStreamResponse response) {
-        if (serviceStatus.isRunning()) {
+        if (webServerStatus.isRunning()) {
             // Publish the block item to the subscribers
             ringBuffer.publishEvent((event, sequence) -> event.set(response));
 

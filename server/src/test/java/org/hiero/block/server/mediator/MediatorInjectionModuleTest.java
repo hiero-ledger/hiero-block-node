@@ -11,6 +11,7 @@ import java.util.List;
 import java.util.Map;
 import org.hiero.block.server.metrics.MetricsService;
 import org.hiero.block.server.service.ServiceStatus;
+import org.hiero.block.server.service.WebServerStatus;
 import org.hiero.block.server.util.TestConfigUtil;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -23,6 +24,9 @@ class MediatorInjectionModuleTest {
 
     @Mock
     private ServiceStatus serviceStatus;
+
+    @Mock
+    private WebServerStatus webServerStatus;
 
     @BeforeEach
     void setup() {
@@ -38,7 +42,10 @@ class MediatorInjectionModuleTest {
         // Call the method under test
         StreamMediator<List<BlockItemUnparsed>, List<BlockItemUnparsed>> streamMediator =
                 MediatorInjectionModule.providesLiveStreamMediator(
-                        configuration.getConfigData(MediatorConfig.class), metricsService, serviceStatus);
+                        configuration.getConfigData(MediatorConfig.class),
+                        metricsService,
+                        serviceStatus,
+                        webServerStatus);
 
         // Verify that the streamMediator is correctly instantiated
         assertNotNull(streamMediator);
@@ -55,7 +62,10 @@ class MediatorInjectionModuleTest {
         // Call the method under test
         StreamMediator<List<BlockItemUnparsed>, List<BlockItemUnparsed>> streamMediator =
                 MediatorInjectionModule.providesLiveStreamMediator(
-                        configuration.getConfigData(MediatorConfig.class), metricsService, serviceStatus);
+                        configuration.getConfigData(MediatorConfig.class),
+                        metricsService,
+                        serviceStatus,
+                        webServerStatus);
 
         // Verify that the streamMediator is correctly instantiated
         assertNotNull(streamMediator);

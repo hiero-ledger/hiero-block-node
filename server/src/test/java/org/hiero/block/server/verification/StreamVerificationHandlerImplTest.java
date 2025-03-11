@@ -15,6 +15,7 @@ import org.hiero.block.server.mediator.SubscriptionHandler;
 import org.hiero.block.server.metrics.MetricsService;
 import org.hiero.block.server.notifier.Notifier;
 import org.hiero.block.server.service.ServiceStatus;
+import org.hiero.block.server.service.WebServerStatus;
 import org.hiero.block.server.verification.service.BlockVerificationService;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -40,16 +41,24 @@ public class StreamVerificationHandlerImplTest {
     private ServiceStatus serviceStatus;
 
     @Mock
+    private WebServerStatus webServerStatus;
+
+    @Mock
     private BlockVerificationService blockVerificationService;
 
     private static final int testTimeout = 50;
 
     @Test
     public void testOnEventWhenServiceIsNotRunning() {
-        when(serviceStatus.isRunning()).thenReturn(false);
+        when(webServerStatus.isRunning()).thenReturn(false);
 
         final var streamVerificationHandler = new StreamVerificationHandlerImpl(
-                subscriptionHandler, notifier, metricsService, serviceStatus, blockVerificationService);
+                subscriptionHandler,
+                notifier,
+                metricsService,
+                serviceStatus,
+                webServerStatus,
+                blockVerificationService);
 
         final ObjectEvent<List<BlockItemUnparsed>> event = new ObjectEvent<>();
         event.set(Collections.emptyList());
@@ -57,17 +66,22 @@ public class StreamVerificationHandlerImplTest {
         // Call the handler
         streamVerificationHandler.onEvent(event, 0, false);
 
-        verify(serviceStatus, timeout(testTimeout).times(0)).stopRunning(any());
+        verify(webServerStatus, timeout(testTimeout).times(0)).stopRunning(any());
         verify(subscriptionHandler, timeout(testTimeout).times(0)).unsubscribe(any());
         verify(notifier, timeout(testTimeout).times(0)).notifyUnrecoverableError();
     }
 
     @Test
     public void testValidBlockItemsAreVerified() throws ParseException {
-        when(serviceStatus.isRunning()).thenReturn(true);
+        when(webServerStatus.isRunning()).thenReturn(true);
 
         final var streamVerificationHandler = new StreamVerificationHandlerImpl(
-                subscriptionHandler, notifier, metricsService, serviceStatus, blockVerificationService);
+                subscriptionHandler,
+                notifier,
+                metricsService,
+                serviceStatus,
+                webServerStatus,
+                blockVerificationService);
 
         BlockHeader blockHeader = BlockHeader.newBuilder().number(10).build();
 
@@ -82,17 +96,22 @@ public class StreamVerificationHandlerImplTest {
         streamVerificationHandler.onEvent(event, 0, false);
 
         verify(blockVerificationService, times(1)).onBlockItemsReceived(blockItems);
-        verify(serviceStatus, never()).stopRunning(any());
+        verify(webServerStatus, never()).stopRunning(any());
         verify(subscriptionHandler, never()).unsubscribe(any());
         verify(notifier, never()).notifyUnrecoverableError();
     }
 
     @Test
     public void testExceptionInVerificationTriggersErrorResponse() throws ParseException {
-        when(serviceStatus.isRunning()).thenReturn(true);
+        when(webServerStatus.isRunning()).thenReturn(true);
 
         final var streamVerificationHandler = new StreamVerificationHandlerImpl(
-                subscriptionHandler, notifier, metricsService, serviceStatus, blockVerificationService);
+                subscriptionHandler,
+                notifier,
+                metricsService,
+                serviceStatus,
+                webServerStatus,
+                blockVerificationService);
 
         BlockHeader blockHeader = BlockHeader.newBuilder().number(10).build();
 
@@ -111,7 +130,7 @@ public class StreamVerificationHandlerImplTest {
 
         streamVerificationHandler.onEvent(event, 0, false);
 
-        verify(serviceStatus, timeout(testTimeout).times(1)).stopRunning(any());
+        verify(webServerStatus, timeout(testTimeout).times(1)).stopRunning(any());
         verify(subscriptionHandler, timeout(testTimeout).times(1)).unsubscribe(any());
     }
 }

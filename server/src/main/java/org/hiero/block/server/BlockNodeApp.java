@@ -21,6 +21,7 @@ import org.hiero.block.server.health.HealthService;
 import org.hiero.block.server.pbj.PbjBlockAccessService;
 import org.hiero.block.server.pbj.PbjBlockStreamService;
 import org.hiero.block.server.service.ServiceStatus;
+import org.hiero.block.server.service.WebServerStatus;
 
 /**
  * The main class for the Block Node application. This class is responsible for starting the server
@@ -32,6 +33,7 @@ public class BlockNodeApp {
     private static final Logger LOGGER = System.getLogger(BlockNodeApp.class.getName());
 
     private final ServiceStatus serviceStatus;
+    private final WebServerStatus webServerStatus;
     private final HealthService healthService;
     private final WebServerConfig.Builder webServerBuilder;
     private final PbjBlockStreamService pbjBlockStreamService;
@@ -52,6 +54,7 @@ public class BlockNodeApp {
     @Inject
     public BlockNodeApp(
             @NonNull final ServiceStatus serviceStatus,
+            @NonNull final WebServerStatus webServerStatus,
             @NonNull final HealthService healthService,
             @NonNull final PbjBlockStreamService pbjBlockStreamService,
             @NonNull final PbjBlockAccessService pbjBlockAccessService,
@@ -59,6 +62,7 @@ public class BlockNodeApp {
             @NonNull final ServerConfig serverConfig,
             @NonNull final ConfigurationLogging configurationLogging) {
         this.serviceStatus = requireNonNull(serviceStatus);
+        this.webServerStatus = requireNonNull(webServerStatus);
         this.healthService = requireNonNull(healthService);
         this.pbjBlockStreamService = requireNonNull(pbjBlockStreamService);
         this.pbjBlockAccessService = requireNonNull(pbjBlockAccessService);
@@ -104,7 +108,7 @@ public class BlockNodeApp {
                 .build();
 
         // Update the serviceStatus with the web server
-        serviceStatus.setWebServer(webServer);
+        webServerStatus.setWebServer(webServer);
 
         // Start the web server
         webServer.start();

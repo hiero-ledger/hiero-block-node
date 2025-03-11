@@ -41,6 +41,7 @@ import org.hiero.block.server.persistence.storage.write.AsyncBlockWriterFactory;
 import org.hiero.block.server.persistence.storage.write.AsyncNoOpWriterFactory;
 import org.hiero.block.server.persistence.storage.write.AsyncWriterExecutorFactory;
 import org.hiero.block.server.service.ServiceStatus;
+import org.hiero.block.server.service.WebServerStatus;
 
 /** A Dagger module for providing dependencies for Persistence Module. */
 @Module
@@ -177,6 +178,7 @@ public interface PersistenceInjectionModule {
             @NonNull final Notifier notifier,
             @NonNull final MetricsService metricsService,
             @NonNull final ServiceStatus serviceStatus,
+            @NonNull final WebServerStatus webServerStatus,
             @NonNull final AckHandler ackHandler,
             @NonNull final AsyncBlockWriterFactory asyncBlockWriterFactory,
             @NonNull final BlockPathResolver blockPathResolver,
@@ -189,6 +191,7 @@ public interface PersistenceInjectionModule {
                     notifier,
                     metricsService,
                     serviceStatus,
+                    webServerStatus,
                     ackHandler,
                     asyncBlockWriterFactory,
                     executor,
