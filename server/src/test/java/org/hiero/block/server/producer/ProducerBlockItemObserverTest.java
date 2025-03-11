@@ -266,7 +266,7 @@ public class ProducerBlockItemObserverTest {
     public void testDuplicateBlockReceived_NullAckHashVariation() {
 
         // given
-        when(serviceStatus.isRunning()).thenReturn(true);
+        when(webServerStatus.isRunning()).thenReturn(true);
         long latestAckedBlockNumber = 10L;
         BlockInfo latestAckedBlock = new BlockInfo(latestAckedBlockNumber);
         when(serviceStatus.getLatestAckedBlock()).thenReturn(latestAckedBlock);
@@ -279,6 +279,7 @@ public class ProducerBlockItemObserverTest {
                 subscriptionHandler,
                 helidonPublishPipeline,
                 serviceStatus,
+                webServerStatus,
                 consumerConfig,
                 metricsService);
 
@@ -309,7 +310,7 @@ public class ProducerBlockItemObserverTest {
     public void testDuplicateBlockReceived_NullAckVariation() {
 
         // given
-        when(serviceStatus.isRunning()).thenReturn(true);
+        when(webServerStatus.isRunning()).thenReturn(true);
         when(serviceStatus.getLatestAckedBlock()).thenReturn(null);
         when(serviceStatus.getLatestReceivedBlockNumber()).thenReturn(10L);
 
@@ -320,6 +321,7 @@ public class ProducerBlockItemObserverTest {
                 subscriptionHandler,
                 helidonPublishPipeline,
                 serviceStatus,
+                webServerStatus,
                 consumerConfig,
                 metricsService);
 
@@ -350,7 +352,7 @@ public class ProducerBlockItemObserverTest {
     public void testDuplicateBlockReceived_DiffAckNumberVariation() {
 
         // given
-        when(serviceStatus.isRunning()).thenReturn(true);
+        when(webServerStatus.isRunning()).thenReturn(true);
         long latestAckedBlockNumber = 10L;
         long latestReceivedBlockNumber = 11L;
         Bytes fakeHash = Bytes.wrap("fake_hash");
@@ -367,6 +369,7 @@ public class ProducerBlockItemObserverTest {
                 subscriptionHandler,
                 helidonPublishPipeline,
                 serviceStatus,
+                webServerStatus,
                 consumerConfig,
                 metricsService);
 
