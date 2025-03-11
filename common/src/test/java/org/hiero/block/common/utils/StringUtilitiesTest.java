@@ -17,7 +17,7 @@ class StringUtilitiesTest {
      * @param toTest parameterized, the String to test
      */
     @ParameterizedTest
-    @MethodSource("com.hedera.block.common.CommonsTestUtility#blankStrings")
+    @MethodSource("org.hiero.block.common.CommonsTestUtility#blankStrings")
     void testRequireNotBlankPass(final String toTest) {
         assertThat(StringUtilities.isBlank(toTest)).isTrue();
     }
@@ -29,7 +29,7 @@ class StringUtilitiesTest {
      * @param toTest parameterized, the string to test
      */
     @ParameterizedTest
-    @MethodSource("com.hedera.block.common.CommonsTestUtility#nonBlankStrings")
+    @MethodSource("org.hiero.block.common.CommonsTestUtility#nonBlankStrings")
     void testRequireNotBlankFail(final String toTest) {
         assertThat(StringUtilities.isBlank(toTest)).isFalse();
     }

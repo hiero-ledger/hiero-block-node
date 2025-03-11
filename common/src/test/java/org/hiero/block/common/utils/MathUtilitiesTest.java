@@ -15,7 +15,7 @@ class MathUtilitiesTest {
      * returns {@code true} if the input number is a power of two.
      */
     @ParameterizedTest
-    @MethodSource("com.hedera.block.common.CommonsTestUtility#powerOfTwoIntegers")
+    @MethodSource("org.hiero.block.common.CommonsTestUtility#powerOfTwoIntegers")
     void testIsPowerOfTwoPass(final int toTest) {
         final boolean actual = MathUtilities.isPowerOfTwo(toTest);
         assertThat(actual).isTrue();
@@ -27,8 +27,8 @@ class MathUtilitiesTest {
      */
     @ParameterizedTest
     @MethodSource({
-        "com.hedera.block.common.CommonsTestUtility#nonPowerOfTwoIntegers",
-        "com.hedera.block.common.CommonsTestUtility#negativePowerOfTwoIntegers"
+        "org.hiero.block.common.CommonsTestUtility#nonPowerOfTwoIntegers",
+        "org.hiero.block.common.CommonsTestUtility#negativePowerOfTwoIntegers"
     })
     void testIsPowerOfTwoFail(final int toTest) {
         final boolean actual = MathUtilities.isPowerOfTwo(toTest);
@@ -40,7 +40,7 @@ class MathUtilitiesTest {
      * returns {@code true} if the input number is even.
      */
     @ParameterizedTest
-    @MethodSource("com.hedera.block.common.CommonsTestUtility#evenIntegers")
+    @MethodSource("org.hiero.block.common.CommonsTestUtility#evenIntegers")
     void testIsEvenPass(final int toTest) {
         final boolean actual = MathUtilities.isEven(toTest);
         assertThat(actual).isTrue();
@@ -51,7 +51,7 @@ class MathUtilitiesTest {
      * returns {@code false} if the input number is odd.
      */
     @ParameterizedTest
-    @MethodSource("com.hedera.block.common.CommonsTestUtility#oddIntegers")
+    @MethodSource("org.hiero.block.common.CommonsTestUtility#oddIntegers")
     void testIsEvenFail(final int toTest) {
         final boolean actual = MathUtilities.isEven(toTest);
         assertThat(actual).isFalse();
@@ -63,7 +63,7 @@ class MathUtilitiesTest {
      * the input to check is a positive power of 10.
      */
     @ParameterizedTest
-    @MethodSource("com.hedera.block.common.CommonsTestUtility#positivePowersOf10")
+    @MethodSource("org.hiero.block.common.CommonsTestUtility#positivePowersOf10")
     void testIsPositivePowerOf10Pass(final long toTest) {
         final boolean actual = MathUtilities.isPositivePowerOf10(toTest);
         assertThat(actual).isTrue();
@@ -76,8 +76,8 @@ class MathUtilitiesTest {
      */
     @ParameterizedTest
     @MethodSource({
-        "com.hedera.block.common.CommonsTestUtility#negativePowersOf10",
-        "com.hedera.block.common.CommonsTestUtility#nonPowersOf10"
+        "org.hiero.block.common.CommonsTestUtility#negativePowersOf10",
+        "org.hiero.block.common.CommonsTestUtility#nonPowersOf10"
     })
     void testIsPositivePowerOf10Fail(final long toTest) {
         final boolean actual = MathUtilities.isPositivePowerOf10(toTest);
