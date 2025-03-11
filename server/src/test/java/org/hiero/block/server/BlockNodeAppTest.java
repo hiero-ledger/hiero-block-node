@@ -26,6 +26,7 @@ import org.hiero.block.server.metrics.MetricsService;
 import org.hiero.block.server.notifier.Notifier;
 import org.hiero.block.server.pbj.PbjBlockAccessServiceProxy;
 import org.hiero.block.server.pbj.PbjBlockStreamServiceProxy;
+import org.hiero.block.server.pbj.PbjServerStatusServiceProxy;
 import org.hiero.block.server.persistence.storage.read.BlockReader;
 import org.hiero.block.server.producer.ProducerConfig;
 import org.hiero.block.server.service.ServiceStatus;
@@ -100,6 +101,7 @@ class BlockNodeAppTest {
                         consumerConfig,
                         producerConfig),
                 new PbjBlockAccessServiceProxy(serviceStatus, blockReader, metricsService),
+                new PbjServerStatusServiceProxy(serviceStatus, metricsService),
                 webServerBuilder,
                 serverConfig,
                 configurationLogging);

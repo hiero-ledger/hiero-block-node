@@ -20,6 +20,7 @@ import org.hiero.block.server.config.logging.ConfigurationLogging;
 import org.hiero.block.server.health.HealthService;
 import org.hiero.block.server.pbj.PbjBlockAccessService;
 import org.hiero.block.server.pbj.PbjBlockStreamService;
+import org.hiero.block.server.pbj.PbjServerStatusService;
 import org.hiero.block.server.service.ServiceStatus;
 
 /**
@@ -36,6 +37,7 @@ public class BlockNodeApp {
     private final WebServerConfig.Builder webServerBuilder;
     private final PbjBlockStreamService pbjBlockStreamService;
     private final PbjBlockAccessService pbjBlockAccessService;
+    private final PbjServerStatusService pbjServerStatusService;
     private final ServerConfig serverConfig;
     private final ConfigurationLogging configurationLogging;
 
@@ -55,6 +57,7 @@ public class BlockNodeApp {
             @NonNull final HealthService healthService,
             @NonNull final PbjBlockStreamService pbjBlockStreamService,
             @NonNull final PbjBlockAccessService pbjBlockAccessService,
+            @NonNull final PbjServerStatusService pbjServerStatusService,
             @NonNull final WebServerConfig.Builder webServerBuilder,
             @NonNull final ServerConfig serverConfig,
             @NonNull final ConfigurationLogging configurationLogging) {
@@ -63,6 +66,7 @@ public class BlockNodeApp {
         this.pbjBlockStreamService = requireNonNull(pbjBlockStreamService);
         this.pbjBlockAccessService = requireNonNull(pbjBlockAccessService);
         this.webServerBuilder = requireNonNull(webServerBuilder);
+        this.pbjServerStatusService = requireNonNull(pbjServerStatusService);
         this.serverConfig = requireNonNull(serverConfig);
         this.configurationLogging = requireNonNull(configurationLogging);
     }
@@ -80,8 +84,10 @@ public class BlockNodeApp {
         final HttpRouting.Builder httpRouting =
                 HttpRouting.builder().register(healthService.getHealthRootPath(), healthService);
 
-        final PbjRouting.Builder pbjRouting =
-                PbjRouting.builder().service(pbjBlockStreamService).service(pbjBlockAccessService);
+        final PbjRouting.Builder pbjRouting = PbjRouting.builder()
+                .service(pbjBlockStreamService)
+                .service(pbjBlockAccessService)
+                .service(pbjServerStatusService);
 
         // Override the default message size
         final PbjConfig pbjConfig = PbjConfig.builder()

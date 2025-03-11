@@ -128,22 +128,22 @@ enum SubscribeStreamResponseCode {
 //    STATE_SNAPSHOT_SUCCESS = 2;
 //}
 //
-//message ServerStatusRequest {}
-//message ServerStatusResponse {
-//    uint64 first_available_block = 1;
-//    uint64 last_available_block = 2;
-//    bool only_latest_state = 3;
-//    BlockNodeVersions version_information = 4;
-//}
-//
-//message BlockNodeVersions {
-//    proto.SemanticVersion address_book_version = 1;
-//    proto.SemanticVersion stream_proto_version = 2;
-//    proto.SemanticVersion software_version = 3;
-//}
+message ServerStatusRequest {}
+message ServerStatusResponse {
+    uint64 first_available_block = 1;
+    uint64 last_available_block = 2;
+    bool only_latest_state = 3;
+    BlockNodeVersions version_information = 4;
+}
+
+message BlockNodeVersions {
+    SemanticVersion address_book_version = 1;
+    SemanticVersion stream_proto_version = 2;
+    SemanticVersion software_version = 3;
+}
 
 service BlockStreamService {
-//    rpc serverStatus(ServerStatusRequest) returns (ServerStatusResponse);
+    rpc serverStatus(ServerStatusRequest) returns (ServerStatusResponse);
 //    rpc stateSnapshot(StateSnapshotRequest) returns (StateSnapshotResponse);
     rpc publishBlockStream (stream PublishStreamRequest) returns (stream PublishStreamResponse);
     rpc subscribeBlockStream(SubscribeStreamRequest) returns (stream SubscribeStreamResponse);
