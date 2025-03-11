@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
-package com.hedera.block.tools.commands.record2blocks.mirrornode;
+package org.hiero.block.tools.commands.record2blocks.mirrornode;
 
-import static com.hedera.block.tools.commands.record2blocks.util.RecordFileDates.recordFileNameToBlockTimeLong;
+import static org.hiero.block.tools.commands.record2blocks.util.RecordFileDates.recordFileNameToBlockTimeLong;
 
 import java.io.BufferedReader;
 import java.io.FileInputStream;

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-package com.hedera.block.tools.commands.record2blocks.model;
+package org.hiero.block.tools.commands.record2blocks.model;
 
 import java.nio.ByteBuffer;
 import java.nio.LongBuffer;

@@ -6,9 +6,9 @@ plugins {
     id("org.hiero.gradle.feature.shadow")
 }
 
-description = "Hedera Block Stream Tools"
+description = "Hiero Block Stream Tools"
 
-application { mainClass = "com.hedera.block.tools.BlockStreamTool" }
+application { mainClass = "org.hiero.block.tools.BlockStreamTool" }
 
 mainModuleInfo {
     requires("com.hedera.block.stream") // use streams module to access protobuf generated classes

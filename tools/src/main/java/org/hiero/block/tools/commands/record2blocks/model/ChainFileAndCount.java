@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-package com.hedera.block.tools.commands.record2blocks.model;
+package org.hiero.block.tools.commands.record2blocks.model;
 
 /**
  * Simple Record for a ChainFile and the count of how many times there are similar chain files for a record file set.

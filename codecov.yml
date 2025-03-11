@@ -19,10 +19,10 @@ coverage:
         threshold: 1%
 
 ignore:
-  - "server/src/main/java/com/hedera/block/server/Server.java"
-  - "server/src/main/java/com/hedera/block/server/mediator/NoOpLiveStreamMediator.java"
-  - "server/src/main/java/com/hedera/block/server/producer/NoOpProducerObserver.java"
-  - "server/src/main/java/com/hedera/block/server/persistence/storage/write/NoOpBlockWriter.java"
-  - "simulator/src/main/java/com/hedera/block/simulator/BlockStreamSimulator.java"
+  - "server/src/main/java/org/hiero/block/server/Server.java"
+  - "server/src/main/java/org/hiero/block/server/mediator/NoOpLiveStreamMediator.java"
+  - "server/src/main/java/org/hiero/block/server/producer/NoOpProducerObserver.java"
+  - "server/src/main/java/org/hiero/block/server/persistence/storage/write/NoOpBlockWriter.java"
+  - "simulator/src/main/java/org/hiero/block/simulator/BlockStreamSimulator.java"
   - "suites/**"
   - "tools/**"

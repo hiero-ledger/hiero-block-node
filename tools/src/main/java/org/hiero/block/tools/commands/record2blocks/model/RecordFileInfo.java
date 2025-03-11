@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
-package com.hedera.block.tools.commands.record2blocks.model;
+package org.hiero.block.tools.commands.record2blocks.model;
 
-import static com.hedera.block.tools.commands.record2blocks.model.ParsedSignatureFile.HASH_OBJECT_SIZE_BYTES;
-import static com.hedera.block.tools.commands.record2blocks.model.ParsedSignatureFile.readHashObject;
+import static org.hiero.block.tools.commands.record2blocks.model.ParsedSignatureFile.HASH_OBJECT_SIZE_BYTES;
+import static org.hiero.block.tools.commands.record2blocks.model.ParsedSignatureFile.readHashObject;
 
 import com.hedera.hapi.node.base.SemanticVersion;
 import com.hedera.hapi.streams.RecordStreamFile;

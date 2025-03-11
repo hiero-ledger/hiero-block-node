@@ -1,13 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
-package com.hedera.block.tools.commands.record2blocks.model;
+package org.hiero.block.tools.commands.record2blocks.model;
 
-import com.hedera.block.tools.commands.record2blocks.gcp.MainNetBucket;
 import com.hedera.hapi.streams.SignatureFile;
 import com.hedera.pbj.runtime.ParseException;
 import com.hedera.pbj.runtime.io.stream.ReadableStreamingData;
 import java.io.DataInputStream;
 import java.io.IOException;
 import java.util.HexFormat;
+import org.hiero.block.tools.commands.record2blocks.gcp.MainNetBucket;
 
 /**
  * SignatureFile represents a Hedera record file signature file. There have been 3 versions of the signature files used
