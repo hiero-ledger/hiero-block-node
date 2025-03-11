@@ -1,8 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 import org.hiero.block.server.config.BlockNodeConfigExtension;
 
-module org.hiero.block.server {
-    exports org.hiero.block.server;
+module org.hiero.block.base {
     exports org.hiero.block.server.consumer;
     exports org.hiero.block.server.exception;
     exports org.hiero.block.server.persistence.storage;
@@ -22,7 +21,6 @@ module org.hiero.block.server {
     exports org.hiero.block.server.persistence;
     exports org.hiero.block.server.notifier;
     exports org.hiero.block.server.service;
-    exports org.hiero.block.server.pbj;
     exports org.hiero.block.server.producer;
     exports org.hiero.block.server.verification;
     exports org.hiero.block.server.verification.session;
@@ -30,19 +28,16 @@ module org.hiero.block.server {
     exports org.hiero.block.server.verification.service;
     exports org.hiero.block.server.block;
 
+    requires org.hiero.block.common;
     requires com.hedera.block.stream;
-    requires com.hedera.pbj.grpc.helidon.config;
-    requires com.hedera.pbj.grpc.helidon;
     requires com.hedera.pbj.runtime;
     requires com.swirlds.common;
     requires com.swirlds.config.api;
     requires com.swirlds.config.extensions;
     requires com.swirlds.metrics.api;
-    requires org.hiero.block.common;
     requires com.github.luben.zstd_jni;
     requires com.lmax.disruptor;
     requires dagger;
-    requires io.helidon.common;
     requires io.helidon.webserver;
     requires javax.inject;
     requires static transitive com.github.spotbugs.annotations;

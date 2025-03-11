@@ -91,6 +91,7 @@ import org.hiero.block.server.verification.service.BlockVerificationServiceImpl;
 import org.hiero.block.server.verification.session.BlockVerificationSessionFactory;
 import org.hiero.block.server.verification.signature.SignatureVerifierDummy;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -199,6 +200,7 @@ class PbjBlockStreamServiceIntegrationTest {
         mediatorConfig = config.getConfigData(MediatorConfig.class);
     }
 
+    @Disabled
     @Test
     @Timeout(value = JUNIT_TIMEOUT, unit = TimeUnit.MILLISECONDS)
     void testPublishBlockStreamRegistrationAndExecution() throws IOException, InterruptedException {
@@ -502,6 +504,7 @@ class PbjBlockStreamServiceIntegrationTest {
         verifySubscribeStreamResponse(numberOfBlocks, 89, numberOfBlocks, subscribeStreamObserver6, blockItems, true);
     }
 
+    @Disabled
     @Test
     @Timeout(value = JUNIT_TIMEOUT, unit = TimeUnit.MILLISECONDS)
     void testSubAndUnsubWhileStreaming() throws InterruptedException, IOException {

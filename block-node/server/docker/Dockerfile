@@ -74,10 +74,10 @@ ARG VERSION
 WORKDIR /app
 
 # Copy Distribution TAR file
-COPY --from=distributions server-${VERSION}.tar .
+COPY --from=distributions block-node-server-${VERSION}.tar .
 
 # Extract the TAR file
-RUN tar -xvf server-${VERSION}.tar
+RUN tar -xvf block-node-server-${VERSION}.tar
 
 # Create a log directory
 RUN mkdir -p /app/logs/config
@@ -142,4 +142,4 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=3s --retries=3 \
       curl -f http://localhost:8080/healthz/readyz || exit 1
 
 # RUN the bin script for starting the server
-ENTRYPOINT ["/bin/bash", "-c", "/app/server-${VERSION}/bin/server"]
+ENTRYPOINT ["/bin/bash", "-c", "/app/block-node-server-${VERSION}/bin/server"]

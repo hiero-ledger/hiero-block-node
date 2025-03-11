@@ -24,7 +24,9 @@ tasks.register<Test>("runSuites") {
     modularity.inferModulePath = false
 
     // @todo(#343) - :server:createProductionDotEnv should disappear
-    dependsOn(":server:createDockerImage", ":server:createProductionDotEnv")
+    // @todo(#813) All of the docker processing belongs here, not in block-node-server.
+    //    This might mean duplication, which is perfectly fine.
+    dependsOn(":block-node-server:createDockerImage", ":block-node-server:createProductionDotEnv")
 
     useJUnitPlatform()
     testLogging { events("passed", "skipped", "failed") }
