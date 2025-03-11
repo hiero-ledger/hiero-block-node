@@ -41,6 +41,24 @@ spec:
             claimName: {{ if .Values.blockNode.persistence.live.create }}{{ include "hiero-block-node.fullname" . }}-live{{ else }}{{ .Values.blockNode.persistence.live.existingClaim }}{{ end }}
         - name: unverified-ephemeral-storage
           emptyDir: {}
+      initContainers:
+        - name: init-storage-dirs
+          image: busybox
+          command:
+            - sh
+            - -c
+            - |
+              mkdir -p /live-pvc/live-data && \
+              chown 2000:2000 /live-pvc/live-data && \
+              chmod 700 /live-pvc/live-data && \
+              mkdir -p /archive-pvc/archive-data && \
+              chown 2000:2000 /archive-pvc/archive-data && \
+              chmod 700 /archive-pvc/archive-data
+          volumeMounts:
+            - name: live-storage
+              mountPath: /live-pvc
+            - name: archive-storage
+              mountPath: /archive-pvc
       containers:
       - name: {{ .Chart.Name }}
         securityContext:
@@ -65,8 +83,10 @@ spec:
             readOnly: true
           - name: archive-storage
             mountPath: {{ .Values.blockNode.persistence.archive.mountPath }}
+            subPath: archive-data
           - name: live-storage
             mountPath: {{ .Values.blockNode.persistence.live.mountPath }}
+            subPath: live-data
           - name: unverified-ephemeral-storage
             mountPath: {{ .Values.blockNode.persistence.unverified.mountPath }}
         {{- with  .Values.resources }}

@@ -4,15 +4,15 @@ plugins {
     id("application")
 }
 
-description = "Hedera Block Stream Simulator"
+description = "Hiero Block Stream Simulator"
 
 // Remove the following line to enable all 'javac' lint checks that we have turned on by default
 // and then fix the reported issues.
 tasks.withType<JavaCompile>().configureEach { options.compilerArgs.add("-Xlint:-exports") }
 
 application {
-    mainModule = "com.hedera.block.simulator"
-    mainClass = "com.hedera.block.simulator.BlockStreamSimulator"
+    mainModule = "org.hiero.block.simulator"
+    mainClass = "org.hiero.block.simulator.BlockStreamSimulator"
 }
 
 mainModuleInfo {
