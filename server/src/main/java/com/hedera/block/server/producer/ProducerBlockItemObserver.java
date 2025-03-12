@@ -309,8 +309,8 @@ public class ProducerBlockItemObserver
      */
     private Optional<Bytes> getBlockHash(final long blockNumber) {
         final BlockInfo latestAckedBlockNumber = serviceStatus.getLatestAckedBlock();
-        if (latestAckedBlockNumber.getBlockNumber() == blockNumber) {
-            return Optional.of(latestAckedBlockNumber.getBlockHash());
+        if (latestAckedBlockNumber != null && latestAckedBlockNumber.getBlockNumber() == blockNumber) {
+            return Optional.ofNullable(latestAckedBlockNumber.getBlockHash());
         }
         // if the block is older than the latest acked block, we don't have the hash on hand
         return Optional.empty();
