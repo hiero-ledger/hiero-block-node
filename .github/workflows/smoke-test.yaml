@@ -6,8 +6,10 @@ on:
       - main
       - release/*
   pull_request:
-    branches:
-      - "*"
+    types:
+      - opened
+      - reopened
+      - synchronize
 
 defaults:
   run:
