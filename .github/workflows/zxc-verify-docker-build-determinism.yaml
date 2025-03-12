@@ -55,7 +55,7 @@ env:
   DOCKER_MANIFEST_PATH: ${{ github.workspace }}/.manifests/docker
   DOCKER_REGISTRY: localhost:5000
   DOCKER_IMAGE_NAME: hashgraph/hedera-block-node
-  DOCKER_CONTEXT_PATH: server/docker
+  DOCKER_CONTEXT_PATH: ${{ github.workspace }}/block-node/server/docker
   SKOPEO_VERSION: v1.14.0
   OWNER: hashgraph
 
@@ -188,11 +188,11 @@ jobs:
           build-args: |
             SOURCE_DATE_EPOCH=${{ steps.commit.outputs.source-date }}
             VERSION=${{ env.VERSION }}
-          context: ./${{ env.DOCKER_CONTEXT_PATH }}
-          file: ./${{ env.DOCKER_CONTEXT_PATH }}/Dockerfile
+          context: ${{ env.DOCKER_CONTEXT_PATH }}
+          file: ${{ env.DOCKER_CONTEXT_PATH }}/Dockerfile
           tags: ${{ env.DOCKER_REGISTRY }}/${{ env.DOCKER_IMAGE_NAME }}:${{ steps.commit.outputs.sha-abbrev }}
           build-contexts: |
-            distributions=./server/build/distributions
+            distributions=block-node/server/build/distributions
 
       - name: Generate Manifest
         id: manifest
@@ -207,7 +207,7 @@ jobs:
         run: |
           EXTRACTED_FILE_NAME="${{ steps.commit.outputs.sha }}.tar"
           gunzip "${{ steps.manifest.outputs.name }}"
-          tar -rvf "${EXTRACTED_FILE_NAME}" -C "${{ github.workspace }}/${{ env.DOCKER_CONTEXT_PATH }}" ../../server/build/
+          tar -rvf "${EXTRACTED_FILE_NAME}" -C "${{ env.DOCKER_CONTEXT_PATH }}/../.." server/build/
           gzip "${EXTRACTED_FILE_NAME}"
 
       - name: Upload Baseline
@@ -275,16 +275,16 @@ jobs:
         env:
           CLOUDSDK_PYTHON: ${{ format('{0}{1}', env.pythonLocation, runner.os == 'Windows' && '\python.exe' || '/bin/python3') }}
         run: |
-          echo "Creating build directory: ./server/build/distributions"
-          mkdir -p ./server/build/distributions
+          echo "Creating build directory: block-node/server/build/distributions"
+          mkdir -p block-node/server/build/distributions
 
           mkdir -p "${{ env.DOCKER_MANIFEST_PATH }}"
           cd "${{ env.DOCKER_MANIFEST_PATH }}"
           gsutil cp "${{ needs.generate-baseline.outputs.file }}" .
           tar -xzf "${{ needs.generate-baseline.outputs.name }}"
-          cd ./server/build/distributions
-          cp *.tar "${{ github.workspace }}/server/build/distributions/"
-          echo "Copied Block Node server tar file to ${{ github.workspace }}/server/build/distributions/"
+          cd server/build/distributions
+          cp *.tar "${{ github.workspace }}/block-node/server/build/distributions/"
+          echo "Copied Block Node server tar file to ${{ github.workspace }}/block-node/server/build/distributions/"
 
       - name: Determine Home Directory
         id: home
@@ -328,11 +328,11 @@ jobs:
           build-args: |
             SOURCE_DATE_EPOCH=${{ needs.generate-baseline.outputs.source-date }}
             VERSION=${{ env.VERSION }}
-          context: ./${{ env.DOCKER_CONTEXT_PATH }}
-          file: ./${{ env.DOCKER_CONTEXT_PATH }}/Dockerfile
+          context: ${{ env.DOCKER_CONTEXT_PATH }}
+          file: ${{ env.DOCKER_CONTEXT_PATH }}/Dockerfile
           tags: ${{ env.DOCKER_REGISTRY }}/${{ env.DOCKER_IMAGE_NAME }}:${{ needs.generate-baseline.outputs.sha-abbrev }}
           build-contexts: |
-            distributions=./server/build/distributions
+            distributions=block-node/server/build/distributions
 
       - name: Regenerate Manifest
         id: regen-manifest
