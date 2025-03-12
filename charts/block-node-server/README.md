@@ -1,6 +1,6 @@
 # Helm Chart
 
-Installs the Hiero Block Node on a Kubernetes cluster.
+Installs the Hiero Block Node on a Kubernetes cluster
 
 ## Prerequisites
 
