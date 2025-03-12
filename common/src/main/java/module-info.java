@@ -4,8 +4,8 @@ module org.hiero.block.common {
     exports org.hiero.block.common.utils;
     exports org.hiero.block.common.hasher;
 
-    requires transitive com.hedera.block.stream;
     requires transitive com.hedera.pbj.runtime;
+    requires transitive org.hiero.block.stream;
     requires com.swirlds.common;
     requires static com.github.spotbugs.annotations;
 }
