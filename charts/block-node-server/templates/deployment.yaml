@@ -48,12 +48,12 @@ spec:
             - sh
             - -c
             - |
-              mkdir -p /live-pvc/live-data && \
-              chown 2000:2000 /live-pvc/live-data && \
-              chmod 700 /live-pvc/live-data && \
-              mkdir -p /archive-pvc/archive-data && \
-              chown 2000:2000 /archive-pvc/archive-data && \
-              chmod 700 /archive-pvc/archive-data
+              mkdir -p /live-pvc/{{ .Values.blockNode.persistence.live.subPath }} && \
+              chown 2000:2000 /live-pvc/{{ .Values.blockNode.persistence.live.subPath }} && \
+              chmod 700 /live-pvc/{{ .Values.blockNode.persistence.live.subPath }} && \
+              mkdir -p /archive-pvc/{{ .Values.blockNode.persistence.archive.subPath }} && \
+              chown 2000:2000 /archive-pvc/{{ .Values.blockNode.persistence.archive.subPath }} && \
+              chmod 700 /archive-pvc/{{ .Values.blockNode.persistence.archive.subPath }}
           volumeMounts:
             - name: live-storage
               mountPath: /live-pvc
@@ -83,10 +83,10 @@ spec:
             readOnly: true
           - name: archive-storage
             mountPath: {{ .Values.blockNode.persistence.archive.mountPath }}
-            subPath: archive-data
+            subPath: {{ .Values.blockNode.persistence.archive.subPath }}
           - name: live-storage
             mountPath: {{ .Values.blockNode.persistence.live.mountPath }}
-            subPath: live-data
+            subPath: {{ .Values.blockNode.persistence.live.subPath }}
           - name: unverified-ephemeral-storage
             mountPath: {{ .Values.blockNode.persistence.unverified.mountPath }}
         {{- with  .Values.resources }}

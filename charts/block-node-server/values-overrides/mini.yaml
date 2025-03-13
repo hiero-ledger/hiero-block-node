@@ -19,3 +19,21 @@ blockNode:
       size: 6Gi
     live:
       size: 1Gi
+
+# Setting the PVC size for the Observability stack to mini claims of 1 Gigabyte
+kubepromstack:
+  prometheus:
+    prometheusSpec:
+      storageSpec:
+        volumeClaimTemplate:
+          spec:
+            resources:
+              requests:
+                storage: 1Gi
+  grafana:
+    persistence:
+      size: 1Gi
+
+loki:
+  persistence:
+    size: 1Gi

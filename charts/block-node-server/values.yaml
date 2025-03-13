@@ -86,6 +86,8 @@ blockNode:
       create: true
       # Name of the externally provided PVC
       existingClaim: ""
+      # Name of the subPath in the PVC to mount to mountPath in the container
+      subPath: "archive-data"
       # If create is true, the following values are used to create the PVC
       # should match PERSISTENCE_STORAGE_ARCHIVE_ROOT_PATH, leave as is for default.
       mountPath: "/opt/hashgraph/blocknode/data/archive"
@@ -97,6 +99,8 @@ blockNode:
       create: true
       # Name of the externally provided PVC
       existingClaim: ""
+      # Name of the subPath in the PVC to mount to mountPath in the container
+      subPath: "live-data"
       # If create is true, the following values are used to create the PVC
       # should match PERSISTENCE_STORAGE_LIVE_ROOT_PATH, leave as is for default.
       mountPath: "/opt/hashgraph/blocknode/data/live"
@@ -152,6 +156,15 @@ blockNode:
 
 kubepromstack:
   enabled: true
+  prometheus:
+    prometheusSpec:
+      storageSpec:
+        volumeClaimTemplate:
+          spec:
+            accessModes: ["ReadWriteOnce"]
+            resources:
+              requests:
+                storage: 20Gi
   prometheusOperator:
     namespaces:
       releaseNamespace: true
@@ -171,6 +184,10 @@ kubepromstack:
       datasources:
         enabled: true
         label: grafana_datasource
+    persistence:
+      enabled: true
+      type: pvc
+      size: 10Gi
 
   nodeExporter:
     enabled: true
@@ -192,6 +209,10 @@ loki:
   datasource:
     jsonData: "{}"
     uid: ""
+  persistence:
+    enabled: true
+    size: 20Gi
+    # storageClassName: ""
 
 promtail:
   enabled: true
