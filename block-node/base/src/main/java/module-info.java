@@ -28,13 +28,13 @@ module org.hiero.block.base {
     exports org.hiero.block.server.verification.service;
     exports org.hiero.block.server.block;
 
-    requires transitive com.hedera.block.stream;
     requires transitive com.hedera.pbj.runtime;
     requires transitive com.swirlds.common;
     requires transitive com.swirlds.config.api;
     requires transitive com.swirlds.config.extensions;
     requires transitive com.swirlds.metrics.api;
     requires transitive org.hiero.block.common;
+    requires transitive org.hiero.block.stream;
     requires transitive com.lmax.disruptor;
     requires transitive dagger;
     requires transitive io.helidon.webserver;

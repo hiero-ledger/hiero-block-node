@@ -2,7 +2,6 @@
 module org.hiero.block.server {
     exports org.hiero.block.server;
 
-    requires com.hedera.block.stream;
     requires com.hedera.pbj.grpc.helidon.config;
     requires com.hedera.pbj.grpc.helidon;
     requires com.hedera.pbj.runtime;
@@ -11,6 +10,7 @@ module org.hiero.block.server {
     requires com.swirlds.metrics.api;
     requires org.hiero.block.base;
     requires org.hiero.block.common;
+    requires org.hiero.block.stream;
     requires dagger;
     requires io.helidon.common;
     requires io.helidon.webserver;

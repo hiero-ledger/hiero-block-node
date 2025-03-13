@@ -5,7 +5,7 @@ rootProject.name = "hiero-block-node"
 
 javaModules {
     directory(".") {
-        group = "com.hedera.block"
+        group = "org.hiero.block"
         module("tools") // no 'module-info' yet
         module("suites")
         module("simulator")
@@ -13,7 +13,7 @@ javaModules {
         module("stream")
     }
     directory("block-node") {
-        group = "com.hedera.block"
+        group = "org.hiero.block"
         module("server") { artifact = "block-node-server" }
         module("base") { artifact = "block-node-base" }
         // module("persistence") { artifact = "service-persistence" }
