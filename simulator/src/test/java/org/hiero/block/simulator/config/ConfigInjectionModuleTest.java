@@ -7,64 +7,91 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 
 import com.swirlds.common.metrics.platform.prometheus.PrometheusConfig;
 import com.swirlds.config.api.Configuration;
-import com.swirlds.config.api.ConfigurationBuilder;
-import com.swirlds.config.extensions.sources.ClasspathFileConfigSource;
 import java.io.IOException;
-import java.nio.file.Path;
 import java.util.Map;
 import org.hiero.block.simulator.TestUtils;
 import org.hiero.block.simulator.config.data.BlockGeneratorConfig;
 import org.hiero.block.simulator.config.data.BlockStreamConfig;
 import org.hiero.block.simulator.config.data.GrpcConfig;
+import org.hiero.block.simulator.config.logging.ConfigurationLogging;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 
+/**
+ * The test class for the {@link ConfigInjectionModule}.
+ */
 class ConfigInjectionModuleTest {
-
     static Configuration configuration;
 
     @BeforeAll
     static void setUpAll() throws IOException {
-        configuration = ConfigurationBuilder.create()
-                .withSource(new ClasspathFileConfigSource(Path.of("app.properties")))
-                .autoDiscoverExtensions()
-                .build();
         configuration = TestUtils.getTestConfiguration(
                 Map.of("generator.managerImplementation", "BlockAsFileBlockStreamManager"));
     }
 
+    /**
+     * This test aims to assert that the
+     * {@link ConfigInjectionModule#provideBlockStreamConfig(Configuration)}
+     * returns a non-null {@link BlockStreamConfig} object and no exception is
+     */
     @Test
     void provideBlockStreamConfig() {
-
-        BlockStreamConfig blockStreamConfig = ConfigInjectionModule.provideBlockStreamConfig(configuration);
-
+        final BlockStreamConfig blockStreamConfig = ConfigInjectionModule.provideBlockStreamConfig(configuration);
         assertNotNull(blockStreamConfig);
         assertEquals(1000, blockStreamConfig.blockItemsBatchSize());
     }
 
+    /**
+     * This test aims to assert that the
+     * {@link ConfigInjectionModule#provideGrpcConfig(Configuration)}
+     * returns a non-null {@link GrpcConfig} object and no exception is thrown.
+     */
     @Test
     void provideGrpcConfig() {
-        GrpcConfig grpcConfig = ConfigInjectionModule.provideGrpcConfig(configuration);
-
+        final GrpcConfig grpcConfig = ConfigInjectionModule.provideGrpcConfig(configuration);
         assertNotNull(grpcConfig);
         assertEquals("localhost", grpcConfig.serverAddress());
         assertEquals(8080, grpcConfig.port());
     }
 
+    /**
+     * This test aims to assert that the
+     * {@link ConfigInjectionModule#provideBlockGeneratorConfig(Configuration)}
+     * returns a non-null {@link BlockGeneratorConfig} object and no exception
+     * is thrown.
+     */
     @Test
     void provideBlockGeneratorConfig() {
-        BlockGeneratorConfig blockGeneratorConfig = ConfigInjectionModule.provideBlockGeneratorConfig(configuration);
-
+        final BlockGeneratorConfig blockGeneratorConfig =
+                ConfigInjectionModule.provideBlockGeneratorConfig(configuration);
         assertNotNull(blockGeneratorConfig);
         assertEquals("BlockAsFileBlockStreamManager", blockGeneratorConfig.managerImplementation());
     }
 
+    /**
+     * This test aims to assert that the
+     * {@link ConfigInjectionModule#providePrometheusConfig(Configuration)}
+     * returns a non-null {@link PrometheusConfig} object and no exception is
+     * thrown.
+     */
     @Test
     void providePrometheusConfig() {
-        PrometheusConfig prometheusConfig = ConfigInjectionModule.providePrometheusConfig(configuration);
-
+        final PrometheusConfig prometheusConfig = ConfigInjectionModule.providePrometheusConfig(configuration);
         assertNotNull(prometheusConfig);
         assertFalse(prometheusConfig.endpointEnabled());
         assertEquals(9998, prometheusConfig.endpointPortNumber());
+    }
+
+    /**
+     * This test aims to assert that the
+     * {@link ConfigInjectionModule#providesConfigurationLogging(Configuration)}
+     * returns a non-null {@link ConfigurationLogging} object and no exception
+     * is thrown.
+     */
+    @Test
+    void testProvidesConfigurationLogging() {
+        final ConfigurationLogging configurationLogging =
+                ConfigInjectionModule.providesConfigurationLogging(configuration);
+        assertNotNull(configurationLogging);
     }
 }
