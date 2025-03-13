@@ -1,0 +1,206 @@
+# SPDX-License-Identifier: Apache-2.0
+name: "Local Node E2E Tests Workflow"
+
+on:
+  workflow_dispatch:
+    inputs:
+      networkNodeTag:
+        description: "Specify desired Network Node image tag"
+        required: false
+        type: string
+        default: ""
+      mirrorNodeTag:
+        description: "Specify desired Mirror-Node image tag"
+        required: false
+        type: string
+        default: ""
+      relayTag:
+        description: "Specify desired Hedera JSON-RPC Relay tag"
+        required: false
+        type: string
+        default: ""
+  workflow_call:
+    inputs:
+      networkNodeTag:
+        description: "Specify desired Network Node image tag"
+        required: false
+        type: string
+        default: ""
+      mirrorNodeTag:
+        description: "Specify desired Mirror-Node image tag"
+        required: false
+        type: string
+        default: ""
+      relayTag:
+        description: "Specify desired Hedera JSON-RPC Relay tag"
+        required: false
+        type: string
+        default: ""
+
+defaults:
+  run:
+    shell: bash
+
+env:
+  GRADLE_EXEC: "ionice -c 2 -n 2 nice -n 19 ./gradlew "
+  NPX_RUN: "ionice -c 2 -n 2 nice -n 19 npx "
+  NPM_RUN: "ionice -c 2 -n 2 nice -n 19 npm "
+
+permissions:
+  contents: read
+
+jobs:
+  local-node-test:
+    name: "Local Node Acceptance Tests"
+    timeout-minutes: 90
+    runs-on: hiero-block-node-linux-medium
+    steps:
+      - name: Harden Runner
+        uses: step-security/harden-runner@4d991eb9b905ef189e4c376166672c3f2f230481 # v2.11.0
+        with:
+          egress-policy: audit
+
+      - name: Checkout Block Node
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 0
+
+      - name: Expand Shallow Clone for Spotless
+        run: |
+          if [ -f .git/shallow ]; then
+            git fetch --unshallow --no-recurse-submodules
+          else
+            echo "Repository is not shallow, no need to unshallow."
+          fi
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@3a4f6e1af504cf6a31855fa899c6aa5355ba6c12 # v4.7.0
+        with:
+          distribution: "temurin"
+          java-version: "21.0.6"
+
+      - name: Cache Gradle packages
+        uses: actions/cache@d4323d4df104b026a6aa633fdb11d772146be0bf # v4.2.2
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: ${{ runner.os }}-gradle-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties') }}
+          restore-keys: |
+            ${{ runner.os }}-gradle-
+
+      - name: Build Block Node Docker Image
+        run: ${{ env.GRADLE_EXEC }} :block-node-server:createDockerImage
+
+      - name: Checkout Local Node
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          repository: hiero-ledger/hiero-local-node
+          path: local-node
+
+      - name: Use Node.js [20]
+        uses: actions/setup-node@1d0ff469b7ec7b3cb9d8673fde0c81c44821de2a # v4.2.0
+        with:
+          node-version: 20
+          working-directory: local-node
+
+      - name: Install Local Node Dependencies
+        working-directory: local-node
+        run: ${{ env.NPM_RUN }} install
+        timeout-minutes: 5
+
+      - name: Modify Docker Compose
+        working-directory: local-node
+        run: |
+          # Get the current version from the block-node project
+          BLOCK_NODE_VERSION=$(cd .. && ./gradlew :block-node-server:properties | grep "version:" | awk '{print $2}')
+          # Replace the block-node image in docker-compose.yml
+          sed -i "s|image: \"\${BLOCK_NODE_IMAGE_PREFIX}hiero-block-node:\${BLOCK_NODE_IMAGE_TAG}\"|image: \"block-node-server:${BLOCK_NODE_VERSION}\"|" docker-compose.yml
+          # Update the VERSION environment variable
+          sed -i "s|VERSION: \${BLOCK_NODE_IMAGE_TAG}|VERSION: ${BLOCK_NODE_VERSION}|" docker-compose.yml
+
+      - name: Start Local Node
+        working-directory: local-node
+        run: ${{ env.NPM_RUN }} run start:block-node -- --verbose=trace --network-tag=${{inputs.networkNodeTag}} --mirror-tag=${{inputs.mirrorNodeTag}} --relay-tag=${{inputs.relayTag}}
+
+      - name: Checkout Hedera Smart Contracts
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          repository: hashgraph/hedera-smart-contracts
+          path: hedera-smart-contracts
+
+      - name: Setup Node.js for Smart Contracts
+        uses: actions/setup-node@1d0ff469b7ec7b3cb9d8673fde0c81c44821de2a # v4.2.0
+        with:
+          node-version: 20
+          working-directory: hedera-smart-contracts
+
+      # This step is required to avoid "HardhatFoundryError: Couldn't run `forge`"
+      - name: Install Foundry
+        uses: step-security/foundry-toolchain@9997259130641e12dec5e2bfa071f3e370c0a250 # v1.2.2
+        with:
+          version: nightly
+
+      - name: Prepare Smart Contracts Environment
+        working-directory: hedera-smart-contracts
+        run: |
+          ${{ env.NPM_RUN }} install
+          cp local.env .env
+
+      - name: Run Smart Contract Tests
+        working-directory: hedera-smart-contracts
+        run: ${{ env.NPX_RUN }} hardhat test --grep "ERC20|TokenCreateContract|TokenManagmentContract|Proxy|HIP583|Multicall|BLSSignature|HAS" || true
+
+      - name: Checkout Hiero JSON-RPC Relay
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          repository: hiero-ledger/hiero-json-rpc-relay
+          path: hiero-json-rpc-relay
+
+      - name: Setup Node.js for JSON-RPC Relay
+        uses: actions/setup-node@1d0ff469b7ec7b3cb9d8673fde0c81c44821de2a # v4.2.0
+        with:
+          node-version: 20
+          working-directory: hiero-json-rpc-relay
+
+      - name: Prepare JSON-RPC Relay
+        working-directory: hiero-json-rpc-relay
+        run: |
+          # Install dependencies
+          ${{ env.NPM_RUN }} ci
+          # Copy the localAcceptance.env file to the root of the project
+          cp ./packages/server/tests/localAcceptance.env .env
+          # Install pnpm globally
+          ${{ env.NPM_RUN }} install -g pnpm
+          # Build the project
+          ${{ env.NPX_RUN }} lerna run build
+          # Stop docker json-rpc container
+          docker stop json-rpc-relay json-rpc-relay-ws
+
+      - name: Run JSON-RPC Relay Tests
+        working-directory: hiero-json-rpc-relay
+        run: |
+          ${{ env.NPM_RUN }} run acceptancetest:api_batch1 || true
+          ${{ env.NPM_RUN }} run acceptancetest:api_batch2 || true
+          ${{ env.NPM_RUN }} run acceptancetest:api_batch3 || true
+          ${{ env.NPM_RUN }} run acceptancetest:htsprecompilev1 || true
+          ${{ env.NPM_RUN }} run acceptancetest:precompile-calls || true
+
+      - name: Check Block Node Logs
+        if: always()
+        run: |
+          echo "Checking block-node logs for errors..."
+          LOGS=$(docker logs block-node)
+          echo "$LOGS"
+
+          # Check for errors and exceptions
+          if echo "$LOGS" | grep -iE "ERROR:|Exception" > /dev/null; then
+            echo "Found errors or exceptions in block-node logs. Failing workflow."
+            exit 1
+          fi
+          echo "No errors or exceptions found in block-node logs."
+
+      - name: Stop Local Node
+        if: always()
+        working-directory: local-node
+        run: ${{ env.NPM_RUN }} run stop
