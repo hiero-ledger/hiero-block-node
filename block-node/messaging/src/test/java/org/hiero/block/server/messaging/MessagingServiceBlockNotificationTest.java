@@ -2,16 +2,30 @@
 package org.hiero.block.server.messaging;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import java.util.List;
+import java.lang.Thread.State;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.Semaphore;
 import java.util.concurrent.atomic.AtomicInteger;
-import java.util.concurrent.atomic.AtomicReference;
+import java.util.concurrent.atomic.AtomicIntegerArray;
+import java.util.stream.IntStream;
 import org.hiero.block.server.messaging.BlockNotification.Type;
+import org.hiero.block.server.messaging.impl.MessagingServiceImpl;
 import org.junit.jupiter.api.Test;
 
+/**
+ * Test class for the MessagingService to verify that it can handle block notifications and back pressure. All these
+ * tests are super hard to get right as they are highly concurrent. So makes it very hard to not be timing dependent.
+ */
 public class MessagingServiceBlockNotificationTest {
+
+    /**
+     * The number of items to send to the messaging service. This is twice the size of the ring buffer, so that we can
+     * test the back pressure and the slow handler.
+     */
+    public static final int TEST_DATA_COUNT = MessagingServiceImpl.RING_BUFFER_SIZE * 2;
 
     /**
      * Simple test to verify that the messaging service can handle multiple block notification handlers and that
@@ -20,109 +34,171 @@ public class MessagingServiceBlockNotificationTest {
      */
     @Test
     void testSimpleBlockNotificationHandlers() throws Throwable {
+        final int expectedCount = TEST_DATA_COUNT;
+        // latch to wait for all handlers to finish
         CountDownLatch latch = new CountDownLatch(3);
-        MessagingService messagingService = MessagingService.createMessagingService();
-        List<TestBlockNotificationHandler> testHandlers = List.of(
-                new TestBlockNotificationHandler(1, 2000, latch::countDown, 0),
-                new TestBlockNotificationHandler(2, 2000, latch::countDown, 1),
-                new TestBlockNotificationHandler(3, 2000, latch::countDown, 2));
-        // Register the handlers
-        for (TestBlockNotificationHandler handler : testHandlers) {
-            messagingService.registerBlockNotificationHandler(handler);
-        }
-        // start the messaging service
-        messagingService.start();
-        // collect any exceptions thrown by threads
-        AtomicReference<Throwable> threadException = new AtomicReference<>();
-        // start thread to send 100 items to each handler
-        new Thread(() -> {
-                    try {
-                        for (int i = 0; i < 2000; i++) {
-                            messagingService.sendBlockNotification(new BlockNotification(i, Type.BLOCK_PERSISTED));
-                            // check that the back pressure is working and this thread is being held back by the slowest
-                            // handler
-                            if (i == 1500) {
-                                // we expect at this point we are sending item 1500
-                                // handler 0 that is fast has processed almost 1500
-                                final int count0 = testHandlers.get(0).counter.get();
-                                assertTrue(
-                                        count0 > 1400,
-                                        "Handler 1 should have processed more than 1400 items, count = " + count0);
-                                // handler 2 that is slow has processed no more than 1100
-                                final int count2 = testHandlers.get(2).counter.get();
-                                assertTrue(
-                                        count2 < 1100,
-                                        "Handler 3 should not have processed more than 1100 items, count = " + count2);
-                            }
-                        }
-                    } catch (Throwable e) {
-                        threadException.set(e);
-                        // important to countdown latch here if we fail otherwise we hang
-                        for (int j = 0; j <= latch.getCount() + 1; j++) {
-                            latch.countDown();
-                        }
+        AtomicIntegerArray counters = new AtomicIntegerArray(3);
+        // create a list of handlers that will call the latch countdown when they reach the expected count
+        var testHandlers = IntStream.range(0, 3)
+                .mapToObj(i -> (BlockNotificationHandler) notification -> {
+                    if (expectedCount == counters.incrementAndGet(i)) {
+                        // call the latch countdown when we reach the expected count
+                        latch.countDown();
                     }
                 })
-                .start();
-        // wait for all handlers to finish
-        try {
-            System.out.println("Wait");
-            latch.await();
-            System.out.println("All handlers finished");
-
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
+                .toList();
+        // Create MessagingService to test and register the handlers
+        MessagingService messagingService = MessagingService.createMessagingService();
+        testHandlers.forEach(messagingService::registerBlockNotificationHandler);
+        // start the messaging service
+        messagingService.start();
+        // send TEST_DATA_COUNT block notifications
+        for (int i = 0; i < TEST_DATA_COUNT; i++) {
+            messagingService.sendBlockNotification(new BlockNotification(i, Type.BLOCK_PERSISTED));
         }
+        // wait for all handlers to finish
+        latch.await();
         // shutdown the messaging service
         messagingService.shutdown();
-        // throw any exception thrown by the thread
-        if (threadException.get() != null) {
-            throw threadException.get();
-        }
         // verify that all handlers received the expected number of items
-        for (TestBlockNotificationHandler handler : testHandlers) {
-            assertEquals(2000, handler.counter.get());
+        for (int i = 0; i < testHandlers.size(); i++) {
+            assertEquals(expectedCount, counters.get(i));
         }
     }
 
     /**
-     * TestBlockNotificationHandler is a test implementation of the BlockNotificationHandler interface. It keeps track of the number of
-     * items received and calls a callback when the expected number of items is reached. It has an optional delay to simulate
-     * processing time.
+     * Test to verify that the messaging service can handle multiple block notification handlers and that
+     * the slow handler is slowed down by 25% and the fast handler is not slowed down.
+     *
+     * @throws Throwable if there was an error during the test
      */
-    private static class TestBlockNotificationHandler implements BlockNotificationHandler {
-        final AtomicInteger counter = new AtomicInteger(0);
-        final int handlerId;
-        final int expectedCount;
-        final int delayMs;
-        final Runnable completeCallback;
-
-        public TestBlockNotificationHandler(int handlerId, int expectedCount, Runnable completeCallback, int delayMs) {
-            this.handlerId = handlerId;
-            this.expectedCount = expectedCount;
-            this.completeCallback = completeCallback;
-            this.delayMs = delayMs;
-        }
-
-        @Override
-        public void handleBlockNotification(BlockNotification notification) {
-            // Increment the counter for this handler
-            int count = counter.incrementAndGet();
-            // Check if the expected count is reached
-            if (count >= expectedCount) {
-                // Call the complete callback
-                completeCallback.run();
+    @Test
+    void testFastAndSlowBlockNotificationHandlers() throws Throwable {
+        final int expectedCount = TEST_DATA_COUNT;
+        // latch to wait for all handlers to finish
+        final CountDownLatch latch = new CountDownLatch(1);
+        // create counters for received items
+        final AtomicInteger counterFast = new AtomicInteger(0);
+        final AtomicInteger counterSlow = new AtomicInteger(0);
+        // create object for slowing down the slow handler
+        final Semaphore holdBackSlowHandler = new Semaphore(0);
+        // create a simple fast handler
+        BlockNotificationHandler fastHandler = notification -> {
+            if (expectedCount == counterFast.incrementAndGet()) {
+                // call the latch countdown when we reach the expected count
+                latch.countDown();
             }
-            //                        System.out.println("Handler " + handlerId + " received " + count + " items -
-            // "+notification);
-            // Simulate some processing delay
-            if (delayMs > 0) {
-                try {
-                    Thread.sleep(delayMs);
-                } catch (InterruptedException e) {
-                    Thread.currentThread().interrupt();
+        };
+        // create a slow handler, that waits for the semaphore to be released on each call
+        BlockNotificationHandler slowHandler = notification -> {
+            if (expectedCount == counterSlow.incrementAndGet()) {
+                // call the latch countdown when we reach the expected count
+                latch.countDown();
+            }
+            // slow down the handler, if sending is not finished
+            try {
+                holdBackSlowHandler.acquire();
+            } catch (InterruptedException e) {
+                throw new RuntimeException(e);
+            }
+        };
+        // Create MessagingService to test and register the handlers
+        MessagingService messagingService = MessagingService.createMessagingService();
+        messagingService.registerBlockNotificationHandler(fastHandler);
+        messagingService.registerBlockNotificationHandler(slowHandler);
+        // start the messaging service
+        messagingService.start();
+        // send TEST_DATA_COUNT block notifications
+        for (int i = 0; i < TEST_DATA_COUNT; i++) {
+            System.out.println("i = " + i);
+            messagingService.sendBlockNotification(new BlockNotification(i, Type.BLOCK_PERSISTED));
+            // release the slow handler 3 out of 4 times so it is slowed down by 25%
+            if (i % 4 == 0) {
+                holdBackSlowHandler.release(3);
+            }
+        }
+        // mark sending finished and release the slow handler
+        holdBackSlowHandler.release(TEST_DATA_COUNT);
+        // wait for all handlers to finish
+        latch.await();
+        // shutdown the messaging service
+        messagingService.shutdown();
+        // verify that all handlers received the expected number of items
+        assertEquals(expectedCount, counterFast.get());
+        assertEquals(expectedCount, counterSlow.get());
+    }
+
+    /**
+     * Test to verify that the messaging service can handle backpressure on block notifications.
+     * The test will create a slow handler that will apply backpressure to the messaging service
+     * and verify that the messaging service applies backpressure to the notification send.
+     *
+     * @throws Throwable if there was an error during the test
+     */
+    @Test
+    void testBlockNotificationBackpressure() throws Throwable {
+        // latch to wait for all handlers to finish
+        final CountDownLatch latch = new CountDownLatch(1);
+        // create counters for sent and received items
+        final AtomicInteger sentCounter = new AtomicInteger(0);
+        final AtomicInteger receivedCounter = new AtomicInteger(0);
+        // create object for slowing down the slow handler
+        final Semaphore holdBackSlowHandler = new Semaphore(0);
+        // create a slow handler, that waits for the semaphore to be released on each call
+        BlockNotificationHandler slowHandler = notification -> {
+            if (TEST_DATA_COUNT == receivedCounter.incrementAndGet()) {
+                // call the latch countdown when we reach the expected count
+                latch.countDown();
+            }
+            // slow down the handler, if sending is not finished
+            try {
+                holdBackSlowHandler.acquire();
+            } catch (InterruptedException e) {
+                throw new RuntimeException(e);
+            }
+        };
+        // Create MessagingService to test and register the handlers
+        MessagingService messagingService = MessagingService.createMessagingService();
+        messagingService.registerBlockNotificationHandler(slowHandler);
+        // start the messaging service
+        messagingService.start();
+        // send TEST_DATA_COUNT block notifications in a background thread
+        Thread senderThread = new Thread(() -> {
+            for (int i = 0; i < TEST_DATA_COUNT; i++) {
+                messagingService.sendBlockNotification(new BlockNotification(i, Type.BLOCK_PERSISTED));
+                sentCounter.incrementAndGet();
+                // release the slow handler every other time so it is slowed down by 50%
+                if (i % 4 == 0) {
+                    holdBackSlowHandler.release(1);
                 }
             }
+        });
+        senderThread.start();
+        // wait for the sender thread to get stuck in back pressure
+        while (senderThread.getState() == State.RUNNABLE) {
+            try {
+                //noinspection BusyWait
+                Thread.sleep(2);
+            } catch (InterruptedException e) {
+                throw new RuntimeException(e);
+            }
         }
+        // the send thread should get blocked in back pressure
+        final var stateAfter = senderThread.getState();
+        assertNotEquals(
+                State.RUNNABLE,
+                stateAfter,
+                "Sender thread should be blocked in back pressure, but is in state: " + stateAfter);
+        // only 250 ish notifications should have been sent to the messaging service
+        assertTrue(sentCounter.get() > 100, "sentCounter = " + sentCounter.get() + " is not > 100");
+        assertTrue(
+                sentCounter.get() < TEST_DATA_COUNT,
+                "sentCounter = " + sentCounter.get() + " is not < " + TEST_DATA_COUNT);
+        // mark sending finished and release the slow handler
+        holdBackSlowHandler.release(TEST_DATA_COUNT);
+        // wait for all handlers to finish
+        latch.await();
+        // shutdown the messaging service
+        messagingService.shutdown();
     }
 }

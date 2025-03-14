@@ -29,6 +29,9 @@ import org.hiero.block.server.messaging.NoBackPressureBlockItemHandler;
  */
 public class MessagingServiceImpl implements MessagingService {
 
+    /** The size of the ring buffer used by the disruptor. */
+    public static final int RING_BUFFER_SIZE = 1024;
+
     /** Logger for the messaging service. */
     private static final System.Logger LOGGER = System.getLogger(MessagingServiceImpl.class.getName());
 
@@ -98,7 +101,7 @@ public class MessagingServiceImpl implements MessagingService {
      */
     private final Disruptor<BlockItemBatchRingEvent> blockItemDisruptor = new Disruptor<>(
             BlockItemBatchRingEvent::new,
-            1024,
+            RING_BUFFER_SIZE,
             VIRTUAL_THREAD_FACTORY,
             ProducerType.SINGLE,
             new SleepingWaitStrategy());
@@ -109,7 +112,7 @@ public class MessagingServiceImpl implements MessagingService {
      */
     private final Disruptor<BlockNotificationRingEvent> blockNotificationDisruptor = new Disruptor<>(
             BlockNotificationRingEvent::new,
-            1024,
+            RING_BUFFER_SIZE,
             VIRTUAL_THREAD_FACTORY,
             ProducerType.SINGLE,
             new SleepingWaitStrategy());
