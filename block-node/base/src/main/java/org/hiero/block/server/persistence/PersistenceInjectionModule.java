@@ -12,6 +12,7 @@ import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.Executor;
 import java.util.concurrent.Executors;
+import javax.inject.Named;
 import javax.inject.Singleton;
 import org.hiero.block.server.ack.AckHandler;
 import org.hiero.block.server.events.BlockNodeEventHandler;
@@ -41,6 +42,7 @@ import org.hiero.block.server.persistence.storage.write.AsyncBlockWriterFactory;
 import org.hiero.block.server.persistence.storage.write.AsyncNoOpWriterFactory;
 import org.hiero.block.server.persistence.storage.write.AsyncWriterExecutorFactory;
 import org.hiero.block.server.service.ServiceStatus;
+import org.hiero.block.server.utils.InjectionConstants;
 
 /** A Dagger module for providing dependencies for Persistence Module. */
 @Module
@@ -172,6 +174,7 @@ public interface PersistenceInjectionModule {
      */
     @Provides
     @Singleton
+    @Named(InjectionConstants.PERSISTENCE_HANDLER)
     static BlockNodeEventHandler<ObjectEvent<List<BlockItemUnparsed>>> providesBlockNodeEventHandler(
             @NonNull final SubscriptionHandler<List<BlockItemUnparsed>> subscriptionHandler,
             @NonNull final Notifier notifier,
