@@ -3,6 +3,7 @@ module org.hiero.block.node.suites {
     requires com.swirlds.config.api;
     requires com.swirlds.config.extensions;
     requires org.hiero.block.simulator;
+    requires com.github.spotbugs.annotations;
     requires io.github.cdimascio.dotenv.java;
     requires org.junit.jupiter.api;
     requires org.junit.platform.suite.api;
