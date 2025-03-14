@@ -3,6 +3,7 @@ package org.hiero.block.simulator.config.data;
 
 import com.swirlds.config.api.ConfigData;
 import com.swirlds.config.api.ConfigProperty;
+import org.hiero.block.simulator.config.logging.Loggable;
 import org.hiero.block.simulator.config.types.SimulatorMode;
 import org.hiero.block.simulator.config.types.StreamingMode;
 
@@ -19,13 +20,13 @@ import org.hiero.block.simulator.config.types.StreamingMode;
  */
 @ConfigData("blockStream")
 public record BlockStreamConfig(
-        @ConfigProperty(defaultValue = "PUBLISHER_SERVER") SimulatorMode simulatorMode,
-        @ConfigProperty(defaultValue = "10") int lastKnownStatusesCapacity,
-        @ConfigProperty(defaultValue = "1_500_000") int delayBetweenBlockItems,
-        @ConfigProperty(defaultValue = "100_000") int maxBlockItemsToStream,
-        @ConfigProperty(defaultValue = "MILLIS_PER_BLOCK") StreamingMode streamingMode,
-        @ConfigProperty(defaultValue = "1000") int millisecondsPerBlock,
-        @ConfigProperty(defaultValue = "1000") int blockItemsBatchSize) {
+        @Loggable @ConfigProperty(defaultValue = "PUBLISHER_SERVER") SimulatorMode simulatorMode,
+        @Loggable @ConfigProperty(defaultValue = "10") int lastKnownStatusesCapacity,
+        @Loggable @ConfigProperty(defaultValue = "1_500_000") int delayBetweenBlockItems,
+        @Loggable @ConfigProperty(defaultValue = "100_000") int maxBlockItemsToStream,
+        @Loggable @ConfigProperty(defaultValue = "MILLIS_PER_BLOCK") StreamingMode streamingMode,
+        @Loggable @ConfigProperty(defaultValue = "1000") int millisecondsPerBlock,
+        @Loggable @ConfigProperty(defaultValue = "1000") int blockItemsBatchSize) {
 
     /**
      * Creates a new {@link Builder} instance for constructing a {@code BlockStreamConfig}.

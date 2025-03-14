@@ -28,6 +28,7 @@ import java.util.logging.LogRecord;
 import java.util.logging.Logger;
 import org.hiero.block.simulator.config.data.BlockStreamConfig;
 import org.hiero.block.simulator.config.data.StreamStatus;
+import org.hiero.block.simulator.config.logging.ConfigurationLogging;
 import org.hiero.block.simulator.exception.BlockSimulatorParsingException;
 import org.hiero.block.simulator.generator.BlockStreamManager;
 import org.hiero.block.simulator.grpc.ConsumerStreamGrpcClient;
@@ -63,6 +64,9 @@ class BlockStreamSimulatorTest {
     @Mock
     private SimulatorModeHandler simulatorModeHandler;
 
+    @Mock
+    private ConfigurationLogging configurationLoggingMock;
+
     private BlockStreamSimulatorApp blockStreamSimulator;
     private MetricsService metricsService;
 
@@ -79,7 +83,8 @@ class BlockStreamSimulatorTest {
                 publishStreamGrpcClient,
                 publishStreamGrpcServer,
                 consumerStreamGrpcClient,
-                simulatorModeHandler);
+                simulatorModeHandler,
+                configurationLoggingMock);
     }
 
     @AfterEach
@@ -115,7 +120,8 @@ class BlockStreamSimulatorTest {
                 publishStreamGrpcClient,
                 publishStreamGrpcServer,
                 consumerStreamGrpcClient,
-                consumerModeHandler);
+                consumerModeHandler,
+                configurationLoggingMock);
         blockStreamSimulator.start();
 
         verify(consumerStreamGrpcClient).init();
@@ -162,7 +168,8 @@ class BlockStreamSimulatorTest {
                 publishStreamGrpcClient,
                 publishStreamGrpcServer,
                 consumerStreamGrpcClient,
-                publisherClientModeHandler);
+                publisherClientModeHandler,
+                configurationLoggingMock);
 
         blockStreamSimulator.start();
         assertTrue(blockStreamSimulator.isRunning());
@@ -187,7 +194,8 @@ class BlockStreamSimulatorTest {
                 publishStreamGrpcClient,
                 publishStreamGrpcServer,
                 consumerStreamGrpcClient,
-                publisherClientModeHandler);
+                publisherClientModeHandler,
+                configurationLoggingMock);
 
         assertDoesNotThrow(() -> blockStreamSimulator.stop());
         assertFalse(blockStreamSimulator.isRunning());
@@ -206,7 +214,8 @@ class BlockStreamSimulatorTest {
                 publishStreamGrpcClient,
                 publishStreamGrpcServer,
                 consumerStreamGrpcClient,
-                consumerModeHandler);
+                consumerModeHandler,
+                configurationLoggingMock);
         assertDoesNotThrow(() -> blockStreamSimulator.stop());
         assertFalse(blockStreamSimulator.isRunning());
         verify(consumerStreamGrpcClient, atLeast(1)).completeStreaming();
@@ -243,7 +252,8 @@ class BlockStreamSimulatorTest {
                 publishStreamGrpcClient,
                 publishStreamGrpcServer,
                 consumerStreamGrpcClient,
-                publisherClientModeHandler);
+                publisherClientModeHandler,
+                configurationLoggingMock);
 
         blockStreamSimulator.start();
         assertTrue(blockStreamSimulator.isRunning());
@@ -294,7 +304,8 @@ class BlockStreamSimulatorTest {
                 publishStreamGrpcClient,
                 publishStreamGrpcServer,
                 consumerStreamGrpcClient,
-                publisherClientModeHandler);
+                publisherClientModeHandler,
+                configurationLoggingMock);
         List<LogRecord> logRecords = captureLogs();
 
         blockStreamSimulator.start();

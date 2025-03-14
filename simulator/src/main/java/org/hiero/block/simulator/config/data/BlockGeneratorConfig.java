@@ -7,6 +7,7 @@ import com.swirlds.config.api.validation.annotation.Min;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import org.hiero.block.simulator.config.logging.Loggable;
 import org.hiero.block.simulator.config.types.GenerationMode;
 
 /**
@@ -22,18 +23,18 @@ import org.hiero.block.simulator.config.types.GenerationMode;
  */
 @ConfigData("generator")
 public record BlockGeneratorConfig(
-        @ConfigProperty(defaultValue = "CRAFT") GenerationMode generationMode,
-        @ConfigProperty(defaultValue = "1") @Min(1) int minEventsPerBlock,
-        @ConfigProperty(defaultValue = "10") int maxEventsPerBlock,
-        @ConfigProperty(defaultValue = "1") @Min(1) int minTransactionsPerEvent,
-        @ConfigProperty(defaultValue = "10") int maxTransactionsPerEvent,
-        @ConfigProperty(defaultValue = "") String folderRootPath,
-        @ConfigProperty(defaultValue = "BlockAsFileBlockStreamManager") String managerImplementation,
-        @ConfigProperty(defaultValue = "36") int paddedLength,
-        @ConfigProperty(defaultValue = ".blk.gz") String fileExtension,
+        @Loggable @ConfigProperty(defaultValue = "CRAFT") GenerationMode generationMode,
+        @Loggable @ConfigProperty(defaultValue = "1") @Min(1) int minEventsPerBlock,
+        @Loggable @ConfigProperty(defaultValue = "10") int maxEventsPerBlock,
+        @Loggable @ConfigProperty(defaultValue = "1") @Min(1) int minTransactionsPerEvent,
+        @Loggable @ConfigProperty(defaultValue = "10") int maxTransactionsPerEvent,
+        @Loggable @ConfigProperty(defaultValue = "") String folderRootPath,
+        @Loggable @ConfigProperty(defaultValue = "BlockAsFileBlockStreamManager") String managerImplementation,
+        @Loggable @ConfigProperty(defaultValue = "36") int paddedLength,
+        @Loggable @ConfigProperty(defaultValue = ".blk.gz") String fileExtension,
         // Optional block number range for the BlockAsFileLargeDataSets manager
-        @ConfigProperty(defaultValue = "0") @Min(0) int startBlockNumber,
-        @ConfigProperty(defaultValue = "-1") int endBlockNumber) {
+        @Loggable @ConfigProperty(defaultValue = "0") @Min(0) int startBlockNumber,
+        @Loggable @ConfigProperty(defaultValue = "-1") int endBlockNumber) {
 
     /**
      * Constructs a new {@code BlockGeneratorConfig} instance with validation.
