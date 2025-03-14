@@ -176,8 +176,7 @@ public class MessagingServiceBlockItemTest {
         // create a latch to wait for all handlers to finish
         CountDownLatch latch = new CountDownLatch(5);
         MessagingService messagingService = MessagingService.createMessagingService();
-        List<TestBlockItemHandler> testHandlers = new ArrayList<>();
-        testHandlers.addAll(List.of(
+        List<TestBlockItemHandler> testHandlers = new ArrayList<>(List.of(
                 new TestBlockItemHandler(1, 200, latch::countDown, 0),
                 new TestBlockItemHandler(2, 200, latch::countDown, 1),
                 new TestBlockItemHandler(3, 200, latch::countDown, 2)));
@@ -244,8 +243,7 @@ public class MessagingServiceBlockItemTest {
         // create a latch to wait for all handlers to finish
         CountDownLatch latch = new CountDownLatch(5);
         MessagingService messagingService = MessagingService.createMessagingService();
-        List<TestBlockItemHandler> testHandlers = new ArrayList<>();
-        testHandlers.addAll(List.of(
+        List<TestBlockItemHandler> testHandlers = new ArrayList<>(List.of(
                 new TestBlockItemHandler(1, 2000, latch::countDown, 0),
                 new TestBlockItemHandler(2, 2000, latch::countDown, 1),
                 new TestBlockItemHandler(3, 2000, latch::countDown, 2)));
@@ -328,6 +326,7 @@ public class MessagingServiceBlockItemTest {
                     // wait for dynamicHandler1 to receive 200 items
                     while (dynamicHandler1.counter.get() < 200) {
                         try {
+                            //noinspection BusyWait
                             Thread.sleep(10);
                         } catch (InterruptedException e) {
                             Thread.currentThread().interrupt();
@@ -382,10 +381,10 @@ public class MessagingServiceBlockItemTest {
         new Thread(() -> {
                     // send 2000 items
                     for (int i = 0; i < 2000; i++) {
-                        messagingService.sendBlockItems(
-                                List.of(createBlockItem(i + .1d), createBlockItem(i + .2d)));
+                        messagingService.sendBlockItems(List.of(createBlockItem(i + .1d), createBlockItem(i + .2d)));
                         // slow the data rate down, this is important otherwise the dynamic handler is behind
-                        // immediately which is not a good test. Can speed up after tooFarBehind is set to save test time
+                        // immediately which is not a good test. Can speed up after tooFarBehind is set to save test
+                        // time
                         if (!dynamicHandler.tooFarBehind.get()) {
                             try {
                                 Thread.sleep(5);
@@ -454,8 +453,6 @@ public class MessagingServiceBlockItemTest {
                 // Call the complete callback
                 completeCallback.run();
             }
-//            if (count % 100 == 0)
-//                System.out.println("Handler " + handlerId + " received " + count + " done = " +(count >= expectedCount));
             // Simulate some processing delay
             if (delayMs > 0) {
                 try {
@@ -468,7 +465,7 @@ public class MessagingServiceBlockItemTest {
 
         @Override
         public void onTooFarBehindError() {
-            System.out.println("TestBlockItemHandler.onTooFarBehindError "+handlerId);
+            System.out.println("TestBlockItemHandler.onTooFarBehindError " + handlerId);
             new Exception().printStackTrace(System.out);
             // mark this handler as too far behind
             boolean wasUnsetBefore = tooFarBehind.compareAndSet(false, true);

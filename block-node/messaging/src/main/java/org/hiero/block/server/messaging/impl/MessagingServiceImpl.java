@@ -153,21 +153,21 @@ public class MessagingServiceImpl implements MessagingService {
     public void registerDynamicNoBackpressureBlockItemHandler(NoBackPressureBlockItemHandler handler) {
         final RingBuffer<BlockItemBatchRingEvent> ringBuffer = blockItemDisruptor.getRingBuffer();
         final SequenceBarrier barrier = ringBuffer.newBarrier();
-        final EventHandler<BlockItemBatchRingEvent> eventHandler =
-                (event, sequence, endOfBatch) -> {
-                    // send on the event block items
-                    handler.handleBlockItemsReceived(event.get());
-                    // check if the event processor is too far behind
-                    final double percentageBehindHead = (100d*((double)(barrier.getCursor()-sequence)/ (double)ringBuffer.getBufferSize()));
-                    if (percentageBehindHead > 80) {
-                        // If the event processor is more than 80% behind, we need to stop it.
-                        // This is a sign that the event processor is not able to keep up with the
-                        // rate of events being published.
-                        unregisterDynamicNoBackpressureBlockItemHandler(handler);
-                        // the handler it got too far behind
-                        handler.onTooFarBehindError();
-                    }
-                };
+        final EventHandler<BlockItemBatchRingEvent> eventHandler = (event, sequence, endOfBatch) -> {
+            // send on the event block items
+            handler.handleBlockItemsReceived(event.get());
+            // check if the event processor is too far behind
+            final double percentageBehindHead =
+                    (100d * ((double) (barrier.getCursor() - sequence) / (double) ringBuffer.getBufferSize()));
+            if (percentageBehindHead > 80) {
+                // If the event processor is more than 80% behind, we need to stop it.
+                // This is a sign that the event processor is not able to keep up with the
+                // rate of events being published.
+                unregisterDynamicNoBackpressureBlockItemHandler(handler);
+                // the handler it got too far behind
+                handler.onTooFarBehindError();
+            }
+        };
         // Create the event processor for the block item batch ring
         final BatchEventProcessor<BlockItemBatchRingEvent> batchEventProcessor =
                 new BatchEventProcessorBuilder().build(ringBuffer, barrier, eventHandler);

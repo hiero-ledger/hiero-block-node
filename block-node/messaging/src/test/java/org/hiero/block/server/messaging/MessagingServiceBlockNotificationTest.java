@@ -4,18 +4,19 @@ package org.hiero.block.server.messaging;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import org.hiero.block.server.messaging.BlockNotification.Type;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
+import org.hiero.block.server.messaging.BlockNotification.Type;
 import org.junit.jupiter.api.Test;
 
 public class MessagingServiceBlockNotificationTest {
 
     /**
      * Simple test to verify that the messaging service can handle multiple block notification handlers and that
-     * @throws Throwable
+     *
+     * @throws Throwable if there was an error during the test
      */
     @Test
     void testSimpleBlockNotificationHandlers() throws Throwable {
@@ -112,7 +113,8 @@ public class MessagingServiceBlockNotificationTest {
                 // Call the complete callback
                 completeCallback.run();
             }
-//                        System.out.println("Handler " + handlerId + " received " + count + " items - "+notification);
+            //                        System.out.println("Handler " + handlerId + " received " + count + " items -
+            // "+notification);
             // Simulate some processing delay
             if (delayMs > 0) {
                 try {

@@ -35,11 +35,17 @@ public class BlockItemBatchRingEvent {
         return val;
     }
 
+    /**
+     * toString method to provide a string representation of the BlockItemBatchRingEvent for debugging.
+     *
+     * @return Debug string representation of the BlockItemBatchRingEvent
+     */
     @Override
     public String toString() {
-        return "BlockItemBatchRingEvent{" +
-                (val == null || val.isEmpty()? "empty" : val.stream().map(BlockItemUnparsed::toString).collect(
-                        Collectors.joining(", "))) +
-                '}';
+        return "BlockItemBatchRingEvent{"
+                + (val == null || val.isEmpty()
+                        ? "empty"
+                        : val.stream().map(BlockItemUnparsed::toString).collect(Collectors.joining(", ")))
+                + '}';
     }
 }

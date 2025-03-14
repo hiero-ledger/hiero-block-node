@@ -1,5 +1,4 @@
 // SPDX-License-Identifier: Apache-2.0
-
 module org.hiero.block.messaging {
     exports org.hiero.block.server.messaging;
 
