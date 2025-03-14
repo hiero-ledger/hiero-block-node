@@ -66,6 +66,11 @@ public class ConsumerStreamResponseObserver {
      */
     public void send(@NonNull final List<BlockItemUnparsed> blockItems) throws ParseException {
 
+        if (blockItems.stream().anyMatch(BlockItemUnparsed::hasStatus)) {
+            send(SubscribeStreamResponseCode.READ_STREAM_NOT_AVAILABLE);
+            return;
+        }
+
         // Only start sending BlockItems after we've reached
         // the beginning of a block.
         final BlockItemUnparsed firstBlockItem = blockItems.getFirst();

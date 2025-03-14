@@ -4,6 +4,7 @@ package org.hiero.block.server.mediator;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hiero.block.server.metrics.BlockNodeMetricTypes.Counter.BlocksPersisted;
 import static org.hiero.block.server.metrics.BlockNodeMetricTypes.Counter.LiveBlockItems;
+import static org.hiero.block.server.metrics.BlockNodeMetricTypes.Counter.LiveBlockStreamMediatorError;
 import static org.hiero.block.server.metrics.BlockNodeMetricTypes.Gauge.Consumers;
 import static org.hiero.block.server.util.PersistTestUtils.PERSISTENCE_STORAGE_ARCHIVE_ROOT_PATH_KEY;
 import static org.hiero.block.server.util.PersistTestUtils.PERSISTENCE_STORAGE_LIVE_ROOT_PATH_KEY;
@@ -19,6 +20,7 @@ import com.hedera.hapi.block.BlockItemSetUnparsed;
 import com.hedera.hapi.block.BlockItemUnparsed;
 import com.hedera.hapi.block.BlockUnparsed;
 import com.hedera.hapi.block.SubscribeStreamRequest;
+import com.hedera.hapi.block.SubscribeStreamResponseCode;
 import com.hedera.hapi.block.SubscribeStreamResponseUnparsed;
 import com.hedera.hapi.block.stream.output.BlockHeader;
 import com.hedera.pbj.runtime.grpc.Pipeline;
@@ -453,113 +455,63 @@ class LiveStreamMediatorImplTest {
         //        assertTrue(streamMediator.isSubscribed(streamValidator));
     }
 
-    @Disabled("@todo(662): Revisit this code after we implement an error channel")
     @Test
-    void testMediatorBlocksPublishAfterException() throws IOException, InterruptedException {
-        //        final BlockNodeContext blockNodeContext = TestConfigUtil.getTestBlockNodeContext();
-        //        final ServiceStatus serviceStatus = new ServiceStatusImpl(blockNodeContext);
-        //        final LiveStreamMediator streamMediator = LiveStreamMediatorBuilder.newBuilder(blockNodeContext,
-        // serviceStatus)
-        //                .build();
-        //
-        //        final BlockNodeEventHandler<ObjectEvent<List<BlockItemUnparsed>>> concreteObserver1 =
-        //                ConsumerStreamBuilder.build(
-        //                        completionService,
-        //                        testClock,
-        //                        streamMediator,
-        //                        helidonSubscribeStreamObserver1,
-        //                        testContext.metricsService(),
-        //                        testContext.configuration());
-        //        final BlockNodeEventHandler<ObjectEvent<List<BlockItemUnparsed>>> concreteObserver2 =
-        //                ConsumerStreamBuilder.build(
-        //                        completionService,
-        //                        testClock,
-        //                        streamMediator,
-        //                        helidonSubscribeStreamObserver2,
-        //                        testContext.metricsService(),
-        //                        testContext.configuration());
-        //        final BlockNodeEventHandler<ObjectEvent<List<BlockItemUnparsed>>> concreteObserver3 =
-        //                ConsumerStreamBuilder.build(
-        //                        completionService,
-        //                        testClock,
-        //                        streamMediator,
-        //                        helidonSubscribeStreamObserver3,
-        //                        testContext.metricsService(),
-        //                        testContext.configuration());
-        //
-        //        // Set up the subscribers
-        //        streamMediator.subscribe(concreteObserver1);
-        //        streamMediator.subscribe(concreteObserver2);
-        //        streamMediator.subscribe(concreteObserver3);
-        //
-        //        final Notifier notifier = new NotifierImpl(streamMediator, blockNodeContext, serviceStatus);
-        //        final StreamPersistenceHandlerImpl handler = new StreamPersistenceHandlerImpl(
-        //                streamMediator,
-        //                notifier,
-        //                blockNodeContext,
-        //                serviceStatus,
-        //                ackHandlerMock,
-        //                asyncBlockWriterFactoryMock,
-        //                executorMock,
-        //                archiverMock,
-        //                persistenceStorageConfig);
-        //
-        //        // Set up the stream verifier
-        //        streamMediator.subscribe(handler);
-        //
-        //        final List<BlockItemUnparsed> blockItems = generateBlockItemsUnparsed(1);
-        //        final BlockItemUnparsed firstBlockItem = blockItems.getFirst();
-        //
-        //        // Right now, only a single producer calls publishEvent. In
-        //        // that case, they will get an IOException bubbled up to them.
-        //        // However, we will need to support multiple producers in the
-        //        // future. In that case, we need to make sure a second producer
-        //        // is not able to publish a block after the first producer fails.
-        //        streamMediator.publish(List.of(firstBlockItem));
-        //
-        //        Thread.sleep(TEST_TIMEOUT);
-        //
-        //        // Confirm the counter was incremented only once
-        //        assertEquals(1, blockNodeContext.metricsService().get(LiveBlockItems).get());
-        //
-        //        // Confirm the error counter was incremented
-        //        assertEquals(
-        //                1,
-        //                blockNodeContext
-        //                        .metricsService()
-        //                        .get(LiveBlockStreamMediatorError)
-        //                        .get());
-        //
-        //        // Send another block item after the exception
-        //        streamMediator.publish(List.of(firstBlockItem));
-        //        final BlockItemSetUnparsed blockItemSet =
-        //                BlockItemSetUnparsed.newBuilder().blockItems(firstBlockItem).build();
-        //        final SubscribeStreamResponseUnparsed subscribeStreamResponse =
-        // SubscribeStreamResponseUnparsed.newBuilder()
-        //                .blockItems(blockItemSet)
-        //                .build();
-        //        verify(helidonSubscribeStreamObserver1,
-        // timeout(TEST_TIMEOUT).times(1)).onNext(subscribeStreamResponse);
-        //        verify(helidonSubscribeStreamObserver2,
-        // timeout(TEST_TIMEOUT).times(1)).onNext(subscribeStreamResponse);
-        //        verify(helidonSubscribeStreamObserver3,
-        // timeout(TEST_TIMEOUT).times(1)).onNext(subscribeStreamResponse);
-        //
-        //        // @todo(662): Revisit this code after we implement an error channel
-        //        // TODO: Replace READ_STREAM_SUCCESS (2) with a generic error code?
-        //        //        final SubscribeStreamResponseUnparsed endOfStreamResponse =
-        //        // SubscribeStreamResponseUnparsed.newBuilder()
-        //        //                .status(SubscribeStreamResponseCode.READ_STREAM_SUCCESS)
-        //        //                .build();
-        //        //        verify(helidonSubscribeStreamObserver1,
-        // timeout(TEST_TIMEOUT).times(1)).onNext(endOfStreamResponse);
-        //        //        verify(helidonSubscribeStreamObserver2,
-        // timeout(TEST_TIMEOUT).times(1)).onNext(endOfStreamResponse);
-        //        //        verify(helidonSubscribeStreamObserver3,
-        // timeout(TEST_TIMEOUT).times(1)).onNext(endOfStreamResponse);
-        //
-        //        // Confirm Writer created
-        //        verify(asyncBlockWriterFactoryMock, timeout(TEST_TIMEOUT).times(1)).create(1L);
+    void testMediatorBlocksPublishAfterException() {
+        // Initialize necessary dependencies
+        final ServiceStatus serviceStatus = new ServiceStatusImpl(serviceConfig);
+        final LiveStreamMediator streamMediator = LiveStreamMediatorBuilder.newBuilder(
+                        metricsService, mediatorConfig, serviceStatus)
+                .build();
+        when(testClock.millis()).thenReturn(TEST_TIME, TEST_TIME + TIMEOUT_THRESHOLD_MILLIS);
+        when(subscribeStreamRequest.startBlockNumber()).thenReturn(0L);
+
+        final StreamManager streamManager1 = ConsumerStreamBuilder.buildStreamManager(
+                testClock,
+                subscribeStreamRequest,
+                streamMediator,
+                helidonResponseStreamObserver1,
+                blockReader,
+                serviceStatus,
+                metricsService,
+                consumerConfig);
+
+        final StreamManager streamManager2 = ConsumerStreamBuilder.buildStreamManager(
+                testClock,
+                subscribeStreamRequest,
+                streamMediator,
+                helidonResponseStreamObserver2,
+                blockReader,
+                serviceStatus,
+                metricsService,
+                consumerConfig);
+
+        // Start processing events in StreamManager before triggering the error
+        streamManager1.execute();
+        streamManager2.execute();
+
+        final BlockItemUnparsed blockItem = BlockItemUnparsed.newBuilder()
+                .status(SubscribeStreamResponseCode.READ_STREAM_NOT_AVAILABLE)
+                .build();
+
+        // Trigger the unrecoverable error
+        streamMediator.notifyUnrecoverableError();
+
+        // Ensure service is stopped
+        assertFalse(serviceStatus.isRunning(), "Service should be stopped after unrecoverable error");
+
+        // Ensure the error counter was incremented
+        assertEquals(1, metricsService.get(LiveBlockStreamMediatorError).get(), "Error counter should be incremented");
+
+        // Verify "end of stream" response was sent to subscribers
+        final SubscribeStreamResponseUnparsed expectedResponse = SubscribeStreamResponseUnparsed.newBuilder()
+                .status(SubscribeStreamResponseCode.READ_STREAM_NOT_AVAILABLE)
+                .build();
+
+        streamManager1.execute();
+        streamManager2.execute();
+        // Wait for the response to be processed and sent
+        verify(helidonResponseStreamObserver1, timeout(TEST_TIMEOUT)).onNext(expectedResponse);
+        verify(helidonResponseStreamObserver2, timeout(TEST_TIMEOUT)).onNext(expectedResponse);
     }
 
     @Test
