@@ -20,7 +20,7 @@ javaModules {
         // module("persistence-api") { artifact = "service-persistence-api" }
         // module("verification") { artifact = "service-verification" }
         // module("verification-api") { artifact = "service-verification-api" }
-        // module("messaging") { artifact = "facility-messaging" }
+         module("messaging") { artifact = "facility-messaging" }
         // module("configuration") { artifact = "facility-configuration" }
         // module("registrar") { artifact = "facility-registrar" }
         // module("facilities-api") { artifact = "facilities-api" }
