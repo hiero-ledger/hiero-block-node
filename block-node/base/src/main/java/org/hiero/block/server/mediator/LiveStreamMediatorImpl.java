@@ -10,6 +10,7 @@ import static org.hiero.block.server.metrics.BlockNodeMetricTypes.Gauge.Consumer
 import static org.hiero.block.server.metrics.BlockNodeMetricTypes.Gauge.MediatorRingBufferRemainingCapacity;
 
 import com.hedera.hapi.block.BlockItemUnparsed;
+import com.hedera.hapi.block.SubscribeStreamResponseCode;
 import com.lmax.disruptor.BatchEventProcessor;
 import com.lmax.disruptor.EventPoller;
 import edu.umd.cs.findbugs.annotations.NonNull;
@@ -99,6 +100,12 @@ class LiveStreamMediatorImpl extends SubscriptionHandlerBase<List<BlockItemUnpar
     @Override
     public void notifyUnrecoverableError() {
 
+        BlockItemUnparsed emergencyItem = BlockItemUnparsed.newBuilder()
+                .status(SubscribeStreamResponseCode.READ_STREAM_NOT_AVAILABLE)
+                .build();
+
+        ringBuffer.publishEvent((event, sequence) -> event.set(List.of(emergencyItem)));
+
         // Disable BlockItem publication for upstream producers
         serviceStatus.stopRunning(this.getClass().getName());
         LOGGER.log(ERROR, "An exception occurred. Stopping the service.");
@@ -107,8 +114,5 @@ class LiveStreamMediatorImpl extends SubscriptionHandlerBase<List<BlockItemUnpar
         metricsService.get(LiveBlockStreamMediatorError).increment();
 
         LOGGER.log(ERROR, "Sending an error response to end the stream for all consumers.");
-
-        // @todo(662): Change how we broadcast an end of stream response in the event of an unrecoverable error.
-        // Publish an end of stream response to all downstream consumers
     }
 }

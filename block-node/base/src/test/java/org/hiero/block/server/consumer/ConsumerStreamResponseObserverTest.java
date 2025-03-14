@@ -12,6 +12,7 @@ import com.hedera.hapi.block.BlockItemSetUnparsed;
 import com.hedera.hapi.block.BlockItemUnparsed;
 import com.hedera.hapi.block.BlockUnparsed;
 import com.hedera.hapi.block.SubscribeStreamRequest;
+import com.hedera.hapi.block.SubscribeStreamResponseCode;
 import com.hedera.hapi.block.SubscribeStreamResponseUnparsed;
 import com.hedera.hapi.block.stream.BlockProof;
 import com.hedera.hapi.block.stream.input.EventHeader;
@@ -174,6 +175,44 @@ public class ConsumerStreamResponseObserverTest {
 
         // verify the mediator unsubscribed the observer
         assertFalse(streamMediator.isSubscribed(streamManager));
+    }
+
+    @Test
+    public void testSendStatusResponseWhenBlockItemHasStatus() {
+        final LiveStreamMediator streamMediator = LiveStreamMediatorBuilder.newBuilder(
+                        metricsService, mediatorConfig, serviceStatus)
+                .build();
+        when(testClock.millis()).thenReturn(TEST_TIME, TEST_TIME + TIMEOUT_THRESHOLD_MILLIS);
+
+        // Mock live streaming
+        when(subscribeStreamRequest.startBlockNumber()).thenReturn(0L);
+        when(serviceStatus.isRunning()).thenReturn(true);
+
+        final StreamManager streamManager = ConsumerStreamBuilder.buildStreamManager(
+                testClock,
+                subscribeStreamRequest,
+                streamMediator,
+                helidonResponseStreamObserver,
+                blockReader,
+                serviceStatus,
+                metricsService,
+                consumerConfig);
+
+        // Set up the StreamManager to poll for
+        // block items
+        streamManager.execute();
+        final BlockItemUnparsed statusItem = BlockItemUnparsed.newBuilder()
+                .status(SubscribeStreamResponseCode.READ_STREAM_SUCCESS)
+                .build();
+        final List<BlockItemUnparsed> blockItems = List.of(statusItem);
+        streamMediator.publish(blockItems);
+        final BlockItemSetUnparsed blockItemSet =
+                BlockItemSetUnparsed.newBuilder().blockItems(blockItems).build();
+        final SubscribeStreamResponseUnparsed subscribeStreamResponse = SubscribeStreamResponseUnparsed.newBuilder()
+                .blockItems(blockItemSet)
+                .build();
+        streamManager.execute();
+        verify(helidonResponseStreamObserver, timeout(testTimeout).times(0)).onNext(subscribeStreamResponse);
     }
 
     @Test
