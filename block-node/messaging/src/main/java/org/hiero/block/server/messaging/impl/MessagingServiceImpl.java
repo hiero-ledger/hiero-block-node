@@ -11,11 +11,14 @@ import com.lmax.disruptor.SequenceBarrier;
 import com.lmax.disruptor.SleepingWaitStrategy;
 import com.lmax.disruptor.dsl.Disruptor;
 import com.lmax.disruptor.dsl.ProducerType;
+import com.swirlds.config.api.spi.ConfigurationBuilderFactory;
 import java.lang.System.Logger.Level;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+import java.util.ServiceLoader;
 import java.util.concurrent.ThreadFactory;
 import org.hiero.block.server.messaging.BlockItemHandler;
 import org.hiero.block.server.messaging.BlockNotification;
@@ -28,9 +31,6 @@ import org.hiero.block.server.messaging.NoBackPressureBlockItemHandler;
  * notifications.
  */
 public class MessagingServiceImpl implements MessagingService {
-
-    /** The size of the ring buffer used by the disruptor. */
-    public static final int RING_BUFFER_SIZE = 1024;
 
     /** Logger for the messaging service. */
     private static final System.Logger LOGGER = System.getLogger(MessagingServiceImpl.class.getName());
@@ -99,23 +99,13 @@ public class MessagingServiceImpl implements MessagingService {
      * The disruptor that handles the block item batches. It is used to send block items to the different handlers.
      * It is a single producer, multiple consumer disruptor.
      */
-    private final Disruptor<BlockItemBatchRingEvent> blockItemDisruptor = new Disruptor<>(
-            BlockItemBatchRingEvent::new,
-            RING_BUFFER_SIZE,
-            VIRTUAL_THREAD_FACTORY,
-            ProducerType.SINGLE,
-            new SleepingWaitStrategy());
+    private final Disruptor<BlockItemBatchRingEvent> blockItemDisruptor;
 
     /**
      * The disruptor that handles the block notifications. It is used to send block notifications to the different
      * handlers. It is a single producer, multiple consumer disruptor.
      */
-    private final Disruptor<BlockNotificationRingEvent> blockNotificationDisruptor = new Disruptor<>(
-            BlockNotificationRingEvent::new,
-            RING_BUFFER_SIZE,
-            VIRTUAL_THREAD_FACTORY,
-            ProducerType.SINGLE,
-            new SleepingWaitStrategy());
+    private final Disruptor<BlockNotificationRingEvent> blockNotificationDisruptor;
 
     /** Collect all block item handlers till start then register them with the disruptor. */
     private final ArrayList<EventHandler<BlockItemBatchRingEvent>> blockItemHandlers = new ArrayList<>();
@@ -129,6 +119,61 @@ public class MessagingServiceImpl implements MessagingService {
     /** Map of dynamic no back pressure block item handlers to their event processors. So that we can stop them */
     private final Map<NoBackPressureBlockItemHandler, BatchEventProcessor<BlockItemBatchRingEvent>>
             dynamicNoBackPressureBlockItemHandlerToEventProcessor = new HashMap<>();
+
+    /**
+     * Constructs a new MessagingServiceImpl instance with the default configuration. It uses the
+     * ConfigurationBuilderFactory to load the configuration from the classpath.
+     */
+    public MessagingServiceImpl() {
+        this(getConfig());
+    }
+
+    /**
+     * Constructs a new MessagingServiceImpl instance with the given configuration.
+     *
+     * @param config the configuration for the messaging service
+     */
+    public MessagingServiceImpl(final MessagingConfig config) {
+        blockItemDisruptor = new Disruptor<>(
+                BlockItemBatchRingEvent::new,
+                config.queueSize(),
+                VIRTUAL_THREAD_FACTORY,
+                ProducerType.SINGLE,
+                new SleepingWaitStrategy());
+        blockNotificationDisruptor = new Disruptor<>(
+                BlockNotificationRingEvent::new,
+                config.queueSize(),
+                VIRTUAL_THREAD_FACTORY,
+                ProducerType.SINGLE,
+                new SleepingWaitStrategy());
+    }
+
+    /**
+     * Get the configuration for the messaging service. It uses the ConfigurationBuilderFactory to load the
+     * configuration from the classpath. Public as it is used in tests, but is not exported from the module.
+     *
+     * @return the configuration for the messaging service
+     * @throws IllegalStateException if no ConfigurationBuilderFactory implementation is found
+     */
+    public static MessagingConfig getConfig() {
+        ConfigurationBuilderFactory configurationBuilderFactory = null;
+        final ServiceLoader<ConfigurationBuilderFactory> serviceLoader =
+                ServiceLoader.load(ConfigurationBuilderFactory.class, MessagingServiceImpl.class.getClassLoader());
+        final Iterator<ConfigurationBuilderFactory> iterator = serviceLoader.iterator();
+        if (iterator.hasNext()) {
+            configurationBuilderFactory = iterator.next();
+        }
+        if (configurationBuilderFactory == null) {
+            throw new IllegalStateException("No ConfigurationBuilderFactory implementation found!");
+        }
+        // Load the configuration from the classpath
+        return configurationBuilderFactory
+                .create()
+                .autoDiscoverExtensions()
+                .withConfigDataType(MessagingConfig.class)
+                .build()
+                .getConfigData(MessagingConfig.class);
+    }
 
     /**
      * {@inheritDoc}

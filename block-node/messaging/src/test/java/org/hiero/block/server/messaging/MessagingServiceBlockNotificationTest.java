@@ -25,7 +25,7 @@ public class MessagingServiceBlockNotificationTest {
      * The number of items to send to the messaging service. This is twice the size of the ring buffer, so that we can
      * test the back pressure and the slow handler.
      */
-    public static final int TEST_DATA_COUNT = MessagingServiceImpl.RING_BUFFER_SIZE * 2;
+    public static final int TEST_DATA_COUNT = MessagingServiceImpl.getConfig().queueSize() * 2;
 
     /**
      * Simple test to verify that the messaging service can handle multiple block notification handlers and that
@@ -110,7 +110,6 @@ public class MessagingServiceBlockNotificationTest {
         messagingService.start();
         // send TEST_DATA_COUNT block notifications
         for (int i = 0; i < TEST_DATA_COUNT; i++) {
-            System.out.println("i = " + i);
             messagingService.sendBlockNotification(new BlockNotification(i, Type.BLOCK_PERSISTED));
             // release the slow handler 3 out of 4 times so it is slowed down by 25%
             if (i % 4 == 0) {

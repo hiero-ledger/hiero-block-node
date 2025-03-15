@@ -27,7 +27,7 @@ public class MessagingServiceDynamicBlockItemTest {
      * The number of items to send to the messaging service. This is twice the size of the ring buffer, so that we can
      * test the back pressure and the slow handler.
      */
-    public static final int TEST_DATA_COUNT = MessagingServiceImpl.RING_BUFFER_SIZE * 2;
+    public static final int TEST_DATA_COUNT = MessagingServiceImpl.getConfig().queueSize() * 2;
 
     /**
      * Test to verify that the messaging service can handle dynamic handlers with no back pressure and a slow handler is
@@ -57,7 +57,7 @@ public class MessagingServiceDynamicBlockItemTest {
                 // slow us down, waiting for fast handler to release us every 100 it gets
                 synchronized (holdBackSlowHandler) {
                     try {
-                        holdBackSlowHandler.wait(10);
+                        holdBackSlowHandler.wait(50);
                     } catch (InterruptedException e) {
                         throw new RuntimeException(e);
                     }
@@ -66,7 +66,6 @@ public class MessagingServiceDynamicBlockItemTest {
 
             @Override
             public void onTooFarBehindError() {
-                System.out.println("    slowHandler onTooFarBehindError");
                 onTooFarBehindErrorCalled.incrementAndGet();
                 latch.countDown();
             }
@@ -109,7 +108,6 @@ public class MessagingServiceDynamicBlockItemTest {
         messagingService.start();
         // send 2000 items to the service, in lock step with fast handler
         for (int i = 0; i < TEST_DATA_COUNT; i++) {
-            System.out.println("i = " + i);
             messagingService.sendBlockItems(
                     List.of(new BlockItemUnparsed(new OneOf<>(ItemOneOfType.BLOCK_HEADER, intToBytes(i)))));
             // notify the fast handler that we are done sending an item, so we stay in lock step
@@ -138,6 +136,7 @@ public class MessagingServiceDynamicBlockItemTest {
     @SuppressWarnings("DataFlowIssue")
     @Test
     void testDynamicHandlersUnregister() throws InterruptedException {
+        System.out.println("TEST_DATA_COUNT = " + TEST_DATA_COUNT);
         // latch to wait for both handlers to finish
         final CountDownLatch latch = new CountDownLatch(1);
         // Create a couple handlers
@@ -170,7 +169,6 @@ public class MessagingServiceDynamicBlockItemTest {
                 handler2Sum.addAndGet(receivedValue);
                 // check if we are done
                 if (handler2Counter.incrementAndGet() == TEST_DATA_COUNT - 1) {
-                    System.out.println("    handler2 done");
                     latch.countDown();
                 }
             }
@@ -187,7 +185,6 @@ public class MessagingServiceDynamicBlockItemTest {
         messagingService.start();
         // send 2000 items to the service, in lock step with fast handler
         for (int i = 0; i < TEST_DATA_COUNT; i++) {
-            System.out.println("i = " + i);
             if (i == 5) {
                 // unregister the first handler, so it will not get any more items
                 messagingService.unregisterDynamicNoBackpressureBlockItemHandler(handler1);
