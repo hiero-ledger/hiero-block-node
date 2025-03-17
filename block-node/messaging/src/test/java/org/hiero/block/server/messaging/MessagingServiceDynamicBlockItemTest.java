@@ -136,7 +136,6 @@ public class MessagingServiceDynamicBlockItemTest {
     @SuppressWarnings("DataFlowIssue")
     @Test
     void testDynamicHandlersUnregister() throws InterruptedException {
-        System.out.println("TEST_DATA_COUNT = " + TEST_DATA_COUNT);
         // latch to wait for both handlers to finish
         final CountDownLatch latch = new CountDownLatch(1);
         // Create a couple handlers
@@ -197,9 +196,17 @@ public class MessagingServiceDynamicBlockItemTest {
             }
             messagingService.sendBlockItems(
                     List.of(new BlockItemUnparsed(new OneOf<>(ItemOneOfType.BLOCK_HEADER, intToBytes(i)))));
+            // have to slow down production to make test reliable
+            try {
+                Thread.sleep(1);
+            } catch (InterruptedException e) {
+                throw new RuntimeException(e);
+            }
         }
         // wait for handler 2 to finish
-        assertTrue(latch.await(20, TimeUnit.SECONDS));
+        assertTrue(
+                latch.await(20, TimeUnit.SECONDS),
+                "Handler 2 did not finish in time, should " + "have been way faster than 20sec timeout");
         // shutdown the messaging service
         messagingService.shutdown();
         final int expectedTotal = IntStream.range(0, TEST_DATA_COUNT).sum();
