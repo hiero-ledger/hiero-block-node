@@ -13,7 +13,7 @@ dependencies.constraints {
     val grpcIoVersion = "1.70.0"
     val helidonVersion = "4.1.6"
     val pbjVersion = "0.9.17"
-    val protobufVersion = "4.30.0"
+    val protobufVersion = "4.30.1"
     val swirldsVersion = "0.59.2"
 
     api("com.github.luben:zstd-jni:1.5.7-1") { because("com.github.luben.zstd_jni") }
