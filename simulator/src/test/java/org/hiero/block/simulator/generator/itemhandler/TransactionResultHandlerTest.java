@@ -52,7 +52,6 @@ class TransactionResultHandlerTest {
         assertTrue(credit.getAmount() > 0);
         assertEquals(-debit.getAmount(), credit.getAmount());
 
-        // Validate that shard and realm are within expected range
         assertTrue(debit.getAccountID().getShardNum() >= 1);
         assertTrue(debit.getAccountID().getShardNum() <= 100);
         assertTrue(debit.getAccountID().getRealmNum() >= 1);
@@ -78,7 +77,6 @@ class TransactionResultHandlerTest {
         TokenID token = tokenTransfers.getToken();
         assertNotNull(token);
 
-        // Validate token shard and realm are within expected range
         assertTrue(token.getShardNum() >= 1);
         assertTrue(token.getShardNum() <= 100);
         assertTrue(token.getRealmNum() >= 1);
@@ -96,7 +94,6 @@ class TransactionResultHandlerTest {
         assertTrue(credit.getAmount() > 0);
         assertEquals(-debit.getAmount(), credit.getAmount());
 
-        // Validate that shard and realm are within expected range
         assertTrue(debit.getAccountID().getShardNum() >= 1);
         assertTrue(debit.getAccountID().getShardNum() <= 100);
         assertTrue(debit.getAccountID().getRealmNum() >= 1);
