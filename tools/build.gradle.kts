@@ -21,7 +21,6 @@ mainModuleInfo {
     requires("com.google.gson")
     requires("info.picocli")
     runtimeOnly("com.swirlds.config.impl")
-    runtimeOnly("org.apache.logging.log4j.slf4j2.impl")
     runtimeOnly("io.grpc.netty")
 }
 

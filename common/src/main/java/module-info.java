@@ -6,6 +6,5 @@ module org.hiero.block.common {
 
     requires transitive com.hedera.pbj.runtime;
     requires transitive org.hiero.block.stream;
-    requires com.swirlds.common;
     requires static com.github.spotbugs.annotations;
 }
