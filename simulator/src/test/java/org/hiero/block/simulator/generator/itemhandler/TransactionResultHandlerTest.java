@@ -1,15 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.simulator.generator.itemhandler;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertNotNull;
-import static org.junit.jupiter.api.Assertions.assertSame;
-import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.*;
 
 import com.hedera.hapi.block.stream.output.protoc.TransactionResult;
 import com.hedera.hapi.block.stream.protoc.BlockItem;
 import com.hederahashgraph.api.proto.java.AccountAmount;
 import com.hederahashgraph.api.proto.java.ResponseCodeEnum;
+import com.hederahashgraph.api.proto.java.TokenID;
 import com.hederahashgraph.api.proto.java.TokenTransferList;
 import com.hederahashgraph.api.proto.java.TransferList;
 import org.junit.jupiter.api.Test;
@@ -54,6 +52,17 @@ class TransactionResultHandlerTest {
         assertTrue(credit.getAmount() > 0);
         assertEquals(-debit.getAmount(), credit.getAmount());
 
+        // Validate that shard and realm are within expected range
+        assertTrue(debit.getAccountID().getShardNum() >= 1);
+        assertTrue(debit.getAccountID().getShardNum() <= 100);
+        assertTrue(debit.getAccountID().getRealmNum() >= 1);
+        assertTrue(debit.getAccountID().getRealmNum() <= 100);
+
+        assertTrue(credit.getAccountID().getShardNum() >= 1);
+        assertTrue(credit.getAccountID().getShardNum() <= 100);
+        assertTrue(credit.getAccountID().getRealmNum() >= 1);
+        assertTrue(credit.getAccountID().getRealmNum() <= 100);
+
         assertTrue(debit.getAccountID().getAccountNum() >= 1);
         assertTrue(debit.getAccountID().getAccountNum() <= 100);
         assertTrue(credit.getAccountID().getAccountNum() >= 1);
@@ -66,9 +75,17 @@ class TransactionResultHandlerTest {
         TokenTransferList tokenTransfers =
                 handler.getItem().getTransactionResult().getTokenTransferLists(0);
 
-        assertNotNull(tokenTransfers.getToken());
-        assertTrue(tokenTransfers.getToken().getTokenNum() >= 1);
-        assertTrue(tokenTransfers.getToken().getTokenNum() <= 100);
+        TokenID token = tokenTransfers.getToken();
+        assertNotNull(token);
+
+        // Validate token shard and realm are within expected range
+        assertTrue(token.getShardNum() >= 1);
+        assertTrue(token.getShardNum() <= 100);
+        assertTrue(token.getRealmNum() >= 1);
+        assertTrue(token.getRealmNum() <= 100);
+
+        assertTrue(token.getTokenNum() >= 1);
+        assertTrue(token.getTokenNum() <= 100);
 
         assertEquals(2, tokenTransfers.getTransfersCount());
 
@@ -78,6 +95,17 @@ class TransactionResultHandlerTest {
         assertTrue(debit.getAmount() < 0);
         assertTrue(credit.getAmount() > 0);
         assertEquals(-debit.getAmount(), credit.getAmount());
+
+        // Validate that shard and realm are within expected range
+        assertTrue(debit.getAccountID().getShardNum() >= 1);
+        assertTrue(debit.getAccountID().getShardNum() <= 100);
+        assertTrue(debit.getAccountID().getRealmNum() >= 1);
+        assertTrue(debit.getAccountID().getRealmNum() <= 100);
+
+        assertTrue(credit.getAccountID().getShardNum() >= 1);
+        assertTrue(credit.getAccountID().getShardNum() <= 100);
+        assertTrue(credit.getAccountID().getRealmNum() >= 1);
+        assertTrue(credit.getAccountID().getRealmNum() <= 100);
 
         assertTrue(debit.getAccountID().getAccountNum() >= 1);
         assertTrue(debit.getAccountID().getAccountNum() <= 100);
