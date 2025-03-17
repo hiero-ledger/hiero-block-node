@@ -2,7 +2,6 @@
 package org.hiero.block.common.hasher;
 
 import com.hedera.pbj.runtime.io.buffer.Bytes;
-import com.swirlds.common.crypto.DigestType;
 import edu.umd.cs.findbugs.annotations.NonNull;
 import java.nio.ByteBuffer;
 import java.util.List;
@@ -17,7 +16,7 @@ public interface StreamingTreeHasher {
     /**
      * The length of the hash produced by this hasher.
      */
-    int HASH_LENGTH = DigestType.SHA_384.digestLength();
+    int HASH_LENGTH = 48;
 
     /**
      * Describes the status of the tree hash computation.
