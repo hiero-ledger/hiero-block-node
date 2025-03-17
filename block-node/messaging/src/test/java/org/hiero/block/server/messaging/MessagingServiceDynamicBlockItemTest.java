@@ -118,7 +118,9 @@ public class MessagingServiceDynamicBlockItemTest {
             }
         }
         // wait for both handlers to finish
-        assertTrue(latch.await(20, TimeUnit.SECONDS));
+        assertTrue(
+                latch.await(20, TimeUnit.SECONDS),
+                "Did not finish in time, should " + "have been way faster than 20sec timeout");
         // shutdown the messaging service
         messagingService.shutdown();
         // check that the fast handler processed all items
@@ -206,7 +208,7 @@ public class MessagingServiceDynamicBlockItemTest {
         // wait for handler 2 to finish
         assertTrue(
                 latch.await(20, TimeUnit.SECONDS),
-                "Handler 2 did not finish in time, should " + "have been way faster than 20sec timeout");
+                "Did not finish in time, should " + "have been way faster than 20sec timeout");
         // shutdown the messaging service
         messagingService.shutdown();
         final int expectedTotal = IntStream.range(0, TEST_DATA_COUNT).sum();

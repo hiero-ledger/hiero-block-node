@@ -8,6 +8,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import java.lang.Thread.State;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Semaphore;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicIntegerArray;
 import java.util.stream.IntStream;
@@ -29,11 +30,12 @@ public class MessagingServiceBlockNotificationTest {
 
     /**
      * Simple test to verify that the messaging service can handle multiple block notification handlers and that
+     * they all receive the same number of items.
      *
-     * @throws Throwable if there was an error during the test
+     * @throws InterruptedException if the test latch is interrupted
      */
     @Test
-    void testSimpleBlockNotificationHandlers() throws Throwable {
+    void testSimpleBlockNotificationHandlers() throws InterruptedException {
         final int expectedCount = TEST_DATA_COUNT;
         // latch to wait for all handlers to finish
         CountDownLatch latch = new CountDownLatch(3);
@@ -57,7 +59,9 @@ public class MessagingServiceBlockNotificationTest {
             messagingService.sendBlockNotification(new BlockNotification(i, Type.BLOCK_PERSISTED));
         }
         // wait for all handlers to finish
-        latch.await();
+        assertTrue(
+                latch.await(20, TimeUnit.SECONDS),
+                "Did not finish in time, should " + "have been way faster than 20sec timeout");
         // shutdown the messaging service
         messagingService.shutdown();
         // verify that all handlers received the expected number of items
@@ -70,10 +74,10 @@ public class MessagingServiceBlockNotificationTest {
      * Test to verify that the messaging service can handle multiple block notification handlers and that
      * the slow handler is slowed down by 25% and the fast handler is not slowed down.
      *
-     * @throws Throwable if there was an error during the test
+     * @throws InterruptedException if the test latch is interrupted
      */
     @Test
-    void testFastAndSlowBlockNotificationHandlers() throws Throwable {
+    void testFastAndSlowBlockNotificationHandlers() throws InterruptedException {
         final int expectedCount = TEST_DATA_COUNT;
         // latch to wait for all handlers to finish
         final CountDownLatch latch = new CountDownLatch(1);
@@ -119,7 +123,9 @@ public class MessagingServiceBlockNotificationTest {
         // mark sending finished and release the slow handler
         holdBackSlowHandler.release(TEST_DATA_COUNT);
         // wait for all handlers to finish
-        latch.await();
+        assertTrue(
+                latch.await(20, TimeUnit.SECONDS),
+                "Did not finish in time, should " + "have been way faster than 20sec timeout");
         // shutdown the messaging service
         messagingService.shutdown();
         // verify that all handlers received the expected number of items
@@ -132,10 +138,10 @@ public class MessagingServiceBlockNotificationTest {
      * The test will create a slow handler that will apply backpressure to the messaging service
      * and verify that the messaging service applies backpressure to the notification send.
      *
-     * @throws Throwable if there was an error during the test
+     * @throws InterruptedException if the test latch is interrupted
      */
     @Test
-    void testBlockNotificationBackpressure() throws Throwable {
+    void testBlockNotificationBackpressure() throws InterruptedException {
         // latch to wait for all handlers to finish
         final CountDownLatch latch = new CountDownLatch(1);
         // create counters for sent and received items
@@ -196,7 +202,9 @@ public class MessagingServiceBlockNotificationTest {
         // mark sending finished and release the slow handler
         holdBackSlowHandler.release(TEST_DATA_COUNT);
         // wait for all handlers to finish
-        latch.await();
+        assertTrue(
+                latch.await(20, TimeUnit.SECONDS),
+                "Did not finish in time, should " + "have been way faster than 20sec timeout");
         // shutdown the messaging service
         messagingService.shutdown();
     }

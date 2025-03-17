@@ -3,6 +3,7 @@ package org.hiero.block.server.messaging;
 
 import static org.hiero.block.server.messaging.MessagingServiceDynamicBlockItemTest.intToBytes;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.fail;
 
 import com.hedera.hapi.block.BlockItemUnparsed;
@@ -10,6 +11,7 @@ import com.hedera.hapi.block.BlockItemUnparsed.ItemOneOfType;
 import com.hedera.pbj.runtime.OneOf;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicIntegerArray;
 import java.util.stream.IntStream;
 import org.hiero.block.server.messaging.impl.MessagingServiceImpl;
@@ -27,11 +29,12 @@ public class MessagingServiceBlockItemTest {
 
     /**
      * Simple test to verify that the messaging service can handle multiple block notification handlers and that
+     * they all receive the same number of items.
      *
-     * @throws Throwable if there was an error during the test
+     * @throws InterruptedException if the test latch is interrupted
      */
     @Test
-    void testSimpleBlockItemHandlers() throws Throwable {
+    void testSimpleBlockItemHandlers() throws InterruptedException {
         final int expectedCount = TEST_DATA_COUNT;
         // latch to wait for all handlers to finish
         CountDownLatch latch = new CountDownLatch(3);
@@ -56,7 +59,9 @@ public class MessagingServiceBlockItemTest {
                     List.of(new BlockItemUnparsed(new OneOf<>(ItemOneOfType.BLOCK_HEADER, intToBytes(i)))));
         }
         // wait for all handlers to finish
-        latch.await();
+        assertTrue(
+                latch.await(20, TimeUnit.SECONDS),
+                "Did not finish in time, should " + "have been way faster than 20sec timeout");
         // shutdown the messaging service
         messagingService.shutdown();
         // verify that all handlers received the expected number of items
@@ -107,7 +112,9 @@ public class MessagingServiceBlockItemTest {
                     List.of(new BlockItemUnparsed(new OneOf<>(ItemOneOfType.BLOCK_HEADER, intToBytes(i)))));
         }
         // wait for all handlers to finish
-        latch.await();
+        assertTrue(
+                latch.await(20, TimeUnit.SECONDS),
+                "Did not finish in time, should " + "have been way faster than 20sec timeout");
         // shutdown the messaging service
         messagingService.shutdown();
         // verify that all handlers received the expected number of items
