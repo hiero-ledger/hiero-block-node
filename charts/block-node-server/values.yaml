@@ -73,7 +73,7 @@ blockNode:
   config:
     # Add any additional env configuration here
     # key: value
-    JAVA_TOOL_OPTIONS: "-Djava.util.logging.config.file=/app/logs/config/logging.properties"
+    JAVA_TOOL_OPTIONS: "-Djava.util.logging.config.file=/opt/hiero/block-node/logs/config/logging.properties"
     JAVA_OPTS: "-Xms16G -Xmx16G"
     # PRODUCER_TYPE: "NO_OP"
     # PERSISTENCE_STORAGE_TYPE: "NO_OP"
@@ -90,8 +90,20 @@ blockNode:
       subPath: "archive-data"
       # If create is true, the following values are used to create the PVC
       # should match PERSISTENCE_STORAGE_ARCHIVE_ROOT_PATH, leave as is for default.
-      mountPath: "/opt/hashgraph/blocknode/data/historic"
+      mountPath: "/opt/hiero/block-node/data/historic"
       size: 800Gi
+      # Optionally add a storage class name if needed
+      # storageClass: "your-storage-class"
+    logging:
+      # If false, the chart expects an externally provided PVC
+      create: true
+      # Name of the externally provided PVC
+      existingClaim: ""
+      # Name of the subPath in the PVC to mount to mountPath in the container
+      subPath: "logging-data"
+      # If create is true, the following values are used to create the PVC
+      mountPath: "/opt/hiero/block-node/logs"
+      size: 2Gi
       # Optionally add a storage class name if needed
       # storageClass: "your-storage-class"
     live:
@@ -103,7 +115,7 @@ blockNode:
       subPath: "live-data"
       # If create is true, the following values are used to create the PVC
       # should match PERSISTENCE_STORAGE_LIVE_ROOT_PATH, leave as is for default.
-      mountPath: "/opt/hashgraph/blocknode/data/live"
+      mountPath: "/opt/hiero/block-node/data/live"
       size: 20Gi
       # Optionally add a storage class name if needed
       # storageClass: "your-storage-class"
@@ -111,7 +123,7 @@ blockNode:
       # unverified does a hard-coded emptyDir and is ephemeral, however needs to be mounted
       # this does not create a PVC.
       # should match PERSISTENCE_STORAGE_UNVERIFIED_ROOT_PATH, leave as is for default.
-      mountPath: "/opt/hashgraph/blocknode/data/unverified"
+      mountPath: "/opt/hiero/block-node/data/unverified"
   secret:
     PRIVATE_KEY: "fake_private_key"
   health:
@@ -125,6 +137,7 @@ blockNode:
     # Available Levels are (from most verbose to least verbose):
     # ALL FINEST FINER FINE CONFIG INFO WARNING SEVERE OFF
     level: "INFO"
+    configMountPath: "/opt/hiero/block-node/logs/config"
     loggingProperties:
       # com.hedera.block.server.producer.ProducerBlockItemObserver.level: "FINE"
       io.helidon.webserver.level: "INFO"
@@ -135,7 +148,7 @@ blockNode:
       handlers: "java.util.logging.ConsoleHandler, java.util.logging.FileHandler"
       java.util.logging.ConsoleHandler.level: "FINE"
       java.util.logging.ConsoleHandler.formatter: "java.util.logging.SimpleFormatter"
-      java.util.logging.FileHandler.pattern: "/app/logs/blocknode-%g.log"
+      java.util.logging.FileHandler.pattern: "/opt/hiero/block-node/logs/blocknode-%g.log"
       java.util.logging.FileHandler.append: "true"
       java.util.logging.FileHandler.limit: "5_000_000"
       java.util.logging.FileHandler.count: "5"

@@ -19,7 +19,7 @@ CONSUMER_BLOCK_STREAM_SIMULATOR_MODE=CONSUMER
 CONSUMER_PROMETHEUS_ENDPOINT_PORT_NUMBER=9997
 EOL
 
-logging_config_file_arg="-Djava.util.logging.config.file=/app/logs/config/logging.properties"
+logging_config_file_arg="-Djava.util.logging.config.file=/opt/hiero/block-node/logs/config/logging.properties"
 debug_arg="-agentlib:jdwp=transport=dt_socket,server=y,suspend=y,address=*:5006"
 # determine if we should include debug opts
 [ "$1" = true ] && is_debug=true || is_debug=false

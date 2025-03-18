@@ -39,7 +39,7 @@ class FilesHistoricConfigTest {
     @BeforeEach
     void setup() {
         jimfs = Jimfs.newFileSystem(Configuration.unix());
-        defaultRootPath = jimfs.getPath("/opt/hashgraph/blocknode/data/historic");
+        defaultRootPath = jimfs.getPath("/opt/hiero/block-node/data/historic");
         defaultCompression = CompressionType.ZSTD;
         powersOfTenPerZipFileContents = 4;
     }
