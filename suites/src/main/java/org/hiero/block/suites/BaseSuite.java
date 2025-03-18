@@ -12,6 +12,7 @@ import io.github.cdimascio.dotenv.Dotenv;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.Future;
@@ -165,9 +166,8 @@ public abstract class BaseSuite {
      * @throws IOException if an I/O error occurs
      */
     protected BlockStreamSimulatorApp createBlockSimulator() throws IOException {
-        final Map<String, String> emptyMap = Map.of();
-        BlockStreamSimulatorInjectionComponent DIComponent =
-                DaggerBlockStreamSimulatorInjectionComponent.factory().create(loadSimulatorConfiguration(emptyMap));
+        BlockStreamSimulatorInjectionComponent DIComponent = DaggerBlockStreamSimulatorInjectionComponent.factory()
+                .create(loadSimulatorConfiguration(Collections.emptyMap()));
         return DIComponent.getBlockStreamSimulatorApp();
     }
 
