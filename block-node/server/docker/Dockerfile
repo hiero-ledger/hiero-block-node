@@ -71,7 +71,7 @@ RUN groupadd --gid 2000 hedera && \
 ARG VERSION
 
 # Set the working directory inside the container
-WORKDIR /app
+WORKDIR /opt/hiero/block-node
 
 # Copy Distribution TAR file
 # Ignore Codacy, the `distributions` context is set on command line and
@@ -82,15 +82,15 @@ COPY --from=distributions block-node-server-${VERSION}.tar .
 RUN tar -xvf block-node-server-${VERSION}.tar
 
 # Create a log directory
-RUN mkdir -p /app/logs/config
+RUN mkdir -p /opt/hiero/block-node/logs/config
 
 # Copy the logging properties file
-COPY logging.properties /app/logs/config/logging.properties
+COPY logging.properties /opt/hiero/block-node/logs/config/logging.properties
 
 WORKDIR /
 
 # Ensure proper file permissions
-RUN chown -R 2000:2000 /app /opt
+RUN chown -R 2000:2000 /opt/hiero/block-node
 
 ########################################
 ####    Deterministic Build Hack    ####
@@ -138,7 +138,7 @@ COPY --from=java-builder ${JAVA_HOME}/ ${JAVA_HOME}/
 EXPOSE 8080/tcp
 
 USER hedera
-WORKDIR /app
+WORKDIR /opt/hiero/block-node
 
 # HEALTHCHECK for liveness and readiness
 HEALTHCHECK --interval=30s --timeout=10s --start-period=3s --retries=3 \
@@ -146,4 +146,4 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=3s --retries=3 \
       curl -f http://localhost:8080/healthz/readyz || exit 1
 
 # RUN the bin script for starting the server
-ENTRYPOINT ["/bin/bash", "-c", "/app/block-node-server-${VERSION}/bin/block-node-server"]
+ENTRYPOINT ["/bin/bash", "-c", "/opt/hiero/block-node/block-node-server-${VERSION}/bin/block-node-server"]

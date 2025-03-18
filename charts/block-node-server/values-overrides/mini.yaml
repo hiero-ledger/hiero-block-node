@@ -11,7 +11,7 @@ resources:
 
 blockNode:
   config:
-    JAVA_TOOL_OPTIONS: "-Djava.util.logging.config.file=/app/logs/config/logging.properties"
+    JAVA_TOOL_OPTIONS: "-Djava.util.logging.config.file=/opt/hiero/block-node/logs/config/logging.properties"
     JAVA_OPTS: "-Xms5G -Xmx5G"
     MEDIATOR_RING_BUFFER_SIZE: "2048"
   persistence:

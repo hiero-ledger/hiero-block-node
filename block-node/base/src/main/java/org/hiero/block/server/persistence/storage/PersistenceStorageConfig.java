@@ -23,9 +23,9 @@ import org.hiero.block.server.config.logging.Loggable;
  */
 @ConfigData("persistence.storage")
 public record PersistenceStorageConfig(
-        @Loggable @ConfigProperty(defaultValue = "/opt/hashgraph/blocknode/data/live") Path liveRootPath,
-        @Loggable @ConfigProperty(defaultValue = "/opt/hashgraph/blocknode/data/archive") Path archiveRootPath,
-        @Loggable @ConfigProperty(defaultValue = "/opt/hashgraph/blocknode/data/unverified") Path unverifiedRootPath,
+        @Loggable @ConfigProperty(defaultValue = "/opt/hiero/block-node/data/live") Path liveRootPath,
+        @Loggable @ConfigProperty(defaultValue = "/opt/hiero/block-node/data/archive") Path archiveRootPath,
+        @Loggable @ConfigProperty(defaultValue = "/opt/hiero/block-node/data/unverified") Path unverifiedRootPath,
         @Loggable @ConfigProperty(defaultValue = "BLOCK_AS_LOCAL_FILE") StorageType type,
         @Loggable @ConfigProperty(defaultValue = "ZSTD") CompressionType compression,
         @Loggable @ConfigProperty(defaultValue = "3") @Min(0) @Max(20) int compressionLevel,

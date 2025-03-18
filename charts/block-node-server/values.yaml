@@ -73,7 +73,7 @@ blockNode:
   config:
     # Add any additional env configuration here
     # key: value
-    JAVA_TOOL_OPTIONS: "-Djava.util.logging.config.file=/app/logs/config/logging.properties"
+    JAVA_TOOL_OPTIONS: "-Djava.util.logging.config.file=/opt/hiero/block-node/logs/config/logging.properties"
     JAVA_OPTS: "-Xms16G -Xmx16G"
     # PRODUCER_TYPE: "NO_OP"
     # PERSISTENCE_STORAGE_TYPE: "NO_OP"
@@ -90,7 +90,7 @@ blockNode:
       subPath: "archive-data"
       # If create is true, the following values are used to create the PVC
       # should match PERSISTENCE_STORAGE_ARCHIVE_ROOT_PATH, leave as is for default.
-      mountPath: "/opt/hashgraph/blocknode/data/archive"
+      mountPath: "/opt/hiero/block-node/data/archive"
       size: 800Gi
       # Optionally add a storage class name if needed
       # storageClass: "your-storage-class"
@@ -103,7 +103,7 @@ blockNode:
       subPath: "live-data"
       # If create is true, the following values are used to create the PVC
       # should match PERSISTENCE_STORAGE_LIVE_ROOT_PATH, leave as is for default.
-      mountPath: "/opt/hashgraph/blocknode/data/live"
+      mountPath: "/opt/hiero/block-node/data/live"
       size: 20Gi
       # Optionally add a storage class name if needed
       # storageClass: "your-storage-class"
@@ -111,7 +111,7 @@ blockNode:
       # unverified does a hard-coded emptyDir and is ephemeral, however needs to be mounted
       # this does not create a PVC.
       # should match PERSISTENCE_STORAGE_UNVERIFIED_ROOT_PATH, leave as is for default.
-      mountPath: "/opt/hashgraph/blocknode/data/unverified"
+      mountPath: "/opt/hiero/block-node/data/unverified"
   secret:
     PRIVATE_KEY: "fake_private_key"
   health:
@@ -135,7 +135,7 @@ blockNode:
       handlers: "java.util.logging.ConsoleHandler, java.util.logging.FileHandler"
       java.util.logging.ConsoleHandler.level: "FINE"
       java.util.logging.ConsoleHandler.formatter: "java.util.logging.SimpleFormatter"
-      java.util.logging.FileHandler.pattern: "/app/logs/blocknode-%g.log"
+      java.util.logging.FileHandler.pattern: "/opt/hiero/block-node/logs/blocknode-%g.log"
       java.util.logging.FileHandler.append: "true"
       java.util.logging.FileHandler.limit: "5_000_000"
       java.util.logging.FileHandler.count: "5"
@@ -153,6 +153,7 @@ blockNode:
       #   %5$ - log message
       #   %6$ - throwable trace
       java.util.logging.SimpleFormatter.format: "%TF %<TT.%<TL%<Tz %4$-7s [%2$s] %5$s%6$s%n"
+    mountPath: "/opt/hiero/block-node/logs"
 
 kubepromstack:
   enabled: true

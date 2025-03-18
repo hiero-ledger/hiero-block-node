@@ -28,7 +28,7 @@ class NoOpBlockPathResolverTest {
      * the path to a block by a given number. The no-op resolver does nothing,
      * always returns a path resolved under '/tmp' based on the blockNumber and
      * has no preconditions check. E.g. for blockNumber 0, the resolved path is
-     * '/tmp/hashgraph/blocknode/data/0.tmp.blk'.
+     * '/tmp/hiero/block-node/data/0.tmp.blk'.
      *
      * @param toResolve parameterized, block number
      */
@@ -45,7 +45,7 @@ class NoOpBlockPathResolverTest {
      * correctly resolves the path to a block by a given number. The no-op
      * resolver does nothing, always returns a path resolved under '/tmp' based
      * on the blockNumber and has no preconditions check. E.g. for blockNumber
-     * 0, the resolved path is '/tmp/hashgraph/blocknode/data/0.tmp.blk'.
+     * 0, the resolved path is '/tmp/hiero/block-node/data/0.tmp.blk'.
      * Essentially, acts the same as
      * {@link NoOpBlockPathResolver#resolveLiveRawPathToBlock(long)}.
      *
@@ -65,7 +65,7 @@ class NoOpBlockPathResolverTest {
      * size as to where a given block by number would reside. The no-op resolver
      * does nothing, always returns a path resolved under '/tmp' based on the
      * blockNumber and has no preconditions check. E.g. for blockNumber 0, the
-     * resolved path is '/tmp/hashgraph/blocknode/data/0.tmp.blk'.
+     * resolved path is '/tmp/hiero/block-node/data/0.tmp.blk'.
      *
      */
     @ParameterizedTest
@@ -82,7 +82,7 @@ class NoOpBlockPathResolverTest {
      * group size as to where a given block by number would reside. The no-op
      * resolver does nothing, always returns a path resolved under '/tmp' based
      * on the blockNumber and has no preconditions check. E.g. for blockNumber
-     * 0, the resolved path is '/tmp/hashgraph/blocknode/data/0.tmp.blk'.
+     * 0, the resolved path is '/tmp/hiero/block-node/data/0.tmp.blk'.
      *
      */
     @ParameterizedTest
@@ -158,28 +158,28 @@ class NoOpBlockPathResolverTest {
      */
     private static Stream<Arguments> validBlockNumbers() {
         return Stream.of(
-                Arguments.of(0L, "/tmp/hashgraph/blocknode/data/0.tmp.blk"),
-                Arguments.of(1L, "/tmp/hashgraph/blocknode/data/1.tmp.blk"),
-                Arguments.of(2L, "/tmp/hashgraph/blocknode/data/2.tmp.blk"),
-                Arguments.of(10L, "/tmp/hashgraph/blocknode/data/10.tmp.blk"),
-                Arguments.of(100L, "/tmp/hashgraph/blocknode/data/100.tmp.blk"),
-                Arguments.of(1_000L, "/tmp/hashgraph/blocknode/data/1000.tmp.blk"),
-                Arguments.of(10_000L, "/tmp/hashgraph/blocknode/data/10000.tmp.blk"),
-                Arguments.of(100_000L, "/tmp/hashgraph/blocknode/data/100000.tmp.blk"),
-                Arguments.of(1_000_000L, "/tmp/hashgraph/blocknode/data/1000000.tmp.blk"),
-                Arguments.of(10_000_000L, "/tmp/hashgraph/blocknode/data/10000000.tmp.blk"),
-                Arguments.of(100_000_000L, "/tmp/hashgraph/blocknode/data/100000000.tmp.blk"),
-                Arguments.of(1_000_000_000L, "/tmp/hashgraph/blocknode/data/1000000000.tmp.blk"),
-                Arguments.of(10_000_000_000L, "/tmp/hashgraph/blocknode/data/10000000000.tmp.blk"),
-                Arguments.of(100_000_000_000L, "/tmp/hashgraph/blocknode/data/100000000000.tmp.blk"),
-                Arguments.of(1_000_000_000_000L, "/tmp/hashgraph/blocknode/data/1000000000000.tmp.blk"),
-                Arguments.of(10_000_000_000_000L, "/tmp/hashgraph/blocknode/data/10000000000000.tmp.blk"),
-                Arguments.of(100_000_000_000_000L, "/tmp/hashgraph/blocknode/data/100000000000000.tmp.blk"),
-                Arguments.of(1_000_000_000_000_000L, "/tmp/hashgraph/blocknode/data/1000000000000000.tmp.blk"),
-                Arguments.of(10_000_000_000_000_000L, "/tmp/hashgraph/blocknode/data/10000000000000000.tmp.blk"),
-                Arguments.of(100_000_000_000_000_000L, "/tmp/hashgraph/blocknode/data/100000000000000000.tmp.blk"),
-                Arguments.of(1_000_000_000_000_000_000L, "/tmp/hashgraph/blocknode/data/1000000000000000000.tmp.blk"),
-                Arguments.of(Long.MAX_VALUE, "/tmp/hashgraph/blocknode/data/9223372036854775807.tmp.blk"));
+                Arguments.of(0L, "/tmp/hiero/block-node/data/0.tmp.blk"),
+                Arguments.of(1L, "/tmp/hiero/block-node/data/1.tmp.blk"),
+                Arguments.of(2L, "/tmp/hiero/block-node/data/2.tmp.blk"),
+                Arguments.of(10L, "/tmp/hiero/block-node/data/10.tmp.blk"),
+                Arguments.of(100L, "/tmp/hiero/block-node/data/100.tmp.blk"),
+                Arguments.of(1_000L, "/tmp/hiero/block-node/data/1000.tmp.blk"),
+                Arguments.of(10_000L, "/tmp/hiero/block-node/data/10000.tmp.blk"),
+                Arguments.of(100_000L, "/tmp/hiero/block-node/data/100000.tmp.blk"),
+                Arguments.of(1_000_000L, "/tmp/hiero/block-node/data/1000000.tmp.blk"),
+                Arguments.of(10_000_000L, "/tmp/hiero/block-node/data/10000000.tmp.blk"),
+                Arguments.of(100_000_000L, "/tmp/hiero/block-node/data/100000000.tmp.blk"),
+                Arguments.of(1_000_000_000L, "/tmp/hiero/block-node/data/1000000000.tmp.blk"),
+                Arguments.of(10_000_000_000L, "/tmp/hiero/block-node/data/10000000000.tmp.blk"),
+                Arguments.of(100_000_000_000L, "/tmp/hiero/block-node/data/100000000000.tmp.blk"),
+                Arguments.of(1_000_000_000_000L, "/tmp/hiero/block-node/data/1000000000000.tmp.blk"),
+                Arguments.of(10_000_000_000_000L, "/tmp/hiero/block-node/data/10000000000000.tmp.blk"),
+                Arguments.of(100_000_000_000_000L, "/tmp/hiero/block-node/data/100000000000000.tmp.blk"),
+                Arguments.of(1_000_000_000_000_000L, "/tmp/hiero/block-node/data/1000000000000000.tmp.blk"),
+                Arguments.of(10_000_000_000_000_000L, "/tmp/hiero/block-node/data/10000000000000000.tmp.blk"),
+                Arguments.of(100_000_000_000_000_000L, "/tmp/hiero/block-node/data/100000000000000000.tmp.blk"),
+                Arguments.of(1_000_000_000_000_000_000L, "/tmp/hiero/block-node/data/1000000000000000000.tmp.blk"),
+                Arguments.of(Long.MAX_VALUE, "/tmp/hiero/block-node/data/9223372036854775807.tmp.blk"));
     }
 
     /**
@@ -189,26 +189,26 @@ class NoOpBlockPathResolverTest {
      */
     private static Stream<Arguments> invalidBlockNumbers() {
         return Stream.of(
-                Arguments.of(-1L, "/tmp/hashgraph/blocknode/data/-1.tmp.blk"),
-                Arguments.of(-2L, "/tmp/hashgraph/blocknode/data/-2.tmp.blk"),
-                Arguments.of(-10L, "/tmp/hashgraph/blocknode/data/-10.tmp.blk"),
-                Arguments.of(-100L, "/tmp/hashgraph/blocknode/data/-100.tmp.blk"),
-                Arguments.of(-1_000L, "/tmp/hashgraph/blocknode/data/-1000.tmp.blk"),
-                Arguments.of(-10_000L, "/tmp/hashgraph/blocknode/data/-10000.tmp.blk"),
-                Arguments.of(-100_000L, "/tmp/hashgraph/blocknode/data/-100000.tmp.blk"),
-                Arguments.of(-1_000_000L, "/tmp/hashgraph/blocknode/data/-1000000.tmp.blk"),
-                Arguments.of(-10_000_000L, "/tmp/hashgraph/blocknode/data/-10000000.tmp.blk"),
-                Arguments.of(-100_000_000L, "/tmp/hashgraph/blocknode/data/-100000000.tmp.blk"),
-                Arguments.of(-1_000_000_000L, "/tmp/hashgraph/blocknode/data/-1000000000.tmp.blk"),
-                Arguments.of(-10_000_000_000L, "/tmp/hashgraph/blocknode/data/-10000000000.tmp.blk"),
-                Arguments.of(-100_000_000_000L, "/tmp/hashgraph/blocknode/data/-100000000000.tmp.blk"),
-                Arguments.of(-1_000_000_000_000L, "/tmp/hashgraph/blocknode/data/-1000000000000.tmp.blk"),
-                Arguments.of(-10_000_000_000_000L, "/tmp/hashgraph/blocknode/data/-10000000000000.tmp.blk"),
-                Arguments.of(-100_000_000_000_000L, "/tmp/hashgraph/blocknode/data/-100000000000000.tmp.blk"),
-                Arguments.of(-1_000_000_000_000_000L, "/tmp/hashgraph/blocknode/data/-1000000000000000.tmp.blk"),
-                Arguments.of(-10_000_000_000_000_000L, "/tmp/hashgraph/blocknode/data/-10000000000000000.tmp.blk"),
-                Arguments.of(-100_000_000_000_000_000L, "/tmp/hashgraph/blocknode/data/-100000000000000000.tmp.blk"),
-                Arguments.of(-1_000_000_000_000_000_000L, "/tmp/hashgraph/blocknode/data/-1000000000000000000.tmp.blk"),
-                Arguments.of(Long.MIN_VALUE, "/tmp/hashgraph/blocknode/data/-9223372036854775808.tmp.blk"));
+                Arguments.of(-1L, "/tmp/hiero/block-node/data/-1.tmp.blk"),
+                Arguments.of(-2L, "/tmp/hiero/block-node/data/-2.tmp.blk"),
+                Arguments.of(-10L, "/tmp/hiero/block-node/data/-10.tmp.blk"),
+                Arguments.of(-100L, "/tmp/hiero/block-node/data/-100.tmp.blk"),
+                Arguments.of(-1_000L, "/tmp/hiero/block-node/data/-1000.tmp.blk"),
+                Arguments.of(-10_000L, "/tmp/hiero/block-node/data/-10000.tmp.blk"),
+                Arguments.of(-100_000L, "/tmp/hiero/block-node/data/-100000.tmp.blk"),
+                Arguments.of(-1_000_000L, "/tmp/hiero/block-node/data/-1000000.tmp.blk"),
+                Arguments.of(-10_000_000L, "/tmp/hiero/block-node/data/-10000000.tmp.blk"),
+                Arguments.of(-100_000_000L, "/tmp/hiero/block-node/data/-100000000.tmp.blk"),
+                Arguments.of(-1_000_000_000L, "/tmp/hiero/block-node/data/-1000000000.tmp.blk"),
+                Arguments.of(-10_000_000_000L, "/tmp/hiero/block-node/data/-10000000000.tmp.blk"),
+                Arguments.of(-100_000_000_000L, "/tmp/hiero/block-node/data/-100000000000.tmp.blk"),
+                Arguments.of(-1_000_000_000_000L, "/tmp/hiero/block-node/data/-1000000000000.tmp.blk"),
+                Arguments.of(-10_000_000_000_000L, "/tmp/hiero/block-node/data/-10000000000000.tmp.blk"),
+                Arguments.of(-100_000_000_000_000L, "/tmp/hiero/block-node/data/-100000000000000.tmp.blk"),
+                Arguments.of(-1_000_000_000_000_000L, "/tmp/hiero/block-node/data/-1000000000000000.tmp.blk"),
+                Arguments.of(-10_000_000_000_000_000L, "/tmp/hiero/block-node/data/-10000000000000000.tmp.blk"),
+                Arguments.of(-100_000_000_000_000_000L, "/tmp/hiero/block-node/data/-100000000000000000.tmp.blk"),
+                Arguments.of(-1_000_000_000_000_000_000L, "/tmp/hiero/block-node/data/-1000000000000000000.tmp.blk"),
+                Arguments.of(Long.MIN_VALUE, "/tmp/hiero/block-node/data/-9223372036854775808.tmp.blk"));
     }
 }

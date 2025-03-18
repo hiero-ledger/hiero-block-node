@@ -24,9 +24,8 @@ import org.junit.jupiter.params.provider.MethodSource;
  */
 class PersistenceStorageConfigTest {
     private static final Path HASHGRAPH_ROOT_ABSOLUTE_PATH =
-            Path.of("./opt/hashgraph/").toAbsolutePath();
-    private static final Path PERSISTENCE_STORAGE_ROOT_ABSOLUTE_PATH =
-            HASHGRAPH_ROOT_ABSOLUTE_PATH.resolve("blocknode/data/");
+            Path.of("./opt/hiero/block-node/").toAbsolutePath();
+    private static final Path PERSISTENCE_STORAGE_ROOT_ABSOLUTE_PATH = HASHGRAPH_ROOT_ABSOLUTE_PATH.resolve("data/");
     // Default compression level (as set in the config annotation)
     private static final int DEFAULT_COMPRESSION_LEVEL = 3;
     // NoOp compression level boundaries
