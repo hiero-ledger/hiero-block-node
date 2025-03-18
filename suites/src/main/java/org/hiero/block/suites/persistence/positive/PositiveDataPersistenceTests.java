@@ -23,7 +23,7 @@ import org.testcontainers.containers.Container;
 @DisplayName("Positive Data Persistence Tests")
 public class PositiveDataPersistenceTests extends BaseSuite {
     private final String[] GET_BLOCKS_COMMAND =
-            new String[] {"find", "../opt/hashgraph/blocknode/data/live", "-mindepth", "5", "-maxdepth", "7"};
+            new String[] {"find", "/opt/hiero/block-node/data/live", "-mindepth", "5", "-maxdepth", "7"};
 
     private Future<?> simulatorThread;
 
