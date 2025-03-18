@@ -33,10 +33,10 @@ The BlockContentProof API allows the BN to provide a proof of the content of a b
   <dd>Every block is comprised of a repeated set of block_items, there are many types of block_items, but for the purpose of understanding the BlockContentProof we can divide them into 2 large groups, `inputs` and `outputs` each Kind of BlockItem can belong to these groups and this is very important in order to calculate correctly the BlockRootHash and a BlockContentProof. </dd>
 
   <dt>BlockItemHash</dt>
-  <dd>Is a *Unique* SHA-384 hash of the block_item </dd>
+  <dd>Is the SHA-384 hash of the block_item </dd>
 
   <dt>MerkleSiblingHashes</dt>
-  <dd></dd>
+  <dd>Are the sibling missing hashes from the item all the way up to the BlockRootHash.</dd>
 
   <dt>BlockContentProof</dt>
   <dd>A data structure that holds all the needed information to prove a given block item is part of a given block number. Is at least comprised of `BlockNumber, `BlockItemHash`, `MerkleSiblingHashes`, `BlockSignature`</dd>
@@ -62,6 +62,7 @@ The BlockContentProof API allows the BN to provide a proof of the content of a b
     repeated MerkleSiblingHash sibling_hashes = 4; // required
     bytes block_root_hash = 5; // optional
     bytes block_signature = 6; // required
+    uint32 block_item_index = 7; // optional??
 }
 ```
 
@@ -93,6 +94,7 @@ enum BlockContentProofResponseCode {
     BLOCK_CONTENT_PROOF_INVALID_BLOCK_NUMBER = 5;
     BLOCK_CONTENT_PROOF_INVALID_BLOCK_ITEM_HASH = 6;
     BLOCK_CONTENT_PROOF_INTERNAL_ERROR = 7;
+    BLOCK_CONTENT_PROOF_DUPLICATE_HASH_ITEM_FOUND = 8;
 }
 
 message BlockContentProofResponse {
