@@ -8,4 +8,7 @@ module org.hiero.block.messaging {
     requires transitive org.hiero.block.stream;
     requires org.hiero.block.base;
     requires com.lmax.disruptor;
+
+    provides org.hiero.block.server.messaging.MessagingService with
+            org.hiero.block.server.messaging.impl.MessagingServiceImpl;
 }
