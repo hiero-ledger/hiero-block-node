@@ -3,6 +3,7 @@ package org.hiero.block.server.messaging;
 
 import static org.hiero.block.server.messaging.MessagingServiceDynamicBlockItemTest.intToBytes;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.fail;
 
@@ -12,10 +13,14 @@ import com.hedera.pbj.runtime.OneOf;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicIntegerArray;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.IntStream;
 import org.hiero.block.server.messaging.impl.MessagingServiceImpl;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 /**
  * Tests for the Block Item functionality of the MessagingService.
@@ -33,8 +38,9 @@ public class MessagingServiceBlockItemTest {
      *
      * @throws InterruptedException if the test latch is interrupted
      */
-    @Test
-    void testSimpleBlockItemHandlers() throws InterruptedException {
+    @ParameterizedTest
+    @ValueSource(booleans = {true, false})
+    void testSimpleBlockItemHandlersRegisteredBeforeStart(boolean registerBeforeStart) throws InterruptedException {
         final int expectedCount = TEST_DATA_COUNT;
         // latch to wait for all handlers to finish
         CountDownLatch latch = new CountDownLatch(3);
@@ -48,11 +54,18 @@ public class MessagingServiceBlockItemTest {
                     }
                 })
                 .toList();
-        // Create MessagingService to test and register the handlers
+        // Create MessagingService to test
         MessagingService messagingService = MessagingService.createMessagingService();
-        testHandlers.forEach(messagingService::registerBlockItemHandler);
+        // Register the handlers, if registerBeforeStart is true
+        if (registerBeforeStart) {
+            testHandlers.forEach(handler -> messagingService.registerBlockItemHandler(handler, false, "testHandler"));
+        }
         // start the messaging service
         messagingService.start();
+        // register the handlers if not already registered
+        if (!registerBeforeStart) {
+            testHandlers.forEach(handler -> messagingService.registerBlockItemHandler(handler, false, "testHandler"));
+        }
         // send TEST_DATA_COUNT block notifications
         for (int i = 0; i < TEST_DATA_COUNT; i++) {
             messagingService.sendBlockItems(
@@ -71,7 +84,7 @@ public class MessagingServiceBlockItemTest {
     }
 
     /**
-     * Test mix of dynamic block item handlers and non-dynamic handlers. Registering after some items have already been
+     * Test mix of back-pressure and non-back-pressure block item handlers. Registering after some items have already been
      * sent.
      *
      * @throws InterruptedException if the test is interrupted
@@ -101,9 +114,9 @@ public class MessagingServiceBlockItemTest {
                 .toList();
         // Create MessagingService to test and register the handlers
         MessagingService messagingService = MessagingService.createMessagingService();
-        messagingService.registerBlockItemHandler(testHandlers.get(0));
-        messagingService.registerBlockItemHandler(testHandlers.get(1));
-        messagingService.registerDynamicNoBackpressureBlockItemHandler(testHandlers.get(2));
+        messagingService.registerBlockItemHandler(testHandlers.get(0), false, "testHandler0");
+        messagingService.registerBlockItemHandler(testHandlers.get(1), false, "testHandler1");
+        messagingService.registerNoBackpressureBlockItemHandler(testHandlers.get(2), false, "testHandler2");
         // start the messaging service
         messagingService.start();
         // send TEST_DATA_COUNT block notifications
@@ -121,5 +134,52 @@ public class MessagingServiceBlockItemTest {
         for (int i = 0; i < testHandlers.size(); i++) {
             assertEquals(expectedCount, counters.get(i));
         }
+    }
+
+    /**
+     * Test to verify that thread names are set correctly for block item handlers and that the correct thread type is
+     * used, i.e. virtual vs non-virtual.
+     */
+    @Test
+    public void testThreadNameAndVirtualVsNonVirtual() {
+        // Create a MessagingService instance
+        MessagingService service = MessagingService.createMessagingService();
+        // collect thread names and virtual vs non-virtual flags
+        final AtomicReference<String> threadName1 = new AtomicReference<>();
+        final AtomicReference<String> threadName2 = new AtomicReference<>();
+        final AtomicBoolean handler1WasVirtual = new AtomicBoolean(false);
+        final AtomicBoolean handler2WasVirtual = new AtomicBoolean(false);
+        // Register a block item handler that just throws an exception
+        service.registerBlockItemHandler(
+                blockItems -> {
+                    threadName1.set(Thread.currentThread().getName());
+                    handler1WasVirtual.set(Thread.currentThread().isVirtual());
+                },
+                false,
+                "FooBar");
+        service.registerBlockItemHandler(
+                blockItems -> {
+                    threadName2.set(Thread.currentThread().getName());
+                    handler2WasVirtual.set(Thread.currentThread().isVirtual());
+                },
+                true,
+                null);
+        // start services and send empty block items
+        service.start();
+        // send empty block items
+        service.sendBlockItems(List.of(new BlockItemUnparsed(new OneOf<>(ItemOneOfType.BLOCK_HEADER, intToBytes(1)))));
+        try {
+            Thread.sleep(50);
+        } catch (InterruptedException e) {
+            throw new RuntimeException(e);
+        }
+        service.shutdown();
+        // check thread names
+        assertEquals("MessageHandler:FooBar", threadName1.get());
+        assertEquals("MessageHandler:Unknown", threadName2.get());
+        // check that the first handler was virtual
+        assertTrue(handler1WasVirtual.get(), "Handler 1 should be virtual");
+        // check that the second handler was not virtual
+        assertFalse(handler2WasVirtual.get(), "Handler 2 should not be virtual");
     }
 }

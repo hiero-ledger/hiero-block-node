@@ -4,7 +4,6 @@ package org.hiero.block.server.messaging.impl;
 import com.hedera.hapi.block.BlockItemUnparsed;
 import com.lmax.disruptor.BatchEventProcessor;
 import com.lmax.disruptor.BatchEventProcessorBuilder;
-import com.lmax.disruptor.EventHandler;
 import com.lmax.disruptor.ExceptionHandler;
 import com.lmax.disruptor.RingBuffer;
 import com.lmax.disruptor.SequenceBarrier;
@@ -28,7 +27,7 @@ import org.hiero.block.server.messaging.NoBackPressureBlockItemHandler;
 
 /**
  * Implementation of the MessagingService interface. It uses the LMAX Disruptor to handle block item batches and block
- * notifications.
+ * notifications. It is designed to be thread safe and can be used by multiple threads.
  */
 public class MessagingServiceImpl implements MessagingService {
 
@@ -41,6 +40,18 @@ public class MessagingServiceImpl implements MessagingService {
      */
     public static final ThreadFactory VIRTUAL_THREAD_FACTORY = Thread.ofVirtual()
             .name("messaging-service-handler", 0)
+            .uncaughtExceptionHandler((thread, throwable) -> LOGGER.log(
+                    Level.ERROR,
+                    "Uncaught exception in thread " + thread.getName() + ": " + throwable.getMessage(),
+                    throwable))
+            .factory();
+
+    /**
+     * The thread factory used to create the normal platform threads for the disruptor.
+     */
+    public static final ThreadFactory PLATFORM_THREAD_FACTORY = Thread.ofPlatform()
+            .name("messaging-service-handler", 0)
+            .daemon(true)
             .uncaughtExceptionHandler((thread, throwable) -> LOGGER.log(
                     Level.ERROR,
                     "Uncaught exception in thread " + thread.getName() + ": " + throwable.getMessage(),
@@ -107,18 +118,32 @@ public class MessagingServiceImpl implements MessagingService {
      */
     private final Disruptor<BlockNotificationRingEvent> blockNotificationDisruptor;
 
-    /** Collect all block item handlers till start then register them with the disruptor. */
-    private final ArrayList<EventHandler<BlockItemBatchRingEvent>> blockItemHandlers = new ArrayList<>();
+    /** Map of block item handlers to their threads. So that we can stop them */
+    private final Map<BlockItemHandler, Thread> blockItemHandlerToThread = new HashMap<>();
 
-    /** Collect all block notification handlers till start then register them with the disruptor. */
-    private final ArrayList<EventHandler<BlockNotificationRingEvent>> blockNotificationHandlers = new ArrayList<>();
+    /** Map of block item handlers to their event processors. So that we can stop them */
+    private final Map<BlockItemHandler, BatchEventProcessor<BlockItemBatchRingEvent>> blockItemHandlerToEventProcessor =
+            new HashMap<>();
 
-    /** Map of dynamic no back pressure block item handlers to their threads. So that we can stop them */
-    private final Map<NoBackPressureBlockItemHandler, Thread> dynamicNoBackPressureBlockItemHandlers = new HashMap<>();
+    /** Map of block notification handlers to their threads. So that we can stop them */
+    private final Map<BlockNotificationHandler, Thread> blockNotificationHandlerToThread = new HashMap<>();
 
-    /** Map of dynamic no back pressure block item handlers to their event processors. So that we can stop them */
-    private final Map<NoBackPressureBlockItemHandler, BatchEventProcessor<BlockItemBatchRingEvent>>
-            dynamicNoBackPressureBlockItemHandlerToEventProcessor = new HashMap<>();
+    /** Map of block notification handlers to their event processors. So that we can stop them */
+    private final Map<BlockNotificationHandler, BatchEventProcessor<BlockNotificationRingEvent>>
+            blockNotificationHandlerToEventProcessor = new HashMap<>();
+
+    /**
+     * List of pre-registered block item handlers, that were registered before the service started. These will be added
+     * when the service is started and the list cleared
+     */
+    private final List<PreRegisteredBlockItemHandler> preRegisteredBlockItemHandlers = new ArrayList<>();
+
+    /**
+     * List of pre-registered block notification handlers, that were registered before the service started. These will
+     * be added when the service is started and the list cleared
+     */
+    private final List<PreRegisteredBlockNotificationHandler> preRegisteredBlockNotificationHandlers =
+            new ArrayList<>();
 
     /**
      * Constructs a new MessagingServiceImpl instance with the default configuration. It uses the
@@ -146,6 +171,9 @@ public class MessagingServiceImpl implements MessagingService {
                 VIRTUAL_THREAD_FACTORY,
                 ProducerType.SINGLE,
                 new SleepingWaitStrategy());
+        // Set the exception handler for the disruptors
+        blockItemDisruptor.setDefaultExceptionHandler(BLOCK_ITEM_EXCEPTION_HANDLER);
+        blockNotificationDisruptor.setDefaultExceptionHandler(BLOCK_NOTIFICATION_EXCEPTION_HANDLER);
     }
 
     /**
@@ -187,59 +215,249 @@ public class MessagingServiceImpl implements MessagingService {
      * {@inheritDoc}
      */
     @Override
-    public void registerBlockItemHandler(BlockItemHandler handler) throws IllegalStateException {
+    public synchronized void registerBlockItemHandler(
+            final BlockItemHandler handler, final boolean cpuIntensiveHandler, final String handlerName) {
+        final InformedEventHandler<BlockItemBatchRingEvent> informedEventHandler =
+                (event, sequence, endOfBatch, percentageBehindRingHead) ->
+                        handler.handleBlockItemsReceived(event.get());
         if (blockItemDisruptor.hasStarted()) {
-            throw new IllegalStateException("Cannot register block item handler after the service is started");
+            // if the disruptor is already running, we need to register the handler with the disruptor
+            registerHandler(
+                    handler,
+                    cpuIntensiveHandler,
+                    handlerName,
+                    blockItemDisruptor.getRingBuffer(),
+                    informedEventHandler,
+                    blockItemHandlerToEventProcessor,
+                    blockItemHandlerToThread);
+        } else {
+            // if the disruptor is not running, we need to add the handler to the list of pre-registered handlers
+            preRegisteredBlockItemHandlers.add(
+                    new PreRegisteredBlockItemHandler(handler, informedEventHandler, cpuIntensiveHandler, handlerName));
         }
-        blockItemHandlers.add((event, sequence, endOfBatch) -> handler.handleBlockItemsReceived(event.get()));
     }
 
     /**
      * {@inheritDoc}
      */
     @Override
-    public void registerDynamicNoBackpressureBlockItemHandler(NoBackPressureBlockItemHandler handler) {
-        final RingBuffer<BlockItemBatchRingEvent> ringBuffer = blockItemDisruptor.getRingBuffer();
+    public synchronized void registerNoBackpressureBlockItemHandler(
+            final NoBackPressureBlockItemHandler handler, final boolean cpuIntensiveHandler, final String handlerName) {
+        final InformedEventHandler<BlockItemBatchRingEvent> informedEventHandler =
+                (event, sequence, endOfBatch, percentageBehindRingHead) -> {
+                    // send on the event block items
+                    handler.handleBlockItemsReceived(event.get());
+                    if (percentageBehindRingHead > 80) {
+                        // If the event processor is more than 80% behind, we need to stop it.
+                        // This is a sign that the event processor is not able to keep up with the
+                        // rate of events being published.
+                        unregisterBlockItemHandler(handler);
+                        // the handler it got too far behind
+                        handler.onTooFarBehindError();
+                    }
+                };
+        if (blockItemDisruptor.hasStarted()) {
+            registerHandler(
+                    handler,
+                    cpuIntensiveHandler,
+                    handlerName,
+                    blockItemDisruptor.getRingBuffer(),
+                    informedEventHandler,
+                    blockItemHandlerToEventProcessor,
+                    blockItemHandlerToThread);
+        } else {
+            // if the disruptor is not running, we need to add the handler to the list of pre-registered handlers
+            preRegisteredBlockItemHandlers.add(
+                    new PreRegisteredBlockItemHandler(handler, informedEventHandler, cpuIntensiveHandler, handlerName));
+        }
+    }
+
+    /**
+     * {@inheritDoc}
+     */
+    @Override
+    public synchronized void unregisterBlockItemHandler(final BlockItemHandler handler) {
+        unregisterHandler(
+                handler,
+                blockItemDisruptor.getRingBuffer(),
+                blockItemHandlerToEventProcessor,
+                blockItemHandlerToThread);
+    }
+
+    /**
+     * {@inheritDoc}
+     */
+    @Override
+    public void sendBlockNotification(final BlockNotification notification) {
+        blockNotificationDisruptor.getRingBuffer().publishEvent((event, sequence) -> event.set(notification));
+    }
+
+    /**
+     * {@inheritDoc}
+     */
+    @Override
+    public synchronized void registerBlockNotificationHandler(
+            final BlockNotificationHandler handler, final boolean cpuIntensiveHandler, final String handlerName) {
+        final InformedEventHandler<BlockNotificationRingEvent> informedEventHandler =
+                (event, sequence, endOfBatch, percentageBehindRingHead) -> {
+                    // send on the event
+                    handler.handleBlockNotification(event.get());
+                };
+        if (blockNotificationDisruptor.hasStarted()) {
+            // if the disruptor is already running, we need to register the handler with the disruptor
+            registerHandler(
+                    handler,
+                    cpuIntensiveHandler,
+                    handlerName,
+                    blockNotificationDisruptor.getRingBuffer(),
+                    informedEventHandler,
+                    blockNotificationHandlerToEventProcessor,
+                    blockNotificationHandlerToThread);
+        } else {
+            // if the disruptor is not running, we need to add the handler to the list of pre-registered handlers
+            preRegisteredBlockNotificationHandlers.add(new PreRegisteredBlockNotificationHandler(
+                    handler, informedEventHandler, cpuIntensiveHandler, handlerName));
+        }
+    }
+
+    /**
+     * {@inheritDoc}
+     */
+    @Override
+    public synchronized void unregisterBlockNotificationHandler(final BlockNotificationHandler handler) {
+        unregisterHandler(
+                handler,
+                blockNotificationDisruptor.getRingBuffer(),
+                blockNotificationHandlerToEventProcessor,
+                blockNotificationHandlerToThread);
+    }
+
+    /**
+     * {@inheritDoc}
+     */
+    @Override
+    public synchronized void start() {
+        // start the disruptors
+        blockItemDisruptor.start();
+        blockNotificationDisruptor.start();
+        // register all the pre-registered block item handlers
+        for (var preRegisteredHandler : preRegisteredBlockItemHandlers) {
+            registerHandler(
+                    preRegisteredHandler.handler(),
+                    preRegisteredHandler.cpuIntensiveHandler(),
+                    preRegisteredHandler.handlerName(),
+                    blockItemDisruptor.getRingBuffer(),
+                    preRegisteredHandler.informedHandler(),
+                    blockItemHandlerToEventProcessor,
+                    blockItemHandlerToThread);
+        }
+        // register all the pre-registered block notification handlers
+        for (var preRegisteredHandler : preRegisteredBlockNotificationHandlers) {
+            registerHandler(
+                    preRegisteredHandler.handler(),
+                    preRegisteredHandler.cpuIntensiveHandler(),
+                    preRegisteredHandler.handlerName(),
+                    blockNotificationDisruptor.getRingBuffer(),
+                    preRegisteredHandler.informedHandler(),
+                    blockNotificationHandlerToEventProcessor,
+                    blockNotificationHandlerToThread);
+        }
+    }
+
+    /**
+     * {@inheritDoc}
+     */
+    @Override
+    public synchronized void shutdown() {
+        // Stop all the block item event handlers
+        for (var eventHandler : blockItemHandlerToEventProcessor.values()) {
+            blockItemDisruptor.getRingBuffer().removeGatingSequence(eventHandler.getSequence());
+            eventHandler.halt();
+        }
+        // Stop all the block item handler threads
+        for (Thread thread : blockItemHandlerToThread.values()) {
+            thread.interrupt();
+        }
+        // Stop all the block notification event handlers
+        for (var eventHandler : blockNotificationHandlerToEventProcessor.values()) {
+            blockNotificationDisruptor.getRingBuffer().removeGatingSequence(eventHandler.getSequence());
+            eventHandler.halt();
+        }
+        // Shuts down all the threads handling events.
+        blockItemDisruptor.shutdown();
+        blockNotificationDisruptor.shutdown();
+        // Stop all the block notification handlers
+        for (Thread thread : blockNotificationHandlerToThread.values()) {
+            thread.interrupt();
+        }
+    }
+
+    /**
+     * Registers a handler with the ring buffer. This generic method allows all the logic to be common and hence any bug
+     * hopefully only need fixing once. Any improvements can be made in one place.
+     *
+     * @param <H> the type of the handler
+     * @param <E> the type of the event
+     * @param handler the handler to register
+     * @param cpuIntensiveHandler hint to the service that this handler is CPU intensive vs IO intensive
+     * @param handlerName the name of the handler, used for thread name and logging
+     * @param ringBuffer the ring buffer to register with
+     * @param informedEventHandler the event handler to call when an event is published
+     * @param handlerToEventProcessor the map of handlers to event processors
+     * @param handlerToThread the map of handlers to threads
+     */
+    private static <H, E> void registerHandler(
+            final H handler,
+            final boolean cpuIntensiveHandler,
+            final String handlerName,
+            final RingBuffer<E> ringBuffer,
+            final InformedEventHandler<E> informedEventHandler,
+            final Map<H, BatchEventProcessor<E>> handlerToEventProcessor,
+            final Map<H, Thread> handlerToThread) {
         final SequenceBarrier barrier = ringBuffer.newBarrier();
-        final EventHandler<BlockItemBatchRingEvent> eventHandler = (event, sequence, endOfBatch) -> {
-            // send on the event block items
-            handler.handleBlockItemsReceived(event.get());
-            // check if the event processor is too far behind
-            final double percentageBehindHead =
-                    (100d * ((double) (barrier.getCursor() - sequence) / (double) ringBuffer.getBufferSize()));
-            if (percentageBehindHead > 80) {
-                // If the event processor is more than 80% behind, we need to stop it.
-                // This is a sign that the event processor is not able to keep up with the
-                // rate of events being published.
-                unregisterDynamicNoBackpressureBlockItemHandler(handler);
-                // the handler it got too far behind
-                handler.onTooFarBehindError();
-            }
-        };
         // Create the event processor for the block item batch ring
-        final BatchEventProcessor<BlockItemBatchRingEvent> batchEventProcessor =
-                new BatchEventProcessorBuilder().build(ringBuffer, barrier, eventHandler);
+        final BatchEventProcessor<E> batchEventProcessor = new BatchEventProcessorBuilder()
+                .build(ringBuffer, barrier, (event, sequence, endOfBatch) -> {
+                    // calculate position in the ring buffer
+                    final double percentageBehindHead =
+                            (100d * ((double) (barrier.getCursor() - sequence) / (double) ringBuffer.getBufferSize()));
+                    // send on the event
+                    informedEventHandler.onEvent(event, sequence, endOfBatch, percentageBehindHead);
+                });
         // Dynamically add sequences to the ring buffer
         ringBuffer.addGatingSequences(batchEventProcessor.getSequence());
         // Create the new virtual thread to power the batch processor
-        final Thread handlerThread = VIRTUAL_THREAD_FACTORY.newThread(batchEventProcessor);
+        final Thread handlerThread = cpuIntensiveHandler
+                ? PLATFORM_THREAD_FACTORY.newThread(batchEventProcessor)
+                : VIRTUAL_THREAD_FACTORY.newThread(batchEventProcessor);
+        handlerThread.setName("MessageHandler:" + (handlerName == null ? "Unknown" : handlerName));
         // keep track of the event processor & thread so we can stop them later
-        dynamicNoBackPressureBlockItemHandlerToEventProcessor.put(handler, batchEventProcessor);
-        dynamicNoBackPressureBlockItemHandlers.put(handler, handlerThread);
+        handlerToEventProcessor.put(handler, batchEventProcessor);
+        handlerToThread.put(handler, handlerThread);
         // start the event processor thread
         handlerThread.start();
     }
 
     /**
-     * {@inheritDoc}
+     * Unregisters the handler from the ring buffer and stops the event processor. This generic method allows all the
+     * logic to be common and hence any bug hopefully only need fixing once. Any improvements can be made in one place.
+     *
+     * @param <H> the type of the handler
+     * @param <E> the type of the event
+     * @param handler the handler to unregister
+     * @param ringBuffer the ring buffer to unregister from
+     * @param handlerToEventProcessor the map of handlers to event processors
+     * @param handlerToThread the map of handlers to threads
      */
-    @Override
-    public void unregisterDynamicNoBackpressureBlockItemHandler(NoBackPressureBlockItemHandler handler) {
-        final Thread handlerThread = dynamicNoBackPressureBlockItemHandlers.remove(handler);
-        final BatchEventProcessor<BlockItemBatchRingEvent> eventProcessor =
-                dynamicNoBackPressureBlockItemHandlerToEventProcessor.remove(handler);
+    private static <H, E> void unregisterHandler(
+            final H handler,
+            final RingBuffer<E> ringBuffer,
+            final Map<H, BatchEventProcessor<E>> handlerToEventProcessor,
+            final Map<H, Thread> handlerToThread) {
+        final Thread handlerThread = handlerToThread.remove(handler);
+        final BatchEventProcessor<E> eventProcessor = handlerToEventProcessor.remove(handler);
         if (eventProcessor != null) {
-            blockItemDisruptor.getRingBuffer().removeGatingSequence(eventProcessor.getSequence());
+            ringBuffer.removeGatingSequence(eventProcessor.getSequence());
             // stop the event processor
             eventProcessor.halt();
         }
@@ -250,51 +468,53 @@ public class MessagingServiceImpl implements MessagingService {
     }
 
     /**
-     * {@inheritDoc}
+     * Extended EventHandler interface that provides the percentage behind the ring head to the event handler.
+     *
+     * @param <T> the type of the event
      */
-    @Override
-    public void sendBlockNotification(BlockNotification notification) {
-        blockNotificationDisruptor.getRingBuffer().publishEvent((event, sequence) -> event.set(notification));
+    private interface InformedEventHandler<T> {
+        /**
+         * Called when a publisher has published an event to the {@link RingBuffer}.  The {@link BatchEventProcessor} will
+         * read messages from the {@link RingBuffer} in batches, where a batch is all the events available to be
+         * processed without having to wait for any new event to arrive.  This can be useful for event handlers that need
+         * to do slower operations like I/O as they can group together the data from multiple events into a single
+         * operation.  Implementations should ensure that the operation is always performed when endOfBatch is true as
+         * the time between that message and the next one is indeterminate.
+         *
+         * @param event      published to the {@link RingBuffer}
+         * @param sequence   of the event being processed
+         * @param endOfBatch flag to indicate if this is the last event in a batch from the {@link RingBuffer}
+         * @param percentageBehindRingHead percentage 0.0 to 100.0 behind the ring head this handler is
+         * @throws Exception if the EventHandler would like the exception handled further up the chain.
+         */
+        void onEvent(T event, long sequence, boolean endOfBatch, double percentageBehindRingHead) throws Exception;
     }
 
     /**
-     * {@inheritDoc}
+     * Record for pre-registered block item handlers.
+     *
+     * @param handler the block item handler
+     * @param informedHandler the event handler to call when an event is published
+     * @param cpuIntensiveHandler hint to the service that this handler is CPU intensive vs IO intensive
+     * @param handlerName the name of the handler, used for thread name and logging
      */
-    @Override
-    public void registerBlockNotificationHandler(BlockNotificationHandler handler) throws IllegalStateException {
-        blockNotificationHandlers.add((event, sequence, endOfBatch) -> handler.handleBlockNotification(event.get()));
-    }
+    private record PreRegisteredBlockItemHandler(
+            BlockItemHandler handler,
+            InformedEventHandler<BlockItemBatchRingEvent> informedHandler,
+            boolean cpuIntensiveHandler,
+            String handlerName) {}
 
     /**
-     * {@inheritDoc}
+     * Record for pre-registered block notification handlers.
+     *
+     * @param handler the block notification handler
+     * @param informedHandler the informed event handler
+     * @param cpuIntensiveHandler hint to the service that this handler is CPU intensive vs IO intensive
+     * @param handlerName the name of the handler, used for thread name and logging
      */
-    @Override
-    public void start() {
-        // Register the block item handlers with the disruptor
-        //noinspection unchecked
-        blockItemDisruptor.handleEventsWith(blockItemHandlers.toArray(new EventHandler[0]));
-        // Register the block notification handlers with the disruptor
-        //noinspection unchecked
-        blockNotificationDisruptor.handleEventsWith(blockNotificationHandlers.toArray(new EventHandler[0]));
-        // Set the exception handler for the disruptors
-        blockItemDisruptor.setDefaultExceptionHandler(BLOCK_ITEM_EXCEPTION_HANDLER);
-        blockNotificationDisruptor.setDefaultExceptionHandler(BLOCK_NOTIFICATION_EXCEPTION_HANDLER);
-        // start the disruptors
-        blockItemDisruptor.start();
-        blockNotificationDisruptor.start();
-    }
-
-    /**
-     * {@inheritDoc}
-     */
-    @Override
-    public void shutdown() {
-        // Shuts down all the threads handling events.
-        blockItemDisruptor.shutdown();
-        blockNotificationDisruptor.shutdown();
-        // Stop all the dynamic no back pressure block item handlers
-        for (Thread thread : dynamicNoBackPressureBlockItemHandlers.values()) {
-            thread.interrupt();
-        }
-    }
+    private record PreRegisteredBlockNotificationHandler(
+            BlockNotificationHandler handler,
+            InformedEventHandler<BlockNotificationRingEvent> informedHandler,
+            boolean cpuIntensiveHandler,
+            String handlerName) {}
 }

@@ -51,7 +51,7 @@ public class MessagingServiceBlockNotificationTest {
                 .toList();
         // Create MessagingService to test and register the handlers
         MessagingService messagingService = MessagingService.createMessagingService();
-        testHandlers.forEach(messagingService::registerBlockNotificationHandler);
+        testHandlers.forEach(handler -> messagingService.registerBlockNotificationHandler(handler, false, null));
         // start the messaging service
         messagingService.start();
         // send TEST_DATA_COUNT block notifications
@@ -80,7 +80,7 @@ public class MessagingServiceBlockNotificationTest {
     void testFastAndSlowBlockNotificationHandlers() throws InterruptedException {
         final int expectedCount = TEST_DATA_COUNT;
         // latch to wait for all handlers to finish
-        final CountDownLatch latch = new CountDownLatch(1);
+        final CountDownLatch latch = new CountDownLatch(2);
         // create counters for received items
         final AtomicInteger counterFast = new AtomicInteger(0);
         final AtomicInteger counterSlow = new AtomicInteger(0);
@@ -108,8 +108,8 @@ public class MessagingServiceBlockNotificationTest {
         };
         // Create MessagingService to test and register the handlers
         MessagingService messagingService = MessagingService.createMessagingService();
-        messagingService.registerBlockNotificationHandler(fastHandler);
-        messagingService.registerBlockNotificationHandler(slowHandler);
+        messagingService.registerBlockNotificationHandler(fastHandler, false, null);
+        messagingService.registerBlockNotificationHandler(slowHandler, false, null);
         // start the messaging service
         messagingService.start();
         // send TEST_DATA_COUNT block notifications
@@ -128,6 +128,15 @@ public class MessagingServiceBlockNotificationTest {
                 "Did not finish in time, should " + "have been way faster than 20sec timeout");
         // shutdown the messaging service
         messagingService.shutdown();
+        // wait for the handlers to finish processing
+        for (int i = 0; i < 10 && (counterFast.get() != expectedCount || counterSlow.get() != expectedCount); i++) {
+            try {
+                //noinspection BusyWait
+                Thread.sleep(50);
+            } catch (InterruptedException e) {
+                throw new RuntimeException(e);
+            }
+        }
         // verify that all handlers received the expected number of items
         assertEquals(expectedCount, counterFast.get());
         assertEquals(expectedCount, counterSlow.get());
@@ -164,7 +173,7 @@ public class MessagingServiceBlockNotificationTest {
         };
         // Create MessagingService to test and register the handlers
         MessagingService messagingService = MessagingService.createMessagingService();
-        messagingService.registerBlockNotificationHandler(slowHandler);
+        messagingService.registerBlockNotificationHandler(slowHandler, false, null);
         // start the messaging service
         messagingService.start();
         // send TEST_DATA_COUNT block notifications in a background thread
@@ -207,5 +216,84 @@ public class MessagingServiceBlockNotificationTest {
                 "Did not finish in time, should " + "have been way faster than 20sec timeout");
         // shutdown the messaging service
         messagingService.shutdown();
+    }
+
+    /**
+     * Test to verify that the messaging service can handle dynamic registration and un-registration of block
+     * notification handlers.
+     *
+     * @throws InterruptedException if the test latch is interrupted
+     */
+    @Test
+    void testDynamicBlockNotificationHandlersUnregister() throws InterruptedException {
+        // latch to wait for both handlers to finish
+        final CountDownLatch latch = new CountDownLatch(1);
+        // Create a couple handlers
+        final AtomicInteger handler1Counter = new AtomicInteger(0);
+        final AtomicInteger handler1Sum = new AtomicInteger(0);
+        final AtomicInteger handler2Counter = new AtomicInteger(0);
+        final AtomicInteger handler2Sum = new AtomicInteger(0);
+        final BlockNotificationHandler handler1 = notification -> {
+            // process notifications
+            int receivedValue = (int) notification.blockNumber();
+            // add up all the received values
+            handler1Sum.addAndGet(receivedValue);
+            // update count of calls
+            handler1Counter.incrementAndGet();
+        };
+        final BlockNotificationHandler handler2 = notification -> {
+            // process notifications
+            int receivedValue = (int) notification.blockNumber();
+            // add up all the received values
+            handler2Sum.addAndGet(receivedValue);
+            // check if we are done
+            if (handler2Counter.incrementAndGet() == TEST_DATA_COUNT - 1) {
+                latch.countDown();
+            }
+        };
+        // create message service to test, add handlers and start the service
+        final MessagingService messagingService = MessagingService.createMessagingService();
+        messagingService.registerBlockNotificationHandler(handler1, false, null);
+        messagingService.registerBlockNotificationHandler(handler2, false, null);
+        messagingService.start();
+        // send 2000 notifications to the service
+        for (int i = 0; i < TEST_DATA_COUNT; i++) {
+            if (i == 5) {
+                // unregister the first handler, so it will not get any more notifications
+                messagingService.unregisterBlockNotificationHandler(handler1);
+                // wait for a bit to let the handler unregister
+                try {
+                    Thread.sleep(1);
+                } catch (InterruptedException e) {
+                    throw new RuntimeException(e);
+                }
+            }
+            messagingService.sendBlockNotification(new BlockNotification(i, BlockNotification.Type.BLOCK_PERSISTED));
+            // have to slow down production to make test reliable
+            try {
+                Thread.sleep(1);
+            } catch (InterruptedException e) {
+                throw new RuntimeException(e);
+            }
+        }
+        // wait for handler 2 to finish
+        assertTrue(
+                latch.await(20, TimeUnit.SECONDS),
+                "Did not finish in time, should have been way faster than 20sec timeout");
+        // shutdown the messaging service
+        messagingService.shutdown();
+        final int expectedTotal = IntStream.range(0, TEST_DATA_COUNT).sum();
+        // check that the first handler did not process all notifications
+        assertTrue(
+                handler1Counter.get() < TEST_DATA_COUNT,
+                "Handler 1 did not receive less items got [" + handler1Counter.get() + "] of [" + TEST_DATA_COUNT
+                        + "]");
+        assertTrue(
+                handler1Sum.get() < expectedTotal,
+                "Handler 1 did not receive less item value sum got [" + handler1Sum.get() + "] of [" + expectedTotal
+                        + "]");
+        // check that the second handler processed all notifications
+        assertEquals(TEST_DATA_COUNT, handler2Counter.get());
+        assertEquals(expectedTotal, handler2Sum.get());
     }
 }

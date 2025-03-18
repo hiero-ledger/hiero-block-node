@@ -19,4 +19,5 @@ mainModuleInfo {
 testModuleInfo {
     requires("com.hedera.pbj.runtime")
     requires("org.junit.jupiter.api")
+    requires("org.junit.jupiter.params")
 }

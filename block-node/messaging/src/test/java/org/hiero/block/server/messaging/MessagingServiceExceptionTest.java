@@ -14,6 +14,7 @@ import org.junit.jupiter.api.Test;
 /**
  * Unit tests for the {@link MessagingService} class.
  */
+@SuppressWarnings("BusyWait")
 public class MessagingServiceExceptionTest {
 
     /** The logger used for logging messages. */
@@ -56,10 +57,13 @@ public class MessagingServiceExceptionTest {
     void testBlockItemHandlerException() {
         MessagingService service = MessagingService.createMessagingService();
         // register a block item handler that just throws an exception
-        service.registerBlockItemHandler(blockItems -> {
-            // Simulate an exception
-            throw new RuntimeException("Simulated exception");
-        });
+        service.registerBlockItemHandler(
+                blockItems -> {
+                    // Simulate an exception
+                    throw new RuntimeException("Simulated exception");
+                },
+                false,
+                null);
         // start services and send empty block items
         service.start();
         try {
@@ -70,6 +74,14 @@ public class MessagingServiceExceptionTest {
         service.sendBlockItems(Collections.emptyList());
         service.sendBlockItems(Collections.emptyList());
         service.shutdown();
+        // wait for the log handler to process the log messages
+        for (int i = 0; i < 10 && logHandler.getLogMessages().isEmpty(); i++) {
+            try {
+                Thread.sleep(50);
+            } catch (InterruptedException e) {
+                throw new RuntimeException(e);
+            }
+        }
         // check exception was logged
         assertTrue(
                 logHandler.getLogMessages().contains("Exception"),
@@ -83,10 +95,13 @@ public class MessagingServiceExceptionTest {
     void testBlockNotificationHandlerException() {
         MessagingService service = MessagingService.createMessagingService();
         // register a block notification handler that just throws an exception
-        service.registerBlockNotificationHandler(blockNotification -> {
-            // Simulate an exception
-            throw new RuntimeException("Simulated exception");
-        });
+        service.registerBlockNotificationHandler(
+                blockNotification -> {
+                    // Simulate an exception
+                    throw new RuntimeException("Simulated exception");
+                },
+                false,
+                null);
         // start services and send empty block notifications
         service.start();
         try {
@@ -97,6 +112,14 @@ public class MessagingServiceExceptionTest {
         service.sendBlockNotification(new BlockNotification(1, Type.BLOCK_VERIFIED));
         service.sendBlockNotification(new BlockNotification(1, Type.BLOCK_VERIFIED));
         service.shutdown();
+        // wait for the log handler to process the log messages
+        for (int i = 0; i < 10 && logHandler.getLogMessages().isEmpty(); i++) {
+            try {
+                Thread.sleep(50);
+            } catch (InterruptedException e) {
+                throw new RuntimeException(e);
+            }
+        }
         // check exception was logged
         assertTrue(
                 logHandler.getLogMessages().contains("Exception"),
@@ -111,9 +134,8 @@ public class MessagingServiceExceptionTest {
 
         @Override
         public void publish(LogRecord record) {
-            if (record.getLevel().intValue() >= getLevel().intValue()) {
-                logMessages.append(record.getMessage()).append("\n");
-            }
+            logMessages.append(record.getMessage()).append("\n");
+            System.out.println("############ Log message: " + record.getMessage());
         }
 
         @Override

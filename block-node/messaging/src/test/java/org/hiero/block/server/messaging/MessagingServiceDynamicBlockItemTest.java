@@ -103,8 +103,8 @@ public class MessagingServiceDynamicBlockItemTest {
         };
         // create message service to test, add handlers and start the service
         final MessagingService messagingService = MessagingService.createMessagingService();
-        messagingService.registerDynamicNoBackpressureBlockItemHandler(slowHandler);
-        messagingService.registerDynamicNoBackpressureBlockItemHandler(fastHandler);
+        messagingService.registerNoBackpressureBlockItemHandler(slowHandler, false, null);
+        messagingService.registerNoBackpressureBlockItemHandler(fastHandler, false, null);
         messagingService.start();
         // send 2000 items to the service, in lock step with fast handler
         for (int i = 0; i < TEST_DATA_COUNT; i++) {
@@ -181,14 +181,14 @@ public class MessagingServiceDynamicBlockItemTest {
         };
         // create message service to test, add handlers and start the service
         final MessagingService messagingService = MessagingService.createMessagingService();
-        messagingService.registerDynamicNoBackpressureBlockItemHandler(handler1);
-        messagingService.registerDynamicNoBackpressureBlockItemHandler(handler2);
+        messagingService.registerNoBackpressureBlockItemHandler(handler1, false, null);
+        messagingService.registerNoBackpressureBlockItemHandler(handler2, false, null);
         messagingService.start();
         // send 2000 items to the service, in lock step with fast handler
         for (int i = 0; i < TEST_DATA_COUNT; i++) {
             if (i == 5) {
                 // unregister the first handler, so it will not get any more items
-                messagingService.unregisterDynamicNoBackpressureBlockItemHandler(handler1);
+                messagingService.unregisterBlockItemHandler(handler1);
                 // wait for a bit to let the handler unregister
                 try {
                     Thread.sleep(1);
