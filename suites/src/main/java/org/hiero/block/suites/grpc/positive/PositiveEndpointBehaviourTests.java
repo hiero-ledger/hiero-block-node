@@ -9,7 +9,6 @@ import org.hiero.block.simulator.BlockStreamSimulatorApp;
 import org.hiero.block.simulator.config.data.StreamStatus;
 import org.hiero.block.suites.BaseSuite;
 import org.junit.jupiter.api.AfterEach;
-import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
@@ -52,7 +51,6 @@ public class PositiveEndpointBehaviourTests extends BaseSuite {
      * @throws InterruptedException if the simulator thread is interrupted during execution.
      */
     @Test
-    @Disabled("This will be fixed with @todo(174) @todo(175)")
     void verifyPublishBlockStreamEndpoint() throws IOException, InterruptedException {
         blockStreamSimulatorApp = createBlockSimulator();
         simulatorThread = startSimulatorInThread(blockStreamSimulatorApp);
