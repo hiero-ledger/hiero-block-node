@@ -16,6 +16,7 @@ javaModules {
         group = "org.hiero.block"
         module("server") { artifact = "block-node-server" }
         module("base") { artifact = "block-node-base" }
+        module("plugins") { artifact = "block-node-plugins" }
         // module("persistence") { artifact = "service-persistence" }
         // module("persistence-api") { artifact = "service-persistence-api" }
         // module("verification") { artifact = "service-verification" }
