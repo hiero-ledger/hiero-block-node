@@ -74,6 +74,10 @@ public class AckHandlerImpl implements AckHandler {
             // @todo(147) we need to handle new instances that need to start from a different block than 0.
             lastAcknowledgedBlockNumber = -1;
         }
+
+        LOGGER.log(
+                System.Logger.Level.INFO,
+                "AckHandler initialized with lastAcknowledgedBlockNumber: " + lastAcknowledgedBlockNumber);
     }
 
     @Override
