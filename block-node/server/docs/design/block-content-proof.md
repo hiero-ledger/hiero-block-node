@@ -1,4 +1,4 @@
-# Design Document Template
+# Block Contents Proof Design Document
 
 ## Table of Contents
 
@@ -20,9 +20,9 @@ The BlockContentProof API allows the BN to provide a proof of the content of a b
 
 ## Goals
 
-1. Define the BlockContentProof struct
+1. Define the BlockContentProof structure.
 2. Define the BlockContentProof API
-3. BN should be able to calculate the BlockContentProof given a BlockNumber and BlockItem (or BlockItemHash or BlockItemIndex)
+3. Given a BlockNumber and BlockItem (or BlockItemHash or BlockItemIndex) a BN should support the calculation of a BlockContentProof
 4. A Client should be able to verify the BlockContentProof easily.
 
 ## Terms
@@ -42,7 +42,7 @@ The BlockContentProof API allows the BN to provide a proof of the content of a b
   <dd>The ordered list of hashes for each "sibling" in the binary tree from the item to be proven all the way up to the tree root.</dd>
 
   <dt>BlockContentProof</dt>
-  <dd>A data structure that holds all the needed information to prove a given block item is part of a given block number. Is at least comprised of `BlockNumber, `BlockItem`, `MerkleSiblingHashes`, `BlockSignature`</dd>
+  <dd>A data structure that holds all the needed information to prove a given block item is part of a given block number. It is comprised of the `BlockItem`, `MerkleSiblingHashes` and `BlockSignature`</dd>
 
   <dt>BlockRootHash</dt>
   <dd>The SHA2-384 value at the root of a carefully defined, partially truncated, binary merkle tree defined by the Block Streams HIP (1056).</dd>
@@ -75,7 +75,7 @@ message BlockContentProofRequest {
 enum BlockContentProofResponseCode {
     BLOCK_CONTENT_PROOF_UNKNOWN = 0;
     BLOCK_CONTENT_PROOF_SUCCESS = 1;
-    BLOCK_CONTENT_PROOF_NOT_FOUND = 2;
+    BLOCK_CONTENT_PROOF_ITEM_NOT_FOUND = 2;
     BLOCK_CONTENT_PROOF_NOT_AVAILABLE = 3;
     BLOCK_CONTENT_PROOF_DUPLICATE_HASH_ITEM_FOUND = 4;
 }
@@ -113,12 +113,7 @@ Shall provide a block to the BlockContentProofService at their request. `BlockCo
 
 ### BlockMerkleTreeInfo
 
-Is a new record type that contains all the necessary data to compute any block item proof in the block. it contains:
-- inputsMerkleTree: List< List< Bytes>>,
-- outputsMerkleTree: List< List< Bytes>>,
-- previousBlockHash: Bytes,
-- stateRootHash: Bytes,
-- blockHash: Bytes,
+Is a record type that contains all the necessary data to compute any block item proof in the block. 
 
 ## Design
 
