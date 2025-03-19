@@ -14,13 +14,13 @@ module org.hiero.block.simulator {
     exports org.hiero.block.simulator.mode;
     exports org.hiero.block.simulator.mode.impl;
 
-    requires com.hedera.block.stream;
     requires com.hedera.pbj.runtime;
     requires com.swirlds.common;
     requires com.swirlds.config.api;
     requires com.swirlds.config.extensions;
     requires com.swirlds.metrics.api;
     requires org.hiero.block.common;
+    requires org.hiero.block.stream;
     requires com.google.protobuf;
     requires dagger;
     requires io.grpc.stub;
