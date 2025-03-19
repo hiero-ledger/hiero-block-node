@@ -297,6 +297,26 @@ class AckHandlerImplTest {
         verifyNoMoreInteractions(notifier);
     }
 
+    @Test
+    @DisplayName("Verify that latestAckedBlock is initialized correctly")
+    void latestAckedBlockInitialized() {
+        // given
+        when(serviceStatus.getLatestAckedBlock()).thenReturn(new BlockInfo(50));
+        ackHandler = new AckHandlerImpl(notifier, false, serviceStatus, blockRemover, metricsService);
+        ackHandler.registerPersistence(persistenceHandlerMock);
+
+        // given
+        final long block = 51L;
+        final Bytes hash = Bytes.wrap("hash51".getBytes());
+
+        ackHandler.blockPersisted(new BlockPersistenceResult(block, BlockPersistenceStatus.SUCCESS));
+        ackHandler.blockVerified(block, hash);
+
+        // Expect the second ACK
+        verify(notifier, times(1)).sendAck(eq(block), eq(hash), anyBoolean());
+        verifyNoMoreInteractions(notifier);
+    }
+
     /**
      * Edge condition #1:
      * If only block 2 is processed (i.e. block 1 is missing)
