@@ -18,4 +18,14 @@ public interface ServiceInjectionModule {
     @Singleton
     @Binds
     ServiceStatus bindServiceStatus(ServiceStatusImpl serviceStatus);
+
+    /**
+     * Binds the service status to the Web Server status implementation.
+     *
+     * @param webServerStatus needs a service status implementation
+     * @return the service status implementation
+     */
+    @Singleton
+    @Binds
+    WebServerStatus bindWebServerStatus(WebServerStatusImpl webServerStatus);
 }

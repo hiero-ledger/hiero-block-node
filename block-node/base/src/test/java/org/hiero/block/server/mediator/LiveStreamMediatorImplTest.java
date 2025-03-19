@@ -48,6 +48,8 @@ import org.hiero.block.server.persistence.storage.write.AsyncNoOpWriterFactory;
 import org.hiero.block.server.service.ServiceConfig;
 import org.hiero.block.server.service.ServiceStatus;
 import org.hiero.block.server.service.ServiceStatusImpl;
+import org.hiero.block.server.service.WebServerStatus;
+import org.hiero.block.server.service.WebServerStatusImpl;
 import org.hiero.block.server.util.BlockingExecutorService;
 import org.hiero.block.server.util.PersistTestUtils;
 import org.hiero.block.server.util.TestConfigUtil;
@@ -148,7 +150,10 @@ class LiveStreamMediatorImplTest {
     @Test
     void testUnsubscribeEach() throws InterruptedException {
         final LiveStreamMediatorBuilder streamMediatorBuilder = LiveStreamMediatorBuilder.newBuilder(
-                metricsService, mediatorConfig, new ServiceStatusImpl(serviceConfig));
+                metricsService,
+                mediatorConfig,
+                new ServiceStatusImpl(serviceConfig),
+                new WebServerStatusImpl(serviceConfig));
         final LiveStreamMediator streamMediator = streamMediatorBuilder.build();
 
         // Set up the subscribers
@@ -180,8 +185,9 @@ class LiveStreamMediatorImplTest {
         // 1 block is expected to be processed, so the expected tasks param is set to 1
         final BlockingExecutorService executor = new BlockingExecutorService(1, 1);
         final ServiceStatus serviceStatus = new ServiceStatusImpl(serviceConfig);
+        final WebServerStatus webServerStatus = new WebServerStatusImpl(serviceConfig);
         final LiveStreamMediator streamMediator = LiveStreamMediatorBuilder.newBuilder(
-                        metricsService, mediatorConfig, serviceStatus)
+                        metricsService, mediatorConfig, serviceStatus, webServerStatus)
                 .build();
 
         final List<BlockItemUnparsed> blockItemUnparsed =
@@ -194,6 +200,7 @@ class LiveStreamMediatorImplTest {
                 notifier,
                 metricsService,
                 serviceStatus,
+                webServerStatus,
                 ackHandlerMock,
                 writerFactory,
                 executor,
@@ -216,8 +223,9 @@ class LiveStreamMediatorImplTest {
     @Test
     void testMediatorPublishEventToSubscribers() throws IOException {
         final ServiceStatus serviceStatus = new ServiceStatusImpl(serviceConfig);
+        final WebServerStatus webServerStatus = new WebServerStatusImpl(serviceConfig);
         final LiveStreamMediator streamMediator = LiveStreamMediatorBuilder.newBuilder(
-                        metricsService, mediatorConfig, serviceStatus)
+                        metricsService, mediatorConfig, serviceStatus, webServerStatus)
                 .build();
 
         when(testClock.millis()).thenReturn(TEST_TIME, TEST_TIME + TIMEOUT_THRESHOLD_MILLIS);
@@ -287,6 +295,7 @@ class LiveStreamMediatorImplTest {
                 notifier,
                 metricsService,
                 serviceStatus,
+                webServerStatus,
                 ackHandlerMock,
                 asyncBlockWriterFactoryMock,
                 executorMock,
@@ -318,8 +327,9 @@ class LiveStreamMediatorImplTest {
     void testPollSubscribeWhenHandlerAlreadySubscribed() {
 
         final ServiceStatus serviceStatus = new ServiceStatusImpl(serviceConfig);
+        final WebServerStatus webServerStatus = new WebServerStatusImpl(serviceConfig);
         final LiveStreamMediator streamMediator = LiveStreamMediatorBuilder.newBuilder(
-                        metricsService, mediatorConfig, serviceStatus)
+                        metricsService, mediatorConfig, serviceStatus, webServerStatus)
                 .build();
 
         final StreamManager streamManager = ConsumerStreamBuilder.buildStreamManager(
@@ -565,8 +575,9 @@ class LiveStreamMediatorImplTest {
     @Test
     void testUnsubscribeWhenNotSubscribed() throws IOException {
         final ServiceStatus serviceStatus = new ServiceStatusImpl(serviceConfig);
+        final WebServerStatus webServerStatus = new WebServerStatusImpl(serviceConfig);
         final LiveStreamMediator streamMediator = LiveStreamMediatorBuilder.newBuilder(
-                        metricsService, mediatorConfig, serviceStatus)
+                        metricsService, mediatorConfig, serviceStatus, webServerStatus)
                 .build();
 
         final StreamPersistenceHandlerImpl handler = new StreamPersistenceHandlerImpl(
@@ -574,6 +585,7 @@ class LiveStreamMediatorImplTest {
                 notifier,
                 metricsService,
                 serviceStatus,
+                webServerStatus,
                 ackHandlerMock,
                 asyncBlockWriterFactoryMock,
                 executorMock,

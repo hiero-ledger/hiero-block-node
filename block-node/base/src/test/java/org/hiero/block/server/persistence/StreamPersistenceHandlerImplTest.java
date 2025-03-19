@@ -35,6 +35,7 @@ import org.hiero.block.server.persistence.storage.path.BlockPathResolver;
 import org.hiero.block.server.persistence.storage.path.UnverifiedBlockPath;
 import org.hiero.block.server.persistence.storage.write.AsyncBlockWriterFactory;
 import org.hiero.block.server.service.ServiceStatus;
+import org.hiero.block.server.service.WebServerStatus;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -56,6 +57,9 @@ class StreamPersistenceHandlerImplTest {
 
     @Mock
     private ServiceStatus serviceStatusMock;
+
+    @Mock
+    private WebServerStatus webServerStatusMock;
 
     @Mock
     private MetricsService metricsServiceMock;
@@ -105,6 +109,7 @@ class StreamPersistenceHandlerImplTest {
                 notifierMock,
                 metricsServiceMock,
                 serviceStatusMock,
+                webServerStatusMock,
                 ackHandlerMock,
                 asyncBlockWriterFactoryMock,
                 executorMock,
@@ -120,7 +125,7 @@ class StreamPersistenceHandlerImplTest {
      */
     @Test
     void testOnEventWhenServiceIsNotRunning() throws IOException {
-        when(serviceStatusMock.isRunning()).thenReturn(false);
+        when(webServerStatusMock.isRunning()).thenReturn(false);
 
         final List<BlockItemUnparsed> blockItems = generateBlockItemsUnparsed(1);
         final ObjectEvent<List<BlockItemUnparsed>> event = new ObjectEvent<>();

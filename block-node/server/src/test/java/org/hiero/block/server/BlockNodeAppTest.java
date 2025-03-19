@@ -30,6 +30,7 @@ import org.hiero.block.server.pbj.PbjBlockStreamServiceProxy;
 import org.hiero.block.server.persistence.storage.read.BlockReader;
 import org.hiero.block.server.producer.ProducerConfig;
 import org.hiero.block.server.service.ServiceStatus;
+import org.hiero.block.server.service.WebServerStatus;
 import org.hiero.block.server.util.TestConfigUtil;
 import org.hiero.block.server.verification.StreamVerificationHandlerImpl;
 import org.junit.jupiter.api.BeforeEach;
@@ -43,6 +44,9 @@ class BlockNodeAppTest {
 
     @Mock
     private ServiceStatus serviceStatus;
+
+    @Mock
+    private WebServerStatus webServerStatus;
 
     @Mock
     private HealthService healthService;
@@ -89,10 +93,12 @@ class BlockNodeAppTest {
 
         blockNodeApp = new BlockNodeApp(
                 serviceStatus,
+                webServerStatus,
                 healthService,
                 new PbjBlockStreamServiceProxy(
                         liveStreamMediator,
                         serviceStatus,
+                        webServerStatus,
                         blockNodeEventHandler,
                         streamVerificationHandler,
                         blockReader,
@@ -100,7 +106,7 @@ class BlockNodeAppTest {
                         metricsService,
                         consumerConfig,
                         producerConfig),
-                new PbjBlockAccessServiceProxy(serviceStatus, blockReader, metricsService),
+                new PbjBlockAccessServiceProxy(serviceStatus, webServerStatus, blockReader, metricsService),
                 webServerBuilder,
                 serverConfig,
                 configurationLogging);
@@ -120,7 +126,7 @@ class BlockNodeAppTest {
         blockNodeApp.start();
 
         // Assert
-        verify(serviceStatus).setWebServer(webServer);
+        verify(webServerStatus).setWebServer(webServer);
         verify(webServer).start();
         verify(healthService).getHealthRootPath();
         verify(webServerBuilder).port(8080);

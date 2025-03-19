@@ -14,6 +14,7 @@ import org.hiero.block.server.events.ObjectEvent;
 import org.hiero.block.server.metrics.MetricsService;
 import org.hiero.block.server.persistence.storage.write.AsyncBlockWriter;
 import org.hiero.block.server.service.ServiceStatus;
+import org.hiero.block.server.service.WebServerStatus;
 
 /**
  * Use builder methods to create a {@link StreamMediator} to handle live stream events from a
@@ -28,6 +29,7 @@ public class LiveStreamMediatorBuilder {
     private final MetricsService metricsService;
     private final MediatorConfig mediatorConfig;
     private final ServiceStatus serviceStatus;
+    private final WebServerStatus webServerStatus;
 
     private Map<
                     BlockNodeEventHandler<ObjectEvent<List<BlockItemUnparsed>>>,
@@ -42,7 +44,9 @@ public class LiveStreamMediatorBuilder {
     private LiveStreamMediatorBuilder(
             @NonNull final MetricsService metricsService,
             @NonNull final MediatorConfig mediatorConfig,
-            @NonNull final ServiceStatus serviceStatus) {
+            @NonNull final ServiceStatus serviceStatus,
+            @NonNull final WebServerStatus webServerStatus) {
+        this.webServerStatus = webServerStatus;
         this.subscribers = new ConcurrentHashMap<>(SUBSCRIBER_INIT_CAPACITY);
         this.pollSubscribers = new ConcurrentHashMap<>(SUBSCRIBER_INIT_CAPACITY);
         this.metricsService = metricsService;
@@ -63,8 +67,9 @@ public class LiveStreamMediatorBuilder {
     public static LiveStreamMediatorBuilder newBuilder(
             @NonNull final MetricsService metricsService,
             @NonNull final MediatorConfig mediatorConfig,
-            @NonNull final ServiceStatus serviceStatus) {
-        return new LiveStreamMediatorBuilder(metricsService, mediatorConfig, serviceStatus);
+            @NonNull final ServiceStatus serviceStatus,
+            @NonNull final WebServerStatus webServerStatus) {
+        return new LiveStreamMediatorBuilder(metricsService, mediatorConfig, serviceStatus, webServerStatus);
     }
 
     /**
@@ -104,6 +109,7 @@ public class LiveStreamMediatorBuilder {
      */
     @NonNull
     public LiveStreamMediator build() {
-        return new LiveStreamMediatorImpl(subscribers, pollSubscribers, serviceStatus, metricsService, mediatorConfig);
+        return new LiveStreamMediatorImpl(
+                subscribers, pollSubscribers, serviceStatus, metricsService, mediatorConfig, webServerStatus);
     }
 }
