@@ -4,7 +4,6 @@ package org.hiero.block.common.hasher;
 import com.hedera.hapi.block.BlockItemUnparsed;
 import com.hedera.hapi.block.stream.BlockProof;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
-import com.swirlds.common.crypto.DigestType;
 import edu.umd.cs.findbugs.annotations.NonNull;
 import java.nio.ByteBuffer;
 import java.security.MessageDigest;
@@ -21,9 +20,18 @@ public final class HashingUtilities {
     }
 
     /**
-     * The size of an SHA-384 hash in bytes.
+     * The size of a SHA-384 hash, in bytes.
      */
-    public static final int HASH_SIZE = DigestType.SHA_384.digestLength();
+    public static final int HASH_SIZE = 48;
+
+    /**
+     * The standard name of the SHA2 384-bit hash algorithm.
+     *
+     * This value must match what is declared for the
+     * <a href="https://docs.oracle.com/en/java/javase/21/docs/specs/security/standard-names.html#messagedigest-algorithms">
+     * standard message digest names</a>.
+     */
+    public static final String HASH_ALGORITHM = "SHA-384";
 
     /**
      * Returns the SHA-384 hash of the given bytes.
@@ -41,7 +49,7 @@ public final class HashingUtilities {
      */
     public static byte[] noThrowSha384HashOf(@NonNull final byte[] byteArray) {
         try {
-            return MessageDigest.getInstance(DigestType.SHA_384.algorithmName()).digest(byteArray);
+            return MessageDigest.getInstance(HASH_ALGORITHM).digest(byteArray);
         } catch (final NoSuchAlgorithmException fatal) {
             throw new IllegalStateException(fatal);
         }
@@ -54,7 +62,7 @@ public final class HashingUtilities {
      */
     public static MessageDigest sha384DigestOrThrow() {
         try {
-            return MessageDigest.getInstance(DigestType.SHA_384.algorithmName());
+            return MessageDigest.getInstance(HASH_ALGORITHM);
         } catch (final NoSuchAlgorithmException fatal) {
             throw new IllegalStateException(fatal);
         }
@@ -78,7 +86,7 @@ public final class HashingUtilities {
      */
     public static byte[] combine(@NonNull final byte[] leftHash, @NonNull final byte[] rightHash) {
         try {
-            final var digest = MessageDigest.getInstance(DigestType.SHA_384.algorithmName());
+            final var digest = MessageDigest.getInstance(HASH_ALGORITHM);
             digest.update(leftHash);
             digest.update(rightHash);
             return digest.digest();
