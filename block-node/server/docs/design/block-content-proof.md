@@ -33,7 +33,7 @@ The BlockContentProof API allows the BN to provide a proof of the content of a b
   It is a strictly increasing `long` value, starting from zero (`0`).</dd>
 
   <dt>BlockItem</dt>
-  <dd>Every block is comprised of a repeated set of block_items, there are many types of block_items, but for the purpose of understanding the BlockContentProof we can divide them into 2 large groups, `inputs` and `outputs` each Kind of BlockItem can belong to these groups and this is very important in order to calculate correctly the BlockRootHash and a BlockContentProof. </dd>
+  <dd>Each block item should be placed at their right location within the sub-merkle trees that form the block merkle tree. </dd>
 
   <dt>BlockItemHash</dt>
   <dd>Is the SHA-384 hash of the block_item </dd>
