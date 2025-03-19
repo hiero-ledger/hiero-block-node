@@ -189,9 +189,9 @@ Any exception will be handled and return `BLOCK_CONTENT_PROOF_NOT_AVAILABLE` res
 ### Block item not found:
 
 1. Client sends a BlockContentProofRequest to the BN for a non-existing block item. (variations of block_item, block_item_hash, block_item_index)
-2. BN receives the request and returns a `BLOCK_CONTENT_PROOF_NOT_FOUND` response code to the client.
+2. BN receives the request and returns a `BLOCK_CONTENT_PROOF_ITEM_NOT_FOUND` response code to the client.
 
 ### Block item hash is invalid:
 
 1. Client sends a BlockContentProofRequest to the BN for a block_item with an invalid hash.
-2. BN receives the request and returns a `BLOCK_CONTENT_PROOF_NOT_FOUND` response code to the client.
+2. BN receives the request and returns a `BLOCK_CONTENT_PROOF_ITEM_NOT_FOUND` response code to the client.
