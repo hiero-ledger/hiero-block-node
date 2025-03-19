@@ -120,7 +120,7 @@ Is a record type that contains all the necessary data to compute any block item 
 1. The `PBJBlockContentProofServiceProxy` receives the block content proof requests.
 2. If the request is valid and the web server is running, it forwards the request to the `BlockContentProofService`.
 3. The `BlockContentProofService` publish a message requests for the block.
-4. The `BlockProvider` provides the Block to the `BlockContentProofService`. If block is Available.
+4. The `BlockProvider` provides the Block to the `BlockContentProofService`. If block is Available. This is a reference to a separate service or facility; the details of that reference are not within the scope of this design document.
 5. `BlockContentProofService` uses the provided block to calculate a `BlockContentProof`.
 6. The `BlockContentProofService` returns the `BlockContentProof` to the `PBJBlockContentProofServiceProxy`.
 7. The `PBJBlockContentProofServiceProxy` wraps the `BlockContentProof` in a `BlockContentProofResponse` and sends it back to the client.
@@ -132,7 +132,7 @@ sequenceDiagram
     participant Client as Client
     participant Proxy as PBJBlockContentProofServiceProxy
     participant Service as BlockContentProofService
-    participant Reader as BlockReader
+    participant Reader as BlockProvider
 
     Client->>Proxy:  BlockContentProofRequest
     Proxy->>Proxy:  Validates request & check web server status
