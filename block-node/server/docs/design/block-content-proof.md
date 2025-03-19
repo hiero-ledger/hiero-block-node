@@ -52,30 +52,23 @@ The BlockContentProof API allows the BN to provide a proof of the content of a b
 
 
 ## API
-### block_content_proof.proto
-```protobuf
-
- message BlockContentProof {
-    uint64 block = 1; // required
-    com.hedera.hapi.block.stream.BlockItem block_item = 2; // optional
-    bytes block_item_hash = 3; // required
-    repeated MerkleSiblingHash sibling_hashes = 4; // required
-    bytes block_root_hash = 5; // optional
-    bytes block_signature = 6; // required
-    uint32 block_item_index = 7; // optional??
-}
-```
 
 ### block_proof.proto
 ```protobuf
 message MerkleSiblingHash {
-    bool is_first = 1; // what about is_left ?
+    bool is_first = 1;
     bytes sibling_hash = 2;
 }
 ```
 
-### block_service.proto
+### block_proof_service.proto
 ```protobuf
+ message BlockContentProof {
+  com.hedera.hapi.block.stream.BlockItem block_item = 1;
+  repeated MerkleSiblingHash sibling_hashes = 2;
+  bytes block_signature = 3;
+}
+
 message BlockContentProofRequest {
     uint64 block_number = 1;    
     oneof block_item {
@@ -88,13 +81,10 @@ message BlockContentProofRequest {
 enum BlockContentProofResponseCode {
     BLOCK_CONTENT_PROOF_UNKNOWN = 0;
     BLOCK_CONTENT_PROOF_SUCCESS = 1;
-    BLOCK_CONTENT_PROOF_NOT_FOUND = 2;
-    BLOCK_CONTENT_PROOF_NOT_AVAILABLE = 3;
-    BLOCK_CONTENT_PROOF_INSUFFICIENT_BALANCE = 4;
-    BLOCK_CONTENT_PROOF_INVALID_BLOCK_NUMBER = 5;
-    BLOCK_CONTENT_PROOF_INVALID_BLOCK_ITEM_HASH = 6;
-    BLOCK_CONTENT_PROOF_INTERNAL_ERROR = 7;
-    BLOCK_CONTENT_PROOF_DUPLICATE_HASH_ITEM_FOUND = 8;
+    BLOCK_CONTENT_PROOF_NOT_FOUND = 2;    
+    BLOCK_CONTENT_PROOF_INSUFFICIENT_BALANCE = 3;
+    BLOCK_CONTENT_PROOF_INTERNAL_ERROR = 4;
+    BLOCK_CONTENT_PROOF_DUPLICATE_HASH_ITEM_FOUND = 5;
 }
 
 message BlockContentProofResponse {
@@ -123,7 +113,7 @@ PBJBlockContentProofServiceProxy is the entity responsible for handling the bloc
 Handles the verification of webServerStatus, handles exceptions, and wraps the response from the BlockContentProofService in a `BlockContentProofResponse` message.
 
 ### BlockContentProofService
-Requests the Block to the BlockReader (Persistence Module), waits to get it and once it gets the Block it creates a new VerificationSession and provides all the items of the block including the block_proof. waits on the session to complete and returns a BlockMerkleTreeInfo.
+Requests the Block to the BlockReader (Persistence Module), waits to get it and once it gets the Block it creates a new BlockMerkleTreeInfo record out of that block, after that it uses it to create the BlockContentProof and returns it to the PBJBlockContentProofServiceProxy.
 
 ### BlockReader
 The BlockReader is responsible for reading the block items from the block store and providing them to the BlockContentProofService.
@@ -171,28 +161,40 @@ sequenceDiagram
 ## Metrics
 
 1. BlockContentProofRequest_Success Counter
+2. BlockContentProofRequest_Error Counter
 2. BlockContentProofResponse_Latency Histogram 
-3. BlockContentProofResponse_NotFound Counter
-4. BlockContentProofResponse_NotAvailable Counter
-5. BlockContentProofResponse_Error Counter
+
+**Note:** Once we are able to add labels we should add `status` label to the metrics
 
 ## Exceptions
 Any exception will be handled and return `BLOCK_CONTENT_PROOF_INTERNAL_ERROR` response code to the client.
 
-## E2E Test
+## Acceptance Tests
 
 ### Happy Path:
-1. Client sends a valid BlockContentProofRequest to the BN
-2. BN receives the request and returns a valid BlockContentProofResponse
+1. Client sends a valid BlockContentProofRequest to the BN for an existing block and block_item.
+2. BN receives the request and returns a complete BlockContentProofResponse
 3. Client receives the BlockContentProofResponse and verifies the block_item using the BlockContentProof provided by the BN.
 
+### Edge Case duplicate block_item (Failure Case):
+1. Client sends a BlockContentProofRequest using `block_item_hash` to the BN for a block_item that has a duplicate hash in the block.
+2. BN receives the request and returns a `BLOCK_CONTENT_PROOF_DUPLICATE_HASH_ITEM_FOUND` response code to the client.
+3. Client receives the response and verify is the correct response code.
+
+### Edge Case duplicate block_item (Success Case):
+1. Client sends a BlockContentProofRequest using `block_item_index` to the BN for a block_item that has a duplicate hash in the block.
+2. BN receives the request and returns a complete BlockContentProofResponse.
+3. Client receives the BlockContentProofResponse and verifies the block_item using the BlockContentProof provided by the BN.
+4. Client verifies that the block_item is the correct one by pre-calculating the merkle proof path before hand for the right item and then comparing the given proof with the expected proof.
+
 ### Block Number not found:
+1. Client sends a BlockContentProofRequest to the BN for a non-existing block number.
+2. BN receives the request and returns a `BLOCK_CONTENT_PROOF_NOT_FOUND` response code to the client.
 
 ### Block item not found:
-
-### Block item hash not found:
+1. Client sends a BlockContentProofRequest to the BN for a non-existing block item. (variations of block_item, block_item_hash, block_item_index)
+2. BN receives the request and returns a `BLOCK_CONTENT_PROOF_NOT_FOUND` response code to the client.
 
 ### Block item hash is invalid:
-
-### Block item index not found
-
+1. Client sends a BlockContentProofRequest to the BN for a block_item with an invalid hash.
+2. BN receives the request and returns a `BLOCK_CONTENT_PROOF_NOT_FOUND` response code to the client.
