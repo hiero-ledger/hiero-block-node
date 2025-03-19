@@ -96,13 +96,7 @@ Full API specification found [here](https://github.com/hashgraph/hedera-protobuf
 
 ### BlockContentProof
 
-BlockContentProof is a new record that contains the fields necessary to compute the block content proof when combined with the retrieved block data. It contains the following fields:
-- block_number: long,
-- block_item: BlockItem,
-- block_item_hash: Bytes,
-- sibling_hashes: List< MerkleSiblingHash>,
-- block_root_hash: Bytes,
-- block_signature: Bytes
+BlockContentProof is a new record that contains the fields necessary to compute the block content proof when combined with the retrieved block data.
 
 ### PBJBlockContentProofServiceProxy
 
