@@ -7,6 +7,7 @@ module org.hiero.block.node.suites {
     requires org.junit.jupiter.api;
     requires org.junit.platform.suite.api;
     requires org.testcontainers;
+    requires static com.github.spotbugs.annotations;
     requires static dagger;
 
     exports org.hiero.block.suites to
