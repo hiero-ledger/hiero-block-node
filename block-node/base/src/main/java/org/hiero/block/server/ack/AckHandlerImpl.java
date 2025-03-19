@@ -32,7 +32,7 @@ import org.hiero.block.server.service.ServiceStatus;
 public class AckHandlerImpl implements AckHandler {
     private final System.Logger LOGGER = System.getLogger(getClass().getName());
     private final Map<Long, BlockInfo> blockInfo = new ConcurrentHashMap<>();
-    private volatile long lastAcknowledgedBlockNumber;
+    private volatile long lastAcknowledgedBlockNumber = -1;
     private final Notifier notifier;
     private final boolean skipAcknowledgement;
     private final ServiceStatus serviceStatus;
@@ -56,8 +56,14 @@ public class AckHandlerImpl implements AckHandler {
         this.serviceStatus = Objects.requireNonNull(serviceStatus);
         this.blockRemover = Objects.requireNonNull(blockRemover);
         this.metricsService = metricsService;
+    }
+
+    @Override
+    public void registerPersistence(@NonNull final StreamPersistenceHandlerImpl streamPersistenceHandler) {
+        this.streamPersistenceHandler = Objects.requireNonNull(streamPersistenceHandler);
 
         // Initialize lastAcknowledgedBlockNumber from the service status if available
+        // When Persistence registers itself, it means it has already calculated is last persisted block.
         final BlockInfo latestAckedBlock = serviceStatus.getLatestAckedBlock();
         if (latestAckedBlock != null) {
             lastAcknowledgedBlockNumber = latestAckedBlock.getBlockNumber();
@@ -68,11 +74,10 @@ public class AckHandlerImpl implements AckHandler {
             // @todo(147) we need to handle new instances that need to start from a different block than 0.
             lastAcknowledgedBlockNumber = -1;
         }
-    }
 
-    @Override
-    public void registerPersistence(@NonNull final StreamPersistenceHandlerImpl streamPersistenceHandler) {
-        this.streamPersistenceHandler = Objects.requireNonNull(streamPersistenceHandler);
+        LOGGER.log(
+                System.Logger.Level.INFO,
+                "AckHandler initialized with lastAcknowledgedBlockNumber: " + lastAcknowledgedBlockNumber);
     }
 
     @Override
