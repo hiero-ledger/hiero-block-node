@@ -22,6 +22,7 @@ import java.util.Objects;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import javax.inject.Inject;
+import javax.inject.Named;
 import org.hiero.block.server.block.BlockInfo;
 import org.hiero.block.server.consumer.ClosedRangeHistoricStreamEventHandlerBuilder;
 import org.hiero.block.server.consumer.ConsumerConfig;
@@ -37,7 +38,7 @@ import org.hiero.block.server.producer.ProducerBlockItemObserver;
 import org.hiero.block.server.producer.ProducerConfig;
 import org.hiero.block.server.service.Constants;
 import org.hiero.block.server.service.ServiceStatus;
-import org.hiero.block.server.verification.StreamVerificationHandlerImpl;
+import org.hiero.block.server.utils.InjectionConstants;
 
 /**
  * PbjBlockStreamServiceProxy is the runtime binding between the PBJ Helidon Plugin and the
@@ -75,8 +76,10 @@ public class PbjBlockStreamServiceProxy implements PbjBlockStreamService {
     public PbjBlockStreamServiceProxy(
             @NonNull final LiveStreamMediator streamMediator,
             @NonNull final ServiceStatus serviceStatus,
-            @NonNull final BlockNodeEventHandler<ObjectEvent<List<BlockItemUnparsed>>> streamPersistenceHandler,
-            @NonNull final StreamVerificationHandlerImpl streamVerificationHandler,
+            @NonNull @Named(InjectionConstants.PERSISTENCE_HANDLER)
+                    final BlockNodeEventHandler<ObjectEvent<List<BlockItemUnparsed>>> streamPersistenceHandler,
+            @NonNull @Named(InjectionConstants.VERIFICATION_HANDLER)
+                    final BlockNodeEventHandler<ObjectEvent<List<BlockItemUnparsed>>> streamVerificationHandler,
             @NonNull final BlockReader<BlockUnparsed> blockReader,
             @NonNull final Notifier notifier,
             @NonNull final MetricsService metricsService,

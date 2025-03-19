@@ -27,6 +27,7 @@ module org.hiero.block.base {
     exports org.hiero.block.server.verification.signature;
     exports org.hiero.block.server.verification.service;
     exports org.hiero.block.server.block;
+    exports org.hiero.block.server.utils;
 
     requires transitive com.hedera.pbj.runtime;
     requires transitive com.swirlds.common;
