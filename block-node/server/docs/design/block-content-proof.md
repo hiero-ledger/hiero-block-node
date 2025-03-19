@@ -113,7 +113,7 @@ Shall provide a block to the BlockContentProofService at their request. `BlockCo
 
 ### BlockMerkleTreeInfo
 
-Is a record type that contains all the necessary data to compute any block item proof in the block. 
+Is a record type that contains all the necessary data to compute any block item proof in the block.
 
 ## Design
 
