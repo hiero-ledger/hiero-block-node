@@ -70,7 +70,7 @@ blockNode:
   config:
     # Add any additional env configuration here
     # key: value
-    BLOCKNODE_STORAGE_ROOT_PATH: "/app/storage"
+    BLOCKNODE_STORAGE_ROOT_PATH: "/opt/hiero/block-node/storage"
 
 ```
 

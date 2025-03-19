@@ -17,7 +17,7 @@ public final class NoOpBlockPathResolver implements BlockPathResolver {
     @Override
     public Path resolveLiveRawPathToBlock(final long blockNumber) {
         final String blockName = String.format("%d.tmp.blk", blockNumber);
-        return Path.of("/tmp/hashgraph/blocknode/data/").resolve(blockName);
+        return Path.of("/tmp/hiero/block-node/data/").resolve(blockName);
     }
 
     /**

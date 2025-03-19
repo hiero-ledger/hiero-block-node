@@ -3,7 +3,7 @@ services:
     container_name: block-node-server
     image: block-node-server:${VERSION}
     volumes:
-      - ./logging.properties:/app/logs/config/logging.properties
+      - ./logging.properties:/opt/hiero/block-node/logs/config/logging.properties
     env_file:
       - .env
     ports:
