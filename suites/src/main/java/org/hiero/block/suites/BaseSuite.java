@@ -43,7 +43,7 @@ public abstract class BaseSuite {
     // projects directly like that, the SERVER_DOTENV should be constructed
     // in another way
     protected static final Dotenv SERVER_DOTENV = Dotenv.configure()
-            .directory("../server/build/docker")
+            .directory("../block-node/server/build/docker")
             .filename(".env")
             .load();
 

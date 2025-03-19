@@ -6,8 +6,10 @@ on:
       - main
       - release/*
   pull_request:
-    branches:
-      - "*"
+    types:
+      - opened
+      - reopened
+      - synchronize
 
 defaults:
   run:
@@ -68,7 +70,7 @@ jobs:
         run: ${{ env.GRADLE_EXEC }} startDockerContainerSmokeTest
 
       - name: Run Smoke Tests
-        working-directory: server/src/test/resources/
+        working-directory: block-node/server/src/test/resources/
         run: ./smoke-test.sh
 
       - name: Stop Smoke Test Container

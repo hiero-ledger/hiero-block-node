@@ -209,7 +209,7 @@ jobs:
         run: ${{ env.GRADLE_MANIFEST_GENERATOR }}
 
       - name: Validate Applications
-        working-directory: ${{ github.workspace }}/server/build/libs
+        working-directory: ${{ github.workspace }}/block-node/server/build/libs
         run: sha256sum -c "${GRADLE_MANIFEST_PATH}/applications.sha256"
 
       - name: Compare Application Manifests

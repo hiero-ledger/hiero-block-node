@@ -13,7 +13,7 @@ dependencies.constraints {
     val grpcIoVersion = "1.70.0"
     val helidonVersion = "4.1.6"
     val pbjVersion = "0.9.17"
-    val protobufVersion = "4.29.3"
+    val protobufVersion = "4.30.0"
     val swirldsVersion = "0.59.2"
 
     api("com.github.luben:zstd-jni:1.5.7-1") { because("com.github.luben.zstd_jni") }
@@ -70,7 +70,7 @@ dependencies.constraints {
     api("org.mockito:mockito-core:5.15.2") { because("org.mockito") }
     api("org.mockito:mockito-junit-jupiter:5.15.2") { because("org.mockito.junit.jupiter") }
     api("org.testcontainers:junit-jupiter:1.20.6") { because("org.testcontainers.junit.jupiter") }
-    api("org.testcontainers:testcontainers:1.20.5") { because("org.testcontainers") }
+    api("org.testcontainers:testcontainers:1.20.6") { because("org.testcontainers") }
 
     api("com.google.auto.service:auto-service:1.1.1") {
         because("com.google.auto.service.processor")
