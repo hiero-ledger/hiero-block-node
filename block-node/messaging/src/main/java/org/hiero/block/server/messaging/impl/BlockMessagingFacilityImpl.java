@@ -19,20 +19,20 @@ import java.util.List;
 import java.util.Map;
 import java.util.ServiceLoader;
 import java.util.concurrent.ThreadFactory;
-import org.hiero.block.server.messaging.BlockItemHandler;
-import org.hiero.block.server.messaging.BlockNotification;
-import org.hiero.block.server.messaging.BlockNotificationHandler;
-import org.hiero.block.server.messaging.MessagingService;
-import org.hiero.block.server.messaging.NoBackPressureBlockItemHandler;
+import org.hiero.block.server.plugins.blockmessaging.BlockItemHandler;
+import org.hiero.block.server.plugins.blockmessaging.BlockNotification;
+import org.hiero.block.server.plugins.blockmessaging.BlockNotificationHandler;
+import org.hiero.block.server.plugins.blockmessaging.BlockMessagingFacility;
+import org.hiero.block.server.plugins.blockmessaging.NoBackPressureBlockItemHandler;
 
 /**
  * Implementation of the MessagingService interface. It uses the LMAX Disruptor to handle block item batches and block
  * notifications. It is designed to be thread safe and can be used by multiple threads.
  */
-public class MessagingServiceImpl implements MessagingService {
+public class BlockMessagingFacilityImpl implements BlockMessagingFacility {
 
     /** Logger for the messaging service. */
-    private static final System.Logger LOGGER = System.getLogger(MessagingServiceImpl.class.getName());
+    private static final System.Logger LOGGER = System.getLogger(BlockMessagingFacilityImpl.class.getName());
 
     /**
      * The thread factory used to create the virtual threads for the disruptor. Virtual threads are daemon threads by
@@ -149,7 +149,7 @@ public class MessagingServiceImpl implements MessagingService {
      * Constructs a new MessagingServiceImpl instance with the default configuration. It uses the
      * ConfigurationBuilderFactory to load the configuration from the classpath.
      */
-    public MessagingServiceImpl() {
+    public BlockMessagingFacilityImpl() {
         this(getConfig());
     }
 
@@ -158,7 +158,7 @@ public class MessagingServiceImpl implements MessagingService {
      *
      * @param config the configuration for the messaging service
      */
-    public MessagingServiceImpl(final MessagingConfig config) {
+    public BlockMessagingFacilityImpl(final MessagingConfig config) {
         blockItemDisruptor = new Disruptor<>(
                 BlockItemBatchRingEvent::new,
                 config.queueSize(),
@@ -186,7 +186,7 @@ public class MessagingServiceImpl implements MessagingService {
     public static MessagingConfig getConfig() {
         ConfigurationBuilderFactory configurationBuilderFactory = null;
         final ServiceLoader<ConfigurationBuilderFactory> serviceLoader =
-                ServiceLoader.load(ConfigurationBuilderFactory.class, MessagingServiceImpl.class.getClassLoader());
+                ServiceLoader.load(ConfigurationBuilderFactory.class, BlockMessagingFacilityImpl.class.getClassLoader());
         final Iterator<ConfigurationBuilderFactory> iterator = serviceLoader.iterator();
         if (iterator.hasNext()) {
             configurationBuilderFactory = iterator.next();

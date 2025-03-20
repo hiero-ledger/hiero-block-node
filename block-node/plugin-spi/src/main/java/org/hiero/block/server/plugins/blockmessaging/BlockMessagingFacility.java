@@ -1,25 +1,15 @@
 // SPDX-License-Identifier: Apache-2.0
-package org.hiero.block.server.messaging;
+package org.hiero.block.server.plugins.blockmessaging;
 
 import com.hedera.hapi.block.BlockItemUnparsed;
 import java.util.List;
-import org.hiero.block.server.messaging.impl.MessagingServiceImpl;
 
 /**
  * Service that handles the messaging between the different components of the server. It is used to send block items
  * and block notifications to the different components. It is not meant to become a general purpose messaging service.
  * Implementations of this service are expected to be thread safe and to handle back pressure.
  */
-public interface MessagingService {
-
-    /**
-     * Use this method to get the new instance of the messaging service.
-     *
-     * @return the instance of the messaging service
-     */
-    static MessagingService createMessagingService() {
-        return new MessagingServiceImpl();
-    }
+public interface BlockMessagingFacility {
 
     /**
      * Use this method to send block items to the service. The service will forward items to all registered block item
