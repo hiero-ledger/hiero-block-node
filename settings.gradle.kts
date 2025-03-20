@@ -17,6 +17,7 @@ javaModules {
         module("server") { artifact = "block-node-server" }
         module("base") { artifact = "block-node-base" }
         module("plugins") { artifact = "block-node-plugins" }
+        module("health") { artifact = "block-node-health" }
         // module("persistence") { artifact = "service-persistence" }
         // module("persistence-api") { artifact = "service-persistence-api" }
         // module("verification") { artifact = "service-verification" }
