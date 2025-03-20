@@ -18,16 +18,18 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.IntStream;
-import org.hiero.block.server.messaging.impl.MessagingServiceImpl;
+import org.hiero.block.server.messaging.impl.BlockMessagingFacilityImpl;
+import org.hiero.block.server.plugins.blockmessaging.BlockMessagingFacility;
+import org.hiero.block.server.plugins.blockmessaging.NoBackPressureBlockItemHandler;
 import org.junit.jupiter.api.Test;
 
-public class MessagingServiceDynamicBlockItemTest {
+public class BlockMessagingServiceDynamicBlockItemTest {
 
     /**
      * The number of items to send to the messaging service. This is twice the size of the ring buffer, so that we can
      * test the back pressure and the slow handler.
      */
-    public static final int TEST_DATA_COUNT = MessagingServiceImpl.getConfig().queueSize() * 2;
+    public static final int TEST_DATA_COUNT = BlockMessagingFacilityImpl.getConfig().queueSize() * 2;
 
     /**
      * Test to verify that the messaging service can handle dynamic handlers with no back pressure and a slow handler is
@@ -102,7 +104,7 @@ public class MessagingServiceDynamicBlockItemTest {
             }
         };
         // create message service to test, add handlers and start the service
-        final MessagingService messagingService = MessagingService.createMessagingService();
+        final BlockMessagingFacility messagingService = new BlockMessagingFacilityImpl();
         messagingService.registerNoBackpressureBlockItemHandler(slowHandler, false, null);
         messagingService.registerNoBackpressureBlockItemHandler(fastHandler, false, null);
         messagingService.start();
@@ -180,7 +182,7 @@ public class MessagingServiceDynamicBlockItemTest {
             }
         };
         // create message service to test, add handlers and start the service
-        final MessagingService messagingService = MessagingService.createMessagingService();
+        final BlockMessagingFacility messagingService = new BlockMessagingFacilityImpl();
         messagingService.registerNoBackpressureBlockItemHandler(handler1, false, null);
         messagingService.registerNoBackpressureBlockItemHandler(handler2, false, null);
         messagingService.start();
