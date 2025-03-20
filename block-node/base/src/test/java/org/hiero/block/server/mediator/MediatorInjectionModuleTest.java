@@ -4,7 +4,6 @@ package org.hiero.block.server.mediator;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 
-import com.hedera.hapi.block.BlockItemUnparsed;
 import com.swirlds.config.api.Configuration;
 import java.io.IOException;
 import java.util.List;
@@ -12,6 +11,7 @@ import java.util.Map;
 import org.hiero.block.server.metrics.MetricsService;
 import org.hiero.block.server.service.ServiceStatus;
 import org.hiero.block.server.util.TestConfigUtil;
+import org.hiero.hapi.block.node.BlockItemUnparsed;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;

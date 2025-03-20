@@ -4,13 +4,13 @@ package org.hiero.block.server.messaging;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 
-import com.hedera.hapi.block.BlockItemUnparsed;
-import com.hedera.hapi.block.BlockItemUnparsed.ItemOneOfType;
 import com.hedera.pbj.runtime.OneOf;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import java.util.List;
 import java.util.stream.Collectors;
-import org.hiero.block.server.messaging.impl.BlockItemBatchRingEvent;
+import org.hiero.block.node.messaging.BlockItemBatchRingEvent;
+import org.hiero.hapi.block.node.BlockItemUnparsed;
+import org.hiero.hapi.block.node.BlockItemUnparsed.ItemOneOfType;
 import org.junit.jupiter.api.Test;
 
 /**

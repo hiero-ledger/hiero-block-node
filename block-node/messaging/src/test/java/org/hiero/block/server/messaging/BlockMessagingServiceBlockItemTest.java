@@ -7,8 +7,6 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.fail;
 
-import com.hedera.hapi.block.BlockItemUnparsed;
-import com.hedera.hapi.block.BlockItemUnparsed.ItemOneOfType;
 import com.hedera.pbj.runtime.OneOf;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
@@ -17,10 +15,12 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicIntegerArray;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.IntStream;
-import org.hiero.block.server.messaging.impl.BlockMessagingFacilityImpl;
-import org.hiero.block.server.plugins.blockmessaging.BlockItemHandler;
-import org.hiero.block.server.plugins.blockmessaging.BlockMessagingFacility;
-import org.hiero.block.server.plugins.blockmessaging.NoBackPressureBlockItemHandler;
+import org.hiero.block.node.messaging.BlockMessagingFacilityImpl;
+import org.hiero.block.node.spi.blockmessaging.BlockItemHandler;
+import org.hiero.block.node.spi.blockmessaging.BlockMessagingFacility;
+import org.hiero.block.node.spi.blockmessaging.NoBackPressureBlockItemHandler;
+import org.hiero.hapi.block.node.BlockItemUnparsed;
+import org.hiero.hapi.block.node.BlockItemUnparsed.ItemOneOfType;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
@@ -33,7 +33,8 @@ public class BlockMessagingServiceBlockItemTest {
      * The number of items to send to the messaging service. This is twice the size of the ring buffer, so that we can
      * test the back pressure and the slow handler.
      */
-    public static final int TEST_DATA_COUNT = BlockMessagingFacilityImpl.getConfig().queueSize() * 2;
+    public static final int TEST_DATA_COUNT =
+            BlockMessagingFacilityImpl.getConfig().queueSize() * 2;
 
     /**
      * Simple test to verify that the messaging service can handle multiple block notification handlers and that

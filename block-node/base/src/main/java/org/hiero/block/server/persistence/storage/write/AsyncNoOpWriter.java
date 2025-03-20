@@ -4,7 +4,6 @@ package org.hiero.block.server.persistence.storage.write;
 import static java.lang.System.Logger.Level.DEBUG;
 import static org.hiero.block.server.metrics.BlockNodeMetricTypes.Counter.BlocksPersisted;
 
-import com.hedera.hapi.block.BlockItemUnparsed;
 import edu.umd.cs.findbugs.annotations.NonNull;
 import java.lang.System.Logger.Level;
 import java.util.Objects;
@@ -13,6 +12,7 @@ import java.util.concurrent.TransferQueue;
 import org.hiero.block.server.ack.AckHandler;
 import org.hiero.block.server.metrics.MetricsService;
 import org.hiero.block.server.persistence.storage.write.BlockPersistenceResult.BlockPersistenceStatus;
+import org.hiero.hapi.block.node.BlockItemUnparsed;
 
 /**
  * An async block writer that does nothing with the received block items.

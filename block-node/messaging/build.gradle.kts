@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 plugins { id("org.hiero.gradle.module.library") }
 
-description = "Hiero Block Node Messaging"
+description = "Hiero Block Node Messaging Facility"
 
 // Remove the following line to enable all 'javac' lint checks that we have turned on by default
 // and then fix the reported issues.

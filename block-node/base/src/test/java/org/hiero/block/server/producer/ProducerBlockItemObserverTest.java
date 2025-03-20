@@ -11,7 +11,6 @@ import static org.mockito.Mockito.when;
 
 import com.hedera.hapi.block.Acknowledgement;
 import com.hedera.hapi.block.BlockAcknowledgement;
-import com.hedera.hapi.block.BlockItemUnparsed;
 import com.hedera.hapi.block.EndOfStream;
 import com.hedera.hapi.block.PublishStreamResponse;
 import com.hedera.hapi.block.PublishStreamResponseCode;
@@ -32,6 +31,7 @@ import org.hiero.block.server.service.ServiceConfig;
 import org.hiero.block.server.service.ServiceStatus;
 import org.hiero.block.server.service.ServiceStatusImpl;
 import org.hiero.block.server.util.TestConfigUtil;
+import org.hiero.hapi.block.node.BlockItemUnparsed;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;

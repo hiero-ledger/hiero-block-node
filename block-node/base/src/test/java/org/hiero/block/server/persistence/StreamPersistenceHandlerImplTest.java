@@ -12,7 +12,6 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-import com.hedera.hapi.block.BlockItemUnparsed;
 import com.hedera.hapi.block.BlockUnparsed;
 import com.swirlds.config.api.Configuration;
 import com.swirlds.config.api.ConfigurationBuilder;
@@ -35,6 +34,7 @@ import org.hiero.block.server.persistence.storage.path.BlockPathResolver;
 import org.hiero.block.server.persistence.storage.path.UnverifiedBlockPath;
 import org.hiero.block.server.persistence.storage.write.AsyncBlockWriterFactory;
 import org.hiero.block.server.service.ServiceStatus;
+import org.hiero.hapi.block.node.BlockItemUnparsed;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;

@@ -49,22 +49,6 @@ public final class BlockNodeMetricTypes {
                 "closed_range_historic_blocks_retrieved", "Closed Range Historic Blocks Retrieved"),
 
         // Verification counters
-
-        /** The number of blocks received for verification. */
-        VerificationBlocksReceived("verification_blocks_received", "Blocks Received for Verification"),
-
-        /** The number of blocks verified successfully. */
-        VerificationBlocksVerified("verification_blocks_verified", "Blocks Verified"),
-
-        /** The number of blocks that failed verification. */
-        VerificationBlocksFailed("verification_blocks_failed", "Blocks Failed Verification"),
-
-        /** The number of blocks that failed verification due to an error. */
-        VerificationBlocksError("verification_blocks_error", "Blocks Verification Error"),
-
-        /** The time in nanoseconds taken to verify a block */
-        VerificationBlockTime("verification_block_time", "Block Verification Time"),
-
         /** The number of historic to live stream transitions */
         HistoricToLiveStreamTransitions("historic_to_live_stream_transitions", "Historic to Live Stream Transitions"),
 

@@ -9,9 +9,6 @@ public final class Constants {
     /** Constant mapped to PbjProtocolProvider.CONFIG_NAME in the PBJ Helidon Plugin */
     public static final String PBJ_PROTOCOL_PROVIDER_CONFIG_NAME = "pbj";
 
-    /** Constant mapped to the name of the BlockStream service in the .proto file */
-    public static final String SERVICE_NAME_BLOCK_STREAM = "BlockStreamService";
-
     /** Constant mapped to the name of the BlockAccess service in the .proto file */
     public static final String SERVICE_NAME_BLOCK_ACCESS = "BlockAccessService";
 
