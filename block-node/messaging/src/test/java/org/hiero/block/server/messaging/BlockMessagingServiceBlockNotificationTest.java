@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.server.messaging;
 
+import static org.hiero.block.server.plugins.blockmessaging.BlockNotification.Type.BLOCK_PERSISTED;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -12,21 +13,23 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicIntegerArray;
 import java.util.stream.IntStream;
-import org.hiero.block.server.messaging.BlockNotification.Type;
-import org.hiero.block.server.messaging.impl.MessagingServiceImpl;
+import org.hiero.block.server.messaging.impl.BlockMessagingFacilityImpl;
+import org.hiero.block.server.plugins.blockmessaging.BlockNotification;
+import org.hiero.block.server.plugins.blockmessaging.BlockNotificationHandler;
+import org.hiero.block.server.plugins.blockmessaging.BlockMessagingFacility;
 import org.junit.jupiter.api.Test;
 
 /**
  * Test class for the MessagingService to verify that it can handle block notifications and back pressure. All these
  * tests are super hard to get right as they are highly concurrent. So makes it very hard to not be timing dependent.
  */
-public class MessagingServiceBlockNotificationTest {
+public class BlockMessagingServiceBlockNotificationTest {
 
     /**
      * The number of items to send to the messaging service. This is twice the size of the ring buffer, so that we can
      * test the back pressure and the slow handler.
      */
-    public static final int TEST_DATA_COUNT = MessagingServiceImpl.getConfig().queueSize() * 2;
+    public static final int TEST_DATA_COUNT = BlockMessagingFacilityImpl.getConfig().queueSize() * 2;
 
     /**
      * Simple test to verify that the messaging service can handle multiple block notification handlers and that
@@ -50,13 +53,13 @@ public class MessagingServiceBlockNotificationTest {
                 })
                 .toList();
         // Create MessagingService to test and register the handlers
-        MessagingService messagingService = MessagingService.createMessagingService();
+        BlockMessagingFacility messagingService = new BlockMessagingFacilityImpl();
         testHandlers.forEach(handler -> messagingService.registerBlockNotificationHandler(handler, false, null));
         // start the messaging service
         messagingService.start();
         // send TEST_DATA_COUNT block notifications
         for (int i = 0; i < TEST_DATA_COUNT; i++) {
-            messagingService.sendBlockNotification(new BlockNotification(i, Type.BLOCK_PERSISTED));
+            messagingService.sendBlockNotification(new BlockNotification(i, BLOCK_PERSISTED));
         }
         // wait for all handlers to finish
         assertTrue(
@@ -107,14 +110,14 @@ public class MessagingServiceBlockNotificationTest {
             }
         };
         // Create MessagingService to test and register the handlers
-        MessagingService messagingService = MessagingService.createMessagingService();
+        BlockMessagingFacility messagingService = new BlockMessagingFacilityImpl();
         messagingService.registerBlockNotificationHandler(fastHandler, false, null);
         messagingService.registerBlockNotificationHandler(slowHandler, false, null);
         // start the messaging service
         messagingService.start();
         // send TEST_DATA_COUNT block notifications
         for (int i = 0; i < TEST_DATA_COUNT; i++) {
-            messagingService.sendBlockNotification(new BlockNotification(i, Type.BLOCK_PERSISTED));
+            messagingService.sendBlockNotification(new BlockNotification(i, BLOCK_PERSISTED));
             // release the slow handler 3 out of 4 times so it is slowed down by 25%
             if (i % 4 == 0) {
                 holdBackSlowHandler.release(3);
@@ -172,14 +175,14 @@ public class MessagingServiceBlockNotificationTest {
             }
         };
         // Create MessagingService to test and register the handlers
-        MessagingService messagingService = MessagingService.createMessagingService();
+        BlockMessagingFacility messagingService = new BlockMessagingFacilityImpl();
         messagingService.registerBlockNotificationHandler(slowHandler, false, null);
         // start the messaging service
         messagingService.start();
         // send TEST_DATA_COUNT block notifications in a background thread
         Thread senderThread = new Thread(() -> {
             for (int i = 0; i < TEST_DATA_COUNT; i++) {
-                messagingService.sendBlockNotification(new BlockNotification(i, Type.BLOCK_PERSISTED));
+                messagingService.sendBlockNotification(new BlockNotification(i, BLOCK_PERSISTED));
                 sentCounter.incrementAndGet();
                 // release the slow handler every other time so it is slowed down by 50%
                 if (i % 4 == 0) {
@@ -252,7 +255,7 @@ public class MessagingServiceBlockNotificationTest {
             }
         };
         // create message service to test, add handlers and start the service
-        final MessagingService messagingService = MessagingService.createMessagingService();
+        final BlockMessagingFacility messagingService = new BlockMessagingFacilityImpl();
         messagingService.registerBlockNotificationHandler(handler1, false, null);
         messagingService.registerBlockNotificationHandler(handler2, false, null);
         messagingService.start();
@@ -268,7 +271,7 @@ public class MessagingServiceBlockNotificationTest {
                     throw new RuntimeException(e);
                 }
             }
-            messagingService.sendBlockNotification(new BlockNotification(i, BlockNotification.Type.BLOCK_PERSISTED));
+            messagingService.sendBlockNotification(new BlockNotification(i, BLOCK_PERSISTED));
             // have to slow down production to make test reliable
             try {
                 Thread.sleep(1);
