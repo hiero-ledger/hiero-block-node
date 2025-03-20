@@ -6,16 +6,18 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import java.util.Collections;
 import java.util.logging.Handler;
 import java.util.logging.LogRecord;
-import org.hiero.block.server.messaging.BlockNotification.Type;
-import org.hiero.block.server.messaging.impl.MessagingServiceImpl;
+import org.hiero.block.server.plugins.blockmessaging.BlockNotification;
+import org.hiero.block.server.plugins.blockmessaging.BlockNotification.Type;
+import org.hiero.block.server.messaging.impl.BlockMessagingFacilityImpl;
+import org.hiero.block.server.plugins.blockmessaging.BlockMessagingFacility;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 /**
- * Unit tests for the {@link MessagingService} class.
+ * Unit tests for the {@link BlockMessagingFacilityImpl} class.
  */
 @SuppressWarnings("BusyWait")
-public class MessagingServiceExceptionTest {
+public class BlockMessagingFacilityExceptionTest {
 
     /** The logger used for logging messages. */
     private java.util.logging.Logger logger;
@@ -28,7 +30,7 @@ public class MessagingServiceExceptionTest {
      */
     @BeforeEach
     void setUp() {
-        logger = java.util.logging.Logger.getLogger(MessagingServiceImpl.class.getName());
+        logger = java.util.logging.Logger.getLogger(BlockMessagingFacilityImpl.class.getName());
         System.out.println("logger = " + logger);
         logHandler = new TestLogHandler();
         logger.addHandler(logHandler);
@@ -44,7 +46,7 @@ public class MessagingServiceExceptionTest {
         logger.info(expectedMessage);
         assertTrue(logHandler.getLogMessages().contains(expectedMessage), "Log message should be captured");
         // tests with system logger as well
-        final System.Logger systemLogger = System.getLogger(MessagingServiceImpl.class.getName());
+        final System.Logger systemLogger = System.getLogger(BlockMessagingFacilityImpl.class.getName());
         String expectedMessage2 = "SYSTEM-MESSAGE";
         systemLogger.log(System.Logger.Level.INFO, expectedMessage2);
         assertTrue(logHandler.getLogMessages().contains(expectedMessage2), "Log message should be captured");
@@ -55,7 +57,7 @@ public class MessagingServiceExceptionTest {
      */
     @Test
     void testBlockItemHandlerException() {
-        MessagingService service = MessagingService.createMessagingService();
+        BlockMessagingFacility service = new BlockMessagingFacilityImpl();
         // register a block item handler that just throws an exception
         service.registerBlockItemHandler(
                 blockItems -> {
@@ -93,7 +95,7 @@ public class MessagingServiceExceptionTest {
      */
     @Test
     void testBlockNotificationHandlerException() {
-        MessagingService service = MessagingService.createMessagingService();
+        BlockMessagingFacility service = new BlockMessagingFacilityImpl();
         // register a block notification handler that just throws an exception
         service.registerBlockNotificationHandler(
                 blockNotification -> {

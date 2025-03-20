@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.server.messaging;
 
-import static org.hiero.block.server.messaging.MessagingServiceDynamicBlockItemTest.intToBytes;
+import static org.hiero.block.server.messaging.BlockMessagingServiceDynamicBlockItemTest.intToBytes;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -17,7 +17,10 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicIntegerArray;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.IntStream;
-import org.hiero.block.server.messaging.impl.MessagingServiceImpl;
+import org.hiero.block.server.messaging.impl.BlockMessagingFacilityImpl;
+import org.hiero.block.server.plugins.blockmessaging.BlockItemHandler;
+import org.hiero.block.server.plugins.blockmessaging.BlockMessagingFacility;
+import org.hiero.block.server.plugins.blockmessaging.NoBackPressureBlockItemHandler;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
@@ -25,12 +28,12 @@ import org.junit.jupiter.params.provider.ValueSource;
 /**
  * Tests for the Block Item functionality of the MessagingService.
  */
-public class MessagingServiceBlockItemTest {
+public class BlockMessagingServiceBlockItemTest {
     /**
      * The number of items to send to the messaging service. This is twice the size of the ring buffer, so that we can
      * test the back pressure and the slow handler.
      */
-    public static final int TEST_DATA_COUNT = MessagingServiceImpl.getConfig().queueSize() * 2;
+    public static final int TEST_DATA_COUNT = BlockMessagingFacilityImpl.getConfig().queueSize() * 2;
 
     /**
      * Simple test to verify that the messaging service can handle multiple block notification handlers and that
@@ -55,7 +58,7 @@ public class MessagingServiceBlockItemTest {
                 })
                 .toList();
         // Create MessagingService to test
-        MessagingService messagingService = MessagingService.createMessagingService();
+        BlockMessagingFacility messagingService = new BlockMessagingFacilityImpl();
         // Register the handlers, if registerBeforeStart is true
         if (registerBeforeStart) {
             testHandlers.forEach(handler -> messagingService.registerBlockItemHandler(handler, false, "testHandler"));
@@ -116,7 +119,7 @@ public class MessagingServiceBlockItemTest {
                 })
                 .toList();
         // Create MessagingService to test and register the handlers
-        MessagingService messagingService = MessagingService.createMessagingService();
+        BlockMessagingFacility messagingService = new BlockMessagingFacilityImpl();
         messagingService.registerBlockItemHandler(testHandlers.get(0), false, "testHandler0");
         messagingService.registerBlockItemHandler(testHandlers.get(1), false, "testHandler1");
         messagingService.registerNoBackpressureBlockItemHandler(testHandlers.get(2), false, "testHandler2");
@@ -149,7 +152,7 @@ public class MessagingServiceBlockItemTest {
     @Test
     public void testThreadNameAndVirtualVsNonVirtual() {
         // Create a MessagingService instance
-        MessagingService service = MessagingService.createMessagingService();
+        BlockMessagingFacility service = new BlockMessagingFacilityImpl();
         // collect thread names and virtual vs non-virtual flags
         final AtomicReference<String> threadName1 = new AtomicReference<>();
         final AtomicReference<String> threadName2 = new AtomicReference<>();
