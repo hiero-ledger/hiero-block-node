@@ -7,7 +7,6 @@ import static java.lang.System.Logger.Level.TRACE;
 import static org.hiero.block.server.metrics.BlockNodeMetricTypes.Counter.HistoricToLiveStreamTransitions;
 import static org.hiero.block.server.metrics.BlockNodeMetricTypes.Counter.OutboundStreamingError;
 
-import com.hedera.hapi.block.BlockItemUnparsed;
 import com.hedera.hapi.block.SubscribeStreamRequest;
 import com.hedera.hapi.block.SubscribeStreamResponseCode;
 import com.hedera.hapi.block.stream.BlockProof;
@@ -28,6 +27,7 @@ import org.hiero.block.server.mediator.Poller;
 import org.hiero.block.server.mediator.SubscriptionHandler;
 import org.hiero.block.server.metrics.MetricsService;
 import org.hiero.block.server.service.ServiceStatus;
+import org.hiero.hapi.block.node.BlockItemUnparsed;
 
 /**
  * The OpenRangeStreamManager class is responsible for managing the state transitions between

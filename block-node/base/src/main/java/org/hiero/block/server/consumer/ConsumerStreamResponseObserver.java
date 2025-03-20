@@ -6,7 +6,6 @@ import static org.hiero.block.server.metrics.BlockNodeMetricTypes.Counter.LiveBl
 import static org.hiero.block.server.metrics.BlockNodeMetricTypes.Gauge.CurrentBlockNumberOutbound;
 
 import com.hedera.hapi.block.BlockItemSetUnparsed;
-import com.hedera.hapi.block.BlockItemUnparsed;
 import com.hedera.hapi.block.SubscribeStreamResponseCode;
 import com.hedera.hapi.block.SubscribeStreamResponseUnparsed;
 import com.hedera.hapi.block.stream.output.BlockHeader;
@@ -17,6 +16,7 @@ import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.atomic.AtomicBoolean;
 import org.hiero.block.server.metrics.MetricsService;
+import org.hiero.hapi.block.node.BlockItemUnparsed;
 
 /**
  * ConsumerStreamResponseObserver is responsible for sending responses to the downstream client.

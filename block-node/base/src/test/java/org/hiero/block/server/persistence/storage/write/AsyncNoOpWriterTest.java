@@ -7,7 +7,6 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-import com.hedera.hapi.block.BlockItemUnparsed;
 import com.swirlds.metrics.api.Counter;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
@@ -17,6 +16,7 @@ import org.hiero.block.server.ack.AckHandler;
 import org.hiero.block.server.metrics.MetricsService;
 import org.hiero.block.server.persistence.storage.write.BlockPersistenceResult.BlockPersistenceStatus;
 import org.hiero.block.server.util.PersistTestUtils;
+import org.hiero.hapi.block.node.BlockItemUnparsed;
 import org.junit.jupiter.api.Timeout;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.params.ParameterizedTest;

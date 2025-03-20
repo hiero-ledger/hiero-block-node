@@ -4,13 +4,13 @@ package org.hiero.block.server.mediator;
 import static java.lang.System.Logger.Level.INFO;
 import static org.hiero.block.server.metrics.BlockNodeMetricTypes.Counter.LiveBlockItems;
 
-import com.hedera.hapi.block.BlockItemUnparsed;
 import edu.umd.cs.findbugs.annotations.NonNull;
 import java.util.List;
 import org.hiero.block.server.consumer.StreamManager;
 import org.hiero.block.server.events.BlockNodeEventHandler;
 import org.hiero.block.server.events.ObjectEvent;
 import org.hiero.block.server.metrics.MetricsService;
+import org.hiero.hapi.block.node.BlockItemUnparsed;
 
 /**
  * The NoOpLiveStreamMediator class is a stub implementation of the live stream mediator intended for testing
