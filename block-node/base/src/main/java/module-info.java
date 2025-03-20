@@ -1,5 +1,4 @@
 // SPDX-License-Identifier: Apache-2.0
-import org.hiero.block.server.config.BlockNodeConfigExtension;
 
 module org.hiero.block.base {
     exports org.hiero.block.server.consumer;
@@ -16,7 +15,6 @@ module org.hiero.block.base {
     exports org.hiero.block.server.mediator;
     exports org.hiero.block.server.metrics;
     exports org.hiero.block.server.events;
-    exports org.hiero.block.server.health;
     exports org.hiero.block.server.ack;
     exports org.hiero.block.server.persistence;
     exports org.hiero.block.server.notifier;

@@ -2,46 +2,47 @@
 package org.hiero.block.server.health;
 
 import edu.umd.cs.findbugs.annotations.NonNull;
-import io.helidon.webserver.http.HttpRules;
+import io.helidon.common.Builder;
+import io.helidon.webserver.Routing;
+import io.helidon.webserver.http.HttpRouting;
 import io.helidon.webserver.http.ServerRequest;
 import io.helidon.webserver.http.ServerResponse;
-import javax.inject.Inject;
-import javax.inject.Singleton;
-import org.hiero.block.server.service.ServiceStatus;
+import java.util.List;
+import org.hiero.block.server.plugins.BlockNodeContext;
+import org.hiero.block.server.plugins.BlockNodePlugin;
+import org.hiero.block.server.plugins.health.HealthFacility;
 
 /** Provides implementation for the health endpoints of the server. */
-@Singleton
-public class HealthServiceImpl implements HealthService {
+public class HealthServicePlugin implements BlockNodePlugin {
 
+    // TODO maybe these want to be package protected so they can be used in tests, as they are never module exported then that is fine
+    private static final String HEALTH_PATH = "/healthz";
     private static final String LIVEZ_PATH = "/livez";
     private static final String READYZ_PATH = "/readyz";
 
-    private final ServiceStatus serviceStatus;
+    /** The health facility, used for getting server status */
+    private HealthFacility healthFacility;
 
     /**
-     * It initializes the HealthService with needed dependencies.
-     *
-     * @param serviceStatus is used to check the status of the service
+     * {@inheritDoc}
      */
-    @Inject
-    public HealthServiceImpl(@NonNull ServiceStatus serviceStatus) {
-        this.serviceStatus = serviceStatus;
-    }
-
     @Override
-    @NonNull
-    public String getHealthRootPath() {
-        return "/healthz";
+    public String name() {
+        return "Health Service Plugin";
     }
 
     /**
-     * Configures the health routes for the server.
-     *
-     * @param httpRules is used to configure the health endpoints routes
+     * {@inheritDoc}
      */
     @Override
-    public void routing(@NonNull final HttpRules httpRules) {
-        httpRules.get(LIVEZ_PATH, this::handleLivez).get(READYZ_PATH, this::handleReadyz);
+    public List<Builder<?, ? extends Routing>> init(BlockNodeContext context) {
+        healthFacility = context.serverHealth();
+        return List.of(
+                HttpRouting.builder().register(HEALTH_PATH,
+                        httpRules -> httpRules
+                                .get(LIVEZ_PATH, this::handleLivez)
+                                .get(READYZ_PATH, this::handleReadyz))
+        );
     }
 
     /**
@@ -50,9 +51,8 @@ public class HealthServiceImpl implements HealthService {
      * @param req the server request
      * @param res the server response
      */
-    @Override
     public final void handleLivez(@NonNull final ServerRequest req, @NonNull final ServerResponse res) {
-        if (serviceStatus.isRunning()) {
+        if (healthFacility.isRunning()) {
             res.status(200).send("OK");
         } else {
             res.status(503).send("Service is not running");
@@ -66,9 +66,8 @@ public class HealthServiceImpl implements HealthService {
      * @param req the server request
      * @param res the server response
      */
-    @Override
     public final void handleReadyz(@NonNull final ServerRequest req, @NonNull final ServerResponse res) {
-        if (serviceStatus.isRunning()) {
+        if (healthFacility.isRunning()) {
             res.status(200).send("OK");
         } else {
             res.status(503).send("Service is not running");

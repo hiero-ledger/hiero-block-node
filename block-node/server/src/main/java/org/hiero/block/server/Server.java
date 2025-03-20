@@ -51,7 +51,10 @@ public class Server implements HealthFacility {
                 .withSources(new ClasspathFileConfigSource(Path.of(APPLICATION_PROPERTIES)))
                 .autoDiscoverExtensions()
                 .build();
-
+        final ServerConfig serverConfig = configuration.getConfigData(ServerConfig.class);
+        // load logging config and log the configuration
+        final ConfigurationLoggingImpl configurationLogging = new ConfigurationLoggingImpl(configuration);
+        configurationLogging.log();
         // Init Metrics
         final DefaultMetricsProvider metricsProvider = new DefaultMetricsProvider(configuration);
         final Metrics metrics = metricsProvider.createGlobalMetrics();
@@ -91,74 +94,76 @@ public class Server implements HealthFacility {
                     public HistoricalBlockFacility historicalBlockProvider() {
                         return blockProvider;
                     }
-
-                    @Override
-                    public void shutdown() {
-                        Server.this.shutdown();
-                    }
                 };
         // Load all the plugins
         loadedPlugins = ServiceLoader.load(BlockNodePlugin.class, Server.class.getClassLoader())
                 .stream()
                 .map(ServiceLoader.Provider::get)
                 .toList();
-        // load and Log the configuration
-        var configurationLogging = new ConfigurationLoggingImpl(configuration);
-        configurationLogging.log();
 
-
-        final HttpRouting.Builder httpRouting =
-                HttpRouting.builder().register(healthService.getHealthRootPath(), healthService);
 
         final PbjRouting.Builder pbjRouting =
                 PbjRouting.builder().service(pbjBlockStreamService).service(pbjBlockAccessService);
 
-        // Override the default message size
+        // Override the default message size in PBJ
         final PbjConfig pbjConfig = PbjConfig.builder()
                 .name(PBJ_PROTOCOL_PROVIDER_CONFIG_NAME)
                 .maxMessageSizeBytes(serverConfig.maxMessageSizeBytes())
                 .build();
-
-        final ConnectionConfig connectionConfig = ConnectionConfig.builder()
-                .sendBufferSize(serverConfig.socketSendBufferSizeBytes())
-                .receiveBufferSize(serverConfig.socketSendBufferSizeBytes())
-                .build();
-
-        // Build the web server
-        final var webServerBuilder = WebServerConfig.builder();
-        final WebServer webServer = webServerBuilder
+        // Create the web server builder and configure
+        final var webServerBuilder = WebServerConfig.builder()
                 .port(serverConfig.port())
                 .addProtocol(pbjConfig)
-                .addRouting(pbjRouting)
-                .addRouting(httpRouting)
-                .connectionConfig(connectionConfig)
-                .build();
-
-
-    }
-
-    private void start() {
-        // Start all the plugins
+                .connectionConfig(ConnectionConfig.builder()
+                        .sendBufferSize(serverConfig.socketSendBufferSizeBytes())
+                        .receiveBufferSize(serverConfig.socketSendBufferSizeBytes())
+                        .build());
+        // Initialize all the plugins, adding routing for each plugin
         for (BlockNodePlugin plugin : loadedPlugins) {
-            LOGGER.log(INFO, "Starting plugin: {0}", plugin.name());
-            final List<Builder<?, ? extends Routing>> routingBuilders = plugin.start(blockNodeContext);
+            LOGGER.log(INFO, "    Initializing plugin: {0}", plugin.name());
+            final List<Builder<?, ? extends Routing>> routingBuilders = plugin.init(blockNodeContext);
             for (Builder<?, ? extends Routing> routingBuilder : routingBuilders) {
-                HttpRouting.builder().register(routingBuilder);
+                webServerBuilder.addRouting(routingBuilder);
             }
         }
+        // Build the web server
+        webServer = webServerBuilder.build();
+    }
 
+    /**
+     * Starts the block node server. This method initializes all the plugins, starts the web server,
+     * and starts the metrics.
+     */
+    private void start() {
+        LOGGER.log(INFO, "Starting BlockNode Server");
         // Start the web server
         webServer.start();
         // Start metrics
         blockNodeContext.metrics().start();
+        // Start all the plugins
+        for (BlockNodePlugin plugin : loadedPlugins) {
+            LOGGER.log(INFO, "    Starting plugin: {0}", plugin.name());
+            plugin.start();
+        }
         // mark the server as started
         state.set(State.RUNNING);
     }
 
+    /**
+     * {@inheritDoc}
+     */
+    @Override
+    public State blockNodeState() {
+        return state.get();
+    }
 
-    private void shutdown() {
+    /**
+     * {@inheritDoc}
+     */
+    @Override
+    public void shutdown(String className, String reason) {
         state.set(State.SHUTTING_DOWN);
-        LOGGER.log(INFO, "Shutting down");
+        LOGGER.log(INFO, "Shutting down, reason: {0}, class: {1}", reason, className);
         // Stop server
         // Stop all the plugins
         for (BlockNodePlugin plugin : loadedPlugins) {
@@ -175,31 +180,7 @@ public class Server implements HealthFacility {
      * @throws IOException if there is an error starting the server
      */
     public static void main(final String[] args) throws IOException {
-        LOGGER.log(INFO, "Starting BlockNode Server");
-//
-//        // Init BlockNode Configuration
-//        final Configuration configuration = ConfigurationBuilder.create()
-//                .withSource(ServerMappedConfigSourceInitializer.getMappedConfigSource())
-//                .withSource(SystemPropertiesConfigSource.getInstance())
-//                .withSources(new ClasspathFileConfigSource(Path.of(APPLICATION_PROPERTIES)))
-//                .autoDiscoverExtensions()
-//                .build();
-//
-//        // Init Dagger DI Component, passing in the configuration.
-//        // this is where all the dependencies are wired up (magic happens)
-//        final BlockNodeAppInjectionComponent daggerComponent =
-//                DaggerBlockNodeAppInjectionComponent.factory().create(configuration);
-//
-//        // Use Dagger DI Component to start the BlockNodeApp with all wired dependencies
-//        final BlockNodeApp blockNodeApp = daggerComponent.getBlockNodeApp();
-//        blockNodeApp.start();
-
         Server server = new Server();
-
-    }
-
-    @Override
-    public State status() {
-        return null;
+        server.start();
     }
 }
