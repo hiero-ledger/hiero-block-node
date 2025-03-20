@@ -23,11 +23,25 @@ public interface BlockNodePlugin {
      * @param context the block node context
      * @return a list of routing builders that will be used to create the HTTP routing for the block node
      */
-    List<Builder<?, ? extends Routing>> start(BlockNodeContext context);
+    List<Builder<?, ? extends Routing>> init(BlockNodeContext context);
+
+    /**
+     * Start the plugin. This method is called when the block node is starting up after all initialization is complete.
+     * At this point all facilities are available and the plugin can use them. Any background threads should be started
+     * here. This method is called after the {@link #init(BlockNodeContext)} method.
+     * <p>
+     * The default implementation does nothing. This is to be overridden by the plugin if it needs to do
+     * anything on start.
+     * </p>
+     */
+    default void start(){}
 
     /**
      * Stop the plugin. This method is called when the block node is shutting down. This expectation is to do the
      * minimum for a clean shutdown stopping all threads as need.
+     * <p>
+     * The default implementation does nothing. This is to be overridden by the plugin if it needs to do any cleanup.
+     * </p>
      */
-    void stop();
+    default void stop(){}
 }
