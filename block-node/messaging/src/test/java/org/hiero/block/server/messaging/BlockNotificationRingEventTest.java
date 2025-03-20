@@ -4,8 +4,8 @@ package org.hiero.block.server.messaging;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 
-import org.hiero.block.server.messaging.impl.BlockNotificationRingEvent;
-import org.hiero.block.server.plugins.blockmessaging.BlockNotification;
+import org.hiero.block.node.messaging.BlockNotificationRingEvent;
+import org.hiero.block.node.spi.blockmessaging.BlockNotification;
 import org.junit.jupiter.api.Test;
 
 /**

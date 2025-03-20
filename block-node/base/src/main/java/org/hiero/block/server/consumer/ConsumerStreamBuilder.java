@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.server.consumer;
 
-import com.hedera.hapi.block.BlockItemUnparsed;
 import com.hedera.hapi.block.BlockUnparsed;
 import com.hedera.hapi.block.SubscribeStreamRequest;
 import com.hedera.hapi.block.SubscribeStreamResponseUnparsed;
@@ -13,6 +12,7 @@ import org.hiero.block.server.mediator.SubscriptionHandler;
 import org.hiero.block.server.metrics.MetricsService;
 import org.hiero.block.server.persistence.storage.read.BlockReader;
 import org.hiero.block.server.service.ServiceStatus;
+import org.hiero.hapi.block.node.BlockItemUnparsed;
 
 /**
  * LiveStreamEventHandlerBuilder is a factory class for building the event handler chain for

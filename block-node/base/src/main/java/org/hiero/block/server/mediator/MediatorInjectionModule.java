@@ -3,7 +3,6 @@ package org.hiero.block.server.mediator;
 
 import static org.hiero.block.server.mediator.MediatorConfig.MediatorType.NO_OP;
 
-import com.hedera.hapi.block.BlockItemUnparsed;
 import dagger.Binds;
 import dagger.Module;
 import dagger.Provides;
@@ -13,6 +12,7 @@ import javax.inject.Singleton;
 import org.hiero.block.server.metrics.MetricsService;
 import org.hiero.block.server.notifier.Notifiable;
 import org.hiero.block.server.service.ServiceStatus;
+import org.hiero.hapi.block.node.BlockItemUnparsed;
 
 /** A Dagger module for providing dependencies for Mediator Module.` */
 @Module

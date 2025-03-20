@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.server.messaging;
 
-import static org.hiero.block.server.plugins.blockmessaging.BlockNotification.Type.BLOCK_PERSISTED;
+import static org.hiero.block.node.spi.blockmessaging.BlockNotification.Type.BLOCK_PERSISTED;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -13,10 +13,10 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicIntegerArray;
 import java.util.stream.IntStream;
-import org.hiero.block.server.messaging.impl.BlockMessagingFacilityImpl;
-import org.hiero.block.server.plugins.blockmessaging.BlockNotification;
-import org.hiero.block.server.plugins.blockmessaging.BlockNotificationHandler;
-import org.hiero.block.server.plugins.blockmessaging.BlockMessagingFacility;
+import org.hiero.block.node.messaging.BlockMessagingFacilityImpl;
+import org.hiero.block.node.spi.blockmessaging.BlockMessagingFacility;
+import org.hiero.block.node.spi.blockmessaging.BlockNotification;
+import org.hiero.block.node.spi.blockmessaging.BlockNotificationHandler;
 import org.junit.jupiter.api.Test;
 
 /**
@@ -29,7 +29,8 @@ public class BlockMessagingServiceBlockNotificationTest {
      * The number of items to send to the messaging service. This is twice the size of the ring buffer, so that we can
      * test the back pressure and the slow handler.
      */
-    public static final int TEST_DATA_COUNT = BlockMessagingFacilityImpl.getConfig().queueSize() * 2;
+    public static final int TEST_DATA_COUNT =
+            BlockMessagingFacilityImpl.getConfig().queueSize() * 2;
 
     /**
      * Simple test to verify that the messaging service can handle multiple block notification handlers and that

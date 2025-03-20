@@ -8,7 +8,6 @@ import static org.hiero.block.server.util.PersistTestUtils.PERSISTENCE_STORAGE_A
 import static org.hiero.block.server.util.PersistTestUtils.PERSISTENCE_STORAGE_COMPRESSION_TYPE;
 import static org.hiero.block.server.util.PersistTestUtils.PERSISTENCE_STORAGE_LIVE_ROOT_PATH_KEY;
 
-import com.hedera.hapi.block.BlockItemUnparsed;
 import com.hedera.hapi.block.BlockUnparsed;
 import com.hedera.hapi.block.stream.output.BlockHeader;
 import com.hedera.pbj.runtime.ParseException;
@@ -33,6 +32,7 @@ import org.hiero.block.server.persistence.storage.path.ArchiveBlockPath;
 import org.hiero.block.server.persistence.storage.path.BlockAsLocalFilePathResolver;
 import org.hiero.block.server.persistence.storage.path.BlockPathResolver;
 import org.hiero.block.server.util.PersistTestUtils;
+import org.hiero.hapi.block.node.BlockItemUnparsed;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;

@@ -4,7 +4,6 @@ package org.hiero.block.server.consumer;
 import static java.lang.System.Logger.Level.TRACE;
 import static org.hiero.block.server.metrics.BlockNodeMetricTypes.Counter.ClosedRangeHistoricBlocksRetrieved;
 
-import com.hedera.hapi.block.BlockItemUnparsed;
 import com.hedera.hapi.block.BlockUnparsed;
 import edu.umd.cs.findbugs.annotations.NonNull;
 import java.util.LinkedList;
@@ -16,6 +15,7 @@ import java.util.concurrent.atomic.AtomicLong;
 import org.hiero.block.common.utils.ChunkUtils;
 import org.hiero.block.server.metrics.MetricsService;
 import org.hiero.block.server.persistence.storage.read.BlockReader;
+import org.hiero.hapi.block.node.BlockItemUnparsed;
 
 /**
  * HistoricDataPollerImpl is responsible for polling historic data from the block reader.
