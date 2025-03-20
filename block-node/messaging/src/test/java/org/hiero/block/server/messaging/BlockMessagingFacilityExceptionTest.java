@@ -6,10 +6,10 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import java.util.Collections;
 import java.util.logging.Handler;
 import java.util.logging.LogRecord;
-import org.hiero.block.server.plugins.blockmessaging.BlockNotification;
-import org.hiero.block.server.plugins.blockmessaging.BlockNotification.Type;
-import org.hiero.block.server.messaging.impl.BlockMessagingFacilityImpl;
-import org.hiero.block.server.plugins.blockmessaging.BlockMessagingFacility;
+import org.hiero.block.node.messaging.BlockMessagingFacilityImpl;
+import org.hiero.block.node.spi.blockmessaging.BlockMessagingFacility;
+import org.hiero.block.node.spi.blockmessaging.BlockNotification;
+import org.hiero.block.node.spi.blockmessaging.BlockNotification.Type;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 

@@ -9,7 +9,6 @@ import static org.hiero.block.server.metrics.BlockNodeMetricTypes.Counter.LiveBl
 import static org.hiero.block.server.metrics.BlockNodeMetricTypes.Gauge.Consumers;
 import static org.hiero.block.server.metrics.BlockNodeMetricTypes.Gauge.MediatorRingBufferRemainingCapacity;
 
-import com.hedera.hapi.block.BlockItemUnparsed;
 import com.lmax.disruptor.BatchEventProcessor;
 import com.lmax.disruptor.EventPoller;
 import edu.umd.cs.findbugs.annotations.NonNull;
@@ -20,6 +19,7 @@ import org.hiero.block.server.events.BlockNodeEventHandler;
 import org.hiero.block.server.events.ObjectEvent;
 import org.hiero.block.server.metrics.MetricsService;
 import org.hiero.block.server.service.ServiceStatus;
+import org.hiero.hapi.block.node.BlockItemUnparsed;
 
 /**
  * Use LiveStreamMediatorImpl to mediate the live stream of blocks from a producer to multiple

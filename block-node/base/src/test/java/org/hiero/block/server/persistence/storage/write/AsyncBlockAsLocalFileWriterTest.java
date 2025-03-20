@@ -11,7 +11,6 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-import com.hedera.hapi.block.BlockItemUnparsed;
 import com.hedera.hapi.block.BlockUnparsed;
 import com.swirlds.metrics.api.Counter;
 import java.io.IOException;
@@ -30,6 +29,7 @@ import org.hiero.block.server.persistence.storage.remove.BlockRemover;
 import org.hiero.block.server.persistence.storage.write.BlockPersistenceResult.BlockPersistenceStatus;
 import org.hiero.block.server.service.Constants;
 import org.hiero.block.server.util.PersistTestUtils;
+import org.hiero.hapi.block.node.BlockItemUnparsed;
 import org.junit.jupiter.api.Timeout;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.api.io.TempDir;

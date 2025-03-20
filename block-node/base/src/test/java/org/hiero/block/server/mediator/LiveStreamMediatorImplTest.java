@@ -16,7 +16,6 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.hedera.hapi.block.BlockItemSetUnparsed;
-import com.hedera.hapi.block.BlockItemUnparsed;
 import com.hedera.hapi.block.BlockUnparsed;
 import com.hedera.hapi.block.SubscribeStreamRequest;
 import com.hedera.hapi.block.SubscribeStreamResponseUnparsed;
@@ -51,6 +50,7 @@ import org.hiero.block.server.service.ServiceStatusImpl;
 import org.hiero.block.server.util.BlockingExecutorService;
 import org.hiero.block.server.util.PersistTestUtils;
 import org.hiero.block.server.util.TestConfigUtil;
+import org.hiero.hapi.block.node.BlockItemUnparsed;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
