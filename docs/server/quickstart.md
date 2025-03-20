@@ -11,7 +11,7 @@
 
 ## Configuration
 
-Refer to the [Configuration](configuration.md) for configuration options.
+Refer to the [Configuration](../../block-node/server/docs/configuration.md) for configuration options.
 
 ## Running locally:
 

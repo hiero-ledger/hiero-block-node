@@ -46,7 +46,8 @@ Refer to the [Hiero Block Node Documentation Overview](docs/overview.md) for mor
 
 Whether you’re fixing bugs, enhancing features, or improving documentation, your contributions are important — let’s build something great together!
 
-Please read our [contributing guide](https://github.com/hiero-ledger/.github/blob/main/CONTRIBUTING.md) to see how you can get involved.
+Please read the governing [Hiero contributing guide](https://github.com/hiero-ledger/.github/blob/main/CONTRIBUTING.md) for the overall project.
+Please read our [contributing guide](./docs/contributing.md) to see how you can get involved.
 
 ## Code of Conduct
 

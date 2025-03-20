@@ -16,7 +16,7 @@ This document will outline the structure and content of Block Node documentation
 
 ## Concepts
 
-- [Hiero Block Node Protocol](Protocol/README.md): Overview of the Hiero Block Node Protocol
+- [Hiero Block Node Protocol](design/communication-protocol/README.mdon-protocol/README.md): Overview of the Hiero Block Node Protocol
 
 ## Release
 

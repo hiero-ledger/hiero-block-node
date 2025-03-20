@@ -34,8 +34,8 @@ The BlockStreamSimulatorApp consumes other services that are injected using Dagg
 
 ## Configuration
 
-Refer to the [Configuration](docs/configuration.md) for configuration options.
+Refer to the [Configuration](../../simulator/docs/configuration.md) for configuration options.
 
 ## Quickstart
 
-Refer to the [Quickstart](docs/quickstart.md) for a quick guide on how to get started with the application.
+Refer to the [Quickstart](../docs/simulator/quickstart.mdquickstart.md) for a quick guide on how to get started with the application.
