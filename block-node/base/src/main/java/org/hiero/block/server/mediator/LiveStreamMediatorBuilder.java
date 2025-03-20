@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.server.mediator;
 
-import com.hedera.hapi.block.BlockItemUnparsed;
 import com.lmax.disruptor.BatchEventProcessor;
 import com.lmax.disruptor.EventPoller;
 import edu.umd.cs.findbugs.annotations.NonNull;
@@ -14,6 +13,7 @@ import org.hiero.block.server.events.ObjectEvent;
 import org.hiero.block.server.metrics.MetricsService;
 import org.hiero.block.server.persistence.storage.write.AsyncBlockWriter;
 import org.hiero.block.server.service.ServiceStatus;
+import org.hiero.hapi.block.node.BlockItemUnparsed;
 
 /**
  * Use builder methods to create a {@link StreamMediator} to handle live stream events from a

@@ -6,7 +6,6 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.when;
 
-import com.hedera.hapi.block.BlockItemUnparsed;
 import com.hedera.hapi.block.BlockUnparsed;
 import java.io.IOException;
 import java.nio.file.Path;
@@ -38,6 +37,7 @@ import org.hiero.block.server.persistence.storage.remove.NoOpBlockRemover;
 import org.hiero.block.server.persistence.storage.write.AsyncBlockWriterFactory;
 import org.hiero.block.server.service.ServiceStatus;
 import org.hiero.block.server.util.TestConfigUtil;
+import org.hiero.hapi.block.node.BlockItemUnparsed;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.api.io.TempDir;

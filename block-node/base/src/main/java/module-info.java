@@ -1,5 +1,4 @@
 // SPDX-License-Identifier: Apache-2.0
-
 module org.hiero.block.base {
     exports org.hiero.block.server.consumer;
     exports org.hiero.block.server.exception;
@@ -20,10 +19,6 @@ module org.hiero.block.base {
     exports org.hiero.block.server.notifier;
     exports org.hiero.block.server.service;
     exports org.hiero.block.server.producer;
-    exports org.hiero.block.server.verification;
-    exports org.hiero.block.server.verification.session;
-    exports org.hiero.block.server.verification.signature;
-    exports org.hiero.block.server.verification.service;
     exports org.hiero.block.server.block;
     exports org.hiero.block.server.utils;
 
@@ -42,7 +37,4 @@ module org.hiero.block.base {
     requires static transitive com.github.spotbugs.annotations;
     requires static transitive com.google.auto.service;
     requires static java.compiler; // javax.annotation.processing.Generated
-
-    provides com.swirlds.config.api.ConfigurationExtension with
-            BlockNodeConfigExtension;
 }

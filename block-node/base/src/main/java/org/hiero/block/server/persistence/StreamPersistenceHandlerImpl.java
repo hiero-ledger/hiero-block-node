@@ -5,7 +5,6 @@ import static java.lang.System.Logger.Level.DEBUG;
 import static java.lang.System.Logger.Level.ERROR;
 import static org.hiero.block.server.metrics.BlockNodeMetricTypes.Counter.StreamPersistenceHandlerError;
 
-import com.hedera.hapi.block.BlockItemUnparsed;
 import com.hedera.hapi.block.stream.output.BlockHeader;
 import com.hedera.pbj.runtime.ParseException;
 import edu.umd.cs.findbugs.annotations.NonNull;
@@ -44,6 +43,7 @@ import org.hiero.block.server.persistence.storage.write.AsyncBlockWriterFactory;
 import org.hiero.block.server.persistence.storage.write.BlockPersistenceResult;
 import org.hiero.block.server.persistence.storage.write.BlockPersistenceResult.BlockPersistenceStatus;
 import org.hiero.block.server.service.ServiceStatus;
+import org.hiero.hapi.block.node.BlockItemUnparsed;
 
 /**
  * Use the StreamPersistenceHandlerImpl to persist live block items passed asynchronously through
