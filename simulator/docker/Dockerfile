@@ -11,7 +11,9 @@ WORKDIR /app
 
 # Copy the distribution and resources
 COPY simulator-*.tar ./simulator.tar
-COPY logging.properties .
+
+RUN mkdir -p /app/logs/config
+COPY logging.properties /app/logs/config/logging.properties
 
 # Create resources directory and copy block data
 RUN mkdir -p src/main/resources
@@ -24,7 +26,7 @@ RUN tar -xf simulator.tar && \
     tar -xzf block-0.0.3.tar.gz && \
     rm block-0.0.3.tar.gz && \
     cd /app && \
-    chown -R $UNAME:$UNAME /app
+    chown -R $UID:$GID /app
 
 # Switch to non-root user
 USER $UNAME

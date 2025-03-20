@@ -17,6 +17,8 @@ services:
       interval: 3s
       timeout: 10s
       retries: 5
+    volumes:
+      - ./logging.properties:/app/logs/config/logging.properties
 
   simulator-consumer:
     container_name: simulator-consumer
@@ -34,6 +36,8 @@ services:
     depends_on:
       simulator-publisher:
         condition: service_healthy
+    volumes:
+      - ./logging.properties:/app/logs/config/logging.properties
 
 networks:
   block-node_default:

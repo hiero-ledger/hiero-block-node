@@ -17,6 +17,7 @@ import java.util.logging.LogManager;
 import java.util.logging.Logger;
 import javax.inject.Inject;
 import org.hiero.block.simulator.config.data.StreamStatus;
+import org.hiero.block.simulator.config.logging.ConfigurationLogging;
 import org.hiero.block.simulator.exception.BlockSimulatorParsingException;
 import org.hiero.block.simulator.generator.BlockStreamManager;
 import org.hiero.block.simulator.grpc.ConsumerStreamGrpcClient;
@@ -38,12 +39,12 @@ import org.hiero.block.simulator.mode.SimulatorModeHandler;
  */
 public class BlockStreamSimulatorApp {
     private final System.Logger LOGGER = System.getLogger(getClass().getName());
-
     // Service dependencies
     private final PublishStreamGrpcClient publishStreamGrpcClient;
     private final PublishStreamGrpcServer publishStreamGrpcServer;
     private final ConsumerStreamGrpcClient consumerStreamGrpcClient;
     private final SimulatorModeHandler simulatorModeHandler;
+    private final ConfigurationLogging configurationLogging;
 
     // State
     private final AtomicBoolean isRunning = new AtomicBoolean(false);
@@ -63,21 +64,21 @@ public class BlockStreamSimulatorApp {
      */
     @Inject
     public BlockStreamSimulatorApp(
-            @NonNull Configuration configuration,
-            @NonNull BlockStreamManager blockStreamManager,
-            @NonNull PublishStreamGrpcClient publishStreamGrpcClient,
-            @NonNull PublishStreamGrpcServer publishStreamGrpcServer,
-            @NonNull ConsumerStreamGrpcClient consumerStreamGrpcClient,
-            @NonNull SimulatorModeHandler simulatorModeHandler) {
-
+            @NonNull final Configuration configuration,
+            @NonNull final BlockStreamManager blockStreamManager,
+            @NonNull final PublishStreamGrpcClient publishStreamGrpcClient,
+            @NonNull final PublishStreamGrpcServer publishStreamGrpcServer,
+            @NonNull final ConsumerStreamGrpcClient consumerStreamGrpcClient,
+            @NonNull final SimulatorModeHandler simulatorModeHandler,
+            @NonNull final ConfigurationLogging configurationLogging) {
         requireNonNull(configuration);
         requireNonNull(blockStreamManager);
         loadLoggingProperties();
-
         this.publishStreamGrpcClient = requireNonNull(publishStreamGrpcClient);
         this.publishStreamGrpcServer = requireNonNull(publishStreamGrpcServer);
         this.consumerStreamGrpcClient = requireNonNull(consumerStreamGrpcClient);
         this.simulatorModeHandler = requireNonNull(simulatorModeHandler);
+        this.configurationLogging = requireNonNull(configurationLogging);
     }
 
     /**
@@ -92,10 +93,9 @@ public class BlockStreamSimulatorApp {
      */
     public void start() throws InterruptedException, BlockSimulatorParsingException, IOException {
         LOGGER.log(INFO, "Block Stream Simulator started initializing components...");
+        configurationLogging.log();
         simulatorModeHandler.init();
-
         isRunning.set(true);
-
         simulatorModeHandler.start();
     }
 
