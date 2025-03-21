@@ -15,6 +15,11 @@ public interface BlockNodePlugin {
     String METRICS_CATEGORY = "hiero_block_node";
 
     /**
+     * Special value for block number that indicates that the block number is unknown.
+     */
+    long UNKNOWN_BLOCK_NUMBER = -1L;
+
+    /**
      * The name of the plugin.
      *
      * @return the name of the plugin
