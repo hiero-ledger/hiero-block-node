@@ -16,7 +16,7 @@ subcommands or options.
 
 ## Running from command line
 
-Refer to the [Quickstart](docs/quickstart.md) for a quick guide on how to run the tools CLI.
+Refer to the [Quickstart](../../tools/docs/quickstart.md) for a quick guide on how to run the tools CLI.
 
 ## Subcommands
 

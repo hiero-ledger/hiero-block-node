@@ -2,7 +2,7 @@
 
 ## Overview
 
-<Provide a brief overview of the feature or component under test. Provide a link to the design document if available.>
+<Provide a brief overview of the feature or component under test. Provide a link to the design document or HIP if available.>
 
 ## Key Features
 
