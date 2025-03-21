@@ -24,7 +24,7 @@ Uses the prefix `generator` so all properties should start with `generator.`
 
 | Key | Description | Default Value |
 |:---|:---|---:|
-| `generationMode` | The desired generation Mode to use, it can only be `DIR` or `AD_HOC` | `DIR` |
+| `generationMode` | The desired generation Mode to use, it can only be `DIR` or `CRAFT` | `DIR` |
 | `folderRootPath` | If the generationMode is DIR this will be used as the source of the recording to stream to the Block-Node | `` |
 | `managerImplementation` | The desired implementation of the BlockStreamManager to use, it can only be `BlockAsDirBlockStreamManager`, `BlockAsFileBlockStreamManager` or `BlockAsFileLargeDataSets` | `BlockAsFileBlockStreamManager` |
 | `paddedLength` | on the `BlockAsFileLargeDataSets` implementation, the length of the padded left zeroes `000001.blk.gz` | 36 |
