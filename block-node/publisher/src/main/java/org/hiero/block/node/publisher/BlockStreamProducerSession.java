@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-package org.hiero.block.server.producer;
+package org.hiero.block.node.publisher;
 
 import static java.lang.System.Logger;
 import static java.lang.System.Logger.Level.DEBUG;
@@ -37,16 +37,18 @@ import org.hiero.block.server.service.ServiceStatus;
 import org.hiero.hapi.block.node.BlockItemUnparsed;
 
 /**
- * The ProducerBlockStreamObserver class plugs into Helidon's server-initiated bidirectional gRPC
+ * The BlockStreamProducerSession class plugs into Helidon's server-initiated bidirectional gRPC
  * service implementation. Helidon calls methods on this class as networking events occur with the
  * connection to the upstream producer (e.g. block items streamed from the Consensus Node to the
- * server).
+ * server). There is one of these created per connection to the upstream producer(consensus node).
  */
-public class ProducerBlockItemObserver
-        implements Pipeline<List<BlockItemUnparsed>>, BlockNodeEventHandler<ObjectEvent<PublishStreamResponse>> {
+public class BlockStreamProducerSession
+        implements Pipeline<List<BlockItemUnparsed>, PublishStreamResponse>,
+        Comparable<BlockStreamProducerSession> {
 
     private final Logger LOGGER = System.getLogger(getClass().getName());
 
+    private final long sessionCreationTime = System.nanoTime();
     private final SubscriptionHandler<PublishStreamResponse> subscriptionHandler;
     private final Publisher<List<BlockItemUnparsed>> publisher;
     private final ServiceStatus serviceStatus;
@@ -73,19 +75,19 @@ public class ProducerBlockItemObserver
      * @param serviceStatus the service status used to stop the server in the event of an
      *     unrecoverable error.
      * @param metricsService - the service responsible for handling metrics
-     * @param consumerConfig - the configuration settings for consumer
+     * @param publisherConfig - the configuration settings
      */
-    public ProducerBlockItemObserver(
+    public BlockStreamProducerSession(
             @NonNull final InstantSource producerLivenessClock,
             @NonNull final Publisher<List<BlockItemUnparsed>> publisher,
             @NonNull final SubscriptionHandler<PublishStreamResponse> subscriptionHandler,
             @NonNull final Pipeline<? super PublishStreamResponse> publishStreamResponseObserver,
             @NonNull final ServiceStatus serviceStatus,
-            @NonNull final ConsumerConfig consumerConfig,
+            @NonNull final PublisherConfig publisherConfig,
             @NonNull final MetricsService metricsService) {
 
         this.livenessCalculator =
-                new LivenessCalculator(producerLivenessClock, consumerConfig.timeoutThresholdMillis());
+                new LivenessCalculator(producerLivenessClock, publisherConfig.timeoutThresholdMillis());
 
         this.publisher = publisher;
         this.publishStreamResponseObserver = publishStreamResponseObserver;
@@ -352,5 +354,17 @@ public class ProducerBlockItemObserver
                 .build();
 
         publishStreamResponseObserver.onNext(publishStreamResponse);
+    }
+
+    /**
+     * Compare this session to another session based on the creation time.
+     *
+     * @param o the object to be compared.
+     * @return a negative integer, zero, or a positive integer as this session is less than,
+     *          equal to, or greater than the specified object.
+     */
+    @Override
+    public int compareTo(BlockStreamProducerSession o) {
+        return Long.compare(sessionCreationTime, o.sessionCreationTime);
     }
 }
