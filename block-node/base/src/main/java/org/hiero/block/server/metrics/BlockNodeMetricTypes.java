@@ -21,9 +21,6 @@ public final class BlockNodeMetricTypes {
     public enum Counter implements MetricMetadata {
         // Standard counters
 
-        /** The number of live block items received before publishing to the RingBuffer. */
-        LiveBlockItems("live_block_items", "Live BlockItems"),
-
         /** The number of PublishStreamResponses generated and published to the subscribers. */
         SuccessfulPubStreamResp("successful_pub_stream_resp", "Successful Publish Stream Responses"),
 
@@ -47,12 +44,6 @@ public final class BlockNodeMetricTypes {
                 "closed_range_historic_blocks_retrieved", "Closed Range Historic Blocks Retrieved"),
 
         // Verification counters
-        /** The number of historic to live stream transitions */
-        HistoricToLiveStreamTransitions("historic_to_live_stream_transitions", "Historic to Live Stream Transitions"),
-
-        /** The number of live to historic stream transitions */
-        LiveToHistoricStreamTransitions("live_to_historic_stream_transitions", "Live to Historic Stream Transitions"),
-
         // Error counters
 
         /** The number of errors encountered by the live block stream mediator. */
@@ -99,8 +90,6 @@ public final class BlockNodeMetricTypes {
      */
     public enum Gauge implements MetricMetadata {
 
-        /** The number of subscribers receiving the live block stream. */
-        Consumers("consumers", "Consumers"),
 
 
         /** The block number of the latest block as it exits the system bound for a consumer */

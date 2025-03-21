@@ -3,6 +3,7 @@ package org.hiero.block.node.spi.historicalblocks;
 
 import com.github.luben.zstd.Zstd;
 import com.hedera.hapi.block.stream.Block;
+import com.hedera.pbj.runtime.ParseException;
 import com.hedera.pbj.runtime.io.WritableSequentialData;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import com.hedera.pbj.runtime.io.stream.WritableStreamingData;
@@ -10,6 +11,7 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
+import org.hiero.hapi.block.node.BlockUnparsed;
 
 /**
  * The BlockAccessor interface is used to provide access to a block and its serialized forms. It allows for getting
@@ -49,6 +51,19 @@ public interface BlockAccessor {
      * @return the block as a {@code Block} Java object
      */
     Block block();
+
+    /**
+     * Get the block as unparsed {@code BlockUnparsed} Java object.
+     *
+     * @return the block as a {@code BlockUnparsed} Java object
+     */
+    default BlockUnparsed blockUnparsed() {
+        try {
+            return BlockUnparsed.PROTOBUF.parse(blockBytes(Format.PROTOBUF));
+        } catch (ParseException e) {
+            throw new RuntimeException(e);
+        }
+    }
 
     /**
      * Get the block as Bytes in the specified encoded format. This allows the consumer to choose the most efficient

@@ -359,9 +359,8 @@ public class PublisherServicePlugin implements BlockNodePlugin, ServiceInterface
     /**
      * {@inheritDoc}
      *
-     * This is called each time a new client connects to the service. In this case that means a new connection from a
-     * consensus node. It is called on a web server thread so we need to acquire the state lock before doing anything
-     * that interacts with state.
+     * This is called each time a new consensus node client connects to the service. It is called on a web server thread
+     * so we need to acquire the state lock before doing anything that interacts with state.
      */
     @NonNull
     @Override
