@@ -64,4 +64,15 @@ public class HistoricalBlockFacilityImpl implements HistoricalBlockFacility {
         }
         return null;
     }
+
+    /**
+     * {@inheritDoc}
+     */
+    @Override
+    public long latestBlockNumber() {
+        return providers.stream()
+                .mapToLong(BlockProviderPlugin::latestBlockNumber)
+                .max()
+                .orElse(-1);
+    }
 }

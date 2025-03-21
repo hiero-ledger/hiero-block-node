@@ -1,13 +1,6 @@
-// SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.node.publisher;
 
-import static java.lang.System.Logger;
 import static java.lang.System.Logger.Level.DEBUG;
-import static java.lang.System.Logger.Level.ERROR;
-import static java.lang.System.Logger.Level.WARNING;
-import static org.hiero.block.server.metrics.BlockNodeMetricTypes.Counter.LiveBlockItemsReceived;
-import static org.hiero.block.server.metrics.BlockNodeMetricTypes.Counter.SuccessfulPubStreamRespSent;
-import static org.hiero.block.server.metrics.BlockNodeMetricTypes.Gauge.CurrentBlockNumberInbound;
 
 import com.hedera.hapi.block.PublishStreamResponse;
 import com.hedera.hapi.block.PublishStreamResponse.Acknowledgement;
@@ -15,353 +8,255 @@ import com.hedera.hapi.block.PublishStreamResponse.BlockAcknowledgement;
 import com.hedera.hapi.block.PublishStreamResponse.EndOfStream;
 import com.hedera.hapi.block.PublishStreamResponseCode;
 import com.hedera.hapi.block.stream.output.BlockHeader;
+import com.hedera.pbj.runtime.OneOf;
 import com.hedera.pbj.runtime.ParseException;
 import com.hedera.pbj.runtime.grpc.Pipeline;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
-import edu.umd.cs.findbugs.annotations.NonNull;
-import java.time.InstantSource;
+import java.util.ArrayList;
 import java.util.List;
-import java.util.Objects;
-import java.util.Optional;
 import java.util.concurrent.Flow;
-import java.util.concurrent.atomic.AtomicBoolean;
-import org.hiero.block.server.block.BlockInfo;
-import org.hiero.block.server.consumer.ConsumerConfig;
-import org.hiero.block.server.events.BlockNodeEventHandler;
-import org.hiero.block.server.events.LivenessCalculator;
-import org.hiero.block.server.events.ObjectEvent;
-import org.hiero.block.server.mediator.Publisher;
-import org.hiero.block.server.mediator.SubscriptionHandler;
-import org.hiero.block.server.metrics.MetricsService;
-import org.hiero.block.server.service.ServiceStatus;
+import java.util.concurrent.atomic.AtomicLong;
+import org.hiero.block.node.spi.BlockNodeContext;
+import org.hiero.block.node.spi.BlockNodePlugin;
 import org.hiero.hapi.block.node.BlockItemUnparsed;
 
 /**
- * The BlockStreamProducerSession class plugs into Helidon's server-initiated bidirectional gRPC
- * service implementation. Helidon calls methods on this class as networking events occur with the
- * connection to the upstream producer (e.g. block items streamed from the Consensus Node to the
- * server). There is one of these created per connection to the upstream producer(consensus node).
+ * BlockStreamProducerSession is a session for a block stream producer. It handles the incoming block stream and sends
+ * the responses to the client.
+ *
+ * TODO the thread safety of this class is not great. so need to think more on right way to handle that
  */
-public class BlockStreamProducerSession
-        implements Pipeline<List<BlockItemUnparsed>, PublishStreamResponse>,
+class BlockStreamProducerSession
+        implements Pipeline<List<BlockItemUnparsed>>,
         Comparable<BlockStreamProducerSession> {
-
-    private final Logger LOGGER = System.getLogger(getClass().getName());
+    /** The logger for this class. */
+    private final System.Logger LOGGER = System.getLogger(getClass().getName());
+    /** Enum for the state of a block source */
+    public enum BlockState {
+        NEW,
+        PRIMARY,
+        BEHIND,
+        WAITING_FOR_RESEND,
+        DISCONNECTED
+    }
 
     private final long sessionCreationTime = System.nanoTime();
-    private final SubscriptionHandler<PublishStreamResponse> subscriptionHandler;
-    private final Publisher<List<BlockItemUnparsed>> publisher;
-    private final ServiceStatus serviceStatus;
-    private final MetricsService metricsService;
-    private final Flow.Subscriber<? super PublishStreamResponse> publishStreamResponseObserver;
+    private final Pipeline<? super PublishStreamResponse> responsePipeline;
+    private final BlockNodeContext context;
+    private final Runnable onUpdate;
+    private Flow.Subscription subscription;
+    private BlockState currentBlockState = BlockState.NEW;
+    private AtomicLong currentBlockNumber = new AtomicLong(BlockNodePlugin.UNKNOWN_BLOCK_NUMBER);
+    private AtomicLong startTimeOfCurrentBlock = new AtomicLong(0);
+    /** list used to store items if we are new and ahead of the current message stream block */
+    private List<BlockItemUnparsed> newBlockItems = new ArrayList<>();
 
-    private final AtomicBoolean isResponsePermitted = new AtomicBoolean(true);
-
-    private final LivenessCalculator livenessCalculator;
-
-    private boolean allowCurrentBlockStream = false;
-
-    /**
-     * Constructor for the ProducerBlockStreamObserver class. It is responsible for calling the
-     * mediator with blocks as they arrive from the upstream producer. It also sends responses back
-     * to the upstream producer via the responseStreamObserver.
-     *
-     * @param producerLivenessClock the clock used to calculate the producer liveness.
-     * @param publisher the block item list publisher to used to pass block item lists to consumers
-     *     as they arrive from the upstream producer.
-     * @param subscriptionHandler the subscription handler used to
-     * @param publishStreamResponseObserver the response stream observer to send responses back to
-     *     the upstream producer for each block item processed.
-     * @param serviceStatus the service status used to stop the server in the event of an
-     *     unrecoverable error.
-     * @param metricsService - the service responsible for handling metrics
-     * @param publisherConfig - the configuration settings
-     */
-    public BlockStreamProducerSession(
-            @NonNull final InstantSource producerLivenessClock,
-            @NonNull final Publisher<List<BlockItemUnparsed>> publisher,
-            @NonNull final SubscriptionHandler<PublishStreamResponse> subscriptionHandler,
-            @NonNull final Pipeline<? super PublishStreamResponse> publishStreamResponseObserver,
-            @NonNull final ServiceStatus serviceStatus,
-            @NonNull final PublisherConfig publisherConfig,
-            @NonNull final MetricsService metricsService) {
-
-        this.livenessCalculator =
-                new LivenessCalculator(producerLivenessClock, publisherConfig.timeoutThresholdMillis());
-
-        this.publisher = publisher;
-        this.publishStreamResponseObserver = publishStreamResponseObserver;
-        this.subscriptionHandler = subscriptionHandler;
-        this.metricsService = Objects.requireNonNull(metricsService);
-        this.serviceStatus = serviceStatus;
-    }
-
-    @Override
-    public void onSubscribe(Flow.Subscription subscription) {
-        LOGGER.log(DEBUG, "onSubscribe called");
+    public BlockStreamProducerSession(Pipeline<? super PublishStreamResponse> responsePipeline,
+            BlockNodeContext context, Runnable onUpdate) {
+        this.context = context;
+        this.onUpdate = onUpdate;
+        this.responsePipeline = responsePipeline;
+        // log the creation of the session
+        LOGGER.log(DEBUG, "Created new BlockStreamProducerSession[{0}]", sessionCreationTime);
     }
 
     /**
-     * Helidon triggers this method when it receives a new PublishStreamRequest from the upstream
-     * producer. The method publish the block item data to all subscribers via the Publisher and
-     * sends a response back to the upstream producer.
+     * Get the current block number for this session.
      *
+     * @return the current block number
      */
-    @Override
-    public void onNext(@NonNull final List<BlockItemUnparsed> blockItems) {
+    synchronized long currentBlockNumber() {
+        return currentBlockNumber.get();
+    }
 
-        try {
-            LOGGER.log(DEBUG, "Received PublishStreamRequest from producer with " + blockItems.size() + " BlockItems.");
-            if (blockItems.isEmpty()) {
-                return;
-            }
+    synchronized BlockState currentBlockState() {
+        return currentBlockState;
+    }
 
-            metricsService.get(LiveBlockItemsReceived).add(blockItems.size());
+    synchronized long startTimeOfCurrentBlock() {
+        return startTimeOfCurrentBlock.get();
+    }
 
-            // Publish the block to all the subscribers unless
-            // there's an issue with the StreamMediator.
-            if (serviceStatus.isRunning()) {
-                // Refresh the producer liveness
-                livenessCalculator.refresh();
-
-                // pre-check for valid block
-                if (preCheck(blockItems)) {
-
-                    final BlockItemUnparsed blockItemUnparsed = blockItems.getFirst();
-                    if (blockItemUnparsed.hasBlockHeader()) {
-
-                        try {
-                            long blockNumber = BlockHeader.PROTOBUF
-                                    .parse(Objects.requireNonNull(blockItemUnparsed.blockHeader()))
-                                    .number();
-                            serviceStatus.setLatestReceivedBlockNumber(blockNumber);
-                            metricsService.get(CurrentBlockNumberInbound).set(blockNumber);
-                        } catch (ParseException e) {
-                            throw new RuntimeException(e);
-                        }
-                    }
-
-                    // Publish the block to the mediator
-                    publisher.publish(blockItems);
-                }
-            } else {
-                LOGGER.log(ERROR, getClass().getName() + " is not accepting BlockItems");
-                stopProcessing();
-
-                // Close the upstream connection to the producer(s)
-                publishStreamResponseObserver.onNext(buildErrorStreamResponse());
-                LOGGER.log(ERROR, "Error PublishStreamResponse sent to upstream producer");
-            }
-        } catch (Exception e) {
-            LOGGER.log(ERROR, "Error processing block items", e);
-            publishStreamResponseObserver.onNext(buildErrorStreamResponse());
-            // should we halt processing?
-            stopProcessing();
+    synchronized void switchToPrimary() {
+        // switch to primary state
+        currentBlockState = BlockState.PRIMARY;
+        // send any items we have in the new items list to the block messaging service
+        if (!newBlockItems.isEmpty()) {
+            context.blockMessaging().sendBlockItems(newBlockItems);
+            // clear the list
+            newBlockItems.clear();
         }
     }
 
-    @Override
-    public void onEvent(ObjectEvent<PublishStreamResponse> event, long sequence, boolean endOfBatch) {
+    synchronized void switchToBehind() {
+        // switch to behind state
+        currentBlockState = BlockState.BEHIND;
+        // throw away any items we have in the new items list
+        newBlockItems.clear();
+        // let client know we do not need more data for the current block
+        if (responsePipeline != null) {
+            final PublishStreamResponse behindResponse =
+                    new PublishStreamResponse(new OneOf<>(
+                            ResponseOneOfType.ACKNOWLEDGEMENT,
+                            new SkipBlock(currentBlockNumber.get())));
+            responsePipeline.onNext(behindResponse);
+        }
+    }
 
-        if (isResponsePermitted.get()) {
-            if (isTimeoutExpired()) {
-                stopProcessing();
-                LOGGER.log(DEBUG, "Producer liveness timeout. Unsubscribed ProducerBlockItemObserver.");
-            } else {
-                LOGGER.log(DEBUG, "Publishing response to upstream producer: " + publishStreamResponseObserver);
-                publishStreamResponseObserver.onNext(event.get());
-                metricsService.get(SuccessfulPubStreamRespSent).increment();
+    synchronized void requestResend(long blockNumber) {
+        // switch to waiting for resend state
+        currentBlockState = BlockState.WAITING_FOR_RESEND;
+        currentBlockNumber.set(blockNumber);
+        // throw away any items we have in the new items list
+        newBlockItems.clear();
+        // resend the block request to the block messaging service
+        if (responsePipeline != null) {
+            final PublishStreamResponse resendBlockResponse =
+                    new PublishStreamResponse(new OneOf<>(
+                            ResponseOneOfType.RESEND_BLOCK,
+                            new ResendBlock(blockNumber)));
+            responsePipeline.onNext(resendBlockResponse);
+        }
+    }
+
+    /**
+     * Close the session and cancel the subscription.
+     */
+    synchronized void close() {
+        if (currentBlockState != BlockState.DISCONNECTED) {
+            currentBlockState = BlockState.DISCONNECTED;
+            // try to send a close response to the client
+            if (responsePipeline != null) {
+                final PublishStreamResponse closeResponse =
+                        new PublishStreamResponse(new OneOf<>(
+                                ResponseOneOfType.END_STREAM,
+                                new EndOfStream(PublishStreamResponseCode.STREAM_ITEMS_SUCCESS,
+                                        currentBlockNumber.get())));
+                responsePipeline.onNext(closeResponse);
+            }
+            if (subscription != null) {
+                subscription.cancel();
             }
         }
     }
 
-    @NonNull
-    private PublishStreamResponse buildErrorStreamResponse() {
-        long blockNumber = serviceStatus.getLatestAckedBlock() != null
-                ? serviceStatus.getLatestAckedBlock().getBlockNumber()
-                : serviceStatus.getLatestReceivedBlockNumber();
-        final EndOfStream endOfStream = EndOfStream.newBuilder()
-                .blockNumber(blockNumber)
-                .status(PublishStreamResponseCode.STREAM_ITEMS_INTERNAL_ERROR)
-                .build();
-        return PublishStreamResponse.newBuilder().status(endOfStream).build();
-    }
-
     /**
-     * Helidon triggers this method when an error occurs on the bidirectional stream to the upstream
-     * producer.
-     *
-     * @param t the error occurred on the stream
-     */
-    @Override
-    public void onError(@NonNull final Throwable t) {
-        stopProcessing();
-        LOGGER.log(ERROR, "onError method invoked with an exception: ", t);
-        LOGGER.log(ERROR, "Producer cancelled the stream. Observer unsubscribed.");
-    }
-
-    /**
-     * Helidon triggers this method when the bidirectional stream to the upstream producer is
-     * completed. Unsubscribe all the observers from the mediator.
-     */
-    @Override
-    public void onComplete() {
-        stopProcessing();
-        LOGGER.log(DEBUG, "Producer completed the stream. Observer unsubscribed.");
-    }
-
-    @Override
-    public boolean isTimeoutExpired() {
-        return livenessCalculator.isTimeoutExpired();
-    }
-
-    @Override
-    public void clientEndStreamReceived() {
-        stopProcessing();
-        LOGGER.log(DEBUG, "Producer cancelled the stream. Observer unsubscribed.");
-    }
-
-    private void stopProcessing() {
-        isResponsePermitted.set(false);
-        unsubscribe();
-    }
-
-    @Override
-    public void unsubscribe() {
-        subscriptionHandler.unsubscribe(this);
-    }
-
-    /**
-     * Pre-check for valid block, if the block is a duplicate or future block, we don't stream to the Ring Buffer.
-     * @param blockItems the list of block items
-     * @return true if the block should stream forward to RB otherwise false
-     */
-    private boolean preCheck(@NonNull final List<BlockItemUnparsed> blockItems) {
-
-        // we only check if is the start of a new block.
-        BlockItemUnparsed firstItem = blockItems.getFirst();
-        if (!firstItem.hasBlockHeader()) {
-            return allowCurrentBlockStream;
-        }
-
-        final long nextBlockNumber = attemptParseBlockHeaderNumber(firstItem);
-        final long nextExpectedBlockNumber = serviceStatus.getLatestReceivedBlockNumber() + 1;
-
-        // temporary workaround so it always allows the first block at startup
-        if (nextExpectedBlockNumber == 1) {
-            allowCurrentBlockStream = true;
-            return true;
-        }
-
-        // duplicate block
-        if (nextBlockNumber < nextExpectedBlockNumber) {
-            // we don't stream to the RB until we check a new blockHeader for the expected block
-            allowCurrentBlockStream = false;
-            LOGGER.log(
-                    WARNING,
-                    "Received a duplicate block, received_block_number: {0}, expected_block_number: {1}",
-                    nextBlockNumber,
-                    nextExpectedBlockNumber);
-
-            notifyOfDuplicateBlock(nextBlockNumber);
-            return false;
-        }
-
-        // future non-immediate block
-        if (nextBlockNumber > nextExpectedBlockNumber) {
-            // we don't stream to the RB until we check a new blockHeader for the expected block
-            allowCurrentBlockStream = false;
-            LOGGER.log(
-                    WARNING,
-                    "Received a future block, received_block_number: {0}, expected_block_number: {1}",
-                    nextBlockNumber,
-                    nextExpectedBlockNumber);
-
-            notifyOfFutureBlock(serviceStatus.getLatestAckedBlock().getBlockNumber());
-            return false;
-        }
-
-        // if block number is neither duplicate nor future (should be the same as expected)
-        // we allow the stream of subsequent batches
-        allowCurrentBlockStream = true;
-        // we also allow the batch that contains the block_header
-        return true;
-    }
-
-    /**
-     * Parse the block header number from the given block item.
-     * If the block header is not parsable, log the error and throw a runtime exception.
-     * This is necessary to wrap the checked exception that is thrown by the parse method.
-     * */
-    private long attemptParseBlockHeaderNumber(@NonNull final BlockItemUnparsed blockItem) {
-        try {
-            return BlockHeader.PROTOBUF.parse(blockItem.blockHeader()).number();
-        } catch (ParseException e) {
-            LOGGER.log(ERROR, "Error parsing block header", e);
-            throw new RuntimeException(e);
-        }
-    }
-
-    /**
-     * Get the block hash for the given block number, only if is the latest acked block.
-     * otherwise Empty
+     * Send a block persisted message to the client. This is totally asynchronous call and independent of the current
+     * block and state of thi session.
      *
      * @param blockNumber the block number
-     * @return a promise of block hash if it exists
+     * @param blockHash   the block hash
      */
-    private Optional<Bytes> getBlockHash(final long blockNumber) {
-        final BlockInfo latestAckedBlockNumber = serviceStatus.getLatestAckedBlock();
-        if (latestAckedBlockNumber != null && latestAckedBlockNumber.getBlockNumber() == blockNumber) {
-            return Optional.ofNullable(latestAckedBlockNumber.getBlockHash());
+    public void sendBlockPersisted(long blockNumber, Bytes blockHash) {
+        if (responsePipeline != null) {
+            final PublishStreamResponse goodBlockResponse =
+                    new PublishStreamResponse(new OneOf<>(
+                            ResponseOneOfType.ACKNOWLEDGEMENT,
+                            new Acknowledgement(
+                                    new BlockAcknowledgement(
+                                            blockNumber,
+                                            blockHash,
+                                            false
+                                    ))));
+            // send the response to the client
+            responsePipeline.onNext(goodBlockResponse);
         }
-        // if the block is older than the latest acked block, we don't have the hash on hand
-        return Optional.empty();
     }
 
-    /**
-     * Notify the producer of a future block that was not expected was received.
-     *
-     * @param currentBlock the current block number that is persisted and verified.
-     */
-    private void notifyOfFutureBlock(final long currentBlock) {
-        final EndOfStream endOfStream = EndOfStream.newBuilder()
-                .status(PublishStreamResponseCode.STREAM_ITEMS_BEHIND)
-                .blockNumber(currentBlock)
-                .build();
+    // ==== Pipeline Flow Methods ==================================================================================
 
-        final PublishStreamResponse publishStreamResponse =
-                PublishStreamResponse.newBuilder().status(endOfStream).build();
-
-        publishStreamResponseObserver.onNext(publishStreamResponse);
+    @Override
+    public synchronized void onNext(List<BlockItemUnparsed> items) throws RuntimeException {
+        // check items to see if we are entering a new block
+        if (items.size() == 1 && items.getFirst().hasBlockHeader()) {
+            try {
+                long newBlockNumber = BlockHeader.PROTOBUF.parse(items.getFirst().blockHeaderOrThrow()).number();
+                // move to new state if we are not in the waiting for resend state, or if we are in the waiting
+                // for resend state and the block number is the same as the current block number
+                if (currentBlockState != BlockState.WAITING_FOR_RESEND || newBlockNumber == currentBlockNumber.get()) {
+                    // set the start time of the current block
+                    startTimeOfCurrentBlock.set(System.nanoTime());
+                    // we are in a new block so switch to new state
+                    currentBlockState = BlockState.NEW;
+                    // update the current block number
+                    currentBlockNumber.set(newBlockNumber);
+                    // throw away any items we have in the ahead list
+                    newBlockItems.clear();
+                }
+            } catch (ParseException e) {
+                throw new RuntimeException(e);
+            }
+        }
+        switch(currentBlockState) {
+            case NEW -> {
+                newBlockItems.addAll(items);
+            }
+            case PRIMARY -> {
+                // we are in the primary state, so we can send the items directly to the block messaging service
+                context.blockMessaging().sendBlockItems(items);
+            }
+            case BEHIND -> {
+                // we can ignore as any items we receive in this state are not relevant
+                LOGGER.log(DEBUG, "Received {0} items while in BEHIND state", items);
+            }
+            case WAITING_FOR_RESEND -> {
+                // we are waiting for a resend, so we can ignore any items we receive in this state
+                LOGGER.log(DEBUG, "Received {0} items while in WAITING_FOR_RESEND state", items);
+            }
+            case DISCONNECTED -> {
+                // do nothing but log, as we are disconnected
+                LOGGER.log(DEBUG, "BlockStreamProducerSession is disconnected, but received items: {0}", items);
+            }
+        }
+        // call the onUpdate method to notify the block messaging service that we have received data and updated our
+        // state
+        onUpdate.run();
     }
 
-    /**
-     * Notify the producer of a duplicate block that was received.
-     *
-     * @param duplicateBlockNumber the block number that was received and is a duplicate
-     */
-    private void notifyOfDuplicateBlock(final long duplicateBlockNumber) {
-        final BlockAcknowledgement blockAcknowledgement = BlockAcknowledgement.newBuilder()
-                .blockAlreadyExists(true)
-                .blockNumber(duplicateBlockNumber)
-                .blockRootHash(getBlockHash(duplicateBlockNumber).orElse(Bytes.EMPTY))
-                .build();
-
-        final PublishStreamResponse publishStreamResponse = PublishStreamResponse.newBuilder()
-                .acknowledgement(Acknowledgement.newBuilder()
-                        .blockAck(blockAcknowledgement)
-                        .build())
-                .build();
-
-        publishStreamResponseObserver.onNext(publishStreamResponse);
+    @Override
+    public synchronized void onError(Throwable throwable) {
+        LOGGER.log(DEBUG, "BlockStreamProducerSession error", throwable.getMessage());
+        close();
+        // call the onUpdate method to notify the block messaging service that we have received data and updated our
+        // state
+        onUpdate.run();
     }
 
+    @Override
+    public synchronized void clientEndStreamReceived() {
+        LOGGER.log(DEBUG, "BlockStreamProducerSession clientEndStreamReceived");
+        close();
+        // call the onUpdate method to notify the block messaging service that we have received data and updated our
+        // state
+        onUpdate.run();
+    }
+
+    @Override
+    public synchronized void onComplete() {
+        LOGGER.log(DEBUG, "BlockStreamProducerSession onComplete");
+        close();
+        // call the onUpdate method to notify the block messaging service that we have received data and updated our
+        // state
+        onUpdate.run();
+    }
+
+    @Override
+    public synchronized void onSubscribe(Flow.Subscription subscription) {
+        LOGGER.log(DEBUG, "BlockStreamProducerSession onSubscribe called");
+        this.subscription = subscription;
+        // TODO seems like we should be using {subscription} for flow control, calling its request() method
+    }
+
+    // ==== Comparable Methods ===================================================================================
+
     /**
-     * Compare this session to another session based on the creation time.
+     * Compare this session to another session based on the creation time. We need to be comparable so we can sort the
+     * sessions in the set. We depend on the fact that sessionCreationTime being in nanoseconds is unique for each
+     * session. So equals and hashcode based on object identity is the same as comparing sessionCreationTime.
      *
      * @param o the object to be compared.
-     * @return a negative integer, zero, or a positive integer as this session is less than,
-     *          equal to, or greater than the specified object.
+     * @return a negative integer, zero, or a positive integer as this session is less than, equal to, or greater than
+     * the specified object.
      */
     @Override
     public int compareTo(BlockStreamProducerSession o) {

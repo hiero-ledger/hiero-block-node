@@ -24,4 +24,13 @@ public interface HistoricalBlockFacility {
      * @return the block at the specified block number, null if the block is not available
      */
     BlockAccessor block(long blockNumber, Runnable deleteBlockCallback);
+
+    /**
+     * Use this method to get the latest block number available from all providers. This is used to determine the latest
+     * block number they block node knows about so it can be used to determine the next block number it needs.
+     *
+     * @return the latest block number available from all providers,
+     * {@link org.hiero.block.node.spi.BlockNodePlugin#UNKNOWN_BLOCK_NUMBER} -1 if no blocks are available
+     */
+    long latestBlockNumber();
 }
