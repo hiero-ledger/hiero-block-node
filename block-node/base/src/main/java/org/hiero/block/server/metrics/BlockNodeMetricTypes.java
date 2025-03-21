@@ -20,8 +20,6 @@ public final class BlockNodeMetricTypes {
      */
     public enum Counter implements MetricMetadata {
         // Standard counters
-        /** The number of live block items received from a producer. */
-        LiveBlockItemsReceived("live_block_items_received", "Live Block Items Received"),
 
         /** The number of live block items received before publishing to the RingBuffer. */
         LiveBlockItems("live_block_items", "Live BlockItems"),
@@ -104,11 +102,6 @@ public final class BlockNodeMetricTypes {
         /** The number of subscribers receiving the live block stream. */
         Consumers("consumers", "Consumers"),
 
-        /** The number of producers publishing block items. */
-        Producers("producers", "Producers"),
-
-        /** The block number of the latest block as it enters the system */
-        CurrentBlockNumberInbound("current_block_number_inbound", "Current Block Number Inbound"),
 
         /** The block number of the latest block as it exits the system bound for a consumer */
         CurrentBlockNumberOutbound("current_block_number_outbound", "Current Block Number Outbound"),
