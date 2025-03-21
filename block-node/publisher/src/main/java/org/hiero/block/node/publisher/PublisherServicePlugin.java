@@ -3,14 +3,9 @@ package org.hiero.block.node.publisher;
 
 import static java.lang.System.Logger.Level.DEBUG;
 import static java.lang.System.Logger.Level.INFO;
+import static java.lang.System.Logger.Level.WARNING;
 
-import org.hiero.hapi.block.node.Acknowledgement;
-import org.hiero.hapi.block.node.BlockAcknowledgement;
-import org.hiero.hapi.block.node.EndOfStream;
-import org.hiero.hapi.block.node.PublishStreamResponse;
-import org.hiero.hapi.block.node.PublishStreamResponse.ResponseOneOfType;
 import com.hedera.pbj.grpc.helidon.PbjRouting;
-import com.hedera.pbj.runtime.OneOf;
 import com.hedera.pbj.runtime.grpc.GrpcException;
 import com.hedera.pbj.runtime.grpc.Pipeline;
 import com.hedera.pbj.runtime.grpc.Pipelines;
@@ -20,9 +15,9 @@ import edu.umd.cs.findbugs.annotations.NonNull;
 import io.helidon.common.Builder;
 import io.helidon.webserver.Routing;
 import java.util.Arrays;
+import java.util.Comparator;
 import java.util.List;
 import java.util.concurrent.ConcurrentSkipListSet;
-import java.util.concurrent.Flow;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 import org.hiero.block.node.spi.BlockNodeContext;
@@ -31,8 +26,7 @@ import org.hiero.block.node.spi.blockmessaging.BlockNotification;
 import org.hiero.block.node.spi.blockmessaging.BlockNotificationHandler;
 import org.hiero.hapi.block.node.BlockItemUnparsed;
 import org.hiero.hapi.block.node.PublishStreamRequestUnparsed;
-import org.hiero.hapi.block.node.PublishStreamResponseCode;
-import org.hiero.hapi.block.node.ResendBlock;
+import org.hiero.hapi.block.node.PublishStreamResponse;
 
 /**
  * Provides implementation for the block stream publisher endpoints of the server. These handle incoming push block
@@ -49,20 +43,63 @@ public class PublisherServicePlugin implements BlockNodePlugin, ServiceInterface
     /** Set of all open sessions. */
     private final ConcurrentSkipListSet<BlockStreamProducerSession> openSessions =
             new ConcurrentSkipListSet<>();
-    private final AtomicLong currentBlockNumber = new AtomicLong(-1);
-    private final AtomicReference<BlockStreamProducerSession> chosenSourceForCurrentBlock = new AtomicReference<>();
-
+    private final AtomicLong currentBlockNumber = new AtomicLong(UNKNOWN_BLOCK_NUMBER);
+    private final AtomicReference<BlockStreamProducerSession> currentPrimarySession = new AtomicReference<>();
 
     /**
-     * BlockStreamPublisherService types define the gRPC methods available on the BlockStreamPublisherService.
+     * Called when any session updates its state. This is used for use to choose who is primary and behind
      */
-    enum BlockStreamPublisherServiceMethod implements Method {
-        /**
-         * The publishBlockStream method represents the bidirectional gRPC streaming method
-         * Consensus Nodes should use to publish the BlockStream to the Block Node.
-         */
-        publishBlockStream
+    private void onSessionUpdate() {
+        // TODO handle moving the current block number forward
+        // pick a primary session
+        BlockStreamProducerSession primarySession = currentPrimarySession.get();
+        if (primarySession != null &&
+                primarySession.currentBlockState() == BlockStreamProducerSession.BlockState.PRIMARY &&
+                primarySession.currentBlockNumber() == currentBlockNumber.get()) {
+            // we are already primary so all we need to do is check if any sessions are disconnected
+            openSessions.removeIf(session -> session.currentBlockState() ==
+                    BlockStreamProducerSession.BlockState.DISCONNECTED);
+            return;
+        }
+        // check if we have a primary session that is not useful
+        if (primarySession != null) {
+            // this is odd, we have a primary session but it is not the current block number
+            // TODO what to do here?
+            primarySession.switchToBehind();
+        }
+        // pick a new primary session if there is one
+        openSessions.stream()
+                .filter(session ->
+                        session.currentBlockState() == BlockStreamProducerSession.BlockState.NEW &&
+                                session.currentBlockNumber() == currentBlockNumber.get())
+                .min(Comparator.comparingLong(BlockStreamProducerSession::startTimeOfCurrentBlock))
+                .ifPresentOrElse(session -> {
+                    // we have a new primary session
+                    session.switchToPrimary();
+                    // set the current primary session
+                    currentPrimarySession.set(primarySession);
+                }, () -> {
+                    // no primary session, set to null
+                    currentPrimarySession.set(null);
+                    // this can happen if all sessions are behind or ahead, so lets check if they are ahead as
+                    // that will mean we will never get any blocks
+                    if (openSessions.isEmpty()) {
+                        // think this should never happen or at least be very rare
+                        LOGGER.log(WARNING, "No sessions found, yet we got a onSessionUpdate() call");
+                    } else {
+                        final long currentMinSessionBlockNumber = openSessions.stream()
+                                .mapToLong(BlockStreamProducerSession::currentBlockNumber).min().orElse(UNKNOWN_BLOCK_NUMBER);
+                        if (currentMinSessionBlockNumber > currentBlockNumber.get()) {
+                            LOGGER.log(WARNING, "All sessions are ahead [{1}] of the current block number [{2}], "
+                                    + "this means we wil never get another block",
+                                    currentMinSessionBlockNumber, currentBlockNumber.get());
+                        }
+                    }
+                });
+        // TODO handle timeouts
     }
+
+    // ==== BlockNodePlugin Methods ===================================================================================
 
     /**
      * {@inheritDoc}
@@ -87,27 +124,43 @@ public class PublisherServicePlugin implements BlockNodePlugin, ServiceInterface
     }
 
     /**
+     * Called when block node is starting up after all plugins have been initialized and after web server is started.
+     */
+    @Override
+    public void start() {
+        // get the latest block number known to the system and add one for the current block
+        final long latestBlockNumber = context.historicalBlockProvider().latestBlockNumber();
+        // check if we know of any blocks
+        if (latestBlockNumber != UNKNOWN_BLOCK_NUMBER) {
+            // set the current block number to the latest block number known + 1
+            currentBlockNumber.set(latestBlockNumber+1);
+        }
+    }
+
+    /**
      * Called when block node ish shutting down
      */
     @Override
     public void stop() {
         LOGGER.log(INFO, "Stopping Publisher Service Plugin, closing {1} open sessions", openSessions.size());
-        // send close response to all open sessions, then close
-        final PublishStreamResponse closeResponse =
-                new PublishStreamResponse(new OneOf<>(
-                        ResponseOneOfType.END_STREAM,
-                        new EndOfStream(PublishStreamResponseCode.STREAM_ITEMS_SUCCESS,currentBlockNumber.get())));
-        openSessions.forEach(session -> {
-            // send the close response to the client
-            session.sendResponse(closeResponse);
-            // close the session
-            session.close();
-        });
+        // close all open sessions
+        openSessions.forEach(BlockStreamProducerSession::close);
         // clear open sessions
         openSessions.clear();
     }
 
     // ==== BlockNotificationHandler Methods ===================================================================================
+
+    /**
+     * BlockStreamPublisherService types define the gRPC methods available on the BlockStreamPublisherService.
+     */
+    enum BlockStreamPublisherServiceMethod implements Method {
+        /**
+         * The publishBlockStream method represents the bidirectional gRPC streaming method
+         * Consensus Nodes should use to publish the BlockStream to the Block Node.
+         */
+        publishBlockStream
+    }
 
     /**
      * Receive notifications from verification and persistence services and update our handling of listeners
@@ -121,27 +174,16 @@ public class PublisherServicePlugin implements BlockNodePlugin, ServiceInterface
         switch (notification.type()) {
             case BLOCK_PERSISTED -> {
                 // let all subscribers know we have a good copy of the block saved to disk
-                final PublishStreamResponse goodBlockResponse =
-                        new PublishStreamResponse(new OneOf<>(
-                                ResponseOneOfType.ACKNOWLEDGEMENT,
-                                new Acknowledgement(
-                                        new BlockAcknowledgement(
-                                                notification.blockNumber(),
-                                                notification.blockHash(),
-                                                false
-                                        ))));
-                openSessions.forEach(session -> session.sendResponse(goodBlockResponse));
+                openSessions.forEach(session ->
+                        session.sendBlockPersisted(notification.blockNumber(), notification.blockHash()));
             }
             case BLOCK_FAILED_VERIFICATION -> {
                 // set the chosen source for the current block to null as we do not have one yet
                 // do this first to try and avoid more bad items sent into the system
-                chosenSourceForCurrentBlock.set(null);
+                currentPrimarySession.set(null);
                 // We need to go and request all sessions to resend the block
-                final PublishStreamResponse resendBlockResponse =
-                        new PublishStreamResponse(new OneOf<>(
-                                ResponseOneOfType.RESEND_BLOCK,
-                                new ResendBlock(notification.blockNumber()
-                                )));
+                openSessions.forEach(session ->
+                        session.requestResend(notification.blockNumber()));
                 // reset out block number to last good block
                 currentBlockNumber.set(notification.blockNumber()-1);
             }
@@ -195,7 +237,7 @@ public class PublisherServicePlugin implements BlockNodePlugin, ServiceInterface
                                 PublishStreamRequestUnparsed.PROTOBUF.parse(bytes).blockItemsOrThrow().blockItems())
                         .method(responsePipeline -> {
                             BlockStreamProducerSession producerBlockItemObserver =
-                                    new BlockStreamProducerSession(responsePipeline);
+                                    new BlockStreamProducerSession(responsePipeline, context, this::onSessionUpdate);
                             // add the session to the set of open sessions
                             openSessions.add(producerBlockItemObserver);
                             return producerBlockItemObserver;
@@ -214,18 +256,12 @@ public class PublisherServicePlugin implements BlockNodePlugin, ServiceInterface
     private void closeSessionByClient(BlockStreamProducerSession session) {
         // remove the session from the set of open sessions
         openSessions.remove(session);
-        // send the close message to the client
-        final PublishStreamResponse closeResponse =
-                new PublishStreamResponse(new OneOf<>(
-                        ResponseOneOfType.END_STREAM,
-                        new EndOfStream(PublishStreamResponseCode.STREAM_ITEMS_SUCCESS,currentBlockNumber.get())));
-        session.sendResponse(closeResponse);
         // close the session
         session.close();
         // check if it is the chosen source for the current block
-        if (chosenSourceForCurrentBlock.get() == session) {
+        if (currentPrimarySession.get() == session) {
             // set the chosen source to null
-            chosenSourceForCurrentBlock.set(null);
+            currentPrimarySession.set(null);
             // find a new chosen source, request resend
         }
         // log the closing of the session
@@ -234,93 +270,4 @@ public class PublisherServicePlugin implements BlockNodePlugin, ServiceInterface
 
     // ==== Inner class for a Session  =================================================================================
 
-    /**
-     * BlockStreamProducerSession is a session for a block stream producer. It handles the incoming block stream and
-     * sends the responses to the client.
-     */
-    private class BlockStreamProducerSession
-            implements Pipeline<List<BlockItemUnparsed>>,
-            Comparable<BlockStreamProducerSession>{
-
-        private final long sessionCreationTime = System.nanoTime();
-        private final Pipeline<? super PublishStreamResponse> responsePipeline;
-        private Flow.Subscription subscription;
-
-        public BlockStreamProducerSession(Pipeline<? super PublishStreamResponse> responsePipeline) {
-            this.responsePipeline = responsePipeline;
-            // log the creation of the session
-            LOGGER.log(DEBUG, "Created new BlockStreamProducerSession[{0}]", sessionCreationTime);
-        }
-
-        /**
-         * Close the session and cancel the subscription.
-         */
-        public void close() {
-            if (subscription != null) {
-                subscription.cancel();
-            }
-        }
-
-        /**
-         * Send a response to the client consensus node.
-         *
-         * @param response the response to send
-         */
-        public void sendResponse(PublishStreamResponse response) {
-            // send the response to the client
-            responsePipeline.onNext(response);
-        }
-
-        // ==== Pipeline Flow Methods ==================================================================================
-
-        @Override
-        public void onNext(List<BlockItemUnparsed> items) throws RuntimeException {
-            // check if we are the chosen source for the current block
-            if (chosenSourceForCurrentBlock.get() == this) {
-                // send the items to the block messaging service
-                context.blockMessaging().sendBlockItems(items);
-            }
-        }
-
-        @Override
-        public void onError(Throwable throwable) {
-            LOGGER.log(DEBUG, "BlockStreamProducerSession error: {0}", throwable.getMessage());
-            // close the session
-            closeSessionByClient(this);
-        }
-
-        @Override
-        public void clientEndStreamReceived() {
-            closeSessionByClient(this);
-        }
-
-        @Override
-        public void onComplete() {
-            closeSessionByClient(this);
-        }
-
-        @Override
-        public void onSubscribe(Flow.Subscription subscription) {
-            this.subscription = subscription;
-            LOGGER.log(DEBUG, "onSubscribe called");
-            // TODO seems like we should be using {subscription} for flow control, calling its request() method
-        }
-
-        // ==== Comparable Methods ===================================================================================
-
-        /**
-         * Compare this session to another session based on the creation time. We need to be comparable so we can
-         * sort the sessions in the set. We depend on the fact that sessionCreationTime being in nanoseconds is unique
-         * for each session. So equals and hashcode based on object identity is the same as comparing
-         * sessionCreationTime.
-         *
-         * @param o the object to be compared.
-         * @return a negative integer, zero, or a positive integer as this session is less than,
-         *          equal to, or greater than the specified object.
-         */
-        @Override
-        public int compareTo(BlockStreamProducerSession o) {
-            return Long.compare(sessionCreationTime, o.sessionCreationTime);
-        }
-    }
 }
