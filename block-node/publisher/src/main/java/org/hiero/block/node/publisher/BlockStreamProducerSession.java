@@ -196,6 +196,7 @@ public final class BlockStreamProducerSession implements Pipeline<List<BlockItem
             }
             if (subscription != null) {
                 subscription.cancel();
+                subscription = null;
             }
         }
     }
