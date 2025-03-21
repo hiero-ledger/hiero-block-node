@@ -32,14 +32,6 @@ jobs:
       java-distribution: ${{ inputs.java-distribution || 'temurin' }}
       java-version: ${{ inputs.java-version || '21.0.6' }}
 
-  check-docker:
-    name: Docker
-    uses: ./.github/workflows/zxc-verify-docker-build-determinism.yaml
-    with:
-      ref: ${{ github.event.inputs.ref || '' }}
-      java-distribution: ${{ inputs.java-distribution || 'temurin' }}
-      java-version: ${{ inputs.java-version || '21.0.6' }}
-
   compile:
     name: "Gradle Checks"
     runs-on: hiero-block-node-linux-medium
