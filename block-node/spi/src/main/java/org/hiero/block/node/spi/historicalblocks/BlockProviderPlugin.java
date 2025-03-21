@@ -15,6 +15,7 @@ import org.hiero.block.node.spi.blockmessaging.BlockMessagingFacility;
  *     <li>File system</li>
  *     <li>S3 style cloud storage</li>
  *     <li>Other block nodes</li>
+ * </ul>
  * </p>
  * <p>
  * BlockProviderPlugins are responsible for acquiring the blocks themselves. They can get them either from

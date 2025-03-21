@@ -14,7 +14,7 @@ javaModules {
     }
     directory("block-node") {
         group = "org.hiero.block"
-        module("server") { artifact = "block-node-server" }
+        module("app") { artifact = "block-node-app" }
         module("base") { artifact = "block-node-base" }
         module("plugins") { artifact = "block-node-plugins" }
         module("health") { artifact = "block-node-health" }

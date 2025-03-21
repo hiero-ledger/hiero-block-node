@@ -6,7 +6,6 @@ import static java.lang.System.Logger.Level.ERROR;
 import static org.hiero.block.server.metrics.BlockNodeMetricTypes.Counter.BlockPersistenceError;
 import static org.hiero.block.server.metrics.BlockNodeMetricTypes.Counter.BlocksPersisted;
 
-import com.hedera.hapi.block.BlockUnparsed;
 import com.hedera.pbj.runtime.io.stream.WritableStreamingData;
 import edu.umd.cs.findbugs.annotations.NonNull;
 import java.io.IOException;
@@ -27,6 +26,7 @@ import org.hiero.block.server.persistence.storage.path.BlockPathResolver;
 import org.hiero.block.server.persistence.storage.remove.BlockRemover;
 import org.hiero.block.server.persistence.storage.write.BlockPersistenceResult.BlockPersistenceStatus;
 import org.hiero.hapi.block.node.BlockItemUnparsed;
+import org.hiero.hapi.block.node.BlockUnparsed;
 
 /**
  * An async block writer that handles writing of blocks as a file to local
