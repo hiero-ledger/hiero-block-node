@@ -4,7 +4,6 @@ package org.hiero.block.node.app;
 import static java.lang.System.Logger;
 import static java.lang.System.Logger.Level.INFO;
 import static org.hiero.block.common.constants.StringsConstants.APPLICATION_PROPERTIES;
-import static org.hiero.block.server.service.Constants.PBJ_PROTOCOL_PROVIDER_CONFIG_NAME;
 
 import com.hedera.pbj.grpc.helidon.config.PbjConfig;
 import com.swirlds.common.metrics.platform.DefaultMetricsProvider;
@@ -33,14 +32,27 @@ import org.hiero.block.server.config.logging.ConfigurationLoggingImpl;
 
 /** Main class for the block node server */
 public class BlockNodeApp implements HealthFacility {
-
+    /** Constant mapped to PbjProtocolProvider.CONFIG_NAME in the PBJ Helidon Plugin */
+    public static final String PBJ_PROTOCOL_PROVIDER_CONFIG_NAME = "pbj";
+    /** The logger for this class. */
     private static final Logger LOGGER = System.getLogger(BlockNodeApp.class.getName());
-
+    /** The block node context. */
     private final BlockNodeContext blockNodeContext;
+    /** list of all loaded plugins */
     private final List<BlockNodePlugin> loadedPlugins;
+    /** The state of the server. */
     private final AtomicReference<State> state = new AtomicReference<>(State.STARTING);
+    /** The web server. */
     private final WebServer webServer;
+    /** The server configuration. */
+    private final ServerConfig serverConfig;
 
+    /**
+     * Constructor for the BlockNodeApp class. This constructor initializes the server configuration,
+     * loads the plugins, and creates the web server.
+     *
+     * @throws IOException if there is an error starting the server
+     */
     private BlockNodeApp() throws IOException {
         // Init BlockNode Configuration
         final Configuration configuration = ConfigurationBuilder.create()
@@ -49,7 +61,7 @@ public class BlockNodeApp implements HealthFacility {
                 .withSources(new ClasspathFileConfigSource(Path.of(APPLICATION_PROPERTIES)))
                 .autoDiscoverExtensions()
                 .build();
-        final ServerConfig serverConfig = configuration.getConfigData(ServerConfig.class);
+        serverConfig = configuration.getConfigData(ServerConfig.class);
         // load logging config and log the configuration
         final ConfigurationLoggingImpl configurationLogging = new ConfigurationLoggingImpl(configuration);
         configurationLogging.log();
@@ -156,7 +168,15 @@ public class BlockNodeApp implements HealthFacility {
     public void shutdown(String className, String reason) {
         state.set(State.SHUTTING_DOWN);
         LOGGER.log(INFO, "Shutting down, reason: {0}, class: {1}", reason, className);
+        // wait for the shutdown delay
+        try {
+            Thread.sleep(serverConfig.shutdownDelayMillis());
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            LOGGER.log(INFO, "Shutdown interrupted");
+        }
         // Stop server
+        webServer.stop();
         // Stop all the plugins
         for (BlockNodePlugin plugin : loadedPlugins) {
             LOGGER.log(INFO, "Stopping plugin: {0}", plugin.name());
