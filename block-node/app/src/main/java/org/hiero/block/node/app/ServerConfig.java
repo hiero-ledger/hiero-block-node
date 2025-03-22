@@ -15,6 +15,7 @@ import org.hiero.block.server.config.logging.Loggable;
  *
  * @param maxMessageSizeBytes the http2 max message/frame size in bytes
  * @param port the port the server will listen on
+ * @param shutdownDelayMillis the delay in milliseconds for the service
  */
 @ConfigData("server")
 public record ServerConfig(
@@ -33,7 +34,9 @@ public record ServerConfig(
                 @Min(minSocketReceiveBufferSizeBytes)
                 @Max(Integer.MAX_VALUE)
                 int socketReceiveBufferSizeBytes,
-        @Loggable @ConfigProperty(defaultValue = defaultPort) @Min(minPort) @Max(maxPort) int port) {
+        @Loggable @ConfigProperty(defaultValue = defaultPort) @Min(minPort) @Max(maxPort) int port,
+        @Loggable @ConfigProperty(defaultValue = "500") int shutdownDelayMillis
+) {
 
     // Constants for maxMessageSizeBytes property
     static final String defaultMaxMessageSizeBytes = "4_194_304";
