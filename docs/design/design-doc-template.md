@@ -7,7 +7,7 @@
 3. [Terms](#terms)
 4. [Entities](#entities)
 5. [Design](#design)
-6. [Sequence Diagram](#sequence-diagram)
+6. [Diagram](#diagram)
 7. [Configuration](#configuration)
 8. [Metrics](#metrics)
 9. [Exceptions](#exceptions)
@@ -29,7 +29,7 @@
 
 ## Design
 
-# Diagram
+## Diagram
 
 Consider using mermaid to generate one or more of the following:
 - [User Journey](https://mermaid.js.org/syntax/userJourney.html)

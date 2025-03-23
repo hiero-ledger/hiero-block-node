@@ -156,6 +156,10 @@ Configuration document, but should include a way to enable/disable the module,
 select Hashing algorithm and the amount of concurrent workers for the
 `ServiceExecutor` pool.
 
+## Enums
+
+<!-- Noted as a section in table of contents to be filled out -->
+
 ## Metrics
 
 <dl>

@@ -13,7 +13,7 @@
 
 Refer to the [Configuration](../../block-node/server/docs/configuration.md) for configuration options.
 
-## Running locally:
+## Running locally
 
 - Server subproject qualifier: `:server`
 - Assuming your working directory is the repo root
