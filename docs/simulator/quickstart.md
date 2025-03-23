@@ -3,12 +3,12 @@
 ## Table of Contents
 
 1. [Configuration](#configuration)
-1. [Running locally](#running-locally)
+2. [Running locally](#running-locally)
    1. [Build the Simulator](#build-the-simulator)
-   1. [Run the Server first](#run-the-server-first)
-   1. [Run the Simulator](#run-the-simulator)
-   1. [Run the Simulator with Debug](#run-the-simulator-with-debug)
-1. [Viewing Metrics](#viewing-metrics)
+   2. [Run the Server first](#run-the-server-first)
+   3. [Run the Simulator](#run-the-simulator)
+   4. [Run the Simulator with Debug](#run-the-simulator-with-debug)
+3. [Viewing Metrics](#viewing-metrics)
 
 ## Configuration
 
@@ -35,6 +35,7 @@ Refer to the [Configuration](../../simulator/docs/configuration.md) for configur
 > ```
 
 1. To quickly build the Simulator sources (without running tests), do the following:
+
    ```bash
    ./gradlew -p simulator clean build -x test
    ```
@@ -48,6 +49,7 @@ get started with the application.
 ### Run the Simulator
 
 1. To start the Simulator, do the following:
+
    ```bash
    ./gradlew :simulator:run
    ```
@@ -59,8 +61,7 @@ get started with the application.
    ```bash
    ./gradlew :simulator:run --debug-jvm
    ```
-
-1. Attach your remote jvm debugger to port 5005.
+2. Attach your remote jvm debugger to port 5005.
 
 ## Viewing Metrics
 
@@ -71,7 +72,6 @@ The simulator can run in two modes (Publisher and Consumer) and provides metrics
    ```bash
    ./gradlew startDockerContainer
    ```
-
 2. Access the metrics:
    - Open Grafana at <http://localhost:3000>
    - Navigate to Dashboards

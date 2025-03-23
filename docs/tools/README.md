@@ -38,14 +38,12 @@ Converts a binary block stream to JSON
 **Options:**
 
 - `-ms <minSizeMb>` or `--min-size=<minSizeMb>`
-   - Filter to only files bigger than this minimum file size in megabytes
-
+  - Filter to only files bigger than this minimum file size in megabytes
 - `-t` or `--transactions`
-   - expand transactions, this is no longer pure json conversion but is very useful making the
-transactions human-readable.
-
+  - expand transactions, this is no longer pure json conversion but is very useful making the
+    transactions human-readable.
 - `<files>...`
-   - The block files or directories of block files to convert to JSON
+  - The block files or directories of block files to convert to JSON
 
 ### The `info` Subcommand
 
@@ -56,16 +54,13 @@ Prints info for block files
 **Options:**
 
 - `-c` or `--csv`
-   - Enable CSV output mode (default: false)
-
+  - Enable CSV output mode (default: false)
 - `-ms <minSizeMb>` or `--min-size=<minSizeMb>`
-   - Filter to only files bigger than this minimum file size in megabytes
-
+  - Filter to only files bigger than this minimum file size in megabytes
 - `-o <outputFile>` or `--output-file=<outputFile>`
-   - Output to file rather than stdout
-
+  - Output to file rather than stdout
 - `<files>...`
-   - The block files or directories of block files to print info for
+  - The block files or directories of block files to print info for
 
 ### The `record2block` Subcommand
 
@@ -83,29 +78,29 @@ for more info.
 **Options:**
 
 - `-s <blockNumber>` or `--start-block=<blockNumber>`
-   - The first block number to process
-   - Default: 0
+  - The first block number to process
+  - Default: 0
 - `-e <blockNumber>` or `--end-block=<blockNumber>`
-   - The last block number to process
-   - Default: 3001
+  - The last block number to process
+  - Default: 3001
 - `-j` or `--json`
-   - also output blocks as json, useful for debugging and testing
-   - Default: false
+  - also output blocks as json, useful for debugging and testing
+  - Default: false
 - `-c` or `--cache-enabled`
-   - Use local cache for downloaded content, saves cloud costs and bandwidth when testing
-   - Default: false
+  - Use local cache for downloaded content, saves cloud costs and bandwidth when testing
+  - Default: false
 - `--min-node-account-id=<minNodeAccountId>`
-   - the account id of the first node in the network
-   - Default: 3
+  - the account id of the first node in the network
+  - Default: 3
 - `--max-node-account-id=<maxNodeAccountId>`
-   - the account id of the last node in the network
-   - Default: 34
+  - the account id of the last node in the network
+  - Default: 34
 - `--data-dir=<dataDir>`
-   - the data directory for output and temporary files
-   - Default: "data"
+  - the data directory for output and temporary files
+  - Default: "data"
 - `--block-times=<blockTimesFile>`
-   - Path to the block times ".bin" file.
-   - Default: "data/block_times.bin"
+  - Path to the block times ".bin" file.
+  - Default: "data/block_times.bin"
 
 ### The `fetchRecordsCsv` Subcommand
 
@@ -124,8 +119,8 @@ for more info.
 **Options:**
 
 - `--record-csv=<recordFilePath>`
-   - Path to the record CSV file.
-   - Default: "data/record.csv"
+  - Path to the record CSV file.
+  - Default: "data/record.csv"
 
 ### The `extractBlockTimes` Subcommand
 
@@ -145,12 +140,11 @@ number(array offset) into block time, i.e. record file name.
 **Options:**
 
 - `--record-csv=<recordFilePath>`
-   - Path to the record CSV file.
-   - Default: "data/record.csv"
+  - Path to the record CSV file.
+  - Default: "data/record.csv"
 - `--block-times=<blockTimesFile>`
-   - Path to the block times ".bin" file.
-   - Default: "data/block_times.bin"
-
+  - Path to the block times ".bin" file.
+  - Default: "data/block_times.bin"
 
 ### The `addNewerBlockTimes` Subcommand
 
