@@ -78,7 +78,7 @@ authenticated with the Google Cloud SDK. You can authenticate with `gcloud auth 
 `gcloud auth login` see [Google Documentation](https://cloud.google.com/storage/docs/reference/libraries#authentication)
 for more info.
 
-`Usage: record2block [-s 0] [-e 100] [-j] [-c] [--min-node-account-id=3] [--max-node-account-id=34] [-d <dataDir>] [--block-times=<blockTimesFile>] `
+`Usage: record2block [-s 0] [-e 100] [-j] [-c] [--min-node-account-id=3] [--max-node-account-id=34] [-d <dataDir>] [--block-times=<blockTimesFile>]`
 
 **Options:**
 

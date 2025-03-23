@@ -14,7 +14,7 @@
 
 Refer to the [Configuration](../../simulator/docs/configuration.md) for configuration options.
 
-## Running locally:
+## Running locally
 
 - Simulator subproject qualifier:`:simulator`
 - Assuming your working directory is the repo root
@@ -73,7 +73,7 @@ The simulator can run in two modes (Publisher and Consumer) and provides metrics
    ```
 
 2. Access the metrics:
-   - Open Grafana at http://localhost:3000
+   - Open Grafana at <http://localhost:3000>
    - Navigate to Dashboards
    - You'll find two dashboards:
      - Block Stream Simulator Publisher: Shows metrics for the publisher instance
