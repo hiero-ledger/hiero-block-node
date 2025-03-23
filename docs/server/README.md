@@ -8,8 +8,8 @@ applications to access block and state information.
 
 ## Configuration
 
-Refer to the [Configuration](./configuration.md) for configuration options.
+Refer to the [Configuration](configuration.md) for configuration options.
 
 ## Quickstart
 
-Refer to the [Quickstart](./quickstart.md) for a quick guide on how to get started with the application.
+Refer to the [Quickstart](quickstart.md) for a quick guide on how to get started with the application.

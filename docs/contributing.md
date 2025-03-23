@@ -9,10 +9,14 @@ In addition to the [Hiero Contributing Guidelines](https://github.com/hiero-ledg
 
 Issues should be created using one of the issue templates. GitHub allows these templates to be bypassed in some areas of its user interface, but users should refrain from doing so and ensure all fields of the template are filled.
 Any issues that have been addressed on `main` or a `release` branches are required to have a milestone associated with them.
+Additonally, `type` must be selected, and issues should have a parent issue if that is known.
+Project maintainers will assign an appropriate parent if none is set initially.
 
 ## Labels
 
-Labels are used to group related issues together and for various release process tasks. Only maintainers have permission to add or remove labels to issues. For other contributors, project maintainers will adjust the labels as necessary to meet the project's requirements. Every issue should have one of these mandatory Type labels:
+Labels are used to group related issues together. Only maintainers have permission to add or remove labels to issues.
+For other contributors, project maintainers will adjust the labels as necessary to meet the project's requirements.
+Every issue should have one of these mandatory Type labels:
 
 - bug
 - dependencies
@@ -22,11 +26,12 @@ Labels are used to group related issues together and for various release process
 This label will be used for grouping items in the release notes. Additionally, issues are also recommended to have a green Area label to indicate which component is impacted and to route it to the appropriate team member. Any other label can be added on an as-needed basis.
 
 ## Branches
-Branches should be created using the following naming convention: <issue#>-<description>. For example, if the issue number is 123 and the issue is to add a new feature, the branch name should be `123-add-new-feature`.
+Branches should be created using the following naming convention: <issue#>-<description>.
+For example, if the issue number is 123 and the issue is to add a new feature, the branch name should be `123-add-new-feature`.
 
 ## Pull Requests
 
-Pull requests should be created using one of the pull request templates. GitHub allows these templates to be bypassed in some areas of its user interface, but users should refrain from doing so and ensure all fields of the template are filled.
+Pull requests should be created using one of the pull request templates.
 Particularly, the PR should have a reference to the issue it addresses, and the PR should have a clear description of the changes it proposes to assist reviewers.
 
 The description should contain a short description of the change, followed by a bulleted list of changes in imperative 
@@ -49,6 +54,12 @@ corresponding issue(s) by using the keyword `Fixes #1234` in the `Related issue(
 labels from the issue should be copied over from the issue so that it appears properly in the release notes. All pull
 requests targeting `main` or `release` branches should have a milestone set. Project fields should be left empty since
 only an issue should have a project assigned to ensure work is not tracked twice on the board.
+
+Before pressing the "Create pull request" button, the PR submitter should ensure the following:
+- `Assignees` is set to themselves
+- At least one label on the PR is set
+- The milestone on the PR is set
+- The PR title follows [Conventional Commit](https://www.conventionalcommits.org/en/v1.0.0/#summary) syntax.
 
 Before opening a PR, the submitter should ensure all tests pass locally and any manual testing has been conducted to
 verify the new functionality. The PR should stay as draft and without requesting reviewers until all requirements of the

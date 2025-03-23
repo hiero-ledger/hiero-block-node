@@ -36,9 +36,14 @@ Refer to the [Configuration](../../block-node/server/docs/configuration.md) for 
 1. To quickly build the Server sources (without running tests), do the following:
 
    ```bash
-   ./gradlew -p server clean build -x test
+   ./gradlew clean build -x test
    ```
-2. To build the Server docker image, do the following:
+2. Before building the server ensure your tests run successfully:
+
+   ```bash
+   ./gradlew clean qualityGate build runSuites
+   ```
+3. To build the Server docker image, do the following:
 
    ```bash
    ./gradlew :server:createDockerImage

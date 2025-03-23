@@ -32,8 +32,8 @@ Implementation of the Hiero Block Node, which is responsible for consuming the b
 
 ## Overview of child modules
 
-- [`server`](./docs/server/README.md): implementation of the block node, which contains the main application and all the necessary code to run the block node.
-- [`simulator`](./docs/simulator/README.md): A simulator for the block node, which can be used to test the block node in a local environment.
+- [`server`](docs/server/README.md): implementation of the block node, which contains the main application and all the necessary code to run the block node.
+- [`simulator`](docs/simulator/README.md): A simulator for the block node, which can be used to test the block node in a local environment.
 - `common`: Module responsible for holding common literals, utilities and types used by the other modules.
 - `suites`: A set of e2e tests that can be used to verify the correctness of the block node.
 - `tools`: A set of command line tools for working with block stream files.

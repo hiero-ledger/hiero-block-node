@@ -12,7 +12,7 @@ the system is herein detailed.
 
 ## Revised Diagram
 
-![Module/Service Diagram](../assets/Block-Node-Nano-Services.svg)
+![Module/Service Diagram](../../assets/Block-Node-Nano-Services.svg)
 
 ## Definitions
 

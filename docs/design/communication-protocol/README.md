@@ -8,4 +8,4 @@ behavior of both sides of that API call, including common error conditions.
 ## Contents
 | Document | API call | Description |
 |:---|---:|:---|
-| [publishBlockStream.md](../design/communication-protocol/publish-block-stream.mdion-protocol/publish-block-stream.md) | `publishBlockStream` | The communication between a publisher and a block node when publishing a block stream from an authoritative source such as a consensus node. |
+| [publishBlockStream.md](publish-block-stream.md) | `publishBlockStream` | The communication between a publisher and a block node when publishing a block stream from an authoritative source such as a consensus node. |

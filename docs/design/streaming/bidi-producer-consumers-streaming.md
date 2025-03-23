@@ -275,18 +275,18 @@ the latest BlockItem to the ConsumerBlockItemObserver when it is available in th
 
 ### Producer Registration Flow
 
-![Producer Registration](../assets/00036-producer-registration.png)
+![Producer Registration](../../assets/00036-producer-registration.png)
 
 ### Consumer Registration Flow
 
-![Consumer Registration](../assets/00036-consumer-registration.png)
+![Consumer Registration](../../assets/00036-consumer-registration.png)
 
 ### Class Diagram of all Entities and their Relationships
 
-![Class Diagram](../assets/00036-demo-disruptor-class-diagram.png)
+![Class Diagram](../../assets/00036-demo-disruptor-class-diagram.png)
 
 ### Runtime Stream of BlockItems from Producer to Consumers
 
-![Sequence Diagram](../assets/00036-refactor-demo-disruptor.png)
+![Sequence Diagram](../../assets/00036-refactor-demo-disruptor.png)
 
 ---
