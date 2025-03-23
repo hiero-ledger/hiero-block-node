@@ -88,17 +88,17 @@ stream sources.
 
 ### Dynamic Toggling between Historic Streaming to Live Streaming State Diagram
 
-### Client can request:
+### Client can request
 
 1) Live Streaming starting with the latest block
 2) Historic Streaming starting with a specific block and transitioning to Live Streaming
 
-### Live Streaming:
+### Live Streaming
 
 1) Continue to stream the latest live data unless the client is too slow
 2) Transition to Historic Streaming if the client exceeds a threshold
 
-### Historic Streaming:
+### Historic Streaming
 
 1) Start streaming from the requested block
 2) When the client catches up to the latest acknowledged block, initialize the Live Streaming. Live Streaming requires Ring Buffer resources that should not be allocated until necessary

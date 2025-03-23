@@ -162,36 +162,36 @@ Any exception will be handled and return `BLOCK_CONTENT_PROOF_NOT_AVAILABLE` res
 
 ## Acceptance Tests
 
-### Happy Path:
+### Happy Path
 
 1. Client sends a valid BlockContentProofRequest to the BN for an existing block and block_item.
 2. BN receives the request and returns a complete BlockContentProofResponse
 3. Client receives the BlockContentProofResponse and verifies the block_item using the BlockContentProof provided by the BN.
 
-### Edge Case duplicate block_item (Failure Case):
+### Edge Case duplicate block_item (Failure Case)
 
 1. Client sends a BlockContentProofRequest using `block_item_hash` to the BN for a block_item that has a duplicate hash in the block.
 2. BN receives the request and returns a `BLOCK_CONTENT_PROOF_DUPLICATE_HASH_ITEM_FOUND` response code to the client.
 3. Client receives the response and verify is the correct response code.
 
-### Edge Case duplicate block_item (Success Case):
+### Edge Case duplicate block_item (Success Case)
 
 1. Client sends a BlockContentProofRequest using `block_item_index` to the BN for a block_item that has a duplicate hash in the block.
 2. BN receives the request and returns a complete BlockContentProofResponse.
 3. Client receives the BlockContentProofResponse and verifies the block_item using the BlockContentProof provided by the BN.
 4. Client verifies that the block_item is the correct one by pre-calculating the merkle proof path before hand for the right item and then comparing the given proof with the expected proof.
 
-### Block Number not found:
+### Block Number not found
 
 1. Client sends a BlockContentProofRequest to the BN for a non-existing block number.
 2. BN receives the request and returns a `BLOCK_CONTENT_PROOF_NOT_AVAILABLE` response code to the client.
 
-### Block item not found:
+### Block item not found
 
 1. Client sends a BlockContentProofRequest to the BN for a non-existing block item. (variations of block_item, block_item_hash, block_item_index)
 2. BN receives the request and returns a `BLOCK_CONTENT_PROOF_ITEM_NOT_FOUND` response code to the client.
 
-### Block item hash is invalid:
+### Block item hash is invalid
 
 1. Client sends a BlockContentProofRequest to the BN for a block_item with an invalid hash.
 2. BN receives the request and returns a `BLOCK_CONTENT_PROOF_ITEM_NOT_FOUND` response code to the client.

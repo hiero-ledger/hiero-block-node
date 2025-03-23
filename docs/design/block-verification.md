@@ -39,7 +39,7 @@ Network aggregation of "share" private keys, as described in the TSS design.</dd
 
 ## Entities
 
--
+<!-- TBD -->
 
 ### VerificationHandler
 
@@ -51,13 +51,11 @@ Network aggregation of "share" private keys, as described in the TSS design.</dd
 - Adds subsequent block items to the session, including the block_proof.
 - Does not block waiting for verification; the hash computation and
   verification continue asynchronously.
-  -
 
 ### BlockHashingSessionFactory
 
 - Creates new BlockHashingSession instances, provides them with a
   ExecutorService.
-  -
 
 ### BlockHashingSession
 
@@ -67,14 +65,12 @@ Network aggregation of "share" private keys, as described in the TSS design.</dd
 - Once the block_proof is provided, finalizes the hash computation
   asynchronously.
 - After computing the final hash, calls SignatureVerifier for verification.
-  -
 
 ### SignatureVerifier
 
 - Verifies the block signature is valid (using the ledger ID) and signed the
   same hash that was computed by the `BlockHashingSession`.
 - Report results to BlockStatusManager.
-  -
 
 ### BlockStatusManager
 

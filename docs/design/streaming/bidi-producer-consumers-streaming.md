@@ -82,7 +82,7 @@ The Block Node gRPC Streaming Services API is now aligned with the names and sim
 
 ---
 
-## Approaches:
+## Approaches
 
 All the following approaches require integrating with Helidon 4.x.x gRPC services to implement the bidirectional
 streaming API methods defined above. The following objects are used in all approaches:
@@ -102,7 +102,7 @@ when the connection is established. The `ConsumerBlockItemObserver` uses the `St
 BlockItem to the downstream consumer. Helidon invokes `ConsumerBlockItemObserver` methods to deliver BlockItemResponses
 from the consumer in receipt of BlockItems.
 
-### Approach 1: Directly passing BlockItems from `ProducerBlockItemObserver` to N `ConsumerBlockItemObserver`s.
+### Approach 1: Directly passing BlockItems from `ProducerBlockItemObserver` to N `ConsumerBlockItemObserver`s
 
 Directly passing BlockItems from the `ProducerBlockItemObserver` to N `ConsumerBlockItemObserver`s without storing
 BlockItems in an intermediate data structure. This approach was the basis for one of the first implementations of gRPC
@@ -118,7 +118,7 @@ to each consumer in the correct order complicates and slows down the process. It
 structures and synchronization on all reads and writes to ensure new/removed subscribers do not disrupt the
 iteration order of the `ConsumerBlockItemObserver`s.
 
-### Approach 2: Use a shared data structure between `ProducerBlockItemObserver` and `ConsumerBlockItemObserver`s. Consumers busy-wait for new BlockItems.
+### Approach 2: Use a shared data structure between `ProducerBlockItemObserver` and `ConsumerBlockItemObserver`s. Consumers busy-wait for new BlockItems
 
 Alternatively, if `ProducerBlockItemObserver`s store BlockItems in a shared data structure before immediately returning
 a response to the producer, the BlockItem is then immediately available for all `ConsumerBlockItemObserver`s to read
@@ -139,7 +139,7 @@ BlockItems impaired the ability of the Helidon Virtual Thread instance to proces
 downstream consumer in a timely way. The aggressive behavior of the busy-wait could complicate future use cases
 requiring downstream consumer response processing.
 
-### Approach 3: Use a shared data structure between `ProducerBlockItemObserver` and `ConsumerBlockItemObserver`s. Use downstream consumer BlockItemResponses to drive the process of sending new BlockItems.
+### Approach 3: Use a shared data structure between `ProducerBlockItemObserver` and `ConsumerBlockItemObserver`s. Use downstream consumer BlockItemResponses to drive the process of sending new BlockItems
 
 With this approach, the `ProducerBlockItemObserver` will store BlockItems in a shared data structure before immediately
 returning a BlockItemResponse to the producer. However, rather than using a busy-wait to poll for new BlockItems,
@@ -163,7 +163,7 @@ Drawbacks:
 BlockItemResponses. Given, the latency of a network request/response round-trip, this approach will likely be far
 too slow to be considered effective even when sending a batch of all the latest BlockItems.
 
-### Approach 4: Shared data structure between producer and consumer services. Leveraging the LMAX Disruptor library to manage inter-process pub/sub message-passing between producer and consumers via RingBuffer.
+### Approach 4: Shared data structure between producer and consumer services. Leveraging the LMAX Disruptor library to manage inter-process pub/sub message-passing between producer and consumers via RingBuffer
 
 The LMAX Disruptor library is a high-performance inter-process pub/sub message passing library that could be used to
 efficiently pass BlockItems between a `ProducerBlockItemObserver` and `ConsumerBlockItemObserver`s. The Disruptor
