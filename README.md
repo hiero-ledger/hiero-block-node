@@ -48,7 +48,7 @@ Whether you’re fixing bugs, enhancing features, or improving documentation, yo
 
 Please read the governing [Hiero contributing guide](https://github.com/hiero-ledger/.github/blob/main/CONTRIBUTING.md) for the overall project.
 
-Please read our [contributing guide](./docs/contributing.md) to see how you can get involved.
+Please read our [contributing guide](docs/contributing) to see how you can get involved.
 
 ## Code of Conduct
 
