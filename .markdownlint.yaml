@@ -58,8 +58,8 @@ MD012:
 
 # MD013/line-length : Line length : https://github.com/DavidAnson/markdownlint/blob/v0.37.4/doc/md013.md
 MD013:
-  # Number of characters
-  line_length: 80
+  # Number of characters - to be reduced over time
+  line_length: 300
   # Number of characters for headings
   heading_line_length: 80
   # Number of characters for code blocks
@@ -103,7 +103,7 @@ MD023: true
 # MD024/no-duplicate-heading : Multiple headings with the same content : https://github.com/DavidAnson/markdownlint/blob/v0.37.4/doc/md024.md
 MD024:
   # Only check sibling headings
-  siblings_only: false
+  siblings_only: true
 
 # MD025/single-title/single-h1 : Multiple top-level headings in the same document : https://github.com/DavidAnson/markdownlint/blob/v0.37.4/doc/md025.md
 MD025:
@@ -150,7 +150,7 @@ MD032: true
 # MD033/no-inline-html : Inline HTML : https://github.com/DavidAnson/markdownlint/blob/v0.37.4/doc/md033.md
 MD033:
   # Allowed elements
-  allowed_elements: []
+  allowed_elements: ["dl", "dt", "dd"]
 
 # MD034/no-bare-urls : Bare URL used : https://github.com/DavidAnson/markdownlint/blob/v0.37.4/doc/md034.md
 MD034: true

@@ -4,7 +4,7 @@ The Block Node Server Application is designed to handle the block streams output
 the blocks and network state information. It will also optionally provide many value adding APIs to allow downstream
 applications to access block and state information.
 
-<More details to come>
+<!-- More details to come -->
 
 ## Configuration
 
