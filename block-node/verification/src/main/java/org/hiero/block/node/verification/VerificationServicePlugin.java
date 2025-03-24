@@ -4,7 +4,6 @@ package org.hiero.block.node.verification;
 import static java.lang.System.Logger.Level.ERROR;
 import static java.lang.System.Logger.Level.WARNING;
 
-import com.hedera.hapi.block.stream.output.BlockHeader;
 import com.swirlds.metrics.api.Counter;
 import io.helidon.common.Builder;
 import io.helidon.webserver.Routing;
@@ -13,7 +12,6 @@ import org.hiero.block.node.spi.BlockNodePlugin;
 import org.hiero.block.node.spi.blockmessaging.BlockItemHandler;
 import org.hiero.block.node.spi.blockmessaging.BlockItems;
 import org.hiero.block.node.spi.blockmessaging.BlockNotification;
-import org.hiero.hapi.block.node.BlockItemUnparsed;
 
 /** Provides implementation for the health endpoints of the server. */
 public class VerificationServicePlugin implements BlockNodePlugin, BlockItemHandler {
@@ -101,14 +99,11 @@ public class VerificationServicePlugin implements BlockNodePlugin, BlockItemHand
                 LOGGER.log(ERROR, "Service is not running. Block item will not be processed further.");
                 return;
             }
-            // get first item so we can check if it is a block header
-            final BlockItemUnparsed firstItem = blockItems.getFirst();
             // If we have a new block header, that means a new block has started
-            if (firstItem.hasBlockHeader()) {
+            if (blockItems.isStartOfNewBlock()) {
                 verificationBlocksReceived.increment();
                 //noinspection DataFlowIssue - we already checked that firstItem has blockHeader
-                currentBlockNumber =
-                        BlockHeader.PROTOBUF.parse(firstItem.blockHeader()).number();
+                currentBlockNumber = blockItems.newBlockNumber();
                 // start working time
                 blockWorkStartTime = System.nanoTime();
                 // start new session and set it as current
@@ -121,7 +116,7 @@ public class VerificationServicePlugin implements BlockNodePlugin, BlockItemHand
                 // when the block node is just starting vs in the middle of running normal as that should not happen.
                 LOGGER.log(ERROR, "Received block items before a block header.");
             } else {
-                BlockNotification notification = currentSession.processBlockItems(blockItems);
+                BlockNotification notification = currentSession.processBlockItems(blockItems.blockItems());
                 if (notification != null) {
                     switch (notification.type()) {
                         case BLOCK_VERIFIED -> {
