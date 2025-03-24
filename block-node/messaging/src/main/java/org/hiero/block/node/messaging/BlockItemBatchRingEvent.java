@@ -1,16 +1,14 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.node.messaging;
 
-import java.util.List;
-import java.util.stream.Collectors;
-import org.hiero.hapi.block.node.BlockItemUnparsed;
+import org.hiero.block.node.spi.blockmessaging.BlockItems;
 
 /**
  * Simple mutable container for a BlockNotification. The ring buffer is made up of these events.
  */
 public class BlockItemBatchRingEvent {
     /** The value to be published to downstream subscribers through the LMAX Disruptor. */
-    private List<BlockItemUnparsed> val;
+    private BlockItems blockItems;
 
     /** Constructor for the BlockItemBatchRingEvent class. */
     public BlockItemBatchRingEvent() {}
@@ -19,10 +17,10 @@ public class BlockItemBatchRingEvent {
      * Sets the given value to be published to downstream subscribers through the LMAX Disruptor.
      * The value must not be null and the method is thread-safe.
      *
-     * @param val the value to set
+     * @param blockItems the value to set
      */
-    public void set(final List<BlockItemUnparsed> val) {
-        this.val = val;
+    public void set(final BlockItems blockItems) {
+        this.blockItems = blockItems;
     }
 
     /**
@@ -31,8 +29,8 @@ public class BlockItemBatchRingEvent {
      *
      * @return the value of the event
      */
-    public List<BlockItemUnparsed> get() {
-        return val;
+    public BlockItems get() {
+        return blockItems;
     }
 
     /**
@@ -42,10 +40,6 @@ public class BlockItemBatchRingEvent {
      */
     @Override
     public String toString() {
-        return "BlockItemBatchRingEvent{"
-                + (val == null || val.isEmpty()
-                        ? "empty"
-                        : val.stream().map(BlockItemUnparsed::toString).collect(Collectors.joining(", ")))
-                + '}';
+        return "BlockItemBatchRingEvent{" + blockItems + '}';
     }
 }
