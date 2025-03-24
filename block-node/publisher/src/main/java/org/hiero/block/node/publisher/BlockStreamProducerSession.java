@@ -1,6 +1,7 @@
 package org.hiero.block.node.publisher;
 
 import static java.lang.System.Logger.Level.DEBUG;
+import static org.hiero.block.node.spi.BlockNodePlugin.UNKNOWN_BLOCK_NUMBER;
 
 import com.hedera.hapi.block.stream.output.BlockHeader;
 import com.hedera.pbj.runtime.OneOf;
@@ -15,6 +16,7 @@ import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.Consumer;
 import org.hiero.block.node.publisher.UpdateCallback.UpdateType;
 import org.hiero.block.node.spi.BlockNodePlugin;
+import org.hiero.block.node.spi.blockmessaging.BlockItems;
 import org.hiero.hapi.block.node.Acknowledgement;
 import org.hiero.hapi.block.node.BlockAcknowledgement;
 import org.hiero.hapi.block.node.BlockItemUnparsed;
@@ -53,7 +55,7 @@ public final class BlockStreamProducerSession implements Pipeline<List<BlockItem
     /** Single lock for gating access to state changes within whole plugin. */
     private final ReentrantLock stateLock;
     /** The callback for sending block items to the block messaging service */
-    private final Consumer<List<BlockItemUnparsed>> sendToBlockMessaging;
+    private final Consumer<BlockItems> sendToBlockMessaging;
     /** The subscription for the GRPC connection with client */
     private Flow.Subscription subscription;
     /** The current state of this session, i.e. state machine state */
@@ -77,7 +79,7 @@ public final class BlockStreamProducerSession implements Pipeline<List<BlockItem
      */
     public BlockStreamProducerSession(long sessionId, Pipeline<? super PublishStreamResponse> responsePipeline,
             UpdateCallback onUpdate, Counter liveBlockItemsReceived, ReentrantLock stateLock,
-            Consumer<List<BlockItemUnparsed>> sendToBlockMessaging) {
+            Consumer<BlockItems> sendToBlockMessaging) {
         this.sessionId = sessionId;
         this.onUpdate = onUpdate;
         this.responsePipeline = responsePipeline;
@@ -135,7 +137,8 @@ public final class BlockStreamProducerSession implements Pipeline<List<BlockItem
         currentBlockState = BlockState.PRIMARY;
         // send any items we have in the new items list to the block messaging service
         if (!newBlockItems.isEmpty()) {
-            sendToBlockMessaging.accept(newBlockItems);
+            // this items will always be the first items in a block so we can use the block number
+            sendToBlockMessaging.accept(new BlockItems(newBlockItems, currentBlockNumber));
             // clear the list
             newBlockItems.clear();
         }
@@ -265,7 +268,9 @@ public final class BlockStreamProducerSession implements Pipeline<List<BlockItem
                 case NEW -> newBlockItems.addAll(items);
                 case PRIMARY -> {
                     // we are in the primary state, so we can send the items directly to the block messaging service
-                    sendToBlockMessaging.accept(items);
+                    // this will never be the first items in a block so we can always send UNKNOWN_BLOCK_NUMBER for
+                    // block number
+                    sendToBlockMessaging.accept(new BlockItems(items, UNKNOWN_BLOCK_NUMBER));
                 }
                 case BEHIND -> {
                     // we can ignore as any items we receive in this state are not relevant

@@ -17,6 +17,7 @@ import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.IntStream;
 import org.hiero.block.node.messaging.BlockMessagingFacilityImpl;
+import org.hiero.block.node.spi.blockmessaging.BlockItems;
 import org.hiero.block.node.spi.blockmessaging.BlockMessagingFacility;
 import org.hiero.block.node.spi.blockmessaging.NoBackPressureBlockItemHandler;
 import org.hiero.hapi.block.node.BlockItemUnparsed;
@@ -52,9 +53,9 @@ public class BlockMessagingServiceDynamicBlockItemTest {
         final AtomicInteger onTooFarBehindErrorCalled = new AtomicInteger(0);
         final NoBackPressureBlockItemHandler slowHandler = new NoBackPressureBlockItemHandler() {
             @Override
-            public void handleBlockItemsReceived(List<BlockItemUnparsed> items) {
+            public void handleBlockItemsReceived(BlockItems items) {
                 // process items
-                int receivedValue = bytesToInt(items.getFirst().blockHeader());
+                int receivedValue = bytesToInt(items.blockItems().getFirst().blockHeader());
                 // add up all the received values
                 slowHandlerCounter.addAndGet(receivedValue);
                 // slow us down, waiting for fast handler to release us every 100 it gets
@@ -83,8 +84,8 @@ public class BlockMessagingServiceDynamicBlockItemTest {
             }
 
             @Override
-            public void handleBlockItemsReceived(List<BlockItemUnparsed> blockItems) {
-                int receivedValue = bytesToInt(blockItems.getFirst().blockHeader());
+            public void handleBlockItemsReceived(BlockItems blockItems) {
+                int receivedValue = bytesToInt(blockItems.blockItems().getFirst().blockHeader());
                 fastHandlerCounter.addAndGet(receivedValue);
                 // every 100 items we will release the slow handler
                 if (receivedValue % 100 == 0) {
@@ -111,8 +112,8 @@ public class BlockMessagingServiceDynamicBlockItemTest {
         messagingService.start();
         // send 2000 items to the service, in lock step with fast handler
         for (int i = 0; i < TEST_DATA_COUNT; i++) {
-            messagingService.sendBlockItems(
-                    List.of(new BlockItemUnparsed(new OneOf<>(ItemOneOfType.BLOCK_HEADER, intToBytes(i)))));
+            messagingService.sendBlockItems(new BlockItems(
+                    List.of(new BlockItemUnparsed(new OneOf<>(ItemOneOfType.BLOCK_HEADER, intToBytes(i)))),-1));
             // notify the fast handler that we are done sending an item, so we stay in lock step
             try {
                 barrier.await(5, TimeUnit.SECONDS);
@@ -150,9 +151,9 @@ public class BlockMessagingServiceDynamicBlockItemTest {
         final AtomicInteger handler2Sum = new AtomicInteger(0);
         final NoBackPressureBlockItemHandler handler1 = new NoBackPressureBlockItemHandler() {
             @Override
-            public void handleBlockItemsReceived(List<BlockItemUnparsed> items) {
+            public void handleBlockItemsReceived(BlockItems items) {
                 // process items
-                int receivedValue = bytesToInt(items.getFirst().blockHeader());
+                int receivedValue = bytesToInt(items.blockItems().getFirst().blockHeader());
                 // add up all the received values
                 handler1Sum.addAndGet(receivedValue);
                 // update count of calls
@@ -166,9 +167,9 @@ public class BlockMessagingServiceDynamicBlockItemTest {
         };
         final NoBackPressureBlockItemHandler handler2 = new NoBackPressureBlockItemHandler() {
             @Override
-            public void handleBlockItemsReceived(List<BlockItemUnparsed> blockItems) {
+            public void handleBlockItemsReceived(BlockItems blockItems) {
                 // process items
-                int receivedValue = bytesToInt(blockItems.getFirst().blockHeader());
+                int receivedValue = bytesToInt(blockItems.blockItems().getFirst().blockHeader());
                 // add up all the received values
                 handler2Sum.addAndGet(receivedValue);
                 // check if we are done
@@ -199,8 +200,8 @@ public class BlockMessagingServiceDynamicBlockItemTest {
                     throw new RuntimeException(e);
                 }
             }
-            messagingService.sendBlockItems(
-                    List.of(new BlockItemUnparsed(new OneOf<>(ItemOneOfType.BLOCK_HEADER, intToBytes(i)))));
+            messagingService.sendBlockItems(new BlockItems(
+                    List.of(new BlockItemUnparsed(new OneOf<>(ItemOneOfType.BLOCK_HEADER, intToBytes(i)))),-1));
             // have to slow down production to make test reliable
             try {
                 Thread.sleep(1);

@@ -27,6 +27,7 @@ import org.hiero.block.node.publisher.PublisherConfig.PublisherType;
 import org.hiero.block.node.publisher.UpdateCallback.UpdateType;
 import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.BlockNodePlugin;
+import org.hiero.block.node.spi.blockmessaging.BlockItems;
 import org.hiero.block.node.spi.blockmessaging.BlockNotification;
 import org.hiero.block.node.spi.blockmessaging.BlockNotificationHandler;
 import org.hiero.hapi.block.node.BlockItemUnparsed;
@@ -200,12 +201,12 @@ public class PublisherServicePlugin implements BlockNodePlugin, ServiceInterface
      * @param blockItems the block items to send to the messaging service
      */
     private void sendBlockItemsToMessagingService(
-            final List<BlockItemUnparsed> blockItems) {
+            @NonNull final BlockItems blockItems) {
         if (publisherConfig.type() == PublisherType.PRODUCTION) {
             // send the block items to the messaging service
             context.blockMessaging().sendBlockItems(blockItems);
             // update the metrics
-            liveBlockItemsMessaged.add(blockItems.size());
+            liveBlockItemsMessaged.add(blockItems.blockItems().size());
         } else {
             // in test mode, we just log the block items
             LOGGER.log(INFO, "NO_OP MODE -> Not sending block items to messaging service: {0}", blockItems);
