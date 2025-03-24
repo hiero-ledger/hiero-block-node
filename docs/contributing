@@ -9,7 +9,7 @@ In addition to the [Hiero Contributing Guidelines](https://github.com/hiero-ledg
 
 Issues should be created using one of the issue templates. GitHub allows these templates to be bypassed in some areas of its user interface, but users should refrain from doing so and ensure all fields of the template are filled.
 Any issues that have been addressed on `main` or a `release` branches are required to have a milestone associated with them.
-Additonally, `type` must be selected, and issues should have a parent issue if that is known.
+Additionally, `type` must be selected, and issues should have a parent issue if that is known.
 Project maintainers will assign an appropriate parent if none is set initially.
 
 ## Labels
@@ -22,6 +22,8 @@ Every issue should have one of these mandatory Type labels:
 - dependencies
 - documentation
 - enhancement
+- improvements
+- tests
 
 This label will be used for grouping items in the release notes. Additionally, issues are also recommended to have a green Area label to indicate which component is impacted and to route it to the appropriate team member. Any other label can be added on an as-needed basis.
 
@@ -35,7 +37,7 @@ Pull requests should be created using one of the pull request templates.
 Particularly, the PR should have a reference to the issue it addresses, and the PR should have a clear description of the changes it proposes to assist reviewers.
 
 The description should contain a short description of the change, followed by a bulleted list of changes in imperative 
-present tense (i.e. use terms like `add`, `remove`, `change`, etc.) - inspired by [git kernel imperatove mood](https://web.git.kernel.org/pub/scm/git/git.git/tree/Documentation/SubmittingPatches?h=v2.36.1#n181). 
+present tense (i.e. use terms like `add`, `remove`, `change`, etc.) - inspired by [git kernel imperative mood](https://web.git.kernel.org/pub/scm/git/git.git/tree/Documentation/SubmittingPatches?h=v2.36.1#n181).
 This description should be copied to the commit message once the PR is approved and squash-merged to the target branch.
 Below is a good example of a PR description:
 

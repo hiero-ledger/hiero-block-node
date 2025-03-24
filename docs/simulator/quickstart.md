@@ -42,8 +42,8 @@ Refer to the [Configuration](../../simulator/docs/configuration.md) for configur
 
 ### Run the Server first
 
-Usually, you would want to run the [Server](../../server/README.md) first, refer to the
-[Quickstart of the Server](../../server/docs/quickstart.md) for a quick guide on how to
+Usually, you would want to run the [Server](../server/README.md) first, refer to the
+[Quickstart of the Server](../server/quickstart.md) for a quick guide on how to
 get started with the application.
 
 ### Run the Simulator
