@@ -2,8 +2,6 @@ package org.hiero.block.node.spi.blockmessaging;
 
 import static org.hiero.block.node.spi.BlockNodePlugin.UNKNOWN_BLOCK_NUMBER;
 
-import com.hedera.hapi.block.stream.output.BlockHeader;
-import com.hedera.pbj.runtime.ParseException;
 import java.util.List;
 import org.hiero.block.node.spi.BlockNodePlugin;
 import org.hiero.hapi.block.node.BlockItemUnparsed;
@@ -20,4 +18,13 @@ import org.hiero.hapi.block.node.BlockItemUnparsed;
 public record BlockItems(
         List<BlockItemUnparsed> blockItems, long newBlockNumber
 ) {
+
+    /**
+     * Helper method to check if these items include the start of a new block.
+     *
+     * @return true if these items include the start of a new block, false otherwise.
+     */
+    public boolean isStartOfNewBlock() {
+        return newBlockNumber != UNKNOWN_BLOCK_NUMBER;
+    }
 }
