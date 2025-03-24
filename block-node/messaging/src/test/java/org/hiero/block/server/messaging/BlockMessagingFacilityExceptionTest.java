@@ -7,6 +7,7 @@ import java.util.Collections;
 import java.util.logging.Handler;
 import java.util.logging.LogRecord;
 import org.hiero.block.node.messaging.BlockMessagingFacilityImpl;
+import org.hiero.block.node.spi.blockmessaging.BlockItems;
 import org.hiero.block.node.spi.blockmessaging.BlockMessagingFacility;
 import org.hiero.block.node.spi.blockmessaging.BlockNotification;
 import org.hiero.block.node.spi.blockmessaging.BlockNotification.Type;
@@ -60,7 +61,7 @@ public class BlockMessagingFacilityExceptionTest {
         BlockMessagingFacility service = new BlockMessagingFacilityImpl();
         // register a block item handler that just throws an exception
         service.registerBlockItemHandler(
-                blockItems -> {
+                (blockItems) -> {
                     // Simulate an exception
                     throw new RuntimeException("Simulated exception");
                 },
@@ -73,8 +74,8 @@ public class BlockMessagingFacilityExceptionTest {
         } catch (InterruptedException e) {
             throw new RuntimeException(e);
         }
-        service.sendBlockItems(Collections.emptyList());
-        service.sendBlockItems(Collections.emptyList());
+        service.sendBlockItems(new BlockItems(Collections.emptyList(), -1));
+        service.sendBlockItems(new BlockItems(Collections.emptyList(), -1));
         service.shutdown();
         // wait for the log handler to process the log messages
         for (int i = 0; i < 10 && logHandler.getLogMessages().isEmpty(); i++) {
@@ -111,8 +112,8 @@ public class BlockMessagingFacilityExceptionTest {
         } catch (InterruptedException e) {
             throw new RuntimeException(e);
         }
-        service.sendBlockNotification(new BlockNotification(1, Type.BLOCK_VERIFIED));
-        service.sendBlockNotification(new BlockNotification(1, Type.BLOCK_VERIFIED));
+        service.sendBlockNotification(new BlockNotification(1, Type.BLOCK_VERIFIED, null));
+        service.sendBlockNotification(new BlockNotification(1, Type.BLOCK_VERIFIED, null));
         service.shutdown();
         // wait for the log handler to process the log messages
         for (int i = 0; i < 10 && logHandler.getLogMessages().isEmpty(); i++) {

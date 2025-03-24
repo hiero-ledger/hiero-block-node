@@ -3,21 +3,18 @@ package org.hiero.block.node.subscriber;
 import static org.hiero.block.node.spi.BlockNodePlugin.METRICS_CATEGORY;
 import static org.hiero.block.node.spi.BlockNodePlugin.UNKNOWN_BLOCK_NUMBER;
 
-import com.hedera.hapi.block.stream.output.BlockHeader;
 import com.hedera.pbj.runtime.OneOf;
-import com.hedera.pbj.runtime.ParseException;
 import com.hedera.pbj.runtime.grpc.Pipeline;
 import com.swirlds.metrics.api.Counter;
 import java.lang.System.Logger.Level;
-import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Flow;
 import java.util.concurrent.Flow.Subscription;
 import java.util.function.Consumer;
 import org.hiero.block.node.spi.BlockNodeContext;
+import org.hiero.block.node.spi.blockmessaging.BlockItems;
 import org.hiero.block.node.spi.blockmessaging.NoBackPressureBlockItemHandler;
 import org.hiero.hapi.block.node.BlockItemSetUnparsed;
-import org.hiero.hapi.block.node.BlockItemUnparsed;
 import org.hiero.hapi.block.node.SubscribeStreamRequest;
 import org.hiero.hapi.block.node.SubscribeStreamResponseCode;
 import org.hiero.hapi.block.node.SubscribeStreamResponseUnparsed;
@@ -133,15 +130,14 @@ public class BlockStreamSubscriberSession  implements Pipeline<SubscribeStreamRe
      * Process the block items to send to client
      *
      * @param blockItems The block items to send to the client
-     * @param blockNumber The block number if block items is start of block or UNKNOWN_BLOCK_NUMBER otherwise
      */
-    private synchronized void processBlockItemsForClient(List<BlockItemUnparsed> blockItems, long blockNumber) {
+    private synchronized void processBlockItemsForClient(final BlockItems blockItems) {
         // check if blockItems is start of new block, and we have an end block number to check against
-        if (blockNumber != UNKNOWN_BLOCK_NUMBER) {
-            currentBlockBeingSent = blockNumber;
+        if (blockItems.newBlockNumber() != UNKNOWN_BLOCK_NUMBER) {
+            currentBlockBeingSent = blockItems.newBlockNumber();
             // check if we have hit the end block number and should stop streaming
             if (subscribeStreamRequest.endBlockNumber() != UNKNOWN_BLOCK_NUMBER &&
-                    blockNumber > subscribeStreamRequest.endBlockNumber()) {
+                    blockItems.newBlockNumber() > subscribeStreamRequest.endBlockNumber()) {
                 LOGGER.log(Level.INFO, "Client {0} has reached end block number {1}", clientId,
                         subscribeStreamRequest.endBlockNumber());
                 // send end of stream response
@@ -153,7 +149,7 @@ public class BlockStreamSubscriberSession  implements Pipeline<SubscribeStreamRe
         }
         // send the block items to the client
         responsePipeline.onNext(new SubscribeStreamResponseUnparsed(
-                new OneOf<>(ResponseOneOfType.BLOCK_ITEMS,new BlockItemSetUnparsed(blockItems))));
+                new OneOf<>(ResponseOneOfType.BLOCK_ITEMS,new BlockItemSetUnparsed(blockItems.blockItems()))));
     }
 
     // ==== Historical Streaming Thread Methods ========================================================================
@@ -188,7 +184,7 @@ public class BlockStreamSubscriberSession  implements Pipeline<SubscribeStreamRe
                         final var block = context.historicalBlockProvider().block(i).blockUnparsed();
                         // handle as if it was received from the block messaging system
                         // TODO does it matter that we send a whole block at a time here?
-                        handleBlockItemsReceived(block.blockItems());
+                        handleBlockItemsReceived(new BlockItems(block.blockItems(),i));
                     }
                 } catch (Exception e) {
                     LOGGER.log(Level.ERROR, "Error in BlockStreamSubscriberSession for client {1}", clientId, e);
@@ -235,8 +231,8 @@ public class BlockStreamSubscriberSession  implements Pipeline<SubscribeStreamRe
      * {@inheritDoc}
      */
     @Override
-    public synchronized void handleBlockItemsReceived(List<BlockItemUnparsed> blockItems) {
-        final long newBlockNumber = getBlockNumberFromBlockItems(blockItems);
+    public synchronized void handleBlockItemsReceived(BlockItems blockItems) {
+        final long newBlockNumber = blockItems.newBlockNumber();
         switch (currentState) {
             case SENDING_LIVE_STREAM_WAITING_FOR_BLOCK_START -> {
                 if (newBlockNumber != UNKNOWN_BLOCK_NUMBER) {
@@ -246,14 +242,14 @@ public class BlockStreamSubscriberSession  implements Pipeline<SubscribeStreamRe
                     currentState = SubscriberState.SENDING_LIVE_STREAM;
                     currentBlockBeingSent = newBlockNumber;
                     // send the block items to the client
-                    processBlockItemsForClient(blockItems, newBlockNumber);
+                    processBlockItemsForClient(blockItems);
                 } else {
                     // we have not received a block yet, so ignore the block items
                     LOGGER.log(Level.DEBUG, "Client {0} is waiting for start of new block", clientId);
                 }
             }
             case SENDING_LIVE_STREAM ->
-                processBlockItemsForClient(blockItems, newBlockNumber);
+                processBlockItemsForClient(blockItems);
             case SENDING_HISTORICAL_STREAM -> {
                 // check if start of new block,
                 if (newBlockNumber != UNKNOWN_BLOCK_NUMBER) {
@@ -271,7 +267,7 @@ public class BlockStreamSubscriberSession  implements Pipeline<SubscribeStreamRe
                             // live-streaming
                             currentState = SubscriberState.SENDING_LIVE_STREAM;
                             currentBlockBeingSent = newBlockNumber;
-                            processBlockItemsForClient(blockItems, newBlockNumber);
+                            processBlockItemsForClient(blockItems);
                         } catch (InterruptedException e) {
                             LOGGER.log(Level.ERROR, "Error waiting on barrier in BlockStreamSubscriberSession "
                                     + "for client {1}", clientId, e);
@@ -364,24 +360,4 @@ public class BlockStreamSubscriberSession  implements Pipeline<SubscribeStreamRe
         }
     }
 
-    // ==== Utility Methods ============================================================================================
-
-    /**
-     * Utility method to get the block number from the block items. If the block items are staring from start of new
-     * block with a block header.
-     *
-     * @param blockItems The block items to get the block number from
-     * @return The block number if the block items are start of new block, otherwise UNKNOWN_BLOCK_NUMBER
-     */
-    private static long getBlockNumberFromBlockItems(List<BlockItemUnparsed> blockItems) {
-        if (!blockItems.isEmpty() && blockItems.getFirst().hasBlockHeader()) {
-            try {
-                //noinspection DataFlowIssue
-                return BlockHeader.PROTOBUF.parse(blockItems.getFirst().blockHeader()).number();
-            } catch (ParseException e) {
-                throw new RuntimeException(e);
-            }
-        }
-        return UNKNOWN_BLOCK_NUMBER;
-    }
 }

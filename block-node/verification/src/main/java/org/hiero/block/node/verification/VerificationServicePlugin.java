@@ -8,10 +8,10 @@ import com.hedera.hapi.block.stream.output.BlockHeader;
 import com.swirlds.metrics.api.Counter;
 import io.helidon.common.Builder;
 import io.helidon.webserver.Routing;
-import java.util.List;
 import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.BlockNodePlugin;
 import org.hiero.block.node.spi.blockmessaging.BlockItemHandler;
+import org.hiero.block.node.spi.blockmessaging.BlockItems;
 import org.hiero.block.node.spi.blockmessaging.BlockNotification;
 import org.hiero.hapi.block.node.BlockItemUnparsed;
 
@@ -95,7 +95,7 @@ public class VerificationServicePlugin implements BlockNodePlugin, BlockItemHand
      * @param blockItems the immutable list of block items to handle
      */
     @Override
-    public void handleBlockItemsReceived(List<BlockItemUnparsed> blockItems) {
+    public void handleBlockItemsReceived(BlockItems blockItems) {
         try {
             if (!context.serverHealth().isRunning()) {
                 LOGGER.log(ERROR, "Service is not running. Block item will not be processed further.");
