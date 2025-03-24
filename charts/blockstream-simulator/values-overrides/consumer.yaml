@@ -3,6 +3,5 @@ replicas: 2
 
 simulator:
   config:
-    JAVA_TOOL_OPTIONS: "-Djava.util.logging.config.file=/app/logs/config/logging.properties"
     GRPC_SERVER_ADDRESS: "my-bn-block-node-helm-chart"
     BLOCK_STREAM_SIMULATOR_MODE: "CONSUMER"
