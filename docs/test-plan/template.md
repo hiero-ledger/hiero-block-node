@@ -4,7 +4,7 @@
 
 <!-- Provide a brief overview of the feature or component under test. Provide a link to the design document or HIP if available. -->
 
-## Key Features
+## Key Considerations
 
 <!-- Provide a list of more intricate considerations that are note worthy in the implementation or experience. -->
 
