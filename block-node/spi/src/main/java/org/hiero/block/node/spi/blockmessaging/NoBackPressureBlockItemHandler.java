@@ -1,12 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.node.spi.blockmessaging;
 
-import java.util.List;
-
 /**
  * This interface is used to handle block items without applying back pressure. If the handler can not keep up with the
  * incoming block items, it will receive a call on the {@link #onTooFarBehindError()} method. After that point the
- * handler will not get calls to {@link #handleBlockItemsReceived(List)} anymore.
+ * handler will not get calls to {@link BlockItemHandler#handleBlockItemsReceived(BlockItems)} anymore.
  */
 public interface NoBackPressureBlockItemHandler extends BlockItemHandler {
     /**

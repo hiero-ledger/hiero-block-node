@@ -22,10 +22,9 @@ javaModules {
         module("publisher") { artifact = "block-node-publisher" }
         module("subscriber") { artifact = "block-node-subscriber" }
         module("verification") { artifact = "block-node-verification" }
-        // module("persistence") { artifact = "service-persistence" }
-        // module("persistence-api") { artifact = "service-persistence-api" }
-        // module("configuration") { artifact = "facility-configuration" }
-        // module("registrar") { artifact = "facility-registrar" }
-        // module("facilities-api") { artifact = "facilities-api" }
+        module("block-providers/cloud.archive") { artifact = "block-node-blocks-cloud-archive" }
+        module("block-providers/cloud.historic") { artifact = "block-node-blocks-cloud-historic" }
+        module("block-providers/files.historic") { artifact = "block-node-blocks-file-historic" }
+        module("block-providers/files.recent") { artifact = "block-node-blocks-file-recent" }
     }
 }
