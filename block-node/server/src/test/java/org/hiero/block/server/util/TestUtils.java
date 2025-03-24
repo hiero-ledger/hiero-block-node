@@ -7,6 +7,7 @@ import java.nio.file.attribute.PosixFilePermission;
 import java.nio.file.attribute.PosixFilePermissions;
 import java.util.Set;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.mockito.stubbing.Answer;
 
 public final class TestUtils {
@@ -52,6 +53,13 @@ public final class TestUtils {
                 throw new IllegalStateException("Event calls exceeded");
             }
             latch.countDown();
+            return null;
+        };
+    }
+
+    public static Answer<Void> onEventIncrementCount(AtomicInteger count) {
+        return invocation -> {
+            count.incrementAndGet();
             return null;
         };
     }

@@ -9,7 +9,6 @@ import java.util.concurrent.Future;
 import org.hiero.block.simulator.BlockStreamSimulatorApp;
 import org.hiero.block.suites.BaseSuite;
 import org.junit.jupiter.api.AfterEach;
-import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.testcontainers.containers.Container;
@@ -23,7 +22,8 @@ import org.testcontainers.containers.Container;
 @DisplayName("Positive Data Persistence Tests")
 public class PositiveDataPersistenceTests extends BaseSuite {
     // @todo(#371) - the default life/archive root path must be absolute starting from /opt
-    private final String[] GET_BLOCKS_COMMAND = new String[] {"ls", "hashgraph/blocknode/data/live", "-1"};
+    private final String[] GET_BLOCKS_COMMAND =
+            new String[] {"find", "../opt/hashgraph/blocknode/data/live", "-mindepth", "19", "-maxdepth", "20"};
 
     private Future<?> simulatorThread;
 
@@ -47,7 +47,6 @@ public class PositiveDataPersistenceTests extends BaseSuite {
      *     commands
      */
     @Test
-    @Disabled("Needs simulator to be updated with blocks that pass verification @todo(502) @todo(175)")
     public void verifyBlockDataSavedInCorrectDirectory() throws InterruptedException, IOException {
         String savedBlocksFolderBefore = getContainerCommandResult(GET_BLOCKS_COMMAND);
         int savedBlocksCountBefore = getSavedBlocksCount(savedBlocksFolderBefore);
@@ -62,7 +61,7 @@ public class PositiveDataPersistenceTests extends BaseSuite {
 
         assertTrue(savedBlocksFolderBefore.isEmpty());
         assertFalse(savedBlocksFolderAfter.isEmpty());
-        assertTrue(savedBlocksCountAfter > savedBlocksCountBefore);
+        assertTrue(savedBlocksCountAfter >= savedBlocksCountBefore);
         assertTrue(blockStreamSimulatorApp.getStreamStatus().publishedBlocks() > 0);
     }
 

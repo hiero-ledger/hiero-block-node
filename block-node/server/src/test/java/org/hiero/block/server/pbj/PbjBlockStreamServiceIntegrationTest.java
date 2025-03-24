@@ -9,6 +9,7 @@ import static org.hiero.block.server.util.PersistTestUtils.PERSISTENCE_STORAGE_A
 import static org.hiero.block.server.util.PersistTestUtils.PERSISTENCE_STORAGE_LIVE_ROOT_PATH_KEY;
 import static org.hiero.block.server.util.PersistTestUtils.PERSISTENCE_STORAGE_UNVERIFIED_ROOT_PATH_KEY;
 import static org.hiero.block.server.util.PersistTestUtils.generateBlockItemsUnparsed;
+import static org.hiero.block.server.util.TestUtils.onEventIncrementCount;
 import static org.hiero.block.server.util.TestUtils.onEventLatchCountdown;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.ArgumentMatchers.any;
@@ -52,6 +53,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ForkJoinPool;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.hiero.block.server.ack.AckHandler;
 import org.hiero.block.server.ack.AckHandlerImpl;
 import org.hiero.block.server.block.BlockInfo;
@@ -415,9 +417,45 @@ class PbjBlockStreamServiceIntegrationTest {
     void testFullWithSubscribersAddedDynamically() throws IOException, InterruptedException {
         final int numberOfBlocks = 100;
 
-        final ExecutorService executor = Executors.newFixedThreadPool(1);
+        final BlockingExecutorService subscriberExecutor1 = new BlockingExecutorService(1, 1);
+        final BlockingExecutorService subscriberExecutor2 = new BlockingExecutorService(1, 1);
+        final BlockingExecutorService subscriberExecutor3 = new BlockingExecutorService(1, 1);
+        final BlockingExecutorService subscriberExecutor4 = new BlockingExecutorService(1, 1);
+        final BlockingExecutorService subscriberExecutor5 = new BlockingExecutorService(1, 1);
+        final BlockingExecutorService subscriberExecutor6 = new BlockingExecutorService(1, 1);
+        final BlockingExecutorService persistenceExecutor = new BlockingExecutorService(numberOfBlocks, numberOfBlocks);
+
+        // These latches will be used to await subscription of dynamically added subscribers
+        CountDownLatch subscriber4Latch = new CountDownLatch(1);
+        CountDownLatch subscriber5Latch = new CountDownLatch(1);
+        CountDownLatch subscriber6Latch = new CountDownLatch(1);
+        doAnswer(onEventLatchCountdown(subscriber4Latch))
+                .when(subscribeStreamObserver4)
+                .onSubscribe(any());
+        doAnswer(onEventLatchCountdown(subscriber5Latch))
+                .when(subscribeStreamObserver5)
+                .onSubscribe(any());
+        doAnswer(onEventLatchCountdown(subscriber6Latch))
+                .when(subscribeStreamObserver6)
+                .onSubscribe(any());
+
+        // These counters will be used to determine the exact amount of items passed to the subscribers
+        // because the amount starts to accumulate after the beginning of a new block
+        AtomicInteger sub4CallCount = new AtomicInteger();
+        doAnswer(onEventIncrementCount(sub4CallCount))
+                .when(subscribeStreamObserver4)
+                .onNext(any());
+        AtomicInteger sub5CallCount = new AtomicInteger();
+        doAnswer(onEventIncrementCount(sub5CallCount))
+                .when(subscribeStreamObserver5)
+                .onNext(any());
+        AtomicInteger sub6CallCount = new AtomicInteger();
+        doAnswer(onEventIncrementCount(sub6CallCount))
+                .when(subscribeStreamObserver6)
+                .onNext(any());
+
         final PbjBlockStreamServiceProxy pbjBlockStreamServiceProxy =
-                buildBlockStreamService(blockReaderMock, executor, true, 1);
+                buildBlockStreamService(blockReaderMock, persistenceExecutor, false, 1);
 
         // Register a producer
         final Pipeline<? super Bytes> producerPipeline = pbjBlockStreamServiceProxy.open(
@@ -429,19 +467,25 @@ class PbjBlockStreamServiceIntegrationTest {
                 .open(
                         PbjBlockStreamService.BlockStreamMethod.subscribeBlockStream,
                         optionsMock,
-                        subscribeStreamObserver1)
+                        subscribeStreamObserver1,
+                        subscriberExecutor1,
+                        subscriberExecutor1)
                 .onNext(buildLiveStreamSubscribeStreamRequest());
         pbjBlockStreamServiceProxy
                 .open(
                         PbjBlockStreamService.BlockStreamMethod.subscribeBlockStream,
                         optionsMock,
-                        subscribeStreamObserver2)
+                        subscribeStreamObserver2,
+                        subscriberExecutor2,
+                        subscriberExecutor2)
                 .onNext(buildLiveStreamSubscribeStreamRequest());
         pbjBlockStreamServiceProxy
                 .open(
                         PbjBlockStreamService.BlockStreamMethod.subscribeBlockStream,
                         optionsMock,
-                        subscribeStreamObserver3)
+                        subscribeStreamObserver3,
+                        subscriberExecutor3,
+                        subscriberExecutor3)
                 .onNext(buildLiveStreamSubscribeStreamRequest());
 
         final List<BlockItemUnparsed> blockItems = generateBlockItemsUnparsed(numberOfBlocks);
@@ -455,11 +499,13 @@ class PbjBlockStreamServiceIntegrationTest {
                         .open(
                                 PbjBlockStreamService.BlockStreamMethod.subscribeBlockStream,
                                 optionsMock,
-                                subscribeStreamObserver4)
+                                subscribeStreamObserver4,
+                                subscriberExecutor4,
+                                subscriberExecutor4)
                         .onNext(buildLiveStreamSubscribeStreamRequest());
                 // Pause here for the StreamManager to
                 // subscribe to the StreamMediator
-                Thread.sleep(POLLER_SUBSCRIBER_SLEEP);
+                subscriber4Latch.await();
             }
             // Transmit the BlockItem
             producerPipeline.onNext(PublishStreamRequestUnparsed.PROTOBUF.toBytes(publishStreamRequest));
@@ -469,11 +515,13 @@ class PbjBlockStreamServiceIntegrationTest {
                         .open(
                                 PbjBlockStreamService.BlockStreamMethod.subscribeBlockStream,
                                 optionsMock,
-                                subscribeStreamObserver5)
+                                subscribeStreamObserver5,
+                                subscriberExecutor5,
+                                subscriberExecutor5)
                         .onNext(buildLiveStreamSubscribeStreamRequest());
                 // Pause here for the StreamManager to
                 // subscribe to the StreamMediator
-                Thread.sleep(POLLER_SUBSCRIBER_SLEEP);
+                subscriber5Latch.await();
             }
             // Add a new subscriber
             if (i == 88) {
@@ -481,27 +529,54 @@ class PbjBlockStreamServiceIntegrationTest {
                         .open(
                                 PbjBlockStreamService.BlockStreamMethod.subscribeBlockStream,
                                 optionsMock,
-                                subscribeStreamObserver6)
+                                subscribeStreamObserver6,
+                                subscriberExecutor6,
+                                subscriberExecutor6)
                         .onNext(buildLiveStreamSubscribeStreamRequest());
                 // Pause here for the StreamManager to
                 // subscribe to the StreamMediator
-                Thread.sleep(POLLER_SUBSCRIBER_SLEEP);
+                subscriber6Latch.await();
             }
         }
+        persistenceExecutor.waitTasksToComplete();
+        subscriberExecutor1.waitTasksToComplete();
+        subscriberExecutor2.waitTasksToComplete();
+        subscriberExecutor3.waitTasksToComplete();
+        subscriberExecutor4.waitTasksToComplete();
+        subscriberExecutor5.waitTasksToComplete();
+        subscriberExecutor6.waitTasksToComplete();
 
         // Verify subscribers who were listening before the stream started
-        verifySubscribeStreamResponse(numberOfBlocks, 0, numberOfBlocks, subscribeStreamObserver1, blockItems, true);
-        verifySubscribeStreamResponse(numberOfBlocks, 0, numberOfBlocks, subscribeStreamObserver2, blockItems, true);
-        verifySubscribeStreamResponse(numberOfBlocks, 0, numberOfBlocks, subscribeStreamObserver3, blockItems, true);
+        verifySubscribeStreamResponse(numberOfBlocks, 0, numberOfBlocks, subscribeStreamObserver1, blockItems, false);
+        verifySubscribeStreamResponse(numberOfBlocks, 0, numberOfBlocks, subscribeStreamObserver2, blockItems, false);
+        verifySubscribeStreamResponse(numberOfBlocks, 0, numberOfBlocks, subscribeStreamObserver3, blockItems, false);
 
         // Verify subscribers added while the stream was in progress.
         // The Helidon-provided StreamObserver onNext() method will only
         // be called once a Header BlockItem is reached. So, pass in
         // the number of BlockItems to wait to verify that the method
         // was called.
-        verifySubscribeStreamResponse(numberOfBlocks, 59, numberOfBlocks, subscribeStreamObserver4, blockItems, true);
-        verifySubscribeStreamResponse(numberOfBlocks, 79, numberOfBlocks, subscribeStreamObserver5, blockItems, true);
-        verifySubscribeStreamResponse(numberOfBlocks, 89, numberOfBlocks, subscribeStreamObserver6, blockItems, true);
+        verifySubscribeStreamResponse(
+                numberOfBlocks,
+                blockItems.size() - sub4CallCount.get(),
+                numberOfBlocks,
+                subscribeStreamObserver4,
+                blockItems,
+                false);
+        verifySubscribeStreamResponse(
+                numberOfBlocks,
+                blockItems.size() - sub5CallCount.get(),
+                numberOfBlocks,
+                subscribeStreamObserver5,
+                blockItems,
+                false);
+        verifySubscribeStreamResponse(
+                numberOfBlocks,
+                blockItems.size() - sub6CallCount.get(),
+                numberOfBlocks,
+                subscribeStreamObserver6,
+                blockItems,
+                false);
     }
 
     @Disabled
