@@ -17,9 +17,9 @@ public interface BlockMessagingFacility {
      * taking a long time to return. This should be called by a single thread and the order of calls is significant and
      * preserved.
      *
-     * @param items the block items to send
+     * @param blockItems the block items to send
      */
-    void sendBlockItems(List<BlockItemUnparsed> items);
+    void sendBlockItems(BlockItems blockItems);
 
     /**
      * Use this method to register a block item handler. The handler will be called every time new block items arrive.

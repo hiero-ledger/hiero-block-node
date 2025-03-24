@@ -1,6 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.node.messaging;
 
+import static org.hiero.block.node.spi.BlockNodePlugin.UNKNOWN_BLOCK_NUMBER;
+
+import com.hedera.hapi.block.stream.output.BlockHeader;
+import com.hedera.pbj.runtime.ParseException;
 import com.lmax.disruptor.BatchEventProcessor;
 import com.lmax.disruptor.BatchEventProcessorBuilder;
 import com.lmax.disruptor.ExceptionHandler;
@@ -19,6 +23,7 @@ import java.util.Map;
 import java.util.ServiceLoader;
 import java.util.concurrent.ThreadFactory;
 import org.hiero.block.node.spi.blockmessaging.BlockItemHandler;
+import org.hiero.block.node.spi.blockmessaging.BlockItems;
 import org.hiero.block.node.spi.blockmessaging.BlockMessagingFacility;
 import org.hiero.block.node.spi.blockmessaging.BlockNotification;
 import org.hiero.block.node.spi.blockmessaging.BlockNotificationHandler;
@@ -207,8 +212,8 @@ public class BlockMessagingFacilityImpl implements BlockMessagingFacility {
      * {@inheritDoc}
      */
     @Override
-    public void sendBlockItems(final List<BlockItemUnparsed> items) {
-        blockItemDisruptor.getRingBuffer().publishEvent((event, sequence) -> event.set(items));
+    public void sendBlockItems(final BlockItems blockItems) {
+        blockItemDisruptor.getRingBuffer().publishEvent((event, sequence) -> event.set(blockItems));
     }
 
     /**
@@ -465,6 +470,25 @@ public class BlockMessagingFacilityImpl implements BlockMessagingFacility {
         if (handlerThread != null) {
             handlerThread.interrupt();
         }
+    }
+
+    /**
+     * Utility method to get the block number from the block items. If the block items are staring from start of new
+     * block with a block header.
+     *
+     * @param blockItems The block items to get the block number from
+     * @return The block number if the block items are start of new block, otherwise UNKNOWN_BLOCK_NUMBER
+     */
+    private static long getBlockNumberFromBlockItems(List<BlockItemUnparsed> blockItems) {
+        if (!blockItems.isEmpty() && blockItems.getFirst().hasBlockHeader()) {
+            try {
+                //noinspection DataFlowIssue
+                return BlockHeader.PROTOBUF.parse(blockItems.getFirst().blockHeader()).number();
+            } catch (ParseException e) {
+                throw new RuntimeException(e);
+            }
+        }
+        return UNKNOWN_BLOCK_NUMBER;
     }
 
     /**

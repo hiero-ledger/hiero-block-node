@@ -17,6 +17,7 @@ import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.IntStream;
 import org.hiero.block.node.messaging.BlockMessagingFacilityImpl;
 import org.hiero.block.node.spi.blockmessaging.BlockItemHandler;
+import org.hiero.block.node.spi.blockmessaging.BlockItems;
 import org.hiero.block.node.spi.blockmessaging.BlockMessagingFacility;
 import org.hiero.block.node.spi.blockmessaging.NoBackPressureBlockItemHandler;
 import org.hiero.hapi.block.node.BlockItemUnparsed;
@@ -51,7 +52,7 @@ public class BlockMessagingServiceBlockItemTest {
         AtomicIntegerArray counters = new AtomicIntegerArray(3);
         // create a list of handlers that will call the latch countdown when they reach the expected count
         var testHandlers = IntStream.range(0, 3)
-                .mapToObj(i -> (BlockItemHandler) notification -> {
+                .mapToObj(i -> (BlockItemHandler) (notification) -> {
                     if (expectedCount == counters.incrementAndGet(i)) {
                         // call the latch countdown when we reach the expected count
                         latch.countDown();
@@ -72,8 +73,8 @@ public class BlockMessagingServiceBlockItemTest {
         }
         // send TEST_DATA_COUNT block notifications
         for (int i = 0; i < TEST_DATA_COUNT; i++) {
-            messagingService.sendBlockItems(
-                    List.of(new BlockItemUnparsed(new OneOf<>(ItemOneOfType.BLOCK_HEADER, intToBytes(i)))));
+            messagingService.sendBlockItems(new BlockItems(
+                    List.of(new BlockItemUnparsed(new OneOf<>(ItemOneOfType.BLOCK_HEADER, intToBytes(i)))),-1));
             // we can not send data at full speed as it is just to reliable for testing, sender can out pace the
             // receivers and cause exceptions once in a while
             Thread.sleep(1);
@@ -111,7 +112,7 @@ public class BlockMessagingServiceBlockItemTest {
                     }
 
                     @Override
-                    public void handleBlockItemsReceived(List<BlockItemUnparsed> blockItems) {
+                    public void handleBlockItemsReceived(BlockItems blockItems) {
                         if (expectedCount == counters.incrementAndGet(i)) {
                             // call the latch countdown when we reach the expected count
                             latch.countDown();
@@ -128,8 +129,8 @@ public class BlockMessagingServiceBlockItemTest {
         messagingService.start();
         // send TEST_DATA_COUNT block notifications
         for (int i = 0; i < TEST_DATA_COUNT; i++) {
-            messagingService.sendBlockItems(
-                    List.of(new BlockItemUnparsed(new OneOf<>(ItemOneOfType.BLOCK_HEADER, intToBytes(i)))));
+            messagingService.sendBlockItems(new BlockItems(
+                    List.of(new BlockItemUnparsed(new OneOf<>(ItemOneOfType.BLOCK_HEADER, intToBytes(i)))),-1));
             // we can not send data at full speed as it is just to reliable for testing, sender can out pace the
             // receivers and cause exceptions once in a while
             Thread.sleep(1);
@@ -161,14 +162,14 @@ public class BlockMessagingServiceBlockItemTest {
         final AtomicBoolean handler2WasVirtual = new AtomicBoolean(false);
         // Register a block item handler that just throws an exception
         service.registerBlockItemHandler(
-                blockItems -> {
+                (blockItems) -> {
                     threadName1.set(Thread.currentThread().getName());
                     handler1WasVirtual.set(Thread.currentThread().isVirtual());
                 },
                 false,
                 "FooBar");
         service.registerBlockItemHandler(
-                blockItems -> {
+                (blockItems) -> {
                     threadName2.set(Thread.currentThread().getName());
                     handler2WasVirtual.set(Thread.currentThread().isVirtual());
                 },
@@ -177,7 +178,7 @@ public class BlockMessagingServiceBlockItemTest {
         // start services and send empty block items
         service.start();
         // send empty block items
-        service.sendBlockItems(List.of(new BlockItemUnparsed(new OneOf<>(ItemOneOfType.BLOCK_HEADER, intToBytes(1)))));
+        service.sendBlockItems(new BlockItems(List.of(new BlockItemUnparsed(new OneOf<>(ItemOneOfType.BLOCK_HEADER, intToBytes(1)))),-1));
         try {
             Thread.sleep(50);
         } catch (InterruptedException e) {
