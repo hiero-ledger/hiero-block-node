@@ -17,6 +17,9 @@ PUBLISHER_PROMETHEUS_ENDPOINT_PORT_NUMBER=9998
 # For consumer service
 CONSUMER_BLOCK_STREAM_SIMULATOR_MODE=CONSUMER
 CONSUMER_PROMETHEUS_ENDPOINT_PORT_NUMBER=9997
+
+# Logging props
+JAVA_TOOL_OPTIONS=-Djava.util.logging.config.file=/app/logs/config/logging.properties
 EOL
 
 # Output the values
