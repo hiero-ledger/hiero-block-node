@@ -34,7 +34,7 @@ public final class FileUtilities {
      * <p>
      * Default permissions are set to: rwxr-xr-x
      */
-    private static final FileAttribute<Set<PosixFilePermission>> DEFAULT_FOLDER_PERMISSIONS =
+    public static final FileAttribute<Set<PosixFilePermission>> DEFAULT_FOLDER_PERMISSIONS =
             PosixFilePermissions.asFileAttribute(Set.of(
                     PosixFilePermission.OWNER_READ,
                     PosixFilePermission.OWNER_WRITE,
