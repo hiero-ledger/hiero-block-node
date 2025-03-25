@@ -18,7 +18,7 @@ public class BlockNotificationRingEventTest {
         // should be null before set
         assertNull(event.get(), "The get method should return null if no value has been set");
         // create a BlockNotification instance
-        BlockNotification notification = new BlockNotification(1, BlockNotification.Type.BLOCK_VERIFIED);
+        BlockNotification notification = new BlockNotification(1, BlockNotification.Type.BLOCK_VERIFIED, null);
         // set the notification
         event.set(notification);
         // verify that the get method returns the same notification
