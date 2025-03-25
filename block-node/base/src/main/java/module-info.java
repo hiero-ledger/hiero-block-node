@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 module org.hiero.block.base {
-    exports org.hiero.block.server.config;
-    exports org.hiero.block.server.config.logging;
+    exports org.hiero.block.node.base.config;
     exports org.hiero.block.node.base;
 
     requires transitive com.hedera.pbj.runtime;
