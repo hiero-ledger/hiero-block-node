@@ -6,9 +6,8 @@ import com.swirlds.config.api.ConfigProperty;
 import com.swirlds.config.api.validation.annotation.Min;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.Paths;
-import org.hiero.block.simulator.config.logging.Loggable;
 import org.hiero.block.common.utils.StringUtilities;
+import org.hiero.block.simulator.config.logging.Loggable;
 import org.hiero.block.simulator.config.types.GenerationMode;
 
 /**
