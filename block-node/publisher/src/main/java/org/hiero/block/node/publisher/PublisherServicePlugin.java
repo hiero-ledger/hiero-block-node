@@ -45,8 +45,7 @@ import org.hiero.hapi.block.node.PublishStreamResponse;
  * the rest of the system via the block messaging service. Also, it needs to handle sending confirmation messages back
  * to the consensus nodes when a block have been verified and persisted to disk. If verification fails, it needs to
  * revert to before the bad block and send a message back to the consensus nodes to request a resend of the block.
- * <p>
- * <h3>Threading</h3>
+ * <h2>Threading</h2>
  * Threading is a challenge here as we have calls in from a number of threads. GRPC data arrives to sessions on web
  * server handler threads. The block notification handler is called from the block verification thread. Because we
  * have lots of coordinated state to manage, we need to be careful about thread safety. To solve that we create a single
