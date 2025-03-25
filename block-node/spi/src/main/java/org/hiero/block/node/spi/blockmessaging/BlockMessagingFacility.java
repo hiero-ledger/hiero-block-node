@@ -1,12 +1,15 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.node.spi.blockmessaging;
 
+import org.hiero.block.node.spi.BlockNodePlugin;
+
 /**
- * Service that handles the messaging between the different components of the server. It is used to send block items
- * and block notifications to the different components. It is not meant to become a general purpose messaging service.
+ * A special BlockNodePlugin that is the facility that handles the messaging between the different components of the
+ * server. One implementation has to be available for the block node to operate. It is used to send block items and
+ * block notifications to the different components. It is not meant to become a general purpose messaging service.
  * Implementations of this service are expected to be thread safe and to handle back pressure.
  */
-public interface BlockMessagingFacility {
+public interface BlockMessagingFacility extends BlockNodePlugin {
 
     /**
      * Use this method to send block items to the service. The service will forward items to all registered block item
@@ -84,16 +87,4 @@ public interface BlockMessagingFacility {
      * @param handler the block notification handler to unregister
      */
     void unregisterBlockNotificationHandler(BlockNotificationHandler handler);
-
-    /**
-     * Start the messaging service. This will start the internal threads and start processing messages. All non-dynamic
-     * handlers must have been registered before calling this.
-     */
-    void start();
-
-    /**
-     * Stop the messaging service. This will stop the internal threads and stop processing messages. All handlers will
-     * be unregistered.
-     */
-    void shutdown();
 }

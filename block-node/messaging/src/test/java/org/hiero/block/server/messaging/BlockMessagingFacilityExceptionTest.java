@@ -76,7 +76,7 @@ public class BlockMessagingFacilityExceptionTest {
         }
         service.sendBlockItems(new BlockItems(Collections.emptyList(), -1));
         service.sendBlockItems(new BlockItems(Collections.emptyList(), -1));
-        service.shutdown();
+        service.stop();
         // wait for the log handler to process the log messages
         for (int i = 0; i < 10 && logHandler.getLogMessages().isEmpty(); i++) {
             try {
@@ -114,7 +114,7 @@ public class BlockMessagingFacilityExceptionTest {
         }
         service.sendBlockNotification(new BlockNotification(1, Type.BLOCK_VERIFIED, null));
         service.sendBlockNotification(new BlockNotification(1, Type.BLOCK_VERIFIED, null));
-        service.shutdown();
+        service.stop();
         // wait for the log handler to process the log messages
         for (int i = 0; i < 10 && logHandler.getLogMessages().isEmpty(); i++) {
             try {

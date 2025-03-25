@@ -14,6 +14,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicIntegerArray;
 import java.util.stream.IntStream;
 import org.hiero.block.node.messaging.BlockMessagingFacilityImpl;
+import org.hiero.block.node.messaging.MessagingConfig;
 import org.hiero.block.node.spi.blockmessaging.BlockMessagingFacility;
 import org.hiero.block.node.spi.blockmessaging.BlockNotification;
 import org.hiero.block.node.spi.blockmessaging.BlockNotificationHandler;
@@ -30,7 +31,7 @@ public class BlockMessagingServiceBlockNotificationTest {
      * test the back pressure and the slow handler.
      */
     public static final int TEST_DATA_COUNT =
-            BlockMessagingFacilityImpl.getConfig().queueSize() * 2;
+            TestConfig.getConfig().getConfigData(MessagingConfig.class).queueSize() * 2;
 
     /**
      * Simple test to verify that the messaging service can handle multiple block notification handlers and that
@@ -67,7 +68,7 @@ public class BlockMessagingServiceBlockNotificationTest {
                 latch.await(20, TimeUnit.SECONDS),
                 "Did not finish in time, should " + "have been way faster than 20sec timeout");
         // shutdown the messaging service
-        messagingService.shutdown();
+        messagingService.stop();
         // verify that all handlers received the expected number of items
         for (int i = 0; i < testHandlers.size(); i++) {
             assertEquals(expectedCount, counters.get(i));
@@ -131,7 +132,7 @@ public class BlockMessagingServiceBlockNotificationTest {
                 latch.await(20, TimeUnit.SECONDS),
                 "Did not finish in time, should " + "have been way faster than 20sec timeout");
         // shutdown the messaging service
-        messagingService.shutdown();
+        messagingService.stop();
         // wait for the handlers to finish processing
         for (int i = 0; i < 10 && (counterFast.get() != expectedCount || counterSlow.get() != expectedCount); i++) {
             try {
@@ -219,7 +220,7 @@ public class BlockMessagingServiceBlockNotificationTest {
                 latch.await(20, TimeUnit.SECONDS),
                 "Did not finish in time, should " + "have been way faster than 20sec timeout");
         // shutdown the messaging service
-        messagingService.shutdown();
+        messagingService.stop();
     }
 
     /**
@@ -285,7 +286,7 @@ public class BlockMessagingServiceBlockNotificationTest {
                 latch.await(20, TimeUnit.SECONDS),
                 "Did not finish in time, should have been way faster than 20sec timeout");
         // shutdown the messaging service
-        messagingService.shutdown();
+        messagingService.stop();
         final int expectedTotal = IntStream.range(0, TEST_DATA_COUNT).sum();
         // check that the first handler did not process all notifications
         assertTrue(
