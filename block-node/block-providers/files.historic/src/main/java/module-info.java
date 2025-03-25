@@ -11,7 +11,7 @@ module org.hiero.block.node.blocks.files.historic {
     requires transitive org.hiero.block.stream;
     requires org.hiero.block.base;
     requires org.hiero.block.node.spi;
-    requires com.lmax.disruptor;
+    requires com.github.luben.zstd_jni;
 
     provides BlockProviderPlugin with
             BlocksFilesHistoricPlugin;

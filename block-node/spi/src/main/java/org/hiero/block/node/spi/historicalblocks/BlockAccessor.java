@@ -8,6 +8,7 @@ import com.hedera.pbj.runtime.io.WritableSequentialData;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import com.hedera.pbj.runtime.io.stream.WritableStreamingData;
 import java.io.IOException;
+import java.io.OutputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
@@ -19,6 +20,7 @@ import org.hiero.hapi.block.node.BlockUnparsed;
  * producer(BlockAccessor provider) and consumer(BlockAccessor user) to be able to work together to move the block data
  * from one to the other in the most efficient way possible.
  */
+@SuppressWarnings("unused")
 public interface BlockAccessor {
     /**
      * The format of the block data. The consumer can choose the format that is most efficient for them.
@@ -112,6 +114,22 @@ public interface BlockAccessor {
      * @throws IllegalArgumentException if the format is not one of the available formats
      */
     default void writeBytesTo(Format format, WritableSequentialData output) throws IllegalArgumentException {
+        blockBytes(format).writeTo(output);
+    }
+
+    /**
+     * Write the block in the specified format to the given output stream. This allows the consumer to choose the most
+     * efficient format for them.
+     * <p>
+     * The default implementation uses the {@link #blockBytes(Format)} method to get the block and then writes it encoded to
+     * the output stream.
+     * </p>
+     *
+     * @param format the format to write the block in, has to be one of the available formats returned by {@link #availableFormats()}
+     * @param output the output stream to write the block to
+     * @throws IllegalArgumentException if the format is not one of the available formats
+     */
+    default void writeBytesTo(Format format, OutputStream output) throws IllegalArgumentException {
         blockBytes(format).writeTo(output);
     }
 
