@@ -27,8 +27,7 @@ import org.hiero.hapi.block.node.SubscribeStreamResponseUnparsed.ResponseOneOfTy
  * <p>
  * This session supports two primary modes of operation: live-streaming and historical streaming. Also switching between
  * on demand as needed.
- * <p>
- * <h3>Threading</h3>
+ * <h2>Threading</h2>
  * This class is called from many threads from web server, the block messaging system and its own background historical
  * fetching thread. To make its state thread safe it uses synchronized methods around all entry points from other
  * threads.
