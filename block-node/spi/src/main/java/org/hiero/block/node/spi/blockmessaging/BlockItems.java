@@ -3,6 +3,7 @@ package org.hiero.block.node.spi.blockmessaging;
 import static org.hiero.block.node.spi.BlockNodePlugin.UNKNOWN_BLOCK_NUMBER;
 
 import java.util.List;
+import java.util.Objects;
 import org.hiero.block.node.spi.BlockNodePlugin;
 import org.hiero.hapi.block.node.BlockItemUnparsed;
 
@@ -18,6 +19,15 @@ import org.hiero.hapi.block.node.BlockItemUnparsed;
 public record BlockItems(
         List<BlockItemUnparsed> blockItems, long newBlockNumber
 ) {
+    public BlockItems {
+        Objects.requireNonNull(blockItems);
+        if (blockItems.isEmpty()) {
+            throw new IllegalArgumentException("Block items cannot be empty");
+        }
+        if (newBlockNumber != UNKNOWN_BLOCK_NUMBER && newBlockNumber < 0) {
+            throw new IllegalArgumentException("Block number cannot be negative unless it is UNKNOWN_BLOCK_NUMBER");
+        }
+    }
 
     /**
      * Helper method to check if these items include the start of a new block.
@@ -26,5 +36,14 @@ public record BlockItems(
      */
     public boolean isStartOfNewBlock() {
         return newBlockNumber != UNKNOWN_BLOCK_NUMBER;
+    }
+
+    /**
+     * Helper method to check if this set of items is the end of a block, this is true of last item is a block proof.
+     *
+     * @return true if last item is a block proof, false otherwise.
+     */
+    public boolean isEndOfBlock() {
+        return !blockItems.isEmpty() && blockItems.getLast().hasBlockProof();
     }
 }
