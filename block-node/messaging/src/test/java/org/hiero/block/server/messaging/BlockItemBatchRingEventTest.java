@@ -40,7 +40,8 @@ public class BlockItemBatchRingEventTest {
         // set the items
         event.set(blockItems);
         // verify that the get method returns the same notification
-        assertEquals(blockItems, event.get(), "The set and get methods should return the same BlockNotification instance");
+        assertEquals(
+                blockItems, event.get(), "The set and get methods should return the same BlockNotification instance");
         // verify that the toString method returns a non-empty string
         assertEquals(
                 "BlockItemBatchRingEvent{"
