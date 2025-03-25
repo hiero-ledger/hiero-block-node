@@ -16,10 +16,4 @@ mainModuleInfo {
     runtimeOnly("com.hedera.pbj.grpc.helidon.config")
 }
 
-testModuleInfo {
-    requires("org.junit.jupiter.api")
-    requires("org.junit.jupiter.params")
-    requires("org.mockito")
-    requires("org.mockito.junit.jupiter")
-    requires("org.assertj.core")
-}
+testModuleInfo { requires("org.junit.jupiter.api") }
