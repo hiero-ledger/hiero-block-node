@@ -230,32 +230,35 @@ class ServerMappedConfigSourceInitializerTest {
     }
 
     private static Stream<Arguments> allManagedConfigDataTypes() {
-//        // Add any classes that should be excluded from the test for any reason in the set below
-//        // MetricsConfig is not managed by us.
-//        final Set<Class<? extends Record>> excluded = Set.of(MetricsConfig.class);
-//
-//        // Add any classes that should be partially checked in the map below
-//        // for example, we do not manage PrometheusConfig, but we need the endpointEnabled and endpointPortNumber
-//        // mappings to be present in our scope, so we exclude all other fields. We must do the strategy
-//        // of exclusion and not inclusion because fields in the config classes can be added or removed, we want
-//        // to detect that.
-//        final Entry<Class<PrometheusConfig>, List<String>> prometheusFieldsToExclude =
-//                Map.entry(PrometheusConfig.class, List.of("endpointMaxBacklogAllowed"));
-//        final Map<Class<? extends Record>, List<String>> fieldNamesToExcludeForConfig =
-//                Map.ofEntries(prometheusFieldsToExclude);
-//
-//        // Here are all the config classes that we need to check mappings for
-//        final Set<Class<? extends Record>> allRegisteredRecordsFilteredWithExcluded = new BlockNodeConfigExtension()
-//                .getConfigDataTypes().stream()
-//                        .filter(configType -> !excluded.contains(configType))
-//                        .collect(Collectors.toSet());
-//
-//        // Here we return all config classes that we need to check mappings for and a list of field names to
-//        // exclude from the test for the given config class. If the list is empty, all fields will be checked.
-//        return allRegisteredRecordsFilteredWithExcluded.stream().map(config -> {
-//            final List<String> fieldsToExclude = fieldNamesToExcludeForConfig.getOrDefault(config, List.of());
-//            return Arguments.of(config, fieldsToExclude);
-//        });
+        //        // Add any classes that should be excluded from the test for any reason in the set below
+        //        // MetricsConfig is not managed by us.
+        //        final Set<Class<? extends Record>> excluded = Set.of(MetricsConfig.class);
+        //
+        //        // Add any classes that should be partially checked in the map below
+        //        // for example, we do not manage PrometheusConfig, but we need the endpointEnabled and
+        // endpointPortNumber
+        //        // mappings to be present in our scope, so we exclude all other fields. We must do the strategy
+        //        // of exclusion and not inclusion because fields in the config classes can be added or removed, we
+        // want
+        //        // to detect that.
+        //        final Entry<Class<PrometheusConfig>, List<String>> prometheusFieldsToExclude =
+        //                Map.entry(PrometheusConfig.class, List.of("endpointMaxBacklogAllowed"));
+        //        final Map<Class<? extends Record>, List<String>> fieldNamesToExcludeForConfig =
+        //                Map.ofEntries(prometheusFieldsToExclude);
+        //
+        //        // Here are all the config classes that we need to check mappings for
+        //        final Set<Class<? extends Record>> allRegisteredRecordsFilteredWithExcluded = new
+        // BlockNodeConfigExtension()
+        //                .getConfigDataTypes().stream()
+        //                        .filter(configType -> !excluded.contains(configType))
+        //                        .collect(Collectors.toSet());
+        //
+        //        // Here we return all config classes that we need to check mappings for and a list of field names to
+        //        // exclude from the test for the given config class. If the list is empty, all fields will be checked.
+        //        return allRegisteredRecordsFilteredWithExcluded.stream().map(config -> {
+        //            final List<String> fieldsToExclude = fieldNamesToExcludeForConfig.getOrDefault(config, List.of());
+        //            return Arguments.of(config, fieldsToExclude);
+        //        });
         return Stream.empty(); // TODO fix this
     }
 }

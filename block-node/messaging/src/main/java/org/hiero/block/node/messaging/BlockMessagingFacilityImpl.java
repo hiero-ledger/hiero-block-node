@@ -483,7 +483,9 @@ public class BlockMessagingFacilityImpl implements BlockMessagingFacility {
         if (!blockItems.isEmpty() && blockItems.getFirst().hasBlockHeader()) {
             try {
                 //noinspection DataFlowIssue
-                return BlockHeader.PROTOBUF.parse(blockItems.getFirst().blockHeader()).number();
+                return BlockHeader.PROTOBUF
+                        .parse(blockItems.getFirst().blockHeader())
+                        .number();
             } catch (ParseException e) {
                 throw new RuntimeException(e);
             }

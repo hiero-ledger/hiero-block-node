@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.node.blocks.files.historic;
 
 import com.github.luben.zstd.ZstdInputStream;
@@ -147,7 +148,7 @@ public class ZipBlockAccessor implements BlockAccessor {
      * {@inheritDoc}
      */
     @Override
-    public void writeTo(final Format format,final Path path) throws IOException {
+    public void writeTo(final Format format, final Path path) throws IOException {
         switch (format) {
             case JSON -> {
                 try (final var output = Files.newOutputStream(path)) {

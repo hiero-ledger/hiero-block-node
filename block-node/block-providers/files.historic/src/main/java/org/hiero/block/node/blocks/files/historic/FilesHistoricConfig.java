@@ -24,8 +24,7 @@ public record FilesHistoricConfig(
         @Loggable @ConfigProperty(defaultValue = "/opt/hashgraph/blocknode/data/historic") Path historicRootPath,
         @Loggable @ConfigProperty(defaultValue = "ZSTD") CompressionType compression,
         @Loggable @ConfigProperty(defaultValue = "3") @Min(1) @Max(6) int digitsPerDir,
-        @Loggable @ConfigProperty(defaultValue = "1") @Min(1) @Max(10) int digitsPerZipFileName
-) {
+        @Loggable @ConfigProperty(defaultValue = "1") @Min(1) @Max(10) int digitsPerZipFileName) {
     /**
      * Constructor.
      */

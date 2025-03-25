@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.node.spi.blockmessaging;
 
 import static org.hiero.block.node.spi.BlockNodePlugin.UNKNOWN_BLOCK_NUMBER;
@@ -16,9 +17,7 @@ import org.hiero.hapi.block.node.BlockItemUnparsed;
  * @param newBlockNumber if these items include the start of a new block, this is the block number. If not, this is
  *                       {@link BlockNodePlugin#UNKNOWN_BLOCK_NUMBER}.
  */
-public record BlockItems(
-        List<BlockItemUnparsed> blockItems, long newBlockNumber
-) {
+public record BlockItems(List<BlockItemUnparsed> blockItems, long newBlockNumber) {
     public BlockItems {
         Objects.requireNonNull(blockItems);
         if (blockItems.isEmpty()) {
