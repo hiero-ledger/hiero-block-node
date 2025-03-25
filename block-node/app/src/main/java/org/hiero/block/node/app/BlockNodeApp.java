@@ -46,6 +46,8 @@ public class BlockNodeApp implements HealthFacility {
     private final WebServer webServer;
     /** The server configuration. */
     private final ServerConfig serverConfig;
+    /** The historical block node facility */
+    private final HistoricalBlockFacilityImpl historicalBlockFacility;
 
     /**
      * Constructor for the BlockNodeApp class. This constructor initializes the server configuration,
@@ -70,7 +72,7 @@ public class BlockNodeApp implements HealthFacility {
         final Metrics metrics = metricsProvider.createGlobalMetrics();
 
         // Create HistoricalBlockFacilityImpl
-        final HistoricalBlockFacility blockProvider = new HistoricalBlockFacilityImpl(configuration);
+        historicalBlockFacility = new HistoricalBlockFacilityImpl(configuration);
 
         // Load Block Messaging Service plugin - for now allow nulls
         final BlockMessagingFacility blockMessagingService = ServiceLoader.load(
@@ -102,7 +104,7 @@ public class BlockNodeApp implements HealthFacility {
 
             @Override
             public HistoricalBlockFacility historicalBlockProvider() {
-                return blockProvider;
+                return historicalBlockFacility;
             }
         };
         // Load all the plugins
@@ -130,6 +132,8 @@ public class BlockNodeApp implements HealthFacility {
                 webServerBuilder.addRouting(routingBuilder);
             }
         }
+        // initialize the historical block facility and its block provider plugins
+        historicalBlockFacility.init(blockNodeContext);
         // Build the web server
         webServer = webServerBuilder.build();
     }
@@ -149,6 +153,8 @@ public class BlockNodeApp implements HealthFacility {
             LOGGER.log(INFO, "    Starting plugin: {0}", plugin.name());
             plugin.start();
         }
+        // Start the historical block facility and its block provider plugins
+        historicalBlockFacility.start();
         // mark the server as started
         state.set(State.RUNNING);
     }
