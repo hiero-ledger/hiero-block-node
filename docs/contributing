@@ -18,14 +18,19 @@ Labels are used to group related issues together. Only maintainers have permissi
 For other contributors, project maintainers will adjust the labels as necessary to meet the project's requirements.
 Every issue should have one of these mandatory Type labels:
 
-- bug
-- dependencies
-- documentation
-- enhancement
-- improvements
-- tests
+- "Breaking Change"
+- "Bug"
+- "dependencies"
+- "Design"
+- "Documentation"
+- "Feature Enhancement"
+- "Improvement"
+- "New Feature"
+- "Tests"
+- "Security"
 
-This label will be used for grouping items in the release notes. Additionally, issues are also recommended to have a green Area label to indicate which component is impacted and to route it to the appropriate team member. Any other label can be added on an as-needed basis.
+Additionally, issues are also recommended to have an Area label to indicate which component is impacted and to route it
+to the appropriate team member where possible. Any other label can be added on an as-needed basis.
 
 ## Branches
 Branches should be created using the following naming convention: <issue#>-<description>.
@@ -50,6 +55,8 @@ class and the switch to virtual threads.
 * Fix crashing under heavy load due to lack of non-heap memory
 * Increase max replicas from 2 to 4
 ```
+
+Contributors are also encouraged to include logs, screenshots and steps to test the changes in the PR where applicable.
 
 Every PR should have a corresponding issue associated with it. The pull request should indicate it fixes its
 corresponding issue(s) by using the keyword `Fixes #1234` in the `Related issue(s)` section of the PR template. The
