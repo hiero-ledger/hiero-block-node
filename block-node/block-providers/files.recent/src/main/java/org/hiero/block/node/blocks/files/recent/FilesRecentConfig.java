@@ -6,7 +6,7 @@ import com.swirlds.config.api.ConfigProperty;
 import java.nio.file.Path;
 import java.util.Objects;
 import org.hiero.block.node.base.CompressionType;
-import org.hiero.block.server.config.logging.Loggable;
+import org.hiero.block.node.base.config.Loggable;
 
 /**
  * Use this configuration across the files recent plugin.

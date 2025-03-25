@@ -27,8 +27,8 @@ import org.hiero.block.node.spi.BlockNodePlugin;
 import org.hiero.block.node.spi.blockmessaging.BlockMessagingFacility;
 import org.hiero.block.node.spi.health.HealthFacility;
 import org.hiero.block.node.spi.historicalblocks.HistoricalBlockFacility;
-import org.hiero.block.server.config.ServerMappedConfigSourceInitializer;
-import org.hiero.block.server.config.logging.ConfigurationLoggingImpl;
+import org.hiero.block.node.base.config.ServerMappedConfigSourceInitializer;
+import org.hiero.block.node.base.config.ConfigurationLogging;
 
 /** Main class for the block node server */
 public class BlockNodeApp implements HealthFacility {
@@ -57,6 +57,8 @@ public class BlockNodeApp implements HealthFacility {
      */
     private BlockNodeApp() throws IOException {
         // Init BlockNode Configuration
+        // TODO we might need to do more here to load config from file/files ideally we would have either single config
+        //  file for server and all plugins or single directory with config files for server and all plugins.
         final Configuration configuration = ConfigurationBuilder.create()
                 .withSource(ServerMappedConfigSourceInitializer.getMappedConfigSource())
                 .withSource(SystemPropertiesConfigSource.getInstance())
@@ -65,7 +67,7 @@ public class BlockNodeApp implements HealthFacility {
                 .build();
         serverConfig = configuration.getConfigData(ServerConfig.class);
         // load logging config and log the configuration
-        final ConfigurationLoggingImpl configurationLogging = new ConfigurationLoggingImpl(configuration);
+        final ConfigurationLogging configurationLogging = new ConfigurationLogging(configuration);
         configurationLogging.log();
         // Init Metrics
         final DefaultMetricsProvider metricsProvider = new DefaultMetricsProvider(configuration);

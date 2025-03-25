@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.node.blocks.files.recent;
 
+import static org.hiero.block.node.base.BlockFile.nestedDirectoriesMaxBlockNumber;
+import static org.hiero.block.node.base.BlockFile.nestedDirectoriesMinBlockNumber;
+
 import com.hedera.pbj.runtime.io.stream.WritableStreamingData;
 import java.io.BufferedOutputStream;
 import java.io.IOException;
@@ -113,6 +116,8 @@ public class BlocksFilesRecentPlugin implements BlockProviderPlugin, BlockNotifi
             context.serverHealth().shutdown(BlocksFilesRecentPlugin.class.getName(), e.getMessage());
         }
         // scan file system to find the oldest and newest blocks
+        oldestVerifiedBlockNumber.set(nestedDirectoriesMinBlockNumber(config.liveRootPath(), config.compression()));
+        newestVerifiedBlockNumber.set(nestedDirectoriesMaxBlockNumber(config.liveRootPath(), config.compression()));
     }
 
     /**
@@ -175,7 +180,7 @@ public class BlocksFilesRecentPlugin implements BlockProviderPlugin, BlockNotifi
                         config.liveRootPath(),blockNumber, config.compression(), config.maxFilesPerDir());
                 try {
                     // create parent directory if it does not exist
-                        Files.createDirectories(verifiedBlockPath.getParent(),
+                    Files.createDirectories(verifiedBlockPath.getParent(),
                                 FileUtilities.DEFAULT_FOLDER_PERMISSIONS);
                     // create move file
                     Files.move(unverifiedBlockPath, verifiedBlockPath, StandardCopyOption.ATOMIC_MOVE);
@@ -189,6 +194,9 @@ public class BlocksFilesRecentPlugin implements BlockProviderPlugin, BlockNotifi
                 // we need to update the oldest and newest verified block numbers
                 oldestVerifiedBlockNumber.compareAndSet(UNKNOWN_BLOCK_NUMBER, blockNumber);
                 newestVerifiedBlockNumber.getAndUpdate(existingBlockNumber -> Math.max(existingBlockNumber, blockNumber));
+                // send notification that the block is verified
+                context.blockMessaging().sendBlockNotification(
+                        new BlockNotification(blockNumber, BlockNotification.Type.BLOCK_VERIFIED, null));
             } else {
                 LOGGER.log(Level.WARNING,
                         "Block %d is verified but not found in unverified storage",
