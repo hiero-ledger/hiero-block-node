@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 import org.hiero.block.node.spi.BlockNodePlugin;
 import org.hiero.block.node.spi.blockmessaging.BlockMessagingFacility;
+import org.hiero.block.node.spi.historicalblocks.BlockProviderPlugin;
 import org.hiero.block.node.spi.historicalblocks.HistoricalBlockFacility;
 
 // SPDX-License-Identifier: Apache-2.0
@@ -8,6 +9,7 @@ module org.hiero.block.node.app {
     uses HistoricalBlockFacility;
     uses BlockMessagingFacility;
     uses BlockNodePlugin;
+    uses BlockProviderPlugin;
 
     exports org.hiero.block.node.app;
 
