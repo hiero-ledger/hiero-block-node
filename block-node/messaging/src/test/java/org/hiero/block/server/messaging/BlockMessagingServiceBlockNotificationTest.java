@@ -60,7 +60,7 @@ public class BlockMessagingServiceBlockNotificationTest {
         messagingService.start();
         // send TEST_DATA_COUNT block notifications
         for (int i = 0; i < TEST_DATA_COUNT; i++) {
-            messagingService.sendBlockNotification(new BlockNotification(i, BLOCK_PERSISTED));
+            messagingService.sendBlockNotification(new BlockNotification(i, BLOCK_PERSISTED, null));
         }
         // wait for all handlers to finish
         assertTrue(
@@ -118,7 +118,7 @@ public class BlockMessagingServiceBlockNotificationTest {
         messagingService.start();
         // send TEST_DATA_COUNT block notifications
         for (int i = 0; i < TEST_DATA_COUNT; i++) {
-            messagingService.sendBlockNotification(new BlockNotification(i, BLOCK_PERSISTED));
+            messagingService.sendBlockNotification(new BlockNotification(i, BLOCK_PERSISTED, null));
             // release the slow handler 3 out of 4 times so it is slowed down by 25%
             if (i % 4 == 0) {
                 holdBackSlowHandler.release(3);
@@ -183,7 +183,7 @@ public class BlockMessagingServiceBlockNotificationTest {
         // send TEST_DATA_COUNT block notifications in a background thread
         Thread senderThread = new Thread(() -> {
             for (int i = 0; i < TEST_DATA_COUNT; i++) {
-                messagingService.sendBlockNotification(new BlockNotification(i, BLOCK_PERSISTED));
+                messagingService.sendBlockNotification(new BlockNotification(i, BLOCK_PERSISTED, null));
                 sentCounter.incrementAndGet();
                 // release the slow handler every other time so it is slowed down by 50%
                 if (i % 4 == 0) {
@@ -272,7 +272,7 @@ public class BlockMessagingServiceBlockNotificationTest {
                     throw new RuntimeException(e);
                 }
             }
-            messagingService.sendBlockNotification(new BlockNotification(i, BLOCK_PERSISTED));
+            messagingService.sendBlockNotification(new BlockNotification(i, BLOCK_PERSISTED, null));
             // have to slow down production to make test reliable
             try {
                 Thread.sleep(1);
