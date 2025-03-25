@@ -106,8 +106,11 @@ Showing the information that is currently available in the ServerStatusResponse:
 
 ## Configuration
 
-ServerStatus Configuration will hold the expected `first_desired_block` that the BN should start from, as part of the start-up process a BN should check using the BlockReader, if that Block is available on Disk, if not, should attempt to fetch it from another BN unless is Genesis block, by default it will be set to 0 (Genesis Block), if not possible to fetch it from another BN, it should throw an exception and stop the service.
-
+ServerStatus Configuration will hold the expected `first_desired_block` that the BN should start from.
+As part of the start-up process a BN should check using the BlockReader if that Block is available on Disk, if not,
+it should attempt to fetch it from another BN unless it's the Genesis block.
+If  it's not possible to fetch it from another BN, the BN should throw an exception and stop the service.
+By default `first_desired_block` will be set to 0 (Genesis Block),
 Configuration should also provide value for `only_latest_state`, this might be part of the configuration for the state module.
 
 ## Metrics

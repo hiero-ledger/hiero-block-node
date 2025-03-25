@@ -35,7 +35,7 @@ The release process is automated using a GitHub Actions workflow (`release-autom
 - `x.n.0` for general availability (GA) versions
 - `x.n.p` for patch versions, including hot-fixes
 
-### Steps:
+### Steps
 
 1. **Create or Update Release Branch**:
    - Create a new release branch `release/0.n` if it doesn't exist.

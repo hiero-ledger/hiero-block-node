@@ -10,7 +10,7 @@
 
 ## Overview
 
-This subproject provides command line tools for working with block stream files and maybe other things in the future. It
+This subproject provides command line tools for working with Block Stream files and maybe other things in the future. It
 uses [picocli](https://picocli.info) to provide a command line interface which makes it easy to extend and add new
 subcommands or options.
 
@@ -21,29 +21,29 @@ Refer to the [Quickstart](quickstart.md) for a quick guide on how to run the too
 ## Subcommands
 
 The following subcommands are available:
-- `json` - Converts a binary block stream to JSON
+- `json` - Converts a binary Block Stream to JSON
 - `info` - Prints info for block files
-- `record2block` - Converts a historical record stream files into blocks
-- `fetchRecordsCsv` - Download mirror node record table CSV dump from GCP bucket
-- `extractBlockTimes` - Extract block times from mirror node records csv file
+- `record2block` - Converts a historical Record Stream files into blocks
+- `fetchRecordsCsv` - Download Mirror Node record table CSV dump from GCP bucket
+- `extractBlockTimes` - Extract block times from Mirror Node records csv file
 - `validateBlockTimes` - Validates a block times file as produced by `extractBlockTimes`
 - `addNewerBlockTimes` - Extends the block times file with newer block times
 
 ### The `json` Subcommand
 
-Converts a binary block stream to JSON
+Converts a binary Block Stream to JSON
 
 `Usage: json [-t] [-ms=<minSizeMb>] [<files>...]`
 
 **Options:**
 
 - `-ms <minSizeMb>` or `--min-size=<minSizeMb>`
-  - Filter to only files bigger than this minimum file size in megabytes
+    - Filter to only files bigger than this minimum file size in megabytes
 - `-t` or `--transactions`
-  - expand transactions, this is no longer pure json conversion but is very useful making the
+    - expand transactions, this is no longer pure json conversion but is very useful making the
     transactions human-readable.
 - `<files>...`
-  - The block files or directories of block files to convert to JSON
+    - The block files or directories of block files to convert to JSON
 
 ### The `info` Subcommand
 
@@ -54,17 +54,17 @@ Prints info for block files
 **Options:**
 
 - `-c` or `--csv`
-  - Enable CSV output mode (default: false)
+    - Enable CSV output mode (default: false)
 - `-ms <minSizeMb>` or `--min-size=<minSizeMb>`
-  - Filter to only files bigger than this minimum file size in megabytes
+    - Filter to only files bigger than this minimum file size in megabytes
 - `-o <outputFile>` or `--output-file=<outputFile>`
-  - Output to file rather than stdout
+    - Output to file rather than stdout
 - `<files>...`
-  - The block files or directories of block files to print info for
+    - The block files or directories of block files to print info for
 
 ### The `record2block` Subcommand
 
-Converts a historical record stream files into blocks. This depends on the `block_times.bin` file being present. It can
+Converts a historical Record Stream files into blocks. This depends on the `block_times.bin` file being present. It can
 be created by running the other commands `fetchRecordsCsv`, `extractBlockTimes` and `addNewerBlockTimes` in that order.
 It can also be validated by running the `validateBlockTimes` command.
 
@@ -78,35 +78,35 @@ for more info.
 **Options:**
 
 - `-s <blockNumber>` or `--start-block=<blockNumber>`
-  - The first block number to process
-  - Default: 0
+    - The first block number to process
+    - Default: 0
 - `-e <blockNumber>` or `--end-block=<blockNumber>`
-  - The last block number to process
-  - Default: 3001
+    - The last block number to process
+    - Default: 3001
 - `-j` or `--json`
-  - also output blocks as json, useful for debugging and testing
-  - Default: false
+    - also output blocks as json, useful for debugging and testing
+    - Default: false
 - `-c` or `--cache-enabled`
-  - Use local cache for downloaded content, saves cloud costs and bandwidth when testing
-  - Default: false
+    - Use local cache for downloaded content, saves cloud costs and bandwidth when testing
+    - Default: false
 - `--min-node-account-id=<minNodeAccountId>`
-  - the account id of the first node in the network
-  - Default: 3
+    - the account id of the first node in the network
+    - Default: 3
 - `--max-node-account-id=<maxNodeAccountId>`
-  - the account id of the last node in the network
-  - Default: 34
+    - the account id of the last node in the network
+    - Default: 34
 - `--data-dir=<dataDir>`
-  - the data directory for output and temporary files
-  - Default: "data"
+    - the data directory for output and temporary files
+    - Default: "data"
 - `--block-times=<blockTimesFile>`
-  - Path to the block times ".bin" file.
-  - Default: "data/block_times.bin"
+    - Path to the block times ".bin" file.
+    - Default: "data/block_times.bin"
 
 ### The `fetchRecordsCsv` Subcommand
 
-Download mirror node record table CSV dump from GCP bucket. The records table on mirror node has a row for every block
-mirror node knows about. The CSV file is huge 11GB+ in November 2024. This data is important for records to blocks
-conversion as we have to make sure the block number assigned for a record file matches what mirror node says as the
+Download Mirror Node record table CSV dump from GCP bucket. The records table on Mirror Node has a row for every block
+Mirror Node knows about. The CSV file is huge 11GB+ in November 2024. This data is important for records to blocks
+conversion as we have to make sure the block number assigned for a record file matches what Mirror Node says as the
 source of truth.
 
 This command depends on reading data from public requester pays Google Cloud buckets. To do that it needs you to be
@@ -119,13 +119,13 @@ for more info.
 **Options:**
 
 - `--record-csv=<recordFilePath>`
-  - Path to the record CSV file.
-  - Default: "data/record.csv"
+    - Path to the record CSV file.
+    - Default: "data/record.csv"
 
 ### The `extractBlockTimes` Subcommand
 
-Extract block times from mirror node records csv file. Reads <recordFilePath> and produces <blockTimesFile>. We need to
-convert the mirror node records CSV because it is huge 11GB+ compressed and too large to fit into RAM, and we can not
+Extract block times from Mirror Node records csv file. Reads `recordFilePath` and produces `blockTimesFile`. We need to
+convert the Mirror Node records CSV because it is huge 11GB+ compressed and too large to fit into RAM, and we can not
 random access easily. The only part of the data needed for the records to blocks conversion is the block times. The
 block time being the record file time for a given block. The record file consensus time is used as the file name of the
 record file in the bucket.
@@ -140,18 +140,18 @@ number(array offset) into block time, i.e. record file name.
 **Options:**
 
 - `--record-csv=<recordFilePath>`
-  - Path to the record CSV file.
-  - Default: "data/record.csv"
+    - Path to the record CSV file.
+    - Default: "data/record.csv"
 - `--block-times=<blockTimesFile>`
-  - Path to the block times ".bin" file.
-  - Default: "data/block_times.bin"
+    - Path to the block times ".bin" file.
+    - Default: "data/block_times.bin"
 
 ### The `addNewerBlockTimes` Subcommand
 
 Extends the block times file with newer block times. This is done by listing the record files in the bucket and
 counting them for block numbers. It processes day by day, listing one day then appending block times to the block times
-file. Then at the end of each day it checks the block number it has computed still matches mirror node by using the
-mirror node REST API. This whole process can take a long time if the mirror node CSV dump is old.
+file. Then at the end of each day it checks the block number it has computed still matches Mirror Node by using the
+Mirror Node REST API. This whole process can take a long time if the Mirror Node CSV dump is old.
 
 This command depends on reading data from public requester pays Google Cloud buckets. To do that it needs you to be
 authenticated with the Google Cloud SDK. You can authenticate with `gcloud auth application-default login` or
@@ -163,17 +163,17 @@ for more info.
 **Options:**
 
 - `-c` or `--cache-enabled`
-  - Use local cache for downloaded content, saves cloud costs and bandwidth when testing
-  - Default: true
+    - Use local cache for downloaded content, saves cloud costs and bandwidth when testing
+    - Default: true
 - `--min-node-account-id=<minNodeAccountId>`
-  - the account id of the first node in the network
-  - Default: 3
+    - the account id of the first node in the network
+    - Default: 3
 - `--max-node-account-id=<maxNodeAccountId>`
-  - the account id of the last node in the network
-  - Default: 34
+    - the account id of the last node in the network
+    - Default: 34
 - `--data-dir=<dataDir>`
-  - the data directory for output and temporary files
-  - Default: "data"
+    - the data directory for output and temporary files
+    - Default: "data"
 - `--block-times=<blockTimesFile>`
-  - Path to the block times ".bin" file.
-  - Default: "data/block_times.bin"
+    - Path to the block times ".bin" file.
+    - Default: "data/block_times.bin"

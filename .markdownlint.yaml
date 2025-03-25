@@ -24,11 +24,11 @@ MD005: true
 # MD007/ul-indent : Unordered list indentation : https://github.com/DavidAnson/markdownlint/blob/v0.37.4/doc/md007.md
 MD007:
   # Spaces for indent
-  indent: 2
+  indent: 4
   # Whether to indent the first level of the list
   start_indented: false
   # Spaces for first level indent (when start_indented is set)
-  start_indent: 2
+  start_indent: 4
 
 # MD009/no-trailing-spaces : Trailing spaces : https://github.com/DavidAnson/markdownlint/blob/v0.37.4/doc/md009.md
 MD009:
@@ -61,13 +61,13 @@ MD013:
   # Number of characters - to be reduced over time
   line_length: 300
   # Number of characters for headings
-  heading_line_length: 80
+  heading_line_length: 210
   # Number of characters for code blocks
-  code_block_line_length: 80
+  code_block_line_length: 310
   # Include code blocks
   code_blocks: true
   # Include tables
-  tables: true
+  tables: false
   # Include headings
   headings: true
   # Strict length checking
@@ -95,7 +95,7 @@ MD022:
   # Blank lines above heading
   lines_above: 1
   # Blank lines below heading
-  lines_below: 1
+  lines_below: 0
 
 # MD023/heading-start-left : Headings must start at the beginning of the line : https://github.com/DavidAnson/markdownlint/blob/v0.37.4/doc/md023.md
 MD023: true
@@ -150,7 +150,7 @@ MD032: false
 # MD033/no-inline-html : Inline HTML : https://github.com/DavidAnson/markdownlint/blob/v0.37.4/doc/md033.md
 MD033:
   # Allowed elements
-  allowed_elements: ["dl", "dt", "dd"]
+  allowed_elements: ["a", "br", "dl", "dt", "dd"]
 
 # MD034/no-bare-urls : Bare URL used : https://github.com/DavidAnson/markdownlint/blob/v0.37.4/doc/md034.md
 MD034: true
@@ -169,7 +169,7 @@ MD036:
 MD037: true
 
 # MD038/no-space-in-code : Spaces inside code span elements : https://github.com/DavidAnson/markdownlint/blob/v0.37.4/doc/md038.md
-MD038: true
+MD038: false
 
 # MD039/no-space-in-links : Spaces inside link text : https://github.com/DavidAnson/markdownlint/blob/v0.37.4/doc/md039.md
 MD039: true
@@ -194,14 +194,24 @@ MD042: true
 # MD043/required-headings : Required heading structure : https://github.com/DavidAnson/markdownlint/blob/v0.37.4/doc/md043.md
 MD043:
   # List of headings
-  headings: []
+  headings: ["*"]
   # Match case of headings
   match_case: false
 
 # MD044/proper-names : Proper names should have the correct capitalization : https://github.com/DavidAnson/markdownlint/blob/v0.37.4/doc/md044.md
 MD044:
   # List of proper names
-  names: []
+  names: [
+    "Block Node",
+    "Block Stream",
+    "Consensus Node",
+    "Hashgraph ",
+    "HBAR",
+    "Hedera",
+    "Hiero ",
+    "Mirror Node",
+    "Record Stream",
+  ]
   # Include code blocks
   code_blocks: true
   # Include HTML elements
@@ -252,7 +262,7 @@ MD053:
 # MD054/link-image-style : Link and image style : https://github.com/DavidAnson/markdownlint/blob/v0.37.4/doc/md054.md
 MD054:
   # Allow autolinks
-  autolink: true
+  autolink: false
   # Allow inline links and images
   inline: true
   # Allow full reference links and images
@@ -262,12 +272,12 @@ MD054:
   # Allow shortcut reference links and images
   shortcut: true
   # Allow URLs as inline links
-  url_inline: true
+  url_inline: false
 
 # MD055/table-pipe-style : Table pipe style : https://github.com/DavidAnson/markdownlint/blob/v0.37.4/doc/md055.md
 MD055:
   # Table pipe style
-  style: "consistent"
+  style: "leading_and_trailing"
 
 # MD056/table-column-count : Table column count : https://github.com/DavidAnson/markdownlint/blob/v0.37.4/doc/md056.md
 MD056: true

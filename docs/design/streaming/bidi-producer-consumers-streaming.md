@@ -26,7 +26,7 @@
 
 ## Purpose
 
-A primary use case of the `hiero-block-node` is to stream live BlockItems (see Terms section) from a producer
+A primary use case of the `Hiero-block-node` is to stream live BlockItems (see Terms section) from a producer
 (e.g. Consensus Node) to N consumers (e.g. Mirror Node) with the lowest possible latency while correctly preserving the
 order of the BlockItems. This document outlines several possible strategies to implement this use case and the design
 of the recommended approach. All strategies rely on the Helidon 4.x.x server implementations of HTTP/2 and gRPC

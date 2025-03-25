@@ -5,7 +5,7 @@
 Upon receiving an event, the Handler checks if the first item is a Header, or
 the last item is a Block Proof. Note, this assumes an event is a list of
 block items, and conforms to the general contract for publishing data to
-the block node.
+the Block Node.
 Upon receiving an event, the Handler performs the following actions.
 1. If the first item is a Block Header, create a new writer task, get the
 transfer queue, assign the transfer queue to the _current transfer queue_,
@@ -58,7 +58,7 @@ the block), assign null to the current transfer queue.
    * A result may not be published within a reasonable timeframe.  This is
      a concern for other services listening for the _persistence result_, but
      is not a concern for the persistence service.  In a particularly egregious
-     situation the block node might not acknowledge a block within a reasonable
+     situation the Block Node might not acknowledge a block within a reasonable
      time limit and fall _behind_, which could result in publishers resending
      blocks.
 5. What if the node falls _behind_ and the responsible service determines that
@@ -72,4 +72,4 @@ the block), assign null to the current transfer queue.
      terminate all in-progress processing, and start over
    * We will need to add _reset_ capability to all services when we get to
      adding handling for the _behind_, _restart_, and _recover_ conditions
-     to the block node.
+     to the Block Node.

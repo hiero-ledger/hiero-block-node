@@ -166,12 +166,11 @@ constructed as follows:
 
 Visual example:
 
-```
-(our block files will have a long as a block number, the trie structure will be
-a digit per folder for all digits in a long, for brevity, here we showcase only
-7 digits, the last digit is part of the block file name itself, we zip every
-100 block in a single zip )
+Block files will have a long as a file name representing the block number, the trie structure will be a digit per
+folder or all digits in a long, for brevity, here we showcase only 7 digits, the last digit is part of the block file
+name itself, we zip every 100 block in a single zip.
 
+```bash
 BlockArchive/.../1/0/2/3/4.zip/0/1023400.blk.zstd -> zipped because we have configured every 100s to be zipped
 BlockLive/.../1/0/2/3/5/0/1023500.blk.zstd -> new block written
 BlockLive/.../1/0/2/3/5/0/1023501.blk.zstd -> new block written

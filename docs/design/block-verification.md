@@ -16,7 +16,7 @@
 The purpose of the Block Verification feature is to ensure that blocks received
 from consensus nodes are valid and have not been tampered with. This is achieved
 by re-calculating the block hash and verifying it against the signature provided
-by the consensus node.
+by the Consensus Node.
 
 ## Goals
 

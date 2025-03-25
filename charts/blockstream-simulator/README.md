@@ -40,7 +40,7 @@ helm install "${RELEASE}" charts/blockstream-simulator -f <path-to-custom-values
 
 ## Configure
 
-The chart comes with a set of default `Values.yaml` file that sets it in ProducerMode and looks for GRPC BN Server with the following service name `hedera-block-node-grpc-service` within the same cluster, ready to start streaming blocks.
+The chart comes with a set of default `Values.yaml` file that sets it in ProducerMode and looks for GRPC BN Server with the following service name `Hedera-block-node-grpc-service` within the same cluster, ready to start streaming blocks.
 However, is also possible to use the simulator in ConsumerMode, to do so, you need to set the following values in the `values.yaml` file:
 
 ```yaml
