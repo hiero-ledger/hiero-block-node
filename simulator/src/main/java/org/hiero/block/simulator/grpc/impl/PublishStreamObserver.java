@@ -80,7 +80,7 @@ public class PublishStreamObserver implements StreamObserver<PublishStreamRespon
                 publishStreamResponse.getAcknowledgement().getBlockAck();
         final PublishStreamResponseCode responseCode =
                 publishStreamResponse.getStatus().getStatus();
-        // todo we need the correct response code, currently it seems that
+        // @todo(904) we need the correct response code, currently it seems that
         //   the response code is not being set correctly? The if check should
         //   be different and based on the response code, only saving
         if (PublishStreamResponseCode.STREAM_ITEMS_UNKNOWN == responseCode && !ack.getBlockAlreadyExists()) {
