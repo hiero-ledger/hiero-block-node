@@ -32,8 +32,7 @@ import org.hiero.hapi.block.node.BlockUnparsed;
  * the local filesystem. It stores block items as soon as they are received into a temporary file until the ends of the
  * block. The temporary file is stored in unverified path. Once the block is verified, it is moved to the live path.
  * This plugin assumes that it stores blocks forever until asked to delete them.
- * <p>
- * <h3>Threading</h3>
+ * <h2>Threading</h2>
  * There are three threading interactions for this class. Any shared state between the three interactions needs to be
  * considered multithreaded, so handled with thread safe data structures.
  * <ul>
@@ -50,8 +49,7 @@ import org.hiero.hapi.block.node.BlockUnparsed;
  *     the messaging system will provide back pressure through the provider to the consensus nodes pushing block items
  *     to the block node.</li>
  * </ul>
- * <p>
- * <h3>Unverified Blocks</h3>
+ * <h2>Unverified Blocks</h2>
  * The storage of unverified blocks is done in a configured directory. That directory can be in temporary storage as it
  * is not required to be persistent. On start-up, the plugin will delete any files in the unverified directory. This is
  * done to clean up any files that are left over from a previous run. The unverified directory does not have any special
