@@ -10,6 +10,8 @@ import org.hiero.block.simulator.config.data.BlockGeneratorConfig;
 import org.hiero.block.simulator.config.data.BlockStreamConfig;
 import org.hiero.block.simulator.config.data.ConsumerConfig;
 import org.hiero.block.simulator.config.data.GrpcConfig;
+import org.hiero.block.simulator.config.logging.ConfigurationLogging;
+import org.hiero.block.simulator.config.logging.SimulatorConfigurationLogger;
 
 /** The module used to inject the configuration data into the application. */
 @Module
@@ -23,7 +25,7 @@ public interface ConfigInjectionModule {
      */
     @Singleton
     @Provides
-    static BlockStreamConfig provideBlockStreamConfig(Configuration configuration) {
+    static BlockStreamConfig provideBlockStreamConfig(final Configuration configuration) {
         return configuration.getConfigData(BlockStreamConfig.class);
     }
 
@@ -35,7 +37,7 @@ public interface ConfigInjectionModule {
      */
     @Singleton
     @Provides
-    static ConsumerConfig provideConsumerConfig(Configuration configuration) {
+    static ConsumerConfig provideConsumerConfig(final Configuration configuration) {
         return configuration.getConfigData(ConsumerConfig.class);
     }
 
@@ -47,7 +49,7 @@ public interface ConfigInjectionModule {
      */
     @Singleton
     @Provides
-    static GrpcConfig provideGrpcConfig(Configuration configuration) {
+    static GrpcConfig provideGrpcConfig(final Configuration configuration) {
         return configuration.getConfigData(GrpcConfig.class);
     }
 
@@ -59,7 +61,7 @@ public interface ConfigInjectionModule {
      */
     @Singleton
     @Provides
-    static BlockGeneratorConfig provideBlockGeneratorConfig(Configuration configuration) {
+    static BlockGeneratorConfig provideBlockGeneratorConfig(final Configuration configuration) {
         return configuration.getConfigData(BlockGeneratorConfig.class);
     }
 
@@ -71,7 +73,13 @@ public interface ConfigInjectionModule {
      */
     @Singleton
     @Provides
-    static PrometheusConfig providePrometheusConfig(Configuration configuration) {
+    static PrometheusConfig providePrometheusConfig(final Configuration configuration) {
         return configuration.getConfigData(PrometheusConfig.class);
+    }
+
+    @Singleton
+    @Provides
+    static ConfigurationLogging providesConfigurationLogging(final Configuration configuration) {
+        return new SimulatorConfigurationLogger(configuration);
     }
 }
