@@ -30,6 +30,7 @@ env:
   OWNER: hashgraph
   PACKAGE_NAME: hedera-block-node
   REGISTRY: ghcr.io
+  GRADLE_EXEC: "ionice -c 2 -n 2 nice -n 19 ./gradlew "
 
 jobs:
   check-gradle:
@@ -41,6 +42,7 @@ jobs:
       java-version: ${{ inputs.java-version || '21.0.6' }}
 
   publish:
+    timeout-minutes: 30
     needs: [check-gradle]
     runs-on: hiero-block-node-linux-medium
 
@@ -62,7 +64,7 @@ jobs:
           java-version: "21.0.6"
 
       - name: Build
-        run: ./gradlew clean build
+        run: ${GRADLE_EXEC} clean build
 
       - name: Login to GitHub Container Registry
         uses: docker/login-action@74a5d142397b4f367a81961eba4e8cd7edddf772 # v3.4.0
@@ -114,7 +116,7 @@ jobs:
 
       - name: Simulator - Prepare docker directory
         run: |
-          ./gradlew :simulator:copyDependenciesFolders
+          ${GRADLE_EXEC} :simulator:copyDependenciesFolders
 
       - name: Simulator - Build and push image
         uses: docker/build-push-action@471d1dc4e07e5cdedd4c2171150001c434f0b7a4 # v6.15.0
@@ -130,6 +132,7 @@ jobs:
             VERSION=${{ env.VERSION }}
 
   helm-chart-release:
+    timeout-minutes: 15
     needs: publish
     runs-on: hiero-block-node-linux-medium
 

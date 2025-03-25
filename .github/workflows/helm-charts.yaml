@@ -6,8 +6,12 @@ on: pull_request
 permissions:
   contents: read
 
+env:
+  CGEXEC: "ionice -c 2 -n 2 nice -n 19 "
+
 jobs:
   lint-install-test:
+    timeout-minutes: 20
     name: Lint and Install Charts
     runs-on: hiero-block-node-linux-medium
     steps:
@@ -45,7 +49,7 @@ jobs:
 
       - name: Run chart-testing (lint)
         if: steps.list-changed.outputs.changed == 'true'
-        run: ct lint --config ct.yaml
+        run: ${CGEXEC} ct lint --config ct.yaml
 
       - name: Create kind cluster
         if: steps.list-changed.outputs.changed == 'true'
@@ -60,4 +64,4 @@ jobs:
 
       - name: Run chart-testing (install)
         if: steps.list-changed.outputs.changed == 'true'
-        run: ct install --config ct.yaml
+        run: ${CGEXEC} ct install --config ct.yaml

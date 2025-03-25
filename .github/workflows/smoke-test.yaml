@@ -16,13 +16,14 @@ defaults:
     shell: bash
 
 env:
-  GRADLE_EXEC: ./gradlew
+  GRADLE_EXEC: "ionice -c 2 -n 2 nice -n 19 ./gradlew "
 
 permissions:
   contents: read
 
 jobs:
   smoke-test:
+    timeout-minutes: 30
     name: "Smoke Tests"
     runs-on: hiero-block-node-linux-medium
     steps:

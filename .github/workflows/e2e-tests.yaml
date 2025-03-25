@@ -19,10 +19,11 @@ permissions:
   contents: read
 
 env:
-  GRADLE_EXEC: ./gradlew
+  GRADLE_EXEC: "ionice -c 2 -n 2 nice -n 19 ./gradlew "
 
 jobs:
   e2e-tests:
+    timeout-minutes: 30
     runs-on: hiero-block-node-linux-medium
     steps:
       - name: Harden Runner
