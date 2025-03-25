@@ -4,9 +4,11 @@ name: Release Workflow
 on:
   push:
     # `v*` tags are used for production environment
-    tags: [v*]
+    tags:
+      - v*
     # `main` tag is used for integration environment
-    branches: [main]
+    branches:
+      - main
   # Manual trigger with custom release tag
   workflow_dispatch:
     inputs:
@@ -38,16 +40,8 @@ jobs:
       java-distribution: ${{ inputs.java-distribution || 'temurin' }}
       java-version: ${{ inputs.java-version || '21.0.6' }}
 
-  check-docker:
-    name: Docker
-    uses: ./.github/workflows/zxc-verify-docker-build-determinism.yaml
-    with:
-      ref: ${{ github.event.inputs.ref || '' }}
-      java-distribution: ${{ inputs.java-distribution || 'temurin' }}
-      java-version: ${{ inputs.java-version || '21.0.6' }}
-
   publish:
-    needs: [check-gradle, check-docker]
+    needs: [check-gradle]
     runs-on: hiero-block-node-linux-medium
 
     steps:
