@@ -8,7 +8,7 @@ import com.swirlds.config.api.validation.annotation.Min;
 import java.nio.file.Path;
 import java.util.Objects;
 import org.hiero.block.node.base.CompressionType;
-import org.hiero.block.node.base.config.Loggable;
+import org.hiero.block.node.base.Loggable;
 
 /**
  * Use this configuration across the files recent plugin.

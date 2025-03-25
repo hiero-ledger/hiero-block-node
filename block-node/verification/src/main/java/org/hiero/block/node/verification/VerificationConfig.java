@@ -4,7 +4,7 @@ package org.hiero.block.node.verification;
 import com.swirlds.config.api.ConfigData;
 import com.swirlds.config.api.ConfigProperty;
 import org.hiero.block.common.utils.Preconditions;
-import org.hiero.block.node.base.config.Loggable;
+import org.hiero.block.node.base.Loggable;
 
 /**
  * Configuration for the verification module.
