@@ -27,6 +27,7 @@ permissions:
 
 jobs:
   pr-formatting-checks:
+    timeout-minutes: 10
     name: PR Formatting Checks
     runs-on: hiero-block-node-linux-medium
     steps:

@@ -18,6 +18,7 @@ defaults:
 
 jobs:
   release:
+    timeout-minutes: 15
     name: Release
     runs-on: hiero-block-node-linux-medium
     env:
@@ -139,6 +140,7 @@ jobs:
           token: ${{ secrets.GH_ACCESS_TOKEN }}
 
   create_pr:
+    timeout-minutes: 10
     name: Create PR
     runs-on: hiero-block-node-linux-medium
     needs: release

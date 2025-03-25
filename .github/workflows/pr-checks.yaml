@@ -16,7 +16,7 @@ defaults:
     shell: bash
 
 env:
-  GRADLE_EXEC: ./gradlew
+  GRADLE_EXEC: "ionice -c 2 -n 2 nice -n 19 ./gradlew "
 
 permissions:
   id-token: write
@@ -33,6 +33,7 @@ jobs:
       java-version: ${{ inputs.java-version || '21.0.6' }}
 
   compile:
+    timeout-minutes: 20
     name: "Gradle Checks"
     runs-on: hiero-block-node-linux-medium
     steps:
