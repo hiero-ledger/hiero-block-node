@@ -33,7 +33,7 @@ For example, if the issue number is 123 and the issue is to add a new feature, t
 
 ## Pull Requests
 
-Pull requests should be created using one of the pull request templates.
+Pull requests should be created using the pull request template.
 Particularly, the PR should have a reference to the issue it addresses, and the PR should have a clear description of the changes it proposes to assist reviewers.
 
 The description should contain a short description of the change, followed by a bulleted list of changes in imperative 
