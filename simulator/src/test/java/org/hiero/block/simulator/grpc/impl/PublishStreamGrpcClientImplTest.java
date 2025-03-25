@@ -22,8 +22,8 @@ import io.grpc.Server;
 import io.grpc.ServerBuilder;
 import io.grpc.stub.StreamObserver;
 import java.io.IOException;
+import java.nio.file.Path;
 import java.util.List;
-import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
 import org.hiero.block.simulator.TestUtils;
 import org.hiero.block.simulator.config.data.BlockStreamConfig;
@@ -34,6 +34,7 @@ import org.hiero.block.simulator.metrics.MetricsServiceImpl;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 import org.mockito.Mock;
 import org.mockito.MockitoAnnotations;
 
@@ -45,6 +46,9 @@ class PublishStreamGrpcClientImplTest {
 
     @Mock
     private GrpcConfig grpcConfig;
+
+    @TempDir
+    private Path testTempDir;
 
     private BlockStreamConfig blockStreamConfig;
     private AtomicBoolean streamEnabled;
@@ -114,8 +118,11 @@ class PublishStreamGrpcClientImplTest {
                 })
                 .build()
                 .start();
-        blockStreamConfig = TestUtils.getTestConfiguration(Map.of("blockStream.blockItemsBatchSize", "2"))
-                .getConfigData(BlockStreamConfig.class);
+        blockStreamConfig = BlockStreamConfig.builder()
+                .latestAckBlockHashPath(testTempDir.resolve("latestAckBlockHash"))
+                .latestAckBlockNumberPath(testTempDir.resolve("latestAckBlockNumber"))
+                .blockItemsBatchSize(2)
+                .build();
 
         Configuration config = TestUtils.getTestConfiguration();
         metricsService = new MetricsServiceImpl(getTestMetrics(config));

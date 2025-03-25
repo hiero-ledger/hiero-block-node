@@ -47,6 +47,8 @@ class SimulatorMappedConfigSourceInitializerTest {
         new ConfigMapping("blockStream.streamingMode", "BLOCK_STREAM_STREAMING_MODE"),
         new ConfigMapping("blockStream.millisecondsPerBlock", "BLOCK_STREAM_MILLISECONDS_PER_BLOCK"),
         new ConfigMapping("blockStream.blockItemsBatchSize", "BLOCK_STREAM_BLOCK_ITEMS_BATCH_SIZE"),
+        new ConfigMapping("blockStream.latestAckBlockNumberPath", "BLOCK_STREAM_LATEST_ACK_BLOCK_NUMBER_PATH"),
+        new ConfigMapping("blockStream.latestAckBlockHashPath", "BLOCK_STREAM_LATEST_ACK_BLOCK_HASH_PATH"),
 
         // Block consumer configuration
         new ConfigMapping("consumer.startBlockNumber", "CONSUMER_START_BLOCK_NUMBER"),

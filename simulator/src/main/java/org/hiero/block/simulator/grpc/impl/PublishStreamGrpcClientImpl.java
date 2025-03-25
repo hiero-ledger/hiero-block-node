@@ -84,8 +84,8 @@ public class PublishStreamGrpcClientImpl implements PublishStreamGrpcClient {
                 .usePlaintext()
                 .build();
         BlockStreamServiceGrpc.BlockStreamServiceStub stub = BlockStreamServiceGrpc.newStub(channel);
-        PublishStreamObserver publishStreamObserver =
-                new PublishStreamObserver(streamEnabled, lastKnownStatuses, lastKnownStatusesCapacity);
+        PublishStreamObserver publishStreamObserver = new PublishStreamObserver(
+                blockStreamConfig, streamEnabled, lastKnownStatuses, lastKnownStatusesCapacity);
         requestStreamObserver = stub.publishBlockStream(publishStreamObserver);
         lastKnownStatuses.clear();
     }

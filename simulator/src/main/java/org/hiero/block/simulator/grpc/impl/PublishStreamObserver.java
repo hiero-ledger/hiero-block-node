@@ -17,6 +17,8 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Deque;
 import java.util.concurrent.atomic.AtomicBoolean;
+import org.hiero.block.common.utils.FileUtilities;
+import org.hiero.block.simulator.config.data.BlockStreamConfig;
 
 /**
  * Implementation of StreamObserver that handles responses from the block publishing stream.
@@ -34,28 +36,30 @@ public class PublishStreamObserver implements StreamObserver<PublishStreamRespon
 
     /**
      * Creates a new PublishStreamObserver instance.
-     * @param streamEnabled Controls whether streaming should continue
-     * @param lastKnownStatuses List to store the most recent status messages
+     *
+     * @param blockStreamConfig config needed to resolve the latest ack block number and hash files for startup data
+     * @param streamEnabled             Controls whether streaming should continue
+     * @param lastKnownStatuses         List to store the most recent status messages
      * @param lastKnownStatusesCapacity the capacity of the last known statuses
+     *
      * @throws NullPointerException if any parameter is null
      */
     public PublishStreamObserver(
+            @NonNull final BlockStreamConfig blockStreamConfig,
             @NonNull final AtomicBoolean streamEnabled,
             @NonNull final Deque<String> lastKnownStatuses,
             final int lastKnownStatusesCapacity) {
         this.streamEnabled = requireNonNull(streamEnabled);
         this.lastKnownStatuses = requireNonNull(lastKnownStatuses);
         this.lastKnownStatusesCapacity = lastKnownStatusesCapacity;
-        final Path rootDataPath = Path.of("/opt/simulator/data");
-        this.latestAckBlockNumberPath = rootDataPath.resolve("latestAckBlockNumber");
-        this.latestAckBlockHashPath = rootDataPath.resolve("latestAckBlockHash");
+        this.latestAckBlockNumberPath = blockStreamConfig.latestAckBlockNumberPath();
+        this.latestAckBlockHashPath = blockStreamConfig.latestAckBlockHashPath();
         try {
-            Files.createDirectories(rootDataPath);
             if (Files.notExists(latestAckBlockNumberPath)) {
-                Files.createFile(latestAckBlockNumberPath);
+                FileUtilities.createFile(latestAckBlockNumberPath);
             }
             if (Files.notExists(latestAckBlockHashPath)) {
-                Files.createFile(latestAckBlockHashPath);
+                FileUtilities.createFile(latestAckBlockHashPath);
             }
         } catch (final IOException e) {
             throw new UncheckedIOException(e);
