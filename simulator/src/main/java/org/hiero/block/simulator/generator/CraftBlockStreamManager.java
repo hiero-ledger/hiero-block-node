@@ -11,6 +11,8 @@ import com.hedera.hapi.block.stream.protoc.BlockItem;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import edu.umd.cs.findbugs.annotations.NonNull;
 import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Random;
@@ -18,6 +20,7 @@ import org.hiero.block.common.hasher.Hashes;
 import org.hiero.block.common.hasher.HashingUtilities;
 import org.hiero.block.common.hasher.NaiveStreamingTreeHasher;
 import org.hiero.block.common.hasher.StreamingTreeHasher;
+import org.hiero.block.common.utils.StringUtilities;
 import org.hiero.block.simulator.config.data.BlockGeneratorConfig;
 import org.hiero.block.simulator.config.types.GenerationMode;
 import org.hiero.block.simulator.exception.BlockSimulatorParsingException;
@@ -78,6 +81,30 @@ public class CraftBlockStreamManager implements BlockStreamManager {
         this.outputTreeHasher = new NaiveStreamingTreeHasher();
 
         LOGGER.log(INFO, "Block Stream Simulator will use Craft mode for block management.");
+
+        final Path rootDataPath = Path.of("/opt/simulator/data");
+        final Path latestAckBlockNumberPath = rootDataPath.resolve("latestAckBlockNumber");
+        final Path latestAckBlockHashPath = rootDataPath.resolve("latestAckBlockHash");
+        if (Files.exists(latestAckBlockNumberPath)) {
+            try {
+                final String fromFile = Files.readString(latestAckBlockNumberPath);
+                if (!StringUtilities.isBlank(fromFile)) {
+                    currentBlockNumber = Long.parseLong(fromFile) + 1L;
+                }
+            } catch (final IOException e) {
+                LOGGER.log(DEBUG, "Error reading latestAckBlockNumber file. Starting from block 0.");
+            }
+        }
+        if (Files.exists(latestAckBlockHashPath)) {
+            try {
+                final byte[] fromFile = Files.readAllBytes(latestAckBlockHashPath);
+                if (fromFile.length == StreamingTreeHasher.HASH_LENGTH) {
+                    previousBlockHash = fromFile;
+                }
+            } catch (final IOException e) {
+                LOGGER.log(DEBUG, "Error reading latestAckBlockHash file.");
+            }
+        }
     }
 
     /**

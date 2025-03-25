@@ -19,8 +19,14 @@ services:
       interval: 3s
       timeout: 10s
       retries: 5
+#    user: "2000:2000"
+    volumes:
+      - simulator_data:/opt/simulator/data
 
 networks:
   block-node_default:
     name: block-node_default
     external: true
+
+volumes:
+  simulator_data:

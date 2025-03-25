@@ -6,9 +6,15 @@ import static java.lang.System.Logger.Level.INFO;
 import static java.util.Objects.requireNonNull;
 
 import com.hedera.hapi.block.protoc.PublishStreamResponse;
+import com.hedera.hapi.block.protoc.PublishStreamResponse.BlockAcknowledgement;
+import com.hedera.hapi.block.protoc.PublishStreamResponseCode;
 import edu.umd.cs.findbugs.annotations.NonNull;
 import io.grpc.Status;
 import io.grpc.stub.StreamObserver;
+import java.io.IOException;
+import java.io.UncheckedIOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.Deque;
 import java.util.concurrent.atomic.AtomicBoolean;
 
@@ -23,6 +29,8 @@ public class PublishStreamObserver implements StreamObserver<PublishStreamRespon
     private final AtomicBoolean streamEnabled;
     private final int lastKnownStatusesCapacity;
     private final Deque<String> lastKnownStatuses;
+    private final Path latestAckBlockNumberPath;
+    private final Path latestAckBlockHashPath;
 
     /**
      * Creates a new PublishStreamObserver instance.
@@ -38,6 +46,20 @@ public class PublishStreamObserver implements StreamObserver<PublishStreamRespon
         this.streamEnabled = requireNonNull(streamEnabled);
         this.lastKnownStatuses = requireNonNull(lastKnownStatuses);
         this.lastKnownStatusesCapacity = lastKnownStatusesCapacity;
+        final Path rootDataPath = Path.of("/opt/simulator/data");
+        this.latestAckBlockNumberPath = rootDataPath.resolve("latestAckBlockNumber");
+        this.latestAckBlockHashPath = rootDataPath.resolve("latestAckBlockHash");
+        try {
+            Files.createDirectories(rootDataPath);
+            if (Files.notExists(latestAckBlockNumberPath)) {
+                Files.createFile(latestAckBlockNumberPath);
+            }
+            if (Files.notExists(latestAckBlockHashPath)) {
+                Files.createFile(latestAckBlockHashPath);
+            }
+        } catch (final IOException e) {
+            throw new UncheckedIOException(e);
+        }
     }
 
     /**
@@ -50,8 +72,27 @@ public class PublishStreamObserver implements StreamObserver<PublishStreamRespon
         if (lastKnownStatuses.size() >= lastKnownStatusesCapacity) {
             lastKnownStatuses.pollFirst();
         }
+        final BlockAcknowledgement ack =
+                publishStreamResponse.getAcknowledgement().getBlockAck();
+        final PublishStreamResponseCode responseCode =
+                publishStreamResponse.getStatus().getStatus();
+        // todo we need the correct response code, currently it seems that
+        //   the response code is not being set correctly? The if check should
+        //   be different and based on the response code, only saving
+        if (PublishStreamResponseCode.STREAM_ITEMS_UNKNOWN == responseCode && !ack.getBlockAlreadyExists()) {
+            final long blockNumber = ack.getBlockNumber();
+            final byte[] blockHash = ack.getBlockRootHash().toByteArray();
+            try {
+                Files.write(
+                        latestAckBlockNumberPath,
+                        String.valueOf(blockNumber).getBytes());
+                Files.write(latestAckBlockHashPath, blockHash);
+            } catch (final IOException e) {
+                throw new UncheckedIOException(e);
+            }
+        }
         lastKnownStatuses.add(publishStreamResponse.toString());
-        LOGGER.log(INFO, "Received Response: " + publishStreamResponse.toString());
+        LOGGER.log(INFO, "Received Response: " + publishStreamResponse);
     }
 
     /**

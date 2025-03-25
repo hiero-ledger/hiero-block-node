@@ -17,6 +17,8 @@ services:
       interval: 3s
       timeout: 10s
       retries: 5
+    volumes:
+      - simulator_data:/opt/simulator/data
 
   simulator-consumer:
     container_name: simulator-consumer
@@ -39,3 +41,6 @@ networks:
   block-node_default:
     name: block-node_default
     external: true
+
+volumes:
+  simulator_data:
