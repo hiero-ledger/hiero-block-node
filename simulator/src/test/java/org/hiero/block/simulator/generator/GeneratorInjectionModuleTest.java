@@ -62,25 +62,6 @@ class GeneratorInjectionModuleTest {
     }
 
     @Test
-    void providesBlockStreamManager_AsDir() throws IOException {
-        BlockGeneratorConfig blockGeneratorConfig = TestUtils.getTestConfiguration(Map.of(
-                        "generator.generationMode",
-                        "DIR",
-                        "generator.managerImplementation",
-                        "BlockAsDirBlockStreamManager",
-                        "generator.folderRootPath",
-                        getAbsoluteFolder("build/resources/test/block-0.0.3-blk/")))
-                .getConfigData(BlockGeneratorConfig.class);
-
-        BlockStreamManager blockStreamManager =
-                GeneratorInjectionModule.providesBlockStreamManager(blockGeneratorConfig);
-
-        assertEquals(
-                BlockAsDirBlockStreamManager.class.getName(),
-                blockStreamManager.getClass().getName());
-    }
-
-    @Test
     void providesBlockStreamManager_default() throws IOException {
         final BlockGeneratorConfig blockGeneratorConfig = TestUtils.getTestConfiguration(Map.of(
                         "generator.generationMode",
