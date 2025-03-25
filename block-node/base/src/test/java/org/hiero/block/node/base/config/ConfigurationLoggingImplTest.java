@@ -15,21 +15,22 @@ import org.junit.jupiter.api.Test;
 public class ConfigurationLoggingImplTest {
 
     @Test
-    public void testCurrentAppProperties() { //throws IOException {
+    public void testCurrentAppProperties() { // throws IOException {
 
-//        final Configuration configuration = getTestConfig(Collections.emptyMap());
-//        final ConfigurationLogging configurationLogging = new ConfigurationLogging(configuration);
-//        final Map<String, Object> config = configurationLogging.collectConfig(configuration);
-//        assertNotNull(config);
-//        assertEquals(40, config.size());
-//
-//        for (Map.Entry<String, Object> entry : config.entrySet()) {
-//            String value = entry.getValue().toString();
-//            if (value.contains("*")) {
-//                fail(
-//                        "Current configuration not expected to contain any sensitive data. Change this test if we add sensitive data.");
-//            }
-//        }
+        //        final Configuration configuration = getTestConfig(Collections.emptyMap());
+        //        final ConfigurationLogging configurationLogging = new ConfigurationLogging(configuration);
+        //        final Map<String, Object> config = configurationLogging.collectConfig(configuration);
+        //        assertNotNull(config);
+        //        assertEquals(40, config.size());
+        //
+        //        for (Map.Entry<String, Object> entry : config.entrySet()) {
+        //            String value = entry.getValue().toString();
+        //            if (value.contains("*")) {
+        //                fail(
+        //                        "Current configuration not expected to contain any sensitive data. Change this test if
+        // we add sensitive data.");
+        //            }
+        //        }
     }
 
     @Test
@@ -52,22 +53,22 @@ public class ConfigurationLoggingImplTest {
         assertEquals(21, length);
     }
 
-//    private static Configuration getTestConfig(@NonNull Map<String, String> customProperties) throws IOException {
-//
-//        // create test configuration
-//        ConfigurationBuilder testConfigBuilder = ConfigurationBuilder.create()
-//                .autoDiscoverExtensions()
-//                .withSource(new ClasspathFileConfigSource(Path.of("app.properties")));
-//
-//        for (Map.Entry<String, String> entry : customProperties.entrySet()) {
-//            String key = entry.getKey();
-//            String value = entry.getValue();
-//            testConfigBuilder = testConfigBuilder.withValue(key, value);
-//        }
-//
-//        testConfigBuilder = testConfigBuilder.withConfigDataType(ConsumerConfig.class);
-//        return testConfigBuilder.build();
-//    }
+    //    private static Configuration getTestConfig(@NonNull Map<String, String> customProperties) throws IOException {
+    //
+    //        // create test configuration
+    //        ConfigurationBuilder testConfigBuilder = ConfigurationBuilder.create()
+    //                .autoDiscoverExtensions()
+    //                .withSource(new ClasspathFileConfigSource(Path.of("app.properties")));
+    //
+    //        for (Map.Entry<String, String> entry : customProperties.entrySet()) {
+    //            String key = entry.getKey();
+    //            String value = entry.getValue();
+    //            testConfigBuilder = testConfigBuilder.withValue(key, value);
+    //        }
+    //
+    //        testConfigBuilder = testConfigBuilder.withConfigDataType(ConsumerConfig.class);
+    //        return testConfigBuilder.build();
+    //    }
 
     private static Configuration getTestConfigWithSecret() throws IOException {
 

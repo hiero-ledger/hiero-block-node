@@ -14,8 +14,7 @@ import org.hiero.block.node.base.config.Loggable;
 @ConfigData("producer")
 public record PublisherConfig(
         @Loggable @ConfigProperty(defaultValue = "PRODUCTION") PublisherType type,
-        @Loggable @ConfigProperty(defaultValue = "1500") int timeoutThresholdMillis
-) {
+        @Loggable @ConfigProperty(defaultValue = "1500") int timeoutThresholdMillis) {
     /**
      * The type of the publisher service to use - PRODUCTION or NO_OP.
      */

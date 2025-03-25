@@ -104,88 +104,99 @@ public class PublisherServicePlugin implements BlockNodePlugin, ServiceInterface
      * @param blockNumber the block number, if update type is START_BLOCK or END_BLOCK
      */
     private void onSessionUpdate(BlockStreamProducerSession session, UpdateType updateType, long blockNumber) {
-        LOGGER.log(DEBUG, "onSessionUpdate: type={0} blockNumber={1} session={3}",
-                updateType, blockNumber, session);
+        LOGGER.log(DEBUG, "onSessionUpdate: type={0} blockNumber={1} session={3}", updateType, blockNumber, session);
         stateLock.lock();
         try {
             // update the metrics
             final LongSummaryStatistics blockNumbersStats = openSessions.stream()
-                    .mapToLong(BlockStreamProducerSession::currentBlockNumber).summaryStatistics();
+                    .mapToLong(BlockStreamProducerSession::currentBlockNumber)
+                    .summaryStatistics();
             lowestBlockNumberInbound.set(blockNumbersStats.getMin());
             highestIncomingBlockNumber.set(blockNumbersStats.getMax());
             // if update type is END_BLOCK and from primary session, we need to update the current block number, so
             // that we start looking for next block
-            if (updateType == UpdateType.END_BLOCK && session.currentBlockState() ==
-                    BlockStreamProducerSession.BlockState.PRIMARY) {
+            if (updateType == UpdateType.END_BLOCK
+                    && session.currentBlockState() == BlockStreamProducerSession.BlockState.PRIMARY) {
                 currentBlockNumber = blockNumber;
                 currentPrimarySession = null;
             }
             // check if current primary session has timed out
-            boolean currentPrimaryHasTimedOut = currentPrimarySession != null &&
-                    ((System.nanoTime()-currentPrimarySession.startTimeOfCurrentBlock()) > timeOutNanos);
+            boolean currentPrimaryHasTimedOut = currentPrimarySession != null
+                    && ((System.nanoTime() - currentPrimarySession.startTimeOfCurrentBlock()) > timeOutNanos);
             // check if we already have a good primary session
-            if (currentPrimarySession != null &&
-                    currentPrimarySession.currentBlockState() == BlockStreamProducerSession.BlockState.PRIMARY &&
-                    currentPrimarySession.currentBlockNumber() == currentBlockNumber &&
-                    !currentPrimaryHasTimedOut) {
+            if (currentPrimarySession != null
+                    && currentPrimarySession.currentBlockState() == BlockStreamProducerSession.BlockState.PRIMARY
+                    && currentPrimarySession.currentBlockNumber() == currentBlockNumber
+                    && !currentPrimaryHasTimedOut) {
                 // we are already have a good primary session so all we need to do is check if any sessions are
                 // disconnected and clean up
-                openSessions.removeIf(openSession -> openSession.currentBlockState() ==
-                        BlockStreamProducerSession.BlockState.DISCONNECTED);
+                openSessions.removeIf(openSession ->
+                        openSession.currentBlockState() == BlockStreamProducerSession.BlockState.DISCONNECTED);
                 numberOfProducers.set(openSessions.size());
             } else {
                 // we do not have a good primary session
                 // check if we have a primary session, but it's not useful, aka not providing correct block number
                 if (currentPrimarySession != null) {
                     if (currentPrimaryHasTimedOut) {
-                        LOGGER.log(WARNING, "onSessionUpdate: currentPrimaryHasTimedOut, primarySession={1}",
+                        LOGGER.log(
+                                WARNING,
+                                "onSessionUpdate: currentPrimaryHasTimedOut, primarySession={1}",
                                 currentPrimarySession);
                     } else {
                         // this is odd, we have a primary session but it is not the current block number
-                        LOGGER.log(WARNING, "onSessionUpdate: currentPrimarySession is not providing correct block number, "
-                                + "currentBlockNumber={1} primarySession={2}", currentBlockNumber,
+                        LOGGER.log(
+                                WARNING,
+                                "onSessionUpdate: currentPrimarySession is not providing correct block number, "
+                                        + "currentBlockNumber={1} primarySession={2}",
+                                currentBlockNumber,
                                 currentPrimarySession);
                     }
                     currentPrimarySession = null;
                     // Seems like all we can do here is request a resend of the block
-                    openSessions.forEach(openSession ->
-                            openSession.requestResend(currentBlockNumber));
+                    openSessions.forEach(openSession -> openSession.requestResend(currentBlockNumber));
                 } else {
                     // try and pick a new primary session if there is one
                     openSessions.stream()
                             .filter(openSession ->
-                                    openSession.currentBlockState() == BlockStreamProducerSession.BlockState.NEW &&
-                                            openSession.currentBlockNumber() == currentBlockNumber)
+                                    openSession.currentBlockState() == BlockStreamProducerSession.BlockState.NEW
+                                            && openSession.currentBlockNumber() == currentBlockNumber)
                             .min(Comparator.comparingLong(BlockStreamProducerSession::startTimeOfCurrentBlock))
-                            .ifPresentOrElse(openSession -> {
-                                // we have a new primary session
-                                openSession.switchToPrimary();
-                                // set the current primary session
-                                currentPrimarySession = openSession;
-                                // tell all other sessions to switch to behind
-                                openSessions.stream()
-                                        .filter(otherSession -> otherSession != currentPrimarySession)
-                                        .forEach(BlockStreamProducerSession::switchToBehind);
-                            }, () -> {
-                                // no primary session, set to null
-                                currentPrimarySession = null;
-                                // this can happen if all sessions are behind or ahead, so lets check if they are ahead as
-                                // that will mean we will never get any blocks
-                                if (openSessions.isEmpty()) {
-                                    // think this should never happen or at least be very rare
-                                    LOGGER.log(WARNING, "No sessions found, yet we got a onSessionUpdate() call");
-                                } else {
-                                    final long currentMinSessionBlockNumber = openSessions.stream()
-                                            .mapToLong(BlockStreamProducerSession::currentBlockNumber).min()
-                                            .orElse(UNKNOWN_BLOCK_NUMBER);
-                                    if (currentMinSessionBlockNumber > currentBlockNumber) {
-                                        LOGGER.log(WARNING,
-                                                "All sessions are ahead [{1}] of the current block number [{2}], "
-                                                        + "this means we wil never get another block",
-                                                currentMinSessionBlockNumber, currentBlockNumber);
-                                    }
-                                }
-                            });
+                            .ifPresentOrElse(
+                                    openSession -> {
+                                        // we have a new primary session
+                                        openSession.switchToPrimary();
+                                        // set the current primary session
+                                        currentPrimarySession = openSession;
+                                        // tell all other sessions to switch to behind
+                                        openSessions.stream()
+                                                .filter(otherSession -> otherSession != currentPrimarySession)
+                                                .forEach(BlockStreamProducerSession::switchToBehind);
+                                    },
+                                    () -> {
+                                        // no primary session, set to null
+                                        currentPrimarySession = null;
+                                        // this can happen if all sessions are behind or ahead, so lets check if they
+                                        // are ahead as
+                                        // that will mean we will never get any blocks
+                                        if (openSessions.isEmpty()) {
+                                            // think this should never happen or at least be very rare
+                                            LOGGER.log(
+                                                    WARNING, "No sessions found, yet we got a onSessionUpdate() call");
+                                        } else {
+                                            final long currentMinSessionBlockNumber = openSessions.stream()
+                                                    .mapToLong(BlockStreamProducerSession::currentBlockNumber)
+                                                    .min()
+                                                    .orElse(UNKNOWN_BLOCK_NUMBER);
+                                            if (currentMinSessionBlockNumber > currentBlockNumber) {
+                                                LOGGER.log(
+                                                        WARNING,
+                                                        "All sessions are ahead [{1}] of the current block number [{2}], "
+                                                                + "this means we wil never get another block",
+                                                        currentMinSessionBlockNumber,
+                                                        currentBlockNumber);
+                                            }
+                                        }
+                                    });
                 }
             }
         } finally {
@@ -200,8 +211,7 @@ public class PublisherServicePlugin implements BlockNodePlugin, ServiceInterface
      *
      * @param blockItems the block items to send to the messaging service
      */
-    private void sendBlockItemsToMessagingService(
-            @NonNull final BlockItems blockItems) {
+    private void sendBlockItemsToMessagingService(@NonNull final BlockItems blockItems) {
         if (publisherConfig.type() == PublisherType.PRODUCTION) {
             // send the block items to the messaging service
             context.blockMessaging().sendBlockItems(blockItems);
@@ -234,21 +244,27 @@ public class PublisherServicePlugin implements BlockNodePlugin, ServiceInterface
         // get the timeout in nanos
         timeOutNanos = publisherConfig.timeoutThresholdMillis() * 1_000_000L;
         // get type of publisher to use and log it
-        LOGGER.log(INFO, "Using publisher type:{1}",publisherConfig.type());
+        LOGGER.log(INFO, "Using publisher type:{1}", publisherConfig.type());
 
         // create metrics
-        liveBlockItemsReceived = context.metrics().getOrCreate(new Counter.Config(METRICS_CATEGORY,
-                "live_block_items_received").withDescription("Live Block Items Received"));
-        liveBlockItemsMessaged = context.metrics().getOrCreate(new Counter.Config(METRICS_CATEGORY,
-                "live_block_items_messaged").withDescription("Live Block Items Messaged"));
-        lowestBlockNumberInbound = context.metrics().getOrCreate(new LongGauge.Config(METRICS_CATEGORY,
-                "lowest_block_number_inbound").withDescription("Lowest Block Number Inbound"));
-        currentBlockNumberInbound = context.metrics().getOrCreate(new LongGauge.Config(METRICS_CATEGORY,
-                "current_block_number_inbound").withDescription("Current Block Number Inbound"));
-        highestIncomingBlockNumber = context.metrics().getOrCreate(new LongGauge.Config(METRICS_CATEGORY,
-        "highest_block_number_inbound").withDescription("Highest Live Incoming Block Number"));
-        numberOfProducers = context.metrics().getOrCreate(new LongGauge.Config(METRICS_CATEGORY,
-        "producers").withDescription("No of Connected Producers"));
+        liveBlockItemsReceived = context.metrics()
+                .getOrCreate(new Counter.Config(METRICS_CATEGORY, "live_block_items_received")
+                        .withDescription("Live Block Items Received"));
+        liveBlockItemsMessaged = context.metrics()
+                .getOrCreate(new Counter.Config(METRICS_CATEGORY, "live_block_items_messaged")
+                        .withDescription("Live Block Items Messaged"));
+        lowestBlockNumberInbound = context.metrics()
+                .getOrCreate(new LongGauge.Config(METRICS_CATEGORY, "lowest_block_number_inbound")
+                        .withDescription("Lowest Block Number Inbound"));
+        currentBlockNumberInbound = context.metrics()
+                .getOrCreate(new LongGauge.Config(METRICS_CATEGORY, "current_block_number_inbound")
+                        .withDescription("Current Block Number Inbound"));
+        highestIncomingBlockNumber = context.metrics()
+                .getOrCreate(new LongGauge.Config(METRICS_CATEGORY, "highest_block_number_inbound")
+                        .withDescription("Highest Live Incoming Block Number"));
+        numberOfProducers = context.metrics()
+                .getOrCreate(new LongGauge.Config(METRICS_CATEGORY, "producers")
+                        .withDescription("No of Connected Producers"));
 
         // register us as a service
         return PbjRouting.builder().service(this);
@@ -283,7 +299,8 @@ public class PublisherServicePlugin implements BlockNodePlugin, ServiceInterface
         numberOfProducers.set(0);
     }
 
-    // ==== BlockNotificationHandler Methods ===================================================================================
+    // ==== BlockNotificationHandler Methods
+    // ===================================================================================
 
     /**
      * BlockStreamPublisherService types define the gRPC methods available on the BlockStreamPublisherService.
@@ -319,8 +336,7 @@ public class PublisherServicePlugin implements BlockNodePlugin, ServiceInterface
                     // do this first to try and avoid more bad items sent into the system
                     currentPrimarySession = null;
                     // We need to go and request all sessions to resend the block
-                    openSessions.forEach(session ->
-                            session.requestResend(notification.blockNumber()));
+                    openSessions.forEach(session -> session.requestResend(notification.blockNumber()));
                     // reset out block number to last good block
                     currentBlockNumber = notification.blockNumber() - 1;
                     currentBlockNumberInbound.set(currentBlockNumber);
@@ -375,13 +391,18 @@ public class PublisherServicePlugin implements BlockNodePlugin, ServiceInterface
             return switch (blockStreamPublisherServiceMethod) {
                 case publishBlockStream:
                     final var pipe = Pipelines.<List<BlockItemUnparsed>, PublishStreamResponse>bidiStreaming()
-                            .mapRequest(bytes ->
-                                    PublishStreamRequestUnparsed.PROTOBUF.parse(bytes).blockItemsOrThrow().blockItems())
+                            .mapRequest(bytes -> PublishStreamRequestUnparsed.PROTOBUF
+                                    .parse(bytes)
+                                    .blockItemsOrThrow()
+                                    .blockItems())
                             .method(responsePipeline -> {
-                                BlockStreamProducerSession producerBlockItemObserver =
-                                        new BlockStreamProducerSession(nextSessionId ++, responsePipeline,
-                                                this::onSessionUpdate, liveBlockItemsReceived, stateLock,
-                                                this::sendBlockItemsToMessagingService);
+                                BlockStreamProducerSession producerBlockItemObserver = new BlockStreamProducerSession(
+                                        nextSessionId++,
+                                        responsePipeline,
+                                        this::onSessionUpdate,
+                                        liveBlockItemsReceived,
+                                        stateLock,
+                                        this::sendBlockItemsToMessagingService);
                                 // add the session to the set of open sessions
                                 openSessions.add(producerBlockItemObserver);
                                 numberOfProducers.set(openSessions.size());
