@@ -85,7 +85,8 @@ public class BlockMessagingServiceDynamicBlockItemTest {
 
             @Override
             public void handleBlockItemsReceived(BlockItems blockItems) {
-                int receivedValue = bytesToInt(blockItems.blockItems().getFirst().blockHeader());
+                int receivedValue =
+                        bytesToInt(blockItems.blockItems().getFirst().blockHeader());
                 fastHandlerCounter.addAndGet(receivedValue);
                 // every 100 items we will release the slow handler
                 if (receivedValue % 100 == 0) {
@@ -113,7 +114,7 @@ public class BlockMessagingServiceDynamicBlockItemTest {
         // send 2000 items to the service, in lock step with fast handler
         for (int i = 0; i < TEST_DATA_COUNT; i++) {
             messagingService.sendBlockItems(new BlockItems(
-                    List.of(new BlockItemUnparsed(new OneOf<>(ItemOneOfType.BLOCK_HEADER, intToBytes(i)))),-1));
+                    List.of(new BlockItemUnparsed(new OneOf<>(ItemOneOfType.BLOCK_HEADER, intToBytes(i)))), -1));
             // notify the fast handler that we are done sending an item, so we stay in lock step
             try {
                 barrier.await(5, TimeUnit.SECONDS);
@@ -169,7 +170,8 @@ public class BlockMessagingServiceDynamicBlockItemTest {
             @Override
             public void handleBlockItemsReceived(BlockItems blockItems) {
                 // process items
-                int receivedValue = bytesToInt(blockItems.blockItems().getFirst().blockHeader());
+                int receivedValue =
+                        bytesToInt(blockItems.blockItems().getFirst().blockHeader());
                 // add up all the received values
                 handler2Sum.addAndGet(receivedValue);
                 // check if we are done
@@ -201,7 +203,7 @@ public class BlockMessagingServiceDynamicBlockItemTest {
                 }
             }
             messagingService.sendBlockItems(new BlockItems(
-                    List.of(new BlockItemUnparsed(new OneOf<>(ItemOneOfType.BLOCK_HEADER, intToBytes(i)))),-1));
+                    List.of(new BlockItemUnparsed(new OneOf<>(ItemOneOfType.BLOCK_HEADER, intToBytes(i)))), -1));
             // have to slow down production to make test reliable
             try {
                 Thread.sleep(1);

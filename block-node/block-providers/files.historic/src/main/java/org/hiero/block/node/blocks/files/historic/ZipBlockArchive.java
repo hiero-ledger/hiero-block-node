@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.node.blocks.files.historic;
 
 import static org.hiero.block.node.base.BlockFile.BLOCK_FILE_EXTENSION;
@@ -43,16 +44,14 @@ public class ZipBlockArchive {
      * @param context The block node context
      * @param historicConfig The configuration for the historic files
      */
-    public ZipBlockArchive(BlockNodeContext context,
-            FilesHistoricConfig historicConfig) {
+    public ZipBlockArchive(BlockNodeContext context, FilesHistoricConfig historicConfig) {
         this.context = context;
         this.historicalBlockFacility = context.historicalBlockProvider();
         this.historicConfig = historicConfig;
         numberOfBlocksPerZipFile = (int) Math.pow(10, historicConfig.digitsPerZipFileName());
         format = switch (historicConfig.compression()) {
             case ZSTD -> Format.ZSTD_PROTOBUF;
-            case NONE -> Format.PROTOBUF;
-        };
+            case NONE -> Format.PROTOBUF;};
     }
 
     /**
@@ -69,14 +68,13 @@ public class ZipBlockArchive {
         // create directories
         Files.createDirectories(firstBlockPath.dirPath, FileUtilities.DEFAULT_FOLDER_PERMISSIONS);
         // create list for all block accessors, so we can delete files after we are done
-        final List<BlockAccessor> blockAccessors =
-                IntStream.rangeClosed((int) firstBlockNumber, (int) lastBlockNumber)
+        final List<BlockAccessor> blockAccessors = IntStream.rangeClosed((int) firstBlockNumber, (int) lastBlockNumber)
                 .mapToObj(historicalBlockFacility::block)
                 .toList();
         // create zip file path
-        try (ZipOutputStream zipOutputStream = new ZipOutputStream(
-                new BufferedOutputStream(Files.newOutputStream(firstBlockPath.zipFilePath, StandardOpenOption.CREATE,
-                        StandardOpenOption.WRITE), 1024*1204))) {
+        try (ZipOutputStream zipOutputStream = new ZipOutputStream(new BufferedOutputStream(
+                Files.newOutputStream(firstBlockPath.zipFilePath, StandardOpenOption.CREATE, StandardOpenOption.WRITE),
+                1024 * 1204))) {
             // don't compress the zip file as files are already compressed
             zipOutputStream.setMethod(ZipOutputStream.STORED);
             for (long blockNumber = firstBlockNumber; blockNumber < lastBlockNumber; blockNumber++) {
@@ -112,7 +110,6 @@ public class ZipBlockArchive {
         return null;
     }
 
-
     /**
      * Finds the minimum block number in a directory structure of zip files.
      *
@@ -128,7 +125,8 @@ public class ZipBlockArchive {
                 // check if we are a directory of directories
                 final Optional<Path> min = childFiles.stream()
                         .filter(Files::isDirectory)
-                        .min(Comparator.comparingLong(path -> Long.parseLong(path.getFileName().toString())));
+                        .min(Comparator.comparingLong(
+                                path -> Long.parseLong(path.getFileName().toString())));
                 if (min.isPresent()) {
                     lowestPath = min.get();
                 } else {
@@ -137,19 +135,21 @@ public class ZipBlockArchive {
                             .filter(Files::isRegularFile)
                             .filter(path -> path.getFileName().toString().endsWith(".zip"))
                             .min(Comparator.comparingLong(filePath -> {
-                                        String fileName = filePath.getFileName().toString();
-                                        return Long.parseLong(fileName.substring(0, fileName.indexOf('.')));
-                                    }));
+                                String fileName = filePath.getFileName().toString();
+                                return Long.parseLong(fileName.substring(0, fileName.indexOf('.')));
+                            }));
                     if (zipFilePath.isPresent()) {
-                        try(var zipFile = new ZipFile(zipFilePath.get().toFile())) {
+                        try (var zipFile = new ZipFile(zipFilePath.get().toFile())) {
                             return zipFile.stream()
                                     .mapToLong(entry -> blockNumberFromFile(entry.getName()))
-                                    .min().orElse(-1);
+                                    .min()
+                                    .orElse(-1);
                         } catch (IOException e) {
                             LOGGER.log(System.Logger.Level.ERROR, "Failed to read zip file", e);
-                            context.serverHealth().shutdown(ZipBlockArchive.class.getName(),
-                                    "Error reading directory: " + lowestPath + " because " +
-                                            e.getMessage());
+                            context.serverHealth()
+                                    .shutdown(
+                                            ZipBlockArchive.class.getName(),
+                                            "Error reading directory: " + lowestPath + " because " + e.getMessage());
                         }
                     } else {
                         // no zip files found in min directory
@@ -158,9 +158,10 @@ public class ZipBlockArchive {
                 }
             } catch (Exception e) {
                 LOGGER.log(System.Logger.Level.ERROR, "Error reading directory: " + lowestPath, e);
-                context.serverHealth().shutdown(ZipBlockArchive.class.getName(),
-                        "Error reading directory: " + lowestPath + " because " +
-                                e.getMessage());
+                context.serverHealth()
+                        .shutdown(
+                                ZipBlockArchive.class.getName(),
+                                "Error reading directory: " + lowestPath + " because " + e.getMessage());
             }
         }
         return -1;
@@ -181,7 +182,8 @@ public class ZipBlockArchive {
                 // check if we are a directory of directories
                 final Optional<Path> max = childFiles.stream()
                         .filter(Files::isDirectory)
-                        .max(Comparator.comparingLong(path -> Long.parseLong(path.getFileName().toString())));
+                        .max(Comparator.comparingLong(
+                                path -> Long.parseLong(path.getFileName().toString())));
                 if (max.isPresent()) {
                     highestPath = max.get();
                 } else {
@@ -190,19 +192,21 @@ public class ZipBlockArchive {
                             .filter(Files::isRegularFile)
                             .filter(path -> path.getFileName().toString().endsWith(".zip"))
                             .max(Comparator.comparingLong(filePath -> {
-                                        String fileName = filePath.getFileName().toString();
-                                        return Long.parseLong(fileName.substring(0, fileName.indexOf('.')));
-                                    }));
+                                String fileName = filePath.getFileName().toString();
+                                return Long.parseLong(fileName.substring(0, fileName.indexOf('.')));
+                            }));
                     if (zipFilePath.isPresent()) {
-                        try(var zipFile = new ZipFile(zipFilePath.get().toFile())) {
+                        try (var zipFile = new ZipFile(zipFilePath.get().toFile())) {
                             return zipFile.stream()
                                     .mapToLong(entry -> blockNumberFromFile(entry.getName()))
-                                    .max().orElse(-1);
+                                    .max()
+                                    .orElse(-1);
                         } catch (IOException e) {
                             LOGGER.log(System.Logger.Level.ERROR, "Failed to read zip file", e);
-                            context.serverHealth().shutdown(ZipBlockArchive.class.getName(),
-                                    "Error reading directory: " + highestPath + " because " +
-                                            e.getMessage());
+                            context.serverHealth()
+                                    .shutdown(
+                                            ZipBlockArchive.class.getName(),
+                                            "Error reading directory: " + highestPath + " because " + e.getMessage());
                         }
                     } else {
                         // no zip files found in max directory
@@ -211,14 +215,14 @@ public class ZipBlockArchive {
                 }
             } catch (Exception e) {
                 LOGGER.log(System.Logger.Level.ERROR, "Error reading directory: " + highestPath, e);
-                context.serverHealth().shutdown(ZipBlockArchive.class.getName(),
-                        "Error reading directory: " + highestPath + " because " +
-                                e.getMessage());
+                context.serverHealth()
+                        .shutdown(
+                                ZipBlockArchive.class.getName(),
+                                "Error reading directory: " + highestPath + " because " + e.getMessage());
             }
         }
         return -1;
     }
-
 
     /**
      * Compute the path to a block file
@@ -230,7 +234,8 @@ public class ZipBlockArchive {
         // convert block number to string
         final String blockNumberStr = blockNumberFormated(blockNumber);
         // split string into digits for zip and for directories
-        final int offsetToZip = blockNumberStr.length() - historicConfig.digitsPerZipFileName() - historicConfig.digitsPerDir();
+        final int offsetToZip =
+                blockNumberStr.length() - historicConfig.digitsPerZipFileName() - historicConfig.digitsPerDir();
         final String directoryDigits = blockNumberStr.substring(0, offsetToZip);
         final String zipFileNameDigits =
                 blockNumberStr.substring(offsetToZip, offsetToZip + historicConfig.digitsPerZipFileName());
@@ -243,7 +248,9 @@ public class ZipBlockArchive {
         }
         // create zip file name
         final String zipFileName = zipFileNameDigits + "000s.zip";
-        final String fileName = blockNumberStr + BLOCK_FILE_EXTENSION + historicConfig.compression().extension();
+        final String fileName = blockNumberStr
+                + BLOCK_FILE_EXTENSION
+                + historicConfig.compression().extension();
         return new BlockPath(dirPath, dirPath.resolve(zipFileName), blockNumberStr, fileName);
     }
 

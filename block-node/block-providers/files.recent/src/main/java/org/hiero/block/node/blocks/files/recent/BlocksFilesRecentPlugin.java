@@ -92,27 +92,29 @@ public class BlocksFilesRecentPlugin implements BlockProviderPlugin, BlockNotifi
         this.context = context;
         this.config = context.configuration().getConfigData(FilesRecentConfig.class);
         // we want to listen to incoming block items and write them into files in this plugins storage
-        context.blockMessaging().registerBlockItemHandler(this, false,
-                "BlocksFilesRecent");
+        context.blockMessaging().registerBlockItemHandler(this, false, "BlocksFilesRecent");
         // we want to listen to block notifications and to know when blocks are verified
-        context.blockMessaging().registerBlockNotificationHandler(this, false,
-                "BlocksFilesRecent");
+        context.blockMessaging().registerBlockNotificationHandler(this, false, "BlocksFilesRecent");
         // on start-up we can clear the unverified path as all unverified blocks will have to be resent
         try (final var stream = Files.walk(config.unverifiedRootPath(), 1)) {
             stream.filter(Files::isRegularFile).forEach(file -> {
                 try {
                     Files.deleteIfExists(file);
                 } catch (IOException e) {
-                    LOGGER.log(System.Logger.Level.ERROR,
+                    LOGGER.log(
+                            System.Logger.Level.ERROR,
                             "Failed to delete unverified file: %s, error: %s",
-                            file.toString(), e.getMessage());
+                            file.toString(),
+                            e.getMessage());
                     throw new RuntimeException(e);
                 }
             });
         } catch (IOException e) {
-            LOGGER.log(System.Logger.Level.ERROR,
+            LOGGER.log(
+                    System.Logger.Level.ERROR,
                     "Failed to delete unverified files in path: %s, error: %s",
-                    config.unverifiedRootPath(), e.getMessage());
+                    config.unverifiedRootPath(),
+                    e.getMessage());
             context.serverHealth().shutdown(BlocksFilesRecentPlugin.class.getName(), e.getMessage());
         }
         // scan file system to find the oldest and newest blocks
@@ -138,12 +140,13 @@ public class BlocksFilesRecentPlugin implements BlockProviderPlugin, BlockNotifi
         if (blockNumber >= oldestVerifiedBlockNumber.get() || blockNumber <= newestVerifiedBlockNumber.get()) {
             // we should have this block stored so go file the file and return accessor to it
             final Path verifiedBlockPath = BlockFile.nestedDirectoriesBlockFilePath(
-                    config.liveRootPath(),blockNumber, config.compression(), config.maxFilesPerDir());
+                    config.liveRootPath(), blockNumber, config.compression(), config.maxFilesPerDir());
             if (Files.exists(verifiedBlockPath)) {
                 // we have the block so return it
                 return new BlockFileBlockAccessor(config.liveRootPath(), verifiedBlockPath, config.compression());
             } else {
-                LOGGER.log(Level.WARNING,
+                LOGGER.log(
+                        Level.WARNING,
                         "Failed to find verified block file: %s",
                         verifiedBlockPath.toAbsolutePath().toString());
             }
@@ -175,32 +178,33 @@ public class BlocksFilesRecentPlugin implements BlockProviderPlugin, BlockNotifi
             if (completedUnverifiedBlocks.contains(blockNumber)) {
                 // we need to move it to the verified block storage
                 final Path unverifiedBlockPath = BlockFile.standaloneBlockFilePath(
-                        config.unverifiedRootPath(),blockNumber, config.compression());
+                        config.unverifiedRootPath(), blockNumber, config.compression());
                 final Path verifiedBlockPath = BlockFile.nestedDirectoriesBlockFilePath(
-                        config.liveRootPath(),blockNumber, config.compression(), config.maxFilesPerDir());
+                        config.liveRootPath(), blockNumber, config.compression(), config.maxFilesPerDir());
                 try {
                     // create parent directory if it does not exist
-                    Files.createDirectories(verifiedBlockPath.getParent(),
-                                FileUtilities.DEFAULT_FOLDER_PERMISSIONS);
+                    Files.createDirectories(verifiedBlockPath.getParent(), FileUtilities.DEFAULT_FOLDER_PERMISSIONS);
                     // create move file
                     Files.move(unverifiedBlockPath, verifiedBlockPath, StandardCopyOption.ATOMIC_MOVE);
                 } catch (IOException e) {
-                    LOGGER.log(System.Logger.Level.ERROR,
+                    LOGGER.log(
+                            System.Logger.Level.ERROR,
                             "Failed to move unverified file: %s to verified path: %s, error: %s",
                             unverifiedBlockPath.toAbsolutePath().toString(),
-                            verifiedBlockPath.toAbsolutePath().toString(), e.getMessage());
+                            verifiedBlockPath.toAbsolutePath().toString(),
+                            e.getMessage());
                     // TODO is there more that should be done here?
                 }
                 // we need to update the oldest and newest verified block numbers
                 oldestVerifiedBlockNumber.compareAndSet(UNKNOWN_BLOCK_NUMBER, blockNumber);
-                newestVerifiedBlockNumber.getAndUpdate(existingBlockNumber -> Math.max(existingBlockNumber, blockNumber));
+                newestVerifiedBlockNumber.getAndUpdate(
+                        existingBlockNumber -> Math.max(existingBlockNumber, blockNumber));
                 // send notification that the block is verified
-                context.blockMessaging().sendBlockNotification(
-                        new BlockNotification(blockNumber, BlockNotification.Type.BLOCK_VERIFIED, null));
+                context.blockMessaging()
+                        .sendBlockNotification(
+                                new BlockNotification(blockNumber, BlockNotification.Type.BLOCK_VERIFIED, null));
             } else {
-                LOGGER.log(Level.WARNING,
-                        "Block %d is verified but not found in unverified storage",
-                        blockNumber);
+                LOGGER.log(Level.WARNING, "Block %d is verified but not found in unverified storage", blockNumber);
             }
         }
     }
@@ -227,14 +231,15 @@ public class BlocksFilesRecentPlugin implements BlockProviderPlugin, BlockNotifi
      */
     @Override
     public void handleBlockItemsReceived(BlockItems blockItems) {
-        if(currentIncomingBlockNumber == UNKNOWN_BLOCK_NUMBER) {
+        if (currentIncomingBlockNumber == UNKNOWN_BLOCK_NUMBER) {
             // we are not in any block, so check if this is the start of a new block
             if (blockItems.isStartOfNewBlock()) {
                 // we are starting a new block, so set the current block number
                 currentIncomingBlockNumber = blockItems.newBlockNumber();
                 // double check that we are not in the middle of a block and previous block was closed
                 if (!currentBlocksItems.isEmpty()) {
-                    LOGGER.log(System.Logger.Level.ERROR,
+                    LOGGER.log(
+                            System.Logger.Level.ERROR,
                             "Previous block was not complete, block: %d",
                             currentIncomingBlockNumber);
                     currentBlocksItems.clear();
@@ -250,30 +255,31 @@ public class BlocksFilesRecentPlugin implements BlockProviderPlugin, BlockNotifi
         if (blockItems.isEndOfBlock()) {
             // create the file for the block
             final Path unverifiedBlockPath = BlockFile.standaloneBlockFilePath(
-                    config.unverifiedRootPath(),currentIncomingBlockNumber, config.compression());
+                    config.unverifiedRootPath(), currentIncomingBlockNumber, config.compression());
             // create parent directory if it does not exist
             try {
-                Files.createDirectories(unverifiedBlockPath.getParent(),
-                        FileUtilities.DEFAULT_FOLDER_PERMISSIONS);
+                Files.createDirectories(unverifiedBlockPath.getParent(), FileUtilities.DEFAULT_FOLDER_PERMISSIONS);
             } catch (IOException e) {
-                LOGGER.log(System.Logger.Level.ERROR,
+                LOGGER.log(
+                        System.Logger.Level.ERROR,
                         "Failed to create unverified block directory: %s, error: %s",
-                        unverifiedBlockPath.getParent().toAbsolutePath().toString(), e.getMessage());
+                        unverifiedBlockPath.getParent().toAbsolutePath().toString(),
+                        e.getMessage());
                 // TODO is there a better way to handle this than shutting down the server?
                 context.serverHealth().shutdown(BlocksFilesRecentPlugin.class.getName(), e.getMessage());
             }
-            try (final WritableStreamingData streamingData = new WritableStreamingData(
-                        new BufferedOutputStream(
-                                config.compression().wrapStream(
-                                        Files.newOutputStream(unverifiedBlockPath)),1024*1024))) {
+            try (final WritableStreamingData streamingData = new WritableStreamingData(new BufferedOutputStream(
+                    config.compression().wrapStream(Files.newOutputStream(unverifiedBlockPath)), 1024 * 1024))) {
                 BlockUnparsed.PROTOBUF.write(new BlockUnparsed(currentBlocksItems), streamingData);
                 streamingData.flush();
                 // add the block number to the completed unverified blocks
                 completedUnverifiedBlocks.add(currentIncomingBlockNumber);
             } catch (IOException e) {
-                LOGGER.log(System.Logger.Level.ERROR,
+                LOGGER.log(
+                        System.Logger.Level.ERROR,
                         "Failed to create unverified file for block: %d, error: %s",
-                        currentIncomingBlockNumber, e.getMessage());
+                        currentIncomingBlockNumber,
+                        e.getMessage());
                 // TODO is there a better way to handle this than shutting down the server?
                 context.serverHealth().shutdown(BlocksFilesRecentPlugin.class.getName(), e.getMessage());
             }

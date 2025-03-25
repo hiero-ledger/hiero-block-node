@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.node.publisher;
 
 import static java.lang.System.Logger.Level.DEBUG;
@@ -77,8 +78,12 @@ public final class BlockStreamProducerSession implements Pipeline<List<BlockItem
      * @param stateLock the lock for accessing state
      * @param sendToBlockMessaging the callback for sending block items to the block messaging service
      */
-    public BlockStreamProducerSession(long sessionId, Pipeline<? super PublishStreamResponse> responsePipeline,
-            UpdateCallback onUpdate, Counter liveBlockItemsReceived, ReentrantLock stateLock,
+    public BlockStreamProducerSession(
+            long sessionId,
+            Pipeline<? super PublishStreamResponse> responsePipeline,
+            UpdateCallback onUpdate,
+            Counter liveBlockItemsReceived,
+            ReentrantLock stateLock,
             Consumer<BlockItems> sendToBlockMessaging) {
         this.sessionId = sessionId;
         this.onUpdate = onUpdate;
@@ -177,10 +182,8 @@ public final class BlockStreamProducerSession implements Pipeline<List<BlockItem
         newBlockItems.clear();
         // resend the block request to the block messaging service
         if (responsePipeline != null) {
-            final PublishStreamResponse resendBlockResponse =
-                    new PublishStreamResponse(new OneOf<>(
-                            ResponseOneOfType.RESEND_BLOCK,
-                            new ResendBlock(blockNumber)));
+            final PublishStreamResponse resendBlockResponse = new PublishStreamResponse(
+                    new OneOf<>(ResponseOneOfType.RESEND_BLOCK, new ResendBlock(blockNumber)));
             responsePipeline.onNext(resendBlockResponse);
         }
     }
@@ -193,11 +196,9 @@ public final class BlockStreamProducerSession implements Pipeline<List<BlockItem
             currentBlockState = BlockState.DISCONNECTED;
             // try to send a close response to the client
             if (responsePipeline != null) {
-                final PublishStreamResponse closeResponse =
-                        new PublishStreamResponse(new OneOf<>(
-                                ResponseOneOfType.END_STREAM,
-                                new EndOfStream(PublishStreamResponseCode.STREAM_ITEMS_SUCCESS,
-                                        currentBlockNumber)));
+                final PublishStreamResponse closeResponse = new PublishStreamResponse(new OneOf<>(
+                        ResponseOneOfType.END_STREAM,
+                        new EndOfStream(PublishStreamResponseCode.STREAM_ITEMS_SUCCESS, currentBlockNumber)));
                 responsePipeline.onNext(closeResponse);
             }
             if (subscription != null) {
@@ -216,15 +217,9 @@ public final class BlockStreamProducerSession implements Pipeline<List<BlockItem
      */
     void sendBlockPersisted(long blockNumber, Bytes blockHash) {
         if (responsePipeline != null) {
-            final PublishStreamResponse goodBlockResponse =
-                    new PublishStreamResponse(new OneOf<>(
-                            ResponseOneOfType.ACKNOWLEDGEMENT,
-                            new Acknowledgement(
-                                    new BlockAcknowledgement(
-                                            blockNumber,
-                                            blockHash,
-                                            false
-                                    ))));
+            final PublishStreamResponse goodBlockResponse = new PublishStreamResponse(new OneOf<>(
+                    ResponseOneOfType.ACKNOWLEDGEMENT,
+                    new Acknowledgement(new BlockAcknowledgement(blockNumber, blockHash, false))));
             // send the response to the client
             responsePipeline.onNext(goodBlockResponse);
         }
@@ -247,7 +242,9 @@ public final class BlockStreamProducerSession implements Pipeline<List<BlockItem
             final boolean newBlock = items.size() == 1 && items.getFirst().hasBlockHeader();
             if (newBlock) {
                 try {
-                    long newBlockNumber = BlockHeader.PROTOBUF.parse(items.getFirst().blockHeaderOrThrow()).number();
+                    long newBlockNumber = BlockHeader.PROTOBUF
+                            .parse(items.getFirst().blockHeaderOrThrow())
+                            .number();
                     // move to new state if we are not in the waiting for resend state, or if we are in the waiting
                     // for resend state and the block number is the same as the current block number
                     if (currentBlockState != BlockState.WAITING_FOR_RESEND || newBlockNumber == currentBlockNumber) {
@@ -264,7 +261,7 @@ public final class BlockStreamProducerSession implements Pipeline<List<BlockItem
                     throw new RuntimeException(e);
                 }
             }
-            switch(currentBlockState) {
+            switch (currentBlockState) {
                 case NEW -> newBlockItems.addAll(items);
                 case PRIMARY -> {
                     // we are in the primary state, so we can send the items directly to the block messaging service

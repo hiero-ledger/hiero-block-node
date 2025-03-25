@@ -1,9 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.node.spi.blockmessaging;
 
-import java.util.List;
-import org.hiero.hapi.block.node.BlockItemUnparsed;
-
 /**
  * Service that handles the messaging between the different components of the server. It is used to send block items
  * and block notifications to the different components. It is not meant to become a general purpose messaging service.

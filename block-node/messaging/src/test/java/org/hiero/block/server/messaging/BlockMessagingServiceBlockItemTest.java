@@ -74,7 +74,7 @@ public class BlockMessagingServiceBlockItemTest {
         // send TEST_DATA_COUNT block notifications
         for (int i = 0; i < TEST_DATA_COUNT; i++) {
             messagingService.sendBlockItems(new BlockItems(
-                    List.of(new BlockItemUnparsed(new OneOf<>(ItemOneOfType.BLOCK_HEADER, intToBytes(i)))),-1));
+                    List.of(new BlockItemUnparsed(new OneOf<>(ItemOneOfType.BLOCK_HEADER, intToBytes(i)))), -1));
             // we can not send data at full speed as it is just to reliable for testing, sender can out pace the
             // receivers and cause exceptions once in a while
             Thread.sleep(1);
@@ -130,7 +130,7 @@ public class BlockMessagingServiceBlockItemTest {
         // send TEST_DATA_COUNT block notifications
         for (int i = 0; i < TEST_DATA_COUNT; i++) {
             messagingService.sendBlockItems(new BlockItems(
-                    List.of(new BlockItemUnparsed(new OneOf<>(ItemOneOfType.BLOCK_HEADER, intToBytes(i)))),-1));
+                    List.of(new BlockItemUnparsed(new OneOf<>(ItemOneOfType.BLOCK_HEADER, intToBytes(i)))), -1));
             // we can not send data at full speed as it is just to reliable for testing, sender can out pace the
             // receivers and cause exceptions once in a while
             Thread.sleep(1);
@@ -178,7 +178,8 @@ public class BlockMessagingServiceBlockItemTest {
         // start services and send empty block items
         service.start();
         // send empty block items
-        service.sendBlockItems(new BlockItems(List.of(new BlockItemUnparsed(new OneOf<>(ItemOneOfType.BLOCK_HEADER, intToBytes(1)))),-1));
+        service.sendBlockItems(new BlockItems(
+                List.of(new BlockItemUnparsed(new OneOf<>(ItemOneOfType.BLOCK_HEADER, intToBytes(1)))), -1));
         try {
             Thread.sleep(50);
         } catch (InterruptedException e) {
