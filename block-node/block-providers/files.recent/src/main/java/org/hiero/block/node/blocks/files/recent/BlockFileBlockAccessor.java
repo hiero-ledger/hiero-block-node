@@ -1,5 +1,6 @@
 package org.hiero.block.node.blocks.files.recent;
 
+import static java.lang.System.Logger.Level.DEBUG;
 import static java.lang.System.Logger.Level.WARNING;
 
 import com.github.luben.zstd.Zstd;
@@ -57,6 +58,9 @@ public class BlockFileBlockAccessor implements BlockAccessor {
     @Override
     public void delete() {
         try {
+            // log we are deleting the block file
+            LOGGER.log(DEBUG, "Deleting block file: " + blockFilePath);
+            // delete the block file
             Files.deleteIfExists(blockFilePath);
             // clean up any empty parent directories up to the base directory
             Path parentDir = blockFilePath.getParent();
@@ -193,7 +197,46 @@ public class BlockFileBlockAccessor implements BlockAccessor {
                 }
             }
         }
-        BlockAccessor.super.writeBytesTo(format, output);
+    }
+
+    /**
+     * {@inheritDoc}
+     */
+    @Override
+    public void writeBytesTo(Format format, OutputStream output) throws IllegalArgumentException {
+        switch (format) {
+            case JSON -> Block.JSON.toBytes(block()).writeTo(output);
+            case PROTOBUF -> {
+                try (InputStream in = compressionType.wrapStream( Files.newInputStream(blockFilePath))) {
+                    byte[] buffer = new byte[BUFFER_SIZE];
+                    int read;
+                    while ((read = in.read(buffer, 0, buffer.length)) >= 0) {
+                        output.write(buffer, 0, read);
+                    }
+                } catch (IOException e) {
+                    LOGGER.log(WARNING, "Failed to read block from file: " + blockFilePath, e);
+                    throw new RuntimeException(e);
+                }
+            }
+            case ZSTD_PROTOBUF -> {
+                if (compressionType == CompressionType.ZSTD) {
+                    try (InputStream in = Files.newInputStream(blockFilePath)) {
+                        in.transferTo(output);
+                    } catch (IOException e) {
+                        LOGGER.log(WARNING, "Failed to read block from file: " + blockFilePath, e);
+                        throw new RuntimeException(e);
+                    }
+                } else {
+                    try (InputStream in = compressionType.wrapStream(new BufferedInputStream(
+                            Files.newInputStream(blockFilePath), BUFFER_SIZE))) {
+                        output.write(Zstd.compress(in.readAllBytes()));
+                    } catch (IOException e) {
+                        LOGGER.log(WARNING, "Failed to read block from file: " + blockFilePath, e);
+                        throw new RuntimeException(e);
+                    }
+                }
+            }
+        }
     }
 
     /**
