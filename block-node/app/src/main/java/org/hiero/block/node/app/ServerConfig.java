@@ -6,7 +6,7 @@ import com.swirlds.config.api.ConfigProperty;
 import com.swirlds.config.api.validation.annotation.Max;
 import com.swirlds.config.api.validation.annotation.Min;
 import org.hiero.block.common.utils.Preconditions;
-import org.hiero.block.node.base.config.Loggable;
+import org.hiero.block.node.base.Loggable;
 
 /**
  * Use this configuration across the server features

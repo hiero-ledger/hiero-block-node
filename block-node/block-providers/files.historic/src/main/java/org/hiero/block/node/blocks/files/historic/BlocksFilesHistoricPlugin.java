@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.node.blocks.files.historic;
 
+import io.helidon.common.Builder;
+import io.helidon.webserver.Routing;
 import java.util.List;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -36,9 +38,11 @@ public class BlocksFilesHistoricPlugin implements BlockProviderPlugin, BlockNoti
 
     /**
      * {@inheritDoc}
+     *
+     * @return
      */
     @Override
-    public void init(BlockNodeContext context) {
+    public Builder<?, ? extends Routing> init(BlockNodeContext context) {
         this.context = context;
         final FilesHistoricConfig config = context.configuration().getConfigData(FilesHistoricConfig.class);
         context.blockMessaging().registerBlockNotificationHandler(this, false, "Blocks Files Historic");
@@ -47,6 +51,7 @@ public class BlocksFilesHistoricPlugin implements BlockProviderPlugin, BlockNoti
         // get the first and last block numbers from the zipBlockArchive
         firstBlockNumber.set(zipBlockArchive.minStoredBlockNumber());
         lastBlockNumber.set(zipBlockArchive.maxStoredBlockNumber());
+        return null;
     }
 
     /**

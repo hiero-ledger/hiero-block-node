@@ -13,6 +13,5 @@ module org.hiero.block.node.spi {
     requires transitive io.helidon.webserver;
     requires com.github.luben.zstd_jni;
     requires static transitive com.github.spotbugs.annotations;
-    requires static transitive com.google.auto.service;
     requires static java.compiler; // javax.annotation.processing.Generated
 }

@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.node.spi.historicalblocks;
 
-import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.BlockNodePlugin;
 import org.hiero.block.node.spi.blockmessaging.BlockMessagingFacility;
 
@@ -26,41 +25,11 @@ import org.hiero.block.node.spi.blockmessaging.BlockMessagingFacility;
  * requesters.
  * </p>
  */
-public interface BlockProviderPlugin {
+public interface BlockProviderPlugin extends BlockNodePlugin {
     /**
      * Special value for block number that indicates that the block number is unknown.
      */
     long UNKNOWN_BLOCK_NUMBER = BlockNodePlugin.UNKNOWN_BLOCK_NUMBER;
-
-    /**
-     * The name of the plugin. This is used to identify the plugin in the system config.
-     *
-     * @return the name of the plugin
-     */
-    String name();
-
-    /**
-     * Start the plugin. This method is called when the block node is starting up. It provides the block node context to
-     * the plugin which can be used to access the different facilities of the block node.
-     * <p>
-     * The default implementation does nothing. This is to be overridden by the plugin if it needs to do
-     * anything on start.
-     * </p>
-     *
-     * @param context the block node context
-     */
-    default void init(BlockNodeContext context) {}
-
-    /**
-     * Start the plugin. This method is called when the block node is starting up after all initialization is complete.
-     * At this point all facilities are available and the plugin can use them. Any background threads should be started
-     * here. This method is called after the {@link #init(BlockNodeContext)} method.
-     * <p>
-     * The default implementation does nothing. This is to be overridden by the plugin if it needs to do
-     * anything on start.
-     * </p>
-     */
-    default void start() {}
 
     /**
      * The default priority of the plugin. This is used to sort the plugins by priority. The higher the number, the higher

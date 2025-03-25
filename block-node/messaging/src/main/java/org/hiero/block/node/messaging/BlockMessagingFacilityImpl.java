@@ -1,10 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.node.messaging;
 
-import static org.hiero.block.node.spi.BlockNodePlugin.UNKNOWN_BLOCK_NUMBER;
-
-import com.hedera.hapi.block.stream.output.BlockHeader;
-import com.hedera.pbj.runtime.ParseException;
 import com.lmax.disruptor.BatchEventProcessor;
 import com.lmax.disruptor.BatchEventProcessorBuilder;
 import com.lmax.disruptor.ExceptionHandler;
@@ -13,22 +9,22 @@ import com.lmax.disruptor.SequenceBarrier;
 import com.lmax.disruptor.SleepingWaitStrategy;
 import com.lmax.disruptor.dsl.Disruptor;
 import com.lmax.disruptor.dsl.ProducerType;
-import com.swirlds.config.api.spi.ConfigurationBuilderFactory;
+import edu.umd.cs.findbugs.annotations.NonNull;
+import io.helidon.common.Builder;
+import io.helidon.webserver.Routing;
 import java.lang.System.Logger.Level;
 import java.util.ArrayList;
 import java.util.HashMap;
-import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
-import java.util.ServiceLoader;
 import java.util.concurrent.ThreadFactory;
+import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.blockmessaging.BlockItemHandler;
 import org.hiero.block.node.spi.blockmessaging.BlockItems;
 import org.hiero.block.node.spi.blockmessaging.BlockMessagingFacility;
 import org.hiero.block.node.spi.blockmessaging.BlockNotification;
 import org.hiero.block.node.spi.blockmessaging.BlockNotificationHandler;
 import org.hiero.block.node.spi.blockmessaging.NoBackPressureBlockItemHandler;
-import org.hiero.hapi.block.node.BlockItemUnparsed;
 
 /**
  * Implementation of the MessagingService interface. It uses the LMAX Disruptor to handle block item batches and block
@@ -115,13 +111,13 @@ public class BlockMessagingFacilityImpl implements BlockMessagingFacility {
      * The disruptor that handles the block item batches. It is used to send block items to the different handlers.
      * It is a single producer, multiple consumer disruptor.
      */
-    private final Disruptor<BlockItemBatchRingEvent> blockItemDisruptor;
+    private Disruptor<BlockItemBatchRingEvent> blockItemDisruptor;
 
     /**
      * The disruptor that handles the block notifications. It is used to send block notifications to the different
      * handlers. It is a single producer, multiple consumer disruptor.
      */
-    private final Disruptor<BlockNotificationRingEvent> blockNotificationDisruptor;
+    private Disruptor<BlockNotificationRingEvent> blockNotificationDisruptor;
 
     /** Map of block item handlers to their threads. So that we can stop them */
     private final Map<BlockItemHandler, Thread> blockItemHandlerToThread = new HashMap<>();
@@ -151,61 +147,36 @@ public class BlockMessagingFacilityImpl implements BlockMessagingFacility {
             new ArrayList<>();
 
     /**
-     * Constructs a new MessagingServiceImpl instance with the default configuration. It uses the
-     * ConfigurationBuilderFactory to load the configuration from the classpath.
+     * {@inheritDoc}
      */
-    public BlockMessagingFacilityImpl() {
-        this(getConfig());
+    @NonNull
+    @Override
+    public List<Class<? extends Record>> configDataTypes() {
+        return BlockMessagingFacility.super.configDataTypes();
     }
 
     /**
-     * Constructs a new MessagingServiceImpl instance with the given configuration.
-     *
-     * @param config the configuration for the messaging service
+     * {@inheritDoc}
      */
-    public BlockMessagingFacilityImpl(final MessagingConfig config) {
+    @Override
+    public Builder<?, ? extends Routing> init(BlockNodeContext context) {
+        final MessagingConfig messagingConfig = context.configuration().getConfigData(MessagingConfig.class);
         blockItemDisruptor = new Disruptor<>(
                 BlockItemBatchRingEvent::new,
-                config.queueSize(),
+                messagingConfig.queueSize(),
                 VIRTUAL_THREAD_FACTORY,
                 ProducerType.SINGLE,
                 new SleepingWaitStrategy());
         blockNotificationDisruptor = new Disruptor<>(
                 BlockNotificationRingEvent::new,
-                config.queueSize(),
+                messagingConfig.queueSize(),
                 VIRTUAL_THREAD_FACTORY,
                 ProducerType.SINGLE,
                 new SleepingWaitStrategy());
         // Set the exception handler for the disruptors
         blockItemDisruptor.setDefaultExceptionHandler(BLOCK_ITEM_EXCEPTION_HANDLER);
         blockNotificationDisruptor.setDefaultExceptionHandler(BLOCK_NOTIFICATION_EXCEPTION_HANDLER);
-    }
-
-    /**
-     * Get the configuration for the messaging service. It uses the ConfigurationBuilderFactory to load the
-     * configuration from the classpath. Public as it is used in tests, but is not exported from the module.
-     *
-     * @return the configuration for the messaging service
-     * @throws IllegalStateException if no ConfigurationBuilderFactory implementation is found
-     */
-    public static MessagingConfig getConfig() {
-        ConfigurationBuilderFactory configurationBuilderFactory = null;
-        final ServiceLoader<ConfigurationBuilderFactory> serviceLoader = ServiceLoader.load(
-                ConfigurationBuilderFactory.class, BlockMessagingFacilityImpl.class.getClassLoader());
-        final Iterator<ConfigurationBuilderFactory> iterator = serviceLoader.iterator();
-        if (iterator.hasNext()) {
-            configurationBuilderFactory = iterator.next();
-        }
-        if (configurationBuilderFactory == null) {
-            throw new IllegalStateException("No ConfigurationBuilderFactory implementation found!");
-        }
-        // Load the configuration from the classpath
-        return configurationBuilderFactory
-                .create()
-                .autoDiscoverExtensions()
-                .withConfigDataType(MessagingConfig.class)
-                .build()
-                .getConfigData(MessagingConfig.class);
+        return null;
     }
 
     /**
@@ -373,7 +344,7 @@ public class BlockMessagingFacilityImpl implements BlockMessagingFacility {
      * {@inheritDoc}
      */
     @Override
-    public synchronized void shutdown() {
+    public synchronized void stop() {
         // Stop all the block item event handlers
         for (var eventHandler : blockItemHandlerToEventProcessor.values()) {
             blockItemDisruptor.getRingBuffer().removeGatingSequence(eventHandler.getSequence());
@@ -470,27 +441,6 @@ public class BlockMessagingFacilityImpl implements BlockMessagingFacility {
         if (handlerThread != null) {
             handlerThread.interrupt();
         }
-    }
-
-    /**
-     * Utility method to get the block number from the block items. If the block items are staring from start of new
-     * block with a block header.
-     *
-     * @param blockItems The block items to get the block number from
-     * @return The block number if the block items are start of new block, otherwise UNKNOWN_BLOCK_NUMBER
-     */
-    private static long getBlockNumberFromBlockItems(List<BlockItemUnparsed> blockItems) {
-        if (!blockItems.isEmpty() && blockItems.getFirst().hasBlockHeader()) {
-            try {
-                //noinspection DataFlowIssue
-                return BlockHeader.PROTOBUF
-                        .parse(blockItems.getFirst().blockHeader())
-                        .number();
-            } catch (ParseException e) {
-                throw new RuntimeException(e);
-            }
-        }
-        return UNKNOWN_BLOCK_NUMBER;
     }
 
     /**
