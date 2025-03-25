@@ -84,8 +84,7 @@ public class PublishStreamObserver implements StreamObserver<PublishStreamRespon
             final byte[] blockHash = ack.getBlockRootHash().toByteArray();
             try {
                 Files.write(
-                        latestAckBlockNumberPath,
-                        String.valueOf(blockNumber).getBytes());
+                        latestAckBlockNumberPath, String.valueOf(blockNumber).getBytes());
                 Files.write(latestAckBlockHashPath, blockHash);
             } catch (final IOException e) {
                 throw new UncheckedIOException(e);
