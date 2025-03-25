@@ -32,7 +32,6 @@ public class BlocksFilesHistoricPlugin implements BlockProviderPlugin, BlockNoti
     /** The last block number stored by this plugin */
     private final AtomicLong lastBlockNumber = new AtomicLong(0);
 
-
     // ==== BlockProviderPlugin Methods ================================================================================
 
     /**
@@ -42,8 +41,7 @@ public class BlocksFilesHistoricPlugin implements BlockProviderPlugin, BlockNoti
     public void init(BlockNodeContext context) {
         this.context = context;
         final FilesHistoricConfig config = context.configuration().getConfigData(FilesHistoricConfig.class);
-        context.blockMessaging().registerBlockNotificationHandler(this, false,
-                "Blocks Files Historic");
+        context.blockMessaging().registerBlockNotificationHandler(this, false, "Blocks Files Historic");
         numberOfBlocksPerZipFile = (int) Math.pow(10, config.digitsPerZipFileName());
         zipBlockArchive = new ZipBlockArchive(context, config);
         // get the first and last block numbers from the zipBlockArchive
@@ -94,8 +92,7 @@ public class BlocksFilesHistoricPlugin implements BlockProviderPlugin, BlockNoti
     @Override
     public BlockAccessor block(long blockNumber) {
         // check if the block number is in the range of blocks
-        if (blockNumber < firstBlockNumber.get() ||
-                blockNumber > lastBlockNumber.get()) {
+        if (blockNumber < firstBlockNumber.get() || blockNumber > lastBlockNumber.get()) {
             return null;
         }
         return zipBlockArchive.blockAccessor(blockNumber);
@@ -118,8 +115,8 @@ public class BlocksFilesHistoricPlugin implements BlockProviderPlugin, BlockNoti
     public void handleBlockNotification(BlockNotification notification) {
         if (notification.type() == Type.BLOCK_PERSISTED) {
             // check if this crosses a block zip file boundary
-            if (notification.blockNumber() > lastBlockNumber.get() &&
-                    notification.blockNumber() % numberOfBlocksPerZipFile == 0) {
+            if (notification.blockNumber() > lastBlockNumber.get()
+                    && notification.blockNumber() % numberOfBlocksPerZipFile == 0) {
                 final long firstBlockNumber = notification.blockNumber() - numberOfBlocksPerZipFile;
                 // move the batch of blocks to a zip file
                 zipMoveExecutorService.submit(() -> moveBatchOfBlocksToZipFile(firstBlockNumber));
@@ -138,27 +135,32 @@ public class BlocksFilesHistoricPlugin implements BlockProviderPlugin, BlockNoti
         final long batchLastBlockNumber = (batchFirstBlockNumber + numberOfBlocksPerZipFile - 1);
         // move the batch of blocks to a zip file
         try {
-            LOGGER.log(System.Logger.Level.DEBUG,
-                    "Moving batch of blocks[%d -> %d] to zip file",batchFirstBlockNumber,
+            LOGGER.log(
+                    System.Logger.Level.DEBUG,
+                    "Moving batch of blocks[%d -> %d] to zip file",
+                    batchFirstBlockNumber,
                     batchLastBlockNumber);
             final List<BlockAccessor> blockAccessors = zipBlockArchive.writeNewZipFile(batchFirstBlockNumber);
             // update the first and last block numbers
-            firstBlockNumber.getAndUpdate(value -> value == UNKNOWN_BLOCK_NUMBER ?
-                    numberOfBlocksPerZipFile : Math.min(value, batchFirstBlockNumber));
-            lastBlockNumber.getAndUpdate(value -> Math.max(value,
-                    batchLastBlockNumber));
+            firstBlockNumber.getAndUpdate(value ->
+                    value == UNKNOWN_BLOCK_NUMBER ? numberOfBlocksPerZipFile : Math.min(value, batchFirstBlockNumber));
+            lastBlockNumber.getAndUpdate(value -> Math.max(value, batchLastBlockNumber));
             // log done
-            LOGGER.log(System.Logger.Level.INFO,
-                    "Moved batch of blocks[%d -> %d] to zip file",batchFirstBlockNumber,
-                     batchLastBlockNumber);
+            LOGGER.log(
+                    System.Logger.Level.INFO,
+                    "Moved batch of blocks[%d -> %d] to zip file",
+                    batchFirstBlockNumber,
+                    batchLastBlockNumber);
             // now all the blocks are in the zip file and accessible, delete the original blocks
             for (BlockAccessor blockAccessor : blockAccessors) {
                 blockAccessor.delete();
             }
         } catch (Exception e) {
-            LOGGER.log(System.Logger.Level.ERROR,
-                    "Failed to move batch of blocks["+batchFirstBlockNumber+" -> "+
-                            batchLastBlockNumber+"] to zip file", e);
+            LOGGER.log(
+                    System.Logger.Level.ERROR,
+                    "Failed to move batch of blocks[" + batchFirstBlockNumber + " -> " + batchLastBlockNumber
+                            + "] to zip file",
+                    e);
         }
     }
 }

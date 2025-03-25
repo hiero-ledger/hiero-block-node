@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
-
-import org.hiero.block.node.spi.historicalblocks.BlockProviderPlugin;
 import org.hiero.block.node.blocks.files.historic.BlocksFilesHistoricPlugin;
+import org.hiero.block.node.spi.historicalblocks.BlockProviderPlugin;
 
 // SPDX-License-Identifier: Apache-2.0
 module org.hiero.block.node.blocks.files.historic {

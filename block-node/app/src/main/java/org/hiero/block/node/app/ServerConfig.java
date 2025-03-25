@@ -35,8 +35,7 @@ public record ServerConfig(
                 @Max(Integer.MAX_VALUE)
                 int socketReceiveBufferSizeBytes,
         @Loggable @ConfigProperty(defaultValue = defaultPort) @Min(minPort) @Max(maxPort) int port,
-        @Loggable @ConfigProperty(defaultValue = "500") int shutdownDelayMillis
-) {
+        @Loggable @ConfigProperty(defaultValue = "500") int shutdownDelayMillis) {
 
     // Constants for maxMessageSizeBytes property
     static final String defaultMaxMessageSizeBytes = "4_194_304";
