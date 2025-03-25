@@ -1,8 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.node.spi.historicalblocks;
 
-import io.helidon.common.Builder;
-import io.helidon.webserver.Routing;
 import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.BlockNodePlugin;
 import org.hiero.block.node.spi.blockmessaging.BlockMessagingFacility;
@@ -52,7 +50,7 @@ public interface BlockProviderPlugin {
      *
      * @param context the block node context
      */
-    default void init(BlockNodeContext context){};
+    default void init(BlockNodeContext context){}
 
     /**
      * Start the plugin. This method is called when the block node is starting up after all initialization is complete.
@@ -75,14 +73,12 @@ public interface BlockProviderPlugin {
 
     /**
      * Use this method to get the block at the specified block number. Block providers have to be trusted that they have
-     * safely stored the block before calling delete callback.
+     * safely stored the block before calling delete on the returned {code BlockAccessor}.
      *
      * @param blockNumber the block number
-     * @param deleteBlockCallback the callback to be called when you are finished accessing the block, and it should be
-     *                            deleted from the provider. This can be null if the provider does not support deletion.
      * @return the block at the specified block number, null if the block is not available
      */
-    BlockAccessor block(long blockNumber, Runnable deleteBlockCallback);
+    BlockAccessor block(long blockNumber);
 
     /**
      * Get the latest block number available from this provider. This is used to determine the latest block number

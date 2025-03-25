@@ -12,6 +12,8 @@ module org.hiero.block.node.blocks.files.recent {
     requires org.hiero.block.base;
     requires org.hiero.block.node.spi;
     requires com.lmax.disruptor;
+    requires com.github.luben.zstd_jni;
+    requires com.hedera.pbj.runtime;
 
     provides BlockProviderPlugin with
             BlocksFilesRecentPlugin;

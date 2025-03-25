@@ -1,26 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 module org.hiero.block.base {
-    exports org.hiero.block.server.consumer;
-    exports org.hiero.block.server.exception;
-    exports org.hiero.block.server.persistence.storage;
-    exports org.hiero.block.server.persistence.storage.archive;
-    exports org.hiero.block.server.persistence.storage.compression;
-    exports org.hiero.block.server.persistence.storage.path;
-    exports org.hiero.block.server.persistence.storage.write;
-    exports org.hiero.block.server.persistence.storage.read;
-    exports org.hiero.block.server.persistence.storage.remove;
     exports org.hiero.block.server.config;
     exports org.hiero.block.server.config.logging;
-    exports org.hiero.block.server.mediator;
-    exports org.hiero.block.server.metrics;
-    exports org.hiero.block.server.events;
-    exports org.hiero.block.server.ack;
-    exports org.hiero.block.server.persistence;
-    exports org.hiero.block.server.notifier;
-    exports org.hiero.block.server.service;
-    exports org.hiero.block.server.producer;
-    exports org.hiero.block.server.block;
-    exports org.hiero.block.server.utils;
+    exports org.hiero.block.node.base;
 
     requires transitive com.hedera.pbj.runtime;
     requires transitive com.swirlds.common;
