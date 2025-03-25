@@ -8,16 +8,9 @@ description = "Hiero Block Node Base"
 tasks.withType<JavaCompile>().configureEach { options.compilerArgs.add("-Xlint:-exports") }
 
 mainModuleInfo {
-    annotationProcessor("dagger.compiler")
-    annotationProcessor("com.google.auto.service.processor")
     runtimeOnly("com.swirlds.config.impl")
     runtimeOnly("io.helidon.logging.jul")
     runtimeOnly("com.hedera.pbj.grpc.helidon.config")
 }
 
-testModuleInfo {
-    annotationProcessor("dagger.compiler")
-    requires("org.junit.jupiter.api")
-    requires("org.junit.jupiter.params")
-    requires("org.assertj.core")
-}
+testModuleInfo {}

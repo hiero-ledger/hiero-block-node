@@ -10,7 +10,6 @@ import com.swirlds.common.metrics.platform.DefaultMetricsProvider;
 import com.swirlds.config.api.Configuration;
 import com.swirlds.config.api.ConfigurationBuilder;
 import com.swirlds.config.extensions.sources.ClasspathFileConfigSource;
-import com.swirlds.config.extensions.sources.SystemPropertiesConfigSource;
 import com.swirlds.metrics.api.Metrics;
 import io.helidon.common.Builder;
 import io.helidon.webserver.ConnectionConfig;
@@ -19,11 +18,12 @@ import io.helidon.webserver.WebServer;
 import io.helidon.webserver.WebServerConfig;
 import java.io.IOException;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.ServiceLoader;
 import java.util.concurrent.atomic.AtomicReference;
-import org.hiero.block.node.base.config.ConfigurationLogging;
-import org.hiero.block.node.base.config.ServerMappedConfigSourceInitializer;
+import org.hiero.block.node.app.config.AutomaticEnvironmentVariableConfigSource;
+import org.hiero.block.node.app.config.ConfigurationLogging;
 import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.BlockNodePlugin;
 import org.hiero.block.node.spi.blockmessaging.BlockMessagingFacility;
@@ -39,7 +39,7 @@ public class BlockNodeApp implements HealthFacility {
     /** The block node context. */
     private final BlockNodeContext blockNodeContext;
     /** list of all loaded plugins */
-    private final List<BlockNodePlugin> loadedPlugins;
+    private final List<BlockNodePlugin> loadedPlugins = new ArrayList<>();
     /** The state of the server. */
     private final AtomicReference<State> state = new AtomicReference<>(State.STARTING);
     /** The web server. */
@@ -56,33 +56,44 @@ public class BlockNodeApp implements HealthFacility {
      * @throws IOException if there is an error starting the server
      */
     private BlockNodeApp() throws IOException {
-        // Init BlockNode Configuration
-        // TODO we might need to do more here to load config from file/files ideally we would have either single config
-        //  file for server and all plugins or single directory with config files for server and all plugins.
-        final Configuration configuration = ConfigurationBuilder.create()
-                .withSource(ServerMappedConfigSourceInitializer.getMappedConfigSource())
-                .withSource(SystemPropertiesConfigSource.getInstance())
-                .withSources(new ClasspathFileConfigSource(Path.of(APPLICATION_PROPERTIES)))
-                .autoDiscoverExtensions()
-                .build();
-        serverConfig = configuration.getConfigData(ServerConfig.class);
-        // load logging config and log the configuration
-        final ConfigurationLogging configurationLogging = new ConfigurationLogging(configuration);
-        configurationLogging.log();
-        // Init Metrics
-        final DefaultMetricsProvider metricsProvider = new DefaultMetricsProvider(configuration);
-        final Metrics metrics = metricsProvider.createGlobalMetrics();
-
-        // Create HistoricalBlockFacilityImpl
-        historicalBlockFacility = new HistoricalBlockFacilityImpl(configuration);
-
+        // ==== FACILITY & PLUGIN LOADING ==============================================================================
         // Load Block Messaging Service plugin - for now allow nulls
         final BlockMessagingFacility blockMessagingService = ServiceLoader.load(
                         BlockMessagingFacility.class, BlockNodeApp.class.getClassLoader())
                 .findFirst()
                 .orElseThrow(() -> new IllegalStateException("No BlockMessagingFacility provided"));
-
-        // Build block node context
+        loadedPlugins.add(blockMessagingService);
+        // Load HistoricalBlockFacilityImpl
+        historicalBlockFacility = new HistoricalBlockFacilityImpl();
+        loadedPlugins.add(historicalBlockFacility);
+        loadedPlugins.addAll(historicalBlockFacility.allBlockProvidersPlugins());
+        // Load all the plugins, just the classes are crated at this point, they are not initialized
+        ServiceLoader.load(BlockNodePlugin.class, BlockNodeApp.class.getClassLoader()).stream()
+                .map(ServiceLoader.Provider::get)
+                .forEach(loadedPlugins::add);
+        // ==== CONFIGURATION ==========================================================================================
+        // Collect all the config data types from the plugins and global server level
+        final List<Class<? extends Record>> allConfigDataTypes = new ArrayList<>();
+        allConfigDataTypes.add(ServerConfig.class);
+        allConfigDataTypes.addAll(blockMessagingService.configDataTypes());
+        allConfigDataTypes.addAll(historicalBlockFacility.configDataTypes());
+        loadedPlugins.forEach(plugin -> allConfigDataTypes.addAll(plugin.configDataTypes()));
+        // Init BlockNode Configuration
+        //noinspection unchecked
+        final ConfigurationBuilder configurationBuilder = ConfigurationBuilder.create()
+                .withSource(new AutomaticEnvironmentVariableConfigSource(allConfigDataTypes))
+                .withSources(new ClasspathFileConfigSource(Path.of(APPLICATION_PROPERTIES)))
+                .withConfigDataTypes(allConfigDataTypes.toArray(new Class[0]));
+        // Build the configuration
+        final Configuration configuration = configurationBuilder.build();
+        // Log the configuration
+        ConfigurationLogging.log(configuration);
+        // now that configuration is loaded we can get config for server
+        serverConfig = configuration.getConfigData(ServerConfig.class);
+        // ==== METRICS ================================================================================================
+        final DefaultMetricsProvider metricsProvider = new DefaultMetricsProvider(configuration);
+        final Metrics metrics = metricsProvider.createGlobalMetrics();
+        // ==== CONTEXT ================================================================================================
         blockNodeContext = new BlockNodeContext() {
             @Override
             public Configuration configuration() {
@@ -109,10 +120,7 @@ public class BlockNodeApp implements HealthFacility {
                 return historicalBlockFacility;
             }
         };
-        // Load all the plugins
-        loadedPlugins = ServiceLoader.load(BlockNodePlugin.class, BlockNodeApp.class.getClassLoader()).stream()
-                .map(ServiceLoader.Provider::get)
-                .toList();
+        // ==== LOAD & CONFIGURE WEB SERVER ============================================================================
         // Override the default message size in PBJ
         final PbjConfig pbjConfig = PbjConfig.builder()
                 .name(PBJ_PROTOCOL_PROVIDER_CONFIG_NAME)
@@ -126,7 +134,8 @@ public class BlockNodeApp implements HealthFacility {
                         .sendBufferSize(serverConfig.socketSendBufferSizeBytes())
                         .receiveBufferSize(serverConfig.socketSendBufferSizeBytes())
                         .build());
-        // Initialize all the plugins, adding routing for each plugin
+        // ==== INITIALIZE EVERYTHING ==================================================================================
+        // Initialize all the facilities & plugins, adding routing for each plugin
         for (BlockNodePlugin plugin : loadedPlugins) {
             LOGGER.log(INFO, "    Initializing plugin: {0}", plugin.name());
             final Builder<?, ? extends Routing> routingBuilder = plugin.init(blockNodeContext);
@@ -134,8 +143,6 @@ public class BlockNodeApp implements HealthFacility {
                 webServerBuilder.addRouting(routingBuilder);
             }
         }
-        // initialize the historical block facility and its block provider plugins
-        historicalBlockFacility.init(blockNodeContext);
         // Build the web server
         webServer = webServerBuilder.build();
     }
@@ -150,13 +157,11 @@ public class BlockNodeApp implements HealthFacility {
         webServer.start();
         // Start metrics
         blockNodeContext.metrics().start();
-        // Start all the plugins
+        // Start all the facilities & plugins
         for (BlockNodePlugin plugin : loadedPlugins) {
             LOGGER.log(INFO, "    Starting plugin: {0}", plugin.name());
             plugin.start();
         }
-        // Start the historical block facility and its block provider plugins
-        historicalBlockFacility.start();
         // mark the server as started
         state.set(State.RUNNING);
     }
@@ -185,7 +190,7 @@ public class BlockNodeApp implements HealthFacility {
         }
         // Stop server
         webServer.stop();
-        // Stop all the plugins
+        // Stop all the facilities &  plugins
         for (BlockNodePlugin plugin : loadedPlugins) {
             LOGGER.log(INFO, "Stopping plugin: {0}", plugin.name());
             plugin.stop();

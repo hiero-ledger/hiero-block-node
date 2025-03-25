@@ -3,7 +3,7 @@ package org.hiero.block.node.messaging;
 
 import com.swirlds.config.api.ConfigData;
 import com.swirlds.config.api.ConfigProperty;
-import org.hiero.block.node.base.config.Loggable;
+import org.hiero.block.node.base.Loggable;
 
 /**
  * Configuration for the messaging system.
