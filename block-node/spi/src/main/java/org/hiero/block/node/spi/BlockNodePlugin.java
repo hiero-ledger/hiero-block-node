@@ -1,8 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.node.spi;
 
+import edu.umd.cs.findbugs.annotations.NonNull;
 import io.helidon.common.Builder;
 import io.helidon.webserver.Routing;
+import java.util.Collections;
+import java.util.List;
 
 /**
  * Interface for all block node plugins to implement. Plugins are registered as module services that provide this interface.
@@ -24,7 +27,22 @@ public interface BlockNodePlugin {
      *
      * @return the name of the plugin
      */
-    String name();
+    default String name() {
+        return getClass().getSimpleName();
+    }
+
+    /**
+     * Get all configuration data types that should be added to the configuration api. The returned collection must not
+     * be null but can be empty set if no configuration is needed for this plugin. This is called before init and all
+     * configuration is loaded before init is called.
+     *
+     * @return list of Java record classes that use the {@link com.swirlds.config.api.ConfigData} and
+     * {@link com.swirlds.config.api.ConfigProperty} annotations
+     */
+    @NonNull
+    default List<Class<? extends Record>> configDataTypes() {
+        return Collections.emptyList();
+    }
 
     /**
      * Start the plugin. This method is called when the block node is starting up. It provides the block node context to
@@ -34,7 +52,9 @@ public interface BlockNodePlugin {
      * @param context the block node context
      * @return a routing builder that will be used to create the HTTP/GRPC routing for the block node
      */
-    Builder<?, ? extends Routing> init(BlockNodeContext context);
+    default Builder<?, ? extends Routing> init(BlockNodeContext context) {
+        return null;
+    }
 
     /**
      * Start the plugin. This method is called when the block node is starting up after all initialization is complete.

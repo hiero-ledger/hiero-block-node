@@ -3,7 +3,7 @@ package org.hiero.block.node.publisher;
 
 import com.swirlds.config.api.ConfigData;
 import com.swirlds.config.api.ConfigProperty;
-import org.hiero.block.node.base.config.Loggable;
+import org.hiero.block.node.base.Loggable;
 
 /**
  * Use this configuration across the producer package

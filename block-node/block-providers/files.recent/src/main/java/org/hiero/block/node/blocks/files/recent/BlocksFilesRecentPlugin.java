@@ -5,6 +5,8 @@ import static org.hiero.block.node.base.BlockFile.nestedDirectoriesMaxBlockNumbe
 import static org.hiero.block.node.base.BlockFile.nestedDirectoriesMinBlockNumber;
 
 import com.hedera.pbj.runtime.io.stream.WritableStreamingData;
+import io.helidon.common.Builder;
+import io.helidon.webserver.Routing;
 import java.io.BufferedOutputStream;
 import java.io.IOException;
 import java.lang.System.Logger.Level;
@@ -84,9 +86,11 @@ public class BlocksFilesRecentPlugin implements BlockProviderPlugin, BlockNotifi
 
     /**
      * {@inheritDoc}
+     *
+     * @return
      */
     @Override
-    public void init(BlockNodeContext context) {
+    public Builder<?, ? extends Routing> init(BlockNodeContext context) {
         this.context = context;
         this.config = context.configuration().getConfigData(FilesRecentConfig.class);
         // we want to listen to incoming block items and write them into files in this plugins storage
@@ -118,6 +122,7 @@ public class BlocksFilesRecentPlugin implements BlockProviderPlugin, BlockNotifi
         // scan file system to find the oldest and newest blocks
         oldestVerifiedBlockNumber.set(nestedDirectoriesMinBlockNumber(config.liveRootPath(), config.compression()));
         newestVerifiedBlockNumber.set(nestedDirectoriesMaxBlockNumber(config.liveRootPath(), config.compression()));
+        return null;
     }
 
     /**

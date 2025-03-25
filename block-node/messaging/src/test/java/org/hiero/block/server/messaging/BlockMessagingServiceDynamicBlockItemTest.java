@@ -17,6 +17,7 @@ import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.IntStream;
 import org.hiero.block.node.messaging.BlockMessagingFacilityImpl;
+import org.hiero.block.node.messaging.MessagingConfig;
 import org.hiero.block.node.spi.blockmessaging.BlockItems;
 import org.hiero.block.node.spi.blockmessaging.BlockMessagingFacility;
 import org.hiero.block.node.spi.blockmessaging.NoBackPressureBlockItemHandler;
@@ -31,7 +32,7 @@ public class BlockMessagingServiceDynamicBlockItemTest {
      * test the back pressure and the slow handler.
      */
     public static final int TEST_DATA_COUNT =
-            BlockMessagingFacilityImpl.getConfig().queueSize() * 2;
+            TestConfig.getConfig().getConfigData(MessagingConfig.class).queueSize() * 2;
 
     /**
      * Test to verify that the messaging service can handle dynamic handlers with no back pressure and a slow handler is
@@ -127,7 +128,7 @@ public class BlockMessagingServiceDynamicBlockItemTest {
                 latch.await(20, TimeUnit.SECONDS),
                 "Did not finish in time, should " + "have been way faster than 20sec timeout");
         // shutdown the messaging service
-        messagingService.shutdown();
+        messagingService.stop();
         // check that the fast handler processed all items
         final int expectedTotal = IntStream.range(0, TEST_DATA_COUNT).sum();
         assertEquals(expectedTotal, fastHandlerCounter.get());
@@ -216,7 +217,7 @@ public class BlockMessagingServiceDynamicBlockItemTest {
                 latch.await(20, TimeUnit.SECONDS),
                 "Did not finish in time, should " + "have been way faster than 20sec timeout");
         // shutdown the messaging service
-        messagingService.shutdown();
+        messagingService.stop();
         final int expectedTotal = IntStream.range(0, TEST_DATA_COUNT).sum();
         // check that the first handler did not process all items
         assertTrue(

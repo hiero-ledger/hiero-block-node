@@ -4,16 +4,15 @@ import org.hiero.block.node.spi.blockmessaging.BlockMessagingFacility;
 import org.hiero.block.node.spi.historicalblocks.BlockProviderPlugin;
 import org.hiero.block.node.spi.historicalblocks.HistoricalBlockFacility;
 
-// SPDX-License-Identifier: Apache-2.0
 module org.hiero.block.node.app {
+    // it is expected the app module will never export any packages, only use others
     uses HistoricalBlockFacility;
     uses BlockMessagingFacility;
     uses BlockNodePlugin;
     uses BlockProviderPlugin;
 
-    exports org.hiero.block.node.app;
-
     requires com.hedera.pbj.grpc.helidon.config;
+    requires com.swirlds.base;
     requires com.swirlds.common;
     requires com.swirlds.config.api;
     requires com.swirlds.config.extensions;
@@ -24,6 +23,5 @@ module org.hiero.block.node.app {
     requires io.helidon.common;
     requires io.helidon.webserver;
     requires static transitive com.github.spotbugs.annotations;
-    requires static transitive com.google.auto.service;
     requires static java.compiler; // javax.annotation.processing.Generated
 }

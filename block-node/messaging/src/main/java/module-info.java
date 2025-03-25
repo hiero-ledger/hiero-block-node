@@ -7,9 +7,10 @@ module org.hiero.block.node.messaging {
 
     requires transitive com.swirlds.config.api;
     requires transitive org.hiero.block.node.spi;
-    requires com.hedera.pbj.runtime;
+    requires transitive io.helidon.common;
+    requires transitive io.helidon.webserver;
     requires org.hiero.block.base;
-    requires org.hiero.block.stream;
+    requires com.github.spotbugs.annotations;
     requires com.lmax.disruptor;
 
     provides org.hiero.block.node.spi.blockmessaging.BlockMessagingFacility with

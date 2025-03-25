@@ -8,14 +8,14 @@ description = "Hiero Block Node Messaging Facility"
 tasks.withType<JavaCompile>().configureEach { options.compilerArgs.add("-Xlint:-exports") }
 
 mainModuleInfo {
-    annotationProcessor("dagger.compiler")
-    annotationProcessor("com.google.auto.service.processor")
     runtimeOnly("com.swirlds.config.impl")
     runtimeOnly("io.helidon.logging.jul")
     runtimeOnly("com.hedera.pbj.grpc.helidon.config")
 }
 
 testModuleInfo {
+    requires("com.hedera.pbj.runtime")
+    requires("org.hiero.block.stream")
     requires("org.junit.jupiter.api")
     requires("org.junit.jupiter.params")
 }
