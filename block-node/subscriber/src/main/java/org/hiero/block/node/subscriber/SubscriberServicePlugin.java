@@ -63,12 +63,12 @@ public class SubscriberServicePlugin implements BlockNodePlugin, ServiceInterfac
     public Builder<?, ? extends Routing> init(BlockNodeContext context) {
         this.context = context;
         // create the metrics
-        numberOfSubscribers = context.metrics().getOrCreate(new LongGauge.Config(METRICS_CATEGORY,
-                "subscribers").withDescription("No of Connected Subscribers"));
+        numberOfSubscribers = context.metrics()
+                .getOrCreate(new LongGauge.Config(METRICS_CATEGORY, "subscribers")
+                        .withDescription("No of Connected Subscribers"));
         // register us as a service
         return PbjRouting.builder().service(this);
     }
-
 
     // ==== ServiceInterface Methods ===================================================================================
 
@@ -125,8 +125,11 @@ public class SubscriberServicePlugin implements BlockNodePlugin, ServiceInterfac
                         .mapRequest(SubscribeStreamRequest.PROTOBUF::parse)
                         .method(responsePipeline -> {
                             final BlockStreamSubscriberSession blockStreamProducerSession =
-                                    new BlockStreamSubscriberSession(nextClientId.getAndIncrement(), responsePipeline,
-                                            context, this::closedSubscriberSessionCallback);
+                                    new BlockStreamSubscriberSession(
+                                            nextClientId.getAndIncrement(),
+                                            responsePipeline,
+                                            context,
+                                            this::closedSubscriberSessionCallback);
                             // add the session to the set of open sessions
                             openSessions.add(blockStreamProducerSession);
                             numberOfSubscribers.set(openSessions.size());

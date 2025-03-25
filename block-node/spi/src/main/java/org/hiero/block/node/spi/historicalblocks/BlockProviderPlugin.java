@@ -50,7 +50,7 @@ public interface BlockProviderPlugin {
      *
      * @param context the block node context
      */
-    default void init(BlockNodeContext context){}
+    default void init(BlockNodeContext context) {}
 
     /**
      * Start the plugin. This method is called when the block node is starting up after all initialization is complete.

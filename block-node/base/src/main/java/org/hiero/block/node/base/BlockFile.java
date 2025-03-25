@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.node.base;
 
 import java.nio.file.Files;
@@ -79,8 +80,8 @@ public final class BlockFile {
      * @param filesPerDir the max number of files or directories per directory
      * @return the path to the raw block file
      */
-    public static Path nestedDirectoriesBlockFilePath(Path basePath, long blockNumber, CompressionType compressionType,
-            int filesPerDir) {
+    public static Path nestedDirectoriesBlockFilePath(
+            Path basePath, long blockNumber, CompressionType compressionType, int filesPerDir) {
         final String blockNumberStr = BLOCK_NUMBER_FORMAT.format(blockNumber);
         // remove the last digits from the block number for the files in last directory
         final String blockNumberDir = blockNumberStr.substring(0, blockNumberStr.length() - filesPerDir);
@@ -115,7 +116,8 @@ public final class BlockFile {
                 // check if we are a directory of directories
                 final Optional<Path> min = childFiles.stream()
                         .filter(Files::isDirectory)
-                        .min(Comparator.comparingLong(path -> Long.parseLong(path.getFileName().toString())));
+                        .min(Comparator.comparingLong(
+                                path -> Long.parseLong(path.getFileName().toString())));
                 if (min.isPresent()) {
                     lowestPath = min.get();
                 } else {
@@ -124,7 +126,8 @@ public final class BlockFile {
                             .filter(Files::isRegularFile)
                             .filter(path -> path.getFileName().toString().endsWith(fullExtension))
                             .mapToLong(BlockFile::blockNumberFromFile)
-                            .min().orElse(-1);
+                            .min()
+                            .orElse(-1);
                     break;
                 }
             } catch (Exception e) {
@@ -150,14 +153,15 @@ public final class BlockFile {
         long maxBlockNumber = -1;
         // find the highest block number
         Path highestPath = basePath;
-        while(highestPath != null) {
+        while (highestPath != null) {
             // get the first directory in the path
-            try(var childFilesStream = Files.list(highestPath)) {
+            try (var childFilesStream = Files.list(highestPath)) {
                 List<Path> childFiles = childFilesStream.toList();
                 // check if we are a directory of directories
                 final Optional<Path> max = childFiles.stream()
                         .filter(Files::isDirectory)
-                        .max(Comparator.comparingLong(path -> Long.parseLong(path.getFileName().toString())));
+                        .max(Comparator.comparingLong(
+                                path -> Long.parseLong(path.getFileName().toString())));
                 if (max.isPresent()) {
                     highestPath = max.get();
                 } else {
@@ -166,7 +170,8 @@ public final class BlockFile {
                             .filter(Files::isRegularFile)
                             .filter(path -> path.getFileName().toString().endsWith(fullExtension))
                             .mapToLong(BlockFile::blockNumberFromFile)
-                            .max().orElse(-1);
+                            .max()
+                            .orElse(-1);
                     break;
                 }
             } catch (Exception e) {

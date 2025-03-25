@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.node.blocks.files.recent;
 
 import static java.lang.System.Logger.Level.DEBUG;
@@ -65,7 +66,7 @@ public class BlockFileBlockAccessor implements BlockAccessor {
             // clean up any empty parent directories up to the base directory
             Path parentDir = blockFilePath.getParent();
             while (parentDir != null && !parentDir.equals(baseDir)) {
-                try(var filesList = Files.list(parentDir)) {
+                try (var filesList = Files.list(parentDir)) {
                     if (filesList.findAny().isPresent()) {
                         break;
                     }
@@ -88,8 +89,8 @@ public class BlockFileBlockAccessor implements BlockAccessor {
      */
     @Override
     public Block block() {
-        try (ReadableStreamingData in = new ReadableStreamingData(compressionType.wrapStream(new BufferedInputStream(
-                Files.newInputStream(blockFilePath), BUFFER_SIZE)))) {
+        try (ReadableStreamingData in = new ReadableStreamingData(compressionType.wrapStream(
+                new BufferedInputStream(Files.newInputStream(blockFilePath), BUFFER_SIZE)))) {
             return Block.PROTOBUF.parse(in);
         } catch (IOException e) {
             LOGGER.log(WARNING, "Failed to read block from file: " + blockFilePath, e);
@@ -105,8 +106,8 @@ public class BlockFileBlockAccessor implements BlockAccessor {
      */
     @Override
     public BlockUnparsed blockUnparsed() {
-        try (ReadableStreamingData in = new ReadableStreamingData(compressionType.wrapStream(new BufferedInputStream(
-                Files.newInputStream(blockFilePath), BUFFER_SIZE)))) {
+        try (ReadableStreamingData in = new ReadableStreamingData(compressionType.wrapStream(
+                new BufferedInputStream(Files.newInputStream(blockFilePath), BUFFER_SIZE)))) {
             return BlockUnparsed.PROTOBUF.parse(in);
         } catch (IOException e) {
             LOGGER.log(WARNING, "Failed to read block from file: " + blockFilePath, e);
@@ -125,8 +126,8 @@ public class BlockFileBlockAccessor implements BlockAccessor {
         return switch (format) {
             case JSON -> Block.JSON.toBytes(block());
             case PROTOBUF -> {
-                try (InputStream in = compressionType.wrapStream(new BufferedInputStream(
-                        Files.newInputStream(blockFilePath), BUFFER_SIZE))) {
+                try (InputStream in = compressionType.wrapStream(
+                        new BufferedInputStream(Files.newInputStream(blockFilePath), BUFFER_SIZE))) {
                     yield Bytes.wrap(in.readAllBytes());
                 } catch (IOException e) {
                     LOGGER.log(WARNING, "Failed to read block from file: " + blockFilePath, e);
@@ -135,17 +136,16 @@ public class BlockFileBlockAccessor implements BlockAccessor {
             }
             case ZSTD_PROTOBUF -> {
                 if (compressionType == CompressionType.ZSTD) {
-                    try (InputStream in = new BufferedInputStream(
-                            Files.newInputStream(blockFilePath), BUFFER_SIZE)) {
+                    try (InputStream in = new BufferedInputStream(Files.newInputStream(blockFilePath), BUFFER_SIZE)) {
                         yield Bytes.wrap(in.readAllBytes());
                     } catch (IOException e) {
                         LOGGER.log(WARNING, "Failed to read block from file: " + blockFilePath, e);
                         throw new RuntimeException(e);
                     }
                 } else {
-                    try (InputStream in = compressionType.wrapStream(new BufferedInputStream(
-                            Files.newInputStream(blockFilePath), BUFFER_SIZE))) {
-                        yield Bytes.wrap( Zstd.compress(in.readAllBytes()));
+                    try (InputStream in = compressionType.wrapStream(
+                            new BufferedInputStream(Files.newInputStream(blockFilePath), BUFFER_SIZE))) {
+                        yield Bytes.wrap(Zstd.compress(in.readAllBytes()));
                     } catch (IOException e) {
                         LOGGER.log(WARNING, "Failed to read block from file: " + blockFilePath, e);
                         throw new RuntimeException(e);
@@ -163,7 +163,7 @@ public class BlockFileBlockAccessor implements BlockAccessor {
         switch (format) {
             case JSON -> Block.JSON.toBytes(block()).writeTo(output);
             case PROTOBUF -> {
-                try (InputStream in = compressionType.wrapStream( Files.newInputStream(blockFilePath))) {
+                try (InputStream in = compressionType.wrapStream(Files.newInputStream(blockFilePath))) {
                     byte[] buffer = new byte[BUFFER_SIZE];
                     int read;
                     while ((read = in.read(buffer, 0, buffer.length)) >= 0) {
@@ -187,8 +187,8 @@ public class BlockFileBlockAccessor implements BlockAccessor {
                         throw new RuntimeException(e);
                     }
                 } else {
-                    try (InputStream in = compressionType.wrapStream(new BufferedInputStream(
-                            Files.newInputStream(blockFilePath), BUFFER_SIZE))) {
+                    try (InputStream in = compressionType.wrapStream(
+                            new BufferedInputStream(Files.newInputStream(blockFilePath), BUFFER_SIZE))) {
                         output.writeBytes(Zstd.compress(in.readAllBytes()));
                     } catch (IOException e) {
                         LOGGER.log(WARNING, "Failed to read block from file: " + blockFilePath, e);
@@ -207,7 +207,7 @@ public class BlockFileBlockAccessor implements BlockAccessor {
         switch (format) {
             case JSON -> Block.JSON.toBytes(block()).writeTo(output);
             case PROTOBUF -> {
-                try (InputStream in = compressionType.wrapStream( Files.newInputStream(blockFilePath))) {
+                try (InputStream in = compressionType.wrapStream(Files.newInputStream(blockFilePath))) {
                     byte[] buffer = new byte[BUFFER_SIZE];
                     int read;
                     while ((read = in.read(buffer, 0, buffer.length)) >= 0) {
@@ -227,8 +227,8 @@ public class BlockFileBlockAccessor implements BlockAccessor {
                         throw new RuntimeException(e);
                     }
                 } else {
-                    try (InputStream in = compressionType.wrapStream(new BufferedInputStream(
-                            Files.newInputStream(blockFilePath), BUFFER_SIZE))) {
+                    try (InputStream in = compressionType.wrapStream(
+                            new BufferedInputStream(Files.newInputStream(blockFilePath), BUFFER_SIZE))) {
                         output.write(Zstd.compress(in.readAllBytes()));
                     } catch (IOException e) {
                         LOGGER.log(WARNING, "Failed to read block from file: " + blockFilePath, e);
@@ -252,8 +252,8 @@ public class BlockFileBlockAccessor implements BlockAccessor {
             }
             case PROTOBUF -> {
                 try (OutputStream out = new BufferedOutputStream(Files.newOutputStream(path), BUFFER_SIZE);
-                     InputStream in = compressionType.wrapStream(new BufferedInputStream(
-                             Files.newInputStream(blockFilePath), BUFFER_SIZE))) {
+                        InputStream in = compressionType.wrapStream(
+                                new BufferedInputStream(Files.newInputStream(blockFilePath), BUFFER_SIZE))) {
                     in.transferTo(out);
                 }
             }
@@ -261,9 +261,10 @@ public class BlockFileBlockAccessor implements BlockAccessor {
                 if (compressionType == CompressionType.ZSTD) {
                     Files.copy(blockFilePath, path);
                 } else {
-                    try (OutputStream out = new BufferedOutputStream(new ZstdOutputStream(Files.newOutputStream(path)), BUFFER_SIZE);
-                         InputStream in = compressionType.wrapStream(new BufferedInputStream(
-                                 Files.newInputStream(blockFilePath), BUFFER_SIZE))) {
+                    try (OutputStream out = new BufferedOutputStream(
+                                    new ZstdOutputStream(Files.newOutputStream(path)), BUFFER_SIZE);
+                            InputStream in = compressionType.wrapStream(
+                                    new BufferedInputStream(Files.newInputStream(blockFilePath), BUFFER_SIZE))) {
                         in.transferTo(out);
                     }
                 }
