@@ -45,6 +45,16 @@ public interface BlockAccessor {
     }
 
     /**
+     * Delete the block. This is optional and may not be supported by all BlockAccessor implementations. The default
+     * implementation throws an UnsupportedOperationException.
+     *
+     * @throws UnsupportedOperationException if delete is not supported
+     */
+    default void delete() {
+        throw new UnsupportedOperationException("Delete not supported");
+    }
+
+    /**
      * Get the block as parsed {@code Block} Java object. This is the simplest but usually the least efficient way to
      * get the block.
      *

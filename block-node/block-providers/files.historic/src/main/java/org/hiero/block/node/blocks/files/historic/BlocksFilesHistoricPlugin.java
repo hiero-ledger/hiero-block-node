@@ -17,7 +17,7 @@ public class BlocksFilesHistoricPlugin implements BlockProviderPlugin {
     }
 
     @Override
-    public BlockAccessor block(long blockNumber, Runnable deleteBlockCallback) {
+    public BlockAccessor block(long blockNumber) {
         return null;
     }
 
