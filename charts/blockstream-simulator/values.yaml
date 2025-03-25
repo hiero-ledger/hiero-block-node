@@ -30,3 +30,17 @@ simulator:
     # BLOCK_STREAM_MILLISECONDS_PER_BLOCK: 1000
   secret:
     PRIVATE_KEY: "fake_private_key"
+  persistence:
+    data:
+      # If false, the chart expects an externally provided PVC
+      create: true
+      # Name of the externally provided PVC
+      existingClaim: ""
+      # Name of the subPath in the PVC to mount to mountPath in the container
+      subPath: "simulator-data"
+      # If create is true, the following values are used to create the PVC
+      # should match PERSISTENCE_STORAGE_ARCHIVE_ROOT_PATH, leave as is for default.
+      mountPath: "/opt/simulator/data"
+      size: 1Gi
+      # Optionally add a storage class name if needed
+      # storageClass: "your-storage-class"

@@ -1,0 +1,17 @@
+{{- if .Values.simulator.persistence.data.create }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "blockstream-simulator-chart.fullname" . }}-data
+  labels:
+    {{- include "blockstream-simulator-chart.labels" . | nindent 4 }}
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: {{ .Values.simulator.persistence.data.size }}
+  {{- if .Values.simulator.persistence.data.storageClass }}
+  storageClassName: {{ .Values.simulator.persistence.data.storageClass }}
+  {{- end }}
+{{- end }}
