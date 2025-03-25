@@ -29,6 +29,7 @@ public class HistoricalBlockFacilityImpl implements HistoricalBlockFacility {
      *
      * @param configuration the configuration to use for the block providers
      */
+    @SuppressWarnings("unused")
     public HistoricalBlockFacilityImpl(final Configuration configuration) {
         // TODO: Add configuration to the choose block providers and override the priorities
         providers = ServiceLoader.load(BlockProviderPlugin.class, getClass().getClassLoader()).stream()
@@ -64,20 +65,6 @@ public class HistoricalBlockFacilityImpl implements HistoricalBlockFacility {
      */
     @Override
     public BlockAccessor block(long blockNumber) {
-        for (BlockProviderPlugin provider : providers) {
-            BlockAccessor blockAccessor = provider.block(blockNumber);
-            if (blockAccessor != null) {
-                return blockAccessor;
-            }
-        }
-        return null;
-    }
-
-    /**
-     * {@inheritDoc}
-     */
-    @Override
-    public BlockAccessor block(long blockNumber, Runnable deleteBlockCallback) {
         for (BlockProviderPlugin provider : providers) {
             BlockAccessor blockAccessor = provider.block(blockNumber);
             if (blockAccessor != null) {
