@@ -64,21 +64,6 @@ public class BlockVerificationSession {
             BlockProof blockProof = BlockProof.PROTOBUF.parse(lastItem.blockProof());
             return finalizeVerification(blockProof);
         }
-        // TODO Fredy not sure if code above or bellow is correct
-        /*Hashes hashes = HashingUtilities.getBlockHashes(blockItems);
-        while (hashes.inputHashes().hasRemaining()) {
-            inputTreeHasher.addLeaf(hashes.inputHashes());
-        }
-        while (hashes.outputHashes().hasRemaining()) {
-            outputTreeHasher.addLeaf(hashes.outputHashes());
-        }
-
-        // Check if this batch contains the final block proof
-        final BlockItemUnparsed lastItem = blockItems.getLast();
-        if (lastItem.hasBlockProof()) {
-            BlockProof blockProof = BlockProof.PROTOBUF.parse(lastItem.blockProof());
-            return finalizeVerification(blockProof);
-        }*/
         // was not the last item, so we are not done yet
         return null;
     }
