@@ -23,6 +23,7 @@ public interface GeneratorInjectionModule {
      * - CraftBlockStreamManager
      *
      * @param generatorConfig the block stream configuration
+     * @param simulatorStartupData simulator startup data
      * @return the appropriate BlockStreamManager implementation based on configuration
      */
     @Singleton

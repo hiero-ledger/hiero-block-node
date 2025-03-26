@@ -32,10 +32,9 @@ public class PublishStreamObserver implements StreamObserver<PublishStreamRespon
      * Creates a new PublishStreamObserver instance.
      *
      * @param startupData used to update startup data for the simulator
-     * @param streamEnabled             Controls whether streaming should continue
-     * @param lastKnownStatuses         List to store the most recent status messages
+     * @param streamEnabled Controls whether streaming should continue
+     * @param lastKnownStatuses List to store the most recent status messages
      * @param lastKnownStatusesCapacity the capacity of the last known statuses
-     *
      * @throws NullPointerException if any parameter is null
      */
     public PublishStreamObserver(

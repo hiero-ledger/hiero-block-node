@@ -61,7 +61,6 @@ public class CraftBlockStreamManager implements BlockStreamManager {
      * @param blockGeneratorConfig Configuration parameters for block generation
      * including event and transaction counts
      * @param simulatorStartupData simulator startup data used for initialization
-     *
      * @throws NullPointerException if blockGeneratorConfig is null
      */
     public CraftBlockStreamManager(

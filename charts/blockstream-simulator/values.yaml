@@ -40,7 +40,6 @@ simulator:
       # Name of the subPath in the PVC to mount to mountPath in the container
       subPath: "simulator-data"
       # If create is true, the following values are used to create the PVC
-      # should match PERSISTENCE_STORAGE_ARCHIVE_ROOT_PATH, leave as is for default.
       mountPath: "/opt/simulator/data"
       size: 1Gi
       # Optionally add a storage class name if needed

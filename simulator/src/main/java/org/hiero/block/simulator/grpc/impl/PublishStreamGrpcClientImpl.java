@@ -61,6 +61,7 @@ public class PublishStreamGrpcClientImpl implements PublishStreamGrpcClient {
      * @param blockStreamConfig The configuration for block streaming parameters
      * @param metricsService The service for recording publication metrics
      * @param streamEnabled Flag controlling stream state
+     * @param startupData The startup data for the simulator
      * @throws NullPointerException if any parameter is null
      */
     @Inject

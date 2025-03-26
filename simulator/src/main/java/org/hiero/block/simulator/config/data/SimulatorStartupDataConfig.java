@@ -8,11 +8,12 @@ import java.util.Objects;
 import org.hiero.block.simulator.config.logging.Loggable;
 
 /**
+ * Config record for the startup data functionality.
+ *
  * @param enabled whether the startup data functionality is enabled
  * @param latestAckBlockNumberPath path to the file containing the latest
  * acknowledged block number
  * @param latestAckBlockHashPath path to the file containing the latest
- *
  */
 @ConfigData("simulator.startup.data")
 public record SimulatorStartupDataConfig(
