@@ -61,13 +61,13 @@ public class ConfigurationLoggingImplTest {
     //        testConfigBuilder = testConfigBuilder.withConfigDataType(ConsumerConfig.class);
     //        return testConfigBuilder.build();
     //    }
-//
-//    private static Configuration getTestConfigWithSecret() throws IOException {
-//
-//        ConfigurationBuilder testConfigBuilder = ConfigurationBuilder.create()
-//                .autoDiscoverExtensions()
-//                .withSource(new ClasspathFileConfigSource(Path.of("app.properties")));
-//        testConfigBuilder = testConfigBuilder.withConfigDataType(TestSecretConfig.class);
-//        return testConfigBuilder.build();
-//    }
+    //
+    //    private static Configuration getTestConfigWithSecret() throws IOException {
+    //
+    //        ConfigurationBuilder testConfigBuilder = ConfigurationBuilder.create()
+    //                .autoDiscoverExtensions()
+    //                .withSource(new ClasspathFileConfigSource(Path.of("app.properties")));
+    //        testConfigBuilder = testConfigBuilder.withConfigDataType(TestSecretConfig.class);
+    //        return testConfigBuilder.build();
+    //    }
 }
