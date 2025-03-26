@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.simulator.startup;
 
-import com.hedera.hapi.block.protoc.PublishStreamResponse;
+import com.hedera.hapi.block.protoc.PublishStreamResponseCode;
 import edu.umd.cs.findbugs.annotations.NonNull;
 import java.io.IOException;
 import org.hiero.block.simulator.config.data.BlockGeneratorConfig;
@@ -23,11 +23,18 @@ public interface SimulatorStartupData {
      * This method will update the startup data for the simulator based on a
      * response. At the next startup of the application, values based on the
      * last update will be used for initialization.
-     * @param publishStreamResponse The response received from the server
-     *
+     * @param blockNumber the block number to update the startup data with
+     * @param blockHash the block hash to update the startup data with
+     * @param alreadyExists whether the block number already exists
+     * @param responseCode the response code
      * @throws IOException if an error occurs while updating the startup data
      */
-    void updateLatestAckBlockStartupData(@NonNull final PublishStreamResponse publishStreamResponse) throws IOException;
+    void updateLatestAckBlockStartupData(
+            final long blockNumber,
+            final byte[] blockHash,
+            final boolean alreadyExists,
+            @NonNull final PublishStreamResponseCode responseCode)
+            throws IOException;
 
     /**
      * This method returns the latest acknowledged block number based on startup

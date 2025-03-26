@@ -6,6 +6,7 @@ import static org.assertj.core.api.Assertions.assertThatExceptionOfType;
 import static org.assertj.core.api.Assertions.assertThatIllegalStateException;
 import static org.assertj.core.api.Assertions.from;
 
+import com.hedera.hapi.block.protoc.PublishStreamResponseCode;
 import com.swirlds.config.api.Configuration;
 import com.swirlds.config.api.ConfigurationBuilder;
 import java.io.IOException;
@@ -152,5 +153,60 @@ class SimulatorStartupDataImplTest {
         Files.write(latestAckBlockHashPath, new byte[StreamingTreeHasher.HASH_LENGTH - 1]);
         assertThatIllegalStateException()
                 .isThrownBy(() -> new SimulatorStartupDataImpl(simulatorStartupDataConfig, blockGeneratorConfig));
+    }
+
+    /**
+     * This test aims to verify that the
+     * {@link SimulatorStartupDataImpl#updateLatestAckBlockStartupData(long, byte[], boolean, PublishStreamResponseCode)}
+     * will correctly not update the startup data if the functionality is disabled.
+     */
+    @Test
+    void testUpdateStartupDataDisabled() throws IOException {
+        assertThat(latestAckBlockHashPath).isEmptyFile();
+        assertThat(latestAckBlockNumberPath).isEmptyFile();
+        final Configuration configuration = ConfigurationBuilder.create()
+                .withConfigDataType(BlockGeneratorConfig.class)
+                .withConfigDataType(SimulatorStartupDataConfig.class)
+                .withValue("simulator.startup.data.enabled", "false")
+                .withValue("simulator.startup.data.latestAckBlockNumberPath", latestAckBlockNumberPath.toString())
+                .withValue("simulator.startup.data.latestAckBlockHashPath", latestAckBlockHashPath.toString())
+                .build();
+        blockGeneratorConfig = configuration.getConfigData(BlockGeneratorConfig.class);
+        simulatorStartupDataConfig = configuration.getConfigData(SimulatorStartupDataConfig.class);
+        toTest = new SimulatorStartupDataImpl(simulatorStartupDataConfig, blockGeneratorConfig);
+        // @todo(904) we need the correct response code
+        toTest.updateLatestAckBlockStartupData(
+                1L, validSimulatedBlockHash, false, PublishStreamResponseCode.STREAM_ITEMS_UNKNOWN);
+        assertThat(latestAckBlockHashPath).isEmptyFile();
+        assertThat(latestAckBlockNumberPath).isEmptyFile();
+    }
+
+    /**
+     * This test aims to verify that the
+     * {@link SimulatorStartupDataImpl#updateLatestAckBlockStartupData(long, byte[], boolean, PublishStreamResponseCode)}
+     * will correctly update the startup data if the functionality is enabled.
+     */
+    @Test
+    void testUpdateStartupDataEnabled() throws IOException {
+        assertThat(latestAckBlockHashPath).isEmptyFile();
+        assertThat(latestAckBlockNumberPath).isEmptyFile();
+        final Configuration configuration = ConfigurationBuilder.create()
+                .withConfigDataType(BlockGeneratorConfig.class)
+                .withConfigDataType(SimulatorStartupDataConfig.class)
+                .withValue("simulator.startup.data.enabled", "true")
+                .withValue("simulator.startup.data.latestAckBlockNumberPath", latestAckBlockNumberPath.toString())
+                .withValue("simulator.startup.data.latestAckBlockHashPath", latestAckBlockHashPath.toString())
+                .build();
+        blockGeneratorConfig = configuration.getConfigData(BlockGeneratorConfig.class);
+        simulatorStartupDataConfig = configuration.getConfigData(SimulatorStartupDataConfig.class);
+        // we need to delete in order to reinitialize the startup data
+        Files.deleteIfExists(latestAckBlockNumberPath);
+        Files.deleteIfExists(latestAckBlockHashPath);
+        toTest = new SimulatorStartupDataImpl(simulatorStartupDataConfig, blockGeneratorConfig);
+        // @todo(904) we need the correct response code
+        toTest.updateLatestAckBlockStartupData(
+                1L, validSimulatedBlockHash, false, PublishStreamResponseCode.STREAM_ITEMS_UNKNOWN);
+        assertThat(latestAckBlockNumberPath).isNotEmptyFile().hasBinaryContent("1".getBytes());
+        assertThat(latestAckBlockHashPath).isNotEmptyFile().hasBinaryContent(validSimulatedBlockHash);
     }
 }

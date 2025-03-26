@@ -6,6 +6,8 @@ import static java.lang.System.Logger.Level.INFO;
 import static java.util.Objects.requireNonNull;
 
 import com.hedera.hapi.block.protoc.PublishStreamResponse;
+import com.hedera.hapi.block.protoc.PublishStreamResponse.BlockAcknowledgement;
+import com.hedera.hapi.block.protoc.PublishStreamResponseCode;
 import edu.umd.cs.findbugs.annotations.NonNull;
 import io.grpc.Status;
 import io.grpc.stub.StreamObserver;
@@ -58,8 +60,16 @@ public class PublishStreamObserver implements StreamObserver<PublishStreamRespon
         if (lastKnownStatuses.size() >= lastKnownStatusesCapacity) {
             lastKnownStatuses.pollFirst();
         }
+        final BlockAcknowledgement ack =
+                publishStreamResponse.getAcknowledgement().getBlockAck();
+        final PublishStreamResponseCode responseCode =
+                publishStreamResponse.getStatus().getStatus();
         try {
-            startupData.updateLatestAckBlockStartupData(publishStreamResponse);
+            startupData.updateLatestAckBlockStartupData(
+                    ack.getBlockNumber(),
+                    ack.getBlockRootHash().toByteArray(),
+                    ack.getBlockAlreadyExists(),
+                    responseCode);
         } catch (final IOException e) {
             throw new UncheckedIOException(e);
         }
