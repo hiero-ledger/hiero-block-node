@@ -19,18 +19,12 @@ import org.hiero.block.node.spi.blockmessaging.BlockMessagingFacility;
  * </ul>
  * <p>
  * BlockProviderPlugins are responsible for acquiring the blocks themselves. They can get them either from
- * {@link BlockMessagingFacility} by listening in incoming new blocks or
- * by reading from other BlockProviderPlugins via the {@link HistoricalBlockFacility}. They can collect blocks and
- * store them at their own pace. They may choose to provide some, all or node of the blocks the collect back to
- * requesters.
+ * {@link BlockMessagingFacility} by listening in incoming new blocks or by reading from other BlockProviderPlugins
+ * via the {@link HistoricalBlockFacility}. They can collect blocks and store them at their own pace. They may choose
+ * to provide some, all or node of the blocks the collect back to requesters.
  * </p>
  */
 public interface BlockProviderPlugin extends BlockNodePlugin {
-    /**
-     * Special value for block number that indicates that the block number is unknown.
-     */
-    long UNKNOWN_BLOCK_NUMBER = BlockNodePlugin.UNKNOWN_BLOCK_NUMBER;
-
     /**
      * The default priority of the plugin. This is used to sort the plugins by priority. The higher the number, the higher
      * the priority.
@@ -47,6 +41,13 @@ public interface BlockProviderPlugin extends BlockNodePlugin {
      * @return the block at the specified block number, null if the block is not available
      */
     BlockAccessor block(long blockNumber);
+
+    /**
+     * Use this method to get the oldest block number available from this provider.
+     *
+     * @return the oldest block number available from this provider,
+     */
+    long oldestBlockNumber();
 
     /**
      * Get the latest block number available from this provider. This is used to determine the latest block number

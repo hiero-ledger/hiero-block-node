@@ -5,6 +5,7 @@ import static org.hiero.block.node.base.BlockFile.nestedDirectoriesMaxBlockNumbe
 import static org.hiero.block.node.base.BlockFile.nestedDirectoriesMinBlockNumber;
 
 import com.hedera.pbj.runtime.io.stream.WritableStreamingData;
+import edu.umd.cs.findbugs.annotations.NonNull;
 import io.helidon.common.Builder;
 import io.helidon.webserver.Routing;
 import java.io.BufferedOutputStream;
@@ -79,9 +80,10 @@ public class BlocksFilesRecentPlugin implements BlockProviderPlugin, BlockNotifi
     /**
      * {@inheritDoc}
      */
+    @NonNull
     @Override
-    public String name() {
-        return "Files Recent";
+    public List<Class<? extends Record>> configDataTypes() {
+        return List.of(FilesRecentConfig.class);
     }
 
     /**
@@ -155,6 +157,14 @@ public class BlocksFilesRecentPlugin implements BlockProviderPlugin, BlockNotifi
             }
         }
         return null;
+    }
+
+    /**
+     * {@inheritDoc}
+     */
+    @Override
+    public long oldestBlockNumber() {
+        return oldestVerifiedBlockNumber.get();
     }
 
     /**

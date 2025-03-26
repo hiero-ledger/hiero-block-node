@@ -14,14 +14,6 @@ public class BlocksCloudArchivePlugin implements BlockProviderPlugin {
 
     /**
      * {@inheritDoc}
-     */
-    @Override
-    public String name() {
-        return "Cloud Archive";
-    }
-
-    /**
-     * {@inheritDoc}
      * <p>
      * Returns Integer.MAX_VALUE because this plugin is designed to be a read only plugin and hence should only
      * be checked for read if all other providers have failed.
@@ -40,6 +32,17 @@ public class BlocksCloudArchivePlugin implements BlockProviderPlugin {
     @Override
     public BlockAccessor block(long blockNumber) {
         return null;
+    }
+
+    /**
+     * {@inheritDoc}
+     * <p>
+     * This method always returns UNKNOWN_BLOCK_NUMBER. This is because this plugin does not provide any blocks. It is a
+     * read only plugin that is used to archive block only.
+     */
+    @Override
+    public long oldestBlockNumber() {
+        return UNKNOWN_BLOCK_NUMBER;
     }
 
     /**
