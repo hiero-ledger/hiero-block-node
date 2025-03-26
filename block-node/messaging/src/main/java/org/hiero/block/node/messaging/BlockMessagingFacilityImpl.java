@@ -152,7 +152,7 @@ public class BlockMessagingFacilityImpl implements BlockMessagingFacility {
     @NonNull
     @Override
     public List<Class<? extends Record>> configDataTypes() {
-        return BlockMessagingFacility.super.configDataTypes();
+        return List.of(MessagingConfig.class);
     }
 
     /**
