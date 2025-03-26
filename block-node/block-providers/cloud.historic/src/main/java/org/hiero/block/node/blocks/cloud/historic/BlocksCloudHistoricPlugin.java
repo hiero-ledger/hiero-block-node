@@ -9,10 +9,6 @@ import org.hiero.block.node.spi.historicalblocks.BlockProviderPlugin;
  * files historic plugin but is designed to store blocks into S3 compatible cloud storage.
  */
 public class BlocksCloudHistoricPlugin implements BlockProviderPlugin {
-    @Override
-    public String name() {
-        return "Cloud Historic";
-    }
 
     @Override
     public int defaultPriority() {
@@ -22,6 +18,11 @@ public class BlocksCloudHistoricPlugin implements BlockProviderPlugin {
     @Override
     public BlockAccessor block(long blockNumber) {
         return null;
+    }
+
+    @Override
+    public long oldestBlockNumber() {
+        return UNKNOWN_BLOCK_NUMBER;
     }
 
     @Override

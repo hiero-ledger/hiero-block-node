@@ -227,9 +227,10 @@ public class PublisherServicePlugin implements BlockNodePlugin, ServiceInterface
     /**
      * {@inheritDoc}
      */
+    @NonNull
     @Override
-    public String name() {
-        return "Publisher Service Plugin";
+    public List<Class<? extends Record>> configDataTypes() {
+        return List.of(PublisherConfig.class);
     }
 
     /**

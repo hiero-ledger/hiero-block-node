@@ -14,6 +14,7 @@ module org.hiero.block.node.blocks.files.recent {
     requires transitive io.helidon.webserver;
     requires org.hiero.block.common;
     requires com.github.luben.zstd_jni;
+    requires com.github.spotbugs.annotations;
 
     provides org.hiero.block.node.spi.historicalblocks.BlockProviderPlugin with
             BlocksFilesRecentPlugin;

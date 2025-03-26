@@ -27,14 +27,6 @@ public class HealthServicePlugin implements BlockNodePlugin {
      * {@inheritDoc}
      */
     @Override
-    public String name() {
-        return "Health Service Plugin";
-    }
-
-    /**
-     * {@inheritDoc}
-     */
-    @Override
     public Builder<?, ? extends Routing> init(BlockNodeContext context) {
         healthFacility = context.serverHealth();
         return HttpRouting.builder().register(HEALTH_PATH, httpRules -> httpRules

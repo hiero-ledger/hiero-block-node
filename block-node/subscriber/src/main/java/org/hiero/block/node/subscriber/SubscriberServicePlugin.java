@@ -52,14 +52,6 @@ public class SubscriberServicePlugin implements BlockNodePlugin, ServiceInterfac
      * {@inheritDoc}
      */
     @Override
-    public String name() {
-        return "Subscriber Service Plugin";
-    }
-
-    /**
-     * {@inheritDoc}
-     */
-    @Override
     public Builder<?, ? extends Routing> init(BlockNodeContext context) {
         this.context = context;
         // create the metrics
