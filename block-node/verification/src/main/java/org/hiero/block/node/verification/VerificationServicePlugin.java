@@ -5,8 +5,10 @@ import static java.lang.System.Logger.Level.ERROR;
 import static java.lang.System.Logger.Level.WARNING;
 
 import com.swirlds.metrics.api.Counter;
+import edu.umd.cs.findbugs.annotations.NonNull;
 import io.helidon.common.Builder;
 import io.helidon.webserver.Routing;
+import java.util.List;
 import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.BlockNodePlugin;
 import org.hiero.block.node.spi.blockmessaging.BlockItemHandler;
@@ -20,6 +22,7 @@ public class VerificationServicePlugin implements BlockNodePlugin, BlockItemHand
     /** The block node context, for access to core facilities. */
     private BlockNodeContext context;
     /** The configuration for verification */
+    @SuppressWarnings("FieldCanBeLocal")
     private VerificationConfig verificationConfig;
     /** The current verification session, a new one is created each block. */
     private BlockVerificationSession currentSession;
@@ -41,9 +44,10 @@ public class VerificationServicePlugin implements BlockNodePlugin, BlockItemHand
     /**
      * {@inheritDoc}
      */
+    @NonNull
     @Override
-    public String name() {
-        return "Subscriber Service Plugin";
+    public List<Class<? extends Record>> configDataTypes() {
+        return List.of(VerificationConfig.class);
     }
 
     /**
@@ -102,7 +106,7 @@ public class VerificationServicePlugin implements BlockNodePlugin, BlockItemHand
             // If we have a new block header, that means a new block has started
             if (blockItems.isStartOfNewBlock()) {
                 verificationBlocksReceived.increment();
-                //noinspection DataFlowIssue - we already checked that firstItem has blockHeader
+                // we already checked that firstItem has blockHeader
                 currentBlockNumber = blockItems.newBlockNumber();
                 // start working time
                 blockWorkStartTime = System.nanoTime();
@@ -139,5 +143,13 @@ public class VerificationServicePlugin implements BlockNodePlugin, BlockItemHand
             // Trigger the server to stop accepting new requests
             context.serverHealth().shutdown(VerificationServicePlugin.class.getSimpleName(), e.getMessage());
         }
+    }
+
+    public VerificationConfig verificationConfig() {
+        return verificationConfig;
+    }
+
+    public void setVerificationConfig(VerificationConfig verificationConfig) {
+        this.verificationConfig = verificationConfig;
     }
 }

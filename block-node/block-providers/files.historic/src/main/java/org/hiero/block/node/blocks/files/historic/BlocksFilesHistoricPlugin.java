@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.node.blocks.files.historic;
 
+import edu.umd.cs.findbugs.annotations.NonNull;
 import io.helidon.common.Builder;
 import io.helidon.webserver.Routing;
 import java.util.List;
@@ -35,6 +36,15 @@ public class BlocksFilesHistoricPlugin implements BlockProviderPlugin, BlockNoti
     private final AtomicLong lastBlockNumber = new AtomicLong(0);
 
     // ==== BlockProviderPlugin Methods ================================================================================
+
+    /**
+     * {@inheritDoc}
+     */
+    @NonNull
+    @Override
+    public List<Class<? extends Record>> configDataTypes() {
+        return List.of(FilesHistoricConfig.class);
+    }
 
     /**
      * {@inheritDoc}
@@ -79,14 +89,6 @@ public class BlocksFilesHistoricPlugin implements BlockProviderPlugin, BlockNoti
      * {@inheritDoc}
      */
     @Override
-    public String name() {
-        return "Files Historic";
-    }
-
-    /**
-     * {@inheritDoc}
-     */
-    @Override
     public int defaultPriority() {
         return 1000;
     }
@@ -101,6 +103,14 @@ public class BlocksFilesHistoricPlugin implements BlockProviderPlugin, BlockNoti
             return null;
         }
         return zipBlockArchive.blockAccessor(blockNumber);
+    }
+
+    /**
+     * {@inheritDoc}
+     */
+    @Override
+    public long oldestBlockNumber() {
+        return firstBlockNumber.get();
     }
 
     /**
