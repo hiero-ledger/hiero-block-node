@@ -78,12 +78,24 @@ public interface ConfigInjectionModule {
         return configuration.getConfigData(PrometheusConfig.class);
     }
 
+    /**
+     * Provides the configuration logging singleton using the configuration.
+     *
+     * @param configuration is the configuration singleton
+     * @return a configuration logging singleton
+     */
     @Singleton
     @Provides
     static ConfigurationLogging providesConfigurationLogging(final Configuration configuration) {
         return new SimulatorConfigurationLogger(configuration);
     }
 
+    /**
+     * Provides the simulator startup data configuration.
+     *
+     * @param configuration the configuration to be used by the simulator startup data
+     * @return the simulator startup data configuration
+     */
     @Singleton
     @Provides
     static SimulatorStartupDataConfig providesSimulatorStartupDataConfig(final Configuration configuration) {
