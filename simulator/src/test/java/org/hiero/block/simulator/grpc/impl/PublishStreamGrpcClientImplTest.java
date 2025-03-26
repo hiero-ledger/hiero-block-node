@@ -121,11 +121,7 @@ class PublishStreamGrpcClientImplTest {
                 })
                 .build()
                 .start();
-        blockStreamConfig = BlockStreamConfig.builder()
-                .latestAckBlockHashPath(testTempDir.resolve("latestAckBlockHash"))
-                .latestAckBlockNumberPath(testTempDir.resolve("latestAckBlockNumber"))
-                .blockItemsBatchSize(2)
-                .build();
+        blockStreamConfig = BlockStreamConfig.builder().blockItemsBatchSize(2).build();
 
         Configuration config = TestUtils.getTestConfiguration();
         metricsService = new MetricsServiceImpl(getTestMetrics(config));

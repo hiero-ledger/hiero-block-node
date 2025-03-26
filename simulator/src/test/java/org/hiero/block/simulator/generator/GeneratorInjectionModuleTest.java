@@ -3,18 +3,23 @@ package org.hiero.block.simulator.generator;
 
 import static org.junit.jupiter.api.Assertions.*;
 
-import com.swirlds.config.api.ConfigurationBuilder;
 import java.io.IOException;
 import java.util.Map;
 import org.hiero.block.simulator.TestUtils;
 import org.hiero.block.simulator.config.data.BlockGeneratorConfig;
-import org.hiero.block.simulator.config.data.BlockStreamConfig;
+import org.hiero.block.simulator.startup.SimulatorStartupData;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.Mock;
+import org.mockito.junit.jupiter.MockitoExtension;
 
+@ExtendWith(MockitoExtension.class)
 class GeneratorInjectionModuleTest {
+    @Mock
+    private SimulatorStartupData startupDataMock;
+
     @Test
     void providesBlockStreamManager_AsFileLargeDataSets() throws IOException {
-
         final BlockGeneratorConfig blockGeneratorConfig = TestUtils.getTestConfiguration(Map.of(
                         "generator.generationMode",
                         "DIR",
@@ -22,14 +27,8 @@ class GeneratorInjectionModuleTest {
                         "BlockAsFileLargeDataSets"))
                 .getConfigData(BlockGeneratorConfig.class);
 
-        final BlockStreamConfig blockStreamConfig = ConfigurationBuilder.create()
-                .withConfigDataType(BlockStreamConfig.class)
-                .withValue("useSimulatorStartupData", "false")
-                .build()
-                .getConfigData(BlockStreamConfig.class);
-
         final BlockStreamManager blockStreamManager =
-                GeneratorInjectionModule.providesBlockStreamManager(blockGeneratorConfig, blockStreamConfig);
+                GeneratorInjectionModule.providesBlockStreamManager(blockGeneratorConfig, startupDataMock);
 
         assertEquals(blockStreamManager.getClass().getName(), BlockAsFileLargeDataSets.class.getName());
     }
@@ -45,14 +44,8 @@ class GeneratorInjectionModuleTest {
                         ""))
                 .getConfigData(BlockGeneratorConfig.class);
 
-        final BlockStreamConfig blockStreamConfig = ConfigurationBuilder.create()
-                .withConfigDataType(BlockStreamConfig.class)
-                .withValue("useSimulatorStartupData", "false")
-                .build()
-                .getConfigData(BlockStreamConfig.class);
-
         final BlockStreamManager blockStreamManager =
-                GeneratorInjectionModule.providesBlockStreamManager(blockGeneratorConfig, blockStreamConfig);
+                GeneratorInjectionModule.providesBlockStreamManager(blockGeneratorConfig, startupDataMock);
 
         assertEquals(blockStreamManager.getClass().getName(), BlockAsFileBlockStreamManager.class.getName());
     }
@@ -66,14 +59,8 @@ class GeneratorInjectionModuleTest {
                         "BlockAsDirBlockStreamManager"))
                 .getConfigData(BlockGeneratorConfig.class);
 
-        final BlockStreamConfig blockStreamConfig = ConfigurationBuilder.create()
-                .withConfigDataType(BlockStreamConfig.class)
-                .withValue("useSimulatorStartupData", "false")
-                .build()
-                .getConfigData(BlockStreamConfig.class);
-
         final BlockStreamManager blockStreamManager =
-                GeneratorInjectionModule.providesBlockStreamManager(blockGeneratorConfig, blockStreamConfig);
+                GeneratorInjectionModule.providesBlockStreamManager(blockGeneratorConfig, startupDataMock);
 
         assertEquals(
                 BlockAsDirBlockStreamManager.class.getName(),
@@ -91,14 +78,8 @@ class GeneratorInjectionModuleTest {
                         ""))
                 .getConfigData(BlockGeneratorConfig.class);
 
-        final BlockStreamConfig blockStreamConfig = ConfigurationBuilder.create()
-                .withConfigDataType(BlockStreamConfig.class)
-                .withValue("useSimulatorStartupData", "false")
-                .build()
-                .getConfigData(BlockStreamConfig.class);
-
         final BlockStreamManager blockStreamManager =
-                GeneratorInjectionModule.providesBlockStreamManager(blockGeneratorConfig, blockStreamConfig);
+                GeneratorInjectionModule.providesBlockStreamManager(blockGeneratorConfig, startupDataMock);
 
         assertEquals(blockStreamManager.getClass().getName(), BlockAsFileBlockStreamManager.class.getName());
     }
@@ -109,14 +90,8 @@ class GeneratorInjectionModuleTest {
                         Map.of("generator.generationMode", "CRAFT"))
                 .getConfigData(BlockGeneratorConfig.class);
 
-        final BlockStreamConfig blockStreamConfig = ConfigurationBuilder.create()
-                .withConfigDataType(BlockStreamConfig.class)
-                .withValue("useSimulatorStartupData", "false")
-                .build()
-                .getConfigData(BlockStreamConfig.class);
-
         final BlockStreamManager blockStreamManager =
-                GeneratorInjectionModule.providesBlockStreamManager(blockGeneratorConfig, blockStreamConfig);
+                GeneratorInjectionModule.providesBlockStreamManager(blockGeneratorConfig, startupDataMock);
 
         assertEquals(blockStreamManager.getClass().getName(), CraftBlockStreamManager.class.getName());
     }

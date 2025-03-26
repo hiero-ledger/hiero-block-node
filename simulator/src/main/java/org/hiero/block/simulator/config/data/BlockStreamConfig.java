@@ -3,9 +3,6 @@ package org.hiero.block.simulator.config.data;
 
 import com.swirlds.config.api.ConfigData;
 import com.swirlds.config.api.ConfigProperty;
-import edu.umd.cs.findbugs.annotations.NonNull;
-import java.nio.file.Path;
-import java.util.Objects;
 import org.hiero.block.simulator.config.logging.Loggable;
 import org.hiero.block.simulator.config.types.SimulatorMode;
 import org.hiero.block.simulator.config.types.StreamingMode;
@@ -29,12 +26,7 @@ public record BlockStreamConfig(
         @Loggable @ConfigProperty(defaultValue = "100_000") int maxBlockItemsToStream,
         @Loggable @ConfigProperty(defaultValue = "MILLIS_PER_BLOCK") StreamingMode streamingMode,
         @Loggable @ConfigProperty(defaultValue = "1000") int millisecondsPerBlock,
-        @Loggable @ConfigProperty(defaultValue = "1000") int blockItemsBatchSize,
-        @Loggable @ConfigProperty(defaultValue = "false") boolean useSimulatorStartupData,
-        @Loggable @ConfigProperty(defaultValue = "/opt/simulator/data/latestAckBlockNumber")
-                Path latestAckBlockNumberPath,
-        @Loggable @ConfigProperty(defaultValue = "/opt/simulator/data/latestAckBlockHash")
-                Path latestAckBlockHashPath) {
+        @Loggable @ConfigProperty(defaultValue = "1000") int blockItemsBatchSize) {
 
     /**
      * Creates a new {@link Builder} instance for constructing a {@code BlockStreamConfig}.
@@ -56,9 +48,6 @@ public record BlockStreamConfig(
         private StreamingMode streamingMode = StreamingMode.MILLIS_PER_BLOCK;
         private int millisecondsPerBlock = 1000;
         private int blockItemsBatchSize = 1000;
-        private boolean useSimulatorStartupData = false;
-        private Path latestAckBlockNumberPath = Path.of("/opt/simulator/data/latestAckBlockNumber");
-        private Path latestAckBlockHashPath = Path.of("/opt/simulator/data/latestAckBlockHash");
 
         /**
          * Creates a new instance of the {@code Builder} class with default configuration values.
@@ -145,39 +134,6 @@ public record BlockStreamConfig(
         }
 
         /**
-         * Sets whether to use simulator startup data.
-         *
-         * @param useSimulatorStartupData true if using startup data, false otherwise
-         * @return this {@code Builder} instance
-         */
-        public Builder useSimulatorStartupData(boolean useSimulatorStartupData) {
-            this.useSimulatorStartupData = useSimulatorStartupData;
-            return this;
-        }
-
-        /**
-         * Sets the path to the file storing the latest acknowledged block number.
-         *
-         * @param latestAckBlockNumberPath the path to the file
-         * @return this {@code Builder} instance
-         */
-        public Builder latestAckBlockNumberPath(@NonNull final Path latestAckBlockNumberPath) {
-            this.latestAckBlockNumberPath = Objects.requireNonNull(latestAckBlockNumberPath);
-            return this;
-        }
-
-        /**
-         * Sets the path to the file storing the latest acknowledged block hash.
-         *
-         * @param latestAckBlockHashPath the path to the file
-         * @return this {@code Builder} instance
-         */
-        public Builder latestAckBlockHashPath(@NonNull final Path latestAckBlockHashPath) {
-            this.latestAckBlockHashPath = Objects.requireNonNull(latestAckBlockHashPath);
-            return this;
-        }
-
-        /**
          * Builds a new {@link BlockStreamConfig} instance with the configured values.
          *
          * @return a new {@code BlockStreamConfig}
@@ -190,10 +146,7 @@ public record BlockStreamConfig(
                     maxBlockItemsToStream,
                     streamingMode,
                     millisecondsPerBlock,
-                    blockItemsBatchSize,
-                    useSimulatorStartupData,
-                    latestAckBlockNumberPath,
-                    latestAckBlockHashPath);
+                    blockItemsBatchSize);
         }
     }
 }
