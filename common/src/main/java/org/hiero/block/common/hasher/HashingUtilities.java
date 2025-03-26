@@ -3,6 +3,7 @@ package org.hiero.block.common.hasher;
 
 import com.hedera.hapi.block.stream.BlockProof;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
+import com.swirlds.common.crypto.DigestType;
 import edu.umd.cs.findbugs.annotations.NonNull;
 import java.nio.ByteBuffer;
 import java.security.MessageDigest;
