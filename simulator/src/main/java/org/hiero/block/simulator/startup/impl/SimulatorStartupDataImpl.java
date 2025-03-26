@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.simulator.startup.impl;
 
+import static java.lang.System.Logger.Level.DEBUG;
+
 import com.hedera.hapi.block.protoc.PublishStreamResponse;
 import com.hedera.hapi.block.protoc.PublishStreamResponse.BlockAcknowledgement;
 import com.hedera.hapi.block.protoc.PublishStreamResponseCode;
@@ -63,7 +65,7 @@ public final class SimulatorStartupDataImpl implements SimulatorStartupData {
                         // we have broken state and cannot continue.
                         final String blockNumberFromFile = Files.readString(latestAckBlockNumberPath);
                         if (!StringUtilities.isBlank(blockNumberFromFile)) {
-                            localStartupDataBlockNumber = Long.parseLong(blockNumberFromFile) + 1L;
+                            localStartupDataBlockNumber = Long.parseLong(blockNumberFromFile);
                         } else {
                             throw new IllegalStateException(
                                     "Failed to initialize latest ack block number from Simulator Startup Data");
@@ -113,6 +115,7 @@ public final class SimulatorStartupDataImpl implements SimulatorStartupData {
                 Files.write(
                         latestAckBlockNumberPath, String.valueOf(blockNumber).getBytes());
                 Files.write(latestAckBlockHashPath, blockHash);
+                LOGGER.log(DEBUG, "Updated startup data for latest ack block with number: {0}", blockNumber);
             }
         }
     }

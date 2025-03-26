@@ -22,7 +22,6 @@ import io.grpc.Server;
 import io.grpc.ServerBuilder;
 import io.grpc.stub.StreamObserver;
 import java.io.IOException;
-import java.nio.file.Path;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
 import org.hiero.block.simulator.TestUtils;
@@ -35,7 +34,6 @@ import org.hiero.block.simulator.startup.SimulatorStartupData;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.io.TempDir;
 import org.mockito.Mock;
 import org.mockito.MockitoAnnotations;
 
@@ -49,9 +47,6 @@ class PublishStreamGrpcClientImplTest {
 
     @Mock
     private SimulatorStartupData startupDataMock;
-
-    @TempDir
-    private Path testTempDir;
 
     private BlockStreamConfig blockStreamConfig;
     private AtomicBoolean streamEnabled;
