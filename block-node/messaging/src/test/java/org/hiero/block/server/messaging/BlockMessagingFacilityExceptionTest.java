@@ -1,9 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.server.messaging;
 
+import static org.hiero.block.server.messaging.TestConfig.BLOCK_NODE_CONTEXT;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import java.util.Collections;
+import com.hedera.pbj.runtime.OneOf;
+import java.util.List;
 import java.util.logging.Handler;
 import java.util.logging.LogRecord;
 import org.hiero.block.node.messaging.BlockMessagingFacilityImpl;
@@ -11,6 +13,8 @@ import org.hiero.block.node.spi.blockmessaging.BlockItems;
 import org.hiero.block.node.spi.blockmessaging.BlockMessagingFacility;
 import org.hiero.block.node.spi.blockmessaging.BlockNotification;
 import org.hiero.block.node.spi.blockmessaging.BlockNotification.Type;
+import org.hiero.hapi.block.node.BlockItemUnparsed;
+import org.hiero.hapi.block.node.BlockItemUnparsed.ItemOneOfType;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -59,6 +63,7 @@ public class BlockMessagingFacilityExceptionTest {
     @Test
     void testBlockItemHandlerException() {
         BlockMessagingFacility service = new BlockMessagingFacilityImpl();
+        service.init(BLOCK_NODE_CONTEXT);
         // register a block item handler that just throws an exception
         service.registerBlockItemHandler(
                 (blockItems) -> {
@@ -74,8 +79,10 @@ public class BlockMessagingFacilityExceptionTest {
         } catch (InterruptedException e) {
             throw new RuntimeException(e);
         }
-        service.sendBlockItems(new BlockItems(Collections.emptyList(), -1));
-        service.sendBlockItems(new BlockItems(Collections.emptyList(), -1));
+        service.sendBlockItems(
+                new BlockItems(List.of(new BlockItemUnparsed(new OneOf<>(ItemOneOfType.BLOCK_HEADER, null))), -1));
+        service.sendBlockItems(
+                new BlockItems(List.of(new BlockItemUnparsed(new OneOf<>(ItemOneOfType.BLOCK_HEADER, null))), -1));
         service.stop();
         // wait for the log handler to process the log messages
         for (int i = 0; i < 10 && logHandler.getLogMessages().isEmpty(); i++) {
@@ -97,6 +104,7 @@ public class BlockMessagingFacilityExceptionTest {
     @Test
     void testBlockNotificationHandlerException() {
         BlockMessagingFacility service = new BlockMessagingFacilityImpl();
+        service.init(BLOCK_NODE_CONTEXT);
         // register a block notification handler that just throws an exception
         service.registerBlockNotificationHandler(
                 blockNotification -> {

@@ -40,6 +40,6 @@ public class BlockItemBatchRingEvent {
      */
     @Override
     public String toString() {
-        return "BlockItemBatchRingEvent{" + blockItems + '}';
+        return "BlockItemBatchRingEvent{" + (blockItems == null ? "empty" : blockItems) + '}';
     }
 }
