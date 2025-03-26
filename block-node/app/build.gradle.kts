@@ -10,16 +10,8 @@ description = "Hiero Block Node Server App"
 // and then fix the reported issues.
 tasks.withType<JavaCompile>().configureEach { options.compilerArgs.add("-Xlint:-exports") }
 
-// Create a custom 'runModule' task
-tasks.register<JavaExec>("runModule") {
-    dependsOn(tasks.named("assemble"))
-    mainClass.set("org.hiero.block.node.app/org.hiero.block.node.app.BlockNodeApp")
-    val modulePath = sourceSets["main"].runtimeClasspath.filter { it.name.endsWith(".jar") } +
-            files("$buildDir/libs/${project.name}-${project.version}.jar")
-    jvmArgs = listOf(
-        "--module-path", modulePath.asPath,
-        "--module", "org.hiero.block.node.app/org.hiero.block.node.app.BlockNodeApp"
-    )
+tasks.withType<JavaExec>().configureEach {
+    modularity.inferModulePath = true
 }
 
 application {
