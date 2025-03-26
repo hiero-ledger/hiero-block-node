@@ -2,6 +2,7 @@
 package org.hiero.block.server.messaging;
 
 import static org.hiero.block.node.spi.blockmessaging.BlockNotification.Type.BLOCK_PERSISTED;
+import static org.hiero.block.server.messaging.TestConfig.BLOCK_NODE_CONTEXT;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -56,6 +57,7 @@ public class BlockMessagingServiceBlockNotificationTest {
                 .toList();
         // Create MessagingService to test and register the handlers
         BlockMessagingFacility messagingService = new BlockMessagingFacilityImpl();
+        messagingService.init(BLOCK_NODE_CONTEXT);
         testHandlers.forEach(handler -> messagingService.registerBlockNotificationHandler(handler, false, null));
         // start the messaging service
         messagingService.start();
@@ -113,6 +115,7 @@ public class BlockMessagingServiceBlockNotificationTest {
         };
         // Create MessagingService to test and register the handlers
         BlockMessagingFacility messagingService = new BlockMessagingFacilityImpl();
+        messagingService.init(BLOCK_NODE_CONTEXT);
         messagingService.registerBlockNotificationHandler(fastHandler, false, null);
         messagingService.registerBlockNotificationHandler(slowHandler, false, null);
         // start the messaging service
@@ -178,6 +181,7 @@ public class BlockMessagingServiceBlockNotificationTest {
         };
         // Create MessagingService to test and register the handlers
         BlockMessagingFacility messagingService = new BlockMessagingFacilityImpl();
+        messagingService.init(BLOCK_NODE_CONTEXT);
         messagingService.registerBlockNotificationHandler(slowHandler, false, null);
         // start the messaging service
         messagingService.start();
@@ -258,6 +262,7 @@ public class BlockMessagingServiceBlockNotificationTest {
         };
         // create message service to test, add handlers and start the service
         final BlockMessagingFacility messagingService = new BlockMessagingFacilityImpl();
+        messagingService.init(BLOCK_NODE_CONTEXT);
         messagingService.registerBlockNotificationHandler(handler1, false, null);
         messagingService.registerBlockNotificationHandler(handler2, false, null);
         messagingService.start();
