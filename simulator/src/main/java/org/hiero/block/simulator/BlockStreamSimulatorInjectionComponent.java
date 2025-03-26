@@ -10,6 +10,7 @@ import org.hiero.block.simulator.generator.GeneratorInjectionModule;
 import org.hiero.block.simulator.grpc.GrpcInjectionModule;
 import org.hiero.block.simulator.metrics.MetricsInjectionModule;
 import org.hiero.block.simulator.mode.SimulatorModeInjectionModule;
+import org.hiero.block.simulator.startup.StartupDataInjectionModule;
 
 /** The component used to inject the block stream simulator into the application. */
 @Singleton
@@ -19,7 +20,8 @@ import org.hiero.block.simulator.mode.SimulatorModeInjectionModule;
             ConfigInjectionModule.class,
             GeneratorInjectionModule.class,
             GrpcInjectionModule.class,
-            SimulatorModeInjectionModule.class
+            SimulatorModeInjectionModule.class,
+            StartupDataInjectionModule.class
         })
 public interface BlockStreamSimulatorInjectionComponent {
 

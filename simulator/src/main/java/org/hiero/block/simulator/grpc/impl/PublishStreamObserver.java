@@ -6,19 +6,14 @@ import static java.lang.System.Logger.Level.INFO;
 import static java.util.Objects.requireNonNull;
 
 import com.hedera.hapi.block.protoc.PublishStreamResponse;
-import com.hedera.hapi.block.protoc.PublishStreamResponse.BlockAcknowledgement;
-import com.hedera.hapi.block.protoc.PublishStreamResponseCode;
 import edu.umd.cs.findbugs.annotations.NonNull;
 import io.grpc.Status;
 import io.grpc.stub.StreamObserver;
 import java.io.IOException;
 import java.io.UncheckedIOException;
-import java.nio.file.Files;
-import java.nio.file.Path;
 import java.util.Deque;
 import java.util.concurrent.atomic.AtomicBoolean;
-import org.hiero.block.common.utils.FileUtilities;
-import org.hiero.block.simulator.config.data.BlockStreamConfig;
+import org.hiero.block.simulator.startup.SimulatorStartupData;
 
 /**
  * Implementation of StreamObserver that handles responses from the block publishing stream.
@@ -31,14 +26,12 @@ public class PublishStreamObserver implements StreamObserver<PublishStreamRespon
     private final AtomicBoolean streamEnabled;
     private final int lastKnownStatusesCapacity;
     private final Deque<String> lastKnownStatuses;
-    private final boolean usePersistenceStartupData;
-    private final Path latestAckBlockNumberPath;
-    private final Path latestAckBlockHashPath;
+    private final SimulatorStartupData startupData;
 
     /**
      * Creates a new PublishStreamObserver instance.
      *
-     * @param blockStreamConfig config needed to resolve the latest ack block number and hash files for startup data
+     * @param startupData used to update startup data for the simulator
      * @param streamEnabled             Controls whether streaming should continue
      * @param lastKnownStatuses         List to store the most recent status messages
      * @param lastKnownStatusesCapacity the capacity of the last known statuses
@@ -46,26 +39,14 @@ public class PublishStreamObserver implements StreamObserver<PublishStreamRespon
      * @throws NullPointerException if any parameter is null
      */
     public PublishStreamObserver(
-            @NonNull final BlockStreamConfig blockStreamConfig,
+            @NonNull final SimulatorStartupData startupData,
             @NonNull final AtomicBoolean streamEnabled,
             @NonNull final Deque<String> lastKnownStatuses,
             final int lastKnownStatusesCapacity) {
         this.streamEnabled = requireNonNull(streamEnabled);
         this.lastKnownStatuses = requireNonNull(lastKnownStatuses);
         this.lastKnownStatusesCapacity = lastKnownStatusesCapacity;
-        this.usePersistenceStartupData = blockStreamConfig.useSimulatorStartupData();
-        this.latestAckBlockNumberPath = blockStreamConfig.latestAckBlockNumberPath();
-        this.latestAckBlockHashPath = blockStreamConfig.latestAckBlockHashPath();
-        try {
-            if (Files.notExists(latestAckBlockNumberPath)) {
-                FileUtilities.createFile(latestAckBlockNumberPath);
-            }
-            if (Files.notExists(latestAckBlockHashPath)) {
-                FileUtilities.createFile(latestAckBlockHashPath);
-            }
-        } catch (final IOException e) {
-            throw new UncheckedIOException(e);
-        }
+        this.startupData = requireNonNull(startupData);
     }
 
     /**
@@ -74,30 +55,14 @@ public class PublishStreamObserver implements StreamObserver<PublishStreamRespon
      * @param publishStreamResponse The response received from the server
      */
     @Override
-    public void onNext(PublishStreamResponse publishStreamResponse) {
+    public void onNext(final PublishStreamResponse publishStreamResponse) {
         if (lastKnownStatuses.size() >= lastKnownStatusesCapacity) {
             lastKnownStatuses.pollFirst();
         }
-        final BlockAcknowledgement ack =
-                publishStreamResponse.getAcknowledgement().getBlockAck();
-        final PublishStreamResponseCode responseCode =
-                publishStreamResponse.getStatus().getStatus();
-        if (usePersistenceStartupData) {
-            // @todo(904) we need the correct response code, currently it seems that
-            //   the response code is not being set correctly? The if check should
-            //   be different and based on the response code, only saving
-            if (PublishStreamResponseCode.STREAM_ITEMS_UNKNOWN == responseCode && !ack.getBlockAlreadyExists()) {
-                final long blockNumber = ack.getBlockNumber();
-                final byte[] blockHash = ack.getBlockRootHash().toByteArray();
-                try {
-                    Files.write(
-                            latestAckBlockNumberPath,
-                            String.valueOf(blockNumber).getBytes());
-                    Files.write(latestAckBlockHashPath, blockHash);
-                } catch (final IOException e) {
-                    throw new UncheckedIOException(e);
-                }
-            }
+        try {
+            startupData.updateLatestAckBlockStartupData(publishStreamResponse);
+        } catch (final IOException e) {
+            throw new UncheckedIOException(e);
         }
         lastKnownStatuses.add(publishStreamResponse.toString());
         LOGGER.log(INFO, "Received Response: " + publishStreamResponse);

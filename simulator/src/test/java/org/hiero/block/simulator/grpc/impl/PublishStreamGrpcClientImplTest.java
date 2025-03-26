@@ -31,6 +31,7 @@ import org.hiero.block.simulator.config.data.GrpcConfig;
 import org.hiero.block.simulator.grpc.PublishStreamGrpcClient;
 import org.hiero.block.simulator.metrics.MetricsService;
 import org.hiero.block.simulator.metrics.MetricsServiceImpl;
+import org.hiero.block.simulator.startup.SimulatorStartupData;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -39,13 +40,15 @@ import org.mockito.Mock;
 import org.mockito.MockitoAnnotations;
 
 class PublishStreamGrpcClientImplTest {
-
     private MetricsService metricsService;
     private PublishStreamGrpcClient publishStreamGrpcClient;
     private boolean isShutdownCalled = false;
 
     @Mock
     private GrpcConfig grpcConfig;
+
+    @Mock
+    private SimulatorStartupData startupDataMock;
 
     @TempDir
     private Path testTempDir;
@@ -131,8 +134,8 @@ class PublishStreamGrpcClientImplTest {
         when(grpcConfig.serverAddress()).thenReturn("localhost");
         when(grpcConfig.port()).thenReturn(serverPort);
 
-        publishStreamGrpcClient =
-                new PublishStreamGrpcClientImpl(grpcConfig, blockStreamConfig, metricsService, streamEnabled);
+        publishStreamGrpcClient = new PublishStreamGrpcClientImpl(
+                grpcConfig, blockStreamConfig, metricsService, streamEnabled, startupDataMock);
     }
 
     @AfterEach

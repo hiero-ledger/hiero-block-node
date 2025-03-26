@@ -10,6 +10,7 @@ import org.hiero.block.simulator.config.data.BlockGeneratorConfig;
 import org.hiero.block.simulator.config.data.BlockStreamConfig;
 import org.hiero.block.simulator.config.data.ConsumerConfig;
 import org.hiero.block.simulator.config.data.GrpcConfig;
+import org.hiero.block.simulator.config.data.SimulatorStartupDataConfig;
 import org.hiero.block.simulator.config.logging.ConfigurationLogging;
 import org.hiero.block.simulator.config.logging.SimulatorConfigurationLogger;
 
@@ -81,5 +82,11 @@ public interface ConfigInjectionModule {
     @Provides
     static ConfigurationLogging providesConfigurationLogging(final Configuration configuration) {
         return new SimulatorConfigurationLogger(configuration);
+    }
+
+    @Singleton
+    @Provides
+    static SimulatorStartupDataConfig providesSimulatorStartupDataConfig(final Configuration configuration) {
+        return configuration.getConfigData(SimulatorStartupDataConfig.class);
     }
 }
