@@ -4,6 +4,7 @@ package org.hiero.block.simulator.startup;
 import com.hedera.hapi.block.protoc.PublishStreamResponse;
 import edu.umd.cs.findbugs.annotations.NonNull;
 import java.io.IOException;
+import org.hiero.block.simulator.config.data.BlockGeneratorConfig;
 
 /**
  * Interface for managing startup data for the simulator.
@@ -36,9 +37,10 @@ public interface SimulatorStartupData {
      * This value should generally be used for component initialization purposes
      * and not for runtime decision-making.
      *
-     * @return the latest acknowledged block number based on startup data, or -1
-     * if no startup data is available (initial startup) or the startup data
-     * functionality is disabled
+     * @return the latest acknowledged block number based on startup data, or
+     * the value that would be returned by
+     * {@link BlockGeneratorConfig#startBlockNumber()} if no startup data is
+     * available (initial startup) or the startup data functionality is disabled
      */
     long getLatestAckBlockNumber();
 

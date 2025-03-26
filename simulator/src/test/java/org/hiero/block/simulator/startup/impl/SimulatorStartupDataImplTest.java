@@ -89,6 +89,11 @@ class SimulatorStartupDataImplTest {
                         from(SimulatorStartupDataImpl::getLatestAckBlockHash));
     }
 
+    /**
+     * This test aims to verify that the {@link SimulatorStartupDataImpl} will
+     * return the correct values when the functionality is enabled and the startup
+     * data files contain valid data.
+     */
     @Test
     void testCorrectValuesStartup() throws IOException {
         Files.write(latestAckBlockNumberPath, "1".getBytes());
