@@ -8,11 +8,13 @@ import com.swirlds.config.api.source.ConfigSource;
 import edu.umd.cs.findbugs.annotations.NonNull;
 import edu.umd.cs.findbugs.annotations.Nullable;
 import java.lang.reflect.RecordComponent;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.NoSuchElementException;
 import java.util.Set;
 import java.util.TreeMap;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 
 /**
@@ -20,26 +22,31 @@ import java.util.stream.Collectors;
  * standard name mapping style. For example "persistence.storage.archiveRootPath" property maps to
  * "PERSISTENCE_STORAGE_ARCHIVE_ROOT_PATH" environment variable.
  */
-public class AutomaticEnvironmentVariableConfigSource implements ConfigSource {
+public final class AutomaticEnvironmentVariableConfigSource implements ConfigSource {
     /** Ordinal for system environment. */
     private static final int SYSTEM_ENVIRONMENT_ORDINAL = 300;
     /** map from property name to environment variable name */
     private final Map<String, String> propertyNameToEnvMap;
     /** Set of properties that are set in the environment */
     private final Set<String> propertiesSetInEnvironment;
+    /** function to get environment variable value, this is needed to all for testing */
+    private final Function<String, String> envVarGetter;
 
     /**
      * Creates a new AutomaticEnvironmentVariableConfigSource instance.
      *
      * @param configTypes the configuration types to collect property names from
+     * @param envVarGetter the function to get the environment variable value, this is needed to all for testing
      */
-    public AutomaticEnvironmentVariableConfigSource(@NonNull final List<Class<? extends Record>> configTypes) {
+    public AutomaticEnvironmentVariableConfigSource(
+            @NonNull final List<Class<? extends Record>> configTypes, Function<String, String> envVarGetter) {
+        this.envVarGetter = envVarGetter;
         final Map<String, String> envToPropertyNameMap = collectEnvToPropertyNameMappings(configTypes);
         propertyNameToEnvMap = envToPropertyNameMap.entrySet().stream()
                 .collect(Collectors.toMap(Map.Entry::getValue, Map.Entry::getKey));
-        propertiesSetInEnvironment = System.getenv().keySet().stream()
-                .filter(envToPropertyNameMap::containsKey)
-                .map(envToPropertyNameMap::get)
+        propertiesSetInEnvironment = propertyNameToEnvMap.entrySet().stream()
+                .filter(entry -> envVarGetter.apply(entry.getValue()) != null)
+                .map(Map.Entry::getKey)
                 .collect(Collectors.toSet());
     }
 
@@ -64,7 +71,7 @@ public class AutomaticEnvironmentVariableConfigSource implements ConfigSource {
         if (envName == null) {
             throw new NoSuchElementException("Property " + propertyName + " is not defined");
         }
-        return System.getenv(envName);
+        return envVarGetter.apply(envName);
     }
 
     /**
@@ -81,7 +88,7 @@ public class AutomaticEnvironmentVariableConfigSource implements ConfigSource {
     @NonNull
     @Override
     public List<String> getListValue(@NonNull String propertyName) throws NoSuchElementException {
-        return List.of();
+        return Collections.emptyList();
     }
 
     /**
@@ -98,7 +105,7 @@ public class AutomaticEnvironmentVariableConfigSource implements ConfigSource {
     @NonNull
     @Override
     public String getName() {
-        return ConfigSource.super.getName();
+        return this.getClass().getSimpleName();
     }
 
     /**

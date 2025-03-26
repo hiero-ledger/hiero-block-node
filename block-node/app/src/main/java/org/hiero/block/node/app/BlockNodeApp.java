@@ -81,7 +81,7 @@ public class BlockNodeApp implements HealthFacility {
         // Init BlockNode Configuration
         //noinspection unchecked
         final ConfigurationBuilder configurationBuilder = ConfigurationBuilder.create()
-                .withSource(new AutomaticEnvironmentVariableConfigSource(allConfigDataTypes))
+                .withSource(new AutomaticEnvironmentVariableConfigSource(allConfigDataTypes, System::getenv))
                 .withSources(new ClasspathFileConfigSource(Path.of(APPLICATION_PROPERTIES)))
                 .withConfigDataTypes(allConfigDataTypes.toArray(new Class[0]));
         // Build the configuration
