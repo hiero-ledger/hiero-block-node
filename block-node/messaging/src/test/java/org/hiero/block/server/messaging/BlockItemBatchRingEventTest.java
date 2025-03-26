@@ -44,9 +44,9 @@ public class BlockItemBatchRingEventTest {
                 blockItems, event.get(), "The set and get methods should return the same BlockNotification instance");
         // verify that the toString method returns a non-empty string
         assertEquals(
-                "BlockItemBatchRingEvent{"
+                "BlockItemBatchRingEvent{BlockItems[blockItems=["
                         + items.stream().map(BlockItemUnparsed::toString).collect(Collectors.joining(", "))
-                        + '}',
+                        + "], newBlockNumber=0]}",
                 event.toString(),
                 "The toString method should return a non-empty string");
     }
