@@ -75,17 +75,20 @@ public class BlockNodeApp implements HealthFacility {
         // Collect all the config data types from the plugins and global server level
         final List<Class<? extends Record>> allConfigDataTypes = new ArrayList<>();
         allConfigDataTypes.add(ServerConfig.class);
-        allConfigDataTypes.addAll(blockMessagingService.configDataTypes());
-        allConfigDataTypes.addAll(historicalBlockFacility.configDataTypes());
         loadedPlugins.forEach(plugin -> allConfigDataTypes.addAll(plugin.configDataTypes()));
         // Init BlockNode Configuration
         //noinspection unchecked
         final ConfigurationBuilder configurationBuilder = ConfigurationBuilder.create()
                 .withSource(new AutomaticEnvironmentVariableConfigSource(allConfigDataTypes, System::getenv))
                 .withSources(new ClasspathFileConfigSource(Path.of(APPLICATION_PROPERTIES)))
+                .withConfigDataType(com.swirlds.common.metrics.config.MetricsConfig.class)
+                .withConfigDataType( com.swirlds.common.metrics.platform.prometheus.PrometheusConfig.class)
                 .withConfigDataTypes(allConfigDataTypes.toArray(new Class[0]));
         // Build the configuration
         final Configuration configuration = configurationBuilder.build();
+        // Log loaded configuration data types
+        configuration.getConfigDataTypes().forEach(configDataType ->
+                LOGGER.log(INFO, "Loaded config data type: " + configDataType.getName()));
         // Log the configuration
         ConfigurationLogging.log(configuration);
         // now that configuration is loaded we can get config for server
