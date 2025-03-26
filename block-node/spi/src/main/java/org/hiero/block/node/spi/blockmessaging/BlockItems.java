@@ -43,6 +43,7 @@ public record BlockItems(List<BlockItemUnparsed> blockItems, long newBlockNumber
      * @return true if last item is a block proof, false otherwise.
      */
     public boolean isEndOfBlock() {
-        return !blockItems.isEmpty() && blockItems.getLast().hasBlockProof();
+        // BlockItems constructor does not allow empty lists so there is always at least one item
+        return blockItems.getLast().hasBlockProof();
     }
 }

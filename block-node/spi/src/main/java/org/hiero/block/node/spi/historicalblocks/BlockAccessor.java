@@ -90,6 +90,9 @@ public interface BlockAccessor {
      * @throws IllegalArgumentException if the format is not one of the available formats
      */
     default Bytes blockBytes(Format format) throws IllegalArgumentException {
+        if (format == null || !availableFormats().contains(format)) {
+            throw new IllegalArgumentException("Format " + format + " not supported");
+        }
         return switch (format) {
             case JSON -> Block.JSON.toBytes(block());
             case PROTOBUF -> Block.PROTOBUF.toBytes(block());

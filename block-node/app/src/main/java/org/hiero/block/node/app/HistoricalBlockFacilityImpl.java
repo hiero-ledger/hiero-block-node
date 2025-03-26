@@ -63,10 +63,22 @@ public class HistoricalBlockFacilityImpl implements HistoricalBlockFacility {
      * {@inheritDoc}
      */
     @Override
+    public long oldestBlockNumber() {
+        return providers.stream()
+                .mapToLong(BlockProviderPlugin::oldestBlockNumber)
+                .filter(blockNumber -> blockNumber != BlockProviderPlugin.UNKNOWN_BLOCK_NUMBER)
+                .min()
+                .orElse(UNKNOWN_BLOCK_NUMBER);
+    }
+
+    /**
+     * {@inheritDoc}
+     */
+    @Override
     public long latestBlockNumber() {
         return providers.stream()
                 .mapToLong(BlockProviderPlugin::latestBlockNumber)
                 .max()
-                .orElse(-1);
+                .orElse(UNKNOWN_BLOCK_NUMBER);
     }
 }
