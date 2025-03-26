@@ -83,8 +83,8 @@ public class PublishStreamGrpcClientImpl implements PublishStreamGrpcClient {
         channel = ManagedChannelBuilder.forAddress(grpcConfig.serverAddress(), grpcConfig.port())
                 .usePlaintext()
                 .build();
-        BlockStreamServiceGrpc.BlockStreamServiceStub stub = BlockStreamServiceGrpc.newStub(channel);
-        PublishStreamObserver publishStreamObserver = new PublishStreamObserver(
+        final BlockStreamServiceGrpc.BlockStreamServiceStub stub = BlockStreamServiceGrpc.newStub(channel);
+        final PublishStreamObserver publishStreamObserver = new PublishStreamObserver(
                 blockStreamConfig, streamEnabled, lastKnownStatuses, lastKnownStatusesCapacity);
         requestStreamObserver = stub.publishBlockStream(publishStreamObserver);
         lastKnownStatuses.clear();

@@ -31,6 +31,7 @@ public class PublishStreamObserver implements StreamObserver<PublishStreamRespon
     private final AtomicBoolean streamEnabled;
     private final int lastKnownStatusesCapacity;
     private final Deque<String> lastKnownStatuses;
+    private final boolean usePersistenceStartupData;
     private final Path latestAckBlockNumberPath;
     private final Path latestAckBlockHashPath;
 
@@ -52,6 +53,7 @@ public class PublishStreamObserver implements StreamObserver<PublishStreamRespon
         this.streamEnabled = requireNonNull(streamEnabled);
         this.lastKnownStatuses = requireNonNull(lastKnownStatuses);
         this.lastKnownStatusesCapacity = lastKnownStatusesCapacity;
+        this.usePersistenceStartupData = blockStreamConfig.useSimulatorStartupData();
         this.latestAckBlockNumberPath = blockStreamConfig.latestAckBlockNumberPath();
         this.latestAckBlockHashPath = blockStreamConfig.latestAckBlockHashPath();
         try {
@@ -80,18 +82,21 @@ public class PublishStreamObserver implements StreamObserver<PublishStreamRespon
                 publishStreamResponse.getAcknowledgement().getBlockAck();
         final PublishStreamResponseCode responseCode =
                 publishStreamResponse.getStatus().getStatus();
-        // @todo(904) we need the correct response code, currently it seems that
-        //   the response code is not being set correctly? The if check should
-        //   be different and based on the response code, only saving
-        if (PublishStreamResponseCode.STREAM_ITEMS_UNKNOWN == responseCode && !ack.getBlockAlreadyExists()) {
-            final long blockNumber = ack.getBlockNumber();
-            final byte[] blockHash = ack.getBlockRootHash().toByteArray();
-            try {
-                Files.write(
-                        latestAckBlockNumberPath, String.valueOf(blockNumber).getBytes());
-                Files.write(latestAckBlockHashPath, blockHash);
-            } catch (final IOException e) {
-                throw new UncheckedIOException(e);
+        if (usePersistenceStartupData) {
+            // @todo(904) we need the correct response code, currently it seems that
+            //   the response code is not being set correctly? The if check should
+            //   be different and based on the response code, only saving
+            if (PublishStreamResponseCode.STREAM_ITEMS_UNKNOWN == responseCode && !ack.getBlockAlreadyExists()) {
+                final long blockNumber = ack.getBlockNumber();
+                final byte[] blockHash = ack.getBlockRootHash().toByteArray();
+                try {
+                    Files.write(
+                            latestAckBlockNumberPath,
+                            String.valueOf(blockNumber).getBytes());
+                    Files.write(latestAckBlockHashPath, blockHash);
+                } catch (final IOException e) {
+                    throw new UncheckedIOException(e);
+                }
             }
         }
         lastKnownStatuses.add(publishStreamResponse.toString());

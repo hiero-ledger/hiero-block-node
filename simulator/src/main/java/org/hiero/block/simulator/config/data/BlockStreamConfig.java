@@ -30,6 +30,7 @@ public record BlockStreamConfig(
         @Loggable @ConfigProperty(defaultValue = "MILLIS_PER_BLOCK") StreamingMode streamingMode,
         @Loggable @ConfigProperty(defaultValue = "1000") int millisecondsPerBlock,
         @Loggable @ConfigProperty(defaultValue = "1000") int blockItemsBatchSize,
+        @Loggable @ConfigProperty(defaultValue = "false") boolean useSimulatorStartupData,
         @Loggable @ConfigProperty(defaultValue = "/opt/simulator/data/latestAckBlockNumber")
                 Path latestAckBlockNumberPath,
         @Loggable @ConfigProperty(defaultValue = "/opt/simulator/data/latestAckBlockHash")
@@ -55,6 +56,7 @@ public record BlockStreamConfig(
         private StreamingMode streamingMode = StreamingMode.MILLIS_PER_BLOCK;
         private int millisecondsPerBlock = 1000;
         private int blockItemsBatchSize = 1000;
+        private boolean useSimulatorStartupData = false;
         private Path latestAckBlockNumberPath = Path.of("/opt/simulator/data/latestAckBlockNumber");
         private Path latestAckBlockHashPath = Path.of("/opt/simulator/data/latestAckBlockHash");
 
@@ -143,6 +145,17 @@ public record BlockStreamConfig(
         }
 
         /**
+         * Sets whether to use simulator startup data.
+         *
+         * @param useSimulatorStartupData true if using startup data, false otherwise
+         * @return this {@code Builder} instance
+         */
+        public Builder useSimulatorStartupData(boolean useSimulatorStartupData) {
+            this.useSimulatorStartupData = useSimulatorStartupData;
+            return this;
+        }
+
+        /**
          * Sets the path to the file storing the latest acknowledged block number.
          *
          * @param latestAckBlockNumberPath the path to the file
@@ -178,6 +191,7 @@ public record BlockStreamConfig(
                     streamingMode,
                     millisecondsPerBlock,
                     blockItemsBatchSize,
+                    useSimulatorStartupData,
                     latestAckBlockNumberPath,
                     latestAckBlockHashPath);
         }

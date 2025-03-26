@@ -3,14 +3,16 @@ package org.hiero.block.simulator.generator;
 
 import static java.lang.System.Logger.Level.DEBUG;
 import static java.lang.System.Logger.Level.INFO;
-import static java.util.Objects.requireNonNull;
 
 import com.hedera.hapi.block.BlockItemUnparsed;
+import com.hedera.hapi.block.stream.BlockProof;
 import com.hedera.hapi.block.stream.protoc.Block;
 import com.hedera.hapi.block.stream.protoc.BlockItem;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import edu.umd.cs.findbugs.annotations.NonNull;
 import java.io.IOException;
+import java.io.UncheckedIOException;
+import java.lang.System.Logger;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -20,8 +22,10 @@ import org.hiero.block.common.hasher.Hashes;
 import org.hiero.block.common.hasher.HashingUtilities;
 import org.hiero.block.common.hasher.NaiveStreamingTreeHasher;
 import org.hiero.block.common.hasher.StreamingTreeHasher;
+import org.hiero.block.common.utils.FileUtilities;
 import org.hiero.block.common.utils.StringUtilities;
 import org.hiero.block.simulator.config.data.BlockGeneratorConfig;
+import org.hiero.block.simulator.config.data.BlockStreamConfig;
 import org.hiero.block.simulator.config.types.GenerationMode;
 import org.hiero.block.simulator.exception.BlockSimulatorParsingException;
 import org.hiero.block.simulator.generator.itemhandler.BlockHeaderHandler;
@@ -36,7 +40,7 @@ import org.hiero.block.simulator.generator.itemhandler.TransactionResultHandler;
  * This manager generates synthetic blocks with random events and transactions based on configured parameters.
  */
 public class CraftBlockStreamManager implements BlockStreamManager {
-    private final System.Logger LOGGER = System.getLogger(getClass().getName());
+    private final Logger LOGGER = System.getLogger(getClass().getName());
 
     // Service
     private final Random random;
@@ -59,52 +63,82 @@ public class CraftBlockStreamManager implements BlockStreamManager {
     /**
      * Constructs a new CraftBlockStreamManager with the specified configuration.
      *
-     * @param blockGeneratorConfig Configuration parameters for block generation including event and transaction counts
+     * @param blockGeneratorConfig Configuration parameters for block generation
+     * including event and transaction counts
+     * @param blockStreamConfig config to determine if startup data should be
+     * used
+     *
      * @throws NullPointerException if blockGeneratorConfig is null
      */
-    public CraftBlockStreamManager(@NonNull BlockGeneratorConfig blockGeneratorConfig) {
-        final BlockGeneratorConfig blockGeneratorConfig1 = requireNonNull(blockGeneratorConfig);
-        this.generationMode = blockGeneratorConfig1.generationMode();
-        this.currentBlockNumber = blockGeneratorConfig1.startBlockNumber();
-        this.minEventsPerBlock = blockGeneratorConfig1.minEventsPerBlock();
-        this.maxEventsPerBlock = blockGeneratorConfig1.maxEventsPerBlock();
-        this.minTransactionsPerEvent = blockGeneratorConfig1.minTransactionsPerEvent();
-        this.maxTransactionsPerEvent = blockGeneratorConfig1.maxTransactionsPerEvent();
-
+    public CraftBlockStreamManager(
+            @NonNull final BlockGeneratorConfig blockGeneratorConfig,
+            @NonNull final BlockStreamConfig blockStreamConfig) {
+        this.generationMode = blockGeneratorConfig.generationMode();
+        this.minEventsPerBlock = blockGeneratorConfig.minEventsPerBlock();
+        this.maxEventsPerBlock = blockGeneratorConfig.maxEventsPerBlock();
+        this.minTransactionsPerEvent = blockGeneratorConfig.minTransactionsPerEvent();
+        this.maxTransactionsPerEvent = blockGeneratorConfig.maxTransactionsPerEvent();
         this.random = new Random();
         this.previousStateRootHash = new byte[StreamingTreeHasher.HASH_LENGTH];
-
-        this.previousBlockHash = new byte[StreamingTreeHasher.HASH_LENGTH];
         this.currentBlockHash = new byte[StreamingTreeHasher.HASH_LENGTH];
-
         this.inputTreeHasher = new NaiveStreamingTreeHasher();
         this.outputTreeHasher = new NaiveStreamingTreeHasher();
+        initStartupData(blockGeneratorConfig, blockStreamConfig);
+        LOGGER.log(INFO, "Block Stream Simulator will use Craft mode for block management");
+    }
 
-        LOGGER.log(INFO, "Block Stream Simulator will use Craft mode for block management.");
-
-        final Path rootDataPath = Path.of("/opt/simulator/data");
-        final Path latestAckBlockNumberPath = rootDataPath.resolve("latestAckBlockNumber");
-        final Path latestAckBlockHashPath = rootDataPath.resolve("latestAckBlockHash");
-        if (Files.exists(latestAckBlockNumberPath)) {
-            try {
-                final String fromFile = Files.readString(latestAckBlockNumberPath);
-                if (!StringUtilities.isBlank(fromFile)) {
-                    currentBlockNumber = Long.parseLong(fromFile) + 1L;
+    private void initStartupData(
+            final BlockGeneratorConfig blockGeneratorConfig, final BlockStreamConfig blockStreamConfig) {
+        if (blockStreamConfig.useSimulatorStartupData()) {
+            LOGGER.log(INFO, "Craft Generator Simulator will use startup data for block generation");
+            final Path latestAckBlockNumberPath = blockStreamConfig.latestAckBlockNumberPath();
+            final Path latestAckBlockHashPath = blockStreamConfig.latestAckBlockHashPath();
+            long startupDataBlockNumber = 0;
+            byte[] startupDataBlockHash = new byte[StreamingTreeHasher.HASH_LENGTH];
+            boolean successfulReadBlockNumber = false;
+            boolean successfulReadBlockHash = false;
+            if (Files.exists(latestAckBlockNumberPath)) {
+                try {
+                    final String fromFile = Files.readString(latestAckBlockNumberPath);
+                    if (!StringUtilities.isBlank(fromFile)) {
+                        startupDataBlockNumber = Long.parseLong(fromFile) + 1L;
+                        successfulReadBlockNumber = true;
+                    }
+                } catch (final IOException e) {
+                    final String message =
+                            "Error reading startup data from latestAckBlockNumber file. Starting from block [%d]"
+                                    .formatted(currentBlockNumber);
+                    LOGGER.log(DEBUG, message);
                 }
-            } catch (final IOException e) {
-                LOGGER.log(DEBUG, "Error reading latestAckBlockNumber file. Starting from block 0.");
             }
-        }
-        if (Files.exists(latestAckBlockHashPath)) {
-            try {
-                final byte[] fromFile = Files.readAllBytes(latestAckBlockHashPath);
-                if (fromFile.length == StreamingTreeHasher.HASH_LENGTH) {
-                    previousBlockHash = fromFile;
+            if (Files.exists(latestAckBlockHashPath)) {
+                try {
+                    final byte[] fromFile = Files.readAllBytes(latestAckBlockHashPath);
+                    if (fromFile.length == StreamingTreeHasher.HASH_LENGTH) {
+                        startupDataBlockHash = fromFile;
+                        successfulReadBlockHash = true;
+                    }
+                } catch (final IOException e) {
+                    LOGGER.log(DEBUG, "Error reading startup data for latestAckBlockHash file");
                 }
-            } catch (final IOException e) {
-                LOGGER.log(DEBUG, "Error reading latestAckBlockHash file.");
             }
+            if (successfulReadBlockNumber && successfulReadBlockHash) {
+                final String message =
+                        "Successfully read simulator startup data from files, latest acknowledged block is [%d], updating values"
+                                .formatted(startupDataBlockNumber);
+                LOGGER.log(INFO, message);
+                this.currentBlockNumber = startupDataBlockNumber;
+                this.previousBlockHash = startupDataBlockHash;
+                return;
+            } else {
+                LOGGER.log(INFO, "Failed to read simulator startup data");
+            }
+        } else {
+            LOGGER.log(INFO, "Craft Generator Simulator will not use startup data for block generation.");
         }
+        this.currentBlockNumber = blockGeneratorConfig.startBlockNumber();
+        this.previousBlockHash = new byte[StreamingTreeHasher.HASH_LENGTH];
+        LOGGER.log(INFO, "Simulator starting block number is [%d].".formatted(currentBlockNumber));
     }
 
     /**
@@ -180,11 +214,10 @@ public class CraftBlockStreamManager implements BlockStreamManager {
     }
 
     private void updateCurrentBlockHash() {
-        com.hedera.hapi.block.stream.BlockProof unfinishedBlockProof =
-                com.hedera.hapi.block.stream.BlockProof.newBuilder()
-                        .previousBlockRootHash(Bytes.wrap(previousBlockHash))
-                        .startOfBlockStateRootHash(Bytes.wrap(previousStateRootHash))
-                        .build();
+        BlockProof unfinishedBlockProof = BlockProof.newBuilder()
+                .previousBlockRootHash(Bytes.wrap(previousBlockHash))
+                .startOfBlockStateRootHash(Bytes.wrap(previousStateRootHash))
+                .build();
 
         currentBlockHash = HashingUtilities.computeFinalBlockHash(
                         unfinishedBlockProof, inputTreeHasher, outputTreeHasher)

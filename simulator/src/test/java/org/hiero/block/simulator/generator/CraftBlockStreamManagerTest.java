@@ -6,6 +6,7 @@ import static org.junit.jupiter.api.Assertions.*;
 import com.hedera.hapi.block.stream.protoc.Block;
 import java.io.IOException;
 import org.hiero.block.simulator.config.data.BlockGeneratorConfig;
+import org.hiero.block.simulator.config.data.BlockStreamConfig;
 import org.hiero.block.simulator.config.types.GenerationMode;
 import org.hiero.block.simulator.exception.BlockSimulatorParsingException;
 import org.junit.jupiter.api.BeforeEach;
@@ -13,25 +14,27 @@ import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 
 public class CraftBlockStreamManagerTest {
-    private BlockGeneratorConfig mockConfig;
+    private BlockGeneratorConfig generatorConfigMock;
+    private BlockStreamConfig blockStreamConfigMock;
     private CraftBlockStreamManager manager;
 
     @BeforeEach
     void setUp() {
-        mockConfig = Mockito.mock(BlockGeneratorConfig.class);
-        Mockito.when(mockConfig.generationMode()).thenReturn(GenerationMode.CRAFT);
-        Mockito.when(mockConfig.startBlockNumber()).thenReturn(1);
-        Mockito.when(mockConfig.minEventsPerBlock()).thenReturn(1);
-        Mockito.when(mockConfig.maxEventsPerBlock()).thenReturn(3);
-        Mockito.when(mockConfig.minTransactionsPerEvent()).thenReturn(1);
-        Mockito.when(mockConfig.maxTransactionsPerEvent()).thenReturn(2);
-
-        manager = new CraftBlockStreamManager(mockConfig);
+        generatorConfigMock = Mockito.mock(BlockGeneratorConfig.class);
+        Mockito.when(generatorConfigMock.generationMode()).thenReturn(GenerationMode.CRAFT);
+        Mockito.when(generatorConfigMock.startBlockNumber()).thenReturn(1);
+        Mockito.when(generatorConfigMock.minEventsPerBlock()).thenReturn(1);
+        Mockito.when(generatorConfigMock.maxEventsPerBlock()).thenReturn(3);
+        Mockito.when(generatorConfigMock.minTransactionsPerEvent()).thenReturn(1);
+        Mockito.when(generatorConfigMock.maxTransactionsPerEvent()).thenReturn(2);
+        blockStreamConfigMock = Mockito.mock(BlockStreamConfig.class);
+        Mockito.when(blockStreamConfigMock.useSimulatorStartupData()).thenReturn(false);
+        manager = new CraftBlockStreamManager(generatorConfigMock, blockStreamConfigMock);
     }
 
     @Test
     void testConstructorNullConfig() {
-        assertThrows(NullPointerException.class, () -> new CraftBlockStreamManager(null));
+        assertThrows(NullPointerException.class, () -> new CraftBlockStreamManager(null, blockStreamConfigMock));
     }
 
     @Test
@@ -68,12 +71,12 @@ public class CraftBlockStreamManagerTest {
 
     @Test
     void testBlockGenerationWithCustomValues() throws IOException, BlockSimulatorParsingException {
-        Mockito.when(mockConfig.minEventsPerBlock()).thenReturn(3);
-        Mockito.when(mockConfig.maxEventsPerBlock()).thenReturn(4);
-        Mockito.when(mockConfig.minTransactionsPerEvent()).thenReturn(2);
-        Mockito.when(mockConfig.maxTransactionsPerEvent()).thenReturn(3);
+        Mockito.when(generatorConfigMock.minEventsPerBlock()).thenReturn(3);
+        Mockito.when(generatorConfigMock.maxEventsPerBlock()).thenReturn(4);
+        Mockito.when(generatorConfigMock.minTransactionsPerEvent()).thenReturn(2);
+        Mockito.when(generatorConfigMock.maxTransactionsPerEvent()).thenReturn(3);
 
-        manager = new CraftBlockStreamManager(mockConfig);
+        manager = new CraftBlockStreamManager(generatorConfigMock, blockStreamConfigMock);
         Block block = manager.getNextBlock();
 
         // We expect at least:
