@@ -17,7 +17,6 @@ import io.helidon.webserver.Routing;
 import io.helidon.webserver.WebServer;
 import io.helidon.webserver.WebServerConfig;
 import java.io.IOException;
-import java.lang.module.ModuleFinder;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
@@ -45,6 +44,8 @@ public class BlockNodeApp implements HealthFacility {
     private final AtomicReference<State> state = new AtomicReference<>(State.STARTING);
     /** The web server. */
     private final WebServer webServer;
+    /** The metrics provider. */
+    private final DefaultMetricsProvider metricsProvider;
     /** The server configuration. */
     private final ServerConfig serverConfig;
     /** The historical block node facility */
@@ -70,16 +71,14 @@ public class BlockNodeApp implements HealthFacility {
         String[] modulePath = System.getProperty("jdk.module.path").split(":");
         for (String path : modulePath) {
             if (path.contains("hiero")) {
-                System.out.println("        "+path);
+                System.out.println("        " + path);
             }
         }
         // print all modules known to java
         System.out.println("Loaded modules in boot layer(just hiero):");
-        ModuleLayer.boot()
-                .modules()
-                .stream().filter(module -> module.getName().contains("hiero"))
+        ModuleLayer.boot().modules().stream()
+                .filter(module -> module.getName().contains("hiero"))
                 .forEach(module -> System.out.println("        " + module.getName()));
-
 
         // ==== FACILITY & PLUGIN LOADING ==============================================================================
         // Load Block Messaging Service plugin - for now allow nulls
@@ -107,19 +106,20 @@ public class BlockNodeApp implements HealthFacility {
                 .withSource(new AutomaticEnvironmentVariableConfigSource(allConfigDataTypes, System::getenv))
                 .withSources(new ClasspathFileConfigSource(Path.of(APPLICATION_PROPERTIES)))
                 .withConfigDataType(com.swirlds.common.metrics.config.MetricsConfig.class)
-                .withConfigDataType( com.swirlds.common.metrics.platform.prometheus.PrometheusConfig.class)
+                .withConfigDataType(com.swirlds.common.metrics.platform.prometheus.PrometheusConfig.class)
                 .withConfigDataTypes(allConfigDataTypes.toArray(new Class[0]));
         // Build the configuration
         final Configuration configuration = configurationBuilder.build();
         // Log loaded configuration data types
-        configuration.getConfigDataTypes().forEach(configDataType ->
-                LOGGER.log(INFO, "Loaded config data type: " + configDataType.getName()));
+        configuration
+                .getConfigDataTypes()
+                .forEach(configDataType -> LOGGER.log(INFO, "Loaded config data type: " + configDataType.getName()));
         // Log the configuration
         ConfigurationLogging.log(configuration);
         // now that configuration is loaded we can get config for server
         serverConfig = configuration.getConfigData(ServerConfig.class);
         // ==== METRICS ================================================================================================
-        final DefaultMetricsProvider metricsProvider = new DefaultMetricsProvider(configuration);
+        metricsProvider = new DefaultMetricsProvider(configuration);
         final Metrics metrics = metricsProvider.createGlobalMetrics();
         // ==== CONTEXT ================================================================================================
         blockNodeContext = new BlockNodeContext() {
@@ -217,13 +217,17 @@ public class BlockNodeApp implements HealthFacility {
             LOGGER.log(INFO, "Shutdown interrupted");
         }
         // Stop server
-        webServer.stop();
+        if (webServer != null) webServer.stop();
         // Stop all the facilities &  plugins
         for (BlockNodePlugin plugin : loadedPlugins) {
             LOGGER.log(INFO, "Stopping plugin: {0}", plugin.name());
             plugin.stop();
         }
+        // Stop metrics
+        if (metricsProvider != null) metricsProvider.stop();
+        // finally exit
         LOGGER.log(INFO, "Bye bye");
+        System.exit(0);
     }
 
     /**

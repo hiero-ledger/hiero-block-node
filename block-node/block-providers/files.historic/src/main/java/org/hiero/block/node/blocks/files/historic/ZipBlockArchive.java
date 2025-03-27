@@ -117,7 +117,7 @@ public class ZipBlockArchive {
      */
     public long minStoredBlockNumber() {
         // find the lowest block number first
-        Path lowestPath = historicConfig.historicRootPath();
+        Path lowestPath = historicConfig.rootPath();
         while (lowestPath != null) {
             // get the first directory in the path
             try (var childFilesStream = Files.list(lowestPath)) {
@@ -174,7 +174,7 @@ public class ZipBlockArchive {
      */
     public long maxStoredBlockNumber() {
         // find the highest block number
-        Path highestPath = historicConfig.historicRootPath();
+        Path highestPath = historicConfig.rootPath();
         while (highestPath != null) {
             // get the first directory in the path
             try (var childFilesStream = Files.list(highestPath)) {
@@ -240,7 +240,7 @@ public class ZipBlockArchive {
         final String zipFileNameDigits =
                 blockNumberStr.substring(offsetToZip, offsetToZip + historicConfig.digitsPerZipFileName());
         // start building path to zip file
-        Path dirPath = historicConfig.historicRootPath();
+        Path dirPath = historicConfig.rootPath();
         for (int i = 0; i < directoryDigits.length(); i += historicConfig.digitsPerDir()) {
             final String dirName =
                     directoryDigits.substring(i, Math.min(i + historicConfig.digitsPerDir(), directoryDigits.length()));

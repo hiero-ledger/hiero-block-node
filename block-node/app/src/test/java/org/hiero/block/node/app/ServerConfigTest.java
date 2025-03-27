@@ -58,18 +58,8 @@ class ServerConfigTest {
 
     private static Stream<Arguments> outOfRangePorts() {
         return Stream.of(
-                Arguments.of(
-                        1023,
-                        String.format(
-                                RANGE_ERROR_TEMPLATE, "server.port", 1023, ServerConfig.minPort, ServerConfig.maxPort)),
-                Arguments.of(
-                        65_536,
-                        String.format(
-                                RANGE_ERROR_TEMPLATE,
-                                "server.port",
-                                65_536,
-                                ServerConfig.minPort,
-                                ServerConfig.maxPort)));
+                Arguments.of(1023, String.format(RANGE_ERROR_TEMPLATE, "server.port", 1023, 1024, 65_535)),
+                Arguments.of(65_536, String.format(RANGE_ERROR_TEMPLATE, "server.port", 65_536, 1024, 65_535)));
     }
 
     private static Stream<Arguments> outOfRangeReceiveBufferSizes() {
@@ -80,7 +70,7 @@ class ServerConfigTest {
                                 RANGE_ERROR_TEMPLATE,
                                 "server.socketReceiveBufferSizeBytes",
                                 32_767,
-                                ServerConfig.minSocketReceiveBufferSizeBytes,
+                                32768,
                                 Integer.MAX_VALUE)),
                 Arguments.of(
                         1,
@@ -88,7 +78,7 @@ class ServerConfigTest {
                                 RANGE_ERROR_TEMPLATE,
                                 "server.socketReceiveBufferSizeBytes",
                                 1,
-                                ServerConfig.minSocketReceiveBufferSizeBytes,
+                                32768,
                                 Integer.MAX_VALUE)));
     }
 
@@ -100,7 +90,7 @@ class ServerConfigTest {
                                 RANGE_ERROR_TEMPLATE,
                                 "server.socketSendBufferSizeBytes",
                                 32_767,
-                                ServerConfig.minSocketSendBufferSizeBytes,
+                                32768,
                                 Integer.MAX_VALUE)),
                 Arguments.of(
                         1,
@@ -108,7 +98,7 @@ class ServerConfigTest {
                                 RANGE_ERROR_TEMPLATE,
                                 "server.socketSendBufferSizeBytes",
                                 1,
-                                ServerConfig.minSocketSendBufferSizeBytes,
+                                32768,
                                 Integer.MAX_VALUE)));
     }
 
@@ -116,27 +106,13 @@ class ServerConfigTest {
         return Stream.of(
                 Arguments.of(
                         10_238,
-                        String.format(
-                                RANGE_ERROR_TEMPLATE,
-                                "server.maxMessageSizeBytes",
-                                10_238,
-                                ServerConfig.minMaxMessageSizeBytes,
-                                ServerConfig.maxMaxMessageSizeBytes)),
+                        String.format(RANGE_ERROR_TEMPLATE, "server.maxMessageSizeBytes", 10_238, 10_240, 16_777_215)),
                 Arguments.of(
                         10_239,
-                        String.format(
-                                RANGE_ERROR_TEMPLATE,
-                                "server.maxMessageSizeBytes",
-                                10_239,
-                                ServerConfig.minMaxMessageSizeBytes,
-                                ServerConfig.maxMaxMessageSizeBytes)),
+                        String.format(RANGE_ERROR_TEMPLATE, "server.maxMessageSizeBytes", 10_239, 10_240, 16_777_215)),
                 Arguments.of(
                         16_777_216,
                         String.format(
-                                RANGE_ERROR_TEMPLATE,
-                                "server.maxMessageSizeBytes",
-                                16_777_216,
-                                ServerConfig.minMaxMessageSizeBytes,
-                                ServerConfig.maxMaxMessageSizeBytes)));
+                                RANGE_ERROR_TEMPLATE, "server.maxMessageSizeBytes", 16_777_216, 10_240, 16_777_215)));
     }
 }
