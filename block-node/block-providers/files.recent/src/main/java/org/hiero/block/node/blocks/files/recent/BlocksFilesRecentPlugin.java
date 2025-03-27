@@ -95,6 +95,14 @@ public class BlocksFilesRecentPlugin implements BlockProviderPlugin, BlockNotifi
     public Builder<?, ? extends Routing> init(BlockNodeContext context) {
         this.context = context;
         this.config = context.configuration().getConfigData(FilesRecentConfig.class);
+        // create plugin data root directory if it does not exist
+        try {
+            Files.createDirectories(config.liveRootPath());
+            Files.createDirectories(config.unverifiedRootPath());
+        } catch (IOException e) {
+            LOGGER.log(Level.ERROR, "Could not create root directory", e);
+            context.serverHealth().shutdown(name(), "Could not create root directory");
+        }
         // we want to listen to incoming block items and write them into files in this plugins storage
         context.blockMessaging().registerBlockItemHandler(this, false, "BlocksFilesRecent");
         // we want to listen to block notifications and to know when blocks are verified

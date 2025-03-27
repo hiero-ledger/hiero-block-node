@@ -13,15 +13,15 @@ import org.hiero.block.node.base.Loggable;
 /**
  * Use this configuration across the files recent plugin.
  *
- * @param historicRootPath provides the root path for saving historic blocks
+ * @param rootPath provides the root path for saving historic blocks
  * @param compression compression type to use for the storage. It is assumed this never changes while a node is running
  *                    and has existing files.
  * @param digitsPerDir the number of block number digits per directory level
  * @param digitsPerZipFileName the number of zip files in bottom level directory
  */
-@ConfigData("persistence.storage")
+@ConfigData("files.historic")
 public record FilesHistoricConfig(
-        @Loggable @ConfigProperty(defaultValue = "/opt/hashgraph/blocknode/data/historic") Path historicRootPath,
+        @Loggable @ConfigProperty(defaultValue = "/opt/hashgraph/blocknode/data/historic") Path rootPath,
         @Loggable @ConfigProperty(defaultValue = "ZSTD") CompressionType compression,
         @Loggable @ConfigProperty(defaultValue = "3") @Min(1) @Max(6) int digitsPerDir,
         @Loggable @ConfigProperty(defaultValue = "1") @Min(1) @Max(10) int digitsPerZipFileName) {
@@ -29,6 +29,6 @@ public record FilesHistoricConfig(
      * Constructor.
      */
     public FilesHistoricConfig {
-        Objects.requireNonNull(historicRootPath);
+        Objects.requireNonNull(rootPath);
     }
 }

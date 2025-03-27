@@ -296,7 +296,7 @@ public class PublisherServicePlugin implements BlockNodePlugin, ServiceInterface
         // clear open sessions
         openSessions.clear();
         // reset the number of producers metric
-        numberOfProducers.set(0);
+        if (numberOfProducers != null) numberOfProducers.set(0);
     }
 
     // ==== BlockNotificationHandler Methods
