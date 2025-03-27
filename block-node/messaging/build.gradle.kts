@@ -11,6 +11,7 @@ mainModuleInfo {
     runtimeOnly("com.swirlds.config.impl")
     runtimeOnly("io.helidon.logging.jul")
     runtimeOnly("com.hedera.pbj.grpc.helidon.config")
+    runtimeOnly("com.hedera.pbj.grpc.helidon")
 }
 
 testModuleInfo {
@@ -19,4 +20,5 @@ testModuleInfo {
     requires("org.junit.jupiter.api")
     requires("org.junit.jupiter.params")
     requires("com.swirlds.metrics.api")
+    requires("com.hedera.pbj.grpc.helidon")
 }

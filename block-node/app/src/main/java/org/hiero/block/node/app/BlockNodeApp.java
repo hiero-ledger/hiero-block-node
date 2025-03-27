@@ -5,6 +5,7 @@ import static java.lang.System.Logger;
 import static java.lang.System.Logger.Level.INFO;
 import static org.hiero.block.common.constants.StringsConstants.APPLICATION_PROPERTIES;
 
+import com.hedera.pbj.grpc.helidon.PbjRouting;
 import com.hedera.pbj.grpc.helidon.config.PbjConfig;
 import com.swirlds.common.metrics.platform.DefaultMetricsProvider;
 import com.swirlds.config.api.Configuration;
@@ -122,6 +123,9 @@ public class BlockNodeApp implements HealthFacility {
         metricsProvider = new DefaultMetricsProvider(configuration);
         final Metrics metrics = metricsProvider.createGlobalMetrics();
         // ==== CONTEXT ================================================================================================
+
+        PbjRouting.Builder pbjRoutingBuider = PbjRouting.builder();
+
         blockNodeContext = new BlockNodeContext() {
             @Override
             public Configuration configuration() {
@@ -146,6 +150,11 @@ public class BlockNodeApp implements HealthFacility {
             @Override
             public HistoricalBlockFacility historicalBlockProvider() {
                 return historicalBlockFacility;
+            }
+
+            @Override
+            public PbjRouting.Builder pbjRoutingBuilder() {
+                return pbjRoutingBuider;
             }
         };
         // ==== LOAD & CONFIGURE WEB SERVER ============================================================================

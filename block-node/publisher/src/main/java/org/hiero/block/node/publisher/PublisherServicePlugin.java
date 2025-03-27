@@ -267,7 +267,9 @@ public class PublisherServicePlugin implements BlockNodePlugin, ServiceInterface
                         .withDescription("No of Connected Producers"));
 
         // register us as a service
-        return PbjRouting.builder().service(this);
+        //return PbjRouting.builder().service(this);
+        context.pbjRoutingBuilder().service(this);
+        return null;
     }
 
     /**

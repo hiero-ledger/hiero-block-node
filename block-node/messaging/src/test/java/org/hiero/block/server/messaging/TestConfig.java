@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.server.messaging;
 
+import com.hedera.pbj.grpc.helidon.PbjRouting;
 import com.swirlds.config.api.Configuration;
 import com.swirlds.config.api.ConfigurationBuilder;
 import com.swirlds.metrics.api.Metrics;
@@ -54,6 +55,11 @@ public class TestConfig {
         @Override
         public HistoricalBlockFacility historicalBlockProvider() {
             throw new IllegalStateException("Metrics not available in test context");
+        }
+
+        @Override
+        public PbjRouting.Builder pbjRoutingBuilder() {
+            return null;
         }
     };
 }

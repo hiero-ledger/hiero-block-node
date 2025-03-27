@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.node.spi;
 
+import com.hedera.pbj.grpc.helidon.PbjRouting;
 import com.swirlds.config.api.Configuration;
 import com.swirlds.metrics.api.Metrics;
 import org.hiero.block.node.spi.blockmessaging.BlockMessagingFacility;
@@ -57,4 +58,6 @@ public interface BlockNodeContext {
      * @return the block provider of the block node
      */
     HistoricalBlockFacility historicalBlockProvider();
+
+    PbjRouting.Builder pbjRoutingBuilder();
 }
