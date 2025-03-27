@@ -2,8 +2,6 @@
 package org.hiero.block.node.blocks.files.historic;
 
 import edu.umd.cs.findbugs.annotations.NonNull;
-import io.helidon.common.Builder;
-import io.helidon.webserver.Routing;
 import java.io.IOException;
 import java.lang.System.Logger.Level;
 import java.nio.file.Files;
@@ -12,6 +10,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicLong;
 import org.hiero.block.node.spi.BlockNodeContext;
+import org.hiero.block.node.spi.ServiceBuilder;
 import org.hiero.block.node.spi.blockmessaging.BlockNotification;
 import org.hiero.block.node.spi.blockmessaging.BlockNotification.Type;
 import org.hiero.block.node.spi.blockmessaging.BlockNotificationHandler;
@@ -51,11 +50,9 @@ public class BlocksFilesHistoricPlugin implements BlockProviderPlugin, BlockNoti
 
     /**
      * {@inheritDoc}
-     *
-     * @return
      */
     @Override
-    public Builder<?, ? extends Routing> init(BlockNodeContext context) {
+    public void init(BlockNodeContext context, ServiceBuilder serviceBuilder) {
         this.context = context;
         final FilesHistoricConfig config = context.configuration().getConfigData(FilesHistoricConfig.class);
         // create plugin data root directory if it does not exist
@@ -72,7 +69,6 @@ public class BlocksFilesHistoricPlugin implements BlockProviderPlugin, BlockNoti
         // get the first and last block numbers from the zipBlockArchive
         firstBlockNumber.set(zipBlockArchive.minStoredBlockNumber());
         lastBlockNumber.set(zipBlockArchive.maxStoredBlockNumber());
-        return null;
     }
 
     /**
