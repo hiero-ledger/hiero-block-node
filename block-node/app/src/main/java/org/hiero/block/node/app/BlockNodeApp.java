@@ -17,6 +17,7 @@ import io.helidon.webserver.Routing;
 import io.helidon.webserver.WebServer;
 import io.helidon.webserver.WebServerConfig;
 import java.io.IOException;
+import java.lang.module.ModuleFinder;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
@@ -56,6 +57,30 @@ public class BlockNodeApp implements HealthFacility {
      * @throws IOException if there is an error starting the server
      */
     private BlockNodeApp() throws IOException {
+        // TODO temporary prints for testing, remove when not needed
+        // print class properties
+        var props = System.getProperties();
+        for (String key : props.stringPropertyNames()) {
+            if (key.contains("class")) {
+                System.out.println(key + " = " + props.getProperty(key));
+            }
+        }
+        // print java module path
+        System.out.println("jdk.module.path(just hiero):");
+        String[] modulePath = System.getProperty("jdk.module.path").split(":");
+        for (String path : modulePath) {
+            if (path.contains("hiero")) {
+                System.out.println("        "+path);
+            }
+        }
+        // print all modules known to java
+        System.out.println("Loaded modules in boot layer(just hiero):");
+        ModuleLayer.boot()
+                .modules()
+                .stream().filter(module -> module.getName().contains("hiero"))
+                .forEach(module -> System.out.println("        " + module.getName()));
+
+
         // ==== FACILITY & PLUGIN LOADING ==============================================================================
         // Load Block Messaging Service plugin - for now allow nulls
         final BlockMessagingFacility blockMessagingService = ServiceLoader.load(
