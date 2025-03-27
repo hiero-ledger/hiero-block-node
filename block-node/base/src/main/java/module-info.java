@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-module org.hiero.block.base {
+module org.hiero.block.node.base {
     exports org.hiero.block.node.base;
 
     requires com.github.luben.zstd_jni;

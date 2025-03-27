@@ -15,7 +15,7 @@ module org.hiero.block.node.messaging {
     requires transitive org.hiero.block.node.spi;
     requires transitive io.helidon.common;
     requires transitive io.helidon.webserver;
-    requires org.hiero.block.base;
+    requires org.hiero.block.node.base;
     requires com.github.spotbugs.annotations;
     requires com.lmax.disruptor;
 

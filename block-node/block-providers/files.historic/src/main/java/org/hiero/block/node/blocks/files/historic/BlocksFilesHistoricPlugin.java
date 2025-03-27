@@ -4,6 +4,9 @@ package org.hiero.block.node.blocks.files.historic;
 import edu.umd.cs.findbugs.annotations.NonNull;
 import io.helidon.common.Builder;
 import io.helidon.webserver.Routing;
+import java.io.IOException;
+import java.lang.System.Logger.Level;
+import java.nio.file.Files;
 import java.util.List;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -55,6 +58,14 @@ public class BlocksFilesHistoricPlugin implements BlockProviderPlugin, BlockNoti
     public Builder<?, ? extends Routing> init(BlockNodeContext context) {
         this.context = context;
         final FilesHistoricConfig config = context.configuration().getConfigData(FilesHistoricConfig.class);
+        // create plugin data root directory if it does not exist
+        try {
+            Files.createDirectories(config.rootPath());
+        } catch (IOException e) {
+            LOGGER.log(Level.ERROR, "Could not create root directory", e);
+            context.serverHealth().shutdown(name(), "Could not create root directory");
+        }
+        // register to listen to block notifications
         context.blockMessaging().registerBlockNotificationHandler(this, false, "Blocks Files Historic");
         numberOfBlocksPerZipFile = (int) Math.pow(10, config.digitsPerZipFileName());
         zipBlockArchive = new ZipBlockArchive(context, config);
