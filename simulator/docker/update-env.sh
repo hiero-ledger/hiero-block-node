@@ -24,7 +24,7 @@ debug_arg="-agentlib:jdwp=transport=dt_socket,server=y,suspend=y,address=*:5006"
 # determine if we should include debug opts
 [ "$1" = true ] && is_debug=true || is_debug=false
 if [ true = "$is_debug" ]; then
-  # The server will wait for the debugger to attach on port 5005
+  # The server will wait for the debugger to attach on port 5006
   echo "JAVA_TOOL_OPTIONS=${logging_config_file_arg} ${debug_arg}" >> .env
 else
   echo "JAVA_TOOL_OPTIONS=${logging_config_file_arg}" >> .env

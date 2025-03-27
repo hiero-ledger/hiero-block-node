@@ -46,7 +46,7 @@ public interface SimulatorStartupData {
      *
      * @return the latest acknowledged block number based on startup data, or
      * the value that would be returned by
-     * {@link BlockGeneratorConfig#startBlockNumber()} if no startup data is
+     * {@link BlockGeneratorConfig#startBlockNumber()} -1L if no startup data is
      * available (initial startup) or the startup data functionality is disabled
      */
     long getLatestAckBlockNumber();
