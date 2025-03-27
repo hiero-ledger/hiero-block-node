@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.simulator.generator;
 
+import static org.hiero.block.simulator.TestUtils.getAbsoluteFolder;
 import static org.junit.jupiter.api.Assertions.*;
 
 import java.io.IOException;
-import java.nio.file.Paths;
 import org.hiero.block.simulator.config.data.BlockGeneratorConfig;
 import org.hiero.block.simulator.config.types.GenerationMode;
 import org.hiero.block.simulator.exception.BlockSimulatorParsingException;
@@ -13,12 +13,8 @@ import org.junit.jupiter.api.Test;
 
 class BlockAsFileBlockStreamManagerTest {
 
-    private final String gzRootFolder = "build/resources/main//block-0.0.3/";
+    private final String gzRootFolder = "build/resources/test/block-0.0.3-blk/";
     private BlockStreamManager blockStreamManager;
-
-    private String getAbsoluteFolder(String relativePath) {
-        return Paths.get(relativePath).toAbsolutePath().toString();
-    }
 
     @BeforeEach
     void setUp() {
@@ -40,14 +36,15 @@ class BlockAsFileBlockStreamManagerTest {
 
     @Test
     void getNextBlockItem() throws IOException, BlockSimulatorParsingException {
-        for (int i = 0; i < 35000; i++) {
+        // iterates the block items of the blocks in gzRootFolder
+        for (int i = 0; i < 72; i++) {
             assertNotNull(blockStreamManager.getNextBlockItem());
         }
     }
 
     @Test
     void loadBlockBlk() throws IOException, BlockSimulatorParsingException {
-        String blkRootFolder = "build/resources/test//block-0.0.3-blk/";
+        String blkRootFolder = "build/resources/test/block-0.0.3-blk/";
         BlockStreamManager blockStreamManager = getBlockAsFileBlockStreamManager(getAbsoluteFolder(blkRootFolder));
         blockStreamManager.init();
 
@@ -59,7 +56,7 @@ class BlockAsFileBlockStreamManagerTest {
         assertThrows(
                 RuntimeException.class,
                 () -> getBlockAsFileBlockStreamManager(
-                        getAbsoluteFolder("build/resources/test//BlockAsDirException/1/")));
+                        getAbsoluteFolder("build/resources/test/BlockAsDirException/1/")));
     }
 
     private BlockStreamManager getBlockAsFileBlockStreamManager(String rootFolder) {

@@ -15,16 +15,9 @@ COPY simulator-*.tar ./simulator.tar
 RUN mkdir -p /app/logs/config
 COPY logging.properties /app/logs/config/logging.properties
 
-# Create resources directory and copy block data
-RUN mkdir -p src/main/resources
-COPY block-0.0.3.tar.gz src/main/resources/
-
 # Extract the distribution and block data
 RUN tar -xf simulator.tar && \
     rm simulator.tar && \
-    cd src/main/resources && \
-    tar -xzf block-0.0.3.tar.gz && \
-    rm block-0.0.3.tar.gz && \
     cd /app && \
     chown -R $UID:$GID /app
 
