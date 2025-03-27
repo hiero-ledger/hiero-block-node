@@ -2,7 +2,7 @@
 import org.hiero.block.node.subscriber.SubscriberServicePlugin;
 
 // SPDX-License-Identifier: Apache-2.0
-module org.hiero.block.health {
+module org.hiero.block.node.subscriber {
     uses com.swirlds.config.api.spi.ConfigurationBuilderFactory;
 
     requires transitive com.hedera.pbj.runtime;

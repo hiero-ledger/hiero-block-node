@@ -12,21 +12,21 @@ module org.hiero.block.node.app {
     uses BlockProviderPlugin;
 
     // export configuration classes to the config module
-    exports org.hiero.block.node.app to com.swirlds.config.impl, com.swirlds.config.extensions;
+    exports org.hiero.block.node.app to
+            com.swirlds.config.impl,
+            com.swirlds.config.extensions;
 
     // for now depend on messaging so module is loaded
     // TODO this should not be needed, but gradle does not add messaging to module path
     //      without it when running the app
-    requires org.hiero.block.node.messaging;
-
     requires com.hedera.pbj.grpc.helidon.config;
     requires com.swirlds.base;
     requires com.swirlds.common;
     requires com.swirlds.config.api;
     requires com.swirlds.config.extensions;
     requires com.swirlds.metrics.api;
-    requires org.hiero.block.base;
     requires org.hiero.block.common;
+    requires org.hiero.block.node.base;
     requires org.hiero.block.node.spi;
     requires io.helidon.common;
     requires io.helidon.webserver;

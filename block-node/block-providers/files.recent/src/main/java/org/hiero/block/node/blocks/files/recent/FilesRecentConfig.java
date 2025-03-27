@@ -18,7 +18,7 @@ import org.hiero.block.node.base.Loggable;
  * @param maxFilesPerDir number of files per directory. This is used to limit the number of files in a directory to avoid
  *                    file system issues.
  */
-@ConfigData("persistence.storage")
+@ConfigData("files.recent")
 public record FilesRecentConfig(
         @Loggable @ConfigProperty(defaultValue = "/opt/hashgraph/blocknode/data/live") Path liveRootPath,
         @Loggable @ConfigProperty(defaultValue = "/opt/hashgraph/blocknode/data/unverified") Path unverifiedRootPath,
