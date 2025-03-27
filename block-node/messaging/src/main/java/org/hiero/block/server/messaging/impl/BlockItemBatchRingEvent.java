@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.server.messaging.impl;
 
-import com.hedera.hapi.block.BlockItemUnparsed;
 import java.util.List;
 import java.util.stream.Collectors;
+import org.hiero.block.api.BlockItemUnparsed;
 
 /**
  * Simple mutable container for a BlockNotification. The ring buffer is made up of these events.

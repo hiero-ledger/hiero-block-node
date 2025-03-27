@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.server.persistence.storage.read;
 
-import com.hedera.hapi.block.BlockUnparsed;
 import com.hedera.pbj.runtime.ParseException;
 import com.hedera.pbj.runtime.io.stream.ReadableStreamingData;
 import edu.umd.cs.findbugs.annotations.NonNull;
@@ -13,6 +12,7 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipFile;
+import org.hiero.block.api.BlockUnparsed;
 import org.hiero.block.common.utils.Preconditions;
 import org.hiero.block.server.persistence.storage.PersistenceStorageConfig.CompressionType;
 import org.hiero.block.server.persistence.storage.compression.Compression;

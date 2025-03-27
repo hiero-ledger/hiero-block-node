@@ -4,12 +4,12 @@ package org.hiero.block.server.verification;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.*;
 
-import com.hedera.hapi.block.BlockItemUnparsed;
 import com.hedera.hapi.block.stream.output.BlockHeader;
 import com.hedera.pbj.runtime.ParseException;
 import com.swirlds.metrics.api.Counter;
 import java.util.Collections;
 import java.util.List;
+import org.hiero.block.api.BlockItemUnparsed;
 import org.hiero.block.server.events.ObjectEvent;
 import org.hiero.block.server.mediator.SubscriptionHandler;
 import org.hiero.block.server.metrics.MetricsService;

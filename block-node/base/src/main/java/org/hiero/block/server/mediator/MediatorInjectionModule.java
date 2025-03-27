@@ -3,13 +3,13 @@ package org.hiero.block.server.mediator;
 
 import static org.hiero.block.server.mediator.MediatorConfig.MediatorType.NO_OP;
 
-import com.hedera.hapi.block.BlockItemUnparsed;
 import dagger.Binds;
 import dagger.Module;
 import dagger.Provides;
 import edu.umd.cs.findbugs.annotations.NonNull;
 import java.util.List;
 import javax.inject.Singleton;
+import org.hiero.block.api.BlockItemUnparsed;
 import org.hiero.block.server.metrics.MetricsService;
 import org.hiero.block.server.notifier.Notifiable;
 import org.hiero.block.server.service.ServiceStatus;

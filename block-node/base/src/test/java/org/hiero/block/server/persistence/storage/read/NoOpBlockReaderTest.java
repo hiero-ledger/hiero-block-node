@@ -3,11 +3,11 @@ package org.hiero.block.server.persistence.storage.read;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import com.hedera.hapi.block.BlockUnparsed;
 import com.hedera.pbj.runtime.ParseException;
 import java.io.IOException;
 import java.util.Optional;
 import java.util.stream.Stream;
+import org.hiero.block.api.BlockUnparsed;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;

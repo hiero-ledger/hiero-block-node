@@ -8,8 +8,6 @@ import static org.hiero.block.server.util.PersistTestUtils.PERSISTENCE_STORAGE_C
 import static org.hiero.block.server.util.PersistTestUtils.PERSISTENCE_STORAGE_LIVE_ROOT_PATH_KEY;
 import static org.mockito.Mockito.spy;
 
-import com.hedera.hapi.block.BlockItemUnparsed;
-import com.hedera.hapi.block.BlockUnparsed;
 import com.hedera.hapi.block.stream.output.BlockHeader;
 import com.hedera.pbj.runtime.ParseException;
 import com.swirlds.config.api.Configuration;
@@ -22,6 +20,8 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.stream.Stream;
 import org.assertj.core.api.InstanceOfAssertFactories;
+import org.hiero.block.api.BlockItemUnparsed;
+import org.hiero.block.api.BlockUnparsed;
 import org.hiero.block.server.persistence.storage.PersistenceStorageConfig;
 import org.hiero.block.server.persistence.storage.compression.Compression;
 import org.hiero.block.server.persistence.storage.compression.NoOpCompression;

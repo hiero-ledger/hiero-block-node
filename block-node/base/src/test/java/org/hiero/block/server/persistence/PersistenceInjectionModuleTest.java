@@ -6,12 +6,12 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.when;
 
-import com.hedera.hapi.block.BlockItemUnparsed;
-import com.hedera.hapi.block.BlockUnparsed;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.concurrent.Executor;
+import org.hiero.block.api.BlockItemUnparsed;
+import org.hiero.block.api.BlockUnparsed;
 import org.hiero.block.server.ack.AckHandler;
 import org.hiero.block.server.events.BlockNodeEventHandler;
 import org.hiero.block.server.events.ObjectEvent;

@@ -6,8 +6,6 @@ import static java.lang.System.Logger.Level.ERROR;
 import static org.hiero.block.server.metrics.BlockNodeMetricTypes.Counter.BlockPersistenceError;
 import static org.hiero.block.server.metrics.BlockNodeMetricTypes.Counter.BlocksPersisted;
 
-import com.hedera.hapi.block.BlockItemUnparsed;
-import com.hedera.hapi.block.BlockUnparsed;
 import com.hedera.pbj.runtime.io.stream.WritableStreamingData;
 import edu.umd.cs.findbugs.annotations.NonNull;
 import java.io.IOException;
@@ -19,6 +17,8 @@ import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.LinkedTransferQueue;
 import java.util.concurrent.TransferQueue;
+import org.hiero.block.api.BlockItemUnparsed;
+import org.hiero.block.api.BlockUnparsed;
 import org.hiero.block.common.utils.FileUtilities;
 import org.hiero.block.common.utils.Preconditions;
 import org.hiero.block.server.ack.AckHandler;

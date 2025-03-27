@@ -1,13 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.server.util;
 
-import com.hedera.hapi.block.Acknowledgement;
-import com.hedera.hapi.block.BlockAcknowledgement;
-import com.hedera.hapi.block.BlockItemSetUnparsed;
-import com.hedera.hapi.block.PublishStreamRequestUnparsed;
-import com.hedera.hapi.block.SubscribeStreamRequest;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import edu.umd.cs.findbugs.annotations.NonNull;
+import org.hiero.block.api.Acknowledgement;
+import org.hiero.block.api.BlockAcknowledgement;
+import org.hiero.block.api.BlockItemSetUnparsed;
+import org.hiero.block.api.PublishStreamRequestUnparsed;
+import org.hiero.block.api.SubscribeStreamRequest;
 
 public final class PbjProtoTestUtils {
     private PbjProtoTestUtils() {}

@@ -4,12 +4,12 @@ package org.hiero.block.server.verification.service;
 import static java.lang.System.Logger.Level.ERROR;
 import static java.util.Objects.requireNonNull;
 
-import com.hedera.hapi.block.BlockItemUnparsed;
 import com.hedera.hapi.block.stream.output.BlockHeader;
 import com.hedera.pbj.runtime.ParseException;
 import edu.umd.cs.findbugs.annotations.NonNull;
 import java.util.List;
 import javax.inject.Inject;
+import org.hiero.block.api.BlockItemUnparsed;
 import org.hiero.block.server.ack.AckHandler;
 import org.hiero.block.server.metrics.BlockNodeMetricTypes;
 import org.hiero.block.server.metrics.MetricsService;

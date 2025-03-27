@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.server.mediator;
 
-import com.hedera.hapi.block.BlockItemUnparsed;
 import java.util.List;
+import org.hiero.block.api.BlockItemUnparsed;
 import org.hiero.block.server.notifier.Notifiable;
 
 /**

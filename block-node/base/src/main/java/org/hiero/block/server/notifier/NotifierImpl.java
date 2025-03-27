@@ -6,16 +6,16 @@ import static org.hiero.block.server.metrics.BlockNodeMetricTypes.Counter.Succes
 import static org.hiero.block.server.metrics.BlockNodeMetricTypes.Gauge.NotifierRingBufferRemainingCapacity;
 import static org.hiero.block.server.metrics.BlockNodeMetricTypes.Gauge.Producers;
 
-import com.hedera.hapi.block.Acknowledgement;
-import com.hedera.hapi.block.BlockAcknowledgement;
-import com.hedera.hapi.block.EndOfStream;
-import com.hedera.hapi.block.PublishStreamResponse;
-import com.hedera.hapi.block.PublishStreamResponseCode;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import edu.umd.cs.findbugs.annotations.NonNull;
 import java.util.concurrent.ConcurrentHashMap;
 import javax.inject.Inject;
 import javax.inject.Singleton;
+import org.hiero.block.api.Acknowledgement;
+import org.hiero.block.api.BlockAcknowledgement;
+import org.hiero.block.api.EndOfStream;
+import org.hiero.block.api.PublishStreamResponse;
+import org.hiero.block.api.PublishStreamResponseCode;
 import org.hiero.block.server.mediator.MediatorConfig;
 import org.hiero.block.server.mediator.SubscriptionHandlerBase;
 import org.hiero.block.server.metrics.MetricsService;
@@ -117,7 +117,7 @@ public class NotifierImpl extends SubscriptionHandlerBase<PublishStreamResponse>
                 .status(PublishStreamResponseCode.STREAM_ITEMS_INTERNAL_ERROR)
                 .blockNumber(blockNumber)
                 .build();
-        return PublishStreamResponse.newBuilder().status(endOfStream).build();
+        return PublishStreamResponse.newBuilder().endStream(endOfStream).build();
     }
 
     /**
@@ -148,7 +148,7 @@ public class NotifierImpl extends SubscriptionHandlerBase<PublishStreamResponse>
     @Override
     public void sendEndOfStream(long block_number, @NonNull PublishStreamResponseCode responseCode) {
         final var publishStreamResponse = PublishStreamResponse.newBuilder()
-                .status(EndOfStream.newBuilder()
+                .endStream(EndOfStream.newBuilder()
                         .blockNumber(block_number)
                         .status(responseCode)
                         .build())

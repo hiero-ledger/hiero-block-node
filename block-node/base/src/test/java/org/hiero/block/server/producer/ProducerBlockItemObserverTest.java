@@ -9,12 +9,6 @@ import static org.mockito.Mockito.timeout;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-import com.hedera.hapi.block.Acknowledgement;
-import com.hedera.hapi.block.BlockAcknowledgement;
-import com.hedera.hapi.block.BlockItemUnparsed;
-import com.hedera.hapi.block.EndOfStream;
-import com.hedera.hapi.block.PublishStreamResponse;
-import com.hedera.hapi.block.PublishStreamResponseCode;
 import com.hedera.pbj.runtime.grpc.Pipeline;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import com.swirlds.config.api.Configuration;
@@ -22,6 +16,12 @@ import java.io.IOException;
 import java.time.InstantSource;
 import java.util.List;
 import java.util.Map;
+import org.hiero.block.api.Acknowledgement;
+import org.hiero.block.api.BlockAcknowledgement;
+import org.hiero.block.api.BlockItemUnparsed;
+import org.hiero.block.api.EndOfStream;
+import org.hiero.block.api.PublishStreamResponse;
+import org.hiero.block.api.PublishStreamResponseCode;
 import org.hiero.block.server.block.BlockInfo;
 import org.hiero.block.server.consumer.ConsumerConfig;
 import org.hiero.block.server.events.ObjectEvent;
@@ -408,7 +408,7 @@ public class ProducerBlockItemObserverTest {
                 .blockNumber(10L)
                 .build();
         final PublishStreamResponse publishStreamResponse =
-                PublishStreamResponse.newBuilder().status(endOfStream).build();
+                PublishStreamResponse.newBuilder().endStream(endOfStream).build();
 
         // verify helidonPublishPipeline.onNext() is called once with publishStreamResponse
         verify(helidonPublishPipeline, timeout(testTimeout).times(1)).onNext(publishStreamResponse);

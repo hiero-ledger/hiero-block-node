@@ -4,9 +4,9 @@ package org.hiero.block.server.verification.service;
 import static java.lang.System.Logger.Level.DEBUG;
 import static java.lang.System.Logger.Level.INFO;
 
-import com.hedera.hapi.block.BlockItemUnparsed;
 import edu.umd.cs.findbugs.annotations.NonNull;
 import java.util.List;
+import org.hiero.block.api.BlockItemUnparsed;
 
 /** No-op implementation of the {@link BlockVerificationService}. */
 public class NoOpBlockVerificationService implements BlockVerificationService {

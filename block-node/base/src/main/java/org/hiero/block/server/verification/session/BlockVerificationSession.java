@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.server.verification.session;
 
-import com.hedera.hapi.block.BlockItemUnparsed;
 import edu.umd.cs.findbugs.annotations.NonNull;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
+import org.hiero.block.api.BlockItemUnparsed;
 import org.hiero.block.server.verification.VerificationResult;
 
 /**

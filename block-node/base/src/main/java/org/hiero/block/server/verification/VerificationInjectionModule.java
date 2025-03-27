@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.server.verification;
 
-import com.hedera.hapi.block.BlockItemUnparsed;
 import dagger.Binds;
 import dagger.Module;
 import dagger.Provides;
@@ -11,6 +10,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.ForkJoinPool;
 import javax.inject.Named;
 import javax.inject.Singleton;
+import org.hiero.block.api.BlockItemUnparsed;
 import org.hiero.block.server.ack.AckHandler;
 import org.hiero.block.server.events.BlockNodeEventHandler;
 import org.hiero.block.server.events.ObjectEvent;

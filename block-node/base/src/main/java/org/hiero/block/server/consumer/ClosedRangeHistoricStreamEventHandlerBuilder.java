@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.server.consumer;
 
-import com.hedera.hapi.block.BlockUnparsed;
-import com.hedera.hapi.block.SubscribeStreamResponseUnparsed;
 import com.hedera.pbj.runtime.grpc.Pipeline;
 import edu.umd.cs.findbugs.annotations.NonNull;
+import org.hiero.block.api.BlockUnparsed;
+import org.hiero.block.api.SubscribeStreamResponseUnparsed;
 import org.hiero.block.server.metrics.MetricsService;
 import org.hiero.block.server.persistence.storage.read.BlockReader;
 

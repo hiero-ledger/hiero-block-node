@@ -5,12 +5,12 @@ import static java.lang.System.Logger.Level.ERROR;
 import static java.lang.System.Logger.Level.INFO;
 import static org.hiero.block.server.metrics.BlockNodeMetricTypes.Counter.LiveBlockItemsReceived;
 
-import com.hedera.hapi.block.BlockItemUnparsed;
-import com.hedera.hapi.block.PublishStreamResponse;
 import com.hedera.pbj.runtime.grpc.Pipeline;
 import edu.umd.cs.findbugs.annotations.NonNull;
 import java.util.List;
 import java.util.concurrent.Flow;
+import org.hiero.block.api.BlockItemUnparsed;
+import org.hiero.block.api.PublishStreamResponse;
 import org.hiero.block.server.events.BlockNodeEventHandler;
 import org.hiero.block.server.events.ObjectEvent;
 import org.hiero.block.server.metrics.MetricsService;

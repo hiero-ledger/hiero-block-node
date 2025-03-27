@@ -5,6 +5,6 @@ module org.hiero.block.common {
     exports org.hiero.block.common.hasher;
 
     requires transitive com.hedera.pbj.runtime;
-    requires transitive org.hiero.block.stream;
+    requires transitive org.hiero.block.protobuf;
     requires static com.github.spotbugs.annotations;
 }

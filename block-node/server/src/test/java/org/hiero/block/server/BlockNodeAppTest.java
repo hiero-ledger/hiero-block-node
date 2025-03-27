@@ -5,8 +5,6 @@ import static org.mockito.Mockito.any;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-import com.hedera.hapi.block.BlockItemUnparsed;
-import com.hedera.hapi.block.BlockUnparsed;
 import com.hedera.pbj.grpc.helidon.PbjRouting;
 import com.hedera.pbj.grpc.helidon.config.PbjConfig;
 import com.swirlds.config.api.Configuration;
@@ -16,6 +14,8 @@ import io.helidon.webserver.WebServerConfig;
 import io.helidon.webserver.http.HttpRouting;
 import java.io.IOException;
 import java.util.List;
+import org.hiero.block.api.BlockItemUnparsed;
+import org.hiero.block.api.BlockUnparsed;
 import org.hiero.block.server.config.ServerConfig;
 import org.hiero.block.server.config.logging.ConfigurationLogging;
 import org.hiero.block.server.consumer.ConsumerConfig;

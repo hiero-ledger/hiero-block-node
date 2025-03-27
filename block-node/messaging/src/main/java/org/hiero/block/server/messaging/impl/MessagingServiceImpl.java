@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.server.messaging.impl;
 
-import com.hedera.hapi.block.BlockItemUnparsed;
 import com.lmax.disruptor.BatchEventProcessor;
 import com.lmax.disruptor.BatchEventProcessorBuilder;
 import com.lmax.disruptor.ExceptionHandler;
@@ -19,6 +18,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.ServiceLoader;
 import java.util.concurrent.ThreadFactory;
+import org.hiero.block.api.BlockItemUnparsed;
 import org.hiero.block.server.messaging.BlockItemHandler;
 import org.hiero.block.server.messaging.BlockNotification;
 import org.hiero.block.server.messaging.BlockNotificationHandler;

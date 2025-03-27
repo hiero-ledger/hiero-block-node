@@ -7,7 +7,7 @@ plugins {
     id("com.hedera.pbj.pbj-compiler") version "0.9.17"
 }
 
-description = "Hiero API"
+description = "Hiero Block Node Protobuf API"
 
 // Remove the following line to enable all 'javac' lint checks that we have turned on by default
 // and then fix the reported issues.
@@ -27,6 +27,10 @@ val cloneHederaProtobufs =
 
         // uncomment below to use a specific branch
         // branch = "main"
+
+        // remove the block_service.proto file pulled from hedera-protobufs in favour of local
+        // version
+        doLast { localCloneDirectory.file("block/block_service.proto").get().asFile.delete() }
     }
 
 sourceSets {

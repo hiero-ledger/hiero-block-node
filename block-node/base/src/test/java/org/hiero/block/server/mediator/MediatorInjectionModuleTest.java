@@ -4,11 +4,11 @@ package org.hiero.block.server.mediator;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 
-import com.hedera.hapi.block.BlockItemUnparsed;
 import com.swirlds.config.api.Configuration;
 import java.io.IOException;
 import java.util.List;
 import java.util.Map;
+import org.hiero.block.api.BlockItemUnparsed;
 import org.hiero.block.server.metrics.MetricsService;
 import org.hiero.block.server.service.ServiceStatus;
 import org.hiero.block.server.util.TestConfigUtil;

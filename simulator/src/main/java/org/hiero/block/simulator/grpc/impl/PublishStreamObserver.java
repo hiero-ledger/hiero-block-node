@@ -5,12 +5,12 @@ import static java.lang.System.Logger.Level.ERROR;
 import static java.lang.System.Logger.Level.INFO;
 import static java.util.Objects.requireNonNull;
 
-import com.hedera.hapi.block.protoc.PublishStreamResponse;
 import edu.umd.cs.findbugs.annotations.NonNull;
 import io.grpc.Status;
 import io.grpc.stub.StreamObserver;
 import java.util.Deque;
 import java.util.concurrent.atomic.AtomicBoolean;
+import org.hiero.block.api.protoc.PublishStreamResponse;
 
 /**
  * Implementation of StreamObserver that handles responses from the block publishing stream.

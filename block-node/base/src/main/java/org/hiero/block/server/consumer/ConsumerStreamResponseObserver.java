@@ -5,10 +5,6 @@ import static java.lang.System.Logger.Level.TRACE;
 import static org.hiero.block.server.metrics.BlockNodeMetricTypes.Counter.LiveBlockItemsConsumed;
 import static org.hiero.block.server.metrics.BlockNodeMetricTypes.Gauge.CurrentBlockNumberOutbound;
 
-import com.hedera.hapi.block.BlockItemSetUnparsed;
-import com.hedera.hapi.block.BlockItemUnparsed;
-import com.hedera.hapi.block.SubscribeStreamResponseCode;
-import com.hedera.hapi.block.SubscribeStreamResponseUnparsed;
 import com.hedera.hapi.block.stream.output.BlockHeader;
 import com.hedera.pbj.runtime.ParseException;
 import com.hedera.pbj.runtime.grpc.Pipeline;
@@ -16,6 +12,10 @@ import edu.umd.cs.findbugs.annotations.NonNull;
 import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.atomic.AtomicBoolean;
+import org.hiero.block.api.BlockItemSetUnparsed;
+import org.hiero.block.api.BlockItemUnparsed;
+import org.hiero.block.api.SubscribeStreamResponseCode;
+import org.hiero.block.api.SubscribeStreamResponseUnparsed;
 import org.hiero.block.server.metrics.MetricsService;
 
 /**

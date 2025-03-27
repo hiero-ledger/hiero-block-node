@@ -3,12 +3,12 @@ package org.hiero.block.server.verification.session;
 
 import static org.hiero.block.common.hasher.HashingUtilities.getBlockItemHash;
 
-import com.hedera.hapi.block.BlockItemUnparsed;
 import com.hedera.hapi.block.stream.BlockProof;
 import com.hedera.hapi.block.stream.output.BlockHeader;
 import com.hedera.pbj.runtime.ParseException;
 import edu.umd.cs.findbugs.annotations.NonNull;
 import java.util.List;
+import org.hiero.block.api.BlockItemUnparsed;
 import org.hiero.block.common.hasher.NaiveStreamingTreeHasher;
 import org.hiero.block.server.metrics.MetricsService;
 import org.hiero.block.server.verification.signature.SignatureVerifier;

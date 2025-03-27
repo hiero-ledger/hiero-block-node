@@ -9,12 +9,6 @@ import static org.hiero.block.server.metrics.BlockNodeMetricTypes.Counter.LiveBl
 import static org.hiero.block.server.metrics.BlockNodeMetricTypes.Counter.SuccessfulPubStreamRespSent;
 import static org.hiero.block.server.metrics.BlockNodeMetricTypes.Gauge.CurrentBlockNumberInbound;
 
-import com.hedera.hapi.block.Acknowledgement;
-import com.hedera.hapi.block.BlockAcknowledgement;
-import com.hedera.hapi.block.BlockItemUnparsed;
-import com.hedera.hapi.block.EndOfStream;
-import com.hedera.hapi.block.PublishStreamResponse;
-import com.hedera.hapi.block.PublishStreamResponseCode;
 import com.hedera.hapi.block.stream.output.BlockHeader;
 import com.hedera.pbj.runtime.ParseException;
 import com.hedera.pbj.runtime.grpc.Pipeline;
@@ -26,6 +20,12 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.Flow;
 import java.util.concurrent.atomic.AtomicBoolean;
+import org.hiero.block.api.Acknowledgement;
+import org.hiero.block.api.BlockAcknowledgement;
+import org.hiero.block.api.BlockItemUnparsed;
+import org.hiero.block.api.EndOfStream;
+import org.hiero.block.api.PublishStreamResponse;
+import org.hiero.block.api.PublishStreamResponseCode;
 import org.hiero.block.server.block.BlockInfo;
 import org.hiero.block.server.consumer.ConsumerConfig;
 import org.hiero.block.server.events.BlockNodeEventHandler;
@@ -182,7 +182,7 @@ public class ProducerBlockItemObserver
                 .blockNumber(blockNumber)
                 .status(PublishStreamResponseCode.STREAM_ITEMS_INTERNAL_ERROR)
                 .build();
-        return PublishStreamResponse.newBuilder().status(endOfStream).build();
+        return PublishStreamResponse.newBuilder().endStream(endOfStream).build();
     }
 
     /**
@@ -328,7 +328,7 @@ public class ProducerBlockItemObserver
                 .build();
 
         final PublishStreamResponse publishStreamResponse =
-                PublishStreamResponse.newBuilder().status(endOfStream).build();
+                PublishStreamResponse.newBuilder().endStream(endOfStream).build();
 
         publishStreamResponseObserver.onNext(publishStreamResponse);
     }

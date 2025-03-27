@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.server.pbj;
 
-import static com.hedera.hapi.block.SubscribeStreamResponseCode.READ_STREAM_NOT_AVAILABLE;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.hiero.block.api.SubscribeStreamResponseCode.READ_STREAM_NOT_AVAILABLE;
 import static org.hiero.block.server.util.PbjProtoTestUtils.buildEmptyPublishStreamRequest;
 import static org.hiero.block.server.util.PbjProtoTestUtils.buildLiveStreamSubscribeStreamRequest;
 import static org.hiero.block.server.util.PersistTestUtils.PERSISTENCE_STORAGE_ARCHIVE_ROOT_PATH_KEY;
@@ -22,17 +22,6 @@ import static org.mockito.Mockito.timeout;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 
-import com.hedera.hapi.block.BlockItemSetUnparsed;
-import com.hedera.hapi.block.BlockItemUnparsed;
-import com.hedera.hapi.block.BlockUnparsed;
-import com.hedera.hapi.block.EndOfStream;
-import com.hedera.hapi.block.PublishStreamRequestUnparsed;
-import com.hedera.hapi.block.PublishStreamResponse;
-import com.hedera.hapi.block.PublishStreamResponseCode;
-import com.hedera.hapi.block.SingleBlockRequest;
-import com.hedera.hapi.block.SingleBlockResponseCode;
-import com.hedera.hapi.block.SingleBlockResponseUnparsed;
-import com.hedera.hapi.block.SubscribeStreamResponseUnparsed;
 import com.hedera.pbj.runtime.grpc.Pipeline;
 import com.hedera.pbj.runtime.grpc.ServiceInterface;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
@@ -54,6 +43,17 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.ForkJoinPool;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import org.hiero.block.api.BlockItemSetUnparsed;
+import org.hiero.block.api.BlockItemUnparsed;
+import org.hiero.block.api.BlockRequest;
+import org.hiero.block.api.BlockResponseCode;
+import org.hiero.block.api.BlockResponseUnparsed;
+import org.hiero.block.api.BlockUnparsed;
+import org.hiero.block.api.EndOfStream;
+import org.hiero.block.api.PublishStreamRequestUnparsed;
+import org.hiero.block.api.PublishStreamResponse;
+import org.hiero.block.api.PublishStreamResponseCode;
+import org.hiero.block.api.SubscribeStreamResponseUnparsed;
 import org.hiero.block.server.ack.AckHandler;
 import org.hiero.block.server.ack.AckHandlerImpl;
 import org.hiero.block.server.block.BlockInfo;
@@ -830,15 +830,14 @@ class PbjBlockStreamServiceIntegrationTest {
         verify(helidonPublishStreamObserver2, timeout(testTimeout).times(1)).onNext(buildEndOfStreamResponse());
 
         // Build a request to invoke the singleBlock service
-        final SingleBlockRequest singleBlockRequest =
-                SingleBlockRequest.newBuilder().blockNumber(1).build();
+        final BlockRequest BlockRequest =
+                org.hiero.block.api.BlockRequest.newBuilder().blockNumber(1).build();
 
         final PbjBlockAccessServiceProxy pbjBlockAccessServiceProxy =
                 new PbjBlockAccessServiceProxy(serviceStatus, blockReaderMock, metricsService);
 
         // Simulate a consumer attempting to connect to the Block Node after the exception.
-        final SingleBlockResponseUnparsed singleBlockResponse =
-                pbjBlockAccessServiceProxy.singleBlock(singleBlockRequest);
+        final BlockResponseUnparsed BlockResponse = pbjBlockAccessServiceProxy.Block(BlockRequest);
 
         // Build a request to invoke the subscribeBlockStream service
         // Simulate a consumer attempting to connect to the Block Node after the exception.
@@ -866,7 +865,7 @@ class PbjBlockStreamServiceIntegrationTest {
         // the built-in delay.
         verify(webServerMock, timeout(testTimeout).times(1)).stop();
 
-        assertEquals(SingleBlockResponseCode.READ_BLOCK_NOT_AVAILABLE, singleBlockResponse.status());
+        assertEquals(BlockResponseCode.READ_BLOCK_NOT_AVAILABLE, BlockResponse.status());
 
         final Bytes expectedSubscriberStreamNotAvailable =
                 SubscribeStreamResponseUnparsed.PROTOBUF.toBytes(SubscribeStreamResponseUnparsed.newBuilder()
@@ -920,7 +919,7 @@ class PbjBlockStreamServiceIntegrationTest {
                 .blockNumber(1L)
                 .build();
         return PublishStreamResponse.PROTOBUF.toBytes(
-                PublishStreamResponse.newBuilder().status(endOfStream).build());
+                PublishStreamResponse.newBuilder().endStream(endOfStream).build());
     }
 
     private BlockVerificationSessionFactory getBlockVerificationSessionFactory() {

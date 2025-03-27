@@ -8,8 +8,6 @@ import static org.hiero.block.server.util.PersistTestUtils.PERSISTENCE_STORAGE_A
 import static org.hiero.block.server.util.PersistTestUtils.PERSISTENCE_STORAGE_COMPRESSION_TYPE;
 import static org.hiero.block.server.util.PersistTestUtils.PERSISTENCE_STORAGE_LIVE_ROOT_PATH_KEY;
 
-import com.hedera.hapi.block.BlockItemUnparsed;
-import com.hedera.hapi.block.BlockUnparsed;
 import com.hedera.hapi.block.stream.output.BlockHeader;
 import com.hedera.pbj.runtime.ParseException;
 import com.hedera.pbj.runtime.UncheckedParseException;
@@ -27,6 +25,8 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipFile;
+import org.hiero.block.api.BlockItemUnparsed;
+import org.hiero.block.api.BlockUnparsed;
 import org.hiero.block.common.utils.FileUtilities;
 import org.hiero.block.server.persistence.storage.PersistenceStorageConfig;
 import org.hiero.block.server.persistence.storage.path.ArchiveBlockPath;

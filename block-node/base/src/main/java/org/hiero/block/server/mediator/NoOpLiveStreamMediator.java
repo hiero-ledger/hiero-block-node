@@ -4,9 +4,9 @@ package org.hiero.block.server.mediator;
 import static java.lang.System.Logger.Level.INFO;
 import static org.hiero.block.server.metrics.BlockNodeMetricTypes.Counter.LiveBlockItems;
 
-import com.hedera.hapi.block.BlockItemUnparsed;
 import edu.umd.cs.findbugs.annotations.NonNull;
 import java.util.List;
+import org.hiero.block.api.BlockItemUnparsed;
 import org.hiero.block.server.consumer.StreamManager;
 import org.hiero.block.server.events.BlockNodeEventHandler;
 import org.hiero.block.server.events.ObjectEvent;

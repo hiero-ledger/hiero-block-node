@@ -6,10 +6,6 @@ import static java.lang.System.Logger.Level.ERROR;
 import static org.hiero.block.server.metrics.BlockNodeMetricTypes.Counter.SingleBlocksNotFound;
 import static org.hiero.block.server.metrics.BlockNodeMetricTypes.Counter.SingleBlocksRetrieved;
 
-import com.hedera.hapi.block.BlockUnparsed;
-import com.hedera.hapi.block.SingleBlockRequest;
-import com.hedera.hapi.block.SingleBlockResponseCode;
-import com.hedera.hapi.block.SingleBlockResponseUnparsed;
 import com.hedera.pbj.runtime.ParseException;
 import com.hedera.pbj.runtime.grpc.Pipeline;
 import com.hedera.pbj.runtime.grpc.Pipelines;
@@ -18,6 +14,10 @@ import edu.umd.cs.findbugs.annotations.NonNull;
 import java.io.IOException;
 import java.util.Optional;
 import javax.inject.Inject;
+import org.hiero.block.api.BlockRequest;
+import org.hiero.block.api.BlockResponseCode;
+import org.hiero.block.api.BlockResponseUnparsed;
+import org.hiero.block.api.BlockUnparsed;
 import org.hiero.block.server.metrics.MetricsService;
 import org.hiero.block.server.persistence.storage.read.BlockReader;
 import org.hiero.block.server.service.ServiceStatus;
@@ -66,10 +66,10 @@ public class PbjBlockAccessServiceProxy implements PbjBlockAccessService {
         try {
             final var m = (BlockAccessMethod) method;
             return switch (m) {
-                case singleBlock -> Pipelines.<SingleBlockRequest, SingleBlockResponseUnparsed>unary()
-                        .mapRequest(bytes -> parseSingleBlockRequest(bytes))
-                        .method(this::singleBlock)
-                        .mapResponse(reply -> createSingleBlockResponse(reply, options))
+                case singleBlock -> Pipelines.<BlockRequest, BlockResponseUnparsed>unary()
+                        .mapRequest(bytes -> parseBlockRequest(bytes))
+                        .method(this::Block)
+                        .mapResponse(reply -> createBlockResponse(reply, options))
                         .respondTo(replies)
                         .build();
             };
@@ -80,65 +80,65 @@ public class PbjBlockAccessServiceProxy implements PbjBlockAccessService {
     }
 
     /**
-     * Executes the unary singleBlock gRPC method.
+     * Executes the unary Block gRPC method.
      *
-     * @param singleBlockRequest the single block request
+     * @param BlockRequest the single block request
      * @return the single block response
      */
-    SingleBlockResponseUnparsed singleBlock(SingleBlockRequest singleBlockRequest) {
+    BlockResponseUnparsed Block(BlockRequest BlockRequest) {
 
-        LOGGER.log(DEBUG, "Executing Unary singleBlock gRPC method");
+        LOGGER.log(DEBUG, "Executing Unary Block gRPC method");
 
         if (serviceStatus.isRunning()) {
-            final long blockNumber = singleBlockRequest.blockNumber();
+            final long blockNumber = BlockRequest.blockNumber();
             try {
                 final Optional<BlockUnparsed> blockOpt = blockReader.read(blockNumber);
                 if (blockOpt.isPresent()) {
                     LOGGER.log(DEBUG, "Successfully returning block number: {0}", blockNumber);
                     metricsService.get(SingleBlocksRetrieved).increment();
 
-                    return SingleBlockResponseUnparsed.newBuilder()
-                            .status(SingleBlockResponseCode.READ_BLOCK_SUCCESS)
+                    return BlockResponseUnparsed.newBuilder()
+                            .status(BlockResponseCode.READ_BLOCK_SUCCESS)
                             .block(blockOpt.get())
                             .build();
                 } else {
                     LOGGER.log(DEBUG, "Block number {0} not found", blockNumber);
                     metricsService.get(SingleBlocksNotFound).increment();
 
-                    return SingleBlockResponseUnparsed.newBuilder()
-                            .status(SingleBlockResponseCode.READ_BLOCK_NOT_FOUND)
+                    return BlockResponseUnparsed.newBuilder()
+                            .status(BlockResponseCode.READ_BLOCK_NOT_FOUND)
                             .build();
                 }
             } catch (IOException e) {
                 LOGGER.log(ERROR, "Error reading block number: {0}", blockNumber);
 
-                return SingleBlockResponseUnparsed.newBuilder()
-                        .status(SingleBlockResponseCode.READ_BLOCK_NOT_AVAILABLE)
+                return BlockResponseUnparsed.newBuilder()
+                        .status(BlockResponseCode.READ_BLOCK_NOT_AVAILABLE)
                         .build();
             } catch (ParseException e) {
                 LOGGER.log(ERROR, "Error parsing block number: {0}", blockNumber);
 
-                return SingleBlockResponseUnparsed.newBuilder()
-                        .status(SingleBlockResponseCode.READ_BLOCK_NOT_AVAILABLE)
+                return BlockResponseUnparsed.newBuilder()
+                        .status(BlockResponseCode.READ_BLOCK_NOT_AVAILABLE)
                         .build();
             }
         } else {
-            LOGGER.log(ERROR, "Unary singleBlock gRPC method is not currently running");
+            LOGGER.log(ERROR, "Unary Block gRPC method is not currently running");
 
-            return SingleBlockResponseUnparsed.newBuilder()
-                    .status(SingleBlockResponseCode.READ_BLOCK_NOT_AVAILABLE)
+            return BlockResponseUnparsed.newBuilder()
+                    .status(BlockResponseCode.READ_BLOCK_NOT_AVAILABLE)
                     .build();
         }
     }
 
     @NonNull
-    private SingleBlockRequest parseSingleBlockRequest(@NonNull final Bytes message) throws ParseException {
-        return SingleBlockRequest.PROTOBUF.parse(message);
+    private BlockRequest parseBlockRequest(@NonNull final Bytes message) throws ParseException {
+        return BlockRequest.PROTOBUF.parse(message);
     }
 
     @NonNull
-    private Bytes createSingleBlockResponse(
-            @NonNull final SingleBlockResponseUnparsed reply, @NonNull final RequestOptions options) {
-        return SingleBlockResponseUnparsed.PROTOBUF.toBytes(reply);
+    private Bytes createBlockResponse(
+            @NonNull final BlockResponseUnparsed reply, @NonNull final RequestOptions options) {
+        return BlockResponseUnparsed.PROTOBUF.toBytes(reply);
     }
 }

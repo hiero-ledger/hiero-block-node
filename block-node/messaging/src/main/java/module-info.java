@@ -5,7 +5,7 @@ module org.hiero.block.messaging {
     exports org.hiero.block.server.messaging;
 
     requires transitive com.swirlds.config.api;
-    requires transitive org.hiero.block.stream;
+    requires transitive org.hiero.block.protobuf;
     requires org.hiero.block.base;
     requires com.lmax.disruptor;
 

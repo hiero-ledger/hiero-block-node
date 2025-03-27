@@ -1,12 +1,15 @@
+// SPDX-License-Identifier: Apache-2.0
 syntax = "proto3";
 
-package com.hedera.hapi.block;
+package com.hiero.block.internal;
 
-option java_package = "com.hedera.hapi.block.protoc";
-// <<<pbj.java_package = "com.hedera.hapi.block">>> This comment is special code for setting PBJ Compiler java package
+// set the java packages for the generated classes to be org.hiero.block.api to avoid import confusion
+option java_package = "org.hiero.block.api.protoc";
+// <<<pbj.java_package = "org.hiero.block.api">>> This comment is special code for setting PBJ Compiler java package
 option java_multiple_files = true;
 
-import "block_service.proto";
+import "org/hiero/block/api/block_access_service.proto";
+import "org/hiero/block/api/block_stream_service.proto";
 
 message PublishStreamRequestUnparsed {
   BlockItemSetUnparsed block_items = 1;
@@ -19,7 +22,7 @@ message SubscribeStreamResponseUnparsed {
      * <p>
      * The block node server SHALL end the stream following this message.
      */
-    com.hedera.hapi.block.SubscribeStreamResponseCode status = 1;
+    org.hiero.block.api.SubscribeStreamResponseCode status = 1;
 
     /**
      * A stream response item containing one or more `BlockItem`s.
@@ -31,8 +34,8 @@ message SubscribeStreamResponseUnparsed {
   }
 }
 
-message SingleBlockResponseUnparsed {
-  com.hedera.hapi.block.SingleBlockResponseCode status = 1;
+message BlockResponseUnparsed {
+  org.hiero.block.api.BlockResponseCode status = 1;
   BlockUnparsed block = 2;
 }
 

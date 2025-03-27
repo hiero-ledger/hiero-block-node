@@ -3,7 +3,6 @@ package org.hiero.block.server.ack;
 
 import static java.lang.System.Logger.Level.ERROR;
 
-import com.hedera.hapi.block.PublishStreamResponseCode;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import edu.umd.cs.findbugs.annotations.NonNull;
 import java.io.IOException;
@@ -11,6 +10,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.ConcurrentHashMap;
 import javax.inject.Inject;
+import org.hiero.block.api.PublishStreamResponseCode;
 import org.hiero.block.server.block.BlockInfo;
 import org.hiero.block.server.metrics.BlockNodeMetricTypes;
 import org.hiero.block.server.metrics.MetricsService;

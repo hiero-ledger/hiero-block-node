@@ -9,12 +9,12 @@ import static org.hiero.block.server.metrics.BlockNodeMetricTypes.Counter.LiveBl
 import static org.hiero.block.server.metrics.BlockNodeMetricTypes.Gauge.Consumers;
 import static org.hiero.block.server.metrics.BlockNodeMetricTypes.Gauge.MediatorRingBufferRemainingCapacity;
 
-import com.hedera.hapi.block.BlockItemUnparsed;
 import com.lmax.disruptor.BatchEventProcessor;
 import com.lmax.disruptor.EventPoller;
 import edu.umd.cs.findbugs.annotations.NonNull;
 import java.util.List;
 import java.util.Map;
+import org.hiero.block.api.BlockItemUnparsed;
 import org.hiero.block.server.consumer.StreamManager;
 import org.hiero.block.server.events.BlockNodeEventHandler;
 import org.hiero.block.server.events.ObjectEvent;

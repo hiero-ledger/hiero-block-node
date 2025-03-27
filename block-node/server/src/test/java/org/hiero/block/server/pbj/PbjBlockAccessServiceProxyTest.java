@@ -7,12 +7,6 @@ import static org.mockito.Mockito.timeout;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-import com.hedera.hapi.block.BlockItemUnparsed;
-import com.hedera.hapi.block.BlockUnparsed;
-import com.hedera.hapi.block.SingleBlockRequest;
-import com.hedera.hapi.block.SingleBlockResponse;
-import com.hedera.hapi.block.SingleBlockResponseCode;
-import com.hedera.hapi.block.SingleBlockResponseUnparsed;
 import com.hedera.hapi.block.stream.output.BlockHeader;
 import com.hedera.pbj.runtime.ParseException;
 import com.hedera.pbj.runtime.grpc.Pipeline;
@@ -22,6 +16,12 @@ import java.io.IOException;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
+import org.hiero.block.api.BlockItemUnparsed;
+import org.hiero.block.api.BlockRequest;
+import org.hiero.block.api.BlockResponse;
+import org.hiero.block.api.BlockResponseCode;
+import org.hiero.block.api.BlockResponseUnparsed;
+import org.hiero.block.api.BlockUnparsed;
 import org.hiero.block.server.metrics.MetricsService;
 import org.hiero.block.server.persistence.storage.read.BlockReader;
 import org.hiero.block.server.service.ServiceStatus;
@@ -87,17 +87,17 @@ public class PbjBlockAccessServiceProxyTest {
                 BlockUnparsed.newBuilder().blockItems(blockItems).build();
         when(blockReader.read(1)).thenReturn(Optional.of(block));
 
-        final SingleBlockRequest singleBlockRequest =
-                SingleBlockRequest.newBuilder().blockNumber(1).build();
-        pipeline.onNext(SingleBlockRequest.PROTOBUF.toBytes(singleBlockRequest));
+        final BlockRequest BlockRequest =
+                org.hiero.block.api.BlockRequest.newBuilder().blockNumber(1).build();
+        pipeline.onNext(org.hiero.block.api.BlockRequest.PROTOBUF.toBytes(BlockRequest));
 
-        final var readSuccessResponse = SingleBlockResponseUnparsed.newBuilder()
-                .status(SingleBlockResponseCode.READ_BLOCK_SUCCESS)
+        final var readSuccessResponse = BlockResponseUnparsed.newBuilder()
+                .status(BlockResponseCode.READ_BLOCK_SUCCESS)
                 .block(block)
                 .build();
         verify(replies, timeout(testTimeout).times(1)).onSubscribe(any());
         verify(replies, timeout(testTimeout).times(1))
-                .onNext(SingleBlockResponseUnparsed.PROTOBUF.toBytes(readSuccessResponse));
+                .onNext(BlockResponseUnparsed.PROTOBUF.toBytes(readSuccessResponse));
         verify(replies, timeout(testTimeout).times(1)).onComplete();
     }
 
@@ -112,15 +112,15 @@ public class PbjBlockAccessServiceProxyTest {
         when(serviceStatus.isRunning()).thenReturn(true);
         when(blockReader.read(1)).thenReturn(Optional.empty());
 
-        final SingleBlockRequest singleBlockRequest =
-                SingleBlockRequest.newBuilder().blockNumber(1).build();
-        pipeline.onNext(SingleBlockRequest.PROTOBUF.toBytes(singleBlockRequest));
+        final BlockRequest BlockRequest =
+                org.hiero.block.api.BlockRequest.newBuilder().blockNumber(1).build();
+        pipeline.onNext(org.hiero.block.api.BlockRequest.PROTOBUF.toBytes(BlockRequest));
 
-        final var blockNotFound = SingleBlockResponse.newBuilder()
-                .status(SingleBlockResponseCode.READ_BLOCK_NOT_FOUND)
+        final var blockNotFound = BlockResponse.newBuilder()
+                .status(BlockResponseCode.READ_BLOCK_NOT_FOUND)
                 .build();
         verify(replies, timeout(testTimeout).times(1)).onSubscribe(any());
-        verify(replies, timeout(testTimeout).times(1)).onNext(SingleBlockResponse.PROTOBUF.toBytes(blockNotFound));
+        verify(replies, timeout(testTimeout).times(1)).onNext(BlockResponse.PROTOBUF.toBytes(blockNotFound));
         verify(replies, timeout(testTimeout).times(1)).onComplete();
     }
 
@@ -135,15 +135,15 @@ public class PbjBlockAccessServiceProxyTest {
         when(serviceStatus.isRunning()).thenReturn(true);
         when(blockReader.read(1)).thenThrow(new IOException("Test IOException"));
 
-        final SingleBlockRequest singleBlockRequest =
-                SingleBlockRequest.newBuilder().blockNumber(1).build();
-        pipeline.onNext(SingleBlockRequest.PROTOBUF.toBytes(singleBlockRequest));
+        final BlockRequest BlockRequest =
+                org.hiero.block.api.BlockRequest.newBuilder().blockNumber(1).build();
+        pipeline.onNext(org.hiero.block.api.BlockRequest.PROTOBUF.toBytes(BlockRequest));
 
-        final var blockNotAvailable = SingleBlockResponse.newBuilder()
-                .status(SingleBlockResponseCode.READ_BLOCK_NOT_AVAILABLE)
+        final var blockNotAvailable = BlockResponse.newBuilder()
+                .status(BlockResponseCode.READ_BLOCK_NOT_AVAILABLE)
                 .build();
         verify(replies, timeout(testTimeout).times(1)).onSubscribe(any());
-        verify(replies, timeout(testTimeout).times(1)).onNext(SingleBlockResponse.PROTOBUF.toBytes(blockNotAvailable));
+        verify(replies, timeout(testTimeout).times(1)).onNext(BlockResponse.PROTOBUF.toBytes(blockNotAvailable));
         verify(replies, timeout(testTimeout).times(1)).onComplete();
     }
 }

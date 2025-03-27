@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.server.util;
 
-import com.hedera.hapi.block.BlockItemUnparsed;
 import com.hedera.hapi.block.stream.BlockProof;
 import com.hedera.hapi.block.stream.input.EventHeader;
 import com.hedera.hapi.block.stream.output.BlockHeader;
@@ -9,6 +8,7 @@ import com.hedera.hapi.node.base.SemanticVersion;
 import com.hedera.hapi.platform.event.EventCore;
 import java.util.ArrayList;
 import java.util.List;
+import org.hiero.block.api.BlockItemUnparsed;
 import org.hiero.block.common.utils.ChunkUtils;
 
 public final class PersistTestUtils {

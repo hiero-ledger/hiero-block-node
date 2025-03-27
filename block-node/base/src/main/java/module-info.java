@@ -35,7 +35,7 @@ module org.hiero.block.base {
     requires transitive com.swirlds.config.extensions;
     requires transitive com.swirlds.metrics.api;
     requires transitive org.hiero.block.common;
-    requires transitive org.hiero.block.stream;
+    requires transitive org.hiero.block.protobuf;
     requires transitive com.lmax.disruptor;
     requires transitive dagger;
     requires transitive io.helidon.webserver;

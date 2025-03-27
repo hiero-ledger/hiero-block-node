@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.server.service;
 
-import com.hedera.hapi.block.SubscribeStreamResponseCode;
-import com.hedera.hapi.block.SubscribeStreamResponseUnparsed;
+import org.hiero.block.api.SubscribeStreamResponseCode;
+import org.hiero.block.api.SubscribeStreamResponseUnparsed;
 
 /** Constants used in the BlockNode service. */
 public final class Constants {

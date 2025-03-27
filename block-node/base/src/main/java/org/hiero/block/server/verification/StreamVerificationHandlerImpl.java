@@ -3,11 +3,11 @@ package org.hiero.block.server.verification;
 
 import static java.lang.System.Logger.Level.ERROR;
 
-import com.hedera.hapi.block.BlockItemUnparsed;
 import edu.umd.cs.findbugs.annotations.NonNull;
 import java.util.List;
 import java.util.Objects;
 import javax.inject.Singleton;
+import org.hiero.block.api.BlockItemUnparsed;
 import org.hiero.block.server.events.BlockNodeEventHandler;
 import org.hiero.block.server.events.ObjectEvent;
 import org.hiero.block.server.mediator.SubscriptionHandler;

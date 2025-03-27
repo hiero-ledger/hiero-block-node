@@ -11,8 +11,6 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-import com.hedera.hapi.block.BlockItemUnparsed;
-import com.hedera.hapi.block.BlockUnparsed;
 import com.swirlds.metrics.api.Counter;
 import java.io.IOException;
 import java.io.OutputStream;
@@ -22,6 +20,8 @@ import java.util.List;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TransferQueue;
 import java.util.stream.Stream;
+import org.hiero.block.api.BlockItemUnparsed;
+import org.hiero.block.api.BlockUnparsed;
 import org.hiero.block.server.ack.AckHandler;
 import org.hiero.block.server.metrics.MetricsService;
 import org.hiero.block.server.persistence.storage.compression.Compression;

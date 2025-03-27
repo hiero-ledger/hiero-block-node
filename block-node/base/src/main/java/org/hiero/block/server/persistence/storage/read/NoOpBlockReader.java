@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.server.persistence.storage.read;
 
-import com.hedera.hapi.block.BlockUnparsed;
 import com.hedera.pbj.runtime.ParseException;
 import edu.umd.cs.findbugs.annotations.NonNull;
 import java.io.IOException;
 import java.util.Optional;
+import org.hiero.block.api.BlockUnparsed;
 
 /**
  * A no-op Block reader.

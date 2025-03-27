@@ -10,7 +10,7 @@ module org.hiero.block.server {
     requires com.swirlds.metrics.api;
     requires org.hiero.block.base;
     requires org.hiero.block.common;
-    requires org.hiero.block.stream;
+    requires org.hiero.block.protobuf;
     requires dagger;
     requires io.helidon.common;
     requires io.helidon.webserver;

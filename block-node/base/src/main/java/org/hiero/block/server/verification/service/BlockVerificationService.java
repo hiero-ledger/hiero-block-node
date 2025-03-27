@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.server.verification.service;
 
-import com.hedera.hapi.block.BlockItemUnparsed;
 import com.hedera.pbj.runtime.ParseException;
 import edu.umd.cs.findbugs.annotations.NonNull;
 import java.util.List;
+import org.hiero.block.api.BlockItemUnparsed;
 
 /**
  * Service that handles the verification of block items, it receives items from the handler.

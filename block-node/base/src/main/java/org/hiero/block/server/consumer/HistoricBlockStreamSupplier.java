@@ -6,15 +6,15 @@ import static org.hiero.block.server.metrics.BlockNodeMetricTypes.Counter.Closed
 import static org.hiero.block.server.service.Constants.READ_STREAM_NOT_AVAILABLE;
 import static org.hiero.block.server.service.Constants.READ_STREAM_SUCCESS_RESPONSE;
 
-import com.hedera.hapi.block.BlockItemSetUnparsed;
-import com.hedera.hapi.block.BlockItemUnparsed;
-import com.hedera.hapi.block.BlockUnparsed;
-import com.hedera.hapi.block.SubscribeStreamResponseUnparsed;
 import com.hedera.pbj.runtime.grpc.Pipeline;
 import edu.umd.cs.findbugs.annotations.NonNull;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import org.hiero.block.api.BlockItemSetUnparsed;
+import org.hiero.block.api.BlockItemUnparsed;
+import org.hiero.block.api.BlockUnparsed;
+import org.hiero.block.api.SubscribeStreamResponseUnparsed;
 import org.hiero.block.common.utils.ChunkUtils;
 import org.hiero.block.server.metrics.MetricsService;
 import org.hiero.block.server.persistence.storage.read.BlockReader;
