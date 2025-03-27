@@ -6,16 +6,16 @@ import static java.lang.System.Logger.Level.WARNING;
 
 import com.swirlds.metrics.api.Counter;
 import edu.umd.cs.findbugs.annotations.NonNull;
-import io.helidon.common.Builder;
-import io.helidon.webserver.Routing;
 import java.util.List;
 import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.BlockNodePlugin;
+import org.hiero.block.node.spi.ServiceBuilder;
 import org.hiero.block.node.spi.blockmessaging.BlockItemHandler;
 import org.hiero.block.node.spi.blockmessaging.BlockItems;
 import org.hiero.block.node.spi.blockmessaging.BlockNotification;
 
 /** Provides implementation for the health endpoints of the server. */
+@SuppressWarnings("unused")
 public class VerificationServicePlugin implements BlockNodePlugin, BlockItemHandler {
     /** The logger for this class. */
     private final System.Logger LOGGER = System.getLogger(getClass().getName());
@@ -54,7 +54,7 @@ public class VerificationServicePlugin implements BlockNodePlugin, BlockItemHand
      * {@inheritDoc}
      */
     @Override
-    public Builder<?, ? extends Routing> init(BlockNodeContext context) {
+    public void init(BlockNodeContext context, ServiceBuilder serviceBuilder) {
         this.context = context;
         final var metrics = context.metrics();
         // TODO do we need this? It is not used anywhere, what am I missing?
@@ -73,8 +73,6 @@ public class VerificationServicePlugin implements BlockNodePlugin, BlockItemHand
                 .withDescription("Blocks Verification Error"));
         verificationBlockTime = metrics.getOrCreate(new Counter.Config(METRICS_CATEGORY, "verification_block_time")
                 .withDescription("Block Verification Time"));
-        // we do not need to register any routes
-        return null;
     }
 
     /**

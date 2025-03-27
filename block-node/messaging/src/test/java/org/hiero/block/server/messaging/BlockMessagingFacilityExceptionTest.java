@@ -63,7 +63,7 @@ public class BlockMessagingFacilityExceptionTest {
     @Test
     void testBlockItemHandlerException() {
         BlockMessagingFacility service = new BlockMessagingFacilityImpl();
-        service.init(BLOCK_NODE_CONTEXT);
+        service.init(BLOCK_NODE_CONTEXT, null);
         // register a block item handler that just throws an exception
         service.registerBlockItemHandler(
                 (blockItems) -> {
@@ -104,7 +104,7 @@ public class BlockMessagingFacilityExceptionTest {
     @Test
     void testBlockNotificationHandlerException() {
         BlockMessagingFacility service = new BlockMessagingFacilityImpl();
-        service.init(BLOCK_NODE_CONTEXT);
+        service.init(BLOCK_NODE_CONTEXT, null);
         // register a block notification handler that just throws an exception
         service.registerBlockNotificationHandler(
                 blockNotification -> {

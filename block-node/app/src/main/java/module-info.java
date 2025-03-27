@@ -16,10 +16,9 @@ module org.hiero.block.node.app {
             com.swirlds.config.impl,
             com.swirlds.config.extensions;
 
-    // for now depend on messaging so module is loaded
-    // TODO this should not be needed, but gradle does not add messaging to module path
-    //      without it when running the app
     requires com.hedera.pbj.grpc.helidon.config;
+    requires com.hedera.pbj.grpc.helidon;
+    requires com.hedera.pbj.runtime;
     requires com.swirlds.base;
     requires com.swirlds.common;
     requires com.swirlds.config.api;
