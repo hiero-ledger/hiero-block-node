@@ -57,7 +57,7 @@ public class BlockMessagingServiceBlockNotificationTest {
                 .toList();
         // Create MessagingService to test and register the handlers
         BlockMessagingFacility messagingService = new BlockMessagingFacilityImpl();
-        messagingService.init(BLOCK_NODE_CONTEXT);
+        messagingService.init(BLOCK_NODE_CONTEXT, null);
         testHandlers.forEach(handler -> messagingService.registerBlockNotificationHandler(handler, false, null));
         // start the messaging service
         messagingService.start();
@@ -115,7 +115,7 @@ public class BlockMessagingServiceBlockNotificationTest {
         };
         // Create MessagingService to test and register the handlers
         BlockMessagingFacility messagingService = new BlockMessagingFacilityImpl();
-        messagingService.init(BLOCK_NODE_CONTEXT);
+        messagingService.init(BLOCK_NODE_CONTEXT, null);
         messagingService.registerBlockNotificationHandler(fastHandler, false, null);
         messagingService.registerBlockNotificationHandler(slowHandler, false, null);
         // start the messaging service
@@ -181,7 +181,7 @@ public class BlockMessagingServiceBlockNotificationTest {
         };
         // Create MessagingService to test and register the handlers
         BlockMessagingFacility messagingService = new BlockMessagingFacilityImpl();
-        messagingService.init(BLOCK_NODE_CONTEXT);
+        messagingService.init(BLOCK_NODE_CONTEXT, null);
         messagingService.registerBlockNotificationHandler(slowHandler, false, null);
         // start the messaging service
         messagingService.start();
@@ -262,7 +262,7 @@ public class BlockMessagingServiceBlockNotificationTest {
         };
         // create message service to test, add handlers and start the service
         final BlockMessagingFacility messagingService = new BlockMessagingFacilityImpl();
-        messagingService.init(BLOCK_NODE_CONTEXT);
+        messagingService.init(BLOCK_NODE_CONTEXT, null);
         messagingService.registerBlockNotificationHandler(handler1, false, null);
         messagingService.registerBlockNotificationHandler(handler2, false, null);
         messagingService.start();

@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.node.subscriber;
 
-import com.hedera.pbj.grpc.helidon.PbjRouting;
 import com.hedera.pbj.runtime.grpc.GrpcException;
 import com.hedera.pbj.runtime.grpc.Pipeline;
 import com.hedera.pbj.runtime.grpc.Pipelines;
@@ -9,8 +8,6 @@ import com.hedera.pbj.runtime.grpc.ServiceInterface;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import com.swirlds.metrics.api.LongGauge;
 import edu.umd.cs.findbugs.annotations.NonNull;
-import io.helidon.common.Builder;
-import io.helidon.webserver.Routing;
 import java.util.Arrays;
 import java.util.Comparator;
 import java.util.List;
@@ -18,6 +15,7 @@ import java.util.concurrent.ConcurrentSkipListSet;
 import java.util.concurrent.atomic.AtomicLong;
 import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.BlockNodePlugin;
+import org.hiero.block.node.spi.ServiceBuilder;
 import org.hiero.hapi.block.node.SubscribeStreamRequest;
 import org.hiero.hapi.block.node.SubscribeStreamResponseUnparsed;
 
@@ -52,14 +50,14 @@ public class SubscriberServicePlugin implements BlockNodePlugin, ServiceInterfac
      * {@inheritDoc}
      */
     @Override
-    public Builder<?, ? extends Routing> init(BlockNodeContext context) {
+    public void init(BlockNodeContext context, ServiceBuilder serviceBuilder) {
         this.context = context;
         // create the metrics
         numberOfSubscribers = context.metrics()
                 .getOrCreate(new LongGauge.Config(METRICS_CATEGORY, "subscribers")
                         .withDescription("No of Connected Subscribers"));
         // register us as a service
-        return PbjRouting.builder().service(this);
+        serviceBuilder.registerGrpcService(this);
     }
 
     // ==== ServiceInterface Methods ===================================================================================

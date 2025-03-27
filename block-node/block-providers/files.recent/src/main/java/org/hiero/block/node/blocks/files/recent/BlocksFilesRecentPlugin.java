@@ -6,8 +6,6 @@ import static org.hiero.block.node.base.BlockFile.nestedDirectoriesMinBlockNumbe
 
 import com.hedera.pbj.runtime.io.stream.WritableStreamingData;
 import edu.umd.cs.findbugs.annotations.NonNull;
-import io.helidon.common.Builder;
-import io.helidon.webserver.Routing;
 import java.io.BufferedOutputStream;
 import java.io.IOException;
 import java.lang.System.Logger.Level;
@@ -21,6 +19,7 @@ import java.util.concurrent.atomic.AtomicLong;
 import org.hiero.block.common.utils.FileUtilities;
 import org.hiero.block.node.base.BlockFile;
 import org.hiero.block.node.spi.BlockNodeContext;
+import org.hiero.block.node.spi.ServiceBuilder;
 import org.hiero.block.node.spi.blockmessaging.BlockItemHandler;
 import org.hiero.block.node.spi.blockmessaging.BlockItems;
 import org.hiero.block.node.spi.blockmessaging.BlockNotification;
@@ -88,11 +87,9 @@ public class BlocksFilesRecentPlugin implements BlockProviderPlugin, BlockNotifi
 
     /**
      * {@inheritDoc}
-     *
-     * @return
      */
     @Override
-    public Builder<?, ? extends Routing> init(BlockNodeContext context) {
+    public void init(BlockNodeContext context, ServiceBuilder serviceBuilder) {
         this.context = context;
         this.config = context.configuration().getConfigData(FilesRecentConfig.class);
         // create plugin data root directory if it does not exist
@@ -132,7 +129,6 @@ public class BlocksFilesRecentPlugin implements BlockProviderPlugin, BlockNotifi
         // scan file system to find the oldest and newest blocks
         oldestVerifiedBlockNumber.set(nestedDirectoriesMinBlockNumber(config.liveRootPath(), config.compression()));
         newestVerifiedBlockNumber.set(nestedDirectoriesMaxBlockNumber(config.liveRootPath(), config.compression()));
-        return null;
     }
 
     /**

@@ -5,7 +5,6 @@ import static java.lang.System.Logger.Level.DEBUG;
 import static java.lang.System.Logger.Level.INFO;
 import static java.lang.System.Logger.Level.WARNING;
 
-import com.hedera.pbj.grpc.helidon.PbjRouting;
 import com.hedera.pbj.runtime.grpc.GrpcException;
 import com.hedera.pbj.runtime.grpc.Pipeline;
 import com.hedera.pbj.runtime.grpc.Pipelines;
@@ -14,8 +13,6 @@ import com.hedera.pbj.runtime.io.buffer.Bytes;
 import com.swirlds.metrics.api.Counter;
 import com.swirlds.metrics.api.LongGauge;
 import edu.umd.cs.findbugs.annotations.NonNull;
-import io.helidon.common.Builder;
-import io.helidon.webserver.Routing;
 import java.util.Arrays;
 import java.util.Comparator;
 import java.util.HashSet;
@@ -27,6 +24,7 @@ import org.hiero.block.node.publisher.PublisherConfig.PublisherType;
 import org.hiero.block.node.publisher.UpdateCallback.UpdateType;
 import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.BlockNodePlugin;
+import org.hiero.block.node.spi.ServiceBuilder;
 import org.hiero.block.node.spi.blockmessaging.BlockItems;
 import org.hiero.block.node.spi.blockmessaging.BlockNotification;
 import org.hiero.block.node.spi.blockmessaging.BlockNotificationHandler;
@@ -237,7 +235,7 @@ public class PublisherServicePlugin implements BlockNodePlugin, ServiceInterface
      * {@inheritDoc}
      */
     @Override
-    public Builder<?, ? extends Routing> init(BlockNodeContext context) {
+    public void init(BlockNodeContext context, ServiceBuilder serviceBuilder) {
         this.context = context;
         // load the publisher config
         publisherConfig = context.configuration().getConfigData(PublisherConfig.class);
@@ -267,7 +265,7 @@ public class PublisherServicePlugin implements BlockNodePlugin, ServiceInterface
                         .withDescription("No of Connected Producers"));
 
         // register us as a service
-        return PbjRouting.builder().service(this);
+        serviceBuilder.registerGrpcService(this);
     }
 
     /**

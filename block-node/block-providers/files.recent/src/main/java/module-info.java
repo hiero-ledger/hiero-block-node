@@ -16,8 +16,6 @@ module org.hiero.block.node.blocks.files.recent {
     requires transitive org.hiero.block.node.base;
     requires transitive org.hiero.block.node.spi;
     requires transitive org.hiero.block.stream;
-    requires transitive io.helidon.common;
-    requires transitive io.helidon.webserver;
     requires org.hiero.block.common;
     requires com.github.luben.zstd_jni;
     requires com.github.spotbugs.annotations;
