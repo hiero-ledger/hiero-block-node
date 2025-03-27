@@ -16,9 +16,6 @@ module org.hiero.block.node.publisher {
     requires transitive com.swirlds.metrics.api;
     requires transitive org.hiero.block.node.spi;
     requires transitive org.hiero.block.stream;
-    requires transitive io.helidon.common;
-    requires transitive io.helidon.webserver;
-    requires com.hedera.pbj.grpc.helidon;
     requires org.hiero.block.node.base;
     requires com.github.spotbugs.annotations;
 

@@ -2,13 +2,11 @@
 package org.hiero.block.node.health;
 
 import edu.umd.cs.findbugs.annotations.NonNull;
-import io.helidon.common.Builder;
-import io.helidon.webserver.Routing;
-import io.helidon.webserver.http.HttpRouting;
 import io.helidon.webserver.http.ServerRequest;
 import io.helidon.webserver.http.ServerResponse;
 import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.BlockNodePlugin;
+import org.hiero.block.node.spi.ServiceBuilder;
 import org.hiero.block.node.spi.health.HealthFacility;
 
 /** Provides implementation for the health endpoints of the server. */
@@ -27,11 +25,11 @@ public class HealthServicePlugin implements BlockNodePlugin {
      * {@inheritDoc}
      */
     @Override
-    public Builder<?, ? extends Routing> init(BlockNodeContext context) {
+    public void init(BlockNodeContext context, ServiceBuilder serviceBuilder) {
         healthFacility = context.serverHealth();
-        return HttpRouting.builder().register(HEALTH_PATH, httpRules -> httpRules
-                .get(LIVEZ_PATH, this::handleLivez)
-                .get(READYZ_PATH, this::handleReadyz));
+        serviceBuilder.registerHttpService(
+                HEALTH_PATH,
+                httpRules -> httpRules.get(LIVEZ_PATH, this::handleLivez).get(READYZ_PATH, this::handleReadyz));
     }
 
     /**

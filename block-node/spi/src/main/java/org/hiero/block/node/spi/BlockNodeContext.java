@@ -16,7 +16,7 @@ import org.hiero.block.node.spi.historicalblocks.HistoricalBlockFacility;
  * </i></b></p>
  * <p>
  * The reason this exists and is an interface rather than passing each of the facilities into the plugin
- * {@link BlockNodePlugin#init(BlockNodeContext)} method is to allow future additions without breaking all existing
+ * {@link BlockNodePlugin#init(BlockNodeContext, ServiceBuilder)} method is to allow future additions without breaking all existing
  * plugins by changing the start method signature. Or ending up with multiple versioned start methods with different
  * signatures. It is aiming for the best balance between allowing future expansion, avoiding growth into a mess and
  * keeping the API clean.

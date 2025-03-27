@@ -5,17 +5,20 @@ import static java.lang.System.Logger;
 import static java.lang.System.Logger.Level.INFO;
 import static org.hiero.block.common.constants.StringsConstants.APPLICATION_PROPERTIES;
 
+import com.hedera.pbj.grpc.helidon.PbjRouting;
 import com.hedera.pbj.grpc.helidon.config.PbjConfig;
+import com.hedera.pbj.runtime.grpc.ServiceInterface;
 import com.swirlds.common.metrics.platform.DefaultMetricsProvider;
 import com.swirlds.config.api.Configuration;
 import com.swirlds.config.api.ConfigurationBuilder;
 import com.swirlds.config.extensions.sources.ClasspathFileConfigSource;
 import com.swirlds.metrics.api.Metrics;
-import io.helidon.common.Builder;
+import edu.umd.cs.findbugs.annotations.NonNull;
 import io.helidon.webserver.ConnectionConfig;
-import io.helidon.webserver.Routing;
 import io.helidon.webserver.WebServer;
 import io.helidon.webserver.WebServerConfig;
+import io.helidon.webserver.http.HttpRouting;
+import io.helidon.webserver.http.HttpService;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -26,6 +29,7 @@ import org.hiero.block.node.app.config.AutomaticEnvironmentVariableConfigSource;
 import org.hiero.block.node.app.config.ConfigurationLogging;
 import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.BlockNodePlugin;
+import org.hiero.block.node.spi.ServiceBuilder;
 import org.hiero.block.node.spi.blockmessaging.BlockMessagingFacility;
 import org.hiero.block.node.spi.health.HealthFacility;
 import org.hiero.block.node.spi.historicalblocks.HistoricalBlockFacility;
@@ -148,31 +152,45 @@ public class BlockNodeApp implements HealthFacility {
                 return historicalBlockFacility;
             }
         };
+        // ==== CREATE ROUTING BUILDERS ================================================================================
+        // Create HTTP & GRPC routing builders
+        final HttpRouting.Builder httpRoutingBuilder = HttpRouting.builder();
+        final PbjRouting.Builder pbjRoutingBuilder = PbjRouting.builder();
+        // Create the routing builder
+        final ServiceBuilder serviceBuilder = new ServiceBuilder() {
+            @Override
+            public void registerHttpService(String path, HttpService... service) {
+                httpRoutingBuilder.register(path, service);
+            }
+
+            @Override
+            public void registerGrpcService(@NonNull ServiceInterface service) {
+                pbjRoutingBuilder.service(service);
+            }
+        };
+        // ==== INITIALIZE PLUGINS =====================================================================================
+        // Initialize all the facilities & plugins, adding routing for each plugin
+        for (BlockNodePlugin plugin : loadedPlugins) {
+            LOGGER.log(INFO, "    Initializing plugin: {0}", plugin.name());
+            plugin.init(blockNodeContext, serviceBuilder);
+        }
         // ==== LOAD & CONFIGURE WEB SERVER ============================================================================
         // Override the default message size in PBJ
         final PbjConfig pbjConfig = PbjConfig.builder()
                 .name(PBJ_PROTOCOL_PROVIDER_CONFIG_NAME)
                 .maxMessageSizeBytes(serverConfig.maxMessageSizeBytes())
                 .build();
-        // Create the web server builder and configure
-        final var webServerBuilder = WebServerConfig.builder()
+        // Create the web server and configure
+        webServer = WebServerConfig.builder()
                 .port(serverConfig.port())
                 .addProtocol(pbjConfig)
+                .addRouting(httpRoutingBuilder)
+                .addRouting(pbjRoutingBuilder)
                 .connectionConfig(ConnectionConfig.builder()
                         .sendBufferSize(serverConfig.socketSendBufferSizeBytes())
                         .receiveBufferSize(serverConfig.socketSendBufferSizeBytes())
-                        .build());
-        // ==== INITIALIZE EVERYTHING ==================================================================================
-        // Initialize all the facilities & plugins, adding routing for each plugin
-        for (BlockNodePlugin plugin : loadedPlugins) {
-            LOGGER.log(INFO, "    Initializing plugin: {0}", plugin.name());
-            final Builder<?, ? extends Routing> routingBuilder = plugin.init(blockNodeContext);
-            if (routingBuilder != null) {
-                webServerBuilder.addRouting(routingBuilder);
-            }
-        }
-        // Build the web server
-        webServer = webServerBuilder.build();
+                        .build())
+                .build();
     }
 
     /**
@@ -192,6 +210,8 @@ public class BlockNodeApp implements HealthFacility {
         }
         // mark the server as started
         state.set(State.RUNNING);
+        // log the server has started
+        LOGGER.log(INFO, "Started BlockNode Server : State = {0}", state.get());
     }
 
     /**

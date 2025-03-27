@@ -63,7 +63,7 @@ public class BlockMessagingServiceBlockItemTest {
                 .toList();
         // Create MessagingService to test
         BlockMessagingFacility messagingService = new BlockMessagingFacilityImpl();
-        messagingService.init(BLOCK_NODE_CONTEXT);
+        messagingService.init(BLOCK_NODE_CONTEXT, null);
         // Register the handlers, if registerBeforeStart is true
         if (registerBeforeStart) {
             testHandlers.forEach(handler -> messagingService.registerBlockItemHandler(handler, false, "testHandler"));
@@ -125,7 +125,7 @@ public class BlockMessagingServiceBlockItemTest {
                 .toList();
         // Create MessagingService to test and register the handlers
         BlockMessagingFacility messagingService = new BlockMessagingFacilityImpl();
-        messagingService.init(BLOCK_NODE_CONTEXT);
+        messagingService.init(BLOCK_NODE_CONTEXT, null);
         messagingService.registerBlockItemHandler(testHandlers.get(0), false, "testHandler0");
         messagingService.registerBlockItemHandler(testHandlers.get(1), false, "testHandler1");
         messagingService.registerNoBackpressureBlockItemHandler(testHandlers.get(2), false, "testHandler2");
@@ -159,7 +159,7 @@ public class BlockMessagingServiceBlockItemTest {
     public void testThreadNameAndVirtualVsNonVirtual() {
         // Create a MessagingService instance
         BlockMessagingFacility service = new BlockMessagingFacilityImpl();
-        service.init(BLOCK_NODE_CONTEXT);
+        service.init(BLOCK_NODE_CONTEXT, null);
         // collect thread names and virtual vs non-virtual flags
         final AtomicReference<String> threadName1 = new AtomicReference<>();
         final AtomicReference<String> threadName2 = new AtomicReference<>();
