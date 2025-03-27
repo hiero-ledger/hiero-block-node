@@ -23,7 +23,6 @@ import io.grpc.ServerBuilder;
 import io.grpc.stub.StreamObserver;
 import java.io.IOException;
 import java.util.List;
-import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
 import org.hiero.block.simulator.TestUtils;
 import org.hiero.block.simulator.config.data.BlockStreamConfig;
@@ -31,6 +30,7 @@ import org.hiero.block.simulator.config.data.GrpcConfig;
 import org.hiero.block.simulator.grpc.PublishStreamGrpcClient;
 import org.hiero.block.simulator.metrics.MetricsService;
 import org.hiero.block.simulator.metrics.MetricsServiceImpl;
+import org.hiero.block.simulator.startup.SimulatorStartupData;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -38,13 +38,15 @@ import org.mockito.Mock;
 import org.mockito.MockitoAnnotations;
 
 class PublishStreamGrpcClientImplTest {
-
     private MetricsService metricsService;
     private PublishStreamGrpcClient publishStreamGrpcClient;
     private boolean isShutdownCalled = false;
 
     @Mock
     private GrpcConfig grpcConfig;
+
+    @Mock
+    private SimulatorStartupData startupDataMock;
 
     private BlockStreamConfig blockStreamConfig;
     private AtomicBoolean streamEnabled;
@@ -114,8 +116,7 @@ class PublishStreamGrpcClientImplTest {
                 })
                 .build()
                 .start();
-        blockStreamConfig = TestUtils.getTestConfiguration(Map.of("blockStream.blockItemsBatchSize", "2"))
-                .getConfigData(BlockStreamConfig.class);
+        blockStreamConfig = BlockStreamConfig.builder().blockItemsBatchSize(2).build();
 
         Configuration config = TestUtils.getTestConfiguration();
         metricsService = new MetricsServiceImpl(getTestMetrics(config));
@@ -124,8 +125,8 @@ class PublishStreamGrpcClientImplTest {
         when(grpcConfig.serverAddress()).thenReturn("localhost");
         when(grpcConfig.port()).thenReturn(serverPort);
 
-        publishStreamGrpcClient =
-                new PublishStreamGrpcClientImpl(grpcConfig, blockStreamConfig, metricsService, streamEnabled);
+        publishStreamGrpcClient = new PublishStreamGrpcClientImpl(
+                grpcConfig, blockStreamConfig, metricsService, streamEnabled, startupDataMock);
     }
 
     @AfterEach

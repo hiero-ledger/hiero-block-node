@@ -11,6 +11,7 @@ import org.hiero.block.simulator.config.data.BlockGeneratorConfig;
 import org.hiero.block.simulator.config.data.BlockStreamConfig;
 import org.hiero.block.simulator.config.data.ConsumerConfig;
 import org.hiero.block.simulator.config.data.GrpcConfig;
+import org.hiero.block.simulator.config.data.SimulatorStartupDataConfig;
 
 /** Sets up configuration for services. */
 @AutoService(ConfigurationExtension.class)
@@ -29,6 +30,7 @@ public class SimulatorConfigExtension implements ConfigurationExtension {
                 ConsumerConfig.class,
                 GrpcConfig.class,
                 BlockGeneratorConfig.class,
+                SimulatorStartupDataConfig.class,
                 MetricsConfig.class,
                 PrometheusConfig.class);
     }

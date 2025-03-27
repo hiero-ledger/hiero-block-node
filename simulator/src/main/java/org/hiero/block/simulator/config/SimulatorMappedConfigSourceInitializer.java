@@ -44,7 +44,16 @@ public final class SimulatorMappedConfigSourceInitializer {
 
             // Prometheus configuration
             new ConfigMapping("prometheus.endpointEnabled", "PROMETHEUS_ENDPOINT_ENABLED"),
-            new ConfigMapping("prometheus.endpointPortNumber", "PROMETHEUS_ENDPOINT_PORT_NUMBER"));
+            new ConfigMapping("prometheus.endpointPortNumber", "PROMETHEUS_ENDPOINT_PORT_NUMBER"),
+
+            // Startup Data Config
+            new ConfigMapping("simulator.startup.data.enabled", "SIMULATOR_STARTUP_DATA_ENABLED"),
+            new ConfigMapping(
+                    "simulator.startup.data.latestAckBlockNumberPath",
+                    "SIMULATOR_STARTUP_DATA_LATEST_ACK_BLOCK_NUMBER_PATH"),
+            new ConfigMapping(
+                    "simulator.startup.data.latestAckBlockHashPath",
+                    "SIMULATOR_STARTUP_DATA_LATEST_ACK_BLOCK_HASH_PATH"));
 
     private SimulatorMappedConfigSourceInitializer() {}
 

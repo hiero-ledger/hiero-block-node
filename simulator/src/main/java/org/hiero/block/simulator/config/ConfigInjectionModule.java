@@ -10,6 +10,7 @@ import org.hiero.block.simulator.config.data.BlockGeneratorConfig;
 import org.hiero.block.simulator.config.data.BlockStreamConfig;
 import org.hiero.block.simulator.config.data.ConsumerConfig;
 import org.hiero.block.simulator.config.data.GrpcConfig;
+import org.hiero.block.simulator.config.data.SimulatorStartupDataConfig;
 import org.hiero.block.simulator.config.logging.ConfigurationLogging;
 import org.hiero.block.simulator.config.logging.SimulatorConfigurationLogger;
 
@@ -77,9 +78,27 @@ public interface ConfigInjectionModule {
         return configuration.getConfigData(PrometheusConfig.class);
     }
 
+    /**
+     * Provides the configuration logging singleton using the configuration.
+     *
+     * @param configuration is the configuration singleton
+     * @return a configuration logging singleton
+     */
     @Singleton
     @Provides
     static ConfigurationLogging providesConfigurationLogging(final Configuration configuration) {
         return new SimulatorConfigurationLogger(configuration);
+    }
+
+    /**
+     * Provides the simulator startup data configuration.
+     *
+     * @param configuration the configuration to be used by the simulator startup data
+     * @return the simulator startup data configuration
+     */
+    @Singleton
+    @Provides
+    static SimulatorStartupDataConfig providesSimulatorStartupDataConfig(final Configuration configuration) {
+        return configuration.getConfigData(SimulatorStartupDataConfig.class);
     }
 }

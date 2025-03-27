@@ -28,6 +28,23 @@ spec:
       {{- end }}
       securityContext:
         {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      volumes:
+        - name: data-storage
+          persistentVolumeClaim:
+            claimName: {{ if .Values.simulator.persistence.data.create }}{{ include "blockstream-simulator-chart.fullname" . }}-data{{ else }}{{ .Values.simulator.persistence.data.existingClaim }}{{ end }}
+      initContainers:
+        - name: init-storage-dirs
+          image: busybox
+          command:
+            - sh
+            - -c
+            - |
+              mkdir -p /data-pvc/{{ .Values.simulator.persistence.data.subPath }} && \
+              chown 2000:2000 /data-pvc/{{ .Values.simulator.persistence.data.subPath }} && \
+              chmod 700 /data-pvc/{{ .Values.simulator.persistence.data.subPath }}
+          volumeMounts:
+            - name: data-storage
+              mountPath: /data-pvc
       containers:
       - name: {{ .Chart.Name }}
         securityContext:
@@ -43,6 +60,10 @@ spec:
               name: {{ include "blockstream-simulator-chart.fullname" . }}-config
           - secretRef:
               name: {{ include "blockstream-simulator-chart.fullname" . }}-secret
+        volumeMounts:
+          - name: data-storage
+            mountPath: {{ .Values.simulator.persistence.data.mountPath }}
+            subPath: {{ .Values.simulator.persistence.data.subPath }}
         {{- with .Values.resources }}
         resources:
           requests:

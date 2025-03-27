@@ -28,5 +28,19 @@ simulator:
     # GENERATOR_MAX_TRANSACTIONS_PER_EVENT: 5000
     # BLOCK_STREAM_BLOCK_ITEMS_BATCH_SIZE: 250
     # BLOCK_STREAM_MILLISECONDS_PER_BLOCK: 1000
+    SIMULATOR_STARTUP_DATA_ENABLED: "true"
   secret:
     PRIVATE_KEY: "fake_private_key"
+  persistence:
+    data:
+      # If false, the chart expects an externally provided PVC
+      create: true
+      # Name of the externally provided PVC
+      existingClaim: ""
+      # Name of the subPath in the PVC to mount to mountPath in the container
+      subPath: "simulator-data"
+      # If create is true, the following values are used to create the PVC
+      mountPath: "/opt/simulator/data"
+      size: 1Gi
+      # Optionally add a storage class name if needed
+      # storageClass: "your-storage-class"

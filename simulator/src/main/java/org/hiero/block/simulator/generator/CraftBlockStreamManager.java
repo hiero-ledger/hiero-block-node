@@ -3,14 +3,15 @@ package org.hiero.block.simulator.generator;
 
 import static java.lang.System.Logger.Level.DEBUG;
 import static java.lang.System.Logger.Level.INFO;
-import static java.util.Objects.requireNonNull;
 
 import com.hedera.hapi.block.BlockItemUnparsed;
+import com.hedera.hapi.block.stream.BlockProof;
 import com.hedera.hapi.block.stream.protoc.Block;
 import com.hedera.hapi.block.stream.protoc.BlockItem;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import edu.umd.cs.findbugs.annotations.NonNull;
 import java.io.IOException;
+import java.lang.System.Logger;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Random;
@@ -27,13 +28,14 @@ import org.hiero.block.simulator.generator.itemhandler.EventHeaderHandler;
 import org.hiero.block.simulator.generator.itemhandler.EventTransactionHandler;
 import org.hiero.block.simulator.generator.itemhandler.ItemHandler;
 import org.hiero.block.simulator.generator.itemhandler.TransactionResultHandler;
+import org.hiero.block.simulator.startup.SimulatorStartupData;
 
 /**
  * Implementation of BlockStreamManager that crafts blocks from scratch rather than reading from an existing stream.
  * This manager generates synthetic blocks with random events and transactions based on configured parameters.
  */
 public class CraftBlockStreamManager implements BlockStreamManager {
-    private final System.Logger LOGGER = System.getLogger(getClass().getName());
+    private final Logger LOGGER = System.getLogger(getClass().getName());
 
     // Service
     private final Random random;
@@ -56,28 +58,27 @@ public class CraftBlockStreamManager implements BlockStreamManager {
     /**
      * Constructs a new CraftBlockStreamManager with the specified configuration.
      *
-     * @param blockGeneratorConfig Configuration parameters for block generation including event and transaction counts
+     * @param blockGeneratorConfig Configuration parameters for block generation
+     * including event and transaction counts
+     * @param simulatorStartupData simulator startup data used for initialization
      * @throws NullPointerException if blockGeneratorConfig is null
      */
-    public CraftBlockStreamManager(@NonNull BlockGeneratorConfig blockGeneratorConfig) {
-        final BlockGeneratorConfig blockGeneratorConfig1 = requireNonNull(blockGeneratorConfig);
-        this.generationMode = blockGeneratorConfig1.generationMode();
-        this.currentBlockNumber = blockGeneratorConfig1.startBlockNumber();
-        this.minEventsPerBlock = blockGeneratorConfig1.minEventsPerBlock();
-        this.maxEventsPerBlock = blockGeneratorConfig1.maxEventsPerBlock();
-        this.minTransactionsPerEvent = blockGeneratorConfig1.minTransactionsPerEvent();
-        this.maxTransactionsPerEvent = blockGeneratorConfig1.maxTransactionsPerEvent();
-
+    public CraftBlockStreamManager(
+            @NonNull final BlockGeneratorConfig blockGeneratorConfig,
+            @NonNull final SimulatorStartupData simulatorStartupData) {
+        this.generationMode = blockGeneratorConfig.generationMode();
+        this.minEventsPerBlock = blockGeneratorConfig.minEventsPerBlock();
+        this.maxEventsPerBlock = blockGeneratorConfig.maxEventsPerBlock();
+        this.minTransactionsPerEvent = blockGeneratorConfig.minTransactionsPerEvent();
+        this.maxTransactionsPerEvent = blockGeneratorConfig.maxTransactionsPerEvent();
         this.random = new Random();
         this.previousStateRootHash = new byte[StreamingTreeHasher.HASH_LENGTH];
-
-        this.previousBlockHash = new byte[StreamingTreeHasher.HASH_LENGTH];
         this.currentBlockHash = new byte[StreamingTreeHasher.HASH_LENGTH];
-
         this.inputTreeHasher = new NaiveStreamingTreeHasher();
         this.outputTreeHasher = new NaiveStreamingTreeHasher();
-
-        LOGGER.log(INFO, "Block Stream Simulator will use Craft mode for block management.");
+        this.currentBlockNumber = simulatorStartupData.getLatestAckBlockNumber() + 1L;
+        this.previousBlockHash = simulatorStartupData.getLatestAckBlockHash();
+        LOGGER.log(INFO, "Block Stream Simulator will use Craft mode for block management");
     }
 
     /**
@@ -153,11 +154,10 @@ public class CraftBlockStreamManager implements BlockStreamManager {
     }
 
     private void updateCurrentBlockHash() {
-        com.hedera.hapi.block.stream.BlockProof unfinishedBlockProof =
-                com.hedera.hapi.block.stream.BlockProof.newBuilder()
-                        .previousBlockRootHash(Bytes.wrap(previousBlockHash))
-                        .startOfBlockStateRootHash(Bytes.wrap(previousStateRootHash))
-                        .build();
+        BlockProof unfinishedBlockProof = BlockProof.newBuilder()
+                .previousBlockRootHash(Bytes.wrap(previousBlockHash))
+                .startOfBlockStateRootHash(Bytes.wrap(previousStateRootHash))
+                .build();
 
         currentBlockHash = HashingUtilities.computeFinalBlockHash(
                         unfinishedBlockProof, inputTreeHasher, outputTreeHasher)

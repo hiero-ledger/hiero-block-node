@@ -27,6 +27,7 @@ import org.hiero.block.simulator.config.data.BlockStreamConfig;
 import org.hiero.block.simulator.config.data.GrpcConfig;
 import org.hiero.block.simulator.grpc.PublishStreamGrpcClient;
 import org.hiero.block.simulator.metrics.MetricsService;
+import org.hiero.block.simulator.startup.SimulatorStartupData;
 
 /**
  * Implementation of {@link PublishStreamGrpcClient} that handles the publication of blocks
@@ -51,6 +52,7 @@ public class PublishStreamGrpcClientImpl implements PublishStreamGrpcClient {
     private final AtomicBoolean streamEnabled;
     private final int lastKnownStatusesCapacity;
     private final Deque<String> lastKnownStatuses;
+    private final SimulatorStartupData startupData;
 
     /**
      * Creates a new PublishStreamGrpcClientImpl with the specified dependencies.
@@ -59,6 +61,7 @@ public class PublishStreamGrpcClientImpl implements PublishStreamGrpcClient {
      * @param blockStreamConfig The configuration for block streaming parameters
      * @param metricsService The service for recording publication metrics
      * @param streamEnabled Flag controlling stream state
+     * @param startupData The startup data for the simulator
      * @throws NullPointerException if any parameter is null
      */
     @Inject
@@ -66,13 +69,15 @@ public class PublishStreamGrpcClientImpl implements PublishStreamGrpcClient {
             @NonNull final GrpcConfig grpcConfig,
             @NonNull final BlockStreamConfig blockStreamConfig,
             @NonNull final MetricsService metricsService,
-            @NonNull final AtomicBoolean streamEnabled) {
+            @NonNull final AtomicBoolean streamEnabled,
+            @NonNull final SimulatorStartupData startupData) {
         this.grpcConfig = requireNonNull(grpcConfig);
         this.blockStreamConfig = requireNonNull(blockStreamConfig);
         this.metricsService = requireNonNull(metricsService);
         this.streamEnabled = requireNonNull(streamEnabled);
         this.lastKnownStatusesCapacity = blockStreamConfig.lastKnownStatusesCapacity();
-        lastKnownStatuses = new ArrayDeque<>(this.lastKnownStatusesCapacity);
+        this.lastKnownStatuses = new ArrayDeque<>(this.lastKnownStatusesCapacity);
+        this.startupData = requireNonNull(startupData);
     }
 
     /**
@@ -83,9 +88,9 @@ public class PublishStreamGrpcClientImpl implements PublishStreamGrpcClient {
         channel = ManagedChannelBuilder.forAddress(grpcConfig.serverAddress(), grpcConfig.port())
                 .usePlaintext()
                 .build();
-        BlockStreamServiceGrpc.BlockStreamServiceStub stub = BlockStreamServiceGrpc.newStub(channel);
-        PublishStreamObserver publishStreamObserver =
-                new PublishStreamObserver(streamEnabled, lastKnownStatuses, lastKnownStatusesCapacity);
+        final BlockStreamServiceGrpc.BlockStreamServiceStub stub = BlockStreamServiceGrpc.newStub(channel);
+        final PublishStreamObserver publishStreamObserver =
+                new PublishStreamObserver(startupData, streamEnabled, lastKnownStatuses, lastKnownStatusesCapacity);
         requestStreamObserver = stub.publishBlockStream(publishStreamObserver);
         lastKnownStatuses.clear();
     }
