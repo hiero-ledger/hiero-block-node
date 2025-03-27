@@ -1,14 +1,24 @@
 // SPDX-License-Identifier: Apache-2.0
-module org.hiero.block.messaging {
+import org.hiero.block.node.messaging.BlockMessagingFacilityImpl;
+
+// SPDX-License-Identifier: Apache-2.0
+module org.hiero.block.node.messaging {
     uses com.swirlds.config.api.spi.ConfigurationBuilderFactory;
 
-    exports org.hiero.block.server.messaging;
+    // export configuration classes to the config module
+    exports org.hiero.block.node.messaging to
+            com.swirlds.config.impl,
+            com.swirlds.config.extensions,
+            org.hiero.block.node.app;
 
     requires transitive com.swirlds.config.api;
-    requires transitive org.hiero.block.stream;
+    requires transitive org.hiero.block.node.spi;
+    requires transitive io.helidon.common;
+    requires transitive io.helidon.webserver;
     requires org.hiero.block.base;
+    requires com.github.spotbugs.annotations;
     requires com.lmax.disruptor;
 
-    provides org.hiero.block.server.messaging.MessagingService with
-            org.hiero.block.server.messaging.impl.MessagingServiceImpl;
+    provides org.hiero.block.node.spi.blockmessaging.BlockMessagingFacility with
+            BlockMessagingFacilityImpl;
 }

@@ -70,6 +70,7 @@ module org.hiero.block.stream {
     exports com.hedera.hapi.block.stream.schema;
     exports com.hedera.hapi.platform.state.legacy to
             com.google.protobuf;
+    exports org.hiero.hapi.block.node;
 
     requires transitive com.hedera.pbj.runtime;
     requires transitive com.google.common;

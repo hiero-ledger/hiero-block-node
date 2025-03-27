@@ -60,6 +60,8 @@ public class NaiveStreamingTreeHasher implements StreamingTreeHasher {
             while (!hashes.isEmpty()) {
                 final byte[] left = hashes.poll();
                 final byte[] right = hashes.poll();
+                // TODO this should be to use org.hiero.block.common.hasher.HashingUtilities.combine(byte[], byte[]) and
+                // avoid copies
                 final byte[] combined = new byte[left.length + requireNonNull(right).length];
                 System.arraycopy(left, 0, combined, 0, left.length);
                 System.arraycopy(right, 0, combined, left.length, right.length);
