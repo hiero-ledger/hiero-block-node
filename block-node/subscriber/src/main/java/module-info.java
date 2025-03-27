@@ -8,9 +8,6 @@ module org.hiero.block.node.subscriber {
     requires transitive com.hedera.pbj.runtime;
     requires transitive org.hiero.block.node.spi;
     requires transitive org.hiero.block.stream;
-    requires transitive io.helidon.common;
-    requires transitive io.helidon.webserver;
-    requires com.hedera.pbj.grpc.helidon;
     requires com.swirlds.metrics.api;
     requires com.github.spotbugs.annotations;
 
