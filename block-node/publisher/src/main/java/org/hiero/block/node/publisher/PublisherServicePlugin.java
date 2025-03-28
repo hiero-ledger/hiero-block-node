@@ -413,7 +413,7 @@ public class PublisherServicePlugin implements BlockNodePlugin, ServiceInterface
                     // return the pipeline
                     yield pipe;
 
-                /*case subscribeBlockStream:
+                    /*case subscribeBlockStream:
                     // we do not support this method
                     throw new RuntimeException();*/
             };
