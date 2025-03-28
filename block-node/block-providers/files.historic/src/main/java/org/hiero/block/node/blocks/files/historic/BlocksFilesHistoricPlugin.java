@@ -175,6 +175,7 @@ public class BlocksFilesHistoricPlugin implements BlockProviderPlugin, BlockNoti
                     batchLastBlockNumber);
             // now all the blocks are in the zip file and accessible, delete the original blocks
             for (BlockAccessor blockAccessor : blockAccessors) {
+                // TODO what happens if delete throws an exception, retry? catch here per delete?
                 blockAccessor.delete();
             }
         } catch (Exception e) {
