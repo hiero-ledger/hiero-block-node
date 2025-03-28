@@ -78,7 +78,7 @@ public class SubscriberServicePlugin implements BlockNodePlugin, ServiceInterfac
      */
     @NonNull
     public String serviceName() {
-        return "BlockStreamSubscriberService";
+        return "BlockStreamService";
     }
 
     /**
@@ -86,7 +86,7 @@ public class SubscriberServicePlugin implements BlockNodePlugin, ServiceInterfac
      */
     @NonNull
     public String fullName() {
-        return "com.hedera.hapi.block.node." + serviceName();
+        return "com.hedera.hapi.block." + serviceName();
     }
 
     /**

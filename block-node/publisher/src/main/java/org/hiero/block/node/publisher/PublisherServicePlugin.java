@@ -352,7 +352,7 @@ public class PublisherServicePlugin implements BlockNodePlugin, ServiceInterface
      */
     @NonNull
     public String serviceName() {
-        return "BlockStreamPublisherService";
+        return "BlockStreamService";
     }
 
     /**
@@ -360,7 +360,7 @@ public class PublisherServicePlugin implements BlockNodePlugin, ServiceInterface
      */
     @NonNull
     public String fullName() {
-        return "com.hedera.hapi.block.node." + serviceName();
+        return "com.hedera.hapi.block." + serviceName();
     }
 
     /**
@@ -413,6 +413,10 @@ public class PublisherServicePlugin implements BlockNodePlugin, ServiceInterface
                     onSessionUpdate(null, UpdateType.SESSION_ADDED, UNKNOWN_BLOCK_NUMBER);
                     // return the pipeline
                     yield pipe;
+
+                /*case subscribeBlockStream:
+                    // we do not support this method
+                    throw new RuntimeException();*/
             };
         } finally {
             stateLock.unlock();
