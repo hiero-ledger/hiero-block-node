@@ -14,4 +14,8 @@ mainModuleInfo {
     runtimeOnly("com.hedera.pbj.grpc.helidon.config")
 }
 
-testModuleInfo {}
+testModuleInfo {
+    requires("org.junit.jupiter.api")
+    requires("io.helidon.webserver")
+    requires("com.swirlds.common")
+}
