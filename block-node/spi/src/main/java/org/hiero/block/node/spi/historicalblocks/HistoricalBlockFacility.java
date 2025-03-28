@@ -5,7 +5,7 @@ import org.hiero.block.node.spi.BlockNodePlugin;
 
 /**
  * The HistoricalBlockFacility interface is used to provide access to historical blocks to the different parts of the
- * block node.
+ * block node. The range from the oldest block to the newest block is an inclusive range.
  */
 @SuppressWarnings("unused")
 public interface HistoricalBlockFacility extends BlockNodePlugin {
