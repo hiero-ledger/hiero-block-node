@@ -6,7 +6,7 @@
    1. [Build the Tools](#build-the-tools)
    1. [Run the Tools](#run-the-tools)
 
-## Running locally:
+## Running locally
 
 - Tools subproject qualifier: `:tools`
 - Assuming your working directory is the repo root
@@ -20,7 +20,8 @@
 ### Easy way for Unix based OSs
 There is a command line script for building and running tool, which is located in the root of the repository. It has the
 nice extra feature of giving you colored console output.
-```
+
+```bash
 ./tool.sh info --help
 ```
 
@@ -28,6 +29,7 @@ nice extra feature of giving you colored console output.
 
 > **NOTE:** if you have not done so already, it is
 > generally recommended to build the entire repo first:
+>
 > ```bash
 > ./gradlew clean build -x test
 > ```

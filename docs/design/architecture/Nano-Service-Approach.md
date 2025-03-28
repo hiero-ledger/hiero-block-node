@@ -2,7 +2,7 @@
 
 ## Abstract
 
-To date, block node has been developed under pressure and with changing,
+To date, Block Node has been developed under pressure and with changing,
 incomplete, or inaccurate requirements. As a result, the system is tightly
 interconnected, and suffers from a difficulty making changes to one segment
 of the system without also impacting unrelated segments. To address this, and
@@ -12,7 +12,7 @@ the system is herein detailed.
 
 ## Revised Diagram
 
-![Module/Service Diagram](assets/Block-Node-Nano-Services.svg)
+![Module/Service Diagram](../../assets/Block-Node-Nano-Services.svg)
 
 ## Definitions
 
@@ -29,7 +29,7 @@ removing services in a custom deployment easier.</dd>
 <dt>Facility</dt>
 <dd>A Java module that is deployed with every installation of the Hiero Block
 Node. These modules are housed in independent jars, but are directly loaded at
-block node startup to ensure all facilities are available before any
+Block Node startup to ensure all facilities are available before any
 services are loaded.</dd>
 </dl>
 
@@ -49,7 +49,7 @@ services are loaded.</dd>
    * Interactions between services should be based on a very limited set of
      `Record` messages ("Events") that are passed between services (blindly)
      by the Messaging facility rather than interfaces or direct method calls.
-4. Facilities, which provide capabilities that are core to the block node
+4. Facilities, which provide capabilities that are core to the Block Node
    operation are always present and may be depended on directly by services.
    * Facilities include the following
      * Messaging - core message delivery to and among services.
@@ -87,7 +87,7 @@ services are loaded.</dd>
      a particular event, but even then the service need not be concerned with
      the how/what/why of a event, and need only react if and when a event is
      encountered with the relevant type and content.
-8. Many services will _also_ listen to the main data messages (List<BlockItem>)
+8. Many services will _also_ listen to the main data messages (`List<BlockItem>`)
    which is the primary data flowing through the system.
    * Note that Publisher service is also not required, so this flow of data
      might
