@@ -257,6 +257,7 @@ public final class BlockStreamProducerSession implements Pipeline<List<BlockItem
                     throw new RuntimeException(e);
                 }
             }
+            System.out.println("BlockStreamProducerSession.onNext currentBlockState=" + currentBlockState);
             switch (currentBlockState) {
                 case NEW -> newBlockItems.addAll(items);
                 case PRIMARY -> {
