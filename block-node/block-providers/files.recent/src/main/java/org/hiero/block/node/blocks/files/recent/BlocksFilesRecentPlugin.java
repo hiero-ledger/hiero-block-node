@@ -106,6 +106,7 @@ public class BlocksFilesRecentPlugin implements BlockProviderPlugin, BlockNotifi
         context.blockMessaging().registerBlockNotificationHandler(this, false, "BlocksFilesRecent");
         // on start-up we can clear the unverified path as all unverified blocks will have to be resent
         try (final var stream = Files.walk(config.unverifiedRootPath(), 1)) {
+            // TODO check it is not a directory abd us a block file, ie. don't delete files if dir is "/" :-)
             stream.filter(Files::isRegularFile).forEach(file -> {
                 try {
                     Files.deleteIfExists(file);
@@ -222,6 +223,8 @@ public class BlocksFilesRecentPlugin implements BlockProviderPlugin, BlockNotifi
                                 new BlockNotification(blockNumber, BlockNotification.Type.BLOCK_VERIFIED, null));
             } else {
                 LOGGER.log(Level.WARNING, "Block %d is verified but not found in unverified storage", blockNumber);
+                // TODO need to handle the case that writing has not happened yet. If so record the block number and
+                //  at the end of writing check if block was verified already and if so then do the move then
             }
         }
     }
