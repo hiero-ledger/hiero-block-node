@@ -16,6 +16,5 @@ mainModuleInfo {
 
 testModuleInfo {
     requires("org.junit.jupiter.api")
-    requires("io.helidon.webserver")
-    requires("com.swirlds.common")
+    requires("org.hiero.block.node.app.test.fixtures")
 }
