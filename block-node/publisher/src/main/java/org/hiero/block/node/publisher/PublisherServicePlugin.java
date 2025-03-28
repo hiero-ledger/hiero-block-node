@@ -101,7 +101,7 @@ public class PublisherServicePlugin implements BlockNodePlugin, ServiceInterface
      * @param blockNumber the block number, if update type is START_BLOCK or END_BLOCK
      */
     private void onSessionUpdate(BlockStreamProducerSession session, UpdateType updateType, long blockNumber) {
-        LOGGER.log(DEBUG, "onSessionUpdate: type={0} blockNumber={1} session={3}", updateType, blockNumber, session);
+        LOGGER.log(DEBUG, "onSessionUpdate: type={0} blockNumber={1} session={2}", updateType, blockNumber, session);
         stateLock.lock();
         try {
             // update the metrics
@@ -140,11 +140,11 @@ public class PublisherServicePlugin implements BlockNodePlugin, ServiceInterface
                                 "onSessionUpdate: currentPrimaryHasTimedOut, primarySession={1}",
                                 currentPrimarySession);
                     } else {
-                        // this is odd, we have a primary session but it is not the current block number
+                        // this is odd, we have a primary session, but it is not the current block number
                         LOGGER.log(
                                 WARNING,
                                 "onSessionUpdate: currentPrimarySession is not providing correct block number, "
-                                        + "currentBlockNumber={1} primarySession={2}",
+                                        + "currentBlockNumber={0} primarySession={1}",
                                 currentBlockNumber,
                                 currentPrimarySession);
                     }
@@ -297,8 +297,7 @@ public class PublisherServicePlugin implements BlockNodePlugin, ServiceInterface
         if (numberOfProducers != null) numberOfProducers.set(0);
     }
 
-    // ==== BlockNotificationHandler Methods
-    // ===================================================================================
+    // ==== BlockNotificationHandler Methods ===========================================================================
 
     /**
      * BlockStreamPublisherService types define the gRPC methods available on the BlockStreamPublisherService.
