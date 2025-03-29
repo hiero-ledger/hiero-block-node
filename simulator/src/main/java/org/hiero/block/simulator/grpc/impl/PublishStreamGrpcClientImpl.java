@@ -18,6 +18,8 @@ import io.grpc.ManagedChannel;
 import io.grpc.ManagedChannelBuilder;
 import io.grpc.stub.StreamObserver;
 import java.util.ArrayDeque;
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Deque;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -125,8 +127,16 @@ public class PublishStreamGrpcClientImpl implements PublishStreamGrpcClient {
      */
     @Override
     public boolean streamBlock(Block block) {
-        List<List<BlockItem>> streamingBatches =
-                ChunkUtils.chunkify(block.getItemsList(), blockStreamConfig.blockItemsBatchSize());
+
+        List<BlockItem> headerBatch = Collections.singletonList(block.getItemsList().getFirst());
+        List<BlockItem> proofBatch = Collections.singletonList(block.getItemsList().getLast());
+
+        List<List<BlockItem>> streamingBatches = new ArrayList<>();
+        streamingBatches.add(headerBatch);
+        streamingBatches.addAll(
+                ChunkUtils.chunkify(block.getItemsList().subList(1, block.getItemsList().size()-1), blockStreamConfig.blockItemsBatchSize()));
+        streamingBatches.add(proofBatch);
+
         for (List<BlockItem> streamingBatch : streamingBatches) {
             if (streamEnabled.get()) {
                 requestStreamObserver.onNext(PublishStreamRequest.newBuilder()
