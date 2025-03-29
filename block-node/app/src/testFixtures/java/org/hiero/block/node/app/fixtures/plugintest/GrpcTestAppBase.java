@@ -13,8 +13,9 @@ import com.swirlds.config.api.ConfigurationBuilder;
 import com.swirlds.metrics.api.Metrics;
 import edu.umd.cs.findbugs.annotations.NonNull;
 import io.helidon.webserver.http.HttpService;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Optional;
-import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.Flow.Subscription;
 import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.BlockNodePlugin;
@@ -42,7 +43,7 @@ public abstract class GrpcTestAppBase implements ServiceBuilder {
 
     private final DefaultMetricsProvider metricsProvider;
     protected final BlockNodeContext blockNodeContext;
-    protected final ConcurrentLinkedQueue<Bytes> fromPluginBytes = new ConcurrentLinkedQueue<>();
+    protected final List<Bytes> fromPluginBytes = new ArrayList<>();
     protected final Pipeline<? super Bytes> toPluginPipe;
     protected final TestBlockMessagingFacility blockMessaging = new TestBlockMessagingFacility();
     protected ServiceInterface serviceInterface;
