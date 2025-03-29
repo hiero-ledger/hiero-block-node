@@ -12,11 +12,9 @@ import org.hiero.block.node.spi.health.HealthFacility;
 /** Provides implementation for the health endpoints of the server. */
 public class HealthServicePlugin implements BlockNodePlugin {
 
-    // TODO maybe these want to be package protected so they can be used in tests, as they are never module exported
-    // then that is fine
-    private static final String HEALTH_PATH = "/healthz";
-    private static final String LIVEZ_PATH = "/livez";
-    private static final String READYZ_PATH = "/readyz";
+    protected static final String HEALTHZ_PATH = "/healthz";
+    protected static final String LIVEZ_PATH = "/livez";
+    protected static final String READYZ_PATH = "/readyz";
 
     /** The health facility, used for getting server status */
     private HealthFacility healthFacility;
@@ -28,7 +26,7 @@ public class HealthServicePlugin implements BlockNodePlugin {
     public void init(BlockNodeContext context, ServiceBuilder serviceBuilder) {
         healthFacility = context.serverHealth();
         serviceBuilder.registerHttpService(
-                HEALTH_PATH,
+                HEALTHZ_PATH,
                 httpRules -> httpRules.get(LIVEZ_PATH, this::handleLivez).get(READYZ_PATH, this::handleReadyz));
     }
 
