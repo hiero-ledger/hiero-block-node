@@ -143,7 +143,8 @@ public final class BlockStreamProducerSession implements Pipeline<List<BlockItem
         // send any items we have in the new items list to the block messaging service
         if (!newBlockItems.isEmpty()) {
             // this items will always be the first items in a block so we can use the block number
-            sendToBlockMessaging.accept(new BlockItems(newBlockItems, currentBlockNumber));
+            // we have to copy the items as we clear the list after sending
+            sendToBlockMessaging.accept(new BlockItems(new ArrayList<>(newBlockItems), currentBlockNumber));
             // clear the list
             newBlockItems.clear();
         }
@@ -286,10 +287,10 @@ public final class BlockStreamProducerSession implements Pipeline<List<BlockItem
             // call the onUpdate method to notify the block messaging service that we have received data and updated our
             // state, check if we are starting or ending a block
             if (items.size() == 1 && items.getFirst().hasBlockProof()) {
-                // change state back to NEW as we have finished the current block
-                currentBlockState = BlockState.NEW;
                 // send end block update
                 onUpdate.update(this, UpdateType.END_BLOCK, currentBlockNumber);
+                // change state back to NEW as we have finished the current block
+                currentBlockState = BlockState.NEW;
             } else if (newBlock) {
                 // send start block update
                 onUpdate.update(this, UpdateType.START_BLOCK, currentBlockNumber);
