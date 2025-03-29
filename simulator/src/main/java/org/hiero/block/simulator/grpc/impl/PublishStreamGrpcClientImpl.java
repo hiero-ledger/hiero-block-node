@@ -128,13 +128,16 @@ public class PublishStreamGrpcClientImpl implements PublishStreamGrpcClient {
     @Override
     public boolean streamBlock(Block block) {
 
-        List<BlockItem> headerBatch = Collections.singletonList(block.getItemsList().getFirst());
-        List<BlockItem> proofBatch = Collections.singletonList(block.getItemsList().getLast());
+        List<BlockItem> headerBatch =
+                Collections.singletonList(block.getItemsList().getFirst());
+        List<BlockItem> proofBatch =
+                Collections.singletonList(block.getItemsList().getLast());
 
         List<List<BlockItem>> streamingBatches = new ArrayList<>();
         streamingBatches.add(headerBatch);
-        streamingBatches.addAll(
-                ChunkUtils.chunkify(block.getItemsList().subList(1, block.getItemsList().size()-1), blockStreamConfig.blockItemsBatchSize()));
+        streamingBatches.addAll(ChunkUtils.chunkify(
+                block.getItemsList().subList(1, block.getItemsList().size() - 1),
+                blockStreamConfig.blockItemsBatchSize()));
         streamingBatches.add(proofBatch);
 
         for (List<BlockItem> streamingBatch : streamingBatches) {
