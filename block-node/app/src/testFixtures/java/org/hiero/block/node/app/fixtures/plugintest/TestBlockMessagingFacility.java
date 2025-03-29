@@ -21,6 +21,8 @@ import org.hiero.block.node.spi.blockmessaging.NoBackPressureBlockItemHandler;
  */
 @SuppressWarnings("unused")
 public class TestBlockMessagingFacility implements BlockMessagingFacility {
+    /** The logger for this class. */
+    private final System.Logger LOGGER = System.getLogger(getClass().getName());
     /** set of block item handlers */
     private final Set<BlockItemHandler> blockItemHandlers = new HashSet<>();
     /** set of block notification handlers */
@@ -73,6 +75,7 @@ public class TestBlockMessagingFacility implements BlockMessagingFacility {
      */
     @Override
     public void sendBlockItems(BlockItems blockItems) {
+        LOGGER.log(System.Logger.Level.DEBUG, "Sending block items " + blockItems);
         sentBlockBlockItems.add(blockItems);
         for (BlockItemHandler handler : blockItemHandlers) {
             handler.handleBlockItemsReceived(blockItems);
@@ -109,6 +112,7 @@ public class TestBlockMessagingFacility implements BlockMessagingFacility {
      */
     @Override
     public void sendBlockNotification(BlockNotification notification) {
+        LOGGER.log(System.Logger.Level.DEBUG, "Sending block notification " + notification);
         sentBlockNotifications.add(notification);
         for (BlockNotificationHandler handler : blockNotificationHandlers) {
             handler.handleBlockNotification(notification);
