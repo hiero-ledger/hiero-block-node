@@ -1,6 +1,6 @@
 # Maintainers
 
-The general handling of Maintainer rights and all groups in this GitHub org is done in the https://github.com/hiero-ledger/governance repository.
+The general handling of Maintainer rights and all groups in this GitHub org is done in the <https://github.com/hiero-ledger/governance> repository.
 
 ## Maintainer Scopes, GitHub Roles and GitHub Teams
 
