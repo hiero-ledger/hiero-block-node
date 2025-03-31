@@ -362,7 +362,7 @@ public final class PublisherServicePlugin implements BlockNodePlugin, ServiceInt
      */
     @SuppressWarnings("RedundantLabeledSwitchRuleCodeBlock")
     @Override
-    public void handleBlockNotification(BlockNotification notification) {
+    public void handleBlockNotification(@NonNull final BlockNotification notification) {
         stateLock.lock();
         try {
             // We have nothing to do for BlockNotification.BLOCK_VERIFIED so can ignore it

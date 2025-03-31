@@ -243,7 +243,7 @@ public final class BlockStreamProducerSession implements Pipeline<List<BlockItem
             final boolean newBlock = items.size() == 1 && items.getFirst().hasBlockHeader();
             if (newBlock) {
                 try {
-                    long newBlockNumber = BlockHeader.PROTOBUF
+                    final long newBlockNumber = BlockHeader.PROTOBUF
                             .parse(items.getFirst().blockHeaderOrThrow())
                             .number();
                     // move to new state if we are not in the waiting for resend state, or if we are in the waiting
