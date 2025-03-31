@@ -1,11 +1,11 @@
 codecov:
   max_report_age: off
 
-# Always comment on PRs
+# Only comment on PRs initially and when coverage changes
 comment:
   layout: "diff, flags, files"
   behavior: new # deletes old comment and posts a new one
-  require_changes: false
+  require_changes: true
 
 coverage:
   status:
@@ -13,10 +13,13 @@ coverage:
       default:
         target: 80%
         threshold: 1%
+        only_pulls: true
     project:
       default:
         target: 80%
         threshold: 1%
+        branches:
+          - main
 
 ignore:
   - "block-node/server/src/main/java/org/hiero/block/server/Server.java"
