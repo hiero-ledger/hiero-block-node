@@ -4,7 +4,7 @@
 
 1. [Running locally](#running-locally)
    1. [Build the Tools](#build-the-tools)
-   1. [Run the Tools](#run-the-tools)
+   2. [Run the Tools](#run-the-tools)
 
 ## Running locally
 
@@ -18,6 +18,7 @@
 > both simplicity and clarity.
 
 ### Easy way for Unix based OSs
+
 There is a command line script for building and running tool, which is located in the root of the repository. It has the
 nice extra feature of giving you colored console output.
 
@@ -35,6 +36,7 @@ nice extra feature of giving you colored console output.
 > ```
 
 1. To quickly build the Tools sources (without running tests), do the following:
+
    ```bash
    ./gradlew -p tools clean build -x test
    ```
@@ -42,6 +44,7 @@ nice extra feature of giving you colored console output.
 ### Run the Tools
 
 1. To run the Tools, do the following:
+
    ```bash
    # Here is an example of running the info command with the help option, simply
    # replace `info --help` with the desired command and options to run the tools

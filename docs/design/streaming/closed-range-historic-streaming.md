@@ -112,10 +112,10 @@ Based on the `SubscribeStreamRequest` specification, the following error respons
 ## Acceptance Tests
 
 - Negative tests for the following:
-    - `start_block_number` is greater than the `end_block_number`
-    - `start_block_number` is invalid
-    - `end_block_number` is invalid
-    - Service unavailable
-    - Mocked BlockReader and client object should verify that an error response is sent to the client.
+  - `start_block_number` is greater than the `end_block_number`
+  - `start_block_number` is invalid
+  - `end_block_number` is invalid
+  - Service unavailable
+  - Mocked BlockReader and client object should verify that an error response is sent to the client.
 - Positive tests using a mocked BlockReader and client object should verify that blocks found within the closed range
   are correctly streamed to the client and that a `READ_STREAM_SUCCESS` response is sent to complete the stream.

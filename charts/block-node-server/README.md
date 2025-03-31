@@ -65,22 +65,21 @@ There are several ways to configure the Hiero Block Node. The following is the m
 1. Create an override values file, `values.yaml`:
 2. Add the necessary environment configuration variables to the following section:
 
-    ```yaml
-    blockNode:
-      config:
-        # Add any additional env configuration here
-        # key: value
-        BLOCKNODE_STORAGE_ROOT_PATH: "/app/storage"
-    
-    ```
+   ```yaml
+   blockNode:
+     config:
+       # Add any additional env configuration here
+       # key: value
+       BLOCKNODE_STORAGE_ROOT_PATH: "/app/storage"
 
+   ```
 3. Secrets should be set at the following structure:
 
-    ```yaml
-    blockNode:
-      secret:
-        PRIVATE_KEY: "<Secret>"
-    ```
+   ```yaml
+   blockNode:
+     secret:
+       PRIVATE_KEY: "<Secret>"
+   ```
 
 or passed at the command line:
 

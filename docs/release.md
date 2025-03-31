@@ -3,13 +3,13 @@
 ## Table of Contents
 
 1. [Overview](#overview)
-1. [Kickstart Release Process](#kickstart-release-process)
-1. [Release Automation Workflow](#release-automation-workflow)
+2. [Kickstart Release Process](#kickstart-release-process)
+3. [Release Automation Workflow](#release-automation-workflow)
    1. [Steps](#steps)
-1. [Publish Release Workflow](#publish-release-workflow)
-1. [Mermaid Diagram](#mermaid-diagram)
-1. [Release Meta Process](#release-meta-process)
-1. [Conclusion](#conclusion)
+4. [Publish Release Workflow](#publish-release-workflow)
+5. [Mermaid Diagram](#mermaid-diagram)
+6. [Release Meta Process](#release-meta-process)
+7. [Conclusion](#conclusion)
 
 ## Overview
 
@@ -26,7 +26,7 @@ This document outlines the release process for our project, detailing the steps 
    - The workflow will create a new release branch, bump the version, and tag the release.
    - The release branch will be used for any patch versions or hot-fixes.
    - If the release branch already exists, the workflow should be triggered using the branch release, and the version should be bumped accordingly.
-      - for example: if `release/0.1` exists, and you want to release `0.1.1`, trigger the workflow with `0.1.1` as the semver input and select `release/0.1` on "Use workflow from" dropdown.
+     - for example: if `release/0.1` exists, and you want to release `0.1.1`, trigger the workflow with `0.1.1` as the semver input and select `release/0.1` on "Use workflow from" dropdown.
 
 ## Release Automation Workflow
 
@@ -41,11 +41,9 @@ The release process is automated using a GitHub Actions workflow (`release-autom
    - Create a new release branch `release/0.n` if it doesn't exist.
    - If the release branch was created, means it's a new release, create a PR on the main branch to increase the snapshot version to the next version.
    - Bump the version to the input provided in the release branch.
-
 2. **Tagging**:
    - After bumping the version on the release branch, tag the version as `vX.n.p` (where `X.n.p` is the input).
    - Push the tag, triggering the `Publish Release Workflow`.
-
 3. **Release Notes and Milestone**:
    - Create release notes for the new Tag.
    - Close the milestone associated with the release.
@@ -58,7 +56,6 @@ The `Publish Release Workflow` (`publish-release.yaml`) is triggered by the Tag 
 
 1. **Docker Image Creation and Publishing**:
    - Create a Docker image with the new release version and publish it to the GitHub Container Registry (`ghcr.io`).
-
 2. **Helm Chart Publishing**:
    - Publish a new Helm chart with the same version to the custom GitHub Pages of the repo in the `Charts` folder.
 
@@ -76,7 +73,7 @@ graph TD
     subgraph Release Automation Workflow
     C -->|Input: SemVer to release| E{Release Branch Exists?}
     E -->|Yes| F[Release Branch: Bump Version to Input]
-    E -->|No| G[Create Release Branch]    
+    E -->|No| G[Create Release Branch]
     G --> H[Main: Create PR to increase Snapshot Version]
     H --> F
 
@@ -91,7 +88,7 @@ graph TD
     subgraph Publish Release Workflow
     K --> L[Create and Publish Docker Image]
     L --> M[Publish Helm Chart to gh-pages]
-    
+
     end
 ```
 
@@ -102,10 +99,8 @@ The meta process typically follows these steps:
 1. **Initial Release Candidate (RC)**:
    - Trigger the Release Automation Workflow with an `rc` version (e.g., `x.n.0-rcY`).
    - Perform integration and performance testing on this version.
-
 2. **General Availability (GA)**:
    - Once testing is successful, trigger the Release Automation Workflow again for the same version but as a GA version (e.g., `x.n.0`).
-
 3. **Patch Versions**:
    - For any patch versions, changes will be merged (cherry-picked from main) into the release branch.
    - Start a new release automation process for the patch version (e.g., `x.n.p`).
@@ -113,8 +108,8 @@ The meta process typically follows these steps:
 ```mermaid
 graph TD
     A1[Trigger Release Automation Workflow for x.n.0-rcX] --> B1[RC Version Released]
-    B1 --> B2[Perform Integration and Performance Testing]    
-    B2 --> B3{Testing Successful?} 
+    B1 --> B2[Perform Integration and Performance Testing]
+    B2 --> B3{Testing Successful?}
     B3 --> |No| R[Make changes and cherry-pick] --> A1
     B3-->|Yes| C1[Trigger Release Automation Workflow for x.n.0]
     C1 --> D1[GA Version Released]
