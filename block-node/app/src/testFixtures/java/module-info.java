@@ -11,5 +11,6 @@ module org.hiero.block.node.app.test.fixtures {
     requires org.hiero.block.node.spi;
     requires org.hiero.block.stream;
     requires io.helidon.webserver;
+    requires java.logging;
     requires org.junit.jupiter.api;
 }

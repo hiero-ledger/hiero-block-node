@@ -39,7 +39,8 @@ public class BlockStreamSubscriberSession implements Pipeline<SubscribeStreamReq
     /** Enum for the state of a block source */
     public enum SubscriberState {
         NEW,
-        SENDING_LIVE_STREAM_WAITING_FOR_BLOCK_START,
+        SENDING_LIVE_STREAM_WAITING_FOR_ANY_BLOCK_START,
+        SENDING_LIVE_STREAM_WAITING_FOR_EXPLICIT_BLOCK_START,
         SENDING_LIVE_STREAM,
         SENDING_HISTORICAL_STREAM,
         DISCONNECTED
@@ -241,7 +242,7 @@ public class BlockStreamSubscriberSession implements Pipeline<SubscribeStreamReq
     public synchronized void handleBlockItemsReceived(BlockItems blockItems) {
         final long newBlockNumber = blockItems.newBlockNumber();
         switch (currentState) {
-            case SENDING_LIVE_STREAM_WAITING_FOR_BLOCK_START -> {
+            case SENDING_LIVE_STREAM_WAITING_FOR_ANY_BLOCK_START -> {
                 if (newBlockNumber != UNKNOWN_BLOCK_NUMBER) {
                     // we have received a block, so we can start streaming
                     LOGGER.log(
@@ -256,6 +257,41 @@ public class BlockStreamSubscriberSession implements Pipeline<SubscribeStreamReq
                 } else {
                     // we have not received a block yet, so ignore the block items
                     LOGGER.log(Level.DEBUG, "Client {0} is waiting for start of new block", clientId);
+                }
+            }
+            case SENDING_LIVE_STREAM_WAITING_FOR_EXPLICIT_BLOCK_START -> {
+                // handle cases where we client is waiting for a future block
+                if (newBlockNumber > subscribeStreamRequest.startBlockNumber()) {
+                    // we have started a block newer and have failed to start streaming so return error to client
+                    LOGGER.log(
+                            Level.WARNING,
+                            "Client {0} has started streaming live blocks from {1} but we are waiting for {2} "
+                                    + "which is now in the past",
+                            clientId,
+                            newBlockNumber,
+                            subscribeStreamRequest.startBlockNumber());
+                    responsePipeline.onNext(SubscribeStreamResponseUnparsed.newBuilder()
+                            .status(SubscribeStreamResponseCode.READ_STREAM_INVALID_START_BLOCK_NUMBER)
+                            .build());
+                    close();
+                } else if (newBlockNumber == subscribeStreamRequest.startBlockNumber()) {
+                    // we have received a block, so we can start streaming
+                    LOGGER.log(
+                            Level.INFO,
+                            "Client {0} has started streaming live blocks from {1}",
+                            clientId,
+                            newBlockNumber);
+                    currentState = SubscriberState.SENDING_LIVE_STREAM;
+                    currentBlockBeingSent = newBlockNumber;
+                    // send the block items to the client
+                    processBlockItemsForClient(blockItems);
+                } else {
+                    // we have not received a block yet, so ignore the block items
+                    LOGGER.log(
+                            Level.DEBUG,
+                            "Client {0} is waiting for start of block {1}",
+                            clientId,
+                            subscribeStreamRequest.startBlockNumber());
                 }
             }
             case SENDING_LIVE_STREAM -> processBlockItemsForClient(blockItems);
@@ -348,19 +384,55 @@ public class BlockStreamSubscriberSession implements Pipeline<SubscribeStreamReq
             subscribeStreamRequest = item;
             // we have just received a new subscribe request, now we need to work out if we can service it
             if (!subscribeStreamRequest.allowUnverified()) {
-                // TODO implement validated stream handling, will need some new states to hold listener back till it is
-                //      on validated block
+                // ----------> VALIDATED STREAM <----------
                 LOGGER.log(
-                        Level.WARNING,
-                        "Client {0} requested a validated stream but this is not supported yet",
-                        clientId);
+                        Level.WARNING, "Client {0} requested a validated stream but this is not supported", clientId);
+                // send response to client
+                responsePipeline.onNext(SubscribeStreamResponseUnparsed.newBuilder()
+                        .status(SubscribeStreamResponseCode.READ_STREAM_NOT_AVAILABLE)
+                        .build());
+                close();
+            } else if (subscribeStreamRequest.startBlockNumber() < UNKNOWN_BLOCK_NUMBER) {
+                // ----------> NEGATIVE START AND NOT UNKNOWN_BLOCK_NUMBER <----------
+                // send invalid start block number response
+                responsePipeline.onNext(SubscribeStreamResponseUnparsed.newBuilder()
+                        .status(SubscribeStreamResponseCode.READ_STREAM_INVALID_START_BLOCK_NUMBER)
+                        .build());
+                close();
+            } else if (subscribeStreamRequest.endBlockNumber() != UNKNOWN_BLOCK_NUMBER &&
+                    subscribeStreamRequest.startBlockNumber() > subscribeStreamRequest.endBlockNumber()) {
+                // ----------> END BEFORE START <----------
+                // send invalid end block number response
+                responsePipeline.onNext(SubscribeStreamResponseUnparsed.newBuilder()
+                        .status(SubscribeStreamResponseCode.READ_STREAM_INVALID_END_BLOCK_NUMBER)
+                        .build());
+                close();
             } else if (subscribeStreamRequest.startBlockNumber() == UNKNOWN_BLOCK_NUMBER) {
-                currentState = SubscriberState.SENDING_LIVE_STREAM_WAITING_FOR_BLOCK_START;
+                // ----------> START AT ANY BLOCK <----------
+                currentState = SubscriberState.SENDING_LIVE_STREAM_WAITING_FOR_ANY_BLOCK_START;
                 LOGGER.log(Level.INFO, "Client {0} has started streaming live blocks", clientId);
                 context.blockMessaging()
                         .registerNoBackpressureBlockItemHandler(this, false, "liveStream client " + clientId);
             } else if (subscribeStreamRequest.startBlockNumber()
-                    < context.historicalBlockProvider().latestBlockNumber()) {
+                            > context.historicalBlockProvider().latestBlockNumber()
+                    && subscribeStreamRequest.startBlockNumber()
+                            < (context.historicalBlockProvider().latestBlockNumber() + 10)) {
+                // ----------> SHORTLY AHEAD OF CURRENT BLOCK <----------
+                // they requested a block that is not yet available, but should be shortly, so we need to hold the
+                // live stream till we get to that block
+                currentState = SubscriberState.SENDING_LIVE_STREAM_WAITING_FOR_EXPLICIT_BLOCK_START;
+                LOGGER.log(
+                        Level.INFO,
+                        "Client {0} has started streaming, waiting for block {1}",
+                        clientId,
+                        subscribeStreamRequest.startBlockNumber());
+                context.blockMessaging()
+                        .registerNoBackpressureBlockItemHandler(this, false, "liveStream client " + clientId);
+            } else if (subscribeStreamRequest.startBlockNumber()
+                            >= context.historicalBlockProvider().oldestBlockNumber()
+                    && subscribeStreamRequest.startBlockNumber()
+                            <= context.historicalBlockProvider().latestBlockNumber()) {
+                // ----------> VALID HISTORICAL BLOCK <----------
                 // they requested an older block, so we need to send a historical stream
                 currentState = SubscriberState.SENDING_HISTORICAL_STREAM;
                 LOGGER.log(
