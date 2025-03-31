@@ -11,7 +11,7 @@ defaults and can be left unchanged. It is recommended to browse the properties b
 The configuration facility of the Hiero Block Node supports overriding configuration values via environment variables,
 with a well-defined transform from property name to environment variable name.
 
-> **Note:** The default configuration should be considered a "production" recommendation, and we may provide separate 
+> **Note:** The default configuration should be considered a "production" recommendation, and we may provide separate
 > recommended "overrides" for development, test, etc...
 
 ## Server
