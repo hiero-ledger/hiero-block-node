@@ -20,7 +20,9 @@ import java.util.concurrent.Flow.Subscription;
 import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.BlockNodePlugin;
 import org.hiero.block.node.spi.ServiceBuilder;
+import org.hiero.block.node.spi.blockmessaging.BlockItemHandler;
 import org.hiero.block.node.spi.blockmessaging.BlockMessagingFacility;
+import org.hiero.block.node.spi.blockmessaging.BlockNotificationHandler;
 import org.hiero.block.node.spi.health.HealthFacility;
 import org.hiero.block.node.spi.historicalblocks.HistoricalBlockFacility;
 import org.junit.jupiter.api.AfterEach;
@@ -89,6 +91,18 @@ public abstract class GrpcTestAppBase implements ServiceBuilder {
                 return historicalBlockFacility;
             }
         };
+        // if HistoricalBlockFacility is a BlockItemHandler, register it with the messaging facility
+        if (historicalBlockFacility instanceof BlockItemHandler blockItemHandler) {
+            blockMessaging.registerBlockItemHandler(
+                    blockItemHandler, false, historicalBlockFacility.getClass().getSimpleName());
+        }
+        // if HistoricalBlockFacility is a BlockNotificationHandler, register it with the messaging facility
+        if (historicalBlockFacility instanceof BlockNotificationHandler blockNotificationHandler) {
+            blockMessaging.registerBlockNotificationHandler(
+                    blockNotificationHandler,
+                    false,
+                    historicalBlockFacility.getClass().getSimpleName());
+        }
         // start plugin
         plugin.init(blockNodeContext, this);
         plugin.start();
