@@ -2,6 +2,7 @@
 package org.hiero.block.node.publisher;
 
 import static com.hedera.hapi.block.PublishStreamResponse.ResponseOneOfType.ACKNOWLEDGEMENT;
+import static org.hiero.block.node.app.fixtures.TestUtils.enableDebugLogging;
 import static org.hiero.block.node.app.fixtures.blocks.BlockItemUtils.toBlockItemJson;
 import static org.hiero.block.node.app.fixtures.blocks.SimpleTestBlockItemBuilder.sampleBlockHeader;
 import static org.hiero.block.node.app.fixtures.blocks.SimpleTestBlockItemBuilder.sampleBlockProof;
@@ -23,9 +24,6 @@ import com.hedera.pbj.runtime.ParseException;
 import com.hedera.pbj.runtime.grpc.ServiceInterface.Method;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import java.util.List;
-import java.util.logging.Level;
-import java.util.logging.LogManager;
-import java.util.logging.Logger;
 import org.hiero.block.node.app.fixtures.plugintest.GrpcTestAppBase;
 import org.hiero.block.node.app.fixtures.plugintest.NoBlocksHistoricalBlockFacility;
 import org.hiero.block.node.spi.blockmessaging.BlockNotification;
@@ -56,11 +54,7 @@ public class PublisherTest extends GrpcTestAppBase {
     @Test
     void testPublisher() {
         // enable debug System.logger logging
-        Logger rootLogger = LogManager.getLogManager().getLogger("");
-        rootLogger.setLevel(Level.ALL);
-        for (var handler : rootLogger.getHandlers()) {
-            handler.setLevel(Level.ALL);
-        }
+        enableDebugLogging();
         // create some sample data to send to plugin
         final BlockItem blockHeader1 = sampleBlockHeader(0);
         final Bytes publishBlockHeader1StreamRequest = blockItemsToPublishStreamRequest(blockHeader1);

@@ -44,4 +44,41 @@ public class SimpleTestBlockItemBuilder {
                         Bytes.wrap("signature".getBytes()),
                         Collections.emptyList())));
     }
+
+    /**
+     * Creates an array of BlockItem objects representing a very simple block stream of N blocks.
+     *
+     * @param numberOfBlocks the number of blocks to create
+     * @return an array of BlockItem objects
+     */
+    public static BlockItem[] createNumberOfVerySimpleBlocks(int numberOfBlocks) {
+        BlockItem[] blockItems = new BlockItem[numberOfBlocks * 3];
+        for (int i = 0; i < blockItems.length; i += 3) {
+            long blockNumber = i / 3;
+            blockItems[i] = sampleBlockHeader(blockNumber);
+            blockItems[i + 1] = sampleRoundHeader(blockNumber * 10);
+            blockItems[i + 2] = sampleBlockProof(blockNumber);
+        }
+        return blockItems;
+    }
+
+    /**
+     * Creates an array of BlockItem objects representing a very simple block stream of blocks from startBlockNumber to
+     * but not including endBlockNumber.
+     *
+     * @param startBlockNumber the starting block number
+     * @param endBlockNumber the ending block number, non-inclusive
+     * @return an array of BlockItem objects
+     */
+    public static BlockItem[] createNumberOfVerySimpleBlocks(long startBlockNumber, int endBlockNumber) {
+        final int numberOfBlocks = (int) (endBlockNumber - startBlockNumber);
+        final BlockItem[] blockItems = new BlockItem[numberOfBlocks * 3];
+        for (long blockNumber = startBlockNumber; blockNumber < endBlockNumber; blockNumber++) {
+            final int i = (int) ((blockNumber - startBlockNumber) * 3);
+            blockItems[i] = sampleBlockHeader(blockNumber);
+            blockItems[i + 1] = sampleRoundHeader(blockNumber * 10);
+            blockItems[i + 2] = sampleBlockProof(blockNumber);
+        }
+        return blockItems;
+    }
 }
