@@ -8,7 +8,11 @@ The default configuration allows users to quickly get up and running without hav
 ease of use at the trade-off of some insecure default configuration. Most configuration settings have appropriate
 defaults and can be left unchanged. It is recommended to browse the properties below and adjust to your needs.
 
-The configuration facility of the Hiero Block Node supports overriding configuration values via environment variables, with a well-defined transform from property name to environment variable name.
+The configuration facility of the Hiero Block Node supports overriding configuration values via environment variables,
+with a well-defined transform from property name to environment variable name.
+
+> **Note:** The default configuration should be considered a "production" recommendation, and we may provide separate 
+> recommended "overrides" for development, test, etc...
 
 ## Server
 

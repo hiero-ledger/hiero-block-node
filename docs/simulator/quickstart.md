@@ -12,7 +12,7 @@
 
 ## Configuration
 
-Refer to the [Configuration](../../simulator/docs/configuration.md) for configuration options.
+Refer to the [Configuration](configuration.md) for configuration options.
 
 ## Running locally
 
