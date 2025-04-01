@@ -95,7 +95,7 @@ public final class BlockFile {
             dirPath = dirPath.resolve(dirName);
         }
         // append the block file name
-        return standaloneBlockFilePath(basePath, blockNumber, compressionType);
+        return standaloneBlockFilePath(dirPath, blockNumber, compressionType);
     }
 
     /**
