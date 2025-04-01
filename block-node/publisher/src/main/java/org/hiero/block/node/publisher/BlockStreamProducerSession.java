@@ -128,6 +128,15 @@ public final class BlockStreamProducerSession implements Pipeline<List<BlockItem
     }
 
     /**
+     * Get the ID of the current session.
+     *
+     * @return the current session ID.
+     */
+    long sessionId() {
+        return sessionId;
+    }
+
+    /**
      * Make this session the primary session for the block stream. This means that we are now the primary session and
      * will send block items to the block messaging service. This is called when we are in the new state and have
      * received the first block item for the new block. It is trusted that this is always called with the stateLock
@@ -236,7 +245,7 @@ public final class BlockStreamProducerSession implements Pipeline<List<BlockItem
             // update the live block items received metric
             liveBlockItemsReceived.add(items.size());
             // check items to see if we are entering a new block
-            final boolean newBlock = items.size() == 1 && items.getFirst().hasBlockHeader();
+            final boolean newBlock = items.getFirst().hasBlockHeader();
             if (newBlock) {
                 try {
                     long newBlockNumber = BlockHeader.PROTOBUF
@@ -281,7 +290,9 @@ public final class BlockStreamProducerSession implements Pipeline<List<BlockItem
             }
             // call the onUpdate method to notify the block messaging service that we have received data and updated our
             // state, check if we are starting or ending a block
-            if (items.size() == 1 && items.getFirst().hasBlockProof()) {
+            if (newBlock && items.getLast().hasBlockProof()) {
+                onUpdate.update(this, UpdateType.WHOLE_BLOCK, currentBlockNumber);
+            } else if (items.getLast().hasBlockProof()) {
                 // send end block update
                 onUpdate.update(this, UpdateType.END_BLOCK, currentBlockNumber);
                 // change state back to NEW as we have finished the current block
