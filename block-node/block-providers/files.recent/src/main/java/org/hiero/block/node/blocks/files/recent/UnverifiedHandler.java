@@ -7,6 +7,7 @@ import com.hedera.pbj.runtime.io.stream.WritableStreamingData;
 import edu.umd.cs.findbugs.annotations.NonNull;
 import java.io.BufferedOutputStream;
 import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.lang.System.Logger.Level;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -103,7 +104,7 @@ final class UnverifiedHandler {
                     "Failed to create unverified block directory: {0}, error: {1}",
                     unverifiedBlockPath.getParent().toAbsolutePath().toString(),
                     e.getMessage());
-            throw new RuntimeException(e);
+            throw new UncheckedIOException(e);
         }
         // write the block to the file
         try (final WritableStreamingData streamingData = new WritableStreamingData(new BufferedOutputStream(
@@ -127,7 +128,7 @@ final class UnverifiedHandler {
                     blockNumber,
                     unverifiedBlockPath.toAbsolutePath().toString(),
                     e.getMessage());
-            throw new RuntimeException(e);
+            throw new UncheckedIOException(e);
         }
     }
 }
