@@ -1,13 +1,16 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.node.base;
 
+import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.text.DecimalFormat;
 import java.text.NumberFormat;
 import java.util.Comparator;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 
 /**
  * Utility class for generating block file names.
@@ -181,6 +184,27 @@ public final class BlockFile {
             }
         }
         return maxBlockNumber;
+    }
+
+    /**
+     * Set of all block number in a directory structure. The base path is the root of the directory structure. The
+     * method will traverse the directory structure and find all block numbers.
+     *
+     * @param basePath the base path
+     * @param compressionType the compression type
+     * @return the minimum block number, or -1 if no block files are found
+     */
+    public static Set<Long> nestedDirectoriesAllBlockNumbers(Path basePath, CompressionType compressionType) {
+        final Set<Long> blockNumbers = new HashSet<>();
+        final String fullExtension = BLOCK_FILE_EXTENSION + compressionType.extension();
+        try (var stream = Files.walk(basePath)) {
+            stream.filter(Files::isRegularFile)
+                    .filter(path -> path.getFileName().toString().endsWith(fullExtension))
+                    .forEach(blockFile -> blockNumbers.add(blockNumberFromFile(blockFile)));
+        } catch (IOException e) {
+            throw new RuntimeException(e);
+        }
+        return blockNumbers;
     }
 
     /**

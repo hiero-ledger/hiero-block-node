@@ -14,7 +14,6 @@ import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.concurrent.ConcurrentSkipListSet;
 import java.util.concurrent.atomic.AtomicLong;
 import org.hiero.block.common.utils.FileUtilities;
 import org.hiero.block.node.base.BlockFile;
@@ -63,16 +62,14 @@ import org.hiero.hapi.block.node.BlockUnparsed;
 public class BlocksFilesRecentPlugin implements BlockProviderPlugin, BlockNotificationHandler, BlockItemHandler {
     /** The logger for this class. */
     private final System.Logger LOGGER = System.getLogger(getClass().getName());
-    /** The block node context. */
-    private BlockNodeContext context;
     /** The configuration for this plugin. */
     private FilesRecentConfig config;
     /** The block number of the oldest verified block, this is inclusive. */
     private final AtomicLong oldestVerifiedBlockNumber = new AtomicLong(UNKNOWN_BLOCK_NUMBER);
     /** The block number of the newest verified block, this is also inclusive. */
     private final AtomicLong newestVerifiedBlockNumber = new AtomicLong(UNKNOWN_BLOCK_NUMBER);
-    /** List of all completed unverified blocks stored on disk */
-    private final ConcurrentSkipListSet<Long> completedUnverifiedBlocks = new ConcurrentSkipListSet<>();
+    /** The handler for unverified blocks. */
+    private UnverifiedHandler unverifiedHandler;
 
     // ==== BlockProviderPlugin Methods ================================================================================
 
@@ -89,8 +86,7 @@ public class BlocksFilesRecentPlugin implements BlockProviderPlugin, BlockNotifi
      * {@inheritDoc}
      */
     @Override
-    public void init(BlockNodeContext context, ServiceBuilder serviceBuilder) {
-        this.context = context;
+    public void init(final BlockNodeContext context, final ServiceBuilder serviceBuilder) {
         this.config = context.configuration().getConfigData(FilesRecentConfig.class);
         // create plugin data root directory if it does not exist
         try {
@@ -100,6 +96,8 @@ public class BlocksFilesRecentPlugin implements BlockProviderPlugin, BlockNotifi
             LOGGER.log(Level.ERROR, "Could not create root directory", e);
             context.serverHealth().shutdown(name(), "Could not create root directory");
         }
+        // create the unverified handler
+        unverifiedHandler = new UnverifiedHandler(config, this::moveFileToLiveStorage);
         // we want to listen to incoming block items and write them into files in this plugins storage
         context.blockMessaging().registerBlockItemHandler(this, false, "BlocksFilesRecent");
         // we want to listen to block notifications and to know when blocks are verified
@@ -190,42 +188,7 @@ public class BlocksFilesRecentPlugin implements BlockProviderPlugin, BlockNotifi
     @Override
     public void handleBlockNotification(BlockNotification notification) {
         if (notification.type() == BlockNotification.Type.BLOCK_VERIFIED) {
-            // we have a verified block
-            final long blockNumber = notification.blockNumber();
-            // check we have that block in unverified storage
-            if (completedUnverifiedBlocks.contains(blockNumber)) {
-                // we need to move it to the verified block storage
-                final Path unverifiedBlockPath = BlockFile.standaloneBlockFilePath(
-                        config.unverifiedRootPath(), blockNumber, config.compression());
-                final Path verifiedBlockPath = BlockFile.nestedDirectoriesBlockFilePath(
-                        config.liveRootPath(), blockNumber, config.compression(), config.maxFilesPerDir());
-                try {
-                    // create parent directory if it does not exist
-                    Files.createDirectories(verifiedBlockPath.getParent(), FileUtilities.DEFAULT_FOLDER_PERMISSIONS);
-                    // create move file
-                    Files.move(unverifiedBlockPath, verifiedBlockPath, StandardCopyOption.ATOMIC_MOVE);
-                } catch (IOException e) {
-                    LOGGER.log(
-                            System.Logger.Level.ERROR,
-                            "Failed to move unverified file: %s to verified path: %s, error: %s",
-                            unverifiedBlockPath.toAbsolutePath().toString(),
-                            verifiedBlockPath.toAbsolutePath().toString(),
-                            e.getMessage());
-                    // TODO is there more that should be done here?
-                }
-                // we need to update the oldest and newest verified block numbers
-                oldestVerifiedBlockNumber.compareAndSet(UNKNOWN_BLOCK_NUMBER, blockNumber);
-                newestVerifiedBlockNumber.getAndUpdate(
-                        existingBlockNumber -> Math.max(existingBlockNumber, blockNumber));
-                // send notification that the block is verified
-                context.blockMessaging()
-                        .sendBlockNotification(
-                                new BlockNotification(blockNumber, BlockNotification.Type.BLOCK_VERIFIED, null));
-            } else {
-                LOGGER.log(Level.WARNING, "Block %d is verified but not found in unverified storage", blockNumber);
-                // TODO need to handle the case that writing has not happened yet. If so record the block number and
-                //  at the end of writing check if block was verified already and if so then do the move then
-            }
+            unverifiedHandler.blockVerified(notification.blockNumber());
         }
     }
 
@@ -258,10 +221,7 @@ public class BlocksFilesRecentPlugin implements BlockProviderPlugin, BlockNotifi
                 currentIncomingBlockNumber = blockItems.newBlockNumber();
                 // double check that we are not in the middle of a block and previous block was closed
                 if (!currentBlocksItems.isEmpty()) {
-                    LOGGER.log(
-                            System.Logger.Level.ERROR,
-                            "Previous block was not complete, block: %d",
-                            currentIncomingBlockNumber);
+                    LOGGER.log(Level.ERROR, "Previous block was not complete, block: {0}", currentIncomingBlockNumber);
                     currentBlocksItems.clear();
                 }
             } else {
@@ -273,36 +233,91 @@ public class BlocksFilesRecentPlugin implements BlockProviderPlugin, BlockNotifi
         currentBlocksItems.addAll(blockItems.blockItems());
         // check if we are at the end of the block
         if (blockItems.isEndOfBlock()) {
-            // create the file for the block
-            final Path unverifiedBlockPath = BlockFile.standaloneBlockFilePath(
-                    config.unverifiedRootPath(), currentIncomingBlockNumber, config.compression());
+            if (!unverifiedHandler.storeIfUnverifiedBlock(currentBlocksItems, currentIncomingBlockNumber)) {
+                // the block is already verified, so we can just write the block to the live path
+                writeBlockToLivePath(currentBlocksItems, currentIncomingBlockNumber);
+            }
+            // so we are done with block so clear the current block items and block number
+            currentBlocksItems.clear();
+            currentIncomingBlockNumber = UNKNOWN_BLOCK_NUMBER;
+        }
+    }
+
+    // ==== Action Methods =============================================================================================
+
+    /**
+     * Move an unverified block file to the live storage. This is called when the block is verified and has already been
+     * written to unverified storage.
+     *
+     * @param blockNumber the block number of the block to move
+     */
+    private void moveFileToLiveStorage(long blockNumber) {
+        // we need to move it to the verified block storage
+        final Path unverifiedBlockPath =
+                BlockFile.standaloneBlockFilePath(config.unverifiedRootPath(), blockNumber, config.compression());
+        final Path verifiedBlockPath = BlockFile.nestedDirectoriesBlockFilePath(
+                config.liveRootPath(), blockNumber, config.compression(), config.maxFilesPerDir());
+        try {
             // create parent directory if it does not exist
-            try {
-                Files.createDirectories(unverifiedBlockPath.getParent(), FileUtilities.DEFAULT_FOLDER_PERMISSIONS);
-            } catch (IOException e) {
-                LOGGER.log(
-                        System.Logger.Level.ERROR,
-                        "Failed to create unverified block directory: %s, error: %s",
-                        unverifiedBlockPath.getParent().toAbsolutePath().toString(),
-                        e.getMessage());
-                // TODO is there a better way to handle this than shutting down the server?
-                context.serverHealth().shutdown(BlocksFilesRecentPlugin.class.getName(), e.getMessage());
-            }
-            try (final WritableStreamingData streamingData = new WritableStreamingData(new BufferedOutputStream(
-                    config.compression().wrapStream(Files.newOutputStream(unverifiedBlockPath)), 1024 * 1024))) {
-                BlockUnparsed.PROTOBUF.write(new BlockUnparsed(currentBlocksItems), streamingData);
-                streamingData.flush();
-                // add the block number to the completed unverified blocks
-                completedUnverifiedBlocks.add(currentIncomingBlockNumber);
-            } catch (IOException e) {
-                LOGGER.log(
-                        System.Logger.Level.ERROR,
-                        "Failed to create unverified file for block: %d, error: %s",
-                        currentIncomingBlockNumber,
-                        e.getMessage());
-                // TODO is there a better way to handle this than shutting down the server?
-                context.serverHealth().shutdown(BlocksFilesRecentPlugin.class.getName(), e.getMessage());
-            }
+            Files.createDirectories(verifiedBlockPath.getParent(), FileUtilities.DEFAULT_FOLDER_PERMISSIONS);
+            // move the file
+            Files.move(unverifiedBlockPath, verifiedBlockPath, StandardCopyOption.ATOMIC_MOVE);
+            // update the oldest and newest verified block numbers
+            oldestVerifiedBlockNumber.updateAndGet(
+                    oldest -> oldest == UNKNOWN_BLOCK_NUMBER ? blockNumber : Math.min(oldest, blockNumber));
+            newestVerifiedBlockNumber.updateAndGet(newest -> Math.max(newest, blockNumber));
+            LOGGER.log(Level.DEBUG, "Moved block: {0} from Unverified to Verified", blockNumber);
+        } catch (IOException e) {
+            LOGGER.log(
+                    Level.ERROR,
+                    "Failed to move unverified file: {0} to verified path: {1}, error: {2}",
+                    unverifiedBlockPath.toAbsolutePath().toString(),
+                    verifiedBlockPath.toAbsolutePath().toString(),
+                    e.getMessage());
+            throw new RuntimeException(e);
+        }
+    }
+
+    /**
+     * Directly write a block to verified storage. This is used when the block is already verified when we receive it.
+     *
+     * @param blockItems the block items representing block to write
+     * @param blockNumber the block number of the block to write
+     */
+    private void writeBlockToLivePath(final List<BlockItemUnparsed> blockItems, long blockNumber) {
+        final Path verifiedBlockPath = BlockFile.nestedDirectoriesBlockFilePath(
+                config.liveRootPath(), blockNumber, config.compression(), config.maxFilesPerDir());
+        try {
+            // create parent directory if it does not exist
+            Files.createDirectories(verifiedBlockPath.getParent(), FileUtilities.DEFAULT_FOLDER_PERMISSIONS);
+        } catch (IOException e) {
+            LOGGER.log(
+                    System.Logger.Level.ERROR,
+                    "Failed to create directories for path: {0} error: {1}",
+                    verifiedBlockPath.toAbsolutePath().toString(),
+                    e);
+            throw new RuntimeException(e);
+        }
+        try (final WritableStreamingData streamingData = new WritableStreamingData(new BufferedOutputStream(
+                config.compression().wrapStream(Files.newOutputStream(verifiedBlockPath)), 1024 * 1024))) {
+            BlockUnparsed.PROTOBUF.write(new BlockUnparsed(blockItems), streamingData);
+            streamingData.flush();
+            LOGGER.log(
+                    Level.DEBUG,
+                    "Wrote verified block: {0} to file: {1}",
+                    blockNumber,
+                    verifiedBlockPath.toAbsolutePath().toString());
+            // update the oldest and newest verified block numbers
+            oldestVerifiedBlockNumber.updateAndGet(
+                    oldest -> oldest == UNKNOWN_BLOCK_NUMBER ? blockNumber : Math.min(oldest, blockNumber));
+            newestVerifiedBlockNumber.updateAndGet(newest -> Math.max(newest, blockNumber));
+        } catch (IOException e) {
+            LOGGER.log(
+                    System.Logger.Level.ERROR,
+                    "Failed to create verified file for block: {0}, error: {1}",
+                    blockNumber,
+                    e);
+            throw new RuntimeException(e);
         }
     }
 }
