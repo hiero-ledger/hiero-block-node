@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.node.health;
 
+import static org.hiero.block.node.health.HealthServicePlugin.*;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+
 import io.helidon.webserver.http.HttpRules;
 import io.helidon.webserver.http.HttpService;
 import io.helidon.webserver.http.ServerRequest;
@@ -12,9 +15,6 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.*;
 import org.mockito.junit.jupiter.MockitoExtension;
-
-import static org.hiero.block.node.health.HealthServicePlugin.*;
-import static org.junit.jupiter.api.Assertions.assertNotNull;
 
 @ExtendWith(MockitoExtension.class)
 class HealthServiceTest {
@@ -115,7 +115,8 @@ class HealthServiceTest {
         // given
         ArgumentCaptor<HttpService> httpServiceArgumentCaptor = ArgumentCaptor.forClass(HttpService.class);
         HttpRules httpRules = Mockito.mock(HttpRules.class);
-        Mockito.when(httpRules.get(ArgumentMatchers.anyString(), ArgumentMatchers.any())).thenReturn(httpRules);
+        Mockito.when(httpRules.get(ArgumentMatchers.anyString(), ArgumentMatchers.any()))
+                .thenReturn(httpRules);
         BlockNodeContext context = Mockito.mock(BlockNodeContext.class);
 
         // when
@@ -132,9 +133,7 @@ class HealthServiceTest {
         // healthServicePlugin.routing() will apply the expected routing paths
         // confirm that httRules.get(..) is called twice, once for READINESS_PATH and then once for LIVENESS_PATH
         httpService.routing(httpRules);
-        Mockito.verify(httpRules, Mockito.times(1))
-                .get(ArgumentMatchers.eq(READYZ_PATH), ArgumentMatchers.any());
-        Mockito.verify(httpRules, Mockito.times(1))
-                .get(ArgumentMatchers.eq(LIVEZ_PATH), ArgumentMatchers.any());
+        Mockito.verify(httpRules, Mockito.times(1)).get(ArgumentMatchers.eq(READYZ_PATH), ArgumentMatchers.any());
+        Mockito.verify(httpRules, Mockito.times(1)).get(ArgumentMatchers.eq(LIVEZ_PATH), ArgumentMatchers.any());
     }
 }
