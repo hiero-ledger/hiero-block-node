@@ -201,15 +201,20 @@ public final class PublisherServicePlugin implements BlockNodePlugin, ServiceInt
                                     openSession.currentBlockState() == BlockStreamProducerSession.BlockState.NEW
                                             && openSession.currentBlockNumber() >= currentBlockNumber)
                             .min(Comparator.comparingLong(BlockStreamProducerSession::startTimeOfCurrentBlock));
+                    LOGGER.log(INFO, "onSessionUpdate: newPrimarySession was found {0}", newPrimarySession);
                     if (newPrimarySession.isPresent()) {
                         final BlockStreamProducerSession openSession = newPrimarySession.get();
-                        // we have a new primary session
+                        // skip setting currentPrimarySession, because this is a whole block and setting here as primary
+                        // is not necessary, as we are going to search for new primary for next block
+                        if (updateType != UpdateType.WHOLE_BLOCK) {
+                            // set the current primary session
+                            currentPrimarySession = openSession;
+                        }
                         openSession.switchToPrimary();
-                        // set the current primary session
-                        currentPrimarySession = openSession;
                         // tell all other sessions to switch to behind
                         openSessions.stream()
-                                .filter(otherSession -> otherSession != currentPrimarySession)
+                                .filter(otherSession -> otherSession != currentPrimarySession
+                                        && otherSession.sessionId() != openSession.sessionId())
                                 .forEach(BlockStreamProducerSession::switchToBehind);
                     } else {
                         // no primary session, set to null
