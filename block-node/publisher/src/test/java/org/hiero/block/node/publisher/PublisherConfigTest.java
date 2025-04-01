@@ -1,10 +1,11 @@
+// SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.node.publisher;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
-import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -114,9 +115,7 @@ public class PublisherConfigTest {
     @DisplayName("Should reject null publisher type")
     void testNullType() {
         // Test that null type is not allowed
-        assertThrows(NullPointerException.class, () ->
-                new PublisherConfig(null, 1500)
-        );
+        assertThrows(NullPointerException.class, () -> new PublisherConfig(null, 1500));
     }
 
     /**
@@ -130,9 +129,9 @@ public class PublisherConfigTest {
     @DisplayName("Should reject invalid timeout threshold values")
     void testInvalidTimeoutThreshold(int invalidTimeout) {
         // Test that negative or zero timeout is not allowed
-        assertThrows(IllegalArgumentException.class, () ->
-                new PublisherConfig(PublisherConfig.PublisherType.PRODUCTION, invalidTimeout)
-        );
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> new PublisherConfig(PublisherConfig.PublisherType.PRODUCTION, invalidTimeout));
     }
 
     /**

@@ -136,7 +136,9 @@ public final class BlockStreamProducerSession implements Pipeline<List<BlockItem
      *
      * @return the current session ID.
      */
-    long sessionId() { return sessionId; }
+    long sessionId() {
+        return sessionId;
+    }
 
     /**
      * Make this session the primary session for the block stream. This means that we are now the primary session and

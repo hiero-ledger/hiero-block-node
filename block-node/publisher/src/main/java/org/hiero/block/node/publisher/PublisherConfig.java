@@ -3,10 +3,10 @@ package org.hiero.block.node.publisher;
 
 import com.swirlds.config.api.ConfigData;
 import com.swirlds.config.api.ConfigProperty;
+import com.swirlds.config.api.validation.annotation.Min;
+import java.util.Objects;
 import org.hiero.block.common.utils.Preconditions;
 import org.hiero.block.node.base.Loggable;
-
-import java.util.Objects;
 
 /**
  * Use this configuration across the producer package
@@ -17,7 +17,7 @@ import java.util.Objects;
 @ConfigData("producer")
 public record PublisherConfig(
         @Loggable @ConfigProperty(defaultValue = "PRODUCTION") PublisherType type,
-        @Loggable @ConfigProperty(defaultValue = "1500") int timeoutThresholdMillis) {
+        @Loggable @ConfigProperty(defaultValue = "1500") @Min(1) int timeoutThresholdMillis) {
     /**
      * The type of the publisher service to use - PRODUCTION or NO_OP.
      */

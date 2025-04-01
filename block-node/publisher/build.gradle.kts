@@ -18,4 +18,6 @@ testModuleInfo {
     requires("org.junit.jupiter.api")
     requires("org.junit.jupiter.params")
     requires("org.hiero.block.node.app.test.fixtures")
+    requires("org.mockito")
+    requires("org.mockito.junit.jupiter")
 }
