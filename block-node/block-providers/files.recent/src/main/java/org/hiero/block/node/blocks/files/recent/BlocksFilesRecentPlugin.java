@@ -21,6 +21,7 @@ import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.ServiceBuilder;
 import org.hiero.block.node.spi.blockmessaging.BlockItemHandler;
 import org.hiero.block.node.spi.blockmessaging.BlockItems;
+import org.hiero.block.node.spi.blockmessaging.BlockMessagingFacility;
 import org.hiero.block.node.spi.blockmessaging.BlockNotification;
 import org.hiero.block.node.spi.blockmessaging.BlockNotificationHandler;
 import org.hiero.block.node.spi.historicalblocks.BlockAccessor;
@@ -64,6 +65,8 @@ public class BlocksFilesRecentPlugin implements BlockProviderPlugin, BlockNotifi
     private final System.Logger LOGGER = System.getLogger(getClass().getName());
     /** The configuration for this plugin. */
     private FilesRecentConfig config;
+    /** The block messaging facility. */
+    private BlockMessagingFacility blockMessaging;
     /** The block number of the oldest verified block, this is inclusive. */
     private final AtomicLong oldestVerifiedBlockNumber = new AtomicLong(UNKNOWN_BLOCK_NUMBER);
     /** The block number of the newest verified block, this is also inclusive. */
@@ -88,6 +91,7 @@ public class BlocksFilesRecentPlugin implements BlockProviderPlugin, BlockNotifi
     @Override
     public void init(final BlockNodeContext context, final ServiceBuilder serviceBuilder) {
         this.config = context.configuration().getConfigData(FilesRecentConfig.class);
+        this.blockMessaging = context.blockMessaging();
         // create plugin data root directory if it does not exist
         try {
             Files.createDirectories(config.liveRootPath());
@@ -267,6 +271,9 @@ public class BlocksFilesRecentPlugin implements BlockProviderPlugin, BlockNotifi
                     oldest -> oldest == UNKNOWN_BLOCK_NUMBER ? blockNumber : Math.min(oldest, blockNumber));
             newestVerifiedBlockNumber.updateAndGet(newest -> Math.max(newest, blockNumber));
             LOGGER.log(Level.DEBUG, "Moved block: {0} from Unverified to Verified", blockNumber);
+            // send block persisted notification
+            blockMessaging.sendBlockNotification(
+                    new BlockNotification(blockNumber, BlockNotification.Type.BLOCK_PERSISTED, null));
         } catch (IOException e) {
             LOGGER.log(
                     Level.ERROR,
@@ -311,6 +318,9 @@ public class BlocksFilesRecentPlugin implements BlockProviderPlugin, BlockNotifi
             oldestVerifiedBlockNumber.updateAndGet(
                     oldest -> oldest == UNKNOWN_BLOCK_NUMBER ? blockNumber : Math.min(oldest, blockNumber));
             newestVerifiedBlockNumber.updateAndGet(newest -> Math.max(newest, blockNumber));
+            // send block persisted notification
+            blockMessaging.sendBlockNotification(
+                    new BlockNotification(blockNumber, BlockNotification.Type.BLOCK_PERSISTED, null));
         } catch (IOException e) {
             LOGGER.log(
                     System.Logger.Level.ERROR,
