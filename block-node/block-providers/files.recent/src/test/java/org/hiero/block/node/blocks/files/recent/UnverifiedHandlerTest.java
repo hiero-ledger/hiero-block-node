@@ -69,6 +69,7 @@ class UnverifiedHandlerTest {
     /**
      * Tests for the constructor of {@link UnverifiedHandler}.
      */
+    @SuppressWarnings("all")
     @Nested
     @DisplayName("Constructor Tests")
     final class ConstructorTests {

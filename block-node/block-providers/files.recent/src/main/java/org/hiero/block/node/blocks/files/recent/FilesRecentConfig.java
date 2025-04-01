@@ -5,6 +5,7 @@ import com.swirlds.config.api.ConfigData;
 import com.swirlds.config.api.ConfigProperty;
 import java.nio.file.Path;
 import java.util.Objects;
+import org.hiero.block.common.utils.Preconditions;
 import org.hiero.block.node.base.CompressionType;
 import org.hiero.block.node.base.Loggable;
 
@@ -30,5 +31,7 @@ record FilesRecentConfig(
     FilesRecentConfig {
         Objects.requireNonNull(liveRootPath);
         Objects.requireNonNull(unverifiedRootPath);
+        Objects.requireNonNull(compression);
+        Preconditions.requirePositive(maxFilesPerDir);
     }
 }
