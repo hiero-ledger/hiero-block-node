@@ -19,7 +19,7 @@ import org.hiero.block.node.base.Loggable;
  *                    file system issues.
  */
 @ConfigData("files.recent")
-public record FilesRecentConfig(
+record FilesRecentConfig(
         @Loggable @ConfigProperty(defaultValue = "/opt/hashgraph/blocknode/data/live") Path liveRootPath,
         @Loggable @ConfigProperty(defaultValue = "/opt/hashgraph/blocknode/data/unverified") Path unverifiedRootPath,
         @Loggable @ConfigProperty(defaultValue = "ZSTD") CompressionType compression,
@@ -27,7 +27,7 @@ public record FilesRecentConfig(
     /**
      * Constructor.
      */
-    public FilesRecentConfig {
+    FilesRecentConfig {
         Objects.requireNonNull(liveRootPath);
         Objects.requireNonNull(unverifiedRootPath);
     }
