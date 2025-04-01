@@ -11,6 +11,7 @@ public interface UpdateCallback {
         BLOCK_ITEMS_RECEIVED,
         START_BLOCK,
         END_BLOCK,
+        WHOLE_BLOCK,
         SESSION_ADDED,
         SESSION_CLOSED,
     }
