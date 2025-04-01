@@ -46,6 +46,9 @@ class FilesRecentConfigTest {
         defaultMaxFilesPerDir = 3;
     }
 
+    /**
+     * Tests for the {@link FilesRecentConfig} constructor.
+     */
     @Nested
     @DisplayName("Constructor Tests")
     final class ConstructorTests {
