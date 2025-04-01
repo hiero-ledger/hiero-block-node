@@ -399,8 +399,8 @@ public class BlockStreamSubscriberSession implements Pipeline<SubscribeStreamReq
                         .status(SubscribeStreamResponseCode.READ_STREAM_INVALID_START_BLOCK_NUMBER)
                         .build());
                 close();
-            } else if (subscribeStreamRequest.endBlockNumber() != UNKNOWN_BLOCK_NUMBER &&
-                    subscribeStreamRequest.startBlockNumber() > subscribeStreamRequest.endBlockNumber()) {
+            } else if (subscribeStreamRequest.endBlockNumber() != UNKNOWN_BLOCK_NUMBER
+                    && subscribeStreamRequest.startBlockNumber() > subscribeStreamRequest.endBlockNumber()) {
                 // ----------> END BEFORE START <----------
                 // send invalid end block number response
                 responsePipeline.onNext(SubscribeStreamResponseUnparsed.newBuilder()
