@@ -3,7 +3,10 @@ package org.hiero.block.node.publisher;
 
 import com.swirlds.config.api.ConfigData;
 import com.swirlds.config.api.ConfigProperty;
+import org.hiero.block.common.utils.Preconditions;
 import org.hiero.block.node.base.Loggable;
+
+import java.util.Objects;
 
 /**
  * Use this configuration across the producer package
@@ -27,5 +30,13 @@ public record PublisherConfig(
          * No-op mode. Does not send any block items to the block messaging service. Just updates the metrics
          */
         NO_OP,
+    }
+
+    /**
+     * Constructs a new {@code PublisherConfig} instance with validation.
+     */
+    public PublisherConfig {
+        Objects.requireNonNull(type);
+        Preconditions.requirePositive(timeoutThresholdMillis);
     }
 }
