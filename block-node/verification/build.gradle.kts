@@ -14,4 +14,11 @@ mainModuleInfo {
     runtimeOnly("com.hedera.pbj.grpc.helidon.config")
 }
 
-testModuleInfo {}
+testModuleInfo {
+    requires("com.hedera.pbj.runtime")
+    requires("org.hiero.block.stream")
+    requires("org.junit.jupiter.api")
+    requires("org.junit.jupiter.params")
+    requires("com.swirlds.metrics.api")
+    requires("org.hiero.block.node.app.test.fixtures")
+}
