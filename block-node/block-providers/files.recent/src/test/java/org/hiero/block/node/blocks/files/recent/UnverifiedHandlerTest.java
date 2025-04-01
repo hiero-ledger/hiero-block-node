@@ -8,6 +8,7 @@ import static org.assertj.core.api.Assertions.assertThatNullPointerException;
 
 import com.google.common.jimfs.Configuration;
 import com.google.common.jimfs.Jimfs;
+import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.text.DecimalFormat;
@@ -77,6 +78,7 @@ class UnverifiedHandlerTest {
         @Test
         @DisplayName("Test constructor no exception when non-null")
         void testNonNull() {
+            // call && assert
             assertThatNoException().isThrownBy(() -> new UnverifiedHandler(config, longConsumerMock));
         }
 
@@ -87,6 +89,7 @@ class UnverifiedHandlerTest {
         @Test
         @DisplayName("Test constructor throws NullPointerException when config is null")
         void testNullConfig() {
+            // call && assert
             assertThatNullPointerException().isThrownBy(() -> new UnverifiedHandler(null, longConsumerMock));
         }
 
@@ -97,6 +100,7 @@ class UnverifiedHandlerTest {
         @Test
         @DisplayName("Test constructor throws NullPointerException when consumer is null")
         void testNullConsumer() {
+            // call && assert
             assertThatNullPointerException().isThrownBy(() -> new UnverifiedHandler(config, null));
         }
     }
@@ -107,6 +111,9 @@ class UnverifiedHandlerTest {
     @Nested
     @DisplayName("Test Functionality")
     final class FunctionalityTests {
+        /**
+         * The {@link UnverifiedHandler} instance to be tested.
+         */
         private UnverifiedHandler toTest;
 
         /**
@@ -114,6 +121,7 @@ class UnverifiedHandlerTest {
          */
         @BeforeEach
         void setUp() {
+            // create a new UnverifiedHandler instance for each test
             toTest = new UnverifiedHandler(config, longConsumerMock);
         }
 
@@ -125,12 +133,72 @@ class UnverifiedHandlerTest {
         @Test
         @DisplayName("Test blockVerified throws when block is verified but not found under unverified storage")
         void testThrowIllegalState() {
+            // create the target block number
             final long targetBlockNumber = 1L;
+            // resolve the expected error message
             final String expectedErrorMessage =
                     "Block %d is verified but not found in unverified storage".formatted(targetBlockNumber);
+            // call && assert
             assertThatIllegalStateException()
                     .isThrownBy(() -> toTest.blockVerified(targetBlockNumber))
                     .withMessageContaining(expectedErrorMessage);
+        }
+
+        /**
+         * This test aims to check that the storeIfUnverifiedBlock returns true
+         * when the block is stored successfully.
+         */
+        @ParameterizedTest
+        @MethodSource("org.hiero.block.node.blocks.files.recent.UnverifiedHandlerTest#validBlockNumbers")
+        @DisplayName("Test storeIfUnverifiedBlock correctly returns true when block is stored")
+        void testReturnTrue(final long blockNumber) {
+            // resolve the target block path
+            final Path targetBlockPath = config.unverifiedRootPath()
+                    .resolve(LONG_LEADING_DIGITS_FORMAT.format(blockNumber).concat(".blk"));
+            // create the target block items, for this test, we need no items
+            final List<BlockItemUnparsed> targetBlockItems = List.of();
+            // assert that the target block path does not exist before call
+            assertThat(targetBlockPath).doesNotExist();
+            // call
+            final boolean actual = toTest.storeIfUnverifiedBlock(targetBlockItems, blockNumber);
+            // assert true
+            assertThat(actual).isTrue();
+        }
+
+        /**
+         * This test aims to check that the storeIfUnverifiedBlock correctly
+         * overwrites the target block file when it already exists.
+         */
+        @ParameterizedTest
+        @MethodSource("org.hiero.block.node.blocks.files.recent.UnverifiedHandlerTest#validBlockNumbers")
+        @DisplayName("Test storeIfUnverifiedBlock correctly creates the target block file")
+        void testBlockFileOverwrite(final long blockNumber) throws IOException {
+            // resolve the target block path
+            final Path targetBlockPath = config.unverifiedRootPath()
+                    .resolve(LONG_LEADING_DIGITS_FORMAT.format(blockNumber).concat(".blk"));
+            // create the target block items, for this test, we need no items
+            final List<BlockItemUnparsed> targetBlockItems = List.of();
+            // write some bytes to the target block path to be overwritten
+            final byte[] bytesToOverwrite = "bytes to overwrite".getBytes();
+            Files.write(targetBlockPath, bytesToOverwrite);
+            // assert target path exists and contains the bytes to be overwritten
+            assertThat(targetBlockPath)
+                    .exists()
+                    .isReadable()
+                    .isWritable()
+                    .isRegularFile()
+                    .binaryContent()
+                    .isEqualTo(bytesToOverwrite);
+            // call
+            toTest.storeIfUnverifiedBlock(targetBlockItems, blockNumber);
+            // assert that the target block path's content is overwritten
+            assertThat(targetBlockPath)
+                    .exists()
+                    .isReadable()
+                    .isWritable()
+                    .isRegularFile()
+                    .binaryContent()
+                    .isNotEqualTo(bytesToOverwrite);
         }
 
         /**
@@ -140,12 +208,17 @@ class UnverifiedHandlerTest {
         @ParameterizedTest
         @MethodSource("org.hiero.block.node.blocks.files.recent.UnverifiedHandlerTest#validBlockNumbers")
         @DisplayName("Test storeIfUnverifiedBlock correctly creates the target block file")
-        void test(final long blockNumber) {
+        void testBlockFileCreate(final long blockNumber) {
+            // resolve the target block path
             final Path targetBlockPath = config.unverifiedRootPath()
                     .resolve(LONG_LEADING_DIGITS_FORMAT.format(blockNumber).concat(".blk"));
+            // create the target block items, for this test, we need no items
             final List<BlockItemUnparsed> targetBlockItems = List.of();
+            // assert that the target block path does not exist before call
             assertThat(targetBlockPath).doesNotExist();
+            // call
             toTest.storeIfUnverifiedBlock(targetBlockItems, blockNumber);
+            // assert that the target block path exists after call
             assertThat(targetBlockPath).exists().isReadable().isWritable().isRegularFile();
         }
     }
