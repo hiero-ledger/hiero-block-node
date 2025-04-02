@@ -23,6 +23,7 @@ import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Objects;
+import org.hiero.block.common.utils.Preconditions;
 import org.hiero.block.node.base.CompressionType;
 import org.hiero.block.node.spi.historicalblocks.BlockAccessor;
 import org.hiero.hapi.block.node.BlockUnparsed;
@@ -47,16 +48,16 @@ final class BlockFileBlockAccessor implements BlockAccessor {
     /**
      * Constructs a BlockFileBlockAccessor with the specified block file path and compression type.
      *
-     * @param baseDir         the base directory for all block files
-     * @param blockFilePath   the path to the block file
+     * @param baseDir         the base directory for all block files, must exist
+     * @param blockFilePath   the path to the block file, must exist
      * @param compressionType the compression type used for the block file
      */
     BlockFileBlockAccessor(
             @NonNull final Path baseDir,
             @NonNull final Path blockFilePath,
             @NonNull final CompressionType compressionType) {
-        this.baseDir = Objects.requireNonNull(baseDir);
-        this.blockFilePath = Objects.requireNonNull(blockFilePath);
+        this.baseDir = Preconditions.requireDirectory(baseDir);
+        this.blockFilePath = Preconditions.requireRegularFile(blockFilePath);
         this.compressionType = Objects.requireNonNull(compressionType);
     }
 

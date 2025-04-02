@@ -2,6 +2,8 @@
 package org.hiero.block.common.utils;
 
 import edu.umd.cs.findbugs.annotations.NonNull;
+import java.nio.file.Files;
+import java.nio.file.Path;
 
 /** A utility class used to assert various preconditions. */
 public final class Preconditions {
@@ -20,6 +22,10 @@ public final class Preconditions {
     private static final String DEFAULT_REQUIRE_IS_EVEN = "The input number [%d] is required to be even.";
     private static final String DEFAULT_REQUIRE_POSITIVE_POWER_OF_10_MESSAGE =
             "The input number [%d] is required to be a positive power of 10.";
+    private static final String DEFAULT_REQUIRE_REGULAR_FILE_MESSAGE =
+            "The input path [%s] is required to be an existing regular file.";
+    private static final String DEFAULT_REQUIRE_DIRECTORY_MESSAGE =
+            "The input path [%s] is required to be an existing directory.";
 
     /**
      * This method asserts a given {@link String} is not blank.
@@ -362,6 +368,74 @@ public final class Preconditions {
             throw new IllegalArgumentException(errorMessage.formatted(toCheck));
         } else {
             return toCheck;
+        }
+    }
+
+    /**
+     * This method asserts a given {@link java.nio.file.Path} is an existing
+     * regular file.
+     *
+     * @param toCheck the path to check
+     * @return the path to check if it is a regular file and exists
+     * @throws IllegalArgumentException if the input path is not a regular file
+     * @throws NullPointerException if the input path is {@code null}
+     */
+    public static Path requireRegularFile(@NonNull final Path toCheck) {
+        return requireRegularFile(toCheck, DEFAULT_REQUIRE_REGULAR_FILE_MESSAGE);
+    }
+
+    /**
+     * This method asserts a given {@link java.nio.file.Path} is an existing
+     * regular file.
+     *
+     * @param toCheck the path to check
+     * @param errorMessage a formatted string with one decimal parameter for
+     * {@code toCheck}, must not be {@code null}.<br/>
+     * Example error message: {@value #DEFAULT_REQUIRE_REGULAR_FILE_MESSAGE}
+     * @return the path to check if it is a regular file and exists
+     * @throws IllegalArgumentException if the input path is not a regular file
+     * @throws NullPointerException if the input path is {@code null}
+     * @see java.util.Formatter for more information on error message formatting
+     */
+    public static Path requireRegularFile(@NonNull final Path toCheck, @NonNull final String errorMessage) {
+        if (Files.isRegularFile(toCheck)) {
+            return toCheck;
+        } else {
+            throw new IllegalArgumentException(errorMessage.formatted(toCheck));
+        }
+    }
+
+    /**
+     * This method asserts a given {@link java.nio.file.Path} is an existing
+     * directory.
+     *
+     * @param toCheck the path to check
+     * @return the path to check if it is a directory and exists
+     * @throws IllegalArgumentException if the input path is not a directory
+     * @throws NullPointerException if the input path is {@code null}
+     */
+    public static Path requireDirectory(@NonNull final Path toCheck) {
+        return requireDirectory(toCheck, DEFAULT_REQUIRE_DIRECTORY_MESSAGE);
+    }
+
+    /**
+     * This method asserts a given {@link java.nio.file.Path} is an existing
+     * directory.
+     *
+     * @param toCheck the path to check
+     * @param errorMessage a formatted string with one decimal parameter for
+     * {@code toCheck}, must not be {@code null}.<br/>
+     * Example error message: {@value #DEFAULT_REQUIRE_DIRECTORY_MESSAGE}
+     * @return the path to check if it is a directory and exists
+     * @throws IllegalArgumentException if the input path is not a directory
+     * @throws NullPointerException if the input path is {@code null}
+     * @see java.util.Formatter for more information on error message formatting
+     */
+    public static Path requireDirectory(@NonNull final Path toCheck, @NonNull final String errorMessage) {
+        if (Files.isDirectory(toCheck)) {
+            return toCheck;
+        } else {
+            throw new IllegalArgumentException(errorMessage.formatted(toCheck));
         }
     }
 
