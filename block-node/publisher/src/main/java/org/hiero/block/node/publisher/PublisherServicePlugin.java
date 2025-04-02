@@ -18,6 +18,7 @@ import java.util.Comparator;
 import java.util.HashSet;
 import java.util.List;
 import java.util.LongSummaryStatistics;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.OptionalLong;
 import java.util.Set;
@@ -96,11 +97,31 @@ public final class PublisherServicePlugin implements BlockNodePlugin, ServiceInt
     private long nextSessionId = 0;
 
     /**
-     * Called when any session updates its state. This is used for use to choose who is primary and behind, It
+     * Handles session state updates and manages the selection of primary sessions for block processing.
+     * This method is called whenever a session's state changes and is responsible for coordinating
+     * block processing across multiple sessions.
+     * <p>
+     * The method performs the following key operations:
+     * <ul>
+     * <li>Updates metrics for block numbers across all sessions
+     * <li>Handles block completion by incrementing current block number when primary session ends a block
+     * <li>Manages primary session selection:
+     * <ul>
+     * <li>Validates current primary session for timeouts and correct block numbers
+     * <li>Selects new primary session based on earliest start time and valid block numbers
+     * <li>Switches other sessions to BEHIND state
+     * </ul>
+     * <li>Handles error cases:
+     * <ul>
+     * <li>Requests block resend when primary session is invalid
+     * <li>Updates block number if all sessions are ahead
+     * <li>Logs warnings for timeout and incorrect block number scenarios
+     * </ul>
+     * </ul>
      *
-     * @param session the session that is calling update, null if not from a session
-     * @param updateType the type of update
-     * @param blockNumber the block number, if update type is START_BLOCK or END_BLOCK
+     * @param session the session that triggered the update
+     * @param updateType the type of update (START_BLOCK, END_BLOCK, WHOLE_BLOCK, etc.)
+     * @param blockNumber the block number associated with the update
      */
     private void onSessionUpdate(BlockStreamProducerSession session, UpdateType updateType, long blockNumber) {
         LOGGER.log(DEBUG, "onSessionUpdate: type={0} blockNumber={1} session={2}", updateType, blockNumber, session);
@@ -281,7 +302,10 @@ public final class PublisherServicePlugin implements BlockNodePlugin, ServiceInt
      * {@inheritDoc}
      */
     @Override
-    public void init(BlockNodeContext context, ServiceBuilder serviceBuilder) {
+    public void init(@NonNull final BlockNodeContext context, @NonNull final ServiceBuilder serviceBuilder) {
+        Objects.requireNonNull(context);
+        Objects.requireNonNull(serviceBuilder);
+
         this.context = context;
         // load the publisher config
         publisherConfig = context.configuration().getConfigData(PublisherConfig.class);
@@ -367,7 +391,8 @@ public final class PublisherServicePlugin implements BlockNodePlugin, ServiceInt
      */
     @SuppressWarnings("RedundantLabeledSwitchRuleCodeBlock")
     @Override
-    public void handleBlockNotification(BlockNotification notification) {
+    public void handleBlockNotification(@NonNull final BlockNotification notification) {
+        Objects.requireNonNull(notification);
         stateLock.lock();
         try {
             // We have nothing to do for BlockNotification.BLOCK_VERIFIED so can ignore it

@@ -2,6 +2,7 @@
 package org.hiero.block.node.publisher;
 
 import static java.lang.System.Logger.Level.DEBUG;
+import static java.util.Objects.requireNonNull;
 import static org.hiero.block.node.spi.BlockNodePlugin.UNKNOWN_BLOCK_NUMBER;
 
 import com.hedera.hapi.block.PublishStreamResponse;
@@ -15,6 +16,7 @@ import com.hedera.pbj.runtime.ParseException;
 import com.hedera.pbj.runtime.grpc.Pipeline;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import com.swirlds.metrics.api.Counter;
+import edu.umd.cs.findbugs.annotations.NonNull;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.Flow;
@@ -75,18 +77,18 @@ public final class BlockStreamProducerSession implements Pipeline<List<BlockItem
      * @param sendToBlockMessaging the callback for sending block items to the block messaging service
      */
     public BlockStreamProducerSession(
-            long sessionId,
-            Pipeline<? super PublishStreamResponse> responsePipeline,
-            UpdateCallback onUpdate,
-            Counter liveBlockItemsReceived,
-            ReentrantLock stateLock,
-            Consumer<BlockItems> sendToBlockMessaging) {
+            final long sessionId,
+            @NonNull final Pipeline<? super PublishStreamResponse> responsePipeline,
+            @NonNull final UpdateCallback onUpdate,
+            @NonNull final Counter liveBlockItemsReceived,
+            @NonNull final ReentrantLock stateLock,
+            @NonNull final Consumer<BlockItems> sendToBlockMessaging) {
         this.sessionId = sessionId;
-        this.onUpdate = onUpdate;
-        this.responsePipeline = responsePipeline;
-        this.liveBlockItemsReceived = liveBlockItemsReceived;
-        this.stateLock = stateLock;
-        this.sendToBlockMessaging = sendToBlockMessaging;
+        this.onUpdate = requireNonNull(onUpdate);
+        this.responsePipeline = requireNonNull(responsePipeline);
+        this.liveBlockItemsReceived = requireNonNull(liveBlockItemsReceived);
+        this.stateLock = requireNonNull(stateLock);
+        this.sendToBlockMessaging = requireNonNull(sendToBlockMessaging);
         // log the creation of the session
         LOGGER.log(DEBUG, "Created new BlockStreamProducerSession");
     }
@@ -180,7 +182,7 @@ public final class BlockStreamProducerSession implements Pipeline<List<BlockItem
      *
      * @param blockNumber the block number to request to be resent
      */
-    void requestResend(long blockNumber) {
+    void requestResend(final long blockNumber) {
         // switch to waiting for resend state
         currentBlockState = BlockState.WAITING_FOR_RESEND;
         currentBlockNumber = blockNumber;
@@ -239,32 +241,38 @@ public final class BlockStreamProducerSession implements Pipeline<List<BlockItem
      */
     @SuppressWarnings("RedundantLabeledSwitchRuleCodeBlock")
     @Override
-    public void onNext(List<BlockItemUnparsed> items) throws RuntimeException {
+    public void onNext(@NonNull final List<BlockItemUnparsed> items) throws RuntimeException {
         stateLock.lock();
         try {
             // update the live block items received metric
             liveBlockItemsReceived.add(items.size());
-            // check items to see if we are entering a new block
-            final boolean newBlock = items.getFirst().hasBlockHeader();
-            if (newBlock) {
-                try {
-                    long newBlockNumber = BlockHeader.PROTOBUF
-                            .parse(items.getFirst().blockHeaderOrThrow())
-                            .number();
-                    // move to new state if we are not in the waiting for resend state, or if we are in the waiting
-                    // for resend state and the block number is the same as the current block number
-                    if (currentBlockState != BlockState.WAITING_FOR_RESEND || newBlockNumber == currentBlockNumber) {
-                        // set the start time of the current block
-                        startTimeOfCurrentBlock = System.nanoTime();
-                        // we are in a new block so switch to new state
-                        currentBlockState = BlockState.NEW;
-                        // update the current block number
-                        currentBlockNumber = newBlockNumber;
-                        // throw away any items we have in the ahead list
-                        newBlockItems.clear();
+
+            if (items.isEmpty()) {
+                currentBlockState = BlockState.WAITING_FOR_RESEND;
+            } else {
+                // check items to see if we are entering a new block
+                final boolean newBlock = items.getFirst().hasBlockHeader();
+                if (newBlock) {
+                    try {
+                        final long newBlockNumber = BlockHeader.PROTOBUF
+                                .parse(items.getFirst().blockHeaderOrThrow())
+                                .number();
+                        // move to new state if we are not in the waiting for resend state, or if we are in the waiting
+                        // for resend state and the block number is the same as the current block number
+                        if (currentBlockState != BlockState.WAITING_FOR_RESEND
+                                || newBlockNumber == currentBlockNumber) {
+                            // set the start time of the current block
+                            startTimeOfCurrentBlock = System.nanoTime();
+                            // we are in a new block so switch to new state
+                            currentBlockState = BlockState.NEW;
+                            // update the current block number
+                            currentBlockNumber = newBlockNumber;
+                            // throw away any items we have in the ahead list
+                            newBlockItems.clear();
+                        }
+                    } catch (ParseException e) {
+                        throw new RuntimeException(e);
                     }
-                } catch (ParseException e) {
-                    throw new RuntimeException(e);
                 }
             }
             switch (currentBlockState) {
@@ -288,24 +296,42 @@ public final class BlockStreamProducerSession implements Pipeline<List<BlockItem
                     LOGGER.log(DEBUG, "BlockStreamProducerSession is disconnected, but received items: {0}", items);
                 }
             }
-            // call the onUpdate method to notify the block messaging service that we have received data and updated our
-            // state, check if we are starting or ending a block
-            if (newBlock && items.getLast().hasBlockProof()) {
-                onUpdate.update(this, UpdateType.WHOLE_BLOCK, currentBlockNumber);
-            } else if (items.getLast().hasBlockProof()) {
-                // send end block update
-                onUpdate.update(this, UpdateType.END_BLOCK, currentBlockNumber);
-                // change state back to NEW as we have finished the current block
-                currentBlockState = BlockState.NEW;
-            } else if (newBlock) {
-                // send start block update
-                onUpdate.update(this, UpdateType.START_BLOCK, currentBlockNumber);
-            } else {
-                // we are not starting or ending a block, so we can just update the state
-                onUpdate.update(this, UpdateType.BLOCK_ITEMS_RECEIVED);
-            }
+
+            updatePluginState(items);
         } finally {
             stateLock.unlock();
+        }
+    }
+
+    /**
+     * Updates the state of the PublisherServicePlugin based on the received block items.
+     * This method handles different block processing scenarios and notifies the plugin accordingly.
+     * @param items the block items received from the upstream producer
+     */
+    private void updatePluginState(@NonNull final List<BlockItemUnparsed> items) {
+        if (items.isEmpty()) {
+            // We received empty list so we update the plugin regarding this session
+            // This should trigger a resend from the plugin for this session and move it out of primary, if it is.
+            onUpdate.update(this, UpdateType.BLOCK_ITEMS_RECEIVED);
+            return;
+        }
+
+        final boolean newBlock = items.getFirst().hasBlockHeader();
+        // call the onUpdate method to notify the block messaging service that we have received data and updated our
+        // state, check if we are starting or ending a block
+        if (newBlock && items.getLast().hasBlockProof()) {
+            onUpdate.update(this, UpdateType.WHOLE_BLOCK, currentBlockNumber);
+        } else if (items.getLast().hasBlockProof()) {
+            // send end block update
+            onUpdate.update(this, UpdateType.END_BLOCK, currentBlockNumber);
+            // change state back to NEW as we have finished the current block
+            currentBlockState = BlockState.NEW;
+        } else if (newBlock) {
+            // send start block update
+            onUpdate.update(this, UpdateType.START_BLOCK, currentBlockNumber);
+        } else {
+            // we are not starting or ending a block, so we can just update the state
+            onUpdate.update(this, UpdateType.BLOCK_ITEMS_RECEIVED);
         }
     }
 
