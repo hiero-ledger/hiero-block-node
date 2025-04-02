@@ -13,7 +13,7 @@ dependencies.constraints {
     val grpcIoVersion = "1.71.0"
     val helidonVersion = "4.1.6"
     val pbjVersion = "0.9.17"
-    val protobufVersion = "4.30.0"
+    val protobufVersion = "4.30.2"
     val swirldsVersion = "0.59.2"
     val mockitoVersion = "5.16.1"
     val testContainersVersion = "1.20.6"
