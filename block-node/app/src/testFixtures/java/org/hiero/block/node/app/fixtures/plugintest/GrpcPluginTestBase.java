@@ -25,7 +25,8 @@ import org.hiero.block.node.spi.historicalblocks.HistoricalBlockFacility;
  * configuration, metrics, health, block messaging, and historical block facilities. See {@link PluginTestBase} for
  * more details.
  */
-public abstract class GrpcPluginTestBase extends PluginTestBase implements ServiceBuilder {
+public abstract class GrpcPluginTestBase<P extends BlockNodePlugin> extends PluginTestBase<P>
+        implements ServiceBuilder {
     private record ReqOptions(Optional<String> authority, boolean isProtobuf, boolean isJson, String contentType)
             implements ServiceInterface.RequestOptions {}
 
@@ -33,7 +34,7 @@ public abstract class GrpcPluginTestBase extends PluginTestBase implements Servi
     protected final Pipeline<? super Bytes> toPluginPipe;
     protected ServiceInterface serviceInterface;
 
-    public GrpcPluginTestBase(BlockNodePlugin plugin, Method method, HistoricalBlockFacility historicalBlockFacility) {
+    public GrpcPluginTestBase(P plugin, Method method, HistoricalBlockFacility historicalBlockFacility) {
         super(plugin, historicalBlockFacility);
         // setup to receive bytes from the plugin
         final Pipeline<Bytes> fromPluginPipe = new Pipeline<>() {

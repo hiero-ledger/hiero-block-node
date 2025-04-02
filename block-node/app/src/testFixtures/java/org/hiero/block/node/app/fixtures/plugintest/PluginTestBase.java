@@ -28,13 +28,17 @@ import org.junit.jupiter.api.AfterEach;
  * {@link PluginTestBase :sentBlockBlockItems} and one for block notifications
  * {@link PluginTestBase :sentBlockNotifications}. You can look at these queues to see what was sent to the messaging
  * service by the plugin.
+ *
+ * @param <P> the type of plugin being tested
  */
-public abstract class PluginTestBase {
+public abstract class PluginTestBase<P extends BlockNodePlugin> {
     private final DefaultMetricsProvider metricsProvider;
     protected final BlockNodeContext blockNodeContext;
     protected final TestBlockMessagingFacility blockMessaging = new TestBlockMessagingFacility();
+    protected final P plugin;
 
-    public PluginTestBase(BlockNodePlugin plugin, HistoricalBlockFacility historicalBlockFacility) {
+    public PluginTestBase(P plugin, HistoricalBlockFacility historicalBlockFacility) {
+        this.plugin = plugin;
         // Build the configuration
         //noinspection unchecked
         final Configuration configuration = ConfigurationBuilder.create()

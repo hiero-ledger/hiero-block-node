@@ -11,12 +11,12 @@ module org.hiero.block.node.blocks.files.recent {
             com.swirlds.config.extensions,
             org.hiero.block.node.app;
 
-    requires transitive com.hedera.pbj.runtime;
     requires transitive com.swirlds.config.api;
     requires transitive org.hiero.block.node.base;
     requires transitive org.hiero.block.node.spi;
-    requires transitive org.hiero.block.stream;
+    requires com.hedera.pbj.runtime;
     requires org.hiero.block.common;
+    requires org.hiero.block.stream;
     requires com.github.luben.zstd_jni;
     requires com.github.spotbugs.annotations;
 

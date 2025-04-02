@@ -34,7 +34,7 @@ import org.junit.jupiter.api.Test;
  * Tests for the PublisherServicePlugin. It mocks out the rest of the block node so we can simply test just this plugin.
  */
 @SuppressWarnings({"FieldCanBeLocal", "MismatchedQueryAndUpdateOfCollection", "SameParameterValue"})
-public class PublisherTest extends GrpcPluginTestBase {
+public class PublisherTest extends GrpcPluginTestBase<PublisherServicePlugin> {
 
     public PublisherTest() {
         super(new PublisherServicePlugin(), publishBlockStream, new NoBlocksHistoricalBlockFacility());
