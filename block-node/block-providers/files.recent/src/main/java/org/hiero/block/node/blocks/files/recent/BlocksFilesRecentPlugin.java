@@ -9,6 +9,7 @@ import edu.umd.cs.findbugs.annotations.NonNull;
 import java.io.BufferedOutputStream;
 import java.io.IOException;
 import java.lang.System.Logger.Level;
+import java.nio.file.FileSystems;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
@@ -74,6 +75,20 @@ public class BlocksFilesRecentPlugin implements BlockProviderPlugin, BlockNotifi
     /** The handler for unverified blocks. */
     private UnverifiedHandler unverifiedHandler;
 
+    /**
+     * Default constructor for the plugin. This is used for normal service loading.
+     */
+    public BlocksFilesRecentPlugin() {}
+
+    /**
+     * Constructor for the plugin. This is used for testing.
+     *
+     * @param config the config to use
+     */
+    BlocksFilesRecentPlugin(FilesRecentConfig config) {
+        this.config = config;
+    }
+
     // ==== BlockProviderPlugin Methods ================================================================================
 
     /**
@@ -90,7 +105,10 @@ public class BlocksFilesRecentPlugin implements BlockProviderPlugin, BlockNotifi
      */
     @Override
     public void init(final BlockNodeContext context, final ServiceBuilder serviceBuilder) {
-        this.config = context.configuration().getConfigData(FilesRecentConfig.class);
+        // load config if not already set by test
+        if (this.config == null) {
+            this.config = context.configuration().getConfigData(FilesRecentConfig.class);
+        }
         this.blockMessaging = context.blockMessaging();
         // create plugin data root directory if it does not exist
         try {
@@ -263,7 +281,12 @@ public class BlocksFilesRecentPlugin implements BlockProviderPlugin, BlockNotifi
                 config.liveRootPath(), blockNumber, config.compression(), config.maxFilesPerDir());
         try {
             // create parent directory if it does not exist
-            Files.createDirectories(verifiedBlockPath.getParent(), FileUtilities.DEFAULT_FOLDER_PERMISSIONS);
+            if (verifiedBlockPath.getFileSystem().equals(FileSystems.getDefault())) {
+                // we are using the default file system so we need to create the parent directory
+                Files.createDirectories(verifiedBlockPath.getParent(), FileUtilities.DEFAULT_FOLDER_PERMISSIONS);
+            } else {
+                Files.createDirectories(verifiedBlockPath.getParent());
+            }
             // move the file
             Files.move(unverifiedBlockPath, verifiedBlockPath, StandardCopyOption.ATOMIC_MOVE);
             // update the oldest and newest verified block numbers

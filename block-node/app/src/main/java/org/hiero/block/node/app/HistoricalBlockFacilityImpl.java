@@ -36,6 +36,19 @@ public class HistoricalBlockFacilityImpl implements HistoricalBlockFacility {
     }
 
     /**
+     * Constructor for the HistoricalBlockFacilityImpl class. This constructor takes a list of block providers and sorts
+     * them by priority.
+     *
+     * @param providers the list of block providers to use
+     */
+    public HistoricalBlockFacilityImpl(List<BlockProviderPlugin> providers) {
+        this.providers = providers.stream()
+                .sorted(Comparator.comparingInt(BlockProviderPlugin::defaultPriority)
+                        .reversed())
+                .toList();
+    }
+
+    /**
      * Get the list of all block providers. This method is used to get the list of all block providers that are
      * registered with the block node.
      *
