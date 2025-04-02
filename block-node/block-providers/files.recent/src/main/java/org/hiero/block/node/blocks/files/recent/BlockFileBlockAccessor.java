@@ -8,17 +8,22 @@ import com.github.luben.zstd.Zstd;
 import com.github.luben.zstd.ZstdOutputStream;
 import com.hedera.hapi.block.stream.Block;
 import com.hedera.pbj.runtime.ParseException;
+import com.hedera.pbj.runtime.UncheckedParseException;
 import com.hedera.pbj.runtime.io.WritableSequentialData;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import com.hedera.pbj.runtime.io.stream.ReadableStreamingData;
 import com.hedera.pbj.runtime.io.stream.WritableStreamingData;
+import edu.umd.cs.findbugs.annotations.NonNull;
 import java.io.BufferedInputStream;
 import java.io.BufferedOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Objects;
+import org.hiero.block.common.utils.Preconditions;
 import org.hiero.block.node.base.CompressionType;
 import org.hiero.block.node.spi.historicalblocks.BlockAccessor;
 import org.hiero.hapi.block.node.BlockUnparsed;
@@ -28,9 +33,9 @@ import org.hiero.hapi.block.node.BlockUnparsed;
  * optional compression types on that file. It aims to provide the most efficient transfer for each combination of
  * input and output formats.
  */
-public class BlockFileBlockAccessor implements BlockAccessor {
+final class BlockFileBlockAccessor implements BlockAccessor {
     /** The size of the buffer used for reading and writing files. */
-    public static final int BUFFER_SIZE = 1024 * 1024;
+    private static final int BUFFER_SIZE = 1024 * 1024;
     /** The logger for this class. */
     private final System.Logger LOGGER = System.getLogger(getClass().getName());
     /** The base directory for all block files. */
@@ -43,14 +48,17 @@ public class BlockFileBlockAccessor implements BlockAccessor {
     /**
      * Constructs a BlockFileBlockAccessor with the specified block file path and compression type.
      *
-     * @param baseDir         the base directory for all block files
-     * @param blockFilePath   the path to the block file
+     * @param baseDir         the base directory for all block files, must exist
+     * @param blockFilePath   the path to the block file, must exist
      * @param compressionType the compression type used for the block file
      */
-    public BlockFileBlockAccessor(Path baseDir, Path blockFilePath, CompressionType compressionType) {
-        this.baseDir = baseDir;
-        this.blockFilePath = blockFilePath;
-        this.compressionType = compressionType;
+    BlockFileBlockAccessor(
+            @NonNull final Path baseDir,
+            @NonNull final Path blockFilePath,
+            @NonNull final CompressionType compressionType) {
+        this.baseDir = Preconditions.requireDirectory(baseDir);
+        this.blockFilePath = Preconditions.requireRegularFile(blockFilePath);
+        this.compressionType = Objects.requireNonNull(compressionType);
     }
 
     /**
@@ -89,15 +97,15 @@ public class BlockFileBlockAccessor implements BlockAccessor {
      */
     @Override
     public Block block() {
-        try (ReadableStreamingData in = new ReadableStreamingData(compressionType.wrapStream(
+        try (final ReadableStreamingData in = new ReadableStreamingData(compressionType.wrapStream(
                 new BufferedInputStream(Files.newInputStream(blockFilePath), BUFFER_SIZE)))) {
             return Block.PROTOBUF.parse(in);
-        } catch (IOException e) {
+        } catch (final IOException e) {
             LOGGER.log(WARNING, "Failed to read block from file: " + blockFilePath, e);
-            throw new RuntimeException(e);
-        } catch (ParseException e) {
+            throw new UncheckedIOException(e);
+        } catch (final ParseException e) {
             LOGGER.log(WARNING, "Failed to parse block from file: " + blockFilePath, e);
-            throw new RuntimeException(e);
+            throw new UncheckedParseException(e);
         }
     }
 
@@ -106,15 +114,15 @@ public class BlockFileBlockAccessor implements BlockAccessor {
      */
     @Override
     public BlockUnparsed blockUnparsed() {
-        try (ReadableStreamingData in = new ReadableStreamingData(compressionType.wrapStream(
+        try (final ReadableStreamingData in = new ReadableStreamingData(compressionType.wrapStream(
                 new BufferedInputStream(Files.newInputStream(blockFilePath), BUFFER_SIZE)))) {
             return BlockUnparsed.PROTOBUF.parse(in);
-        } catch (IOException e) {
-            LOGGER.log(WARNING, "Failed to read block from file: " + blockFilePath, e);
-            throw new RuntimeException(e);
-        } catch (ParseException e) {
-            LOGGER.log(WARNING, "Failed to parse block from file: " + blockFilePath, e);
-            throw new RuntimeException(e);
+        } catch (final IOException e) {
+            LOGGER.log(WARNING, "Failed to read block (unparsed) from file: " + blockFilePath, e);
+            throw new UncheckedIOException(e);
+        } catch (final ParseException e) {
+            LOGGER.log(WARNING, "Failed to parse block (unparsed) from file: " + blockFilePath, e);
+            throw new UncheckedParseException(e);
         }
     }
 
@@ -122,33 +130,35 @@ public class BlockFileBlockAccessor implements BlockAccessor {
      * {@inheritDoc}
      */
     @Override
-    public Bytes blockBytes(Format format) throws IllegalArgumentException {
+    public Bytes blockBytes(@NonNull final Format format) throws IllegalArgumentException {
+        Objects.requireNonNull(format);
         return switch (format) {
             case JSON -> Block.JSON.toBytes(block());
             case PROTOBUF -> {
-                try (InputStream in = compressionType.wrapStream(
+                try (final InputStream in = compressionType.wrapStream(
                         new BufferedInputStream(Files.newInputStream(blockFilePath), BUFFER_SIZE))) {
                     yield Bytes.wrap(in.readAllBytes());
-                } catch (IOException e) {
-                    LOGGER.log(WARNING, "Failed to read block from file: " + blockFilePath, e);
-                    throw new RuntimeException(e);
+                } catch (final IOException e) {
+                    LOGGER.log(WARNING, "Failed to read block (bytes) from file: " + blockFilePath, e);
+                    throw new UncheckedIOException(e);
                 }
             }
             case ZSTD_PROTOBUF -> {
                 if (compressionType == CompressionType.ZSTD) {
-                    try (InputStream in = new BufferedInputStream(Files.newInputStream(blockFilePath), BUFFER_SIZE)) {
+                    try (final InputStream in =
+                            new BufferedInputStream(Files.newInputStream(blockFilePath), BUFFER_SIZE)) {
                         yield Bytes.wrap(in.readAllBytes());
-                    } catch (IOException e) {
-                        LOGGER.log(WARNING, "Failed to read block from file: " + blockFilePath, e);
-                        throw new RuntimeException(e);
+                    } catch (final IOException e) {
+                        LOGGER.log(WARNING, "Failed to read block (bytes) from file: " + blockFilePath, e);
+                        throw new UncheckedIOException(e);
                     }
                 } else {
-                    try (InputStream in = compressionType.wrapStream(
+                    try (final InputStream in = compressionType.wrapStream(
                             new BufferedInputStream(Files.newInputStream(blockFilePath), BUFFER_SIZE))) {
                         yield Bytes.wrap(Zstd.compress(in.readAllBytes()));
-                    } catch (IOException e) {
-                        LOGGER.log(WARNING, "Failed to read block from file: " + blockFilePath, e);
-                        throw new RuntimeException(e);
+                    } catch (final IOException e) {
+                        LOGGER.log(WARNING, "Failed to read block (bytes) from file: " + blockFilePath, e);
+                        throw new UncheckedIOException(e);
                     }
                 }
             }
@@ -159,40 +169,43 @@ public class BlockFileBlockAccessor implements BlockAccessor {
      * {@inheritDoc}
      */
     @Override
-    public void writeBytesTo(Format format, WritableSequentialData output) throws IllegalArgumentException {
+    public void writeBytesTo(@NonNull final Format format, @NonNull final WritableSequentialData output)
+            throws IllegalArgumentException {
+        Objects.requireNonNull(format);
+        Objects.requireNonNull(output);
         switch (format) {
             case JSON -> Block.JSON.toBytes(block()).writeTo(output);
             case PROTOBUF -> {
-                try (InputStream in = compressionType.wrapStream(Files.newInputStream(blockFilePath))) {
-                    byte[] buffer = new byte[BUFFER_SIZE];
+                try (final InputStream in = compressionType.wrapStream(Files.newInputStream(blockFilePath))) {
+                    final byte[] buffer = new byte[BUFFER_SIZE];
                     int read;
                     while ((read = in.read(buffer, 0, buffer.length)) >= 0) {
                         output.writeBytes(buffer, 0, read);
                     }
-                } catch (IOException e) {
+                } catch (final IOException e) {
                     LOGGER.log(WARNING, "Failed to read block from file: " + blockFilePath, e);
-                    throw new RuntimeException(e);
+                    throw new UncheckedIOException(e);
                 }
             }
             case ZSTD_PROTOBUF -> {
                 if (compressionType == CompressionType.ZSTD) {
-                    try (InputStream in = Files.newInputStream(blockFilePath)) {
-                        byte[] buffer = new byte[BUFFER_SIZE];
+                    try (final InputStream in = Files.newInputStream(blockFilePath)) {
+                        final byte[] buffer = new byte[BUFFER_SIZE];
                         int read;
                         while ((read = in.read(buffer, 0, buffer.length)) >= 0) {
                             output.writeBytes(buffer, 0, read);
                         }
-                    } catch (IOException e) {
+                    } catch (final IOException e) {
                         LOGGER.log(WARNING, "Failed to read block from file: " + blockFilePath, e);
-                        throw new RuntimeException(e);
+                        throw new UncheckedIOException(e);
                     }
                 } else {
-                    try (InputStream in = compressionType.wrapStream(
+                    try (final InputStream in = compressionType.wrapStream(
                             new BufferedInputStream(Files.newInputStream(blockFilePath), BUFFER_SIZE))) {
                         output.writeBytes(Zstd.compress(in.readAllBytes()));
-                    } catch (IOException e) {
+                    } catch (final IOException e) {
                         LOGGER.log(WARNING, "Failed to read block from file: " + blockFilePath, e);
-                        throw new RuntimeException(e);
+                        throw new UncheckedIOException(e);
                     }
                 }
             }
@@ -203,36 +216,39 @@ public class BlockFileBlockAccessor implements BlockAccessor {
      * {@inheritDoc}
      */
     @Override
-    public void writeBytesTo(Format format, OutputStream output) throws IllegalArgumentException {
+    public void writeBytesTo(@NonNull final Format format, @NonNull final OutputStream output)
+            throws IllegalArgumentException {
+        Objects.requireNonNull(format);
+        Objects.requireNonNull(output);
         switch (format) {
             case JSON -> Block.JSON.toBytes(block()).writeTo(output);
             case PROTOBUF -> {
-                try (InputStream in = compressionType.wrapStream(Files.newInputStream(blockFilePath))) {
-                    byte[] buffer = new byte[BUFFER_SIZE];
+                try (final InputStream in = compressionType.wrapStream(Files.newInputStream(blockFilePath))) {
+                    final byte[] buffer = new byte[BUFFER_SIZE];
                     int read;
                     while ((read = in.read(buffer, 0, buffer.length)) >= 0) {
                         output.write(buffer, 0, read);
                     }
-                } catch (IOException e) {
+                } catch (final IOException e) {
                     LOGGER.log(WARNING, "Failed to read block from file: " + blockFilePath, e);
-                    throw new RuntimeException(e);
+                    throw new UncheckedIOException(e);
                 }
             }
             case ZSTD_PROTOBUF -> {
                 if (compressionType == CompressionType.ZSTD) {
-                    try (InputStream in = Files.newInputStream(blockFilePath)) {
+                    try (final InputStream in = Files.newInputStream(blockFilePath)) {
                         in.transferTo(output);
-                    } catch (IOException e) {
+                    } catch (final IOException e) {
                         LOGGER.log(WARNING, "Failed to read block from file: " + blockFilePath, e);
-                        throw new RuntimeException(e);
+                        throw new UncheckedIOException(e);
                     }
                 } else {
-                    try (InputStream in = compressionType.wrapStream(
+                    try (final InputStream in = compressionType.wrapStream(
                             new BufferedInputStream(Files.newInputStream(blockFilePath), BUFFER_SIZE))) {
                         output.write(Zstd.compress(in.readAllBytes()));
-                    } catch (IOException e) {
+                    } catch (final IOException e) {
                         LOGGER.log(WARNING, "Failed to read block from file: " + blockFilePath, e);
-                        throw new RuntimeException(e);
+                        throw new UncheckedIOException(e);
                     }
                 }
             }
@@ -243,16 +259,18 @@ public class BlockFileBlockAccessor implements BlockAccessor {
      * {@inheritDoc}
      */
     @Override
-    public void writeTo(Format format, Path path) throws IOException {
+    public void writeTo(@NonNull final Format format, @NonNull final Path path) throws IOException {
+        Objects.requireNonNull(format);
+        Objects.requireNonNull(path);
         switch (format) {
             case JSON -> {
-                try (WritableStreamingData out = new WritableStreamingData(Files.newOutputStream(path))) {
+                try (final WritableStreamingData out = new WritableStreamingData(Files.newOutputStream(path))) {
                     Block.JSON.write(block(), out);
                 }
             }
             case PROTOBUF -> {
-                try (OutputStream out = new BufferedOutputStream(Files.newOutputStream(path), BUFFER_SIZE);
-                        InputStream in = compressionType.wrapStream(
+                try (final OutputStream out = new BufferedOutputStream(Files.newOutputStream(path), BUFFER_SIZE);
+                        final InputStream in = compressionType.wrapStream(
                                 new BufferedInputStream(Files.newInputStream(blockFilePath), BUFFER_SIZE))) {
                     in.transferTo(out);
                 }
@@ -261,9 +279,9 @@ public class BlockFileBlockAccessor implements BlockAccessor {
                 if (compressionType == CompressionType.ZSTD) {
                     Files.copy(blockFilePath, path);
                 } else {
-                    try (OutputStream out = new BufferedOutputStream(
+                    try (final OutputStream out = new BufferedOutputStream(
                                     new ZstdOutputStream(Files.newOutputStream(path)), BUFFER_SIZE);
-                            InputStream in = compressionType.wrapStream(
+                            final InputStream in = compressionType.wrapStream(
                                     new BufferedInputStream(Files.newInputStream(blockFilePath), BUFFER_SIZE))) {
                         in.transferTo(out);
                     }
