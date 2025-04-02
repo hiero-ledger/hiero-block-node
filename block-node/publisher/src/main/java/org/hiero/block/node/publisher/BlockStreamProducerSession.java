@@ -14,7 +14,6 @@ import com.swirlds.metrics.api.Counter;
 import edu.umd.cs.findbugs.annotations.NonNull;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Objects;
 import java.util.concurrent.Flow;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.Consumer;
@@ -228,9 +227,7 @@ public final class BlockStreamProducerSession implements Pipeline<List<BlockItem
      * @param blockNumber the block number
      * @param blockHash   the block hash
      */
-    void sendBlockPersisted(final long blockNumber, @NonNull final Bytes blockHash) {
-        Objects.requireNonNull(blockHash);
-
+    void sendBlockPersisted(long blockNumber, Bytes blockHash) {
         if (responsePipeline != null) {
             final PublishStreamResponse goodBlockResponse = new PublishStreamResponse(new OneOf<>(
                     ResponseOneOfType.ACKNOWLEDGEMENT,
