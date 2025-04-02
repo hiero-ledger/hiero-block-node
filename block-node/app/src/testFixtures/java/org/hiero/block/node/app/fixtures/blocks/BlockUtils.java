@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.node.app.fixtures.blocks;
 
+import com.hedera.hapi.block.stream.Block;
 import com.hedera.pbj.runtime.ParseException;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import java.io.IOException;
@@ -11,7 +12,36 @@ import org.hiero.hapi.block.node.BlockUnparsed;
 /*
  * Utility class for getting test blocks.
  * */
+@SuppressWarnings("unused")
 public final class BlockUtils {
+
+    /**
+     * Converts Block to a List of BlockUnparsed
+     *
+     * @param block the Block to convert
+     * @return BlockUnparsed representation of the BlockItem
+     */
+    public static BlockUnparsed toBlockUnparsed(Block block) {
+        try {
+            return BlockUnparsed.PROTOBUF.parse(Block.PROTOBUF.toBytes(block));
+        } catch (ParseException e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    /**
+     * Converts a BlockUnparsed to a Block
+     *
+     * @param block the BlockUnparsed to convert
+     * @return the Block representation of the BlockUnparsed
+     */
+    public static Block toBlock(BlockUnparsed block) {
+        try {
+            return Block.PROTOBUF.parse(BlockUnparsed.PROTOBUF.toBytes(block));
+        } catch (ParseException e) {
+            throw new RuntimeException(e);
+        }
+    }
 
     /**
      * Gets a SampleBlockInfo, out of the defined sample blocks enum.
@@ -24,7 +54,7 @@ public final class BlockUtils {
         //                .getResourceAsStream("test-blocks/" + "perf-10K-1731.blk.json")
         //                .readAllBytes()));
 
-        BlockUnparsed blockUnparsed = null;
+        BlockUnparsed blockUnparsed;
         var stream = TestUtils.class.getModule().getResourceAsStream("test-blocks/" + sampleBlocks.blockName);
         try (final var gzipInputStream = new GZIPInputStream(stream)) {
             // Read the bytes from the GZIPInputStream
