@@ -8,15 +8,23 @@ import static org.assertj.core.api.Assertions.assertThatNullPointerException;
 
 import com.google.common.jimfs.Configuration;
 import com.google.common.jimfs.Jimfs;
+import com.hedera.hapi.block.stream.Block;
+import com.hedera.hapi.block.stream.BlockItem;
+import com.hedera.pbj.runtime.io.buffer.Bytes;
 import java.io.IOException;
+import java.io.OutputStream;
 import java.nio.file.FileSystem;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.List;
+import org.hiero.block.node.app.fixtures.blocks.SimpleTestBlockItemBuilder;
 import org.hiero.block.node.base.CompressionType;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 
 /**
  * Test class for {@link BlockFileBlockAccessor}.
@@ -182,6 +190,40 @@ class BlockFileBlockAccessorTest {
             // call && assert
             assertThatNoException()
                     .isThrownBy(() -> new BlockFileBlockAccessor(testBasePath, blockFilePath, CompressionType.NONE));
+        }
+    }
+
+    /**
+     * Tests for the {@link BlockFileBlockAccessor} functionality.
+     */
+    @Nested
+    @DisplayName("Functionality tests")
+    final class FunctionalityTests {
+        @ParameterizedTest
+        @EnumSource(CompressionType.class)
+        //        @DisplayName("Test that the block file path is created correctly") todo
+        void test(final CompressionType compressionType) throws IOException {
+            // create & assert existing block file path before call
+            final Path blockFilePath = testBasePath.resolve("1.blk".concat(compressionType.extension()));
+            Files.createFile(blockFilePath);
+            assertThat(blockFilePath)
+                    .exists()
+                    .isRegularFile()
+                    .isEmptyFile()
+                    .isReadable()
+                    .isWritable();
+            final BlockItem[] blockItems = SimpleTestBlockItemBuilder.createNumberOfVerySimpleBlocks(1);
+            final Block targetBlock = new Block(List.of(blockItems));
+            final Bytes bytes = Block.PROTOBUF.toBytes(targetBlock);
+            final byte[] expectedBytes = bytes.toByteArray();
+            final OutputStream out = compressionType.wrapStream(Files.newOutputStream(blockFilePath));
+            bytes.writeTo(out);
+            out.flush();
+            assertThat(blockFilePath).isNotEmptyFile();
+            final Block actualBlock = new BlockFileBlockAccessor(testBasePath, blockFilePath, compressionType).block();
+            System.out.println();
+            // todo this throws when ZSTD is used, maybe because of the buffered streams used underneath,
+            //   need some more research before completing the test
         }
     }
 }
