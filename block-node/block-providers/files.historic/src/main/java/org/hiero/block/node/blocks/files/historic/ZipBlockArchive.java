@@ -5,6 +5,7 @@ import static org.hiero.block.node.base.BlockFile.BLOCK_FILE_EXTENSION;
 import static org.hiero.block.node.base.BlockFile.blockNumberFormated;
 import static org.hiero.block.node.base.BlockFile.blockNumberFromFile;
 
+import com.hedera.pbj.runtime.io.buffer.Bytes;
 import java.io.BufferedOutputStream;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -14,6 +15,7 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Optional;
 import java.util.stream.IntStream;
+import java.util.zip.CRC32;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipFile;
 import java.util.zip.ZipOutputStream;
@@ -82,15 +84,22 @@ public class ZipBlockArchive {
                 final String blockFileName = BlockFile.blockFileName(blockNumber);
                 // get block accessor
                 final BlockAccessor blockAccessor = blockAccessors.get((int) (blockNumber - firstBlockNumber));
+                // get the bytes to write, we have to do this as we need to know the size
+                final Bytes bytes = blockAccessor.blockBytes(format);
+                // calculate CRC-32 checksum
+                CRC32 crc = new CRC32();
+                crc.update(bytes.toByteArray());
                 // create zip entry
-                zipOutputStream.putNextEntry(new ZipEntry(blockFileName));
+                final ZipEntry zipEntry = new ZipEntry(blockFileName);
+                zipEntry.setSize(bytes.length());
+                zipEntry.setCompressedSize(bytes.length());
+                zipEntry.setCrc(crc.getValue());
+                zipOutputStream.putNextEntry(zipEntry);
                 // write compressed block content
-                blockAccessor.writeBytesTo(format, zipOutputStream);
+                bytes.writeTo(zipOutputStream);
                 // close zip entry
                 zipOutputStream.closeEntry();
             }
-            zipOutputStream.putNextEntry(new ZipEntry(firstBlockPath.blockFileName));
-            zipOutputStream.closeEntry();
         }
         // return block accessors
         return blockAccessors;
