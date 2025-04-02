@@ -4,6 +4,8 @@ package org.hiero.block.node.app;
 import static java.lang.System.Logger;
 import static java.lang.System.Logger.Level.INFO;
 import static org.hiero.block.common.constants.StringsConstants.APPLICATION_PROPERTIES;
+import static org.hiero.block.node.app.logging.CleanColorfulFormatter.GREY;
+import static org.hiero.block.node.app.logging.CleanColorfulFormatter.LIGHT_GREEN;
 
 import com.hedera.pbj.grpc.helidon.PbjRouting;
 import com.hedera.pbj.grpc.helidon.config.PbjConfig;
@@ -27,7 +29,8 @@ import java.util.ServiceLoader;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.logging.LogManager;
 import org.hiero.block.node.app.config.AutomaticEnvironmentVariableConfigSource;
-import org.hiero.block.node.app.config.ConfigurationLogging;
+import org.hiero.block.node.app.config.ConfigLogger;
+import org.hiero.block.node.app.logging.CleanColorfulFormatter;
 import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.BlockNodePlugin;
 import org.hiero.block.node.spi.ServiceBuilder;
@@ -64,6 +67,7 @@ public class BlockNodeApp implements HealthFacility {
      */
     private BlockNodeApp() throws IOException {
         // ==== LOAD LOGGING CONFIG ====================================================================================
+        // load the logging configuration from the classpath and make it colorful
         try (var loggingConfigIn = BlockNodeApp.class.getClassLoader().getResourceAsStream("logging.properties")) {
             if (loggingConfigIn != null) {
                 LogManager.getLogManager().readConfiguration(loggingConfigIn);
@@ -73,6 +77,9 @@ public class BlockNodeApp implements HealthFacility {
         } catch (IOException e) {
             LOGGER.log(INFO, "Failed to load logging configuration", e);
         }
+        CleanColorfulFormatter.makeLoggingColorful();
+        // tell helidon to use the same logging configuration
+        System.setProperty("io.helidon.logging.config.disabled", "true");
         // ==== FACILITY & PLUGIN LOADING ==============================================================================
         // Load Block Messaging Service plugin - for now allow nulls
         final BlockMessagingFacility blockMessagingService = ServiceLoader.load(
@@ -103,12 +110,8 @@ public class BlockNodeApp implements HealthFacility {
                 .withConfigDataTypes(allConfigDataTypes.toArray(new Class[0]));
         // Build the configuration
         final Configuration configuration = configurationBuilder.build();
-        // Log loaded configuration data types
-        configuration
-                .getConfigDataTypes()
-                .forEach(configDataType -> LOGGER.log(INFO, "Loaded config data type: " + configDataType.getName()));
         // Log the configuration
-        ConfigurationLogging.log(configuration);
+        ConfigLogger.log(configuration);
         // now that configuration is loaded we can get config for server
         serverConfig = configuration.getConfigData(ServerConfig.class);
         // ==== METRICS ================================================================================================
@@ -159,8 +162,9 @@ public class BlockNodeApp implements HealthFacility {
         };
         // ==== INITIALIZE PLUGINS =====================================================================================
         // Initialize all the facilities & plugins, adding routing for each plugin
+        LOGGER.log(INFO, "Initializing plugins:");
         for (BlockNodePlugin plugin : loadedPlugins) {
-            LOGGER.log(INFO, "    Initializing plugin: {0}", plugin.name());
+            LOGGER.log(INFO, GREY + "    " + plugin.name());
             plugin.init(blockNodeContext, serviceBuilder);
         }
         // ==== LOAD & CONFIGURE WEB SERVER ============================================================================
@@ -187,20 +191,21 @@ public class BlockNodeApp implements HealthFacility {
      * and starts the metrics.
      */
     private void start() {
-        LOGGER.log(INFO, "Starting BlockNode Server");
+        LOGGER.log(INFO, LIGHT_GREEN + "Starting BlockNode Server");
         // Start the web server
         webServer.start();
         // Start metrics
         blockNodeContext.metrics().start();
         // Start all the facilities & plugins
+        LOGGER.log(INFO, "Starting plugins:");
         for (BlockNodePlugin plugin : loadedPlugins) {
-            LOGGER.log(INFO, "    Starting plugin: {0}", plugin.name());
+            LOGGER.log(INFO, GREY + "    " + plugin.name());
             plugin.start();
         }
         // mark the server as started
         state.set(State.RUNNING);
         // log the server has started
-        LOGGER.log(INFO, "Started BlockNode Server : State = {0}", state.get());
+        LOGGER.log(INFO, LIGHT_GREEN + "Started BlockNode Server : State = {0}", state.get());
     }
 
     /**

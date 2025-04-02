@@ -288,7 +288,7 @@ public final class PublisherServicePlugin implements BlockNodePlugin, ServiceInt
         // get the timeout in nanos
         timeOutNanos = publisherConfig.timeoutThresholdMillis() * 1_000_000L;
         // get type of publisher to use and log it
-        LOGGER.log(INFO, "Using publisher type:{1}", publisherConfig.type());
+        LOGGER.log(INFO, "Using publisher type: {0}", publisherConfig.type());
 
         // create metrics
         liveBlockItemsReceived = context.metrics()
