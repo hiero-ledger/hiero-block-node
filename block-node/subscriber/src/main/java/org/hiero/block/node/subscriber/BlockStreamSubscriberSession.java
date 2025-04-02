@@ -113,7 +113,7 @@ public class BlockStreamSubscriberSession implements Pipeline<SubscribeStreamReq
      * Close this session. This will unregister us from the block messaging system and cancel the subscription.
      */
     public synchronized void close() {
-        LOGGER.log(Level.INFO, "Closing BlockStreamSubscriberSession for client {1}", clientId);
+        LOGGER.log(Level.DEBUG, "Closing BlockStreamSubscriberSession for client {1}", clientId);
         closeCallback.accept(this);
         currentState = SubscriberState.DISCONNECTED;
         subscribeStreamRequest = null;
@@ -142,7 +142,7 @@ public class BlockStreamSubscriberSession implements Pipeline<SubscribeStreamReq
             if (subscribeStreamRequest.endBlockNumber() != UNKNOWN_BLOCK_NUMBER
                     && blockItems.newBlockNumber() > subscribeStreamRequest.endBlockNumber()) {
                 LOGGER.log(
-                        Level.INFO,
+                        Level.DEBUG,
                         "Client {0} has reached end block number {1}",
                         clientId,
                         subscribeStreamRequest.endBlockNumber());
@@ -221,7 +221,7 @@ public class BlockStreamSubscriberSession implements Pipeline<SubscribeStreamReq
                 // live stream
                 LOGGER.log(
                         Level.INFO,
-                        "Client {0} has fallen too far behind, while awaiting joining from " + "the historical stream",
+                        "Client {0} has fallen too far behind, while awaiting joining from the historical stream",
                         clientId);
                 if (holdLiveStreamBarrier != null) {
                     // release the barrier
@@ -246,7 +246,7 @@ public class BlockStreamSubscriberSession implements Pipeline<SubscribeStreamReq
                 if (newBlockNumber != UNKNOWN_BLOCK_NUMBER) {
                     // we have received a block, so we can start streaming
                     LOGGER.log(
-                            Level.INFO,
+                            Level.DEBUG,
                             "Client {0} has started streaming live blocks from {1}",
                             clientId,
                             newBlockNumber);
@@ -260,11 +260,11 @@ public class BlockStreamSubscriberSession implements Pipeline<SubscribeStreamReq
                 }
             }
             case SENDING_LIVE_STREAM_WAITING_FOR_EXPLICIT_BLOCK_START -> {
-                // handle cases where we client is waiting for a future block
+                // handle cases where the client is waiting for a future block
                 if (newBlockNumber > subscribeStreamRequest.startBlockNumber()) {
                     // we have started a block newer and have failed to start streaming so return error to client
                     LOGGER.log(
-                            Level.WARNING,
+                            Level.DEBUG,
                             "Client {0} has started streaming live blocks from {1} but we are waiting for {2} "
                                     + "which is now in the past",
                             clientId,
@@ -277,7 +277,7 @@ public class BlockStreamSubscriberSession implements Pipeline<SubscribeStreamReq
                 } else if (newBlockNumber == subscribeStreamRequest.startBlockNumber()) {
                     // we have received a block, so we can start streaming
                     LOGGER.log(
-                            Level.INFO,
+                            Level.DEBUG,
                             "Client {0} has started streaming live blocks from {1}",
                             clientId,
                             newBlockNumber);
