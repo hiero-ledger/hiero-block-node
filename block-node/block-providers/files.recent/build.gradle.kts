@@ -21,4 +21,5 @@ testModuleInfo {
     requires("org.mockito")
     requires("org.mockito.junit.jupiter")
     requires("org.assertj.core")
+    requires("org.hiero.block.node.app.test.fixtures")
 }
