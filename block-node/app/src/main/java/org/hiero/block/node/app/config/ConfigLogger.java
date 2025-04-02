@@ -2,6 +2,9 @@
 package org.hiero.block.node.app.config;
 
 import static java.lang.System.Logger.Level.INFO;
+import static org.hiero.block.node.app.logging.CleanColorfulFormatter.CYAN;
+import static org.hiero.block.node.app.logging.CleanColorfulFormatter.GREY;
+import static org.hiero.block.node.app.logging.CleanColorfulFormatter.WHITE;
 
 import com.swirlds.config.api.ConfigData;
 import com.swirlds.config.api.ConfigProperty;
@@ -16,9 +19,9 @@ import org.hiero.block.node.base.Loggable;
 /**
  * Use this class to log configuration data.
  */
-public final class ConfigurationLogging {
+public final class ConfigLogger {
     /** The logger for this class. */
-    private static final System.Logger LOGGER = System.getLogger(ConfigurationLogging.class.getName());
+    private static final System.Logger LOGGER = System.getLogger(ConfigLogger.class.getName());
     /** banner separator line */
     private static final String BANNER_LINE = "=".repeat(120);
 
@@ -34,8 +37,17 @@ public final class ConfigurationLogging {
             LOGGER.log(INFO, BANNER_LINE);
             LOGGER.log(INFO, "Block Node Configuration");
             LOGGER.log(INFO, BANNER_LINE);
+            // Log loaded configuration data types
+            LOGGER.log(INFO, "Configuration data types:");
+            for (final var type : configuration.getConfigDataTypes()) {
+                LOGGER.log(INFO, GREY + "    " + type.getName());
+            }
+            LOGGER.log(INFO, BANNER_LINE);
+            LOGGER.log(INFO, "Combined Configuration:");
             // Log the configuration
-            collectConfig(configuration).forEach((propertyName, value) -> LOGGER.log(INFO, propertyName + "=" + value));
+            for (final var config : collectConfig(configuration).entrySet()) {
+                LOGGER.log(INFO, GREY + "    " + config.getKey() + CYAN + " = " + WHITE + config.getValue());
+            }
             // Footer
             LOGGER.log(INFO, BANNER_LINE);
         }
