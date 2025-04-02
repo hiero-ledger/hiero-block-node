@@ -82,6 +82,4 @@ class VerificationServicePluginTest extends NonGrpcPluginTestBase {
                 blockNotification.blockHash(),
                 "The block hash should NOT be the same");
     }
-
-
 }
