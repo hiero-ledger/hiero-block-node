@@ -58,6 +58,9 @@ public class VerificationServicePlugin implements BlockNodePlugin, BlockItemHand
         this.context = context;
         final var metrics = context.metrics();
         // TODO do we need this? It is not used anywhere, what am I missing?
+        // I doubled checked, we don't need configuration atm, these configs were only necessary for ASYNC impl.
+        // however we should have one for pubKey, not sure if we will be able to get the pubKey from state from the very
+        // beginning.
         verificationConfig = context.configuration().getConfigData(VerificationConfig.class);
         // create metrics for this plugin
         verificationBlocksReceived =

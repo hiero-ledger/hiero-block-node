@@ -20,12 +20,6 @@ echo "REGISTRY_PREFIX=" >> .env
 # Storage root path, this is temporary until we have a proper .properties file for all configs
 echo "BLOCKNODE_STORAGE_ROOT_PATH=/app/storage" >> .env
 
-if [ true = "$is_debug" ]; then
-  # The server will wait for the debugger to attach on port 5005
-  # JProfiler can attach on port 8849
-  echo "SERVER_OPTS='-agentlib:jdwp=transport=dt_socket,server=y,suspend=y,address=*:5005' -agentpath:/path/to/libjprofilerti.so=port=8849 " >> .env
-fi
-
 if [ true = "$is_smoke_test" ]; then
   # add smoke test variables
   echo "MEDIATOR_RING_BUFFER_SIZE=1024" >> .env
@@ -36,9 +30,15 @@ else
   echo "JAVA_OPTS='-Xms16G -Xmx16G'" >> .env
 fi
 
-# file is mounted in the docker-compose.yml, changes to the file will be reflected in the container by simply restarting it
-echo "JAVA_TOOL_OPTIONS='-Djava.util.logging.config.file=/app/logs/config/logging.properties'" >> .env
-
+if [ true = "$is_debug" ]; then
+  # The server will wait for the debugger to attach on port 5005
+  # JProfiler can attach on port 8849
+  echo "JAVA_TOOL_OPTIONS='-Djava.util.logging.config.file=/app/logs/config/logging.properties -agentlib:jdwp=transport=dt_socket,server=y,suspend=y,address=*:5005' -agentpath:/path/to/libjprofilerti.so=port=8849 " >> .env
+else
+  # we set normally the JAVA_TOOL_OPTIONS
+  # file is mounted in the docker-compose.yml, changes to the file will be reflected in the container by simply restarting it
+  echo "JAVA_TOOL_OPTIONS='-Djava.util.logging.config.file=/app/logs/config/logging.properties '" >> .env
+fi
 # Output the values
 echo ".env properties:"
 cat .env
