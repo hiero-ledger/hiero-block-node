@@ -28,7 +28,7 @@ public class CleanColorfulFormatter extends Formatter {
     public static final String GREY = "\u001B[37m";
     public static final String WHITE = "\u001B[97m";
     public static final String FORMAT_PROPERTY = "org.hiero.block.node.app.logging.CleanColorfulFormatter.format";
-    public static final String DEFAULT_FORMAT_STRING = "%TF %<TT.%<TL%<Tz %4$-7s %2$-30s %5$s%6$s%n";
+    public static final String DEFAULT_FORMAT_STRING = "%TF %<TT.%<TL%<Tz %4$-7s %2$-40s %5$s%6$s%n";
     /** The string format of the log message */
     private final String format;
 

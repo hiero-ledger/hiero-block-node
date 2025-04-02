@@ -5,12 +5,16 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatIllegalArgumentException;
 import static org.assertj.core.api.Assertions.assertThatNoException;
 import static org.assertj.core.api.Assertions.assertThatNullPointerException;
+import static org.hiero.block.node.app.fixtures.blocks.BlockUtils.toBlockUnparsed;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 
 import com.google.common.jimfs.Configuration;
 import com.google.common.jimfs.Jimfs;
 import com.hedera.hapi.block.stream.Block;
 import com.hedera.hapi.block.stream.BlockItem;
+import com.hedera.pbj.runtime.io.buffer.BufferedData;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.nio.file.FileSystem;
@@ -19,6 +23,8 @@ import java.nio.file.Path;
 import java.util.List;
 import org.hiero.block.node.app.fixtures.blocks.SimpleTestBlockItemBuilder;
 import org.hiero.block.node.base.CompressionType;
+import org.hiero.block.node.spi.historicalblocks.BlockAccessor.Format;
+import org.hiero.hapi.block.node.BlockUnparsed;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -214,16 +220,47 @@ class BlockFileBlockAccessorTest {
                     .isWritable();
             final BlockItem[] blockItems = SimpleTestBlockItemBuilder.createNumberOfVerySimpleBlocks(1);
             final Block targetBlock = new Block(List.of(blockItems));
-            final Bytes bytes = Block.PROTOBUF.toBytes(targetBlock);
-            final byte[] expectedBytes = bytes.toByteArray();
-            final OutputStream out = compressionType.wrapStream(Files.newOutputStream(blockFilePath));
-            bytes.writeTo(out);
-            out.flush();
+            final Bytes expectedProtobufBytes = Block.PROTOBUF.toBytes(targetBlock);
+            // it is important the output stream is closed as the compression writes a footer on close
+            try (final OutputStream out = compressionType.wrapStream(Files.newOutputStream(blockFilePath))) {
+                expectedProtobufBytes.writeTo(out);
+            }
             assertThat(blockFilePath).isNotEmptyFile();
-            final Block actualBlock = new BlockFileBlockAccessor(testBasePath, blockFilePath, compressionType).block();
-            System.out.println();
-            // todo this throws when ZSTD is used, maybe because of the buffered streams used underneath,
-            //   need some more research before completing the test
+            // test accessor.block()
+            final BlockFileBlockAccessor blockAccessor =
+                    new BlockFileBlockAccessor(testBasePath, blockFilePath, compressionType);
+            final Block actualBlock = blockAccessor.block();
+            assertEquals(targetBlock, actualBlock);
+            // test accessor.blockUnparsed()
+            final BlockUnparsed actualBlockUnparsed = blockAccessor.blockUnparsed();
+            final BlockUnparsed expectedBlockUnparsed = toBlockUnparsed(actualBlock);
+            assertEquals(expectedBlockUnparsed, actualBlockUnparsed);
+            final var format =
+                    switch (compressionType) {
+                        case ZSTD -> Format.ZSTD_PROTOBUF;
+                        case NONE -> Format.PROTOBUF;
+                    };
+            final Bytes expectedFileBytes = Bytes.wrap(Files.readAllBytes(blockFilePath));
+            final String expectedFileHex = expectedFileBytes.toHex();
+            // test accessor.blockBytes()
+            final Bytes actualBytes = blockAccessor.blockBytes(format);
+            assertEquals(expectedFileHex, actualBytes.toHex());
+            // test accessor.writeBytesTo(OutputStream)
+            final ByteArrayOutputStream byteArrayOutputStream = new ByteArrayOutputStream();
+            blockAccessor.writeBytesTo(format, byteArrayOutputStream);
+            final Bytes actualOutputStreamBytes = Bytes.wrap(byteArrayOutputStream.toByteArray());
+            assertEquals(expectedFileHex, actualOutputStreamBytes.toHex());
+            // test accessor.writeBytesTo(BufferedData)
+            final BufferedData bufferedData = BufferedData.allocate((int) expectedFileBytes.length());
+            blockAccessor.writeBytesTo(format, bufferedData);
+            final Bytes bufferedDataBytes = bufferedData.getBytes(0, bufferedData.length());
+            assertEquals(expectedFileHex, bufferedDataBytes.toHex());
+            // test accessor.writeTo(Path)
+            final Path blockFilePath2 = testBasePath.resolve("2.blk");
+            blockAccessor.writeTo(format, blockFilePath2);
+            final String file2BytesHex =
+                    Bytes.wrap(Files.readAllBytes(blockFilePath2)).toHex();
+            assertEquals(expectedFileHex, file2BytesHex);
         }
     }
 }
