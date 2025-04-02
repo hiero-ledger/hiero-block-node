@@ -4,13 +4,16 @@ package org.hiero.block.node.blocks.files.recent;
 import static org.hiero.block.node.base.BlockFile.nestedDirectoriesAllBlockNumbers;
 
 import com.hedera.pbj.runtime.io.stream.WritableStreamingData;
+import edu.umd.cs.findbugs.annotations.NonNull;
 import java.io.BufferedOutputStream;
 import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.lang.System.Logger.Level;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.LinkedList;
 import java.util.List;
+import java.util.Objects;
 import java.util.Set;
 import java.util.function.LongConsumer;
 import org.hiero.block.common.utils.FileUtilities;
@@ -22,7 +25,7 @@ import org.hiero.hapi.block.node.BlockUnparsed;
  * This class is responsible for handling unverified blocks. Storing them till they are verified if needed. Avoiding
  * race conditions between the block verification notifications and incoming blocks.
  */
-public class UnverifiedHandler {
+final class UnverifiedHandler {
     /** The logger for this class. */
     private final System.Logger LOGGER = System.getLogger(getClass().getName());
     /** The configuration for this plugin. */
@@ -40,9 +43,9 @@ public class UnverifiedHandler {
      * @param config the configuration for this plugin
      * @param moveToLive function to call to move the block to live storage
      */
-    public UnverifiedHandler(FilesRecentConfig config, LongConsumer moveToLive) {
-        this.config = config;
-        this.moveToLive = moveToLive;
+    UnverifiedHandler(@NonNull final FilesRecentConfig config, @NonNull final LongConsumer moveToLive) {
+        this.config = Objects.requireNonNull(config);
+        this.moveToLive = Objects.requireNonNull(moveToLive);
         completedUnverifiedBlocks = nestedDirectoriesAllBlockNumbers(config.liveRootPath(), config.compression());
     }
 
@@ -51,7 +54,7 @@ public class UnverifiedHandler {
      *
      * @param blockNumber the block number of the verified block
      */
-    public synchronized void blockVerified(long blockNumber) {
+    synchronized void blockVerified(final long blockNumber) {
         // add the verified block number to the stack of completed unverified blocks
         last100VerifiedBlockNumbers.add(blockNumber);
         while (last100VerifiedBlockNumbers.size() > 100) {
@@ -81,8 +84,9 @@ public class UnverifiedHandler {
      * @param blockNumber the block number of the block to store
      * @return true if the block was stored, false if it was already verified
      */
-    public synchronized boolean storeIfUnverifiedBlock(
-            final List<BlockItemUnparsed> blockItems, final long blockNumber) {
+    synchronized boolean storeIfUnverifiedBlock(
+            @NonNull final List<BlockItemUnparsed> blockItems, final long blockNumber) {
+        Objects.requireNonNull(blockItems);
         // check if the block number is already verified
         if (last100VerifiedBlockNumbers.contains(blockNumber)) {
             // block is already verified, do not store it
@@ -94,13 +98,13 @@ public class UnverifiedHandler {
         // create parent directory if it does not exist
         try {
             Files.createDirectories(unverifiedBlockPath.getParent(), FileUtilities.DEFAULT_FOLDER_PERMISSIONS);
-        } catch (IOException e) {
+        } catch (final IOException e) {
             LOGGER.log(
                     System.Logger.Level.ERROR,
                     "Failed to create unverified block directory: {0}, error: {1}",
                     unverifiedBlockPath.getParent().toAbsolutePath().toString(),
                     e.getMessage());
-            throw new RuntimeException(e);
+            throw new UncheckedIOException(e);
         }
         // write the block to the file
         try (final WritableStreamingData streamingData = new WritableStreamingData(new BufferedOutputStream(
@@ -117,14 +121,14 @@ public class UnverifiedHandler {
             completedUnverifiedBlocks.add(blockNumber);
             // return true to indicate that the block was stored
             return true;
-        } catch (IOException e) {
+        } catch (final IOException e) {
             LOGGER.log(
                     System.Logger.Level.ERROR,
                     "Failed to write unverified block {0} to file: {1}, error: {2}",
                     blockNumber,
                     unverifiedBlockPath.toAbsolutePath().toString(),
                     e.getMessage());
-            throw new RuntimeException(e);
+            throw new UncheckedIOException(e);
         }
     }
 }
