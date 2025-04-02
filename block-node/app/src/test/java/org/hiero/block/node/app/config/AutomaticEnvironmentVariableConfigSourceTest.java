@@ -13,7 +13,7 @@ import org.hiero.block.node.app.ServerConfig;
 import org.junit.jupiter.api.Test;
 
 /**
- * Unit tests for the {@link ConfigurationLogging} class.
+ * Unit tests for the {@link ConfigLogger} class.
  */
 public class AutomaticEnvironmentVariableConfigSourceTest {
     /**
@@ -29,7 +29,7 @@ public class AutomaticEnvironmentVariableConfigSourceTest {
                 .withConfigDataType(ServerConfig.class)
                 .build();
         assertEquals(8080, config.getConfigData(ServerConfig.class).port());
-        ConfigurationLogging.log(config);
+        ConfigLogger.log(config);
     }
 
     /**

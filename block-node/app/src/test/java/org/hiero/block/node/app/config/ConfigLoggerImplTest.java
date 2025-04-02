@@ -22,9 +22,9 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 /**
- * Unit tests for the {@link ConfigurationLogging} class.
+ * Unit tests for the {@link ConfigLogger} class.
  */
-public class ConfigurationLoggingImplTest {
+public class ConfigLoggerImplTest {
     /** The custom log handler used to capture log messages. */
     private TestLogHandler logHandler;
 
@@ -34,7 +34,7 @@ public class ConfigurationLoggingImplTest {
      */
     @BeforeEach
     void setUp() {
-        final Logger logger = java.util.logging.Logger.getLogger(ConfigurationLogging.class.getName());
+        final Logger logger = java.util.logging.Logger.getLogger(ConfigLogger.class.getName());
         System.out.println("logger = " + logger);
         logHandler = new TestLogHandler();
         logger.addHandler(logHandler);
@@ -47,14 +47,15 @@ public class ConfigurationLoggingImplTest {
     @Test
     public void testCurrentAppProperties() throws IOException {
         final Configuration configuration = getTestConfig(Collections.emptyMap());
-        ConfigurationLogging.log(configuration);
-        final String logMessages = logHandler.getLogMessages();
+        ConfigLogger.log(configuration);
+        final String logMessages =
+                logHandler.getLogMessages().replaceAll("\u001B\\[\\d+m", ""); // Remove ANSI color codes
         System.out.println("logHandler = " + logHandler.getLogMessages());
 
-        final Map<String, String> config = ConfigurationLogging.collectConfig(configuration);
+        final Map<String, String> config = ConfigLogger.collectConfig(configuration);
         assertNotNull(config);
         for (Map.Entry<String, String> entry : config.entrySet()) {
-            final String loggedProperty = entry.getKey() + "=" + entry.getValue();
+            final String loggedProperty = entry.getKey() + " = " + entry.getValue();
             // check that entry was logged
             assertTrue(logMessages.contains(loggedProperty), "Log message should be captured: " + loggedProperty);
             if (entry.getValue().contains("*")) {
@@ -70,16 +71,18 @@ public class ConfigurationLoggingImplTest {
     @Test
     public void testWithMockedSensitiveProperty() throws IOException {
         final Configuration configuration = getTestConfigWithSecret();
-        ConfigurationLogging.log(configuration);
-        final String logMessages = logHandler.getLogMessages();
+        ConfigLogger.log(configuration);
+        final String logMessages =
+                logHandler.getLogMessages().replaceAll("\u001B\\[\\d+m", ""); // Remove ANSI color codes
         System.out.println("logHandler = " + logMessages);
-        final Map<String, String> config = ConfigurationLogging.collectConfig(configuration);
+        final Map<String, String> config = ConfigLogger.collectConfig(configuration);
         assertNotNull(config);
         assertEquals("*****", config.get("test.secret"));
         assertEquals("", config.get("test.emptySecret"));
-        assertTrue(logMessages.contains("test.secret=*****"), "Log message should be captured: \"test.secret=*****\"");
         assertTrue(
-                logMessages.contains("test.emptySecret=\n"), "Log message should be captured: \"test.emptySecret=\"");
+                logMessages.contains("test.secret = *****"), "Log message should be captured: \"test.secret = *****\"");
+        assertTrue(
+                logMessages.contains("test.emptySecret = \n"), "Log message should be captured: \"test.emptySecret=\"");
     }
 
     /**
