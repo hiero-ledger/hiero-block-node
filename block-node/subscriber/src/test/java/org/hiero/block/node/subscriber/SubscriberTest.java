@@ -28,7 +28,7 @@ import org.junit.jupiter.api.Test;
  * plugin.
  */
 @SuppressWarnings("DataFlowIssue")
-public class SubscriberTest extends GrpcPluginTestBase {
+public class SubscriberTest extends GrpcPluginTestBase<SubscriberServicePlugin> {
 
     public SubscriberTest() {
         super(new SubscriberServicePlugin(), subscribeBlockStream, new SimpleInMemoryHistoricalBlockFacility());
