@@ -25,9 +25,13 @@ import org.junit.jupiter.params.provider.MethodSource;
  */
 @DisplayName("FilesRecentConfig Tests")
 class FilesRecentConfigTest {
+    /** Default live root path value. */
     private Path defaultLiveRootPath;
+    /** Default unverified root path value. */
     private Path defaultUnverifiedRootPath;
+    /** Default compression value. */
     private CompressionType defaultCompression;
+    /** Default max files per dir value. */
     private int defaultMaxFilesPerDir;
 
     /**
