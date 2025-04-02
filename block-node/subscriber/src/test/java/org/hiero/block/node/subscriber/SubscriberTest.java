@@ -13,7 +13,7 @@ import com.hedera.hapi.block.stream.BlockItem;
 import com.hedera.pbj.runtime.ParseException;
 import com.hedera.pbj.runtime.grpc.ServiceInterface.Method;
 import java.util.List;
-import org.hiero.block.node.app.fixtures.plugintest.GrpcTestAppBase;
+import org.hiero.block.node.app.fixtures.plugintest.GrpcPluginTestBase;
 import org.hiero.block.node.app.fixtures.plugintest.SimpleInMemoryHistoricalBlockFacility;
 import org.hiero.block.node.spi.blockmessaging.BlockItems;
 import org.hiero.hapi.block.node.SubscribeStreamRequest;
@@ -28,7 +28,7 @@ import org.junit.jupiter.api.Test;
  * plugin.
  */
 @SuppressWarnings("DataFlowIssue")
-public class SubscriberTest extends GrpcTestAppBase {
+public class SubscriberTest extends GrpcPluginTestBase {
 
     public SubscriberTest() {
         super(new SubscriberServicePlugin(), subscribeBlockStream, new SimpleInMemoryHistoricalBlockFacility());

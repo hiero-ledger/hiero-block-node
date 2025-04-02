@@ -10,13 +10,13 @@ import java.io.IOException;
 import java.util.List;
 import org.hiero.block.node.app.fixtures.blocks.BlockUtils;
 import org.hiero.block.node.app.fixtures.plugintest.NoBlocksHistoricalBlockFacility;
-import org.hiero.block.node.app.fixtures.plugintest.NonGrpcPluginTestBase;
+import org.hiero.block.node.app.fixtures.plugintest.PluginTestBase;
 import org.hiero.block.node.spi.blockmessaging.BlockItems;
 import org.hiero.block.node.spi.blockmessaging.BlockNotification;
 import org.hiero.hapi.block.node.BlockItemUnparsed;
 import org.junit.jupiter.api.Test;
 
-class VerificationServicePluginTest extends NonGrpcPluginTestBase {
+class VerificationServicePluginTest extends PluginTestBase {
 
     public VerificationServicePluginTest() {
         super(new VerificationServicePlugin(), new NoBlocksHistoricalBlockFacility());
