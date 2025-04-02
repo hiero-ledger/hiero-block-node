@@ -1,6 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.node.publisher;
 
+import static org.hiero.block.node.app.fixtures.blocks.BlockItemUtils.toBlockItemUnparsed;
+import static org.hiero.block.node.app.fixtures.blocks.SimpleTestBlockItemBuilder.sampleBlockHeader;
+import static org.hiero.block.node.app.fixtures.blocks.SimpleTestBlockItemBuilder.sampleBlockProof;
+import static org.hiero.block.node.app.fixtures.blocks.SimpleTestBlockItemBuilder.sampleRoundHeader;
 import static org.hiero.block.node.spi.BlockNodePlugin.UNKNOWN_BLOCK_NUMBER;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
@@ -44,12 +48,9 @@ public class BlockStreamProducerSessionTest {
 
     private PublishStreamResponse lastResponse;
 
-    private Bytes BLOCK_HEADER = Bytes.fromHex(
-            "0a0210011202100122300000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000002a0608c3e6b0bf06");
-    private Bytes TRANSACTION_RESULT = Bytes.fromHex(
-            "0816120608c4e6b0bf063a120a070a0218161085030a070a02183610860342160a02185112070a02180310f10112070a02180610f201");
-    private Bytes BLOCK_PROOF = Bytes.fromHex(
-            "12300000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000001a300000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000002230e21453939fb461d46ae919bfdd0ceb945d4ccc76e15e591fc0588533fd201635b545d62cff07732e34deaedfc81c1f6a");
+    private final BlockItemUnparsed SAMPLE_BLOCK_HEADER = toBlockItemUnparsed(sampleBlockHeader(0));
+    private final BlockItemUnparsed SAMPLE_ROUND_HEADER = toBlockItemUnparsed(sampleRoundHeader(0));
+    private final BlockItemUnparsed SAMPLE_BLOCK_PROOF = toBlockItemUnparsed(sampleBlockProof(0));
 
     @BeforeEach
     void setUp() {
@@ -123,23 +124,34 @@ public class BlockStreamProducerSessionTest {
     @DisplayName("Should handle block items correctly in different states")
     void testBlockItemProcessing() {
         // Test processing in NEW state with block header
-        session.onNext(
-                List.of(BlockItemUnparsed.newBuilder().blockHeader(BLOCK_HEADER).build()));
+        session.onNext(List.of(SAMPLE_BLOCK_HEADER));
         assertEquals(BlockStreamProducerSession.BlockState.NEW, session.currentBlockState());
         assertEquals(0L, session.currentBlockNumber());
 
         // Test processing in NEW state with transaction result
-        session.onNext(List.of(BlockItemUnparsed.newBuilder()
-                .transactionResult(TRANSACTION_RESULT)
-                .build()));
+        session.onNext(List.of(SAMPLE_ROUND_HEADER));
         assertEquals(BlockStreamProducerSession.BlockState.NEW, session.currentBlockState());
 
         // Test processing in PRIMARY state with transaction result
         session.switchToPrimary();
-        session.onNext(List.of(BlockItemUnparsed.newBuilder()
-                .transactionResult(TRANSACTION_RESULT)
-                .build()));
+        session.onNext(List.of(SAMPLE_ROUND_HEADER));
         assertEquals(BlockStreamProducerSession.BlockState.PRIMARY, session.currentBlockState());
+    }
+
+    /**
+     * Tests handling of block items in different states.
+     * Verifies that the session correctly processes items based on its current state.
+     */
+    @Test
+    @DisplayName("Should handle empty block items list correctly")
+    void testEmptyBlockItemProcessing() {
+        session.onNext(List.of(SAMPLE_BLOCK_HEADER));
+        assertEquals(BlockStreamProducerSession.BlockState.NEW, session.currentBlockState());
+        assertEquals(0L, session.currentBlockNumber());
+
+        session.onNext(List.of());
+        assertEquals(BlockStreamProducerSession.BlockState.WAITING_FOR_RESEND, session.currentBlockState());
+        assertEquals(0L, session.currentBlockNumber());
     }
 
     /**
@@ -150,8 +162,7 @@ public class BlockStreamProducerSessionTest {
     @DisplayName("Should handle block header parsing and state transitions")
     void testBlockHeaderParsing() {
         // Test with valid block header
-        session.onNext(
-                List.of(BlockItemUnparsed.newBuilder().blockHeader(BLOCK_HEADER).build()));
+        session.onNext(List.of(SAMPLE_BLOCK_HEADER));
         assertEquals(BlockStreamProducerSession.BlockState.NEW, session.currentBlockState());
         assertEquals(0L, session.currentBlockNumber());
 
@@ -171,20 +182,17 @@ public class BlockStreamProducerSessionTest {
     @DisplayName("Should handle block proof and state transitions")
     void testBlockProofHandling() {
         // Start with block header
-        session.onNext(
-                List.of(BlockItemUnparsed.newBuilder().blockHeader(BLOCK_HEADER).build()));
+        session.onNext(List.of(SAMPLE_BLOCK_HEADER));
 
-        // Add transaction result
-        session.onNext(List.of(BlockItemUnparsed.newBuilder()
-                .transactionResult(TRANSACTION_RESULT)
-                .build()));
+        // Add round header
+        session.onNext(List.of(SAMPLE_ROUND_HEADER));
 
         // Add block proof
-        session.onNext(
-                List.of(BlockItemUnparsed.newBuilder().blockProof(BLOCK_PROOF).build()));
+        session.onNext(List.of(SAMPLE_BLOCK_PROOF));
 
         // Verify state transition back to NEW after block proof
         assertEquals(BlockStreamProducerSession.BlockState.NEW, session.currentBlockState());
+        assertEquals(0L, session.currentBlockNumber());
     }
 
     /**
@@ -198,9 +206,7 @@ public class BlockStreamProducerSessionTest {
         session.requestResend(100L);
 
         // Send items while waiting for resend
-        session.onNext(List.of(BlockItemUnparsed.newBuilder()
-                .transactionResult(TRANSACTION_RESULT)
-                .build()));
+        session.onNext(List.of(SAMPLE_ROUND_HEADER));
 
         // Verify state remains WAITING_FOR_RESEND
         assertEquals(BlockStreamProducerSession.BlockState.WAITING_FOR_RESEND, session.currentBlockState());
@@ -218,9 +224,7 @@ public class BlockStreamProducerSessionTest {
         session.close();
 
         // Send items while disconnected
-        session.onNext(List.of(BlockItemUnparsed.newBuilder()
-                .transactionResult(TRANSACTION_RESULT)
-                .build()));
+        session.onNext(List.of(SAMPLE_ROUND_HEADER));
 
         // Verify state remains DISCONNECTED
         assertEquals(BlockStreamProducerSession.BlockState.DISCONNECTED, session.currentBlockState());
@@ -234,22 +238,18 @@ public class BlockStreamProducerSessionTest {
     @DisplayName("Should handle complete block processing sequence")
     void testCompleteBlockProcessing() {
         // Start block with header
-        session.onNext(
-                List.of(BlockItemUnparsed.newBuilder().blockHeader(BLOCK_HEADER).build()));
+        session.onNext(List.of(SAMPLE_BLOCK_HEADER));
         assertEquals(BlockStreamProducerSession.BlockState.NEW, session.currentBlockState());
 
         // Switch to primary
         session.switchToPrimary();
 
         // Add transaction results
-        session.onNext(List.of(BlockItemUnparsed.newBuilder()
-                .transactionResult(TRANSACTION_RESULT)
-                .build()));
+        session.onNext(List.of(SAMPLE_ROUND_HEADER));
         assertEquals(BlockStreamProducerSession.BlockState.PRIMARY, session.currentBlockState());
 
         // End block with proof
-        session.onNext(
-                List.of(BlockItemUnparsed.newBuilder().blockProof(BLOCK_PROOF).build()));
+        session.onNext(List.of(SAMPLE_BLOCK_PROOF));
 
         // Verify final state
         assertEquals(BlockStreamProducerSession.BlockState.NEW, session.currentBlockState());
