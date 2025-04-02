@@ -48,6 +48,12 @@ sourceSets {
     }
 }
 
+tasks.test {
+    // we can exclude the standard protobuf generated tests as we don't need to test them again here
+    // this speeds up the block node project test run no end :-)
+    exclude("**com/hedera/**")
+}
+
 testModuleInfo {
     // we depend on the protoc compiled hapi during test as we test our pbj generated code
     // against it to make sure it is compatible
