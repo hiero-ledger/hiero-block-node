@@ -24,7 +24,7 @@ import com.hedera.pbj.runtime.ParseException;
 import com.hedera.pbj.runtime.grpc.ServiceInterface.Method;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import java.util.List;
-import org.hiero.block.node.app.fixtures.plugintest.GrpcTestAppBase;
+import org.hiero.block.node.app.fixtures.plugintest.GrpcPluginTestBase;
 import org.hiero.block.node.app.fixtures.plugintest.NoBlocksHistoricalBlockFacility;
 import org.hiero.block.node.spi.blockmessaging.BlockNotification;
 import org.hiero.block.node.spi.blockmessaging.BlockNotification.Type;
@@ -34,7 +34,7 @@ import org.junit.jupiter.api.Test;
  * Tests for the PublisherServicePlugin. It mocks out the rest of the block node so we can simply test just this plugin.
  */
 @SuppressWarnings({"FieldCanBeLocal", "MismatchedQueryAndUpdateOfCollection", "SameParameterValue"})
-public class PublisherTest extends GrpcTestAppBase {
+public class PublisherTest extends GrpcPluginTestBase {
 
     public PublisherTest() {
         super(new PublisherServicePlugin(), publishBlockStream, new NoBlocksHistoricalBlockFacility());

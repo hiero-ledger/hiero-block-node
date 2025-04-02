@@ -11,29 +11,30 @@ import io.helidon.webserver.http.HttpService;
 import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.BlockNodePlugin;
 import org.hiero.block.node.spi.ServiceBuilder;
+import org.hiero.block.node.spi.blockmessaging.BlockItemHandler;
 import org.hiero.block.node.spi.blockmessaging.BlockMessagingFacility;
+import org.hiero.block.node.spi.blockmessaging.BlockNotificationHandler;
 import org.hiero.block.node.spi.health.HealthFacility;
 import org.hiero.block.node.spi.historicalblocks.HistoricalBlockFacility;
 import org.junit.jupiter.api.AfterEach;
 
 /**
- * Base class for testing GRPC apps.
+ * Base class for testing block node plugins. If you are testing a GRPC plugin, use {@link GrpcPluginTestBase} instead.
  * <p>
- * This class provides a mock implementation of the BlockNodePlugin interface and sets up a GRPC connection to the
- * plugin. It mocks out all the base functionality of the block node, including the configuration, metrics, health,
+ * It mocks out all the base functionality of the block node, including the configuration, metrics, health,
  * block messaging, and historical block facilities.
  * <p>
  * The messaging services is mocked out with two concurrent queues, one for block items
- * {@link NonGrpcPluginTestBase :sentBlockBlockItems} and one for block notifications
- * {@link NonGrpcPluginTestBase :sentBlockNotifications}. You can look at these queues to see what was sent to the messaging
+ * {@link PluginTestBase :sentBlockBlockItems} and one for block notifications
+ * {@link PluginTestBase :sentBlockNotifications}. You can look at these queues to see what was sent to the messaging
  * service by the plugin.
  */
-public abstract class NonGrpcPluginTestBase {
+public abstract class PluginTestBase {
     private final DefaultMetricsProvider metricsProvider;
     protected final BlockNodeContext blockNodeContext;
     protected final TestBlockMessagingFacility blockMessaging = new TestBlockMessagingFacility();
 
-    public NonGrpcPluginTestBase(BlockNodePlugin plugin, HistoricalBlockFacility historicalBlockFacility) {
+    public PluginTestBase(BlockNodePlugin plugin, HistoricalBlockFacility historicalBlockFacility) {
         // Build the configuration
         //noinspection unchecked
         final Configuration configuration = ConfigurationBuilder.create()
@@ -75,13 +76,29 @@ public abstract class NonGrpcPluginTestBase {
             }
         };
 
-        ServiceBuilder mockServiceBuilder = new ServiceBuilder() {
-            @Override
-            public void registerHttpService(String path, HttpService... service) {}
+        // if the subclass implements ServiceBuilder, use it otherwise create a mock
+        ServiceBuilder mockServiceBuilder = (this instanceof ServiceBuilder)
+                ? (ServiceBuilder) this
+                : new ServiceBuilder() {
+                    @Override
+                    public void registerHttpService(String path, HttpService... service) {}
 
-            @Override
-            public void registerGrpcService(@NonNull ServiceInterface service) {}
-        };
+                    @Override
+                    public void registerGrpcService(@NonNull ServiceInterface service) {}
+                };
+
+        // if HistoricalBlockFacility is a BlockItemHandler, register it with the messaging facility
+        if (historicalBlockFacility instanceof BlockItemHandler blockItemHandler) {
+            blockMessaging.registerBlockItemHandler(
+                    blockItemHandler, false, historicalBlockFacility.getClass().getSimpleName());
+        }
+        // if HistoricalBlockFacility is a BlockNotificationHandler, register it with the messaging facility
+        if (historicalBlockFacility instanceof BlockNotificationHandler blockNotificationHandler) {
+            blockMessaging.registerBlockNotificationHandler(
+                    blockNotificationHandler,
+                    false,
+                    historicalBlockFacility.getClass().getSimpleName());
+        }
 
         // start plugin
         plugin.init(blockNodeContext, mockServiceBuilder);
