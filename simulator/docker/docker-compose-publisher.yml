@@ -22,6 +22,37 @@ services:
     volumes:
       - simulator_data:/opt/simulator/data
 
+  prometheus:
+    image: prom/prometheus
+    container_name: prometheus
+    networks:
+      - block-node_default
+    volumes:
+     - ./metrics/prometheus.yml:/etc/prometheus.yml
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+    ports:
+      - "9090:9090"
+
+  grafana:
+    image: grafana/grafana
+    container_name: grafana
+    networks:
+      - block-node_default
+    depends_on:
+      - prometheus
+    environment:
+      GF_SECURITY_DISABLE_INITIAL_ADMIN_CREATION: "true"
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: "Admin"
+      GF_AUTH_DISABLE_SIGNOUT_MENU: "true"
+      GF_AUTH_DISABLE_LOGIN_FORM: "true"
+    volumes:
+      - ./metrics/dashboards:/etc/grafana/provisioning/dashboards
+      - ./metrics/datasources/datasources.yml:/etc/grafana/provisioning/datasources/datasources.yml
+    ports:
+      - "3000:3000"
+
 networks:
   block-node_default:
     name: block-node_default
