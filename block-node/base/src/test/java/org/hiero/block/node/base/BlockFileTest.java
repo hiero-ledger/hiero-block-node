@@ -104,7 +104,8 @@ class BlockFileTest {
         // test exceptions
         assertEquals(-1, BlockFile.nestedDirectoriesMinBlockNumber(Path.of("fake"), CompressionType.NONE));
         assertEquals(-1, BlockFile.nestedDirectoriesMaxBlockNumber(Path.of("fake"), CompressionType.NONE));
-        assertThrows(RuntimeException.class, () ->
-                BlockFile.nestedDirectoriesAllBlockNumbers(Path.of("fake"), CompressionType.NONE));
+        assertThrows(
+                RuntimeException.class,
+                () -> BlockFile.nestedDirectoriesAllBlockNumbers(Path.of("fake"), CompressionType.NONE));
     }
 }

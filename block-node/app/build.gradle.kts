@@ -19,6 +19,28 @@ tasks.withType<JavaExec>().configureEach {
     environment("FILES_RECENT_UNVERIFIED_ROOT_PATH", "${serverDataDir}/files-unverified")
 }
 
+tasks.register<JavaExec>("runWithCleanStorage") {
+    description = "Run the block node, deleting storage first"
+    group = "application"
+
+    modularity.inferModulePath = true
+    mainClass = application.mainClass
+    mainModule = application.mainModule
+    classpath = sourceSets["main"].runtimeClasspath
+
+    val serverDataDir = layout.buildDirectory.get().dir("block-node-storage")
+    // delete the storage directory before starting the application
+    doFirst {
+        val storageDir = serverDataDir.asFile
+        if (storageDir.exists()) {
+            storageDir.deleteRecursively()
+        }
+    }
+    environment("FILES_HISTORIC_ROOT_PATH", "${serverDataDir}/files-historic")
+    environment("FILES_RECENT_LIVE_ROOT_PATH", "${serverDataDir}/files-live")
+    environment("FILES_RECENT_UNVERIFIED_ROOT_PATH", "${serverDataDir}/files-unverified")
+}
+
 application {
     mainModule = "org.hiero.block.node.app"
     mainClass = "org.hiero.block.node.app.BlockNodeApp"
