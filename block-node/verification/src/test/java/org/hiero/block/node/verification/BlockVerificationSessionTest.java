@@ -1,16 +1,15 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.node.verification;
 
-import static org.hiero.block.common.utils.FileUtilities.readGzipFileUnsafe;
-
 import com.hedera.hapi.block.stream.output.BlockHeader;
 import com.hedera.pbj.runtime.ParseException;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import java.io.IOException;
 import java.net.URISyntaxException;
-import java.nio.file.Path;
 import java.util.List;
+import java.util.zip.GZIPInputStream;
 import org.hiero.block.common.utils.ChunkUtils;
+import org.hiero.block.node.app.fixtures.TestUtils;
 import org.hiero.block.node.spi.blockmessaging.BlockNotification;
 import org.hiero.hapi.block.node.BlockItemUnparsed;
 import org.hiero.hapi.block.node.BlockUnparsed;
@@ -19,7 +18,7 @@ import org.junit.jupiter.api.Test;
 
 class BlockVerificationSessionTest {
 
-    protected final Bytes BLOCKHASH_PERF_10K_1731 = Bytes.fromHex(
+    protected final Bytes EXPECTED_BLOCK_ROOT_HASH = Bytes.fromHex(
             "6d8707da4c8265508ec5a26c8c483036c9bf95615bd6613e15131635a2a33528d0c5d4c1552aba3efb5fedcdff0804f8");
 
     /**
@@ -42,14 +41,14 @@ class BlockVerificationSessionTest {
                 "The block number should be the same as the one in the block header");
 
         Assertions.assertEquals(
+                EXPECTED_BLOCK_ROOT_HASH,
+                blockNotification.blockHash(),
+                "The block hash should be the same as the one in the block header");
+
+        Assertions.assertEquals(
                 BlockNotification.Type.BLOCK_VERIFIED,
                 blockNotification.type(),
                 "The block notification type should be BLOCK_VERIFIED");
-
-        Assertions.assertEquals(
-                BLOCKHASH_PERF_10K_1731,
-                blockNotification.blockHash(),
-                "The block hash should be the same as the one in the block header");
     }
 
     /**
@@ -80,14 +79,14 @@ class BlockVerificationSessionTest {
                 "The block number should be the same as the one in the block header");
 
         Assertions.assertEquals(
+                EXPECTED_BLOCK_ROOT_HASH,
+                blockNotification.blockHash(),
+                "The block hash should be the same as the one in the block header");
+
+        Assertions.assertEquals(
                 BlockNotification.Type.BLOCK_VERIFIED,
                 blockNotification.type(),
                 "The block notification type should be BLOCK_VERIFIED");
-
-        Assertions.assertEquals(
-                BLOCKHASH_PERF_10K_1731,
-                blockNotification.blockHash(),
-                "The block hash should be the same as the one in the block header");
     }
 
     /**
@@ -112,15 +111,15 @@ class BlockVerificationSessionTest {
                 blockNotification.blockNumber(),
                 "The block number should be the same as the one in the block header");
 
+        Assertions.assertNotEquals(
+                EXPECTED_BLOCK_ROOT_HASH,
+                blockNotification.blockHash(),
+                "The block hash should not be the same as the one in the block header");
+
         Assertions.assertEquals(
                 BlockNotification.Type.BLOCK_FAILED_VERIFICATION,
                 blockNotification.type(),
                 "The block notification type should be BLOCK_FAILED_VERIFICATION");
-
-        Assertions.assertNotEquals(
-                BLOCKHASH_PERF_10K_1731,
-                blockNotification.blockHash(),
-                "The block hash should not be the same as the one in the block header");
     }
 
     /**
@@ -153,22 +152,33 @@ class BlockVerificationSessionTest {
                 blockNotification.blockNumber(),
                 "The block number should be the same as the one in the block header");
 
+        Assertions.assertNotEquals(
+                EXPECTED_BLOCK_ROOT_HASH,
+                blockNotification.blockHash(),
+                "The block hash should not be the same as the one in the block header");
+
         Assertions.assertEquals(
                 BlockNotification.Type.BLOCK_FAILED_VERIFICATION,
                 blockNotification.type(),
                 "The block notification type should be BLOCK_FAILED_VERIFICATION");
-
-        Assertions.assertNotEquals(
-                BLOCKHASH_PERF_10K_1731,
-                blockNotification.blockHash(),
-                "The block hash should not be the same as the one in the block header");
     }
 
     protected List<BlockItemUnparsed> getTestBlock1Items() throws IOException, ParseException, URISyntaxException {
-        Path block01Path = Path.of(
-                getClass().getResource("/test-blocks/perf-10K-1731.blk.gz").toURI());
-        Bytes block01Bytes = Bytes.wrap(readGzipFileUnsafe(block01Path));
-        BlockUnparsed blockUnparsed = BlockUnparsed.PROTOBUF.parse(block01Bytes);
+
+        // Not sure why JSON is not working :( but parses an empty Block.
+        //        byte[] jsonBytes =
+        // TestUtils.class.getModule().getResourceAsStream("test-blocks/perf-10K-1731.blk.json").readAllBytes();
+        //        BlockUnparsed blockUnparsed = BlockUnparsed.JSON.parse(Bytes.wrap(jsonBytes));
+
+        BlockUnparsed blockUnparsed = null;
+        var stream = TestUtils.class.getModule().getResourceAsStream("test-blocks/perf-10K-1731.blk.gz");
+        try (final var gzipInputStream = new GZIPInputStream(stream)) {
+            // Read the bytes from the GZIPInputStream
+            byte[] bytes = gzipInputStream.readAllBytes();
+            // Parse the bytes into a BlockUnparsed object
+            blockUnparsed = BlockUnparsed.PROTOBUF.parse(Bytes.wrap(bytes));
+        }
+
         return blockUnparsed.blockItems();
     }
 }
