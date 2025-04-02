@@ -25,6 +25,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.ServiceLoader;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.logging.LogManager;
 import org.hiero.block.node.app.config.AutomaticEnvironmentVariableConfigSource;
 import org.hiero.block.node.app.config.ConfigurationLogging;
 import org.hiero.block.node.spi.BlockNodeContext;
@@ -62,28 +63,16 @@ public class BlockNodeApp implements HealthFacility {
      * @throws IOException if there is an error starting the server
      */
     private BlockNodeApp() throws IOException {
-        // TODO temporary prints for testing, remove when not needed
-        // print class properties
-        var props = System.getProperties();
-        for (String key : props.stringPropertyNames()) {
-            if (key.contains("class")) {
-                System.out.println(key + " = " + props.getProperty(key));
+        // ==== LOAD LOGGING CONFIG ====================================================================================
+        try (var loggingConfigIn = BlockNodeApp.class.getClassLoader().getResourceAsStream("logging.properties")) {
+            if (loggingConfigIn != null) {
+                LogManager.getLogManager().readConfiguration(loggingConfigIn);
+            } else {
+                LOGGER.log(INFO, "No logging configuration found");
             }
+        } catch (IOException e) {
+            LOGGER.log(INFO, "Failed to load logging configuration", e);
         }
-        // print java module path
-        System.out.println("jdk.module.path(just hiero):");
-        String[] modulePath = System.getProperty("jdk.module.path").split(":");
-        for (String path : modulePath) {
-            if (path.contains("hiero")) {
-                System.out.println("        " + path);
-            }
-        }
-        // print all modules known to java
-        System.out.println("Loaded modules in boot layer(just hiero):");
-        ModuleLayer.boot().modules().stream()
-                .filter(module -> module.getName().contains("hiero"))
-                .forEach(module -> System.out.println("        " + module.getName()));
-
         // ==== FACILITY & PLUGIN LOADING ==============================================================================
         // Load Block Messaging Service plugin - for now allow nulls
         final BlockMessagingFacility blockMessagingService = ServiceLoader.load(

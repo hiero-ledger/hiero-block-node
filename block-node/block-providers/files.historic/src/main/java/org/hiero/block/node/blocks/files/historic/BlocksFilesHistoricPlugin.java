@@ -137,7 +137,8 @@ public class BlocksFilesHistoricPlugin implements BlockProviderPlugin, BlockNoti
     public void handleBlockNotification(BlockNotification notification) {
         if (notification.type() == Type.BLOCK_PERSISTED) {
             // check if this crosses a block zip file boundary
-            if (notification.blockNumber() > lastBlockNumber.get()
+            if (notification.blockNumber() > 0
+                    && notification.blockNumber() > lastBlockNumber.get()
                     && notification.blockNumber() % numberOfBlocksPerZipFile == 0) {
                 final long firstBlockNumber = notification.blockNumber() - numberOfBlocksPerZipFile;
                 // move the batch of blocks to a zip file
