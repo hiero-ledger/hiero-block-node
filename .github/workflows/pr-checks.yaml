@@ -16,7 +16,7 @@ defaults:
     shell: bash
 
 env:
-  GRADLE_EXEC: ./gradlew
+  GRADLE_EXEC: "ionice -c 2 -n 2 nice -n 19 ./gradlew "
 
 permissions:
   id-token: write
@@ -32,20 +32,13 @@ jobs:
       java-distribution: ${{ inputs.java-distribution || 'temurin' }}
       java-version: ${{ inputs.java-version || '21.0.6' }}
 
-  check-docker:
-    name: Docker
-    uses: ./.github/workflows/zxc-verify-docker-build-determinism.yaml
-    with:
-      ref: ${{ github.event.inputs.ref || '' }}
-      java-distribution: ${{ inputs.java-distribution || 'temurin' }}
-      java-version: ${{ inputs.java-version || '21.0.6' }}
-
   compile:
+    timeout-minutes: 20
     name: "Gradle Checks"
     runs-on: hiero-block-node-linux-medium
     steps:
       - name: Harden Runner
-        uses: step-security/harden-runner@4d991eb9b905ef189e4c376166672c3f2f230481 # v2.11.0
+        uses: step-security/harden-runner@c6295a65d1254861815972266d5933fd6e532bdf # v2.11.1
         with:
           egress-policy: audit
 

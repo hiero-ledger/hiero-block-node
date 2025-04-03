@@ -53,9 +53,11 @@ env:
   GRADLE_MANIFEST_PATH: ${{ github.workspace }}/.manifests/gradle
   GRADLE_MANIFEST_GENERATOR: .github/workflows/support/scripts/generate-gradle-artifact-baseline.sh
   LC_ALL: C.UTF-8
+  GRADLE_EXEC: "ionice -c 2 -n 2 nice -n 19 ./gradlew "
 
 jobs:
   generate-baseline:
+    timeout-minutes: 15
     name: Generate Baseline
     runs-on: hiero-block-node-linux-medium
     outputs:
@@ -66,7 +68,7 @@ jobs:
 
     steps:
       - name: Harden Runner
-        uses: step-security/harden-runner@4d991eb9b905ef189e4c376166672c3f2f230481 # v2.11.0
+        uses: step-security/harden-runner@c6295a65d1254861815972266d5933fd6e532bdf # v2.11.1
         with:
           egress-policy: audit
 
@@ -82,7 +84,7 @@ jobs:
           java-version: ${{ inputs.java-version }}
 
       - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@94baf225fe0a508e581a564467443d0e2379123b # v4.3.0
+        uses: gradle/actions/setup-gradle@06832c7b30a0129d7fb559bcc6e43d26f6374244 # v4.3.1
         with:
           cache-disabled: true
 
@@ -120,7 +122,7 @@ jobs:
       - name: Build Artifacts
         id: gradle-build
         if: ${{ steps.baseline.outputs.exists == 'false' && !failure() && !cancelled() }}
-        run: ./gradlew assemble
+        run: ${GRADLE_EXEC} assemble
 
       - name: Generate Manifest
         id: manifest
@@ -134,6 +136,7 @@ jobs:
         run: gsutil cp "${{ steps.manifest.outputs.file }}" "${{ steps.baseline.outputs.file }}"
 
   verify-artifacts:
+    timeout-minutes: 15
     name: "Verify Artifacts (${{ join(matrix.os, ', ') }})"
     runs-on: ${{ matrix.os }}
     needs:
@@ -147,7 +150,7 @@ jobs:
           - hiero-block-node-linux-medium
     steps:
       - name: Harden Runner
-        uses: step-security/harden-runner@4d991eb9b905ef189e4c376166672c3f2f230481 # v2.11.0
+        uses: step-security/harden-runner@c6295a65d1254861815972266d5933fd6e532bdf # v2.11.1
         with:
           egress-policy: audit
 
@@ -162,7 +165,7 @@ jobs:
           ref: ${{ inputs.ref }}
 
       - name: Setup Python
-        uses: actions/setup-python@42375524e23c412d93fb67b49958b491fce71c38 # v5.4.0
+        uses: actions/setup-python@8d9ed9ac5c53483de85588cdf95a591a75ab9f55 # v5.5.0
         with:
           python-version: 3.9
 
@@ -173,7 +176,7 @@ jobs:
           java-version: ${{ inputs.java-version }}
 
       - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@94baf225fe0a508e581a564467443d0e2379123b # v4.3.0
+        uses: gradle/actions/setup-gradle@06832c7b30a0129d7fb559bcc6e43d26f6374244 # v4.3.1
         with:
           cache-disabled: true
 
@@ -200,7 +203,7 @@ jobs:
 
       - name: Build Artifacts
         id: gradle-build
-        run: ./gradlew assemble --no-build-cache
+        run: ${GRADLE_EXEC} assemble --no-build-cache
 
       - name: Regenerate Manifest
         id: regen-manifest

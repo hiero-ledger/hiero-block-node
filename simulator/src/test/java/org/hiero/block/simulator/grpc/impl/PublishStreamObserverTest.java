@@ -8,9 +8,16 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import com.hedera.hapi.block.protoc.PublishStreamResponse;
 import java.util.ArrayDeque;
 import java.util.concurrent.atomic.AtomicBoolean;
+import org.hiero.block.simulator.startup.SimulatorStartupData;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.Mock;
+import org.mockito.junit.jupiter.MockitoExtension;
 
+@ExtendWith(MockitoExtension.class)
 class PublishStreamObserverTest {
+    @Mock
+    private SimulatorStartupData startupDataMock;
 
     @Test
     void onNext() {
@@ -19,7 +26,7 @@ class PublishStreamObserverTest {
         ArrayDeque<String> lastKnownStatuses = new ArrayDeque<>();
         final int lastKnownStatusesCapacity = 10;
         PublishStreamObserver publishStreamObserver =
-                new PublishStreamObserver(streamEnabled, lastKnownStatuses, lastKnownStatusesCapacity);
+                new PublishStreamObserver(startupDataMock, streamEnabled, lastKnownStatuses, lastKnownStatusesCapacity);
 
         publishStreamObserver.onNext(response);
         assertTrue(streamEnabled.get(), "streamEnabled should remain true after onCompleted");
@@ -32,7 +39,7 @@ class PublishStreamObserverTest {
         ArrayDeque<String> lastKnownStatuses = new ArrayDeque<>();
         final int lastKnownStatusesCapacity = 10;
         PublishStreamObserver publishStreamObserver =
-                new PublishStreamObserver(streamEnabled, lastKnownStatuses, lastKnownStatusesCapacity);
+                new PublishStreamObserver(startupDataMock, streamEnabled, lastKnownStatuses, lastKnownStatusesCapacity);
 
         publishStreamObserver.onError(new Throwable());
         assertFalse(streamEnabled.get(), "streamEnabled should be set to false after onError");
@@ -45,7 +52,7 @@ class PublishStreamObserverTest {
         ArrayDeque<String> lastKnownStatuses = new ArrayDeque<>();
         final int lastKnownStatusesCapacity = 10;
         PublishStreamObserver publishStreamObserver =
-                new PublishStreamObserver(streamEnabled, lastKnownStatuses, lastKnownStatusesCapacity);
+                new PublishStreamObserver(startupDataMock, streamEnabled, lastKnownStatuses, lastKnownStatusesCapacity);
 
         publishStreamObserver.onCompleted();
         assertTrue(streamEnabled.get(), "streamEnabled should remain true after onCompleted");

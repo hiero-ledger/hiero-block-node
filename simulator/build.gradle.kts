@@ -119,21 +119,46 @@ val createDockerImage: TaskProvider<Exec> =
         commandLine("sh", "-c", "docker buildx build -t hedera-block-simulator:latest .")
     }
 
-val startDockerContainer: TaskProvider<Exec> =
-    tasks.register<Exec>("startDockerContainer") {
-        description = "Creates and starts the docker image of the Block Stream Simulator"
-        group = "docker"
+tasks.register<Exec>("startDockerContainer") {
+    description = "Creates and starts the docker image of the Block Stream Simulator"
+    group = "docker"
+    dependsOn(createDockerImage, tasks.assemble)
+    workingDir(dockerBuildRootDirectory)
+    commandLine(
+        "sh",
+        "-c",
+        "./update-env.sh && docker compose -f docker-compose-publisher-consumer.yml -p simulator up -d",
+    )
+}
 
-        dependsOn(createDockerImage, tasks.assemble)
-        workingDir(dockerBuildRootDirectory)
+tasks.register<Exec>("startDockerContainerPublisher") {
+    description = "Creates and starts the docker image of the Block Stream Simulator Publisher"
+    group = "docker"
+    dependsOn(createDockerImage, tasks.assemble)
+    workingDir(dockerBuildRootDirectory)
+    commandLine(
+        "sh",
+        "-c",
+        "./update-env.sh && docker compose -f docker-compose-publisher.yml -p simulator up -d",
+    )
+}
 
-        commandLine("sh", "-c", "./update-env.sh && docker compose -p simulator up -d")
-    }
+tasks.register<Exec>("startDockerContainerPublisherDebug") {
+    description =
+        "Creates and starts with debug the docker image of the Block Stream Simulator Publisher"
+    group = "docker"
+    dependsOn(createDockerImage, tasks.assemble)
+    workingDir(dockerBuildRootDirectory)
+    commandLine(
+        "sh",
+        "-c",
+        "./update-env.sh true && docker compose -f docker-compose-publisher.yml -p simulator up -d",
+    )
+}
 
 tasks.register<Exec>("stopDockerContainer") {
     description = "Stops running docker containers of the Block Stream Simulator"
     group = "docker"
-
     dependsOn(copyDockerFolder)
     workingDir(dockerBuildRootDirectory)
     commandLine("sh", "-c", "docker compose -p simulator stop")

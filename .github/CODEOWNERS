@@ -12,11 +12,11 @@
 
 # Protection Rules for Github Configuration Files and Actions Workflows
 /.github/                                       @hiero-ledger/github-maintainers @hiero-ledger/hiero-block-node-maintainers @hiero-ledger/hiero-block-node-committers
-/.github/workflows/                             @hiero-ledger/github-maintainers @hiero-ledger/github-committers
+/.github/workflows/                             @hiero-ledger/github-maintainers 
 
 # Codacy Tool Configurations
-/config/                                        @hiero-ledger/github-maintainers @hiero-ledger/github-committers @hiero-ledger/hiero-block-node-maintainers @hiero-ledger/hiero-block-node-committers
-.remarkrc                                       @hiero-ledger/github-maintainers @hiero-ledger/github-committers @hiero-ledger/hiero-block-node-maintainers @hiero-ledger/hiero-block-node-committers
+/config/                                        @hiero-ledger/github-maintainers @hiero-ledger/hiero-block-node-maintainers @hiero-ledger/hiero-block-node-committers
+.remarkrc                                       @hiero-ledger/github-maintainers @hiero-ledger/hiero-block-node-maintainers @hiero-ledger/hiero-block-node-committers
 
 # Self-protection for root CODEOWNERS files (this file should not exist and should definitely require approval)
 /CODEOWNERS                                     @hiero-ledger/github-maintainers

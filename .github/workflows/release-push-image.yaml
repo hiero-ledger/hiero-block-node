@@ -4,9 +4,11 @@ name: Release Workflow
 on:
   push:
     # `v*` tags are used for production environment
-    tags: [v*]
+    tags:
+      - v*
     # `main` tag is used for integration environment
-    branches: [main]
+    branches:
+      - main
   # Manual trigger with custom release tag
   workflow_dispatch:
     inputs:
@@ -28,6 +30,7 @@ env:
   OWNER: hashgraph
   PACKAGE_NAME: hedera-block-node
   REGISTRY: ghcr.io
+  GRADLE_EXEC: "ionice -c 2 -n 2 nice -n 19 ./gradlew "
 
 jobs:
   check-gradle:
@@ -38,21 +41,14 @@ jobs:
       java-distribution: ${{ inputs.java-distribution || 'temurin' }}
       java-version: ${{ inputs.java-version || '21.0.6' }}
 
-  check-docker:
-    name: Docker
-    uses: ./.github/workflows/zxc-verify-docker-build-determinism.yaml
-    with:
-      ref: ${{ github.event.inputs.ref || '' }}
-      java-distribution: ${{ inputs.java-distribution || 'temurin' }}
-      java-version: ${{ inputs.java-version || '21.0.6' }}
-
   publish:
-    needs: [check-gradle, check-docker]
+    timeout-minutes: 30
+    needs: [check-gradle]
     runs-on: hiero-block-node-linux-medium
 
     steps:
       - name: Harden Runner
-        uses: step-security/harden-runner@4d991eb9b905ef189e4c376166672c3f2f230481 # v2.11.0
+        uses: step-security/harden-runner@c6295a65d1254861815972266d5933fd6e532bdf # v2.11.1
         with:
           egress-policy: audit
 
@@ -68,7 +64,7 @@ jobs:
           java-version: "21.0.6"
 
       - name: Build
-        run: ./gradlew clean build
+        run: ${GRADLE_EXEC} clean build
 
       - name: Login to GitHub Container Registry
         uses: docker/login-action@74a5d142397b4f367a81961eba4e8cd7edddf772 # v3.4.0
@@ -120,7 +116,7 @@ jobs:
 
       - name: Simulator - Prepare docker directory
         run: |
-          ./gradlew :simulator:copyDependenciesFolders
+          ${GRADLE_EXEC} :simulator:copyDependenciesFolders
 
       - name: Simulator - Build and push image
         uses: docker/build-push-action@471d1dc4e07e5cdedd4c2171150001c434f0b7a4 # v6.15.0
@@ -136,12 +132,13 @@ jobs:
             VERSION=${{ env.VERSION }}
 
   helm-chart-release:
+    timeout-minutes: 15
     needs: publish
     runs-on: hiero-block-node-linux-medium
 
     steps:
       - name: Harden Runner
-        uses: step-security/harden-runner@4d991eb9b905ef189e4c376166672c3f2f230481 # v2.11.0
+        uses: step-security/harden-runner@c6295a65d1254861815972266d5933fd6e532bdf # v2.11.1
         with:
           egress-policy: audit
 

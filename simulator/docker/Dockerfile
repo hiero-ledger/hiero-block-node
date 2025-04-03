@@ -4,9 +4,8 @@ FROM eclipse-temurin:21
 ARG UNAME=hedera
 ARG UID=2000
 ARG GID=2000
-RUN groupadd -g $GID -o $UNAME
-RUN useradd -m -u $UID -g $GID -o -s /bin/bash $UNAME
-
+RUN groupadd --gid $GID $UNAME
+RUN useradd --no-user-group --create-home --uid $UID --gid $GID --shell /bin/bash hedera
 WORKDIR /app
 
 # Copy the distribution and resources
@@ -25,8 +24,10 @@ RUN tar -xf simulator.tar && \
     cd src/main/resources && \
     tar -xzf block-0.0.3.tar.gz && \
     rm block-0.0.3.tar.gz && \
-    cd /app && \
-    chown -R $UID:$GID /app
+    cd /app
+
+RUN mkdir -p /opt/simulator/data
+RUN chown -R $UID:$GID /app /opt/simulator/data
 
 # Switch to non-root user
 USER $UNAME

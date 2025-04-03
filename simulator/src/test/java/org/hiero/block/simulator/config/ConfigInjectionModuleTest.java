@@ -13,6 +13,7 @@ import org.hiero.block.simulator.TestUtils;
 import org.hiero.block.simulator.config.data.BlockGeneratorConfig;
 import org.hiero.block.simulator.config.data.BlockStreamConfig;
 import org.hiero.block.simulator.config.data.GrpcConfig;
+import org.hiero.block.simulator.config.data.SimulatorStartupDataConfig;
 import org.hiero.block.simulator.config.logging.ConfigurationLogging;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
@@ -93,5 +94,19 @@ class ConfigInjectionModuleTest {
         final ConfigurationLogging configurationLogging =
                 ConfigInjectionModule.providesConfigurationLogging(configuration);
         assertNotNull(configurationLogging);
+    }
+
+    @Test
+    void testProvidesSimulatorStartupDataConfig() {
+        final SimulatorStartupDataConfig startupDataConfig =
+                ConfigInjectionModule.providesSimulatorStartupDataConfig(configuration);
+        assertNotNull(startupDataConfig);
+        assertFalse(startupDataConfig.enabled());
+        assertEquals(
+                "/opt/simulator/data/latestAckBlockNumber",
+                startupDataConfig.latestAckBlockNumberPath().toString());
+        assertEquals(
+                "/opt/simulator/data/latestAckBlockHash",
+                startupDataConfig.latestAckBlockHashPath().toString());
     }
 }

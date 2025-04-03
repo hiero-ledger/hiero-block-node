@@ -7,6 +7,8 @@ services:
     image: hedera-block-simulator:latest
     networks:
       - block-node_default
+    ports:
+      - "5006:5006"
     env_file:
       - .env
     environment:
@@ -17,25 +19,13 @@ services:
       interval: 3s
       timeout: 10s
       retries: 5
-
-  simulator-consumer:
-    container_name: simulator-consumer
-    build:
-      context: .
-      dockerfile: Dockerfile
-    image: hedera-block-simulator:latest
-    networks:
-      - block-node_default
-    env_file:
-      - .env
-    environment:
-      - BLOCK_STREAM_SIMULATOR_MODE=${CONSUMER_BLOCK_STREAM_SIMULATOR_MODE}
-      - PROMETHEUS_ENDPOINT_PORT_NUMBER=${CONSUMER_PROMETHEUS_ENDPOINT_PORT_NUMBER}
-    depends_on:
-      simulator-publisher:
-        condition: service_healthy
+    volumes:
+      - simulator_data:/opt/simulator/data
 
 networks:
   block-node_default:
     name: block-node_default
     external: true
+
+volumes:
+  simulator_data:
