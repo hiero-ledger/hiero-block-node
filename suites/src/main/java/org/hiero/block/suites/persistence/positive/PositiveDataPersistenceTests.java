@@ -23,7 +23,7 @@ import org.testcontainers.containers.Container;
 public class PositiveDataPersistenceTests extends BaseSuite {
     // @todo(#371) - the default life/archive root path must be absolute starting from /opt
     private final String[] GET_BLOCKS_COMMAND =
-            new String[] {"find", "../opt/hashgraph/blocknode/data/live", "-mindepth", "19", "-maxdepth", "20"};
+            new String[] {"find", "../opt/hashgraph/blocknode/data/live", "-mindepth", "5", "-maxdepth", "7"};
 
     private Future<?> simulatorThread;
 
