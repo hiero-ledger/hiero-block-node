@@ -30,7 +30,7 @@ import org.junit.jupiter.api.Test;
 /**
  * Complete plugin test for the {@link BlocksFilesRecentPlugin} plugin.
  */
-final class BlockFileRecentPluginTest {
+class BlockFileRecentPluginTest {
     /** The testing file system. */
     private final FileSystem fileSystem;
     /** The plugin configuration, customized with testing file system. */
@@ -143,7 +143,7 @@ final class BlockFileRecentPluginTest {
                     blockNodeContext.historicalBlockProvider().oldestBlockNumber());
             // send verified block notification
             blockMessaging.sendBlockNotification(new BlockNotification(blockNumber, Type.BLOCK_VERIFIED, Bytes.EMPTY));
-            // check if we try to read we get null as nothing is verified yet
+            // check if we try to read we get null as nothing is persisted yet
             assertNull(plugin.block(blockNumber));
             assertEquals(UNKNOWN_BLOCK_NUMBER, plugin.latestBlockNumber());
             assertEquals(UNKNOWN_BLOCK_NUMBER, plugin.oldestBlockNumber());
