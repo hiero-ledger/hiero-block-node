@@ -26,10 +26,7 @@ permissions:
 jobs:
   check-gradle:
     name: Gradle
-    if: contains('
-      refs/heads/main
-      refs/heads/release/**
-      ', github.base_ref)
+    if: github.base_ref != 'main' && !startsWith(github.base_ref, 'release/')
     uses: ./.github/workflows/zxc-verify-gradle-build-determinism.yaml
     with:
       ref: ${{ github.event.inputs.ref || '' }}
