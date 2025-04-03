@@ -50,7 +50,7 @@ public class ZipBlockArchive {
         this.context = context;
         this.historicalBlockFacility = context.historicalBlockProvider();
         this.historicConfig = historicConfig;
-        numberOfBlocksPerZipFile = (int) Math.pow(10, historicConfig.digitsPerZipFileName());
+        numberOfBlocksPerZipFile = (int) Math.pow(10, historicConfig.digitsPerZipFileContents());
         format = switch (historicConfig.compression()) {
             case ZSTD -> Format.ZSTD_PROTOBUF;
             case NONE -> Format.PROTOBUF;};

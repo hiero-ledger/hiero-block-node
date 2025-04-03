@@ -177,7 +177,7 @@ public class BlocksFilesRecentPlugin implements BlockProviderPlugin, BlockNotifi
             } else {
                 LOGGER.log(
                         Level.WARNING,
-                        "Failed to find verified block file: %s",
+                        "Failed to find verified block file: {0}",
                         verifiedBlockPath.toAbsolutePath().toString());
             }
         }
