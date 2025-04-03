@@ -111,19 +111,21 @@ public class SubscriberServicePlugin implements BlockNodePlugin, ServiceInterfac
                 (BlockStreamSubscriberServiceMethod) method;
         return switch (blockStreamSubscriberServiceMethod) {
             case subscribeBlockStream:
-                yield Pipelines.<SubscribeStreamRequest, SubscribeStreamResponseUnparsed>bidiStreaming()
+                // subscribeBlockStream is server streaming end point so the client sends a single request and the
+                // server sends many responses
+                yield Pipelines.<SubscribeStreamRequest, SubscribeStreamResponseUnparsed>serverStreaming()
                         .mapRequest(SubscribeStreamRequest.PROTOBUF::parse)
-                        .method(responsePipeline -> {
+                        .method((request, responsePipeline) -> {
                             final BlockStreamSubscriberSession blockStreamProducerSession =
                                     new BlockStreamSubscriberSession(
                                             nextClientId.getAndIncrement(),
+                                            request,
                                             responsePipeline,
                                             context,
                                             this::closedSubscriberSessionCallback);
                             // add the session to the set of open sessions
                             openSessions.add(blockStreamProducerSession);
                             numberOfSubscribers.set(openSessions.size());
-                            return blockStreamProducerSession;
                         })
                         .mapResponse(SubscribeStreamResponseUnparsed.PROTOBUF::toBytes)
                         .respondTo(responses)

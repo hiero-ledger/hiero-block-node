@@ -5,6 +5,7 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.ServiceLoader;
 import java.util.ServiceLoader.Provider;
+import java.util.stream.Collectors;
 import org.hiero.block.node.spi.historicalblocks.BlockAccessor;
 import org.hiero.block.node.spi.historicalblocks.BlockProviderPlugin;
 import org.hiero.block.node.spi.historicalblocks.HistoricalBlockFacility;
@@ -93,5 +94,14 @@ public class HistoricalBlockFacilityImpl implements HistoricalBlockFacility {
                 .mapToLong(BlockProviderPlugin::latestBlockNumber)
                 .max()
                 .orElse(UNKNOWN_BLOCK_NUMBER);
+    }
+
+    @Override
+    public String toString() {
+        return "HistoricalBlockFacilityImpl{" + "oldest="
+                + oldestBlockNumber() + ", latest="
+                + oldestBlockNumber() + ", providers=["
+                + providers.stream().map(p -> p.getClass().getSimpleName()).collect(Collectors.joining(", ")) + "]"
+                + '}';
     }
 }

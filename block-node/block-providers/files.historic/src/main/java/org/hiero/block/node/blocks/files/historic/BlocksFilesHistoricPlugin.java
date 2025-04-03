@@ -64,7 +64,7 @@ public class BlocksFilesHistoricPlugin implements BlockProviderPlugin, BlockNoti
         }
         // register to listen to block notifications
         context.blockMessaging().registerBlockNotificationHandler(this, false, "Blocks Files Historic");
-        numberOfBlocksPerZipFile = (int) Math.pow(10, config.digitsPerZipFileName());
+        numberOfBlocksPerZipFile = (int) Math.pow(10, config.digitsPerZipFileContents());
         zipBlockArchive = new ZipBlockArchive(context, config);
         // get the first and last block numbers from the zipBlockArchive
         firstBlockNumber.set(zipBlockArchive.minStoredBlockNumber());
