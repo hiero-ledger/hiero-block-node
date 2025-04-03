@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-name: "PR Gradle Checks"
+name: "PR Checks"
 on:
   push:
     branches:
@@ -26,6 +26,7 @@ permissions:
 jobs:
   check-gradle:
     name: Gradle
+    if: ${{ github.base_ref == 'main' || startsWith(github.base_ref, 'release/') }}
     uses: ./.github/workflows/zxc-verify-gradle-build-determinism.yaml
     with:
       ref: ${{ github.event.inputs.ref || '' }}
@@ -34,7 +35,7 @@ jobs:
 
   compile:
     timeout-minutes: 20
-    name: "Gradle Checks"
+    name: "Quality Checks and UTs"
     runs-on: hiero-block-node-linux-medium
     steps:
       - name: Harden Runner
