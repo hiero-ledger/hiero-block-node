@@ -69,6 +69,7 @@ class BlockFileRecentPluginTest {
          * Test that the config change to use JimFS works.
          */
         @Test
+        @DisplayName("Test that we are using JimFS")
         void testWeAreUsingMockFileSystem() {
             assertEquals(
                     "JimfsFileSystem",
