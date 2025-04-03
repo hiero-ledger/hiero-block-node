@@ -15,4 +15,4 @@ jobs:
       networkNodeTag: ""
       mirrorNodeTag: ""
       relayTag: ""
-      branch: ${{ github.ref_name }}
+      branch: ${{ github.event.pull_request.head.ref || github.ref_name }}
