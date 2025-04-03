@@ -177,6 +177,38 @@ public final class BlockStreamProducerSession implements Pipeline<List<BlockItem
     }
 
     /**
+     * Send a message to the client that they are probably behind, and that this is a duplicate block.
+     * @param latestAckBlock the latestBlock that we already acknowledged.
+     */
+    void sendDuplicateAck(long latestAckBlock) {
+        currentBlockState = BlockState.BEHIND;
+        newBlockItems.clear();
+        if (responsePipeline != null) {
+            final BlockAcknowledgement ack = new BlockAcknowledgement(latestAckBlock, null, true);
+            final Acknowledgement acknowledgement = new Acknowledgement(ack);
+            final PublishStreamResponse duplicateResponse =
+                    new PublishStreamResponse(new OneOf<>(ResponseOneOfType.ACKNOWLEDGEMENT, acknowledgement));
+            responsePipeline.onNext(duplicateResponse);
+        }
+    }
+
+    /**
+     * Send a message to the client that we are behind and need to resend from latest block number.
+     * @param latestAckBlock the latest block number that we already acknowledged.
+     */
+    void sendStreamItemsBehind(long latestAckBlock) {
+        currentBlockState = BlockState.WAITING_FOR_RESEND;
+        newBlockItems.clear();
+        if (responsePipeline != null) {
+            final EndOfStream endOfStream =
+                    new EndOfStream(PublishStreamResponseCode.STREAM_ITEMS_BEHIND, latestAckBlock);
+            final PublishStreamResponse response =
+                    new PublishStreamResponse(new OneOf<>(ResponseOneOfType.END_STREAM, endOfStream));
+            responsePipeline.onNext(response);
+        }
+    }
+
+    /**
      * Request a resend of the block from the client. We will stop what we are doing and go back to looking for the
      * requested block to be resent It is trusted that this is always called with the stateLock already acquired.
      *
