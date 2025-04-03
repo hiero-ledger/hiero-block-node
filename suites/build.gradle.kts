@@ -32,4 +32,7 @@ tasks.register<Test>("runSuites") {
     testLogging { events("passed", "skipped", "failed") }
     testClassesDirs = sourceSets["main"].output.classesDirs
     classpath = sourceSets["main"].runtimeClasspath
+
+    // Pass the block-node version as a system property
+    systemProperty("block.node.version", project(":block-node-app").version.toString())
 }
