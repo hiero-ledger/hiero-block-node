@@ -24,17 +24,6 @@ permissions:
   packages: write
 
 jobs:
-  refs-test:
-    timeout-minutes: 10
-    name: "Check PR refs"
-    runs-on: hiero-block-node-linux-medium
-    steps:
-      - name: Check PR refs
-        id: check-refs
-        run: |
-          echo "github.base_ref branch=${{ github.base_ref }}"
-          echo "github.ref branch=${{ github.ref }}"
-
   check-gradle:
     name: Gradle
     if: ${{ github.base_ref == 'main' && startsWith(github.base_ref, 'release/') }}
