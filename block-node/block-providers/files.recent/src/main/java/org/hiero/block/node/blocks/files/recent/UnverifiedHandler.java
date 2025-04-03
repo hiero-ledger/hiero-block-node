@@ -67,12 +67,7 @@ final class UnverifiedHandler {
             // move the block to the live storage
             moveToLive.accept(blockNumber);
         } else {
-            LOGGER.log(
-                    System.Logger.Level.WARNING,
-                    "Block {0} is verified but not found in unverified storage",
-                    blockNumber);
-            throw new IllegalStateException(
-                    "Block %d is verified but not found in unverified storage".formatted(blockNumber));
+            LOGGER.log(Level.DEBUG, "Block {0} is verified but not found in unverified storage", blockNumber);
         }
     }
 

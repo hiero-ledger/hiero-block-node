@@ -8,6 +8,7 @@ import com.hedera.pbj.runtime.io.stream.WritableStreamingData;
 import edu.umd.cs.findbugs.annotations.NonNull;
 import java.io.BufferedOutputStream;
 import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.lang.System.Logger.Level;
 import java.nio.file.FileSystems;
 import java.nio.file.Files;
@@ -16,6 +17,7 @@ import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.stream.Stream;
 import org.hiero.block.common.utils.FileUtilities;
 import org.hiero.block.node.base.BlockFile;
 import org.hiero.block.node.spi.BlockNodeContext;
@@ -61,7 +63,7 @@ import org.hiero.hapi.block.node.BlockUnparsed;
  * format so they are ready to just be moved to the live directory when they are verified. The compression type is
  * configured and can be changed at any time. The compression level is also configured and can be changed at any time.
  */
-public class BlocksFilesRecentPlugin implements BlockProviderPlugin, BlockNotificationHandler, BlockItemHandler {
+public final class BlocksFilesRecentPlugin implements BlockProviderPlugin, BlockNotificationHandler, BlockItemHandler {
     /** The logger for this class. */
     private final System.Logger LOGGER = System.getLogger(getClass().getName());
     /** The configuration for this plugin. */
@@ -114,7 +116,7 @@ public class BlocksFilesRecentPlugin implements BlockProviderPlugin, BlockNotifi
         try {
             Files.createDirectories(config.liveRootPath());
             Files.createDirectories(config.unverifiedRootPath());
-        } catch (IOException e) {
+        } catch (final IOException e) {
             LOGGER.log(Level.ERROR, "Could not create root directory", e);
             context.serverHealth().shutdown(name(), "Could not create root directory");
         }
@@ -125,21 +127,21 @@ public class BlocksFilesRecentPlugin implements BlockProviderPlugin, BlockNotifi
         // we want to listen to block notifications and to know when blocks are verified
         context.blockMessaging().registerBlockNotificationHandler(this, false, "BlocksFilesRecent");
         // on start-up we can clear the unverified path as all unverified blocks will have to be resent
-        try (final var stream = Files.walk(config.unverifiedRootPath(), 1)) {
+        try (final Stream<Path> stream = Files.walk(config.unverifiedRootPath(), 1)) {
             // TODO check it is not a directory abd us a block file, ie. don't delete files if dir is "/" :-)
             stream.filter(Files::isRegularFile).forEach(file -> {
                 try {
                     Files.deleteIfExists(file);
-                } catch (IOException e) {
+                } catch (final IOException e) {
                     LOGGER.log(
                             System.Logger.Level.ERROR,
                             "Failed to delete unverified file: %s, error: %s",
                             file.toString(),
                             e.getMessage());
-                    throw new RuntimeException(e);
+                    throw new UncheckedIOException(e);
                 }
             });
-        } catch (IOException e) {
+        } catch (final IOException e) {
             LOGGER.log(
                     System.Logger.Level.ERROR,
                     "Failed to delete unverified files in path: %s, error: %s",
@@ -166,7 +168,7 @@ public class BlocksFilesRecentPlugin implements BlockProviderPlugin, BlockNotifi
      * We only provide read access to verified blocks.
      */
     @Override
-    public BlockAccessor block(long blockNumber) {
+    public BlockAccessor block(final long blockNumber) {
         if (blockNumber >= oldestVerifiedBlockNumber.get() || blockNumber <= newestVerifiedBlockNumber.get()) {
             // we should have this block stored so go file the file and return accessor to it
             final Path verifiedBlockPath = BlockFile.nestedDirectoriesBlockFilePath(
@@ -208,7 +210,7 @@ public class BlocksFilesRecentPlugin implements BlockProviderPlugin, BlockNotifi
      * This method is called when a block notification is received. It is called on the block item notification thread.
      */
     @Override
-    public void handleBlockNotification(BlockNotification notification) {
+    public void handleBlockNotification(final BlockNotification notification) {
         if (notification.type() == BlockNotification.Type.BLOCK_VERIFIED) {
             unverifiedHandler.blockVerified(notification.blockNumber());
         }
@@ -235,7 +237,7 @@ public class BlocksFilesRecentPlugin implements BlockProviderPlugin, BlockNotifi
      * Called when the block node receives new block items, this is called on the block item handler thread.
      */
     @Override
-    public void handleBlockItemsReceived(BlockItems blockItems) {
+    public void handleBlockItemsReceived(final BlockItems blockItems) {
         if (currentIncomingBlockNumber == UNKNOWN_BLOCK_NUMBER) {
             // we are not in any block, so check if this is the start of a new block
             if (blockItems.isStartOfNewBlock()) {
@@ -273,7 +275,7 @@ public class BlocksFilesRecentPlugin implements BlockProviderPlugin, BlockNotifi
      *
      * @param blockNumber the block number of the block to move
      */
-    private void moveFileToLiveStorage(long blockNumber) {
+    private void moveFileToLiveStorage(final long blockNumber) {
         // we need to move it to the verified block storage
         final Path unverifiedBlockPath =
                 BlockFile.standaloneBlockFilePath(config.unverifiedRootPath(), blockNumber, config.compression());
@@ -297,14 +299,14 @@ public class BlocksFilesRecentPlugin implements BlockProviderPlugin, BlockNotifi
             // send block persisted notification
             blockMessaging.sendBlockNotification(
                     new BlockNotification(blockNumber, BlockNotification.Type.BLOCK_PERSISTED, null));
-        } catch (IOException e) {
+        } catch (final IOException e) {
             LOGGER.log(
                     Level.ERROR,
                     "Failed to move unverified file: {0} to verified path: {1}, error: {2}",
                     unverifiedBlockPath.toAbsolutePath().toString(),
                     verifiedBlockPath.toAbsolutePath().toString(),
                     e.getMessage());
-            throw new RuntimeException(e);
+            throw new UncheckedIOException(e);
         }
     }
 
@@ -314,19 +316,19 @@ public class BlocksFilesRecentPlugin implements BlockProviderPlugin, BlockNotifi
      * @param blockItems the block items representing block to write
      * @param blockNumber the block number of the block to write
      */
-    private void writeBlockToLivePath(final List<BlockItemUnparsed> blockItems, long blockNumber) {
+    private void writeBlockToLivePath(final List<BlockItemUnparsed> blockItems, final long blockNumber) {
         final Path verifiedBlockPath = BlockFile.nestedDirectoriesBlockFilePath(
                 config.liveRootPath(), blockNumber, config.compression(), config.maxFilesPerDir());
         try {
             // create parent directory if it does not exist
-            Files.createDirectories(verifiedBlockPath.getParent(), FileUtilities.DEFAULT_FOLDER_PERMISSIONS);
-        } catch (IOException e) {
+            Files.createDirectories(verifiedBlockPath.getParent());
+        } catch (final IOException e) {
             LOGGER.log(
                     System.Logger.Level.ERROR,
                     "Failed to create directories for path: {0} error: {1}",
                     verifiedBlockPath.toAbsolutePath().toString(),
                     e);
-            throw new RuntimeException(e);
+            throw new UncheckedIOException(e);
         }
         try (final WritableStreamingData streamingData = new WritableStreamingData(new BufferedOutputStream(
                 config.compression().wrapStream(Files.newOutputStream(verifiedBlockPath)), 1024 * 1024))) {
@@ -344,13 +346,13 @@ public class BlocksFilesRecentPlugin implements BlockProviderPlugin, BlockNotifi
             // send block persisted notification
             blockMessaging.sendBlockNotification(
                     new BlockNotification(blockNumber, BlockNotification.Type.BLOCK_PERSISTED, null));
-        } catch (IOException e) {
+        } catch (final IOException e) {
             LOGGER.log(
                     System.Logger.Level.ERROR,
                     "Failed to create verified file for block: {0}, error: {1}",
                     blockNumber,
                     e);
-            throw new RuntimeException(e);
+            throw new UncheckedIOException(e);
         }
     }
 }
