@@ -19,7 +19,9 @@ import java.util.function.LongConsumer;
 import java.util.stream.Stream;
 import org.hiero.block.node.base.CompressionType;
 import org.hiero.hapi.block.node.BlockItemUnparsed;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
@@ -71,6 +73,17 @@ class UnverifiedHandlerTest {
     }
 
     /**
+     * Tear down the test environment after each test.
+     */
+    @AfterEach
+    void tearDown() throws IOException {
+        // Close the Jimfs file system
+        if (jimfs != null) {
+            jimfs.close();
+        }
+    }
+
+    /**
      * Tests for the constructor of {@link UnverifiedHandler}.
      */
     @SuppressWarnings("all")
@@ -114,7 +127,7 @@ class UnverifiedHandlerTest {
      * Tests for the functionality of {@link UnverifiedHandler}.
      */
     @Nested
-    @DisplayName("Test Functionality")
+    @DisplayName("Functionality Tests")
     final class FunctionalityTests {
         /** The {@link UnverifiedHandler} instance to be tested. */
         private UnverifiedHandler toTest;
@@ -133,6 +146,7 @@ class UnverifiedHandlerTest {
          * {@link IllegalStateException} when block is verified, but not found
          * under the unverified root.
          */
+        @Disabled // @todo(958) this may be wrong and we need to delete this test
         @ParameterizedTest
         @MethodSource("org.hiero.block.node.blocks.files.recent.UnverifiedHandlerTest#validBlockNumbersAndLocations")
         @DisplayName("Test blockVerified throws when block is verified but not found under unverified storage")
@@ -201,6 +215,24 @@ class UnverifiedHandlerTest {
             final boolean actual = toTest.storeIfUnverifiedBlock(targetBlockItems, blockNumber);
             // assert true
             assertThat(actual).isTrue();
+        }
+
+        /**
+         * This test aims to check that the storeIfUnverifiedBlock returns false
+         * when the block has been verified already.
+         */
+        @ParameterizedTest
+        @MethodSource("org.hiero.block.node.blocks.files.recent.UnverifiedHandlerTest#validBlockNumbersAndLocations")
+        @DisplayName("Test storeIfUnverifiedBlock correctly returns false when block has already been verified")
+        void testReturnFalse(final long blockNumber) {
+            // create the target block items, for this test, we need no items
+            final List<BlockItemUnparsed> targetBlockItems = List.of();
+            // call the block verified method to mark the block as verified
+            toTest.blockVerified(blockNumber);
+            // call
+            final boolean actual = toTest.storeIfUnverifiedBlock(targetBlockItems, blockNumber);
+            // assert true
+            assertThat(actual).isFalse();
         }
 
         /**

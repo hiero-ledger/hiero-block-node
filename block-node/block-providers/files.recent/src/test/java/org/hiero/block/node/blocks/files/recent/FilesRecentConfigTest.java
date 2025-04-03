@@ -8,10 +8,12 @@ import static org.assertj.core.api.Assertions.assertThatNullPointerException;
 
 import com.google.common.jimfs.Configuration;
 import com.google.common.jimfs.Jimfs;
+import java.io.IOException;
 import java.nio.file.FileSystem;
 import java.nio.file.Path;
 import java.util.stream.Stream;
 import org.hiero.block.node.base.CompressionType;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -25,6 +27,7 @@ import org.junit.jupiter.params.provider.MethodSource;
  */
 @DisplayName("FilesRecentConfig Tests")
 class FilesRecentConfigTest {
+    private FileSystem jimfs;
     /** Default live root path value. */
     private Path defaultLiveRootPath;
     /** Default unverified root path value. */
@@ -37,17 +40,27 @@ class FilesRecentConfigTest {
     /**
      * Set up the test environment before each test.
      */
-    @SuppressWarnings("resource")
     @BeforeEach
     void setup() {
         // initialize expected defaults
         // do not create any directories, config classes are only value holders
         // and should be void of any logic
-        final FileSystem inMemoryFS = Jimfs.newFileSystem(Configuration.unix());
-        defaultLiveRootPath = inMemoryFS.getPath("/opt/hiero/blocknode/data/live");
-        defaultUnverifiedRootPath = inMemoryFS.getPath("/opt/hiero/blocknode/data/unverified");
+        jimfs = Jimfs.newFileSystem(Configuration.unix());
+        defaultLiveRootPath = jimfs.getPath("/opt/hiero/blocknode/data/live");
+        defaultUnverifiedRootPath = jimfs.getPath("/opt/hiero/blocknode/data/unverified");
         defaultCompression = CompressionType.ZSTD;
         defaultMaxFilesPerDir = 3;
+    }
+
+    /**
+     * Tear down the test environment after each test.
+     */
+    @AfterEach
+    void tearDown() throws IOException {
+        // Close the Jimfs file system
+        if (jimfs != null) {
+            jimfs.close();
+        }
     }
 
     /**
