@@ -319,7 +319,7 @@ public class BlocksFilesRecentPlugin implements BlockProviderPlugin, BlockNotifi
                 config.liveRootPath(), blockNumber, config.compression(), config.maxFilesPerDir());
         try {
             // create parent directory if it does not exist
-            Files.createDirectories(verifiedBlockPath.getParent(), FileUtilities.DEFAULT_FOLDER_PERMISSIONS);
+            Files.createDirectories(verifiedBlockPath.getParent());
         } catch (IOException e) {
             LOGGER.log(
                     System.Logger.Level.ERROR,
