@@ -205,7 +205,12 @@ public class BlockNodeApp implements HealthFacility {
         // mark the server as started
         state.set(State.RUNNING);
         // log the server has started
-        LOGGER.log(INFO, LIGHT_GREEN + "Started BlockNode Server : State = {0}", state.get());
+        LOGGER.log(
+                INFO,
+                LIGHT_GREEN + "Started BlockNode Server : State = {0}, Historic blocks = {1} -> {2}",
+                state.get(),
+                historicalBlockFacility.oldestBlockNumber(),
+                historicalBlockFacility.latestBlockNumber());
     }
 
     /**
