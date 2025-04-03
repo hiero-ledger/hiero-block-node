@@ -8,6 +8,7 @@ import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 
+import com.google.common.jimfs.Configuration;
 import com.google.common.jimfs.Jimfs;
 import com.hedera.hapi.block.stream.Block;
 import com.hedera.hapi.block.stream.BlockItem;
@@ -22,13 +23,14 @@ import org.hiero.block.node.spi.blockmessaging.BlockItems;
 import org.hiero.block.node.spi.blockmessaging.BlockNotification;
 import org.hiero.block.node.spi.blockmessaging.BlockNotification.Type;
 import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 
 /**
  * Complete plugin test for the {@link BlocksFilesRecentPlugin} plugin.
  */
-public final class BlockFileRecentPluginTest {
+class BlockFileRecentPluginTest {
     /** The testing file system. */
     private final FileSystem fileSystem;
     /** The plugin configuration, customized with testing file system. */
@@ -41,8 +43,8 @@ public final class BlockFileRecentPluginTest {
     /**
      * Construct test environment.
      */
-    public BlockFileRecentPluginTest() {
-        this.fileSystem = Jimfs.newFileSystem();
+    BlockFileRecentPluginTest() {
+        this.fileSystem = Jimfs.newFileSystem(Configuration.unix());
         this.filesRecentConfig = new FilesRecentConfig(
                 fileSystem.getPath("/live"), fileSystem.getPath("/unverified"), CompressionType.ZSTD, 3);
         this.blocksFilesRecentPlugin = new BlocksFilesRecentPlugin(this.filesRecentConfig);
@@ -53,12 +55,13 @@ public final class BlockFileRecentPluginTest {
      * Nested class for testing the plugin, it is a nested class so environment can be built outside.
      */
     @Nested
-    public final class PluginTest extends PluginTestBase<BlocksFilesRecentPlugin> {
+    @DisplayName("Plugin Tests")
+    final class PluginTest extends PluginTestBase<BlocksFilesRecentPlugin> {
 
         /**
          * Test Constructor.
          */
-        public PluginTest() {
+        PluginTest() {
             super(blocksFilesRecentPlugin, historicalBlockFacility);
         }
 
@@ -66,6 +69,7 @@ public final class BlockFileRecentPluginTest {
          * Test that the config change to use JimFS works.
          */
         @Test
+        @DisplayName("Test that we are using JimFS")
         void testWeAreUsingMockFileSystem() {
             assertEquals(
                     "JimfsFileSystem",
@@ -78,6 +82,7 @@ public final class BlockFileRecentPluginTest {
          */
         @SuppressWarnings("DataFlowIssue")
         @Test
+        @DisplayName("Test send/retrieve block by persistence first")
         void testSendingBlockAndReadingBack() {
             // create sample block of block items
             final BlockItem[] blockBlockItems = createNumberOfVerySimpleBlocks(1);
@@ -106,6 +111,51 @@ public final class BlockFileRecentPluginTest {
                     blockNodeContext.historicalBlockProvider().oldestBlockNumber());
             // send verified block notification
             blockMessaging.sendBlockNotification(new BlockNotification(blockNumber, Type.BLOCK_VERIFIED, Bytes.EMPTY));
+            // now try and read it back
+            final Block block = plugin.block(blockNumber).block();
+            // check we got the correct block
+            assertArrayEquals(blockBlockItems, block.items().toArray());
+            assertEquals(blockNumber, plugin.latestBlockNumber());
+            assertEquals(blockNumber, plugin.oldestBlockNumber());
+            assertEquals(blockNumber, blockNodeContext.historicalBlockProvider().latestBlockNumber());
+            assertEquals(blockNumber, blockNodeContext.historicalBlockProvider().oldestBlockNumber());
+        }
+
+        /**
+         * Test that the plugin works to store and retrieve a block but receive
+         * verification first.
+         */
+        @SuppressWarnings("DataFlowIssue")
+        @Test
+        @DisplayName("Test send/retrieve block by verification first")
+        void testSendingBlockAndReadingBackVerificationFirst() {
+            // create sample block of block items
+            final BlockItem[] blockBlockItems = createNumberOfVerySimpleBlocks(1);
+            final long blockNumber = blockBlockItems[0].blockHeader().number();
+            // check the block is not stored yet
+            assertNull(plugin.block(blockNumber));
+            assertEquals(UNKNOWN_BLOCK_NUMBER, plugin.latestBlockNumber());
+            assertEquals(UNKNOWN_BLOCK_NUMBER, plugin.oldestBlockNumber());
+            assertEquals(
+                    UNKNOWN_BLOCK_NUMBER,
+                    blockNodeContext.historicalBlockProvider().latestBlockNumber());
+            assertEquals(
+                    UNKNOWN_BLOCK_NUMBER,
+                    blockNodeContext.historicalBlockProvider().oldestBlockNumber());
+            // send verified block notification
+            blockMessaging.sendBlockNotification(new BlockNotification(blockNumber, Type.BLOCK_VERIFIED, Bytes.EMPTY));
+            // check if we try to read we get null as nothing is persisted yet
+            assertNull(plugin.block(blockNumber));
+            assertEquals(UNKNOWN_BLOCK_NUMBER, plugin.latestBlockNumber());
+            assertEquals(UNKNOWN_BLOCK_NUMBER, plugin.oldestBlockNumber());
+            assertEquals(
+                    UNKNOWN_BLOCK_NUMBER,
+                    blockNodeContext.historicalBlockProvider().latestBlockNumber());
+            assertEquals(
+                    UNKNOWN_BLOCK_NUMBER,
+                    blockNodeContext.historicalBlockProvider().oldestBlockNumber());
+            // send it to messaging
+            blockMessaging.sendBlockItems(new BlockItems(toBlockItemsUnparsed(blockBlockItems), blockNumber));
             // now try and read it back
             final Block block = plugin.block(blockNumber).block();
             // check we got the correct block
