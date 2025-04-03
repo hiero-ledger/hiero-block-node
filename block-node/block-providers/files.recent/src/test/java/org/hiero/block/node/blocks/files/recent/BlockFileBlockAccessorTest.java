@@ -380,6 +380,27 @@ class BlockFileBlockAccessorTest {
             assertThat(actual).isEqualTo(expected);
         }
 
+        /**
+         * This test aims to verify that the {@link BlockFileBlockAccessor#delete()}will correctly delete
+         * an existing persisted block.
+         */
+        @ParameterizedTest
+        @EnumSource(CompressionType.class)
+        @DisplayName("Test delete method will correctly delete a persisted block")
+        void testBlockDelete(final CompressionType compressionType) throws IOException {
+            // create block file path before call
+            final Path blockFilePath = testBasePath.resolve("0.blk".concat(compressionType.extension()));
+            // build a test block
+            final BlockItemUnparsed[] blockItems = SimpleTestBlockItemBuilder.createNumberOfVerySimpleBlocksUnparsed(1);
+            final BlockUnparsed expected = new BlockUnparsed(List.of(blockItems));
+            final Bytes protoBytes = BlockUnparsed.PROTOBUF.toBytes(expected);
+            // create instance to test
+            final BlockFileBlockAccessor toTest = createInstanceToTest(blockFilePath, compressionType, protoBytes);
+            // test accessor.delete()
+            toTest.delete();
+            assertThat(blockFilePath).doesNotExist();
+        }
+
         private BlockFileBlockAccessor createInstanceToTest(
                 final Path blockFilePath, final CompressionType compressionType, final Bytes protoBytes)
                 throws IOException {
