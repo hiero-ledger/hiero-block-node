@@ -2,6 +2,7 @@
 package org.hiero.block.node.publisher;
 
 import static com.hedera.hapi.block.PublishStreamResponse.ResponseOneOfType.ACKNOWLEDGEMENT;
+import static com.hedera.hapi.block.PublishStreamResponse.ResponseOneOfType.STATUS;
 import static org.hiero.block.node.app.fixtures.TestUtils.enableDebugLogging;
 import static org.hiero.block.node.app.fixtures.blocks.BlockItemUtils.toBlockItemJson;
 import static org.hiero.block.node.app.fixtures.blocks.SimpleTestBlockItemBuilder.sampleBlockHeader;
@@ -18,16 +19,19 @@ import com.hedera.hapi.block.BlockItemSet;
 import com.hedera.hapi.block.PublishStreamRequest;
 import com.hedera.hapi.block.PublishStreamRequest.RequestOneOfType;
 import com.hedera.hapi.block.PublishStreamResponse;
+import com.hedera.hapi.block.PublishStreamResponseCode;
 import com.hedera.hapi.block.stream.BlockItem;
 import com.hedera.pbj.runtime.OneOf;
 import com.hedera.pbj.runtime.ParseException;
 import com.hedera.pbj.runtime.grpc.ServiceInterface.Method;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
+import java.io.IOException;
 import java.util.List;
 import org.hiero.block.node.app.fixtures.plugintest.GrpcPluginTestBase;
 import org.hiero.block.node.app.fixtures.plugintest.NoBlocksHistoricalBlockFacility;
 import org.hiero.block.node.spi.blockmessaging.BlockNotification;
 import org.hiero.block.node.spi.blockmessaging.BlockNotification.Type;
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 /**
@@ -105,6 +109,61 @@ public class PublisherTest extends GrpcPluginTestBase<PublisherServicePlugin> {
         assertEquals(ACKNOWLEDGEMENT, response.response().kind());
         final Acknowledgement ack = response.response().as();
         assertEquals(new BlockAcknowledgement(100, null, false), ack.blockAck());
+    }
+
+    @Test
+    @DisplayName(
+            "When publisher receives a Duplicated (already acked) block, it should send an ack with duplicate flag")
+    void testPublisherDuplicateBlock() throws IOException, ParseException {
+        // create sample block 1
+        final BlockItem blockHeader1 = sampleBlockHeader(1);
+        toPluginPipe.onNext(blockItemsToPublishStreamRequest(blockHeader1));
+        // check the data was sent through to the block messaging facility
+        assertEquals(1, blockMessaging.getSentBlockItems().size());
+        // simulate verification success
+        blockMessaging.sendBlockNotification(new BlockNotification(1, Type.BLOCK_VERIFIED, Bytes.wrap("hash1")));
+        // simulate persistence success
+        blockMessaging.sendBlockNotification(new BlockNotification(1, Type.BLOCK_PERSISTED, null));
+        // re-attempt to send same block.
+
+        final BlockItem blockHeader1Duplicate = sampleBlockHeader(0);
+        toPluginPipe.onNext(blockItemsToPublishStreamRequest(blockHeader1Duplicate));
+
+        assertEquals(2, fromPluginBytes.size());
+        // last fromPluginBytes should be Duplicate
+        PublishStreamResponse response = PublishStreamResponse.PROTOBUF.parse(fromPluginBytes.getLast());
+        assertEquals(ACKNOWLEDGEMENT, response.response().kind());
+        BlockAcknowledgement ack = response.acknowledgement().blockAck();
+        BlockAcknowledgement expectedAck = new BlockAcknowledgement(1, null, true);
+        assertEquals(expectedAck, ack, "Expected an ACK with flag of duplicate (blockAlreadyExists=true)");
+    }
+
+    @Test
+    @DisplayName("When publisher receives a Future Block, it should send a status response with STREAM_ITEMS_BEHIND")
+    void testFutureBlock() throws ParseException {
+        // create sample block 1
+        final BlockItem blockHeader1 = sampleBlockHeader(1);
+        toPluginPipe.onNext(blockItemsToPublishStreamRequest(blockHeader1));
+        // check the data was sent through to the block messaging facility
+        assertEquals(1, blockMessaging.getSentBlockItems().size());
+        // simulate verification success
+        blockMessaging.sendBlockNotification(new BlockNotification(1, Type.BLOCK_VERIFIED, Bytes.wrap("hash1")));
+        // simulate persistence success
+        blockMessaging.sendBlockNotification(new BlockNotification(1, Type.BLOCK_PERSISTED, null));
+
+        // create sample block 5
+        final BlockItem blockHeader5 = sampleBlockHeader(5);
+        toPluginPipe.onNext(blockItemsToPublishStreamRequest(blockHeader5));
+
+        assertEquals(2, fromPluginBytes.size());
+        PublishStreamResponse aheadResponse = PublishStreamResponse.PROTOBUF.parse(fromPluginBytes.getLast());
+
+        // verify we get an endOfStream with status code STREAM_ITEMS_BEHIND
+        assertEquals(STATUS, aheadResponse.response().kind());
+        assertEquals(
+                PublishStreamResponseCode.STREAM_ITEMS_BEHIND,
+                aheadResponse.status().status());
+        assertEquals(1, aheadResponse.status().blockNumber());
     }
 
     /*
