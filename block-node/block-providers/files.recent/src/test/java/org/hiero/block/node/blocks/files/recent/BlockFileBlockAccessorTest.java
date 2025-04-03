@@ -26,6 +26,7 @@ import org.hiero.block.node.base.CompressionType;
 import org.hiero.block.node.spi.historicalblocks.BlockAccessor.Format;
 import org.hiero.hapi.block.node.BlockItemUnparsed;
 import org.hiero.hapi.block.node.BlockUnparsed;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -38,19 +39,31 @@ import org.junit.jupiter.params.provider.EnumSource;
  */
 @DisplayName("BlockFileBlockAccessor Tests")
 class BlockFileBlockAccessorTest {
+    /** The testing in-memory file system. */
+    private FileSystem jimfs;
     /** Test Base Path, resolved under jimfs. */
     private Path testBasePath;
 
     /**
      * Environment setup for the test class.
      */
-    @SuppressWarnings("resource")
     @BeforeEach
     void setup() throws IOException {
         // Initialize the in-memory file system
-        final FileSystem jimfs = Jimfs.newFileSystem(Configuration.unix());
+        jimfs = Jimfs.newFileSystem(Configuration.unix());
         testBasePath = jimfs.getPath("/tmp");
         Files.createDirectories(testBasePath);
+    }
+
+    /**
+     * Tear down the test environment after each test.
+     */
+    @AfterEach
+    void tearDown() throws IOException {
+        // Close the Jimfs file system
+        if (jimfs != null) {
+            jimfs.close();
+        }
     }
 
     /**
@@ -204,7 +217,7 @@ class BlockFileBlockAccessorTest {
      * Tests for the {@link BlockFileBlockAccessor} functionality.
      */
     @Nested
-    @DisplayName("Functionality tests")
+    @DisplayName("Functionality Tests")
     final class FunctionalityTests {
         /**
          * This test aims to verify that the {@link BlockFileBlockAccessor#block()} will correctly return a
@@ -292,6 +305,43 @@ class BlockFileBlockAccessorTest {
                     new BlockFileBlockAccessor(testBasePath, blockFilePath, compressionType);
             final BlockUnparsed actual = toTest.blockUnparsed();
             assertThat(actual).isEqualTo(expected);
+        }
+
+        /**
+         * This test aims to verify that the {@link BlockFileBlockAccessor#blockBytes(Format)} will correctly
+         * return a persisted block as bytes.
+         */
+        @ParameterizedTest
+        @EnumSource(CompressionType.class)
+        @DisplayName("Test blockBytes method returns correctly a persisted block as bytes")
+        void testBlockBytes(final CompressionType compressionType) throws IOException {
+            // create & assert existing block file path before call
+            final Path blockFilePath = testBasePath.resolve("0.blk".concat(compressionType.extension()));
+            Files.createFile(blockFilePath);
+            assertThat(blockFilePath).exists().isEmptyFile();
+            // build & persist a test block
+            final BlockItemUnparsed[] blockItems = SimpleTestBlockItemBuilder.createNumberOfVerySimpleBlocksUnparsed(1);
+            final BlockUnparsed expected = new BlockUnparsed(List.of(blockItems));
+            final Bytes protoBytes = BlockUnparsed.PROTOBUF.toBytes(expected);
+            // it is important the output stream is closed as the compression writes a footer on close
+            try (final OutputStream out = compressionType.wrapStream(Files.newOutputStream(blockFilePath))) {
+                protoBytes.writeTo(out);
+            }
+            // assert the test block file is populated
+            assertThat(blockFilePath).isNotEmptyFile();
+            // test accessor.blockBytes()
+            final BlockFileBlockAccessor toTest =
+                    new BlockFileBlockAccessor(testBasePath, blockFilePath, compressionType);
+            final Format format =
+                    switch (compressionType) {
+                        case ZSTD -> Format.ZSTD_PROTOBUF;
+                        case NONE -> Format.PROTOBUF;
+                    };
+            final Bytes expectedFileBytes = Bytes.wrap(Files.readAllBytes(blockFilePath));
+            final String expectedFileHex = expectedFileBytes.toHex();
+            // test accessor.blockBytes()
+            final Bytes actualBytes = toTest.blockBytes(format);
+            assertThat(actualBytes.toHex()).isEqualTo(expectedFileHex);
         }
     }
 }

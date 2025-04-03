@@ -19,6 +19,7 @@ import java.util.function.LongConsumer;
 import java.util.stream.Stream;
 import org.hiero.block.node.base.CompressionType;
 import org.hiero.hapi.block.node.BlockItemUnparsed;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -68,6 +69,17 @@ class UnverifiedHandlerTest {
         Files.createDirectories(unverifiedPath);
         // Initialize the configuration with the temporary paths
         config = new FilesRecentConfig(livePath, unverifiedPath, CompressionType.NONE, 3);
+    }
+
+    /**
+     * Tear down the test environment after each test.
+     */
+    @AfterEach
+    void tearDown() throws IOException {
+        // Close the Jimfs file system
+        if (jimfs != null) {
+            jimfs.close();
+        }
     }
 
     /**
