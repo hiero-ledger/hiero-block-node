@@ -5,6 +5,7 @@ import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.concurrent.RejectedExecutionException;
 import org.hiero.block.node.spi.blockmessaging.BlockItemHandler;
 import org.hiero.block.node.spi.blockmessaging.BlockItems;
 import org.hiero.block.node.spi.blockmessaging.BlockMessagingFacility;
@@ -25,12 +26,16 @@ public class TestBlockMessagingFacility implements BlockMessagingFacility {
     private final System.Logger LOGGER = System.getLogger(getClass().getName());
     /** set of block item handlers */
     private final Set<BlockItemHandler> blockItemHandlers = new HashSet<>();
+    /** set of non-backpressure block item handlers */
+    private final Set<BlockItemHandler> nonBackpressureBlockItemHandlers = new HashSet<>();
     /** set of block notification handlers */
     private final Set<BlockNotificationHandler> blockNotificationHandlers = new HashSet<>();
     /** list of all sent block items */
     private final List<BlockItems> sentBlockBlockItems = new ArrayList<>();
     /** list of all sent block notifications */
     private final List<BlockNotification> sentBlockNotifications = new ArrayList<>();
+    /** Flag indicating that we must simulate a handler that is behind and producing backpressure. */
+    private final Set<BlockItemHandler> handlersWithBackpressure = new HashSet<>();
 
     /**
      * Get all block items sent to the block messaging facility.
@@ -68,17 +73,58 @@ public class TestBlockMessagingFacility implements BlockMessagingFacility {
         return blockNotificationHandlers.size();
     }
 
+    /**
+     * Initiate "slow mode" for a handler.
+     * Make the messaging facility act like a particular handler has
+     * fallen behind when reading blocks, and either apply backpressure or
+     * call the `onTooFarBehind` method for non-backpressure handlers.
+     */
+    public void setHandlerBehind(final BlockItemHandler handler) {
+        if (handler instanceof NoBackPressureBlockItemHandler nonBlockingHandler) {
+            unregisterBlockItemHandler(nonBlockingHandler);
+            nonBlockingHandler.onTooFarBehindError();
+        } else {
+            handlersWithBackpressure.add(handler);
+        }
+    }
+
+    public void clearBackpressure(final BlockItemHandler handler) {
+        if (handlersWithBackpressure.contains(handler)) {
+            handlersWithBackpressure.remove(handler);
+        } else if (handler instanceof NoBackPressureBlockItemHandler nonBlockingHandler) {
+            registerNoBackpressureBlockItemHandler(nonBlockingHandler, false, "");
+        }
+    }
+
     // ==== BlockMessagingFacility Methods =============================================================================
 
     /**
      * {@inheritDoc}
+     * <p>
+     * This implementation will throw a {@link RejectedExecutionException} if a handler is behind
+     * and this causes backpressure.  This is <strong>different from the interface</strong> so that
+     * unit tests can detect backpressure without having to handle threading and possible deadlock.
+     * <p>
+     * Important note:
+     * <blockquote>
+     * All handlers will receive the published block before the exception is thrown, to avoid leaving handlers
+     * in inconsistent states.
+     * </blockquote>
      */
     @Override
     public void sendBlockItems(BlockItems blockItems) {
         LOGGER.log(System.Logger.Level.DEBUG, "Sending block items " + blockItems);
         sentBlockBlockItems.add(blockItems);
+        boolean handlerHasBackpressure = false;
         for (BlockItemHandler handler : blockItemHandlers) {
-            handler.handleBlockItemsReceived(blockItems);
+            if (handlersWithBackpressure.contains(handler)) {
+                handlerHasBackpressure = true;
+            } else {
+                handler.handleBlockItemsReceived(blockItems);
+            }
+        }
+        if (handlerHasBackpressure) {
+            throw new RejectedExecutionException();
         }
     }
 
@@ -96,7 +142,7 @@ public class TestBlockMessagingFacility implements BlockMessagingFacility {
     @Override
     public void registerNoBackpressureBlockItemHandler(
             NoBackPressureBlockItemHandler handler, boolean cpuIntensiveHandler, String handlerName) {
-        blockItemHandlers.add(handler);
+        nonBackpressureBlockItemHandlers.add(handler);
     }
 
     /**
@@ -104,7 +150,13 @@ public class TestBlockMessagingFacility implements BlockMessagingFacility {
      */
     @Override
     public void unregisterBlockItemHandler(BlockItemHandler handler) {
-        blockItemHandlers.remove(handler);
+        if (blockItemHandlers.contains(handler)) {
+            blockItemHandlers.remove(handler);
+        } else if (nonBackpressureBlockItemHandlers.contains(handler)) {
+            nonBackpressureBlockItemHandlers.remove(handler);
+        } else {
+            throw new IllegalArgumentException();
+        }
     }
 
     /**

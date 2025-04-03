@@ -12,14 +12,17 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import com.hedera.hapi.block.stream.BlockItem;
 import com.hedera.pbj.runtime.ParseException;
 import com.hedera.pbj.runtime.grpc.ServiceInterface.Method;
+import java.util.Arrays;
 import java.util.List;
 import org.hiero.block.node.app.fixtures.plugintest.GrpcPluginTestBase;
 import org.hiero.block.node.app.fixtures.plugintest.SimpleInMemoryHistoricalBlockFacility;
 import org.hiero.block.node.spi.blockmessaging.BlockItems;
+import org.hiero.block.node.spi.blockmessaging.NoBackPressureBlockItemHandler;
 import org.hiero.hapi.block.node.SubscribeStreamRequest;
 import org.hiero.hapi.block.node.SubscribeStreamResponse;
 import org.hiero.hapi.block.node.SubscribeStreamResponse.ResponseOneOfType;
 import org.hiero.hapi.block.node.SubscribeStreamResponseCode;
+import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -30,8 +33,14 @@ import org.junit.jupiter.api.Test;
 @SuppressWarnings("DataFlowIssue")
 public class SubscriberTest extends GrpcPluginTestBase<SubscriberServicePlugin> {
 
+    private final SubscriberServicePlugin activePlugin;
+
+    /**
+     * Constructor that creates new subscriber plugin and in-memory block facility.
+     */
     public SubscriberTest() {
         super(new SubscriberServicePlugin(), subscribeBlockStream, new SimpleInMemoryHistoricalBlockFacility());
+        activePlugin = plugin; // the base class variable name is a bit too generic...
     }
 
     /**
@@ -77,7 +86,7 @@ public class SubscriberTest extends GrpcPluginTestBase<SubscriberServicePlugin> 
     }
 
     @Test
-    void testSubscriberBlock0() throws ParseException {
+    void testSubscriberBlockZero() throws ParseException {
         // first we need to create and send a SubscribeStreamRequest
         final SubscribeStreamRequest subscribeStreamRequest = SubscribeStreamRequest.newBuilder()
                 .allowUnverified(true)
@@ -90,7 +99,7 @@ public class SubscriberTest extends GrpcPluginTestBase<SubscriberServicePlugin> 
     }
 
     @Test
-    void testSubscriberBlock0TwoChunks() throws ParseException {
+    void testSubscriberBlockZeroTwoChunks() throws ParseException {
         // first we need to create and send a SubscribeStreamRequest
         final SubscribeStreamRequest subscribeStreamRequest = SubscribeStreamRequest.newBuilder()
                 .allowUnverified(true)
@@ -119,7 +128,7 @@ public class SubscriberTest extends GrpcPluginTestBase<SubscriberServicePlugin> 
             try {
                 return "Expected no response but got "
                         + SubscribeStreamResponse.PROTOBUF.parse(fromPluginBytes.getFirst());
-            } catch (ParseException e) {
+            } catch (final ParseException e) {
                 throw new RuntimeException(e);
             }
         });
@@ -143,7 +152,7 @@ public class SubscriberTest extends GrpcPluginTestBase<SubscriberServicePlugin> 
             try {
                 return "Expected no response but got "
                         + SubscribeStreamResponse.PROTOBUF.parse(fromPluginBytes.getFirst());
-            } catch (ParseException e) {
+            } catch (final ParseException e) {
                 throw new RuntimeException(e);
             }
         });
@@ -179,7 +188,7 @@ public class SubscriberTest extends GrpcPluginTestBase<SubscriberServicePlugin> 
         // first we need to create and send a SubscribeStreamRequest
         final SubscribeStreamRequest subscribeStreamRequest = SubscribeStreamRequest.newBuilder()
                 .allowUnverified(true)
-                .startBlockNumber(-10)
+                .startBlockNumber(-1)
                 .endBlockNumber(UNKNOWN_BLOCK_NUMBER)
                 .build();
         toPluginPipe.onNext(SubscribeStreamRequest.PROTOBUF.toBytes(subscribeStreamRequest));
@@ -212,7 +221,7 @@ public class SubscriberTest extends GrpcPluginTestBase<SubscriberServicePlugin> 
      * Test the subscriber service, sending 25 blocks to the messaging facility and checking they are received
      * correctly.
      */
-    void sendBlocksAndCheckTheyAreReceived(BlockItem[] blockItems) throws ParseException {
+    void sendBlocksAndCheckTheyAreReceived(final BlockItem[] blockItems) throws ParseException {
         final int offset = fromPluginBytes.size();
         // send all the block items
         sendBlocks(blockItems);
@@ -229,14 +238,73 @@ public class SubscriberTest extends GrpcPluginTestBase<SubscriberServicePlugin> 
     }
 
     /**
+     * Test the subscriber service, sending blocks to the messaging facility.
+     * At indicated blocks, apply backpressure (as though the client is slow)
+     */
+    void sendBlocksWithBackpressure(final BlockItem[] blockItems, final int[] blocksToSlow, final int sessionToSlow)
+            throws ParseException {
+        final int offset = fromPluginBytes.size();
+        // send all the block items
+        sendBlocks(blockItems, blocksToSlow, null, sessionToSlow);
+        // check we got all the items
+        assertEquals(blockItems.length, fromPluginBytes.size() - offset);
+        for (int i = 0; i < blockItems.length; i++) {
+            SubscribeStreamResponse response = SubscribeStreamResponse.PROTOBUF.parse(fromPluginBytes.get(i + offset));
+            assertEquals(
+                    ResponseOneOfType.BLOCK_ITEMS,
+                    response.response().kind(),
+                    "Expected BLOCK_ITEMS but got " + response.response());
+            assertEquals(blockItems[i], response.blockItems().blockItems().getFirst());
+        }
+    }
+
+    /**
      * Send the given block items to messaging service.
      */
-    void sendBlocks(BlockItem[] blockItems) {
+    void sendBlocks(final BlockItem[] blockItems) {
+        final int[] empty = {};
+        sendBlocks(blockItems, empty, null, -1);
+    }
+
+    /**
+     * Send the given block items to the messaging service.
+     *
+     * @param blockItems An array of block items to send one at a time
+     * @param blocksToApplyBackpressure an array of index values, at each index value we will apply backpressure
+     *         to the messaging service for the subscriber handler and possibly test for an exception.
+     *         An empty array means to not apply backpressure.
+     * @param expectedException An exception expected when backpressure is applied, null if no exception
+     *         is expected.
+     */
+    void sendBlocks(
+            final BlockItem[] blockItems,
+            final int[] blocksToApplyBackpressure,
+            final Class<? extends Throwable> expectedException,
+            final int sessionIndexToSlow) {
         // send all the block items
-        for (BlockItem blockItem : blockItems) {
-            long blockNumber =
-                    blockItem.hasBlockHeader() ? blockItem.blockHeader().number() : UNKNOWN_BLOCK_NUMBER;
-            blockMessaging.sendBlockItems(new BlockItems(toBlockItemsUnparsed(blockItem), blockNumber));
+        Arrays.sort(blocksToApplyBackpressure);
+        final NoBackPressureBlockItemHandler[] allSessions = activePlugin.getOpenSessions();
+        final NoBackPressureBlockItemHandler handlerToSlow;
+        if (sessionIndexToSlow >= 0 && allSessions.length > sessionIndexToSlow) {
+            handlerToSlow = allSessions[sessionIndexToSlow];
+        } else {
+            handlerToSlow = null;
+        }
+        long blockNumber = UNKNOWN_BLOCK_NUMBER;
+        for (int i = 0; i < blockItems.length; i++) {
+            final BlockItem blockItem = blockItems[i];
+            final boolean isBlockedItem =
+                    handlerToSlow != null && Arrays.binarySearch(blocksToApplyBackpressure, i) >= 0;
+            if (isBlockedItem) {
+                blockMessaging.setHandlerBehind(handlerToSlow);
+            }
+            blockNumber = blockItem.hasBlockHeader() ? blockItem.blockHeader().number() : blockNumber;
+            final BlockItems itemsToSend = new BlockItems(toBlockItemsUnparsed(blockItem), blockNumber);
+            if (isBlockedItem && expectedException != null) {
+                Assertions.assertThrows(expectedException, () -> blockMessaging.sendBlockItems(itemsToSend));
+            } else {
+                blockMessaging.sendBlockItems(itemsToSend);
+            }
         }
     }
 }

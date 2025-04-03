@@ -11,6 +11,7 @@ import edu.umd.cs.findbugs.annotations.NonNull;
 import java.util.Arrays;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Set;
 import java.util.concurrent.ConcurrentSkipListSet;
 import java.util.concurrent.atomic.AtomicLong;
 import org.hiero.block.node.spi.BlockNodeContext;
@@ -25,7 +26,7 @@ public class SubscriberServicePlugin implements BlockNodePlugin, ServiceInterfac
     /** The next client id to use when a new client session is created */
     private final AtomicLong nextClientId = new AtomicLong(0);
     /** Set of open client sessions */
-    private final ConcurrentSkipListSet<BlockStreamSubscriberSession> openSessions =
+    private final Set<BlockStreamSubscriberSession> openSessions =
             new ConcurrentSkipListSet<>(Comparator.comparingLong(BlockStreamSubscriberSession::clientId));
     /** The block node context */
     private BlockNodeContext context;
@@ -42,6 +43,15 @@ public class SubscriberServicePlugin implements BlockNodePlugin, ServiceInterfac
         // remove the session from the set of open sessions
         openSessions.remove(blockStreamProducerSession);
         numberOfSubscribers.set(openSessions.size());
+    }
+
+    private static final BlockStreamSubscriberSession[] EMPTY_SESSION_ARRAY = {};
+    /**
+     * Testing method to provide visibility into the open sessions (which are message handlers)
+     * so we can trigger messaging behaviors and see results.
+     */
+    BlockStreamSubscriberSession[] getOpenSessions() {
+        return openSessions.toArray(EMPTY_SESSION_ARRAY);
     }
 
     // ==== BlockNodePlugin Methods ====================================================================================
