@@ -24,6 +24,7 @@ import java.util.List;
 import org.hiero.block.node.app.fixtures.blocks.SimpleTestBlockItemBuilder;
 import org.hiero.block.node.base.CompressionType;
 import org.hiero.block.node.spi.historicalblocks.BlockAccessor.Format;
+import org.hiero.hapi.block.node.BlockItemUnparsed;
 import org.hiero.hapi.block.node.BlockUnparsed;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -205,35 +206,36 @@ class BlockFileBlockAccessorTest {
     @Nested
     @DisplayName("Functionality tests")
     final class FunctionalityTests {
+        /**
+         * This test aims to verify that the {@link BlockFileBlockAccessor#block()} will correctly return a
+         * persisted block.
+         */
         @ParameterizedTest
         @EnumSource(CompressionType.class)
-        //        @DisplayName("Test that the block file path is created correctly") todo
-        void test(final CompressionType compressionType) throws IOException {
+        @DisplayName("Test block method returns correctly a persisted block")
+        void testBlock(final CompressionType compressionType) throws IOException {
             // create & assert existing block file path before call
-            final Path blockFilePath = testBasePath.resolve("1.blk".concat(compressionType.extension()));
+            final Path blockFilePath = testBasePath.resolve("0.blk".concat(compressionType.extension()));
             Files.createFile(blockFilePath);
-            assertThat(blockFilePath)
-                    .exists()
-                    .isRegularFile()
-                    .isEmptyFile()
-                    .isReadable()
-                    .isWritable();
+            assertThat(blockFilePath).exists().isEmptyFile();
+            // build & persist a test block
             final BlockItem[] blockItems = SimpleTestBlockItemBuilder.createNumberOfVerySimpleBlocks(1);
-            final Block targetBlock = new Block(List.of(blockItems));
-            final Bytes expectedProtobufBytes = Block.PROTOBUF.toBytes(targetBlock);
+            final Block expected = new Block(List.of(blockItems));
+            final Bytes protoBytes = Block.PROTOBUF.toBytes(expected);
             // it is important the output stream is closed as the compression writes a footer on close
             try (final OutputStream out = compressionType.wrapStream(Files.newOutputStream(blockFilePath))) {
-                expectedProtobufBytes.writeTo(out);
+                protoBytes.writeTo(out);
             }
+            // assert the test block file is populated
             assertThat(blockFilePath).isNotEmptyFile();
             // test accessor.block()
-            final BlockFileBlockAccessor blockAccessor =
+            final BlockFileBlockAccessor toTest =
                     new BlockFileBlockAccessor(testBasePath, blockFilePath, compressionType);
-            final Block actualBlock = blockAccessor.block();
-            assertEquals(targetBlock, actualBlock);
+            final Block actual = toTest.block();
+            assertThat(actual).isEqualTo(expected);
             // test accessor.blockUnparsed()
-            final BlockUnparsed actualBlockUnparsed = blockAccessor.blockUnparsed();
-            final BlockUnparsed expectedBlockUnparsed = toBlockUnparsed(actualBlock);
+            final BlockUnparsed actualBlockUnparsed = toTest.blockUnparsed();
+            final BlockUnparsed expectedBlockUnparsed = toBlockUnparsed(actual);
             assertEquals(expectedBlockUnparsed, actualBlockUnparsed);
             final var format =
                     switch (compressionType) {
@@ -243,24 +245,53 @@ class BlockFileBlockAccessorTest {
             final Bytes expectedFileBytes = Bytes.wrap(Files.readAllBytes(blockFilePath));
             final String expectedFileHex = expectedFileBytes.toHex();
             // test accessor.blockBytes()
-            final Bytes actualBytes = blockAccessor.blockBytes(format);
+            final Bytes actualBytes = toTest.blockBytes(format);
             assertEquals(expectedFileHex, actualBytes.toHex());
             // test accessor.writeBytesTo(OutputStream)
             final ByteArrayOutputStream byteArrayOutputStream = new ByteArrayOutputStream();
-            blockAccessor.writeBytesTo(format, byteArrayOutputStream);
+            toTest.writeBytesTo(format, byteArrayOutputStream);
             final Bytes actualOutputStreamBytes = Bytes.wrap(byteArrayOutputStream.toByteArray());
             assertEquals(expectedFileHex, actualOutputStreamBytes.toHex());
             // test accessor.writeBytesTo(BufferedData)
             final BufferedData bufferedData = BufferedData.allocate((int) expectedFileBytes.length());
-            blockAccessor.writeBytesTo(format, bufferedData);
+            toTest.writeBytesTo(format, bufferedData);
             final Bytes bufferedDataBytes = bufferedData.getBytes(0, bufferedData.length());
             assertEquals(expectedFileHex, bufferedDataBytes.toHex());
             // test accessor.writeTo(Path)
             final Path blockFilePath2 = testBasePath.resolve("2.blk");
-            blockAccessor.writeTo(format, blockFilePath2);
+            toTest.writeTo(format, blockFilePath2);
             final String file2BytesHex =
                     Bytes.wrap(Files.readAllBytes(blockFilePath2)).toHex();
             assertEquals(expectedFileHex, file2BytesHex);
+        }
+
+        /**
+         * This test aims to verify that the {@link BlockFileBlockAccessor#blockUnparsed()} will correctly return a
+         * persisted block.
+         */
+        @ParameterizedTest
+        @EnumSource(CompressionType.class)
+        @DisplayName("Test blockUnparsed method returns correctly a persisted block")
+        void testBlockUnparsed(final CompressionType compressionType) throws IOException {
+            // create & assert existing block file path before call
+            final Path blockFilePath = testBasePath.resolve("0.blk".concat(compressionType.extension()));
+            Files.createFile(blockFilePath);
+            assertThat(blockFilePath).exists().isEmptyFile();
+            // build & persist a test block
+            final BlockItemUnparsed[] blockItems = SimpleTestBlockItemBuilder.createNumberOfVerySimpleBlocksUnparsed(1);
+            final BlockUnparsed expected = new BlockUnparsed(List.of(blockItems));
+            final Bytes protoBytes = BlockUnparsed.PROTOBUF.toBytes(expected);
+            // it is important the output stream is closed as the compression writes a footer on close
+            try (final OutputStream out = compressionType.wrapStream(Files.newOutputStream(blockFilePath))) {
+                protoBytes.writeTo(out);
+            }
+            // assert the test block file is populated
+            assertThat(blockFilePath).isNotEmptyFile();
+            // test accessor.blockUnparsed()
+            final BlockFileBlockAccessor toTest =
+                    new BlockFileBlockAccessor(testBasePath, blockFilePath, compressionType);
+            final BlockUnparsed actual = toTest.blockUnparsed();
+            assertThat(actual).isEqualTo(expected);
         }
     }
 }
