@@ -91,6 +91,8 @@ public final class PublisherServicePlugin implements BlockNodePlugin, ServiceInt
     private final Set<BlockStreamProducerSession> openSessions = new HashSet<>();
     /** The current block number being processed. */
     private long currentBlockNumber = UNKNOWN_BLOCK_NUMBER;
+    /** The current ACKED block number */
+    private long latestAckedBlockNumber = UNKNOWN_BLOCK_NUMBER;
     /** The current chosen primary consensus node session, or null if there is no primary */
     private BlockStreamProducerSession currentPrimarySession = null;
     /** The next session id to use when a new session is created */
@@ -125,6 +127,22 @@ public final class PublisherServicePlugin implements BlockNodePlugin, ServiceInt
      */
     private void onSessionUpdate(BlockStreamProducerSession session, UpdateType updateType, long blockNumber) {
         LOGGER.log(DEBUG, "onSessionUpdate: type={0} blockNumber={1} session={2}", updateType, blockNumber, session);
+        // Duplicate Pre-check, even before acquiring the lock
+        if (currentBlockNumber != UNKNOWN_BLOCK_NUMBER && blockNumber <= latestAckedBlockNumber) {
+            session.sendDuplicateAck(latestAckedBlockNumber);
+            return;
+        }
+
+        // Ahead Pre-Check, similar to above,
+        // but there is how many blocks ahead we can keep in buffer?
+        // TODO, this offset should be calculated using a config value, or hard-code on a specific number but keep as
+        // constant.
+        long offset = 3; // this should be 1 + BufferCapacity=2.
+        if (currentBlockNumber != UNKNOWN_BLOCK_NUMBER && blockNumber > currentBlockNumber + offset) {
+            session.sendStreamItemsBehind(latestAckedBlockNumber);
+            return;
+        }
+
         stateLock.lock();
         try {
             // update the metrics
@@ -399,6 +417,7 @@ public final class PublisherServicePlugin implements BlockNodePlugin, ServiceInt
             switch (notification.type()) {
                 case BLOCK_PERSISTED -> {
                     // let all subscribers know we have a good copy of the block saved to disk
+                    latestAckedBlockNumber = notification.blockNumber();
                     openSessions.forEach(session ->
                             session.sendBlockPersisted(notification.blockNumber(), notification.blockHash()));
                 }
