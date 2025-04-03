@@ -124,16 +124,19 @@ public class SubscriberTest extends GrpcPluginTestBase<SubscriberServicePlugin> 
                 .build();
         toPluginPipe.onNext(SubscribeStreamRequest.PROTOBUF.toBytes(subscribeStreamRequest));
         // check we did not get a bad response
-        assertEquals(0, fromPluginBytes.size(), () -> {
-            try {
-                return "Expected no response but got "
-                        + SubscribeStreamResponse.PROTOBUF.parse(fromPluginBytes.getFirst());
-            } catch (final ParseException e) {
-                throw new RuntimeException(e);
-            }
-        });
+        assertEquals(0, fromPluginBytes.size(), this::ErrorForSubscribeResponse);
         // check we can send some block items and they are received
         sendBlocksAndCheckTheyAreReceived(createNumberOfVerySimpleBlocks(10, 20));
+    }
+
+    private String ErrorForSubscribeResponse() {
+        try {
+            final SubscribeStreamResponse actualResponse =
+                    SubscribeStreamResponse.PROTOBUF.parse(fromPluginBytes.getFirst());
+            return "Expected no response but got %s.".formatted(actualResponse);
+        } catch (final ParseException e) {
+            return "Expected no response and unable to parse actual response. %s.".formatted(e);
+        }
     }
 
     @Test
@@ -148,18 +151,25 @@ public class SubscriberTest extends GrpcPluginTestBase<SubscriberServicePlugin> 
                 .build();
         toPluginPipe.onNext(SubscribeStreamRequest.PROTOBUF.toBytes(subscribeStreamRequest));
         // check we did not get a bad response
-        assertEquals(0, fromPluginBytes.size(), () -> {
-            try {
-                return "Expected no response but got "
-                        + SubscribeStreamResponse.PROTOBUF.parse(fromPluginBytes.getFirst());
-            } catch (final ParseException e) {
-                throw new RuntimeException(e);
-            }
-        });
+        assertEquals(0, fromPluginBytes.size(), this::ErrorForSubscribeResponse);
         // now send some blocks up the starting block
         sendBlocks(createNumberOfVerySimpleBlocks(10, 15));
         // check we can send some block items and they are received
         sendBlocksAndCheckTheyAreReceived(createNumberOfVerySimpleBlocks(15, 25));
+    }
+
+    @Test
+    void testSubscribeFromZeroSlowClient() throws ParseException {
+        // first we need to create and send a SubscribeStreamRequest
+        final SubscribeStreamRequest subscribeStreamRequest = SubscribeStreamRequest.newBuilder()
+                .allowUnverified(true)
+                .startBlockNumber(0)
+                .endBlockNumber(UNKNOWN_BLOCK_NUMBER)
+                .build();
+        toPluginPipe.onNext(SubscribeStreamRequest.PROTOBUF.toBytes(subscribeStreamRequest));
+        // check we can send some block items and they are received
+        sendBlocksWithBackpressure(createNumberOfVerySimpleBlocks(0, 15), new int[] {5, 6, 7, 8, 9, 10}, 0);
+        sendBlocksWithBackpressure(createNumberOfVerySimpleBlocks(15, 25), null, -1);
     }
 
     // ==== Test bad response codes ====================================================================================
@@ -291,12 +301,17 @@ public class SubscriberTest extends GrpcPluginTestBase<SubscriberServicePlugin> 
             handlerToSlow = null;
         }
         long blockNumber = UNKNOWN_BLOCK_NUMBER;
+        boolean blockedPriorItem = false;
         for (int i = 0; i < blockItems.length; i++) {
             final BlockItem blockItem = blockItems[i];
             final boolean isBlockedItem =
                     handlerToSlow != null && Arrays.binarySearch(blocksToApplyBackpressure, i) >= 0;
             if (isBlockedItem) {
                 blockMessaging.setHandlerBehind(handlerToSlow);
+                blockedPriorItem = true;
+            } else if (blockedPriorItem) {
+                blockMessaging.clearBackpressure(handlerToSlow);
+                blockedPriorItem = false;
             }
             blockNumber = blockItem.hasBlockHeader() ? blockItem.blockHeader().number() : blockNumber;
             final BlockItems itemsToSend = new BlockItems(toBlockItemsUnparsed(blockItem), blockNumber);

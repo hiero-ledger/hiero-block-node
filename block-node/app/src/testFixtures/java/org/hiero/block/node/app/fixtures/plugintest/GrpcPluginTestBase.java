@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.node.app.fixtures.plugintest;
 
+import static java.lang.System.Logger.Level.DEBUG;
 import static org.junit.jupiter.api.Assertions.fail;
 
 import com.hedera.pbj.runtime.grpc.Pipeline;
@@ -13,6 +14,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.Flow.Subscription;
+import java.util.logging.Logger;
 import org.hiero.block.node.spi.BlockNodePlugin;
 import org.hiero.block.node.spi.ServiceBuilder;
 import org.hiero.block.node.spi.historicalblocks.HistoricalBlockFacility;
@@ -30,6 +32,9 @@ public abstract class GrpcPluginTestBase<P extends BlockNodePlugin> extends Plug
     private record ReqOptions(Optional<String> authority, boolean isProtobuf, boolean isJson, String contentType)
             implements ServiceInterface.RequestOptions {}
 
+    /** The logger for this class. */
+    private final System.Logger LOGGER = System.getLogger(getClass().getName());
+
     protected final List<Bytes> fromPluginBytes = new ArrayList<>();
     protected final Pipeline<? super Bytes> toPluginPipe;
     protected ServiceInterface serviceInterface;
@@ -40,17 +45,18 @@ public abstract class GrpcPluginTestBase<P extends BlockNodePlugin> extends Plug
         final Pipeline<Bytes> fromPluginPipe = new Pipeline<>() {
             @Override
             public void clientEndStreamReceived() {
-                System.out.println("PublisherTest.clientEndStreamReceived");
+                LOGGER.log(DEBUG, "PublisherTest.clientEndStreamReceived");
             }
 
             @Override
             public void onNext(Bytes item) throws RuntimeException {
                 fromPluginBytes.add(item);
+                LOGGER.log(DEBUG, "PublisherTest.onNext: %d".formatted(fromPluginBytes.size()));
             }
 
             @Override
             public void onSubscribe(Subscription subscription) {
-                System.out.println("PublisherTest.onSubscribe");
+                LOGGER.log(DEBUG, "PublisherTest.onSubscribe");
             }
 
             @Override
@@ -60,7 +66,7 @@ public abstract class GrpcPluginTestBase<P extends BlockNodePlugin> extends Plug
 
             @Override
             public void onComplete() {
-                System.out.println("PublisherTest.onComplete");
+                LOGGER.log(DEBUG, "PublisherTest.onComplete");
             }
         };
         // open a fake GRPC connection to the plugin

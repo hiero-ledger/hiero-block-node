@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.node.app.fixtures.plugintest;
 
+import java.lang.System.Logger.Level;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
@@ -113,15 +114,15 @@ public class TestBlockMessagingFacility implements BlockMessagingFacility {
      */
     @Override
     public void sendBlockItems(BlockItems blockItems) {
-        LOGGER.log(System.Logger.Level.DEBUG, "Sending block items " + blockItems);
+        LOGGER.log(Level.TRACE, "Sending next block items " + blockItems);
         sentBlockBlockItems.add(blockItems);
         boolean handlerHasBackpressure = false;
         for (BlockItemHandler handler : blockItemHandlers) {
             if (handlersWithBackpressure.contains(handler)) {
                 handlerHasBackpressure = true;
-            } else {
-                handler.handleBlockItemsReceived(blockItems);
             }
+            LOGGER.log(Level.TRACE, "Calling Handler %s.%n".formatted(handler));
+            handler.handleBlockItemsReceived(blockItems);
         }
         if (handlerHasBackpressure) {
             throw new RejectedExecutionException();
@@ -164,7 +165,7 @@ public class TestBlockMessagingFacility implements BlockMessagingFacility {
      */
     @Override
     public void sendBlockNotification(BlockNotification notification) {
-        LOGGER.log(System.Logger.Level.DEBUG, "Sending block notification " + notification);
+        LOGGER.log(Level.TRACE, "Sending block notification " + notification);
         sentBlockNotifications.add(notification);
         for (BlockNotificationHandler handler : blockNotificationHandlers) {
             handler.handleBlockNotification(notification);

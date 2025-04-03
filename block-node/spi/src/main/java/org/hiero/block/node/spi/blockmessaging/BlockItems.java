@@ -34,7 +34,7 @@ public record BlockItems(List<BlockItemUnparsed> blockItems, long newBlockNumber
      * @return true if these items include the start of a new block, false otherwise.
      */
     public boolean isStartOfNewBlock() {
-        return newBlockNumber != UNKNOWN_BLOCK_NUMBER;
+        return blockItems.getFirst().hasBlockHeader();
     }
 
     /**
