@@ -128,7 +128,9 @@ public final class PublisherServicePlugin implements BlockNodePlugin, ServiceInt
     private void onSessionUpdate(BlockStreamProducerSession session, UpdateType updateType, long blockNumber) {
         LOGGER.log(DEBUG, "onSessionUpdate: type={0} blockNumber={1} session={2}", updateType, blockNumber, session);
         // Duplicate Pre-check, even before acquiring the lock
-        if (currentBlockNumber != UNKNOWN_BLOCK_NUMBER && blockNumber <= latestAckedBlockNumber) {
+        if (currentBlockNumber != UNKNOWN_BLOCK_NUMBER
+                && latestAckedBlockNumber != UNKNOWN_BLOCK_NUMBER
+                && blockNumber <= latestAckedBlockNumber) {
             session.sendDuplicateAck(latestAckedBlockNumber);
             return;
         }
@@ -138,7 +140,9 @@ public final class PublisherServicePlugin implements BlockNodePlugin, ServiceInt
         // TODO, this offset should be calculated using a config value, or hard-code on a specific number but keep as
         // constant.
         long offset = 3; // this should be 1 + BufferCapacity=2.
-        if (currentBlockNumber != UNKNOWN_BLOCK_NUMBER && blockNumber > currentBlockNumber + offset) {
+        if (currentBlockNumber != UNKNOWN_BLOCK_NUMBER
+                && latestAckedBlockNumber != UNKNOWN_BLOCK_NUMBER
+                && blockNumber > currentBlockNumber + offset) {
             session.sendStreamItemsBehind(latestAckedBlockNumber);
             return;
         }
