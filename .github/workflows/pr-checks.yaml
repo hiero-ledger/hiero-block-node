@@ -26,6 +26,11 @@ permissions:
 jobs:
   check-gradle:
     name: Gradle
+    if:
+      contains('
+      refs/heads/main
+      refs/heads/release/**
+      ', github.ref)
     uses: ./.github/workflows/zxc-verify-gradle-build-determinism.yaml
     with:
       ref: ${{ github.event.inputs.ref || '' }}
@@ -34,7 +39,7 @@ jobs:
 
   compile:
     timeout-minutes: 20
-    name: "Gradle Checks"
+    name: "Quality Checks and UTs"
     runs-on: hiero-block-node-linux-medium
     steps:
       - name: Harden Runner
