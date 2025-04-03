@@ -126,7 +126,7 @@ class UnverifiedHandlerTest {
      * Tests for the functionality of {@link UnverifiedHandler}.
      */
     @Nested
-    @DisplayName("Test Functionality")
+    @DisplayName("Functionality Tests")
     final class FunctionalityTests {
         /** The {@link UnverifiedHandler} instance to be tested. */
         private UnverifiedHandler toTest;

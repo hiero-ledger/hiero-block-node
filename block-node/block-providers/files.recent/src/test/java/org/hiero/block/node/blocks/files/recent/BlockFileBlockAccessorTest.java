@@ -5,8 +5,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatIllegalArgumentException;
 import static org.assertj.core.api.Assertions.assertThatNoException;
 import static org.assertj.core.api.Assertions.assertThatNullPointerException;
-import static org.hiero.block.node.app.fixtures.blocks.BlockUtils.toBlockUnparsed;
-import static org.junit.jupiter.api.Assertions.assertEquals;
 
 import com.google.common.jimfs.Configuration;
 import com.google.common.jimfs.Jimfs;
@@ -238,36 +236,6 @@ class BlockFileBlockAccessorTest {
             // test accessor.block()
             final Block actual = toTest.block();
             assertThat(actual).isEqualTo(expected);
-            // test accessor.blockUnparsed()
-            final BlockUnparsed actualBlockUnparsed = toTest.blockUnparsed();
-            final BlockUnparsed expectedBlockUnparsed = toBlockUnparsed(actual);
-            assertEquals(expectedBlockUnparsed, actualBlockUnparsed);
-            final var format =
-                    switch (compressionType) {
-                        case ZSTD -> Format.ZSTD_PROTOBUF;
-                        case NONE -> Format.PROTOBUF;
-                    };
-            final Bytes expectedFileBytes = Bytes.wrap(Files.readAllBytes(blockFilePath));
-            final String expectedFileHex = expectedFileBytes.toHex();
-            // test accessor.blockBytes()
-            final Bytes actualBytes = toTest.blockBytes(format);
-            assertEquals(expectedFileHex, actualBytes.toHex());
-            // test accessor.writeBytesTo(OutputStream)
-            final ByteArrayOutputStream byteArrayOutputStream = new ByteArrayOutputStream();
-            toTest.writeBytesTo(format, byteArrayOutputStream);
-            final Bytes actualOutputStreamBytes = Bytes.wrap(byteArrayOutputStream.toByteArray());
-            assertEquals(expectedFileHex, actualOutputStreamBytes.toHex());
-            // test accessor.writeBytesTo(BufferedData)
-            final BufferedData bufferedData = BufferedData.allocate((int) expectedFileBytes.length());
-            toTest.writeBytesTo(format, bufferedData);
-            final Bytes bufferedDataBytes = bufferedData.getBytes(0, bufferedData.length());
-            assertEquals(expectedFileHex, bufferedDataBytes.toHex());
-            // test accessor.writeTo(Path)
-            final Path blockFilePath2 = testBasePath.resolve("2.blk");
-            toTest.writeTo(format, blockFilePath2);
-            final String file2BytesHex =
-                    Bytes.wrap(Files.readAllBytes(blockFilePath2)).toHex();
-            assertEquals(expectedFileHex, file2BytesHex);
         }
 
         /**
@@ -303,20 +271,20 @@ class BlockFileBlockAccessorTest {
             final Path blockFilePath = testBasePath.resolve("0.blk".concat(compressionType.extension()));
             // build a test block
             final BlockItemUnparsed[] blockItems = SimpleTestBlockItemBuilder.createNumberOfVerySimpleBlocksUnparsed(1);
-            final BlockUnparsed expected = new BlockUnparsed(List.of(blockItems));
-            final Bytes protoBytes = BlockUnparsed.PROTOBUF.toBytes(expected);
+            final BlockUnparsed block = new BlockUnparsed(List.of(blockItems));
+            final Bytes protoBytes = BlockUnparsed.PROTOBUF.toBytes(block);
             // create instance to test
             final BlockFileBlockAccessor toTest = createInstanceToTest(blockFilePath, compressionType, protoBytes);
+            // test accessor.blockBytes()
             final Format format =
                     switch (compressionType) {
                         case ZSTD -> Format.ZSTD_PROTOBUF;
                         case NONE -> Format.PROTOBUF;
                     };
             final Bytes expectedFileBytes = Bytes.wrap(Files.readAllBytes(blockFilePath));
-            final String expectedFileHex = expectedFileBytes.toHex();
-            // test accessor.blockBytes()
-            final Bytes actualBytes = toTest.blockBytes(format);
-            assertThat(actualBytes.toHex()).isEqualTo(expectedFileHex);
+            final String expected = expectedFileBytes.toHex();
+            final Bytes actual = toTest.blockBytes(format);
+            assertThat(actual.toHex()).isEqualTo(expected);
         }
 
         /**
@@ -326,28 +294,90 @@ class BlockFileBlockAccessorTest {
         @ParameterizedTest
         @EnumSource(CompressionType.class)
         @DisplayName("Test writeBytesTo method will correctly write bytes to the target OutputStream")
-        void testWriteBytesToOutStream(final CompressionType compressionType) throws IOException {
+        void testWriteBytesToOutputStream(final CompressionType compressionType) throws IOException {
             // create block file path before call
             final Path blockFilePath = testBasePath.resolve("0.blk".concat(compressionType.extension()));
             // build a test block
             final BlockItemUnparsed[] blockItems = SimpleTestBlockItemBuilder.createNumberOfVerySimpleBlocksUnparsed(1);
-            final BlockUnparsed expected = new BlockUnparsed(List.of(blockItems));
-            final Bytes protoBytes = BlockUnparsed.PROTOBUF.toBytes(expected);
+            final BlockUnparsed block = new BlockUnparsed(List.of(blockItems));
+            final Bytes protoBytes = BlockUnparsed.PROTOBUF.toBytes(block);
             // create instance to test
             final BlockFileBlockAccessor toTest = createInstanceToTest(blockFilePath, compressionType, protoBytes);
-            // test accessor.blockBytes()
+            // test accessor.writeBytesTo(OutputStream)
             final Format format =
                     switch (compressionType) {
                         case ZSTD -> Format.ZSTD_PROTOBUF;
                         case NONE -> Format.PROTOBUF;
                     };
             final Bytes expectedFileBytes = Bytes.wrap(Files.readAllBytes(blockFilePath));
-            final String expectedFileHex = expectedFileBytes.toHex();
-            // test accessor.writeBytesTo(OutputStream)
+            final String expected = expectedFileBytes.toHex();
             final ByteArrayOutputStream byteArrayOutputStream = new ByteArrayOutputStream();
             toTest.writeBytesTo(format, byteArrayOutputStream);
-            final Bytes actualOutputStreamBytes = Bytes.wrap(byteArrayOutputStream.toByteArray());
-            assertThat(actualOutputStreamBytes.toHex()).isEqualTo(expectedFileHex);
+            final Bytes actual = Bytes.wrap(byteArrayOutputStream.toByteArray());
+            assertThat(actual.toHex()).isEqualTo(expected);
+        }
+
+        /**
+         * This test aims to verify that the
+         * {@link BlockFileBlockAccessor#writeBytesTo(Format, com.hedera.pbj.runtime.io.WritableSequentialData)}
+         * will correctly write bytes to the target {@link com.hedera.pbj.runtime.io.WritableSequentialData}.
+         */
+        @ParameterizedTest
+        @EnumSource(CompressionType.class)
+        @DisplayName("Test writeBytesTo method will correctly write bytes to the target WritableSequentialData")
+        void testWriteBytesToWritableSequentialData(final CompressionType compressionType) throws IOException {
+            // create block file path before call
+            final Path blockFilePath = testBasePath.resolve("0.blk".concat(compressionType.extension()));
+            // build a test block
+            final BlockItemUnparsed[] blockItems = SimpleTestBlockItemBuilder.createNumberOfVerySimpleBlocksUnparsed(1);
+            final BlockUnparsed block = new BlockUnparsed(List.of(blockItems));
+            final Bytes protoBytes = BlockUnparsed.PROTOBUF.toBytes(block);
+            // create instance to test
+            final BlockFileBlockAccessor toTest = createInstanceToTest(blockFilePath, compressionType, protoBytes);
+            // test accessor.writeBytesTo(BufferedData)
+            final Format format =
+                    switch (compressionType) {
+                        case ZSTD -> Format.ZSTD_PROTOBUF;
+                        case NONE -> Format.PROTOBUF;
+                    };
+            final Bytes expectedFileBytes = Bytes.wrap(Files.readAllBytes(blockFilePath));
+            final String expected = expectedFileBytes.toHex();
+            final BufferedData bufferedData = BufferedData.allocate((int) expectedFileBytes.length());
+            toTest.writeBytesTo(format, bufferedData);
+            final Bytes actual = bufferedData.getBytes(0, bufferedData.length());
+            assertThat(actual.toHex()).isEqualTo(expected);
+        }
+
+        /**
+         * This test aims to verify that the
+         * {@link BlockFileBlockAccessor#writeTo(Format, Path)}
+         * will correctly write bytes to the target {@link Path}.
+         */
+        @ParameterizedTest
+        @EnumSource(CompressionType.class)
+        @DisplayName("Test writeTo method will correctly write bytes to the target Path")
+        void testWriteToPath(final CompressionType compressionType) throws IOException {
+            // create block file path before call
+            final Path blockFilePath = testBasePath.resolve("0.blk".concat(compressionType.extension()));
+            // build a test block
+            final BlockItemUnparsed[] blockItems = SimpleTestBlockItemBuilder.createNumberOfVerySimpleBlocksUnparsed(1);
+            final BlockUnparsed block = new BlockUnparsed(List.of(blockItems));
+            final Bytes protoBytes = BlockUnparsed.PROTOBUF.toBytes(block);
+            // create instance to test
+            final BlockFileBlockAccessor toTest = createInstanceToTest(blockFilePath, compressionType, protoBytes);
+            // test accessor.writeTo(Path)
+            final Format format =
+                    switch (compressionType) {
+                        case ZSTD -> Format.ZSTD_PROTOBUF;
+                        case NONE -> Format.PROTOBUF;
+                    };
+            final Bytes expectedFileBytes = Bytes.wrap(Files.readAllBytes(blockFilePath));
+            final String expected = expectedFileBytes.toHex();
+            final Path otherBlockFilePath = testBasePath.resolve("1.blk");
+            toTest.writeTo(format, otherBlockFilePath);
+            final String actual =
+                    Bytes.wrap(Files.readAllBytes(otherBlockFilePath)).toHex();
+            assertThat(actual).isEqualTo(expected);
         }
 
         private BlockFileBlockAccessor createInstanceToTest(
