@@ -33,13 +33,11 @@ jobs:
         id: check-refs
         run: |
           echo "github.base_ref branch=${{ github.base_ref }}"
-          echo "GITHUB_BASE_REF branch=${{ GITHUB_BASE_REF }}"
           echo "github.ref branch=${{ github.ref }}"
-          echo "GITHUB_REF branch=${{ GITHUB_REF }}"
 
   check-gradle:
     name: Gradle
-    if: github.base_ref == 'main' && startsWith(github.base_ref, 'release/')
+    if: ${{ github.base_ref == 'main' && startsWith(github.base_ref, 'release/') }}
     uses: ./.github/workflows/zxc-verify-gradle-build-determinism.yaml
     with:
       ref: ${{ github.event.inputs.ref || '' }}
