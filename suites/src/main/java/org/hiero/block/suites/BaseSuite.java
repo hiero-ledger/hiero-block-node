@@ -8,7 +8,6 @@ import com.swirlds.config.extensions.sources.SimpleConfigSource;
 import com.swirlds.config.extensions.sources.SystemEnvironmentConfigSource;
 import com.swirlds.config.extensions.sources.SystemPropertiesConfigSource;
 import edu.umd.cs.findbugs.annotations.NonNull;
-import io.github.cdimascio.dotenv.Dotenv;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -36,21 +35,9 @@ import org.testcontainers.utility.DockerImageName;
  *   <li>Stopping the container after tests have been executed.
  * </ul>
  *
- * <p>The Block Node Application version is retrieved dynamically from an environment file (.env).
+ * <p>The Block Node Application version is retrieved from the system property 'block.node.version'.
  */
 public abstract class BaseSuite {
-    /**
-     * Dotenv instance to load the environment variables from the .env file that
-     * is inside the build root of the :server.
-     */
-    // @todo(#343) - do not use build/environment related files from other
-    // projects directly like that, the SERVER_DOTENV should be constructed
-    // in another way
-    protected static final Dotenv SERVER_DOTENV = Dotenv.configure()
-            .directory("../block-node/server/build/docker")
-            .filename(".env")
-            .load();
-
     /** Container running the Block Node Application */
     protected static GenericContainer<?> blockNodeContainer;
 
@@ -195,11 +182,16 @@ public abstract class BaseSuite {
     }
 
     /**
-     * Retrieves the Block Node server version from the .env file.
+     * Retrieves the Block Node server version from the system property.
      *
      * @return the version of the Block Node server as a string
      */
     private static String getBlockNodeVersion() {
-        return SERVER_DOTENV.get("VERSION");
+        String version = System.getProperty("block.node.version");
+        if (version == null) {
+            throw new IllegalStateException(
+                    "block.node.version system property is not set. This should be set by Gradle.");
+        }
+        return version;
     }
 }
