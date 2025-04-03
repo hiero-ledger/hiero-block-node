@@ -29,7 +29,7 @@ jobs:
     if: contains('
       refs/heads/main
       refs/heads/release/**
-      ', github.ref)
+      ', github.base_ref)
     uses: ./.github/workflows/zxc-verify-gradle-build-determinism.yaml
     with:
       ref: ${{ github.event.inputs.ref || '' }}
