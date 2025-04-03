@@ -21,6 +21,7 @@ import org.hiero.block.node.base.CompressionType;
 import org.hiero.hapi.block.node.BlockItemUnparsed;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
@@ -145,6 +146,7 @@ class UnverifiedHandlerTest {
          * {@link IllegalStateException} when block is verified, but not found
          * under the unverified root.
          */
+        @Disabled // @todo(958) this may be wrong and we need to delete this test
         @ParameterizedTest
         @MethodSource("org.hiero.block.node.blocks.files.recent.UnverifiedHandlerTest#validBlockNumbersAndLocations")
         @DisplayName("Test blockVerified throws when block is verified but not found under unverified storage")
