@@ -218,6 +218,24 @@ class UnverifiedHandlerTest {
         }
 
         /**
+         * This test aims to check that the storeIfUnverifiedBlock returns false
+         * when the block has been verified already.
+         */
+        @ParameterizedTest
+        @MethodSource("org.hiero.block.node.blocks.files.recent.UnverifiedHandlerTest#validBlockNumbersAndLocations")
+        @DisplayName("Test storeIfUnverifiedBlock correctly returns false when block has already been verified")
+        void testReturnFalse(final long blockNumber) {
+            // create the target block items, for this test, we need no items
+            final List<BlockItemUnparsed> targetBlockItems = List.of();
+            // call the block verified method to mark the block as verified
+            toTest.blockVerified(blockNumber);
+            // call
+            final boolean actual = toTest.storeIfUnverifiedBlock(targetBlockItems, blockNumber);
+            // assert true
+            assertThat(actual).isFalse();
+        }
+
+        /**
          * This test aims to check that the storeIfUnverifiedBlock correctly
          * overwrites the target block file when it already exists.
          */
