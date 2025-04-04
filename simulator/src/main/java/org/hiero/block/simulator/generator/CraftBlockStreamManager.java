@@ -4,7 +4,6 @@ package org.hiero.block.simulator.generator;
 import static java.lang.System.Logger.Level.DEBUG;
 import static java.lang.System.Logger.Level.INFO;
 
-import com.hedera.hapi.block.BlockItemUnparsed;
 import com.hedera.hapi.block.stream.BlockProof;
 import com.hedera.hapi.block.stream.protoc.Block;
 import com.hedera.hapi.block.stream.protoc.BlockItem;
@@ -29,6 +28,7 @@ import org.hiero.block.simulator.generator.itemhandler.EventTransactionHandler;
 import org.hiero.block.simulator.generator.itemhandler.ItemHandler;
 import org.hiero.block.simulator.generator.itemhandler.TransactionResultHandler;
 import org.hiero.block.simulator.startup.SimulatorStartupData;
+import org.hiero.hapi.block.node.BlockItemUnparsed;
 
 /**
  * Implementation of BlockStreamManager that crafts blocks from scratch rather than reading from an existing stream.

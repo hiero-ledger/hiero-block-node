@@ -71,7 +71,7 @@ jobs:
         run: ${{ env.GRADLE_EXEC }} startDockerContainerSmokeTest
 
       - name: Run Smoke Tests
-        working-directory: block-node/server/src/test/resources/
+        working-directory: block-node/app/src/test/resources/
         run: ./smoke-test.sh
 
       - name: Stop Smoke Test Container

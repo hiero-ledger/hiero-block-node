@@ -3,9 +3,17 @@ package org.hiero.block.common.utils;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatIllegalArgumentException;
+import static org.assertj.core.api.Assertions.assertThatNullPointerException;
 
+import com.google.common.jimfs.Jimfs;
+import java.io.IOException;
+import java.nio.file.FileSystem;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.function.Consumer;
 import java.util.stream.Stream;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
@@ -29,6 +37,19 @@ class PreconditionsTest {
     private static final String DEFAULT_REQUIRE_IS_EVEN = "The input number [%d] is required to be even.";
     private static final String DEFAULT_REQUIRE_POSITIVE_POWER_OF_10_MESSAGE =
             "The input number [%d] is required to be a positive power of 10.";
+    private static final String DEFAULT_REQUIRE_REGULAR_FILE_MESSAGE =
+            "The input path [%s] is required to be an existing regular file.";
+    private static final String DEFAULT_REQUIRE_DIRECTORY_MESSAGE =
+            "The input path [%s] is required to be an existing directory.";
+
+    /** In-memory test filesystem */
+    private FileSystem jimfs;
+
+    @BeforeEach
+    void setup() {
+        // Initialize the in-memory file system
+        jimfs = Jimfs.newFileSystem();
+    }
 
     /**
      * This test aims to verify that the
@@ -457,6 +478,189 @@ class PreconditionsTest {
         assertThatIllegalArgumentException()
                 .isThrownBy(() -> Preconditions.requirePositivePowerOf10(toTest, testMessage))
                 .withMessage(expectedTestMessage);
+    }
+
+    /**
+     * This test aims to verify that the
+     * {@link Preconditions#requireRegularFile(Path)} will return the input
+     * 'toTest' parameter if the regular file check passes.
+     * Test includes overloads.
+     */
+    @Test
+    void testSuccessfulRequireRegularFile() throws IOException {
+        // create the test path in the in-memory file system
+        final Path testPath = jimfs.getPath("/tmp/test.txt");
+        Files.createDirectories(testPath.getParent());
+        Files.createFile(testPath);
+        assertThat(testPath).exists().isRegularFile().isReadable().isWritable().isEmptyFile();
+
+        // create asserts
+        final Consumer<Path> asserts =
+                actual -> assertThat(actual).isNotNull().isRegularFile().exists();
+
+        // call & assert
+        final Path actual = Preconditions.requireRegularFile(testPath);
+        final Path actualOverload = Preconditions.requireRegularFile(testPath, "test error message");
+        assertThat(actual).satisfies(asserts);
+        assertThat(actualOverload).satisfies(asserts);
+    }
+
+    /**
+     * This test aims to verify that the
+     * {@link Preconditions#requireRegularFile(Path)} will throw an
+     * {@link IllegalArgumentException} if the regular file check fails due to
+     * file not existing.
+     * Test includes overloads.
+     */
+    @Test
+    void testFailingRequireRegularFileDoesNotExist() {
+        // resolve & assert not existing path before call
+        final Path testPath = jimfs.getPath("/tmp/test.txt");
+        assertThat(testPath).doesNotExist();
+
+        // call & assert
+        assertThatIllegalArgumentException()
+                .isThrownBy(() -> Preconditions.requireRegularFile(testPath))
+                .withMessage(DEFAULT_REQUIRE_REGULAR_FILE_MESSAGE.formatted(testPath));
+
+        final String testMessage = DEFAULT_REQUIRE_REGULAR_FILE_MESSAGE.concat(" custom test error message");
+        final String expectedTestMessage = testMessage.formatted(testPath);
+        assertThatIllegalArgumentException()
+                .isThrownBy(() -> Preconditions.requireRegularFile(testPath, testMessage))
+                .withMessage(expectedTestMessage);
+    }
+
+    /**
+     * This test aims to verify that the
+     * {@link Preconditions#requireRegularFile(Path)} will throw an
+     * {@link IllegalArgumentException} if the regular file check fails due to
+     * the path not being a file.
+     * Test includes overloads.
+     */
+    @Test
+    void testFailingRequireRegularFileNotAFile() throws IOException {
+        // resolve & assert not existing path before call
+        final Path testPath = jimfs.getPath("/tmp");
+        Files.createDirectories(testPath);
+
+        // call & assert
+        assertThatIllegalArgumentException()
+                .isThrownBy(() -> Preconditions.requireRegularFile(testPath))
+                .withMessage(DEFAULT_REQUIRE_REGULAR_FILE_MESSAGE.formatted(testPath));
+
+        final String testMessage = DEFAULT_REQUIRE_REGULAR_FILE_MESSAGE.concat(" custom test error message");
+        final String expectedTestMessage = testMessage.formatted(testPath);
+        assertThatIllegalArgumentException()
+                .isThrownBy(() -> Preconditions.requireRegularFile(testPath, testMessage))
+                .withMessage(expectedTestMessage);
+    }
+
+    /**
+     * This test aims to verify that the
+     * {@link Preconditions#requireRegularFile(Path)} throw a
+     * {@link NullPointerException} if the input path is null.
+     * Test includes overloads.
+     */
+    @Test
+    @SuppressWarnings("all")
+    void testFailingRequireRegularFileNullPath() {
+        // call & assert
+        assertThatNullPointerException().isThrownBy(() -> Preconditions.requireRegularFile(null));
+
+        final String testMessage = "The input path is required to be non-null. custom test error message";
+        assertThatNullPointerException().isThrownBy(() -> Preconditions.requireRegularFile(null, testMessage));
+    }
+
+    /**
+     * This test aims to verify that the
+     * {@link Preconditions#requireDirectory(Path)} will return the input
+     * 'toTest' parameter if the directory check passes.
+     * Test includes overloads.
+     */
+    @Test
+    void testSuccessfulRequireDirectory() throws IOException {
+        // create the test path in the in-memory file system
+        final Path testPath = jimfs.getPath("/tmp");
+        Files.createDirectories(testPath);
+        assertThat(testPath).exists().isDirectory();
+
+        // create asserts
+        final Consumer<Path> asserts =
+                actual -> assertThat(actual).isNotNull().isDirectory().exists();
+
+        // call & assert
+        final Path actual = Preconditions.requireDirectory(testPath);
+        final Path actualOverload = Preconditions.requireDirectory(testPath, "test error message");
+        assertThat(actual).satisfies(asserts);
+        assertThat(actualOverload).satisfies(asserts);
+    }
+
+    /**
+     * This test aims to verify that the
+     * {@link Preconditions#requireDirectory(Path)} will throw an
+     * {@link IllegalArgumentException} if the directory check fails due to
+     * directory not existing.
+     * Test includes overloads.
+     */
+    @Test
+    void testFailingRequireDirectoryDoesNotExist() {
+        // resolve & assert not existing path before call
+        final Path testPath = jimfs.getPath("/tmp");
+        assertThat(testPath).doesNotExist();
+
+        // call & assert
+        assertThatIllegalArgumentException()
+                .isThrownBy(() -> Preconditions.requireDirectory(testPath))
+                .withMessage(DEFAULT_REQUIRE_DIRECTORY_MESSAGE.formatted(testPath));
+
+        final String testMessage = DEFAULT_REQUIRE_DIRECTORY_MESSAGE.concat(" custom test error message");
+        final String expectedTestMessage = testMessage.formatted(testPath);
+        assertThatIllegalArgumentException()
+                .isThrownBy(() -> Preconditions.requireDirectory(testPath, testMessage))
+                .withMessage(expectedTestMessage);
+    }
+
+    /**
+     * This test aims to verify that the
+     * {@link Preconditions#requireDirectory(Path)} will throw an
+     * {@link IllegalArgumentException} if the directory check fails due to
+     * the path not being a directory.
+     * Test includes overloads.
+     */
+    @Test
+    void testFailingRequireDirectoryNotADirectory() throws IOException {
+        // resolve & assert not existing path before call
+        final Path testPath = jimfs.getPath("/tmp/test.txt");
+        Files.createDirectories(testPath.getParent());
+        Files.createFile(testPath);
+        assertThat(testPath).exists().isRegularFile().isReadable().isWritable().isEmptyFile();
+
+        // call & assert
+        assertThatIllegalArgumentException()
+                .isThrownBy(() -> Preconditions.requireDirectory(testPath))
+                .withMessage(DEFAULT_REQUIRE_DIRECTORY_MESSAGE.formatted(testPath));
+
+        final String testMessage = DEFAULT_REQUIRE_DIRECTORY_MESSAGE.concat(" custom test error message");
+        final String expectedTestMessage = testMessage.formatted(testPath);
+        assertThatIllegalArgumentException()
+                .isThrownBy(() -> Preconditions.requireDirectory(testPath, testMessage))
+                .withMessage(expectedTestMessage);
+    }
+
+    /**
+     * This test aims to verify that the
+     * {@link Preconditions#requireDirectory(Path)} throw a
+     * {@link NullPointerException} if the input path is null.
+     * Test includes overloads.
+     */
+    @Test
+    @SuppressWarnings("all")
+    void testFailingRequireDirectoryNullPath() {
+        // call & assert
+        assertThatNullPointerException().isThrownBy(() -> Preconditions.requireDirectory(null));
+
+        final String testMessage = "The input path is required to be non-null. custom test error message";
+        assertThatNullPointerException().isThrownBy(() -> Preconditions.requireDirectory(null, testMessage));
     }
 
     private static Stream<Arguments> validRequireInRangeValues() {
