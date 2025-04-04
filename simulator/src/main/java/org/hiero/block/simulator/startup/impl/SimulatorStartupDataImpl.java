@@ -99,6 +99,11 @@ public final class SimulatorStartupDataImpl implements SimulatorStartupData {
     }
 
     @Override
+    public boolean isEnabled() {
+        return enabled;
+    }
+
+    @Override
     public void updateLatestAckBlockStartupData(
             final long blockNumber,
             final byte[] blockHash,

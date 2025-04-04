@@ -5,6 +5,7 @@ import static java.lang.System.Logger.Level.INFO;
 import static java.util.Objects.requireNonNull;
 import static org.hiero.block.simulator.Constants.NANOS_PER_MILLI;
 import static org.hiero.block.simulator.metrics.SimulatorMetricTypes.Counter.LiveBlockItemsSent;
+import static org.hiero.block.simulator.metrics.SimulatorMetricTypes.Counter.LiveBlocksSent;
 
 import com.hedera.hapi.block.stream.protoc.Block;
 import edu.umd.cs.findbugs.annotations.NonNull;
@@ -51,10 +52,10 @@ public class PublisherClientModeHandler implements SimulatorModeHandler {
     /**
      * Constructs a new {@code PublisherModeHandler} with the specified dependencies.
      *
-     * @param blockStreamConfig The configuration for block streaming parameters
+     * @param blockStreamConfig       The configuration for block streaming parameters
      * @param publishStreamGrpcClient The client for publishing blocks via gRPC
-     * @param blockStreamManager The manager responsible for block generation
-     * @param metricsService The service for recording metrics
+     * @param blockStreamManager      The manager responsible for block generation
+     * @param metricsService          The service for recording metrics
      * @throws NullPointerException if any parameter is null
      */
     @Inject
@@ -93,10 +94,14 @@ public class PublisherClientModeHandler implements SimulatorModeHandler {
     @Override
     public void start() throws BlockSimulatorParsingException, IOException, InterruptedException {
         LOGGER.log(INFO, "Block Stream Simulator is starting in publisher mode.");
-        if (streamingMode == StreamingMode.MILLIS_PER_BLOCK) {
-            millisPerBlockStreaming();
-        } else {
-            constantRateStreaming();
+        try {
+            if (streamingMode == StreamingMode.MILLIS_PER_BLOCK) {
+                millisPerBlockStreaming();
+            } else {
+                constantRateStreaming();
+            }
+        } finally {
+            publishStreamGrpcClient.shutdown();
         }
         LOGGER.log(INFO, "Block Stream Simulator has stopped streaming.");
     }
@@ -132,6 +137,10 @@ public class PublisherClientModeHandler implements SimulatorModeHandler {
                 INFO,
                 "Number of BlockItems sent by the Block Stream Simulator: "
                         + metricsService.get(LiveBlockItemsSent).get());
+        LOGGER.log(
+                INFO,
+                "Number of Blocks sent by the Block Stream Simulator: "
+                        + metricsService.get(LiveBlocksSent).get());
     }
 
     private void constantRateStreaming() throws InterruptedException, IOException, BlockSimulatorParsingException {

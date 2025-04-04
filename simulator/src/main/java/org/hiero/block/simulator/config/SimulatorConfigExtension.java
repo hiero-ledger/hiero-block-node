@@ -12,6 +12,7 @@ import org.hiero.block.simulator.config.data.BlockStreamConfig;
 import org.hiero.block.simulator.config.data.ConsumerConfig;
 import org.hiero.block.simulator.config.data.GrpcConfig;
 import org.hiero.block.simulator.config.data.SimulatorStartupDataConfig;
+import org.hiero.block.simulator.config.data.UnorderedStreamConfig;
 
 /** Sets up configuration for services. */
 @AutoService(ConfigurationExtension.class)
@@ -27,6 +28,7 @@ public class SimulatorConfigExtension implements ConfigurationExtension {
     public Set<Class<? extends Record>> getConfigDataTypes() {
         return Set.of(
                 BlockStreamConfig.class,
+                UnorderedStreamConfig.class,
                 ConsumerConfig.class,
                 GrpcConfig.class,
                 BlockGeneratorConfig.class,
