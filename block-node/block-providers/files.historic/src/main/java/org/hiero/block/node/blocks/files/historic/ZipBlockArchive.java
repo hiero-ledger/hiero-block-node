@@ -1,9 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.node.blocks.files.historic;
 
-import static org.hiero.block.node.base.BlockFile.BLOCK_FILE_EXTENSION;
-import static org.hiero.block.node.base.BlockFile.blockNumberFormated;
 import static org.hiero.block.node.base.BlockFile.blockNumberFromFile;
+import static org.hiero.block.node.blocks.files.historic.BlockPath.computeBlockPath;
 
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import java.io.BufferedOutputStream;
@@ -35,7 +34,7 @@ public class ZipBlockArchive {
     private final System.Logger LOGGER = System.getLogger(getClass().getName());
 
     private final BlockNodeContext context;
-    private final FilesHistoricConfig historicConfig;
+    private final FilesHistoricConfig config;
     private final HistoricalBlockFacility historicalBlockFacility;
     private final int numberOfBlocksPerZipFile;
     private final Format format;
@@ -49,7 +48,7 @@ public class ZipBlockArchive {
     public ZipBlockArchive(BlockNodeContext context, FilesHistoricConfig historicConfig) {
         this.context = context;
         this.historicalBlockFacility = context.historicalBlockProvider();
-        this.historicConfig = historicConfig;
+        this.config = historicConfig;
         numberOfBlocksPerZipFile = (int) Math.pow(10, historicConfig.digitsPerZipFileContents());
         format = switch (historicConfig.compression()) {
             case ZSTD -> Format.ZSTD_PROTOBUF;
@@ -66,16 +65,17 @@ public class ZipBlockArchive {
     public List<BlockAccessor> writeNewZipFile(long firstBlockNumber) throws IOException {
         final long lastBlockNumber = firstBlockNumber + numberOfBlocksPerZipFile - 1;
         // compute block path
-        final BlockPath firstBlockPath = computeBlockPath(firstBlockNumber);
+        final BlockPath firstBlockPath = computeBlockPath(config, firstBlockNumber);
         // create directories
-        Files.createDirectories(firstBlockPath.dirPath, FileUtilities.DEFAULT_FOLDER_PERMISSIONS);
+        Files.createDirectories(firstBlockPath.dirPath(), FileUtilities.DEFAULT_FOLDER_PERMISSIONS);
         // create list for all block accessors, so we can delete files after we are done
         final List<BlockAccessor> blockAccessors = IntStream.rangeClosed((int) firstBlockNumber, (int) lastBlockNumber)
                 .mapToObj(historicalBlockFacility::block)
                 .toList();
         // create zip file path
         try (ZipOutputStream zipOutputStream = new ZipOutputStream(new BufferedOutputStream(
-                Files.newOutputStream(firstBlockPath.zipFilePath, StandardOpenOption.CREATE, StandardOpenOption.WRITE),
+                Files.newOutputStream(
+                        firstBlockPath.zipFilePath(), StandardOpenOption.CREATE, StandardOpenOption.WRITE),
                 1024 * 1204))) {
             // don't compress the zip file as files are already compressed
             zipOutputStream.setMethod(ZipOutputStream.STORED);
@@ -112,8 +112,8 @@ public class ZipBlockArchive {
      * @return The block accessor for the block number
      */
     public BlockAccessor blockAccessor(long blockNumber) {
-        final BlockPath blockPath = computeBlockPath(blockNumber);
-        if (Files.exists(blockPath.zipFilePath)) {
+        final BlockPath blockPath = computeBlockPath(config, blockNumber);
+        if (Files.exists(blockPath.zipFilePath())) {
             return new ZipBlockAccessor(blockPath);
         }
         return null;
@@ -126,7 +126,7 @@ public class ZipBlockArchive {
      */
     public long minStoredBlockNumber() {
         // find the lowest block number first
-        Path lowestPath = historicConfig.rootPath();
+        Path lowestPath = config.rootPath();
         while (lowestPath != null) {
             // get the first directory in the path
             try (var childFilesStream = Files.list(lowestPath)) {
@@ -183,7 +183,7 @@ public class ZipBlockArchive {
      */
     public long maxStoredBlockNumber() {
         // find the highest block number
-        Path highestPath = historicConfig.rootPath();
+        Path highestPath = config.rootPath();
         while (highestPath != null) {
             // get the first directory in the path
             try (var childFilesStream = Files.list(highestPath)) {
@@ -232,44 +232,4 @@ public class ZipBlockArchive {
         }
         return -1;
     }
-
-    /**
-     * Compute the path to a block file
-     *
-     * @param blockNumber The block number
-     * @return The path to the block file
-     */
-    private BlockPath computeBlockPath(long blockNumber) {
-        // convert block number to string
-        final String blockNumberStr = blockNumberFormated(blockNumber);
-        // split string into digits for zip and for directories
-        final int offsetToZip =
-                blockNumberStr.length() - historicConfig.digitsPerZipFileName() - historicConfig.digitsPerDir();
-        final String directoryDigits = blockNumberStr.substring(0, offsetToZip);
-        final String zipFileNameDigits =
-                blockNumberStr.substring(offsetToZip, offsetToZip + historicConfig.digitsPerZipFileName());
-        // start building path to zip file
-        Path dirPath = historicConfig.rootPath();
-        for (int i = 0; i < directoryDigits.length(); i += historicConfig.digitsPerDir()) {
-            final String dirName =
-                    directoryDigits.substring(i, Math.min(i + historicConfig.digitsPerDir(), directoryDigits.length()));
-            dirPath = dirPath.resolve(dirName);
-        }
-        // create zip file name
-        final String zipFileName = zipFileNameDigits + "000s.zip";
-        final String fileName = blockNumberStr
-                + BLOCK_FILE_EXTENSION
-                + historicConfig.compression().extension();
-        return new BlockPath(dirPath, dirPath.resolve(zipFileName), blockNumberStr, fileName);
-    }
-
-    /**
-     * Record for block path components
-     *
-     * @param dirPath The directory path for the directory that contains the zip file
-     * @param zipFilePath The path to the zip file
-     * @param blockNumStr The block number as a string
-     * @param blockFileName The name of the block file in the zip file
-     */
-    public record BlockPath(Path dirPath, Path zipFilePath, String blockNumStr, String blockFileName) {}
 }
