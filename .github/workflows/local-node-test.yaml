@@ -1,0 +1,18 @@
+# SPDX-License-Identifier: Apache-2.0
+name: "Local Node E2E Tests"
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+    tags: ["v*"]
+
+jobs:
+  smart-contracts-tests:
+    uses: ./.github/workflows/local-node-test-reusable.yaml
+    with:
+      networkNodeTag: ""
+      mirrorNodeTag: ""
+      relayTag: ""
+      branch: ${{ github.event.pull_request.head.ref || github.ref_name }}
