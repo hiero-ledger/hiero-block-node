@@ -11,7 +11,6 @@ import java.io.OutputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.zip.ZipFile;
-import org.hiero.block.node.blocks.files.historic.ZipBlockArchive.BlockPath;
 import org.hiero.block.node.spi.historicalblocks.BlockAccessor;
 import org.hiero.hapi.block.node.BlockUnparsed;
 
@@ -29,7 +28,7 @@ public class ZipBlockAccessor implements BlockAccessor {
      *
      * @param blockPath the block path
      */
-    public ZipBlockAccessor(BlockPath blockPath) {
+    ZipBlockAccessor(BlockPath blockPath) {
         this.blockPath = blockPath;
     }
 
