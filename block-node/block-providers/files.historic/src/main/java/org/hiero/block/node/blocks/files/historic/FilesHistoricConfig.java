@@ -16,8 +16,11 @@ import org.hiero.block.node.base.Loggable;
  * @param rootPath provides the root path for saving historic blocks
  * @param compression compression type to use for the storage. It is assumed this never changes while a node is running
  *                    and has existing files.
- * @param digitsPerDir the number of block number digits per directory level
- * @param digitsPerZipFileName the number of zip files in bottom level directory
+ * @param digitsPerDir the number of block number digits per directory level. For example 3 = 1000 directories in each
+ *                     directory
+ * @param digitsPerZipFileName the number of digits of zip files in bottom level directory, For example 1 = 10 zip files
+ *                             in each directory
+ * @param digitsPerZipFileContents the number of digits of files in the zip file. For example 4 = 1000 files in each zip
  */
 @ConfigData("files.historic")
 public record FilesHistoricConfig(
