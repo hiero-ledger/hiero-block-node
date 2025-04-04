@@ -44,20 +44,20 @@ public class BlockNodeApp implements HealthFacility {
     public static final String PBJ_PROTOCOL_PROVIDER_CONFIG_NAME = "pbj";
     /** The logger for this class. */
     private static final Logger LOGGER = System.getLogger(BlockNodeApp.class.getName());
-    /** The block node context. */
-    private final BlockNodeContext blockNodeContext;
-    /** list of all loaded plugins */
-    private final List<BlockNodePlugin> loadedPlugins = new ArrayList<>();
     /** The state of the server. */
     private final AtomicReference<State> state = new AtomicReference<>(State.STARTING);
     /** The web server. */
     private final WebServer webServer;
-    /** The metrics provider. */
-    private final DefaultMetricsProvider metricsProvider;
     /** The server configuration. */
     private final ServerConfig serverConfig;
     /** The historical block node facility */
     private final HistoricalBlockFacilityImpl historicalBlockFacility;
+    /** The block node context. Package so accessible for testing. */
+    final BlockNodeContext blockNodeContext;
+    /** list of all loaded plugins. Package so accessible for testing. */
+    final List<BlockNodePlugin> loadedPlugins = new ArrayList<>();
+    /** The metrics provider. Package so accessible for testing. */
+    final DefaultMetricsProvider metricsProvider;
 
     /**
      * Constructor for the BlockNodeApp class. This constructor initializes the server configuration,
@@ -65,7 +65,7 @@ public class BlockNodeApp implements HealthFacility {
      *
      * @throws IOException if there is an error starting the server
      */
-    private BlockNodeApp() throws IOException {
+    BlockNodeApp() throws IOException {
         // ==== LOAD LOGGING CONFIG ====================================================================================
         // load the logging configuration from the classpath and make it colorful
         try (var loggingConfigIn = BlockNodeApp.class.getClassLoader().getResourceAsStream("logging.properties")) {
@@ -190,7 +190,7 @@ public class BlockNodeApp implements HealthFacility {
      * Starts the block node server. This method initializes all the plugins, starts the web server,
      * and starts the metrics.
      */
-    private void start() {
+    void start() {
         LOGGER.log(INFO, LIGHT_GREEN + "Starting BlockNode Server");
         // Start the web server
         webServer.start();
