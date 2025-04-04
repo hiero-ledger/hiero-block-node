@@ -207,6 +207,7 @@ class SimulatorStartupDataImplTest {
         assertThat(latestAckBlockHashPath).doesNotExist();
         assertThat(latestAckBlockNumberPath).doesNotExist();
         final SimulatorStartupDataImpl toTest = newInstanceToTest(false);
+        assertThat(toTest.isEnabled()).isFalse();
         // @todo(904) we need the correct response code
         toTest.updateLatestAckBlockStartupData(1L, validSimulatedBlockHash, false);
         assertThat(latestAckBlockHashPath).doesNotExist();
@@ -223,6 +224,7 @@ class SimulatorStartupDataImplTest {
         assertThat(latestAckBlockHashPath).doesNotExist();
         assertThat(latestAckBlockNumberPath).doesNotExist();
         final SimulatorStartupDataImpl toTest = newInstanceToTest(true);
+        assertThat(toTest.isEnabled()).isTrue();
         assertThat(latestAckBlockNumberPath)
                 .exists()
                 .isRegularFile()

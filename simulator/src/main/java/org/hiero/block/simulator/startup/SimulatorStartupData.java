@@ -59,4 +59,6 @@ public interface SimulatorStartupData {
      */
     @NonNull
     byte[] getLatestAckBlockHash();
+
+    boolean isEnabled();
 }

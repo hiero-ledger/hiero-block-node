@@ -6,6 +6,7 @@ import dagger.Provides;
 import edu.umd.cs.findbugs.annotations.NonNull;
 import javax.inject.Singleton;
 import org.hiero.block.simulator.config.data.BlockGeneratorConfig;
+import org.hiero.block.simulator.config.data.UnorderedStreamConfig;
 import org.hiero.block.simulator.config.types.GenerationMode;
 import org.hiero.block.simulator.startup.SimulatorStartupData;
 
@@ -29,7 +30,8 @@ public interface GeneratorInjectionModule {
     @Provides
     static BlockStreamManager providesBlockStreamManager(
             @NonNull final BlockGeneratorConfig generatorConfig,
-            @NonNull final SimulatorStartupData simulatorStartupData) {
+            @NonNull final SimulatorStartupData simulatorStartupData,
+            @NonNull final UnorderedStreamConfig unorderedStreamConfig) {
         final String managerImpl = generatorConfig.managerImplementation();
         final GenerationMode generationMode = generatorConfig.generationMode();
         return switch (generationMode) {
@@ -39,7 +41,7 @@ public interface GeneratorInjectionModule {
                 }
                 yield new BlockAsFileBlockStreamManager(generatorConfig);
             }
-            case CRAFT -> new CraftBlockStreamManager(generatorConfig, simulatorStartupData);
+            case CRAFT -> new CraftBlockStreamManager(generatorConfig, simulatorStartupData, unorderedStreamConfig);
         };
     }
 }

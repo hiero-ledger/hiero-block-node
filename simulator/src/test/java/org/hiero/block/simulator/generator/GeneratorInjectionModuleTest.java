@@ -7,6 +7,7 @@ import java.io.IOException;
 import java.util.Map;
 import org.hiero.block.simulator.TestUtils;
 import org.hiero.block.simulator.config.data.BlockGeneratorConfig;
+import org.hiero.block.simulator.config.data.UnorderedStreamConfig;
 import org.hiero.block.simulator.startup.SimulatorStartupData;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -18,6 +19,13 @@ class GeneratorInjectionModuleTest {
     @Mock
     private SimulatorStartupData startupDataMock;
 
+    private final UnorderedStreamConfig unorderedStreamConfig;
+
+    public GeneratorInjectionModuleTest() throws IOException {
+        this.unorderedStreamConfig = TestUtils.getTestConfiguration(Map.of("unorderedStream.enabled", "false"))
+                .getConfigData(UnorderedStreamConfig.class);
+    }
+
     @Test
     void providesBlockStreamManager_AsFileLargeDataSets() throws IOException {
         final BlockGeneratorConfig blockGeneratorConfig = TestUtils.getTestConfiguration(Map.of(
@@ -27,8 +35,8 @@ class GeneratorInjectionModuleTest {
                         "BlockAsFileLargeDataSets"))
                 .getConfigData(BlockGeneratorConfig.class);
 
-        final BlockStreamManager blockStreamManager =
-                GeneratorInjectionModule.providesBlockStreamManager(blockGeneratorConfig, startupDataMock);
+        final BlockStreamManager blockStreamManager = GeneratorInjectionModule.providesBlockStreamManager(
+                blockGeneratorConfig, startupDataMock, unorderedStreamConfig);
 
         assertEquals(blockStreamManager.getClass().getName(), BlockAsFileLargeDataSets.class.getName());
     }
@@ -44,8 +52,8 @@ class GeneratorInjectionModuleTest {
                         ""))
                 .getConfigData(BlockGeneratorConfig.class);
 
-        final BlockStreamManager blockStreamManager =
-                GeneratorInjectionModule.providesBlockStreamManager(blockGeneratorConfig, startupDataMock);
+        final BlockStreamManager blockStreamManager = GeneratorInjectionModule.providesBlockStreamManager(
+                blockGeneratorConfig, startupDataMock, unorderedStreamConfig);
 
         assertEquals(blockStreamManager.getClass().getName(), BlockAsFileBlockStreamManager.class.getName());
     }
@@ -61,8 +69,8 @@ class GeneratorInjectionModuleTest {
                         ""))
                 .getConfigData(BlockGeneratorConfig.class);
 
-        final BlockStreamManager blockStreamManager =
-                GeneratorInjectionModule.providesBlockStreamManager(blockGeneratorConfig, startupDataMock);
+        final BlockStreamManager blockStreamManager = GeneratorInjectionModule.providesBlockStreamManager(
+                blockGeneratorConfig, startupDataMock, unorderedStreamConfig);
 
         assertEquals(blockStreamManager.getClass().getName(), BlockAsFileBlockStreamManager.class.getName());
     }
@@ -73,8 +81,8 @@ class GeneratorInjectionModuleTest {
                         Map.of("generator.generationMode", "CRAFT"))
                 .getConfigData(BlockGeneratorConfig.class);
 
-        final BlockStreamManager blockStreamManager =
-                GeneratorInjectionModule.providesBlockStreamManager(blockGeneratorConfig, startupDataMock);
+        final BlockStreamManager blockStreamManager = GeneratorInjectionModule.providesBlockStreamManager(
+                blockGeneratorConfig, startupDataMock, unorderedStreamConfig);
 
         assertEquals(blockStreamManager.getClass().getName(), CraftBlockStreamManager.class.getName());
     }
