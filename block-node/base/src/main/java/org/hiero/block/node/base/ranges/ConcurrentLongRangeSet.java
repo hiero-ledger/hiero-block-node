@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.node.base.ranges;
 
 import java.util.ArrayList;
@@ -31,26 +32,26 @@ public class ConcurrentLongRangeSet {
     /**
      * Constructs a LongRangeSet with no ranges.
      */
-    public ConcurrentLongRangeSet(){}
+    public ConcurrentLongRangeSet() {}
 
     /**
      * Constructs a LongRangeSet with single range.
-     * 
+     *
      * @param start the start value (inclusive) must be between 0 and Long.MAX_VALUE-1
      * @param end the end value (inclusive) must be between 0 and Long.MAX_VALUE-1
      * @throws IllegalArgumentException if the range is invalid
      */
-    public ConcurrentLongRangeSet(long start, long end){
+    public ConcurrentLongRangeSet(long start, long end) {
         ranges.set(List.of(new LongRange(start, end)));
     }
 
     /**
      * Constructs a LongRangeSet with multiple ranges.
-     * 
+     *
      * @param longRanges the ranges to include in this set
      * @throws NullPointerException if longRanges is null
      */
-    public ConcurrentLongRangeSet(LongRange... longRanges){
+    public ConcurrentLongRangeSet(LongRange... longRanges) {
         ranges.set(List.of(longRanges));
     }
 
@@ -64,7 +65,7 @@ public class ConcurrentLongRangeSet {
         if (value < 0 || value > Long.MAX_VALUE - 1) {
             return false;
         }
-        
+
         final List<LongRange> ranges = this.ranges.get();
         int low = 0;
         int high = ranges.size() - 1;
@@ -93,7 +94,7 @@ public class ConcurrentLongRangeSet {
         if (start < 0 || end > Long.MAX_VALUE - 1 || start > end) {
             return false;
         }
-        
+
         final List<LongRange> ranges = this.ranges.get();
         int low = 0;
         int high = ranges.size() - 1;
@@ -143,16 +144,16 @@ public class ConcurrentLongRangeSet {
     public void add(long start, long end) {
         // LongRange constructor will validate the range
         LongRange newRange = new LongRange(start, end);
-        
+
         while (true) {
             List<LongRange> currentRanges = ranges.get();
             List<LongRange> newRanges = mergeRange(currentRanges, newRange);
-            
+
             // If ranges didn't change (already contained all values), no need to update
             if (newRanges == currentRanges) {
                 return;
             }
-            
+
             // Try to update the reference atomically
             if (ranges.compareAndSet(currentRanges, newRanges)) {
                 return;
@@ -232,18 +233,18 @@ public class ConcurrentLongRangeSet {
         if (start > end) {
             throw new IllegalArgumentException("Range start must be less than or equal to end");
         }
-        
+
         LongRange rangeToRemove = new LongRange(start, end);
-        
+
         while (true) {
             List<LongRange> currentRanges = ranges.get();
             List<LongRange> newRanges = removeRange(currentRanges, rangeToRemove);
-            
+
             // If ranges didn't change, no need to update
             if (newRanges == currentRanges) {
                 return;
             }
-            
+
             // Try to update the reference atomically
             if (ranges.compareAndSet(currentRanges, newRanges)) {
                 return;
@@ -318,15 +319,15 @@ public class ConcurrentLongRangeSet {
         // Find potentially affected ranges
         int size = currentRanges.size();
         int insertPosition = 0;
-        
+
         // Find potential insertion point using binary search
         int low = 0;
         int high = size - 1;
-        
+
         while (low <= high) {
             int mid = (low + high) >>> 1;
             LongRange range = currentRanges.get(mid);
-            
+
             if (range.end() < newRange.start() - 1) {
                 // Range is completely before newRange
                 low = mid + 1;
@@ -341,34 +342,34 @@ public class ConcurrentLongRangeSet {
                 break;
             }
         }
-        
+
         // Find the first and last affected ranges (overlapping or adjacent)
         int firstAffected = insertPosition;
-        while (firstAffected > 0 && 
-              (currentRanges.get(firstAffected - 1).overlaps(newRange) || 
-               currentRanges.get(firstAffected - 1).isAdjacent(newRange))) {
+        while (firstAffected > 0
+                && (currentRanges.get(firstAffected - 1).overlaps(newRange)
+                        || currentRanges.get(firstAffected - 1).isAdjacent(newRange))) {
             firstAffected--;
         }
-        
+
         int lastAffected = insertPosition;
         // Ensure we don't go out of bounds
-        while (lastAffected < size - 1 && 
-              (currentRanges.get(lastAffected + 1).overlaps(newRange) || 
-               currentRanges.get(lastAffected + 1).isAdjacent(newRange))) {
+        while (lastAffected < size - 1
+                && (currentRanges.get(lastAffected + 1).overlaps(newRange)
+                        || currentRanges.get(lastAffected + 1).isAdjacent(newRange))) {
             lastAffected++;
         }
-        
+
         // Check if insertPosition is valid and we need to merge with any existing range
         // Fix: Check that firstAffected is in bounds and either overlaps or is adjacent to newRange
-        if (firstAffected < size &&
-            (currentRanges.get(firstAffected).overlaps(newRange) || 
-             currentRanges.get(firstAffected).isAdjacent(newRange))) {
-            
+        if (firstAffected < size
+                && (currentRanges.get(firstAffected).overlaps(newRange)
+                        || currentRanges.get(firstAffected).isAdjacent(newRange))) {
+
             // Calculate the merged range
             long mergedStart = Math.min(currentRanges.get(firstAffected).start(), newRange.start());
             long mergedEnd = Math.max(currentRanges.get(lastAffected).end(), newRange.end());
             LongRange mergedRange = new LongRange(mergedStart, mergedEnd);
-            
+
             // Create a new list with the merged range
             List<LongRange> result = new ArrayList<>(size - (lastAffected - firstAffected));
             result.addAll(currentRanges.subList(0, firstAffected));
@@ -399,18 +400,18 @@ public class ConcurrentLongRangeSet {
         }
 
         int size = currentRanges.size();
-        
+
         // Find the first and last affected ranges using binary search
         int firstAffectedIndex = -1;
         int lastAffectedIndex = -1;
-        
+
         // Find the first range that might be affected
         int low = 0;
         int high = size - 1;
         while (low <= high) {
             int mid = (low + high) >>> 1;
             LongRange range = currentRanges.get(mid);
-            
+
             if (range.end() < rangeToRemove.start()) {
                 // Range ends before removal range starts
                 low = mid + 1;
@@ -424,19 +425,19 @@ public class ConcurrentLongRangeSet {
                 firstAffectedIndex = mid;
             }
         }
-        
+
         // No overlaps found
         if (firstAffectedIndex == -1) {
             return currentRanges;
         }
-        
+
         // Find the last affected range
         low = firstAffectedIndex;
         high = size - 1;
         while (low <= high) {
             int mid = (low + high) >>> 1;
             LongRange range = currentRanges.get(mid);
-            
+
             if (range.start() > rangeToRemove.end()) {
                 // Range starts after removal range ends
                 high = mid - 1;
@@ -448,31 +449,31 @@ public class ConcurrentLongRangeSet {
                 low = mid + 1;
             }
         }
-        
+
         // Build new list with affected ranges modified/removed
         List<LongRange> result = new ArrayList<>(size + 2); // At most 2 extra ranges (from splitting)
-        
+
         // Add ranges before the affected area
         result.addAll(currentRanges.subList(0, firstAffectedIndex));
-        
+
         // Process affected ranges
         for (int i = firstAffectedIndex; i <= lastAffectedIndex; i++) {
             LongRange currentRange = currentRanges.get(i);
-            
+
             // Check if there's a part of the range that should remain before the removal range
             if (currentRange.start() < rangeToRemove.start()) {
                 result.add(new LongRange(currentRange.start(), rangeToRemove.start() - 1));
             }
-            
+
             // Check if there's a part of the range that should remain after the removal range
             if (currentRange.end() > rangeToRemove.end()) {
                 result.add(new LongRange(rangeToRemove.end() + 1, currentRange.end()));
             }
         }
-        
+
         // Add ranges after the affected area
         result.addAll(currentRanges.subList(lastAffectedIndex + 1, size));
-        
+
         return result.isEmpty() ? Collections.emptyList() : Collections.unmodifiableList(result);
     }
 
