@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.node.base.ranges;
 
 import edu.umd.cs.findbugs.annotations.NonNull;
@@ -13,12 +14,12 @@ import java.util.stream.LongStream;
 public record LongRange(long start, long end) implements Comparable<LongRange> {
 
     /** Comparator for comparing LongRange objects by their start and end values. */
-    public static final Comparator<LongRange> COMPARATOR = Comparator.comparingLong(LongRange::start)
-            .thenComparingLong(LongRange::end);
+    public static final Comparator<LongRange> COMPARATOR =
+            Comparator.comparingLong(LongRange::start).thenComparingLong(LongRange::end);
 
     /**
      * Creates a new LongRange with the specified start and end values.
-     * 
+     *
      * @param start the start value of the range (inclusive), must be between 0 and Long.MAX_VALUE-1
      * @param end the end value of the range (inclusive), must be between 0 and Long.MAX_VALUE-1
      * @throws IllegalArgumentException if start or end is negative or greater than Long.MAX_VALUE-1,
