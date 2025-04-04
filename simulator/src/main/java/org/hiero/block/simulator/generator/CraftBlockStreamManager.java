@@ -2,6 +2,7 @@
 package org.hiero.block.simulator.generator;
 
 import static java.lang.System.Logger.Level.DEBUG;
+import static java.lang.System.Logger.Level.ERROR;
 import static java.lang.System.Logger.Level.INFO;
 
 import com.hedera.hapi.block.BlockItemUnparsed;
@@ -13,13 +14,20 @@ import edu.umd.cs.findbugs.annotations.NonNull;
 import java.io.IOException;
 import java.lang.System.Logger;
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.Iterator;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Random;
+import java.util.Set;
 import org.hiero.block.common.hasher.Hashes;
 import org.hiero.block.common.hasher.HashingUtilities;
 import org.hiero.block.common.hasher.NaiveStreamingTreeHasher;
 import org.hiero.block.common.hasher.StreamingTreeHasher;
 import org.hiero.block.simulator.config.data.BlockGeneratorConfig;
+import org.hiero.block.simulator.config.data.UnorderedStreamConfig;
 import org.hiero.block.simulator.config.types.GenerationMode;
 import org.hiero.block.simulator.exception.BlockSimulatorParsingException;
 import org.hiero.block.simulator.generator.itemhandler.BlockHeaderHandler;
@@ -55,17 +63,22 @@ public class CraftBlockStreamManager implements BlockStreamManager {
     private StreamingTreeHasher inputTreeHasher;
     private StreamingTreeHasher outputTreeHasher;
 
+    // Unordered streaming
+    private final boolean unorderedStreamingEnabled;
+    private Iterator<Block> unorderedStreamIterator;
+
     /**
      * Constructs a new CraftBlockStreamManager with the specified configuration.
      *
      * @param blockGeneratorConfig Configuration parameters for block generation
-     * including event and transaction counts
+     *                             including event and transaction counts
      * @param simulatorStartupData simulator startup data used for initialization
      * @throws NullPointerException if blockGeneratorConfig is null
      */
     public CraftBlockStreamManager(
             @NonNull final BlockGeneratorConfig blockGeneratorConfig,
-            @NonNull final SimulatorStartupData simulatorStartupData) {
+            @NonNull final SimulatorStartupData simulatorStartupData,
+            @NonNull final UnorderedStreamConfig unorderedStreamConfig) {
         this.generationMode = blockGeneratorConfig.generationMode();
         this.minEventsPerBlock = blockGeneratorConfig.minEventsPerBlock();
         this.maxEventsPerBlock = blockGeneratorConfig.maxEventsPerBlock();
@@ -79,6 +92,38 @@ public class CraftBlockStreamManager implements BlockStreamManager {
         this.currentBlockNumber = simulatorStartupData.getLatestAckBlockNumber() + 1L;
         this.previousBlockHash = simulatorStartupData.getLatestAckBlockHash();
         LOGGER.log(INFO, "Block Stream Simulator will use Craft mode for block management");
+
+        // Unordered streaming
+        unorderedStreamingEnabled = unorderedStreamConfig.enabled();
+        if (unorderedStreamingEnabled) {
+            initUnorderedStreaming(simulatorStartupData, unorderedStreamConfig);
+        }
+    }
+
+    private void initUnorderedStreaming(
+            SimulatorStartupData simulatorStartupData, UnorderedStreamConfig unorderedStreamConfig) {
+
+        if (simulatorStartupData.isEnabled()) {
+            throw new IllegalStateException("Unordered streaming does not support start-up data enabled");
+        }
+        this.currentBlockNumber = 1; // start block crafting from block number 1
+        List<Block> blockStreamList;
+        int scrambleLevel = unorderedStreamConfig.sequenceScrambleLevel();
+        if (scrambleLevel == 0) {
+            // use a predefined order of streaming from the properties file
+            LinkedHashSet<Long> fixedStreamingSequence = unorderedStreamConfig.fixedStreamingSequenceAsSet();
+            blockStreamList = getBlockStreamList(fixedStreamingSequence);
+        } else {
+            // put the predefined available blocks in a list and scramble by the provided coefficient
+            Set<Long> availableBlocks = unorderedStreamConfig.availableBlocksAsSet();
+            blockStreamList = getBlockStreamList(availableBlocks);
+            blockStreamList = scrambleBlocks(blockStreamList, scrambleLevel);
+        }
+        if (blockStreamList.isEmpty()) {
+            throw new IllegalStateException("No blocks are available for streaming with the current configuration");
+        }
+        unorderedStreamIterator = blockStreamList.iterator();
+        LOGGER.log(INFO, "Unordered streaming is enabled");
     }
 
     /**
@@ -107,11 +152,22 @@ public class CraftBlockStreamManager implements BlockStreamManager {
      * Each block includes a header, events with their transactions and results, and a proof.
      *
      * @return A newly generated Block
-     * @throws IOException if there is an error processing block items
+     * @throws IOException                    if there is an error processing block items
      * @throws BlockSimulatorParsingException if there is an error parsing block components
      */
     @Override
     public Block getNextBlock() throws IOException, BlockSimulatorParsingException {
+        if (unorderedStreamingEnabled) {
+            if (unorderedStreamIterator.hasNext()) {
+                return unorderedStreamIterator.next();
+            }
+            return null;
+        } else {
+            return createNextBlock();
+        }
+    }
+
+    private Block createNextBlock() throws BlockSimulatorParsingException {
         LOGGER.log(DEBUG, "Started creation of block number %s.".formatted(currentBlockNumber));
         // todo(683) Refactor common hasher to accept protoc types, in order to avoid the additional overhead of keeping
         // and unparsing.
@@ -179,5 +235,57 @@ public class CraftBlockStreamManager implements BlockStreamManager {
         outputTreeHasher = new NaiveStreamingTreeHasher();
         currentBlockNumber++;
         previousBlockHash = currentBlockHash;
+    }
+
+    private List<Block> getBlockStreamList(Set<Long> blockSequence) {
+        Map<Long, Block> craftedBlocksMap = new HashMap<>();
+        List<Block> blockStreamList = new ArrayList<>();
+        if (!blockSequence.isEmpty()) {
+            try {
+                for (int i = 0; i <= Collections.max(blockSequence); i++) {
+                    Block block = createNextBlock();
+                    long blockNbr = block.getItems(block.getItemsCount() - 1)
+                            .getBlockProof()
+                            .getBlock();
+                    craftedBlocksMap.put(blockNbr, block);
+                }
+            } catch (Exception e) {
+                LOGGER.log(ERROR, e.getMessage(), e);
+                throw new RuntimeException(e);
+            }
+            for (Long blockNbr : blockSequence) {
+                if (craftedBlocksMap.containsKey(blockNbr)) {
+                    blockStreamList.add(craftedBlocksMap.get(blockNbr));
+                }
+            }
+        }
+        return blockStreamList;
+    }
+
+    private List<Block> scrambleBlocks(List<Block> list, int coefficient) {
+        List<Block> scrambled = new ArrayList<>(list);
+        if (!scrambled.isEmpty()) {
+            Random random = new Random();
+            int n = scrambled.size();
+
+            // The number of swaps is proportional to the coefficient
+            int swapCount = (int) ((coefficient / 10.0) * (n * 2));
+
+            while (list.equals(scrambled)) {
+                for (int i = 0; i < swapCount; i++) {
+                    int index1 = random.nextInt(n - 1);
+                    int index2;
+                    if (coefficient <= 5) {
+                        // When coefficient is low, swap with a neighbor
+                        index2 = index1 + 1;
+                    } else {
+                        // Higher coefficient allows more distant swaps
+                        index2 = random.nextInt(n);
+                    }
+                    Collections.swap(scrambled, index1, index2);
+                }
+            }
+        }
+        return scrambled;
     }
 }
