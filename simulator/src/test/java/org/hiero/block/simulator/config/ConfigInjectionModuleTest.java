@@ -14,6 +14,7 @@ import org.hiero.block.simulator.config.data.BlockGeneratorConfig;
 import org.hiero.block.simulator.config.data.BlockStreamConfig;
 import org.hiero.block.simulator.config.data.GrpcConfig;
 import org.hiero.block.simulator.config.data.SimulatorStartupDataConfig;
+import org.hiero.block.simulator.config.data.UnorderedStreamConfig;
 import org.hiero.block.simulator.config.logging.ConfigurationLogging;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
@@ -108,5 +109,17 @@ class ConfigInjectionModuleTest {
         assertEquals(
                 "/opt/simulator/data/latestAckBlockHash",
                 startupDataConfig.latestAckBlockHashPath().toString());
+    }
+
+    /**
+     * Verifies that the {@link ConfigInjectionModule#provideUnorderedStreamConfig} method
+     * successfully returns a non-null {@link UnorderedStreamConfig} instance when provided
+     * with a valid configuration.
+     */
+    @Test
+    void provideUnorderedStreamConfig() {
+        final UnorderedStreamConfig unorderedStreamConfig =
+                ConfigInjectionModule.provideUnorderedStreamConfig(configuration);
+        assertNotNull(unorderedStreamConfig);
     }
 }
