@@ -100,7 +100,7 @@ public class HistoricalBlockFacilityImpl implements HistoricalBlockFacility {
     public String toString() {
         return "HistoricalBlockFacilityImpl{" + "oldest="
                 + oldestBlockNumber() + ", latest="
-                + oldestBlockNumber() + ", providers=["
+                + latestBlockNumber() + ", providers=["
                 + providers.stream().map(p -> p.getClass().getSimpleName()).collect(Collectors.joining(", ")) + "]"
                 + '}';
     }
