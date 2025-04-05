@@ -1,11 +1,14 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.node.subscriber;
 
+import static java.util.concurrent.locks.LockSupport.parkNanos;
 import static org.hiero.block.node.app.fixtures.TestUtils.enableDebugLogging;
+import static org.hiero.block.node.app.fixtures.blocks.BlockItemUtils.toBlockItem;
 import static org.hiero.block.node.app.fixtures.blocks.BlockItemUtils.toBlockItemsUnparsed;
+import static org.hiero.block.node.app.fixtures.blocks.SimpleTestBlockItemBuilder.createNumberOfSimpleBlockBatches;
 import static org.hiero.block.node.app.fixtures.blocks.SimpleTestBlockItemBuilder.createNumberOfVerySimpleBlocks;
 import static org.hiero.block.node.spi.BlockNodePlugin.UNKNOWN_BLOCK_NUMBER;
-import static org.hiero.block.node.subscriber.SubscriberServicePlugin.BlockStreamSubscriberServiceMethod.subscribeBlockStream;
+import static org.hiero.block.node.subscriber.SubscriberServicePlugin.SubscriberServiceMethod.subscribeBlockStream;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 
@@ -18,6 +21,7 @@ import org.hiero.block.node.app.fixtures.plugintest.GrpcPluginTestBase;
 import org.hiero.block.node.app.fixtures.plugintest.SimpleInMemoryHistoricalBlockFacility;
 import org.hiero.block.node.spi.blockmessaging.BlockItems;
 import org.hiero.block.node.spi.blockmessaging.NoBackPressureBlockItemHandler;
+import org.hiero.hapi.block.node.BlockItemUnparsed;
 import org.hiero.hapi.block.node.SubscribeStreamRequest;
 import org.hiero.hapi.block.node.SubscribeStreamResponse;
 import org.hiero.hapi.block.node.SubscribeStreamResponse.ResponseOneOfType;
@@ -34,6 +38,7 @@ import org.junit.jupiter.api.Test;
 public class SubscriberTest extends GrpcPluginTestBase<SubscriberServicePlugin> {
 
     private final SubscriberServicePlugin activePlugin;
+    private final SimpleInMemoryHistoricalBlockFacility historicalFacility;
 
     /**
      * Constructor that creates new subscriber plugin and in-memory block facility.
@@ -41,6 +46,9 @@ public class SubscriberTest extends GrpcPluginTestBase<SubscriberServicePlugin> 
     public SubscriberTest() {
         super(new SubscriberServicePlugin(), subscribeBlockStream, new SimpleInMemoryHistoricalBlockFacility());
         activePlugin = plugin; // the base class variable name is a bit too generic...
+        // We need the test value, not just the generic interface.
+        // This would be MUCH cleaner with Java 23 (we could assign the attribute _then_ call super)
+        historicalFacility = (SimpleInMemoryHistoricalBlockFacility) blockNodeContext.historicalBlockProvider();
     }
 
     /**
@@ -168,8 +176,8 @@ public class SubscriberTest extends GrpcPluginTestBase<SubscriberServicePlugin> 
                 .build();
         toPluginPipe.onNext(SubscribeStreamRequest.PROTOBUF.toBytes(subscribeStreamRequest));
         // check we can send some block items and they are received
-        sendBlocksWithBackpressure(createNumberOfVerySimpleBlocks(0, 15), new int[] {5, 6, 7, 8, 9, 10}, 0);
-        sendBlocksWithBackpressure(createNumberOfVerySimpleBlocks(15, 25), null, -1);
+        sendBatchesWithBackpressure(createNumberOfSimpleBlockBatches(0, 15), new int[] {5, 6, 7, 8, 9, 10}, 0);
+        sendBatchesWithBackpressure(createNumberOfSimpleBlockBatches(15, 25), null, -1);
     }
 
     // ==== Test bad response codes ====================================================================================
@@ -251,48 +259,66 @@ public class SubscriberTest extends GrpcPluginTestBase<SubscriberServicePlugin> 
      * Test the subscriber service, sending blocks to the messaging facility.
      * At indicated blocks, apply backpressure (as though the client is slow)
      */
-    void sendBlocksWithBackpressure(final BlockItem[] blockItems, final int[] blocksToSlow, final int sessionToSlow)
+    void sendBatchesWithBackpressure(final BlockItems[] batches, final int[] blocksToSlow, final int sessionToSlow)
             throws ParseException {
         final int offset = fromPluginBytes.size();
         // send all the block items
-        sendBlocks(blockItems, blocksToSlow, null, sessionToSlow);
+        sendBatches(batches, blocksToSlow, null, sessionToSlow);
         // check we got all the items
-        assertEquals(blockItems.length, fromPluginBytes.size() - offset);
-        for (int i = 0; i < blockItems.length; i++) {
+        int blockCount = countBlocks(batches);
+        assertEquals(batches.length + 1, fromPluginBytes.size() - offset);
+        for (int i = 0; i < batches.length; i++) {
             SubscribeStreamResponse response = SubscribeStreamResponse.PROTOBUF.parse(fromPluginBytes.get(i + offset));
             assertEquals(
                     ResponseOneOfType.BLOCK_ITEMS,
                     response.response().kind(),
                     "Expected BLOCK_ITEMS but got " + response.response());
-            assertEquals(blockItems[i], response.blockItems().blockItems().getFirst());
+            BlockItems next = batches[i];
+            final List<BlockItem> returned = response.blockItems().blockItems();
+            final List<BlockItemUnparsed> sent = next.blockItems();
+            for (int u = 0; u < sent.size(); u++) {
+                final BlockItem expectedItem = toBlockItem(sent.get(u));
+                final BlockItem actualItem = returned.get(u);
+                assertEquals(expectedItem, actualItem, "Failed to match batch %d, block %d, Item %d.".formatted(i, next.newBlockNumber(), u));
+            }
         }
+    }
+
+    private int countBlocks(final BlockItems[] batches) {
+        return Arrays.stream(batches).mapToInt((a) -> a.blockItems().size()).sum();
     }
 
     /**
      * Send the given block items to messaging service.
      */
     void sendBlocks(final BlockItem[] blockItems) {
-        final int[] empty = {};
-        sendBlocks(blockItems, empty, null, -1);
+        long blockNumber = UNKNOWN_BLOCK_NUMBER;
+        boolean blockedPriorItem = false;
+        for (int i = 0; i < blockItems.length; i++) {
+            final BlockItem blockItem = blockItems[i];
+            blockNumber = blockItem.hasBlockHeader() ? blockItem.blockHeader().number() : blockNumber;
+            final BlockItems itemsToSend = new BlockItems(toBlockItemsUnparsed(blockItem), blockNumber);
+            blockMessaging.sendBlockItems(itemsToSend);
+        }
     }
 
     /**
      * Send the given block items to the messaging service.
      *
-     * @param blockItems An array of block items to send one at a time
-     * @param blocksToApplyBackpressure an array of index values, at each index value we will apply backpressure
+     * @param batches An array of block items to send one at a time
+     * @param batchesToApplyBackpressure an array of index values, at each index value we will apply backpressure
      *         to the messaging service for the subscriber handler and possibly test for an exception.
      *         An empty array means to not apply backpressure.
      * @param expectedException An exception expected when backpressure is applied, null if no exception
      *         is expected.
      */
-    void sendBlocks(
-            final BlockItem[] blockItems,
-            final int[] blocksToApplyBackpressure,
+    void sendBatches(
+            final BlockItems[] batches,
+            final int[] batchesToApplyBackpressure,
             final Class<? extends Throwable> expectedException,
             final int sessionIndexToSlow) {
         // send all the block items
-        Arrays.sort(blocksToApplyBackpressure);
+        Arrays.sort(batchesToApplyBackpressure);
         final NoBackPressureBlockItemHandler[] allSessions = activePlugin.getOpenSessions();
         final NoBackPressureBlockItemHandler handlerToSlow;
         if (sessionIndexToSlow >= 0 && allSessions.length > sessionIndexToSlow) {
@@ -300,25 +326,24 @@ public class SubscriberTest extends GrpcPluginTestBase<SubscriberServicePlugin> 
         } else {
             handlerToSlow = null;
         }
-        long blockNumber = UNKNOWN_BLOCK_NUMBER;
         boolean blockedPriorItem = false;
-        for (int i = 0; i < blockItems.length; i++) {
-            final BlockItem blockItem = blockItems[i];
+        for (int i = 0; i < batches.length; i++) {
+            final BlockItems batch = batches[i];
             final boolean isBlockedItem =
-                    handlerToSlow != null && Arrays.binarySearch(blocksToApplyBackpressure, i) >= 0;
-            if (isBlockedItem) {
+                    handlerToSlow != null && Arrays.binarySearch(batchesToApplyBackpressure, i) >= 0;
+            if (isBlockedItem && !blockedPriorItem) {
+                historicalFacility.setDelayResponses();
                 blockMessaging.setHandlerBehind(handlerToSlow);
                 blockedPriorItem = true;
-            } else if (blockedPriorItem) {
-                blockMessaging.clearBackpressure(handlerToSlow);
+            } else if (!isBlockedItem && blockedPriorItem) {
+                historicalFacility.clearDelayResponses();
+                parkNanos(1_000_000);
                 blockedPriorItem = false;
             }
-            blockNumber = blockItem.hasBlockHeader() ? blockItem.blockHeader().number() : blockNumber;
-            final BlockItems itemsToSend = new BlockItems(toBlockItemsUnparsed(blockItem), blockNumber);
             if (isBlockedItem && expectedException != null) {
-                Assertions.assertThrows(expectedException, () -> blockMessaging.sendBlockItems(itemsToSend));
+                Assertions.assertThrows(expectedException, () -> blockMessaging.sendBlockItems(batch));
             } else {
-                blockMessaging.sendBlockItems(itemsToSend);
+                blockMessaging.sendBlockItems(batch);
             }
         }
     }

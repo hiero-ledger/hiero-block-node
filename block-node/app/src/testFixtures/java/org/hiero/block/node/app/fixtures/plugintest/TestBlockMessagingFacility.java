@@ -93,7 +93,7 @@ public class TestBlockMessagingFacility implements BlockMessagingFacility {
         if (handlersWithBackpressure.contains(handler)) {
             handlersWithBackpressure.remove(handler);
         } else if (handler instanceof NoBackPressureBlockItemHandler nonBlockingHandler) {
-            registerNoBackpressureBlockItemHandler(nonBlockingHandler, false, "");
+            registerNoBackpressureBlockItemHandler(nonBlockingHandler, false, handler.toString());
         }
     }
 
@@ -114,16 +114,22 @@ public class TestBlockMessagingFacility implements BlockMessagingFacility {
      */
     @Override
     public void sendBlockItems(BlockItems blockItems) {
-        LOGGER.log(Level.TRACE, "Sending next block items " + blockItems);
+        final int handlerCount = blockItemHandlers.size() + nonBackpressureBlockItemHandlers.size();
+        LOGGER.log(Level.DEBUG, "Sending next %d block items to %d handlers.".formatted(blockItems.blockItems().size(), handlerCount));
         sentBlockBlockItems.add(blockItems);
         boolean handlerHasBackpressure = false;
         for (BlockItemHandler handler : blockItemHandlers) {
             if (handlersWithBackpressure.contains(handler)) {
                 handlerHasBackpressure = true;
             }
-            LOGGER.log(Level.TRACE, "Calling Handler %s.%n".formatted(handler));
+            LOGGER.log(Level.TRACE, "Calling Handler %s.".formatted(handler));
             handler.handleBlockItemsReceived(blockItems);
         }
+        for (BlockItemHandler handler : nonBackpressureBlockItemHandlers) {
+            LOGGER.log(Level.TRACE, "Calling Handler %s.".formatted(handler));
+            handler.handleBlockItemsReceived(blockItems);
+        }
+        LOGGER.log(Level.TRACE, "Sent block items:%n%s".formatted(blockItems));
         if (handlerHasBackpressure) {
             throw new RejectedExecutionException();
         }
@@ -144,6 +150,8 @@ public class TestBlockMessagingFacility implements BlockMessagingFacility {
     public void registerNoBackpressureBlockItemHandler(
             NoBackPressureBlockItemHandler handler, boolean cpuIntensiveHandler, String handlerName) {
         nonBackpressureBlockItemHandlers.add(handler);
+        LOGGER.log(Level.DEBUG,
+                "Added handler %s as %sCPU intensive.".formatted(handlerName, cpuIntensiveHandler ? "" : "not "));
     }
 
     /**
@@ -156,7 +164,7 @@ public class TestBlockMessagingFacility implements BlockMessagingFacility {
         } else if (nonBackpressureBlockItemHandlers.contains(handler)) {
             nonBackpressureBlockItemHandlers.remove(handler);
         } else {
-            throw new IllegalArgumentException();
+            throw new IllegalArgumentException(handler.toString());
         }
     }
 

@@ -12,7 +12,6 @@ import java.lang.System.Logger.Level;
 import java.util.Arrays;
 import java.util.Comparator;
 import java.util.List;
-import java.util.Set;
 import java.util.concurrent.ConcurrentSkipListSet;
 import java.util.concurrent.atomic.AtomicLong;
 import org.hiero.block.node.spi.BlockNodeContext;
@@ -80,7 +79,7 @@ public class SubscriberServicePlugin implements BlockNodePlugin, ServiceInterfac
     /**
      * BlockStreamSubscriberService types define the gRPC methods available on the BlockStreamSubscriberService.
      */
-    enum BlockStreamSubscriberServiceMethod implements Method {
+    enum SubscriberServiceMethod implements Method {
         /**
          * The subscribeBlockStream method represents the server-streaming gRPC method
          * consumers should use to subscribe to the BlockStream from the Block Node.
@@ -109,7 +108,7 @@ public class SubscriberServicePlugin implements BlockNodePlugin, ServiceInterfac
      */
     @NonNull
     public List<Method> methods() {
-        return Arrays.asList(BlockStreamSubscriberServiceMethod.values());
+        return Arrays.asList(SubscriberServiceMethod.values());
     }
 
     /**
@@ -122,9 +121,9 @@ public class SubscriberServicePlugin implements BlockNodePlugin, ServiceInterfac
     public Pipeline<? super Bytes> open(
             @NonNull Method method, @NonNull RequestOptions opts, @NonNull Pipeline<? super Bytes> responses)
             throws GrpcException {
-        final BlockStreamSubscriberServiceMethod blockStreamSubscriberServiceMethod =
-                (BlockStreamSubscriberServiceMethod) method;
-        return switch (blockStreamSubscriberServiceMethod) {
+        LOGGER.log(Level.INFO, "Real Plugin Open called");
+        final SubscriberServiceMethod subscriberServiceMethod = (SubscriberServiceMethod) method;
+        return switch (subscriberServiceMethod) {
             case subscribeBlockStream:
                 // subscribeBlockStream is server streaming end point so the client sends a single request and the
                 // server sends many responses
@@ -138,10 +137,8 @@ public class SubscriberServicePlugin implements BlockNodePlugin, ServiceInterfac
                                             responsePipeline,
                                             context,
                                             this::closedSubscriberSessionCallback);
-                            final String sessionName = "subscriber-%d".formatted(blockStreamSession.clientId());
                             // add the session to the set of open sessions
                             openSessions.add(blockStreamSession);
-                            context.blockMessaging().registerNoBackpressureBlockItemHandler(blockStreamSession, false, sessionName);
                             numberOfSubscribers.set(openSessions.size());
                         })
                         .mapResponse(SubscribeStreamResponseUnparsed.PROTOBUF::toBytes)
