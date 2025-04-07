@@ -2,6 +2,7 @@
 package org.hiero.block.node.blocks.files.recent;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatExceptionOfType;
 import static org.assertj.core.api.Assertions.assertThatIllegalArgumentException;
 import static org.assertj.core.api.Assertions.assertThatNoException;
 import static org.assertj.core.api.Assertions.assertThatNullPointerException;
@@ -10,11 +11,13 @@ import com.google.common.jimfs.Configuration;
 import com.google.common.jimfs.Jimfs;
 import com.hedera.hapi.block.stream.Block;
 import com.hedera.hapi.block.stream.BlockItem;
+import com.hedera.pbj.runtime.UncheckedParseException;
 import com.hedera.pbj.runtime.io.buffer.BufferedData;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.OutputStream;
+import java.io.UncheckedIOException;
 import java.nio.file.FileSystem;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -232,10 +235,57 @@ class BlockFileBlockAccessorTest {
             final Block expected = new Block(List.of(blockItems));
             final Bytes protoBytes = Block.PROTOBUF.toBytes(expected);
             // create instance to test
-            final BlockFileBlockAccessor toTest = createInstanceToTest(blockFilePath, compressionType, protoBytes);
+            final BlockFileBlockAccessor toTest =
+                    createBlockAndGetAssociatedAccessor(blockFilePath, compressionType, protoBytes);
             // test accessor.block()
             final Block actual = toTest.block();
             assertThat(actual).isEqualTo(expected);
+        }
+
+        /**
+         * This test aims to verify that the {@link BlockFileBlockAccessor#block()} will correctly handle
+         * IOExceptions encountered when attempting to persist blocks.
+         */
+        @ParameterizedTest
+        @EnumSource(CompressionType.class)
+        @DisplayName("Test block() method correctly handles an IOException")
+        void testBlockIOException(final CompressionType compressionType) throws IOException {
+            // create block file path before call
+            final Path blockFilePath = testBasePath.resolve("0.blk".concat(compressionType.extension()));
+            // build a test block
+            final BlockItem[] blockItems = SimpleTestBlockItemBuilder.createNumberOfVerySimpleBlocks(1);
+            final Block expected = new Block(List.of(blockItems));
+            final Bytes protoBytes = Block.PROTOBUF.toBytes(expected);
+            // create instance to test
+            final BlockFileBlockAccessor toTest =
+                    createBlockAndGetAssociatedAccessor(blockFilePath, compressionType, protoBytes);
+
+            // delete the file to simulate NoSuchFileException IOException
+            Files.delete(blockFilePath);
+
+            // test accessor.block() expecting IOException
+            assertThatExceptionOfType(UncheckedIOException.class).isThrownBy(toTest::block);
+        }
+
+        /**
+         * This test aims to verify that the {@link BlockFileBlockAccessor#block()} will correctly handle
+         * protobuf parse exception encountered when attempting to persist blocks.
+         */
+        @ParameterizedTest
+        @EnumSource(CompressionType.class)
+        @DisplayName("Test block() method correctly handles proto parse exception")
+        void testBlockParseException(final CompressionType compressionType) throws IOException {
+            // create block file path before call
+            final Path blockFilePath = testBasePath.resolve("0.blk".concat(compressionType.extension()));
+
+            // provide empty byte array to simulate parse exception
+            final Bytes protoBytes = Bytes.wrap(new byte[48]);
+            // create instance to test
+            final BlockFileBlockAccessor toTest =
+                    createBlockAndGetAssociatedAccessor(blockFilePath, compressionType, protoBytes);
+
+            // test accessor.block() expecting ParseException
+            assertThatExceptionOfType(UncheckedParseException.class).isThrownBy(toTest::block);
         }
 
         /**
@@ -253,10 +303,57 @@ class BlockFileBlockAccessorTest {
             final BlockUnparsed expected = new BlockUnparsed(List.of(blockItems));
             final Bytes protoBytes = BlockUnparsed.PROTOBUF.toBytes(expected);
             // create instance to test
-            final BlockFileBlockAccessor toTest = createInstanceToTest(blockFilePath, compressionType, protoBytes);
+            final BlockFileBlockAccessor toTest =
+                    createBlockAndGetAssociatedAccessor(blockFilePath, compressionType, protoBytes);
             // test accessor.blockUnparsed()
             final BlockUnparsed actual = toTest.blockUnparsed();
             assertThat(actual).isEqualTo(expected);
+        }
+
+        /**
+         * This test aims to verify that the {@link BlockFileBlockAccessor#blockUnparsed()} will correctly handle
+         * IOException encountered when attempting to persist blocks.
+         */
+        @ParameterizedTest
+        @EnumSource(CompressionType.class)
+        @DisplayName("Test blockUnparsed() method correctly handles an IOException")
+        void testBlockUnparsedIOException(final CompressionType compressionType) throws IOException {
+            // create block file path before call
+            final Path blockFilePath = testBasePath.resolve("0.blk".concat(compressionType.extension()));
+            // build a test block
+            final BlockItem[] blockItems = SimpleTestBlockItemBuilder.createNumberOfVerySimpleBlocks(1);
+            final Block expected = new Block(List.of(blockItems));
+            final Bytes protoBytes = Block.PROTOBUF.toBytes(expected);
+            // create instance to test
+            final BlockFileBlockAccessor toTest =
+                    createBlockAndGetAssociatedAccessor(blockFilePath, compressionType, protoBytes);
+
+            // delete the file to simulate NoSuchFileException IOException
+            Files.delete(blockFilePath);
+
+            // test accessor.blockUnparsed() expecting IOException
+            assertThatExceptionOfType(UncheckedIOException.class).isThrownBy(toTest::blockUnparsed);
+        }
+
+        /**
+         * This test aims to verify that the {@link BlockFileBlockAccessor#blockUnparsed()} will correctly handle
+         * protobuf parse exceptions encountered when attempting to persist blocks.
+         */
+        @ParameterizedTest
+        @EnumSource(CompressionType.class)
+        @DisplayName("Test blockUnparsed() method correctly handles proto parse exception")
+        void testBlockUnparseException(final CompressionType compressionType) throws IOException {
+            // create block file path before call
+            final Path blockFilePath = testBasePath.resolve("0.blk".concat(compressionType.extension()));
+
+            // provide empty byte array to simulate parse exception
+            final Bytes protoBytes = Bytes.wrap(new byte[48]);
+            // create instance to test
+            final BlockFileBlockAccessor toTest =
+                    createBlockAndGetAssociatedAccessor(blockFilePath, compressionType, protoBytes);
+
+            // test accessor.blockUnparsed() expecting ParseException
+            assertThatExceptionOfType(UncheckedParseException.class).isThrownBy(toTest::blockUnparsed);
         }
 
         /**
@@ -269,12 +366,9 @@ class BlockFileBlockAccessorTest {
         void testBlockBytes(final CompressionType compressionType) throws IOException {
             // create block file path before call
             final Path blockFilePath = testBasePath.resolve("0.blk".concat(compressionType.extension()));
-            // build a test block
-            final BlockItemUnparsed[] blockItems = SimpleTestBlockItemBuilder.createNumberOfVerySimpleBlocksUnparsed(1);
-            final BlockUnparsed block = new BlockUnparsed(List.of(blockItems));
-            final Bytes protoBytes = BlockUnparsed.PROTOBUF.toBytes(block);
             // create instance to test
-            final BlockFileBlockAccessor toTest = createInstanceToTest(blockFilePath, compressionType, protoBytes);
+            final BlockFileBlockAccessor toTest =
+                    buildAndCreateBlockAndGetAssociatedAccessor(blockFilePath, compressionType, 1);
             // test accessor.blockBytes()
             final Format format =
                     switch (compressionType) {
@@ -288,6 +382,56 @@ class BlockFileBlockAccessorTest {
         }
 
         /**
+         * This test aims to verify that the {@link BlockFileBlockAccessor#blockBytes(Format)} will correctly
+         * handle IOExceptions encountered.
+         */
+        @ParameterizedTest
+        @EnumSource(CompressionType.class)
+        @DisplayName("Test blockBytes method correctly handles an IOException")
+        void testBlockBytesIOException(final CompressionType compressionType) throws IOException {
+            // create block file path before call
+            final Path blockFilePath = testBasePath.resolve("0.blk".concat(compressionType.extension()));
+            // create instance to test
+            final BlockFileBlockAccessor toTest =
+                    buildAndCreateBlockAndGetAssociatedAccessor(blockFilePath, compressionType, 1);
+            // test accessor.blockBytes()
+            final Format format =
+                    switch (compressionType) {
+                        case ZSTD -> Format.ZSTD_PROTOBUF;
+                        case NONE -> Format.PROTOBUF;
+                    };
+
+            // delete the file to simulate NoSuchFileException IOException
+            Files.delete(blockFilePath);
+
+            // test accessor.blockBytes() expecting IOException
+            assertThatExceptionOfType(UncheckedIOException.class).isThrownBy(() -> toTest.blockBytes(format));
+        }
+
+        /**
+         * This test aims to verify that the {@link BlockFileBlockAccessor#blockBytes(Format)} will correctly
+         * handle an IOException when the format is protobuf zstd but the compression is none.
+         */
+        @Test
+        @DisplayName("Test blockBytes method correctly handles an IOException on ZSTF protobuf but no compression")
+        void testBlockBytesZSTDIOException() throws IOException {
+            // create block file path before call
+            final CompressionType compressionType = CompressionType.NONE;
+            final Path blockFilePath = testBasePath.resolve("0.blk".concat(compressionType.extension()));
+
+            // create instance to test
+            final BlockFileBlockAccessor toTest =
+                    buildAndCreateBlockAndGetAssociatedAccessor(blockFilePath, compressionType, 1);
+
+            // delete the file to simulate NoSuchFileException IOException
+            Files.delete(blockFilePath);
+
+            // test accessor.blockBytes() expecting IOException
+            assertThatExceptionOfType(UncheckedIOException.class)
+                    .isThrownBy(() -> toTest.blockBytes(Format.ZSTD_PROTOBUF));
+        }
+
+        /**
          * This test aims to verify that the {@link BlockFileBlockAccessor#writeBytesTo(Format, OutputStream)}
          * will correctly write bytes to the target {@link OutputStream}.
          */
@@ -297,12 +441,9 @@ class BlockFileBlockAccessorTest {
         void testWriteBytesToOutputStream(final CompressionType compressionType) throws IOException {
             // create block file path before call
             final Path blockFilePath = testBasePath.resolve("0.blk".concat(compressionType.extension()));
-            // build a test block
-            final BlockItemUnparsed[] blockItems = SimpleTestBlockItemBuilder.createNumberOfVerySimpleBlocksUnparsed(1);
-            final BlockUnparsed block = new BlockUnparsed(List.of(blockItems));
-            final Bytes protoBytes = BlockUnparsed.PROTOBUF.toBytes(block);
             // create instance to test
-            final BlockFileBlockAccessor toTest = createInstanceToTest(blockFilePath, compressionType, protoBytes);
+            final BlockFileBlockAccessor toTest =
+                    buildAndCreateBlockAndGetAssociatedAccessor(blockFilePath, compressionType, 1);
             // test accessor.writeBytesTo(OutputStream)
             final Format format =
                     switch (compressionType) {
@@ -318,6 +459,61 @@ class BlockFileBlockAccessorTest {
         }
 
         /**
+         * This test aims to verify that the {@link BlockFileBlockAccessor#writeBytesTo(Format, OutputStream)}
+         * will correctly manage IOExceptions.
+         */
+        @ParameterizedTest
+        @EnumSource(CompressionType.class)
+        @DisplayName("Test writeBytesTo method will correctly handle IOException flows")
+        void testWriteBytesToOutputStreamIOException(final CompressionType compressionType) throws IOException {
+            // create block file path before call
+            final Path blockFilePath = testBasePath.resolve("0.blk".concat(compressionType.extension()));
+            // create instance to test
+            final BlockFileBlockAccessor toTest =
+                    buildAndCreateBlockAndGetAssociatedAccessor(blockFilePath, compressionType, 1);
+            // test accessor.writeBytesTo(OutputStream)
+            final Format format =
+                    switch (compressionType) {
+                        case ZSTD -> Format.ZSTD_PROTOBUF;
+                        case NONE -> Format.PROTOBUF;
+                    };
+
+            final ByteArrayOutputStream byteArrayOutputStream = new ByteArrayOutputStream();
+
+            // delete the file to simulate NoSuchFileException IOException
+            Files.delete(blockFilePath);
+
+            // test accessor.writeBytesTo() expecting IOException
+            assertThatExceptionOfType(UncheckedIOException.class)
+                    .isThrownBy(() -> toTest.writeBytesTo(format, byteArrayOutputStream));
+        }
+
+        /**
+         * This test aims to verify that the {@link BlockFileBlockAccessor#writeBytesTo(Format, OutputStream)} will correctly
+         * handle an IOException when the format is protobuf zstd but the compression is none.
+         */
+        @Test
+        @DisplayName(
+                "Test writeBytesTo method will correctly handle IOException flows on taret OutputStream ZSTF protobuf but no compression")
+        void testWriteBytesToOutputStreamZSTDIOException() throws IOException {
+            // create block file path before call
+            final CompressionType compressionType = CompressionType.NONE;
+            final Path blockFilePath = testBasePath.resolve("0.blk".concat(compressionType.extension()));
+            // create instance to test
+            final BlockFileBlockAccessor toTest =
+                    buildAndCreateBlockAndGetAssociatedAccessor(blockFilePath, compressionType, 1);
+
+            final ByteArrayOutputStream byteArrayOutputStream = new ByteArrayOutputStream();
+
+            // delete the file to simulate NoSuchFileException IOException
+            Files.delete(blockFilePath);
+
+            // test accessor.writeBytesTo() expecting IOException
+            assertThatExceptionOfType(UncheckedIOException.class)
+                    .isThrownBy(() -> toTest.writeBytesTo(Format.ZSTD_PROTOBUF, byteArrayOutputStream));
+        }
+
+        /**
          * This test aims to verify that the
          * {@link BlockFileBlockAccessor#writeBytesTo(Format, com.hedera.pbj.runtime.io.WritableSequentialData)}
          * will correctly write bytes to the target {@link com.hedera.pbj.runtime.io.WritableSequentialData}.
@@ -328,12 +524,9 @@ class BlockFileBlockAccessorTest {
         void testWriteBytesToWritableSequentialData(final CompressionType compressionType) throws IOException {
             // create block file path before call
             final Path blockFilePath = testBasePath.resolve("0.blk".concat(compressionType.extension()));
-            // build a test block
-            final BlockItemUnparsed[] blockItems = SimpleTestBlockItemBuilder.createNumberOfVerySimpleBlocksUnparsed(1);
-            final BlockUnparsed block = new BlockUnparsed(List.of(blockItems));
-            final Bytes protoBytes = BlockUnparsed.PROTOBUF.toBytes(block);
             // create instance to test
-            final BlockFileBlockAccessor toTest = createInstanceToTest(blockFilePath, compressionType, protoBytes);
+            final BlockFileBlockAccessor toTest =
+                    buildAndCreateBlockAndGetAssociatedAccessor(blockFilePath, compressionType, 1);
             // test accessor.writeBytesTo(BufferedData)
             final Format format =
                     switch (compressionType) {
@@ -349,6 +542,63 @@ class BlockFileBlockAccessorTest {
         }
 
         /**
+         * This test aims to verify that the {@link BlockFileBlockAccessor#writeBytesTo(Format, com.hedera.pbj.runtime.io.WritableSequentialData)}
+         * will correctly manage IOExceptions.
+         */
+        @ParameterizedTest
+        @EnumSource(CompressionType.class)
+        @DisplayName("Test writeBytesTo method will correctly handle IOException in the WritableSequentialData paths")
+        void testWriteBytesToWritableSequentialDataIOException(final CompressionType compressionType)
+                throws IOException {
+            // create block file path before call
+            final Path blockFilePath = testBasePath.resolve("0.blk".concat(compressionType.extension()));
+            // create instance to test
+            final BlockFileBlockAccessor toTest =
+                    buildAndCreateBlockAndGetAssociatedAccessor(blockFilePath, compressionType, 1);
+            // test accessor.writeBytesTo(BufferedData)
+            final Format format =
+                    switch (compressionType) {
+                        case ZSTD -> Format.ZSTD_PROTOBUF;
+                        case NONE -> Format.PROTOBUF;
+                    };
+            final Bytes expectedFileBytes = Bytes.wrap(Files.readAllBytes(blockFilePath));
+            final BufferedData bufferedData = BufferedData.allocate((int) expectedFileBytes.length());
+
+            // delete the file to simulate NoSuchFileException IOException
+            Files.delete(blockFilePath);
+
+            // test accessor.writeBytesTo() expecting IOException
+            assertThatExceptionOfType(UncheckedIOException.class)
+                    .isThrownBy(() -> toTest.writeBytesTo(format, bufferedData));
+        }
+
+        /**
+         * This test aims to verify that the {@link BlockFileBlockAccessor#writeBytesTo(Format, com.hedera.pbj.runtime.io.WritableSequentialData)}
+         * will correctly handle an IOException when the format is protobuf zstd but the compression is none.
+         */
+        @Test
+        @DisplayName(
+                "Test writeBytesTo method will correctly handle IOException in the WritableSequentialData paths on ZSTF protobuf but no compression")
+        void testWriteBytesToWritableSequentialDataZSTDIOException() throws IOException {
+            // create block file path before call
+            final CompressionType compressionType = CompressionType.NONE;
+            final Path blockFilePath = testBasePath.resolve("0.blk".concat(compressionType.extension()));
+            // create instance to test
+            final BlockFileBlockAccessor toTest =
+                    buildAndCreateBlockAndGetAssociatedAccessor(blockFilePath, compressionType, 1);
+            // test accessor.writeBytesTo(BufferedData)
+            final Bytes expectedFileBytes = Bytes.wrap(Files.readAllBytes(blockFilePath));
+            final BufferedData bufferedData = BufferedData.allocate((int) expectedFileBytes.length());
+
+            // delete the file to simulate NoSuchFileException IOException
+            Files.delete(blockFilePath);
+
+            // test accessor.writeBytesTo() expecting IOException
+            assertThatExceptionOfType(UncheckedIOException.class)
+                    .isThrownBy(() -> toTest.writeBytesTo(Format.ZSTD_PROTOBUF, bufferedData));
+        }
+
+        /**
          * This test aims to verify that the
          * {@link BlockFileBlockAccessor#writeTo(Format, Path)}
          * will correctly write bytes to the target {@link Path}.
@@ -359,12 +609,9 @@ class BlockFileBlockAccessorTest {
         void testWriteToPath(final CompressionType compressionType) throws IOException {
             // create block file path before call
             final Path blockFilePath = testBasePath.resolve("0.blk".concat(compressionType.extension()));
-            // build a test block
-            final BlockItemUnparsed[] blockItems = SimpleTestBlockItemBuilder.createNumberOfVerySimpleBlocksUnparsed(1);
-            final BlockUnparsed block = new BlockUnparsed(List.of(blockItems));
-            final Bytes protoBytes = BlockUnparsed.PROTOBUF.toBytes(block);
             // create instance to test
-            final BlockFileBlockAccessor toTest = createInstanceToTest(blockFilePath, compressionType, protoBytes);
+            final BlockFileBlockAccessor toTest =
+                    buildAndCreateBlockAndGetAssociatedAccessor(blockFilePath, compressionType, 1);
             // test accessor.writeTo(Path)
             final Format format =
                     switch (compressionType) {
@@ -390,20 +637,52 @@ class BlockFileBlockAccessorTest {
         void testBlockDelete(final CompressionType compressionType) throws IOException {
             // create block file path before call
             final Path blockFilePath = testBasePath.resolve("0.blk".concat(compressionType.extension()));
-            // build a test block
-            final BlockItemUnparsed[] blockItems = SimpleTestBlockItemBuilder.createNumberOfVerySimpleBlocksUnparsed(1);
-            final BlockUnparsed expected = new BlockUnparsed(List.of(blockItems));
-            final Bytes protoBytes = BlockUnparsed.PROTOBUF.toBytes(expected);
             // create instance to test
-            final BlockFileBlockAccessor toTest = createInstanceToTest(blockFilePath, compressionType, protoBytes);
+            final BlockFileBlockAccessor toTest =
+                    buildAndCreateBlockAndGetAssociatedAccessor(blockFilePath, compressionType, 1);
             // test accessor.delete()
             toTest.delete();
             assertThat(blockFilePath).doesNotExist();
         }
 
-        private BlockFileBlockAccessor createInstanceToTest(
-                final Path blockFilePath, final CompressionType compressionType, final Bytes protoBytes)
-                throws IOException {
+        @ParameterizedTest
+        @EnumSource(CompressionType.class)
+        void testDeleteNestedEmptyParentDirectory(final CompressionType compressionType) throws IOException {
+            // create parents dirs
+            final Path depth1Dir = Files.createDirectories(Path.of(testBasePath + "/depth1"));
+            final Path depth2Dir = Files.createDirectories(Path.of(testBasePath + "/depth1/depth2"));
+            final Path depth3Dir = Files.createDirectories(Path.of(testBasePath + "/depth1/depth2/depth3"));
+
+            // create 1st block file at depth 2, leaving depth 1 empty
+            final Path blockFile1Path = depth2Dir.resolve("7.blk".concat(compressionType.extension()));
+            // create instance to test
+            final BlockFileBlockAccessor toTest1 =
+                    buildAndCreateBlockAndGetAssociatedAccessor(blockFile1Path, compressionType, 2);
+
+            // create 2nd block file at depth 3
+            final Path blockFile2Path = depth3Dir.resolve("8.blk".concat(compressionType.extension()));
+            // create instance to test
+            final BlockFileBlockAccessor toTest2 =
+                    buildAndCreateBlockAndGetAssociatedAccessor(blockFile2Path, compressionType, 3);
+
+            // test accessor2.delete() expecting depth 1 and 2 contents to remain but 3 to be removed
+            toTest2.delete();
+            assertThat(blockFile2Path).doesNotExist();
+            assertThat(depth3Dir).doesNotExist();
+            assertThat(depth2Dir).exists();
+            assertThat(blockFile1Path).exists();
+            assertThat(depth1Dir).exists();
+
+            // test accessor1.delete() expecting depth 1 and 2 contents to be removed
+            toTest1.delete();
+            assertThat(depth2Dir).doesNotExist();
+            assertThat(depth1Dir).doesNotExist();
+            assertThat(blockFile1Path).doesNotExist();
+        }
+
+        private BlockFileBlockAccessor createBlockAndGetAssociatedAccessor(
+                final Path blockFilePath, final CompressionType compressionType, Bytes protoBytes) throws IOException {
+
             // create & assert existing block file path before call
             Files.createFile(blockFilePath);
             assertThat(blockFilePath).exists().isEmptyFile();
@@ -414,6 +693,17 @@ class BlockFileBlockAccessorTest {
             // assert the test block file is populated
             assertThat(blockFilePath).isNotEmptyFile();
             return new BlockFileBlockAccessor(testBasePath, blockFilePath, compressionType);
+        }
+
+        private BlockFileBlockAccessor buildAndCreateBlockAndGetAssociatedAccessor(
+                final Path blockFilePath, final CompressionType compressionType, final int numberOfBlocks)
+                throws IOException {
+            final BlockItemUnparsed[] blockItems1 =
+                    SimpleTestBlockItemBuilder.createNumberOfVerySimpleBlocksUnparsed(numberOfBlocks);
+            final BlockUnparsed expected1 = new BlockUnparsed(List.of(blockItems1));
+            final Bytes protoBytes = BlockUnparsed.PROTOBUF.toBytes(expected1);
+
+            return createBlockAndGetAssociatedAccessor(blockFilePath, compressionType, protoBytes);
         }
     }
 }
