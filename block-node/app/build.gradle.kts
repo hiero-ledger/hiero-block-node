@@ -62,6 +62,7 @@ mainModuleInfo {
     runtimeOnly("org.hiero.block.node.blocks.cloud.historic")
     runtimeOnly("org.hiero.block.node.blocks.files.historic")
     runtimeOnly("org.hiero.block.node.blocks.files.recent")
+    runtimeOnly("org.hiero.block.node.single.block")
 }
 
 testModuleInfo {

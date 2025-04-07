@@ -26,5 +26,6 @@ javaModules {
         module("block-providers/cloud.historic") { artifact = "block-node-blocks-cloud-historic" }
         module("block-providers/files.historic") { artifact = "block-node-blocks-file-historic" }
         module("block-providers/files.recent") { artifact = "block-node-blocks-file-recent" }
+        module("single-block") { artifact = "block-node-single-block" }
     }
 }
