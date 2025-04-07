@@ -59,12 +59,16 @@ public class SubscriberTest extends GrpcPluginTestBase<SubscriberServicePlugin> 
 
     /**
      * Test the subscriber service, create a single subscriber and send it some block items via the messaging services
-     * and makes sure they are delivered correctly.
+     * and makes sure they are delivered correctly. Tests block range:
+     * <ul>
+     *     <li>Starting at block UNKNOWN_BLOCK_NUMBER which means any block</li>
+     *     <li>Ending at block UNKNOWN_BLOCK_NUMBER which means stream forever</li>
+     * </ul>
      *
      * @throws ParseException should not happen
      */
     @Test
-    void testSubscriberUnknownBlock() throws ParseException {
+    void testSubscribeAnyToMaxBlocksUnknown() throws ParseException {
         // first we need to create and send a SubscribeStreamRequest
         final SubscribeStreamRequest subscribeStreamRequest = SubscribeStreamRequest.newBuilder()
                 .allowUnverified(true)
@@ -72,8 +76,63 @@ public class SubscriberTest extends GrpcPluginTestBase<SubscriberServicePlugin> 
                 .endBlockNumber(UNKNOWN_BLOCK_NUMBER)
                 .build();
         toPluginPipe.onNext(SubscribeStreamRequest.PROTOBUF.toBytes(subscribeStreamRequest));
+        toPluginPipe.clientEndStreamReceived();
+        // should not have got a response
+        assertEquals(0, fromPluginBytes.size());
         // check we can send some block items and they are received
-        sendBlocksAndCheckTheyAreReceived(createNumberOfVerySimpleBlocks(25));
+        sendBlocksAndCheckTheyAreReceived(createNumberOfVerySimpleBlocks(1));
+    }
+
+    /**
+     * Test the subscriber service, create a single subscriber and send it some block items via the messaging services
+     * and makes sure they are delivered correctly. Tests block range:
+     * <ul>
+     *     <li>Starting at block UNKNOWN_BLOCK_NUMBER which means any block</li>
+     *     <li>Ending at block 0 which means stream forever</li>
+     * </ul>
+     *
+     * @throws ParseException should not happen
+     */
+    @Test
+    void testSubscribeAnyToMaxBlocksZero() throws ParseException {
+        // first we need to create and send a SubscribeStreamRequest
+        final SubscribeStreamRequest subscribeStreamRequest = SubscribeStreamRequest.newBuilder()
+                .allowUnverified(true)
+                .startBlockNumber(UNKNOWN_BLOCK_NUMBER)
+                .endBlockNumber(0)
+                .build();
+        toPluginPipe.onNext(SubscribeStreamRequest.PROTOBUF.toBytes(subscribeStreamRequest));
+        toPluginPipe.clientEndStreamReceived();
+        // should not have got a response
+        assertEquals(0, fromPluginBytes.size());
+        // check we can send some block items and they are received
+        sendBlocksAndCheckTheyAreReceived(createNumberOfVerySimpleBlocks(1));
+    }
+
+    /**
+     * Test the subscriber service, create a single subscriber and send it some block items via the messaging services
+     * and makes sure they are delivered correctly. Tests block range:
+     * <ul>
+     *     <li>Starting at block UNKNOWN_BLOCK_NUMBER which means any block</li>
+     *     <li>Ending at block Long.MAX_VALUE which means stream forever</li>
+     * </ul>
+     *
+     * @throws ParseException should not happen
+     */
+    @Test
+    void testSubscribeAnyToMaxBlocksMax() throws ParseException {
+        // first we need to create and send a SubscribeStreamRequest
+        final SubscribeStreamRequest subscribeStreamRequest = SubscribeStreamRequest.newBuilder()
+                .allowUnverified(true)
+                .startBlockNumber(UNKNOWN_BLOCK_NUMBER)
+                .endBlockNumber(Long.MAX_VALUE)
+                .build();
+        toPluginPipe.onNext(SubscribeStreamRequest.PROTOBUF.toBytes(subscribeStreamRequest));
+        toPluginPipe.clientEndStreamReceived();
+        // should not have got a response
+        assertEquals(0, fromPluginBytes.size());
+        // check we can send some block items and they are received
+        sendBlocksAndCheckTheyAreReceived(createNumberOfVerySimpleBlocks(1));
     }
 
     @Test
@@ -85,6 +144,7 @@ public class SubscriberTest extends GrpcPluginTestBase<SubscriberServicePlugin> 
                 .endBlockNumber(UNKNOWN_BLOCK_NUMBER)
                 .build();
         toPluginPipe.onNext(SubscribeStreamRequest.PROTOBUF.toBytes(subscribeStreamRequest));
+        toPluginPipe.clientEndStreamReceived();
         // check we can send some block items and they are received
         sendBlocksAndCheckTheyAreReceived(createNumberOfVerySimpleBlocks(25));
     }
@@ -98,6 +158,7 @@ public class SubscriberTest extends GrpcPluginTestBase<SubscriberServicePlugin> 
                 .endBlockNumber(UNKNOWN_BLOCK_NUMBER)
                 .build();
         toPluginPipe.onNext(SubscribeStreamRequest.PROTOBUF.toBytes(subscribeStreamRequest));
+        toPluginPipe.clientEndStreamReceived();
         // check we can send some block items and they are received
         sendBlocksAndCheckTheyAreReceived(createNumberOfVerySimpleBlocks(0, 10));
         sendBlocksAndCheckTheyAreReceived(createNumberOfVerySimpleBlocks(10, 20));
@@ -114,6 +175,7 @@ public class SubscriberTest extends GrpcPluginTestBase<SubscriberServicePlugin> 
                 .endBlockNumber(UNKNOWN_BLOCK_NUMBER)
                 .build();
         toPluginPipe.onNext(SubscribeStreamRequest.PROTOBUF.toBytes(subscribeStreamRequest));
+        toPluginPipe.clientEndStreamReceived();
         // check we did not get a bad response
         assertEquals(0, fromPluginBytes.size(), () -> {
             try {
@@ -138,6 +200,7 @@ public class SubscriberTest extends GrpcPluginTestBase<SubscriberServicePlugin> 
                 .endBlockNumber(UNKNOWN_BLOCK_NUMBER)
                 .build();
         toPluginPipe.onNext(SubscribeStreamRequest.PROTOBUF.toBytes(subscribeStreamRequest));
+        toPluginPipe.clientEndStreamReceived();
         // check we did not get a bad response
         assertEquals(0, fromPluginBytes.size(), () -> {
             try {
@@ -166,6 +229,7 @@ public class SubscriberTest extends GrpcPluginTestBase<SubscriberServicePlugin> 
                 .endBlockNumber(UNKNOWN_BLOCK_NUMBER)
                 .build();
         toPluginPipe.onNext(SubscribeStreamRequest.PROTOBUF.toBytes(subscribeStreamRequest));
+        toPluginPipe.clientEndStreamReceived();
         // check we did not get a bad response
         SubscribeStreamResponse response = SubscribeStreamResponse.PROTOBUF.parse(fromPluginBytes.getFirst());
         assertEquals(ResponseOneOfType.STATUS, response.response().kind());
@@ -183,6 +247,7 @@ public class SubscriberTest extends GrpcPluginTestBase<SubscriberServicePlugin> 
                 .endBlockNumber(UNKNOWN_BLOCK_NUMBER)
                 .build();
         toPluginPipe.onNext(SubscribeStreamRequest.PROTOBUF.toBytes(subscribeStreamRequest));
+        toPluginPipe.clientEndStreamReceived();
         // check we did not get a bad response
         SubscribeStreamResponse response = SubscribeStreamResponse.PROTOBUF.parse(fromPluginBytes.getFirst());
         assertEquals(ResponseOneOfType.STATUS, response.response().kind());
@@ -200,6 +265,7 @@ public class SubscriberTest extends GrpcPluginTestBase<SubscriberServicePlugin> 
                 .endBlockNumber(5)
                 .build();
         toPluginPipe.onNext(SubscribeStreamRequest.PROTOBUF.toBytes(subscribeStreamRequest));
+        toPluginPipe.clientEndStreamReceived();
         // check we did not get a bad response
         SubscribeStreamResponse response = SubscribeStreamResponse.PROTOBUF.parse(fromPluginBytes.getFirst());
         assertEquals(ResponseOneOfType.STATUS, response.response().kind());
