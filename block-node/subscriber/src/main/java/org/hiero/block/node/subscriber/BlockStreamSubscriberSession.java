@@ -95,7 +95,9 @@ public class BlockStreamSubscriberSession implements NoBackPressureBlockItemHand
         LOGGER.log(Level.ERROR, request.toString());
         this.clientId = clientId;
         this.startBlockNumber = request.startBlockNumber();
-        this.endBlockNumber = request.endBlockNumber() == 0 ? Long.MAX_VALUE : request.endBlockNumber();
+        this.endBlockNumber = request.endBlockNumber() == 0 || request.endBlockNumber() == UNKNOWN_BLOCK_NUMBER
+                ? Long.MAX_VALUE
+                : request.endBlockNumber();
         this.responsePipeline = responsePipeline;
         this.context = context;
         this.closeCallback = closeCallback;
