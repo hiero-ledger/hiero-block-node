@@ -127,161 +127,172 @@ public final class PublisherServicePlugin implements BlockNodePlugin, ServiceInt
      */
     private void onSessionUpdate(BlockStreamProducerSession session, UpdateType updateType, long blockNumber) {
         LOGGER.log(DEBUG, "onSessionUpdate: type={0} blockNumber={1} session={2}", updateType, blockNumber, session);
-        // Duplicate Pre-check, even before acquiring the lock
-        if (currentBlockNumber != UNKNOWN_BLOCK_NUMBER
-                && latestAckedBlockNumber != UNKNOWN_BLOCK_NUMBER
-                && blockNumber <= latestAckedBlockNumber) {
-            session.sendDuplicateAck(latestAckedBlockNumber);
-            return;
-        }
-
-        // Ahead Pre-Check, similar to above,
-        // but there is how many blocks ahead we can keep in buffer?
-        // TODO, this offset should be calculated using a config value, or hard-code on a specific number but keep as
-        // constant.
-        long offset = 3; // this should be 1 + BufferCapacity=2.
-        if (currentBlockNumber != UNKNOWN_BLOCK_NUMBER
-                && latestAckedBlockNumber != UNKNOWN_BLOCK_NUMBER
-                && blockNumber > currentBlockNumber + offset) {
-            session.sendStreamItemsBehind(latestAckedBlockNumber);
-            return;
-        }
-
         stateLock.lock();
         try {
-            // update the metrics
+            // ==== Update Metrics =====================================================================
             final LongSummaryStatistics blockNumbersStats = openSessions.stream()
                     .mapToLong(BlockStreamProducerSession::currentBlockNumber)
                     .summaryStatistics();
             lowestBlockNumberInbound.set(blockNumbersStats.getMin());
             highestIncomingBlockNumber.set(blockNumbersStats.getMax());
-            // if update type is END_BLOCK and from primary session, we need to update the current block number, so
-            // that we start looking for next block
-            if (updateType == UpdateType.END_BLOCK
-                    && session.currentBlockState() == BlockStreamProducerSession.BlockState.PRIMARY) {
-                currentBlockNumber = currentBlockNumber + 1;
-                currentPrimarySession = null;
+
+            // ==== Clean Up ===========================================================================
+
+            openSessions.removeIf(
+                    openSession -> openSession.currentBlockState() == BlockStreamProducerSession.BlockState.DISCONNECTED
+                            && openSession.sessionId() != session.sessionId());
+            numberOfProducers.set(openSessions.size());
+
+            // ==== Pre-checks handle ===================================================================
+
+            if (session == null) {
                 return;
             }
-            // check if current primary session has timed out
-            final boolean currentPrimaryHasTimedOut = currentPrimarySession != null
-                    && ((System.nanoTime() - currentPrimarySession.startTimeOfCurrentBlock()) > timeOutNanos);
-            // check if we already have a good primary session
-            if (currentPrimarySession != null
-                    && currentPrimarySession.currentBlockState() == BlockStreamProducerSession.BlockState.PRIMARY
-                    && currentPrimarySession.currentBlockNumber() == currentBlockNumber
-                    && !currentPrimaryHasTimedOut) {
-                // we are already have a good primary session so all we need to do is check if any sessions are
-                // disconnected and clean up
-                openSessions.removeIf(openSession ->
-                        openSession.currentBlockState() == BlockStreamProducerSession.BlockState.DISCONNECTED);
-                numberOfProducers.set(openSessions.size());
-            } else {
-                // we do not have a good primary session
-                // check if we have a primary session, but it's not useful, aka not providing correct block number
-                if (currentPrimarySession != null) {
-                    if (currentPrimaryHasTimedOut) {
-                        LOGGER.log(
-                                WARNING,
-                                "onSessionUpdate: currentPrimaryHasTimedOut, primarySession={1}",
-                                currentPrimarySession);
-                    } else {
-                        // this is odd, we have a primary session, but it is not the current block number
-                        LOGGER.log(
-                                WARNING,
-                                "onSessionUpdate: currentPrimarySession is not providing correct block number, "
-                                        + "currentBlockNumber={0} primarySession={1}",
-                                currentBlockNumber,
-                                currentPrimarySession);
-                    }
+
+            if (currentBlockNumber != UNKNOWN_BLOCK_NUMBER && latestAckedBlockNumber != UNKNOWN_BLOCK_NUMBER) {
+                // Duplicate Pre-check, even before acquiring the lock
+                if (blockNumber <= latestAckedBlockNumber) {
+                    session.sendDuplicateAck(latestAckedBlockNumber);
+                    return;
+                }
+
+                // Ahead Pre-Check, similar to above,
+                // but there is how many blocks ahead we can keep in buffer?
+                // TODO, this offset should be calculated using a config value, or hard-code on a specific number but
+                // keep
+                // as
+                // constant.
+                long offset = 3; // this should be 1 + BufferCapacity=2.
+                if (blockNumber > currentBlockNumber + offset) {
+                    session.sendStreamItemsBehind(latestAckedBlockNumber);
+                    return;
+                }
+            }
+
+            // ==== Active Primary Session Handle =======================================================
+            if (currentPrimarySession != null) {
+
+                // if update type is END_BLOCK and from primary session, we need to update the current block number, so
+                // that we start looking for next block
+                final boolean isCurrentPrimarySessionEnded = updateType == UpdateType.END_BLOCK
+                        && session.currentBlockState() == BlockStreamProducerSession.BlockState.PRIMARY;
+
+                if (isCurrentPrimarySessionEnded) {
+                    currentBlockNumber = currentBlockNumber + 1;
                     currentPrimarySession = null;
-                    // Seems like all we can do here is request a resend of the block
-                    openSessions.forEach(openSession -> openSession.requestResend(currentBlockNumber));
+                    return;
+                }
+
+                // check if current primary session has timed out
+                final boolean currentPrimaryHasTimedOut =
+                        (System.nanoTime() - currentPrimarySession.startTimeOfCurrentBlock()) > timeOutNanos;
+
+                // we do not have a good primary session, aka not providing correct block number
+                if (currentPrimaryHasTimedOut) {
+                    LOGGER.log(
+                            WARNING,
+                            "onSessionUpdate: currentPrimaryHasTimedOut, primarySession={1}",
+                            currentPrimarySession);
                 } else {
-                    // try and pick a new primary session if there is one
-                    // first lets see if there are not any sessions that have a valid block they are working on
-                    if (openSessions.stream().noneMatch(openSession -> openSession.currentBlockNumber() >= 0)) {
-                        return;
-                    }
-                    // then lets see if there are any sessions that can provide the current block number
-                    boolean haveSessionForCurrentBlockNumber = openSessions.stream()
-                            .anyMatch(openSession ->
-                                    openSession.currentBlockState() == BlockStreamProducerSession.BlockState.NEW
-                                            && openSession.currentBlockNumber() == currentBlockNumber);
-                    // if we don't then let's pick the lowest block number among all sessions that is greater than our
-                    // current block as our new current block
-                    if (!haveSessionForCurrentBlockNumber) {
-                        final OptionalLong newCurrentBlockNumber = openSessions.stream()
-                                .mapToLong(BlockStreamProducerSession::currentBlockNumber)
-                                .filter(blockNumber1 -> blockNumber1 > currentBlockNumber)
-                                .min();
-                        if (newCurrentBlockNumber.isPresent()) {
-                            LOGGER.log(
-                                    INFO,
-                                    "onSessionUpdate: currentBlockNumber updated from {0} to {1} from sessions, "
-                                            + "availableBlocks={2}",
-                                    currentBlockNumber,
-                                    newCurrentBlockNumber.getAsLong(),
-                                    openSessions.stream()
-                                            .mapToLong(BlockStreamProducerSession::currentBlockNumber)
-                                            .summaryStatistics());
-                            currentBlockNumber = newCurrentBlockNumber.getAsLong();
-                            currentBlockNumberInbound.set(currentBlockNumber);
-                        } else {
-                            // this is not ideal, we have no sessions that are ahead of the current block number
-                            LOGGER.log(
-                                    WARNING,
-                                    "onSessionUpdate: currentBlockNumber or newer is not being provided by any "
-                                            + "session, currentBlockNumber={0} availableBlocks={1}",
-                                    currentBlockNumber,
-                                    openSessions.stream()
-                                            .mapToLong(BlockStreamProducerSession::currentBlockNumber)
-                                            .summaryStatistics());
-                        }
-                    }
-                    Optional<BlockStreamProducerSession> newPrimarySession = openSessions.stream()
-                            .filter(openSession ->
-                                    openSession.currentBlockState() == BlockStreamProducerSession.BlockState.NEW
-                                            && openSession.currentBlockNumber() >= currentBlockNumber)
-                            .min(Comparator.comparingLong(BlockStreamProducerSession::startTimeOfCurrentBlock));
-                    LOGGER.log(INFO, "onSessionUpdate: newPrimarySession was found {0}", newPrimarySession);
-                    if (newPrimarySession.isPresent()) {
-                        final BlockStreamProducerSession openSession = newPrimarySession.get();
-                        // skip setting currentPrimarySession, because this is a whole block and setting here as primary
-                        // is not necessary, as we are going to search for new primary for next block
-                        if (updateType != UpdateType.WHOLE_BLOCK) {
-                            // set the current primary session
-                            currentPrimarySession = openSession;
-                        }
-                        openSession.switchToPrimary();
-                        // tell all other sessions to switch to behind
-                        openSessions.stream()
-                                .filter(otherSession -> otherSession != currentPrimarySession
-                                        && otherSession.sessionId() != openSession.sessionId())
-                                .forEach(BlockStreamProducerSession::switchToBehind);
-                    } else {
-                        // no primary session, set to null
-                        currentPrimarySession = null;
-                        // this can happen if all sessions are behind or ahead, so lets check if they
-                        // are ahead as
-                        // that will mean we will never get any blocks
-                        if (openSessions.isEmpty()) {
-                            // think this should never happen or at least be very rare
-                            LOGGER.log(WARNING, "No sessions found, yet we got a onSessionUpdate() call");
-                        } else {
-                            final long currentMinSessionBlockNumber = openSessions.stream()
+                    // this is odd, we have a primary session, but it is not the current block number
+                    LOGGER.log(
+                            WARNING,
+                            "onSessionUpdate: currentPrimarySession is not providing correct block number, "
+                                    + "currentBlockNumber={0} primarySession={1}",
+                            currentBlockNumber,
+                            currentPrimarySession);
+                }
+                currentPrimarySession = null;
+                // Seems like all we can do here is request a resend of the block
+                openSessions.forEach(openSession -> openSession.requestResend(currentBlockNumber));
+
+                return;
+            }
+
+            // ==== Inactive Primary Session Handle =====================================================
+
+            // try and pick a new primary session if there is one
+            // first lets see if there are not any sessions that have a valid block they are working on
+            if (openSessions.stream().noneMatch(openSession -> openSession.currentBlockNumber() >= 0)) {
+                return;
+            }
+
+            // then lets see if there are any sessions that can provide the current block number
+            boolean haveSessionForCurrentBlockNumber = openSessions.stream()
+                    .anyMatch(
+                            openSession -> openSession.currentBlockState() == BlockStreamProducerSession.BlockState.NEW
+                                    && openSession.currentBlockNumber() == currentBlockNumber);
+            // if we don't then let's pick the lowest block number among all sessions that is greater than our
+            // current block as our new current block
+            if (!haveSessionForCurrentBlockNumber) {
+                final OptionalLong newCurrentBlockNumber = openSessions.stream()
+                        .mapToLong(BlockStreamProducerSession::currentBlockNumber)
+                        .filter(blockNumber1 -> blockNumber1 > currentBlockNumber)
+                        .min();
+                if (newCurrentBlockNumber.isPresent()) {
+                    LOGGER.log(
+                            INFO,
+                            "onSessionUpdate: currentBlockNumber updated from {0} to {1} from sessions, "
+                                    + "availableBlocks={2}",
+                            currentBlockNumber,
+                            newCurrentBlockNumber.getAsLong(),
+                            openSessions.stream()
                                     .mapToLong(BlockStreamProducerSession::currentBlockNumber)
-                                    .min()
-                                    .orElse(UNKNOWN_BLOCK_NUMBER);
-                            if (currentMinSessionBlockNumber > currentBlockNumber) {
-                                LOGGER.log(
-                                        WARNING,
-                                        "All sessions are ahead [{1}] of the current block number [{2}], "
-                                                + "this means we wil never get another block",
-                                        currentMinSessionBlockNumber,
-                                        currentBlockNumber);
-                            }
-                        }
+                                    .summaryStatistics());
+                    currentBlockNumber = newCurrentBlockNumber.getAsLong();
+                    currentBlockNumberInbound.set(currentBlockNumber);
+                } else {
+                    // this is not ideal, we have no sessions that are ahead of the current block number
+                    LOGGER.log(
+                            WARNING,
+                            "onSessionUpdate: currentBlockNumber or newer is not being provided by any "
+                                    + "session, currentBlockNumber={0} availableBlocks={1}",
+                            currentBlockNumber,
+                            openSessions.stream()
+                                    .mapToLong(BlockStreamProducerSession::currentBlockNumber)
+                                    .summaryStatistics());
+                }
+            }
+            Optional<BlockStreamProducerSession> newPrimarySession = openSessions.stream()
+                    .filter(openSession -> openSession.currentBlockState() == BlockStreamProducerSession.BlockState.NEW
+                            && openSession.currentBlockNumber() >= currentBlockNumber)
+                    .min(Comparator.comparingLong(BlockStreamProducerSession::startTimeOfCurrentBlock));
+            LOGGER.log(INFO, "onSessionUpdate: newPrimarySession was found {0}", newPrimarySession);
+            if (newPrimarySession.isPresent()) {
+                final BlockStreamProducerSession openSession = newPrimarySession.get();
+                // skip setting currentPrimarySession, because this is a whole block and setting here as primary
+                // is not necessary, as we are going to search for new primary for next block
+                if (updateType != UpdateType.WHOLE_BLOCK) {
+                    // set the current primary session
+                    currentPrimarySession = openSession;
+                }
+                openSession.switchToPrimary();
+                // tell all other sessions to switch to behind
+                openSessions.stream()
+                        .filter(otherSession -> otherSession != currentPrimarySession
+                                && otherSession.sessionId() != openSession.sessionId())
+                        .forEach(BlockStreamProducerSession::switchToBehind);
+            } else {
+                // no primary session, set to null
+                currentPrimarySession = null;
+                // this can happen if all sessions are behind or ahead, so lets check if they
+                // are ahead as
+                // that will mean we will never get any blocks
+                if (openSessions.isEmpty()) {
+                    // think this should never happen or at least be very rare
+                    LOGGER.log(WARNING, "No sessions found, yet we got a onSessionUpdate() call");
+                } else {
+                    final long currentMinSessionBlockNumber = openSessions.stream()
+                            .mapToLong(BlockStreamProducerSession::currentBlockNumber)
+                            .min()
+                            .orElse(UNKNOWN_BLOCK_NUMBER);
+                    if (currentMinSessionBlockNumber > currentBlockNumber) {
+                        LOGGER.log(
+                                WARNING,
+                                "All sessions are ahead [{1}] of the current block number [{2}], "
+                                        + "this means we wil never get another block",
+                                currentMinSessionBlockNumber,
+                                currentBlockNumber);
                     }
                 }
             }
@@ -420,12 +431,20 @@ public final class PublisherServicePlugin implements BlockNodePlugin, ServiceInt
             // We have nothing to do for BlockNotification.BLOCK_VERIFIED so can ignore it
             switch (notification.type()) {
                 case BLOCK_PERSISTED -> {
+                    LOGGER.log(
+                            INFO,
+                            "Received notification that block {0} have been persisted.",
+                            notification.blockNumber());
                     // let all subscribers know we have a good copy of the block saved to disk
                     latestAckedBlockNumber = notification.blockNumber();
                     openSessions.forEach(session ->
                             session.sendBlockPersisted(notification.blockNumber(), notification.blockHash()));
                 }
                 case BLOCK_FAILED_VERIFICATION -> {
+                    LOGGER.log(
+                            INFO,
+                            "Received notification that block {0} have failed verification.",
+                            notification.blockNumber());
                     // set the chosen source for the current block to null as we do not have one yet
                     // do this first to try and avoid more bad items sent into the system
                     currentPrimarySession = null;
