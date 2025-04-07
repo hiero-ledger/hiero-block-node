@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.node.blocks.files.recent;
 
+import static org.assertj.core.api.Assertions.*;
+
 import com.google.common.jimfs.Configuration;
 import com.google.common.jimfs.Jimfs;
 import com.hedera.hapi.block.stream.Block;
@@ -16,7 +18,6 @@ import java.nio.file.FileSystem;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
-import org.assertj.core.api.Assertions;
 import org.hiero.block.node.app.fixtures.blocks.SimpleTestBlockItemBuilder;
 import org.hiero.block.node.base.CompressionType;
 import org.hiero.block.node.spi.historicalblocks.BlockAccessor.Format;
@@ -29,8 +30,6 @@ import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
-
-import static org.assertj.core.api.Assertions.*;
 
 /**
  * Test class for {@link BlockFileBlockAccessor}.
@@ -424,7 +423,8 @@ class BlockFileBlockAccessorTest {
             Files.delete(blockFilePath);
 
             // test accessor.blockBytes() expecting IOException
-            assertThatExceptionOfType(UncheckedIOException.class).isThrownBy(() -> toTest.blockBytes(Format.ZSTD_PROTOBUF));
+            assertThatExceptionOfType(UncheckedIOException.class)
+                    .isThrownBy(() -> toTest.blockBytes(Format.ZSTD_PROTOBUF));
         }
 
         /**
@@ -480,7 +480,8 @@ class BlockFileBlockAccessorTest {
             Files.delete(blockFilePath);
 
             // test accessor.writeBytesTo() expecting IOException
-            assertThatExceptionOfType(UncheckedIOException.class).isThrownBy(() -> toTest.writeBytesTo(format, byteArrayOutputStream));
+            assertThatExceptionOfType(UncheckedIOException.class)
+                    .isThrownBy(() -> toTest.writeBytesTo(format, byteArrayOutputStream));
         }
 
         /**
@@ -504,7 +505,8 @@ class BlockFileBlockAccessorTest {
             Files.delete(blockFilePath);
 
             // test accessor.writeBytesTo() expecting IOException
-            assertThatExceptionOfType(UncheckedIOException.class).isThrownBy(() -> toTest.writeBytesTo(Format.ZSTD_PROTOBUF, byteArrayOutputStream));
+            assertThatExceptionOfType(UncheckedIOException.class)
+                    .isThrownBy(() -> toTest.writeBytesTo(Format.ZSTD_PROTOBUF, byteArrayOutputStream));
         }
 
         /**
@@ -562,7 +564,8 @@ class BlockFileBlockAccessorTest {
             Files.delete(blockFilePath);
 
             // test accessor.writeBytesTo() expecting IOException
-            assertThatExceptionOfType(UncheckedIOException.class).isThrownBy(() -> toTest.writeBytesTo(format, bufferedData));
+            assertThatExceptionOfType(UncheckedIOException.class)
+                    .isThrownBy(() -> toTest.writeBytesTo(format, bufferedData));
         }
 
         /**
@@ -587,7 +590,8 @@ class BlockFileBlockAccessorTest {
             Files.delete(blockFilePath);
 
             // test accessor.writeBytesTo() expecting IOException
-            assertThatExceptionOfType(UncheckedIOException.class).isThrownBy(() -> toTest.writeBytesTo(Format.ZSTD_PROTOBUF, bufferedData));
+            assertThatExceptionOfType(UncheckedIOException.class)
+                    .isThrownBy(() -> toTest.writeBytesTo(Format.ZSTD_PROTOBUF, bufferedData));
         }
 
         /**
