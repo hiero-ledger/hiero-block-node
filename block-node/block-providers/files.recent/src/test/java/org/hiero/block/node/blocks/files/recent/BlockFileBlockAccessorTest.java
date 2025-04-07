@@ -1,11 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.node.blocks.files.recent;
 
-import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatIllegalArgumentException;
-import static org.assertj.core.api.Assertions.assertThatNoException;
-import static org.assertj.core.api.Assertions.assertThatNullPointerException;
-
 import com.google.common.jimfs.Configuration;
 import com.google.common.jimfs.Jimfs;
 import com.hedera.hapi.block.stream.Block;
@@ -34,6 +29,8 @@ import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
+
+import static org.assertj.core.api.Assertions.*;
 
 /**
  * Test class for {@link BlockFileBlockAccessor}.
@@ -264,13 +261,7 @@ class BlockFileBlockAccessorTest {
             Files.delete(blockFilePath);
 
             // test accessor.block() expecting IOException
-            try {
-                toTest.block();
-                assertThat(false).isTrue(); // exception should have been thrown
-            } catch (Throwable e) {
-                // expected
-                Assertions.assertThat(e).isInstanceOf(UncheckedIOException.class);
-            }
+            assertThatExceptionOfType(UncheckedIOException.class).isThrownBy(toTest::block);
         }
 
         /**
@@ -290,14 +281,8 @@ class BlockFileBlockAccessorTest {
             final BlockFileBlockAccessor toTest =
                     createBlockAndGetAssociatedAccessor(blockFilePath, compressionType, protoBytes);
 
-            // test accessor.block() expecting IOException
-            try {
-                toTest.block();
-                assertThat(false).isTrue(); // exception should have been thrown
-            } catch (Throwable e) {
-                // expected
-                Assertions.assertThat(e).isInstanceOf(UncheckedParseException.class);
-            }
+            // test accessor.block() expecting ParseException
+            assertThatExceptionOfType(UncheckedParseException.class).isThrownBy(toTest::block);
         }
 
         /**
@@ -343,14 +328,8 @@ class BlockFileBlockAccessorTest {
             // delete the file to simulate NoSuchFileException IOException
             Files.delete(blockFilePath);
 
-            // test accessor.block() expecting IOException
-            try {
-                toTest.blockUnparsed();
-                assertThat(false).isTrue(); // exception should have been thrown
-            } catch (Throwable e) {
-                // expected
-                Assertions.assertThat(e).isInstanceOf(UncheckedIOException.class);
-            }
+            // test accessor.blockUnparsed() expecting IOException
+            assertThatExceptionOfType(UncheckedIOException.class).isThrownBy(toTest::blockUnparsed);
         }
 
         /**
@@ -370,14 +349,8 @@ class BlockFileBlockAccessorTest {
             final BlockFileBlockAccessor toTest =
                     createBlockAndGetAssociatedAccessor(blockFilePath, compressionType, protoBytes);
 
-            // test accessor.block() expecting IOException
-            try {
-                toTest.blockUnparsed();
-                assertThat(false).isTrue(); // exception should have been thrown
-            } catch (Throwable e) {
-                // expected
-                Assertions.assertThat(e).isInstanceOf(UncheckedParseException.class);
-            }
+            // test accessor.blockUnparsed() expecting ParseException
+            assertThatExceptionOfType(UncheckedParseException.class).isThrownBy(toTest::blockUnparsed);
         }
 
         /**
@@ -429,13 +402,7 @@ class BlockFileBlockAccessorTest {
             Files.delete(blockFilePath);
 
             // test accessor.blockBytes() expecting IOException
-            try {
-                toTest.blockBytes(format);
-                assertThat(false).isTrue(); // exception should have been thrown
-            } catch (Throwable e) {
-                // expected
-                Assertions.assertThat(e).isInstanceOf(UncheckedIOException.class);
-            }
+            assertThatExceptionOfType(UncheckedIOException.class).isThrownBy(() -> toTest.blockBytes(format));
         }
 
         /**
@@ -457,13 +424,7 @@ class BlockFileBlockAccessorTest {
             Files.delete(blockFilePath);
 
             // test accessor.blockBytes() expecting IOException
-            try {
-                toTest.blockBytes(Format.ZSTD_PROTOBUF);
-                assertThat(false).isTrue(); // exception should have been thrown
-            } catch (Throwable e) {
-                // expected
-                Assertions.assertThat(e).isInstanceOf(UncheckedIOException.class);
-            }
+            assertThatExceptionOfType(UncheckedIOException.class).isThrownBy(() -> toTest.blockBytes(Format.ZSTD_PROTOBUF));
         }
 
         /**
@@ -519,13 +480,7 @@ class BlockFileBlockAccessorTest {
             Files.delete(blockFilePath);
 
             // test accessor.writeBytesTo() expecting IOException
-            try {
-                toTest.writeBytesTo(format, byteArrayOutputStream);
-                assertThat(false).isTrue(); // exception should have been thrown
-            } catch (Throwable e) {
-                // expected
-                Assertions.assertThat(e).isInstanceOf(UncheckedIOException.class);
-            }
+            assertThatExceptionOfType(UncheckedIOException.class).isThrownBy(() -> toTest.writeBytesTo(format, byteArrayOutputStream));
         }
 
         /**
@@ -549,13 +504,7 @@ class BlockFileBlockAccessorTest {
             Files.delete(blockFilePath);
 
             // test accessor.writeBytesTo() expecting IOException
-            try {
-                toTest.writeBytesTo(Format.ZSTD_PROTOBUF, byteArrayOutputStream);
-                assertThat(false).isTrue(); // exception should have been thrown
-            } catch (Throwable e) {
-                // expected
-                Assertions.assertThat(e).isInstanceOf(UncheckedIOException.class);
-            }
+            assertThatExceptionOfType(UncheckedIOException.class).isThrownBy(() -> toTest.writeBytesTo(Format.ZSTD_PROTOBUF, byteArrayOutputStream));
         }
 
         /**
@@ -612,14 +561,8 @@ class BlockFileBlockAccessorTest {
             // delete the file to simulate NoSuchFileException IOException
             Files.delete(blockFilePath);
 
-            // test accessor.blockBytes() expecting IOException
-            try {
-                toTest.writeBytesTo(format, bufferedData);
-                assertThat(false).isTrue(); // exception should have been thrown
-            } catch (Throwable e) {
-                // expected
-                Assertions.assertThat(e).isInstanceOf(UncheckedIOException.class);
-            }
+            // test accessor.writeBytesTo() expecting IOException
+            assertThatExceptionOfType(UncheckedIOException.class).isThrownBy(() -> toTest.writeBytesTo(format, bufferedData));
         }
 
         /**
@@ -643,14 +586,8 @@ class BlockFileBlockAccessorTest {
             // delete the file to simulate NoSuchFileException IOException
             Files.delete(blockFilePath);
 
-            // test accessor.blockBytes() expecting IOException
-            try {
-                toTest.writeBytesTo(Format.ZSTD_PROTOBUF, bufferedData);
-                assertThat(false).isTrue(); // exception should have been thrown
-            } catch (Throwable e) {
-                // expected
-                Assertions.assertThat(e).isInstanceOf(UncheckedIOException.class);
-            }
+            // test accessor.writeBytesTo() expecting IOException
+            assertThatExceptionOfType(UncheckedIOException.class).isThrownBy(() -> toTest.writeBytesTo(Format.ZSTD_PROTOBUF, bufferedData));
         }
 
         /**
