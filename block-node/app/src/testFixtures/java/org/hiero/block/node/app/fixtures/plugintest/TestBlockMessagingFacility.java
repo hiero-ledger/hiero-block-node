@@ -2,9 +2,10 @@
 package org.hiero.block.node.app.fixtures.plugintest;
 
 import java.util.ArrayList;
-import java.util.HashSet;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Set;
+import java.util.concurrent.ConcurrentSkipListSet;
 import org.hiero.block.node.spi.blockmessaging.BlockItemHandler;
 import org.hiero.block.node.spi.blockmessaging.BlockItems;
 import org.hiero.block.node.spi.blockmessaging.BlockMessagingFacility;
@@ -24,9 +25,11 @@ public class TestBlockMessagingFacility implements BlockMessagingFacility {
     /** The logger for this class. */
     private final System.Logger LOGGER = System.getLogger(getClass().getName());
     /** set of block item handlers */
-    private final Set<BlockItemHandler> blockItemHandlers = new HashSet<>();
+    private final Set<BlockItemHandler> blockItemHandlers =
+            new ConcurrentSkipListSet<>(Comparator.comparingInt(Object::hashCode));
     /** set of block notification handlers */
-    private final Set<BlockNotificationHandler> blockNotificationHandlers = new HashSet<>();
+    private final Set<BlockNotificationHandler> blockNotificationHandlers =
+            new ConcurrentSkipListSet<>(Comparator.comparingInt(Object::hashCode));
     /** list of all sent block items */
     private final List<BlockItems> sentBlockBlockItems = new ArrayList<>();
     /** list of all sent block notifications */
