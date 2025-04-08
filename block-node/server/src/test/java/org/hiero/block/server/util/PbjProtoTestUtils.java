@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.server.util;
 
-import com.hedera.hapi.block.Acknowledgement;
-import com.hedera.hapi.block.BlockAcknowledgement;
 import com.hedera.hapi.block.BlockItemSetUnparsed;
 import com.hedera.hapi.block.PublishStreamRequestUnparsed;
+import com.hedera.hapi.block.PublishStreamResponse.Acknowledgement;
+import com.hedera.hapi.block.PublishStreamResponse.BlockAcknowledgement;
 import com.hedera.hapi.block.SubscribeStreamRequest;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import edu.umd.cs.findbugs.annotations.NonNull;

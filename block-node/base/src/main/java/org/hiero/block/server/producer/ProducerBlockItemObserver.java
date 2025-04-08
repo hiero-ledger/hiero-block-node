@@ -9,11 +9,11 @@ import static org.hiero.block.server.metrics.BlockNodeMetricTypes.Counter.LiveBl
 import static org.hiero.block.server.metrics.BlockNodeMetricTypes.Counter.SuccessfulPubStreamRespSent;
 import static org.hiero.block.server.metrics.BlockNodeMetricTypes.Gauge.CurrentBlockNumberInbound;
 
-import com.hedera.hapi.block.Acknowledgement;
-import com.hedera.hapi.block.BlockAcknowledgement;
 import com.hedera.hapi.block.BlockItemUnparsed;
-import com.hedera.hapi.block.EndOfStream;
 import com.hedera.hapi.block.PublishStreamResponse;
+import com.hedera.hapi.block.PublishStreamResponse.Acknowledgement;
+import com.hedera.hapi.block.PublishStreamResponse.BlockAcknowledgement;
+import com.hedera.hapi.block.PublishStreamResponse.EndOfStream;
 import com.hedera.hapi.block.PublishStreamResponseCode;
 import com.hedera.hapi.block.stream.output.BlockHeader;
 import com.hedera.pbj.runtime.ParseException;

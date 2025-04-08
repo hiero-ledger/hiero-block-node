@@ -6,10 +6,10 @@ import static org.hiero.block.server.metrics.BlockNodeMetricTypes.Counter.Succes
 import static org.hiero.block.server.metrics.BlockNodeMetricTypes.Gauge.NotifierRingBufferRemainingCapacity;
 import static org.hiero.block.server.metrics.BlockNodeMetricTypes.Gauge.Producers;
 
-import com.hedera.hapi.block.Acknowledgement;
-import com.hedera.hapi.block.BlockAcknowledgement;
-import com.hedera.hapi.block.EndOfStream;
 import com.hedera.hapi.block.PublishStreamResponse;
+import com.hedera.hapi.block.PublishStreamResponse.Acknowledgement;
+import com.hedera.hapi.block.PublishStreamResponse.BlockAcknowledgement;
+import com.hedera.hapi.block.PublishStreamResponse.EndOfStream;
 import com.hedera.hapi.block.PublishStreamResponseCode;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import edu.umd.cs.findbugs.annotations.NonNull;
