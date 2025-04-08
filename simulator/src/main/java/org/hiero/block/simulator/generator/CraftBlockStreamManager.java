@@ -54,6 +54,7 @@ public class CraftBlockStreamManager implements BlockStreamManager {
     private long currentBlockNumber;
     private StreamingTreeHasher inputTreeHasher;
     private StreamingTreeHasher outputTreeHasher;
+    private Block block;
 
     /**
      * Constructs a new CraftBlockStreamManager with the specified configuration.
@@ -148,9 +149,23 @@ public class CraftBlockStreamManager implements BlockStreamManager {
         ItemHandler proofItemHandler = new BlockProofHandler(previousBlockHash, currentBlockHash, currentBlockNumber);
         items.add(proofItemHandler);
         resetState();
-        return Block.newBuilder()
+        block = Block.newBuilder()
                 .addAllItems(items.stream().map(ItemHandler::getItem).toList())
                 .build();
+        return block;
+    }
+
+    @Override
+    public Block getLastBlock() throws IOException, BlockSimulatorParsingException {
+        if (block == null) {
+            throw new IllegalStateException("No block has been generated yet.");
+        }
+        return block;
+    }
+
+    @Override
+    public Block getBlockByNumber(long blockNumber) throws IOException, BlockSimulatorParsingException {
+        throw new UnsupportedOperationException("Craft mode does not support fetching specific blocks by number.");
     }
 
     private void updateCurrentBlockHash() {

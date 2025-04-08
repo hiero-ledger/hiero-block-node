@@ -51,6 +51,8 @@ public interface PublishStreamGrpcClient {
      */
     List<String> getLastKnownStatuses();
 
+    void recoverStream();
+
     /**
      * Shutdowns the channel.
      *

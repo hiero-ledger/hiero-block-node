@@ -22,6 +22,7 @@ import javax.inject.Inject;
 import org.hiero.block.common.utils.FileUtilities;
 import org.hiero.block.simulator.config.data.BlockGeneratorConfig;
 import org.hiero.block.simulator.config.types.GenerationMode;
+import org.hiero.block.simulator.exception.BlockSimulatorParsingException;
 
 /**
  * The BlockAsDirBlockStreamManager class implements the BlockStreamManager interface to manage the
@@ -97,6 +98,18 @@ public class BlockAsDirBlockStreamManager implements BlockStreamManager {
             currentBlockIndex = 0;
         }
         return nextBlock;
+    }
+
+    @Override
+    public Block getLastBlock() throws IOException, BlockSimulatorParsingException {
+        int lastBlockNumberIndex = Math.max(0, currentBlockIndex - 1);
+        return blocks.get(lastBlockNumberIndex);
+    }
+
+    @Override
+    public Block getBlockByNumber(long blockNumber) throws IOException, BlockSimulatorParsingException {
+        int index = (int) Math.max(0, Math.min(blockNumber, blocks.size() - 1));
+        return blocks.get(index);
     }
 
     private void loadBlocks() throws IOException, ParseException {
