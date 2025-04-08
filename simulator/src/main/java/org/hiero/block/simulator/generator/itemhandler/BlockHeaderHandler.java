@@ -3,7 +3,6 @@ package org.hiero.block.simulator.generator.itemhandler;
 
 import static java.util.Objects.requireNonNull;
 
-import com.google.protobuf.ByteString;
 import com.hedera.hapi.block.stream.output.protoc.BlockHeader;
 import com.hedera.hapi.block.stream.protoc.BlockItem;
 import com.hederahashgraph.api.proto.java.BlockHashAlgorithm;
@@ -44,7 +43,6 @@ public class BlockHeaderHandler extends AbstractBlockItemHandler {
                 .setSoftwareVersion(getSemanticVersion())
                 .setHashAlgorithm(BlockHashAlgorithm.SHA2_384)
                 .setFirstTransactionConsensusTime(getTimestamp())
-                .setPreviousBlockHash(ByteString.copyFrom(previousBlockHash))
                 .setNumber(currentBlockNumber)
                 .build();
     }

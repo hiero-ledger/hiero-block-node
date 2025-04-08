@@ -2,7 +2,6 @@
 package org.hiero.block.node.publisher;
 
 import static com.hedera.hapi.block.PublishStreamResponse.ResponseOneOfType.ACKNOWLEDGEMENT;
-import static com.hedera.hapi.block.PublishStreamResponse.ResponseOneOfType.STATUS;
 import static org.hiero.block.node.app.fixtures.TestUtils.enableDebugLogging;
 import static org.hiero.block.node.app.fixtures.blocks.BlockItemUtils.toBlockItemJson;
 import static org.hiero.block.node.app.fixtures.blocks.SimpleTestBlockItemBuilder.sampleBlockHeader;
@@ -159,11 +158,10 @@ public class PublisherTest extends GrpcPluginTestBase<PublisherServicePlugin> {
         PublishStreamResponse aheadResponse = PublishStreamResponse.PROTOBUF.parse(fromPluginBytes.getLast());
 
         // verify we get an endOfStream with status code STREAM_ITEMS_BEHIND
-        assertEquals(STATUS, aheadResponse.response().kind());
         assertEquals(
                 PublishStreamResponseCode.STREAM_ITEMS_BEHIND,
-                aheadResponse.status().status());
-        assertEquals(1, aheadResponse.status().blockNumber());
+                aheadResponse.endStream().status());
+        assertEquals(1, aheadResponse.endStream().blockNumber());
     }
 
     /*
