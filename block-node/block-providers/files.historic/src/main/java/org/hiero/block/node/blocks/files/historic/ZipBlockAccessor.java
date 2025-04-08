@@ -36,8 +36,8 @@ final class ZipBlockAccessor implements BlockAccessor {
      *
      * @param blockPath the block path
      */
-    ZipBlockAccessor(BlockPath blockPath) {
-        this.blockPath = blockPath;
+    ZipBlockAccessor(@NonNull final BlockPath blockPath) {
+        this.blockPath = Objects.requireNonNull(blockPath);
     }
 
     /**

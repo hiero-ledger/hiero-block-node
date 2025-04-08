@@ -1,154 +1,109 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.node.blocks.files.historic;
 
+import static org.assertj.core.api.Assertions.assertThatExceptionOfType;
+import static org.assertj.core.api.Assertions.assertThatNoException;
+import static org.assertj.core.api.Assertions.assertThatNullPointerException;
+
+import com.google.common.jimfs.Configuration;
+import com.google.common.jimfs.Jimfs;
+import com.swirlds.config.api.ConfigurationBuilder;
+import java.io.IOException;
+import java.nio.file.FileSystem;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Nested;
+import org.junit.jupiter.api.Test;
 
 /**
  * Test class for {@link ZipBlockAccessor}.
  */
 @DisplayName("ZipBlockAccessor Tests")
 class ZipBlockAccessorTest {
-    // todo create tests
+    /** The testing in-memory file system. */
+    private FileSystem jimfs;
+    /** The configuration for the test. */
+    private FilesHistoricConfig defaultConfig;
 
-    //    /** The testing in-memory file system. */
-    //    private FileSystem jimfs;
-    //    /** Test Base Path, resolved under jimfs. */
-    //    private Path testBasePath;
-    //
-    //    /**
-    //     * Environment setup for the test class.
-    //     */
-    //    @BeforeEach
-    //    void setup() throws IOException {
-    //        // Initialize the in-memory file system
-    //        jimfs = Jimfs.newFileSystem(Configuration.unix());
-    //        testBasePath = jimfs.getPath("/tmp");
-    //        Files.createDirectories(testBasePath);
-    //    }
-    //
-    //    /**
-    //     * Tear down the test environment after each test.
-    //     */
-    //    @AfterEach
-    //    void tearDown() throws IOException {
-    //        // Close the Jimfs file system
-    //        if (jimfs != null) {
-    //            jimfs.close();
-    //        }
-    //    }
-    //
-    //    /**
-    //     * Tests for the {@link ZipBlockAccessor} constructor.
-    //     */
-    //    @Nested
-    //    @DisplayName("Constructor Tests")
-    //    final class ConstructorTests {
-    //        /**
-    //         * This test asserts that no exception is thrown when the input parameters are valid.
-    //         */
-    //        @Test
-    //        void testValidConstructor() {
-    //            final BlockPath blockPath = new BlockPath(testBasePath.resolve("test.zip"), "block.blk");
-    //            assertThatNoException().isThrownBy(() -> new ZipBlockAccessor(blockPath));
-    //        }
-    //
-    //        /**
-    //         * This test asserts that a {@link NullPointerException} is thrown when the block path is null.
-    //         */
-    //        @Test
-    //        void testNullBlockPath() {
-    //            assertThatExceptionOfType(NullPointerException.class)
-    //                    .isThrownBy(() -> new ZipBlockAccessor(null));
-    //        }
-    //    }
-    //
-    //    /**
-    //     * Tests for the {@link ZipBlockAccessor} functionality.
-    //     */
-    //    @Nested
-    //    @DisplayName("Functionality Tests")
-    //    final class FunctionalityTests {
-    //        /**
-    //         * This test verifies that the {@link ZipBlockAccessor#block()} correctly returns a persisted block.
-    //         */
-    //        @Test
-    //        void testBlock() throws IOException {
-    //            final Block expectedBlock = createTestBlock();
-    //            final BlockPath blockPath = createZipWithBlock(expectedBlock);
-    //
-    //            final ZipBlockAccessor accessor = new ZipBlockAccessor(blockPath);
-    //            final Block actualBlock = accessor.block();
-    //
-    //            assertThat(actualBlock).isEqualTo(expectedBlock);
-    //        }
-    //
-    //        /**
-    //         * This test verifies that the {@link ZipBlockAccessor#block()} correctly handles parse exceptions.
-    //         */
-    //        @Test
-    //        void testBlockParseException() throws IOException {
-    //            final BlockPath blockPath = createZipWithInvalidBlock();
-    //
-    //            final ZipBlockAccessor accessor = new ZipBlockAccessor(blockPath);
-    //
-    //            assertThatExceptionOfType(UncheckedParseException.class).isThrownBy(accessor::block);
-    //        }
-    //
-    //        /**
-    //         * This test verifies that the {@link ZipBlockAccessor#blockBytes(Format)} correctly returns block bytes.
-    //         */
-    //        @Test
-    //        void testBlockBytes() throws IOException {
-    //            final Block expectedBlock = createTestBlock();
-    //            final BlockPath blockPath = createZipWithBlock(expectedBlock);
-    //
-    //            final ZipBlockAccessor accessor = new ZipBlockAccessor(blockPath);
-    //            final Bytes actualBytes = accessor.blockBytes(Format.PROTOBUF);
-    //
-    //            assertThat(actualBytes).isEqualTo(Block.PROTOBUF.toBytes(expectedBlock));
-    //        }
-    //
-    //        /**
-    //         * This test verifies that the {@link ZipBlockAccessor#blockBytes(Format)} correctly handles IO
-    // exceptions.
-    //         */
-    //        @Test
-    //        void testBlockBytesIOException() {
-    //            final BlockPath blockPath = new BlockPath(testBasePath.resolve("nonexistent.zip"), "block.blk");
-    //
-    //            final ZipBlockAccessor accessor = new ZipBlockAccessor(blockPath);
-    //
-    //            assertThatExceptionOfType(IOException.class).isThrownBy(() -> accessor.blockBytes(Format.PROTOBUF));
-    //        }
-    //
-    //        private Block createTestBlock() {
-    //            return new Block(List.of());
-    //        }
-    //
-    //        private BlockPath createZipWithBlock(Block block) throws IOException {
-    //            final Path zipPath = testBasePath.resolve("test.zip");
-    //            final String blockFileName = "block.blk";
-    //
-    //            try (ZipOutputStream zipOut = new ZipOutputStream(Files.newOutputStream(zipPath))) {
-    //                zipOut.putNextEntry(new ZipEntry(blockFileName));
-    //                Block.PROTOBUF.toBytes(block).writeTo(zipOut);
-    //                zipOut.closeEntry();
-    //            }
-    //
-    //            return new BlockPath(zipPath, blockFileName);
-    //        }
-    //
-    //        private BlockPath createZipWithInvalidBlock() throws IOException {
-    //            final Path zipPath = testBasePath.resolve("test.zip");
-    //            final String blockFileName = "block.blk";
-    //
-    //            try (ZipOutputStream zipOut = new ZipOutputStream(Files.newOutputStream(zipPath))) {
-    //                zipOut.putNextEntry(new ZipEntry(blockFileName));
-    //                zipOut.write(new byte[48]); // Invalid block data
-    //                zipOut.closeEntry();
-    //            }
-    //
-    //            return new BlockPath(zipPath, blockFileName);
-    //        }
-    //    }
+    /** Set up the test environment before each test. */
+    @BeforeEach
+    void setup() {
+        // Initialize the in-memory file system
+        jimfs = Jimfs.newFileSystem(Configuration.unix());
+        final FilesHistoricConfig localDefaultConfig = ConfigurationBuilder.create()
+                .withConfigDataType(FilesHistoricConfig.class)
+                .build()
+                .getConfigData(FilesHistoricConfig.class);
+        // Set the default configuration for the test, use jimfs for paths
+        defaultConfig = new FilesHistoricConfig(
+                jimfs.getPath("/opt/hashgraph/blocknode/data/historic"),
+                localDefaultConfig.compression(),
+                localDefaultConfig.digitsPerDir(),
+                localDefaultConfig.digitsPerZipFileName(),
+                localDefaultConfig.digitsPerZipFileContents());
+    }
+
+    /**
+     * Tear down the test environment after each test.
+     */
+    @AfterEach
+    void tearDown() throws IOException {
+        // Close the Jimfs file system
+        if (jimfs != null) {
+            jimfs.close();
+        }
+    }
+
+    /**
+     * Tests for the {@link ZipBlockAccessor} constructor.
+     */
+    @Nested
+    @DisplayName("Constructor Tests")
+    final class ConstructorTests {
+        /**
+         * This test aims to assert that the constructor of
+         * {@link ZipBlockAccessor} does not throw any exceptions when the input
+         * is valid.
+         */
+        @Test
+        @DisplayName("Test constructor throws no exception when input is valid")
+        void testValidConstructor() {
+            final BlockPath blockPath = BlockPath.computeBlockPath(defaultConfig, 1L);
+            assertThatNoException().isThrownBy(() -> new ZipBlockAccessor(blockPath));
+        }
+
+        /**
+         * This test aims to assert that the constructor of
+         * {@link ZipBlockAccessor} throws a {@link NullPointerException} when
+         * the input blockPath is null.
+         */
+        @Test
+        @DisplayName("Test constructor throws NullPointerException when blockPath is null")
+        @SuppressWarnings("all")
+        void testNullBlockPath() {
+            assertThatNullPointerException().isThrownBy(() -> new ZipBlockAccessor(null));
+        }
+    }
+
+    /**
+     * Tests for the {@link ZipBlockAccessor} functionality.
+     */
+    @Nested
+    @DisplayName("Functionality Tests")
+    final class FunctionalityTests {
+        /**
+         * This test aims to assert that the
+         * {@link ZipBlockAccessor#delete()} method throws an
+         * {@link UnsupportedOperationException} when called.
+         */
+        @Test
+        @DisplayName("Test delete throws UnsupportedOperationException")
+        void testZipBlockAccessorFunctionality() {
+            // construct a valid ZipBlockAccessor
+            final BlockPath blockPath = BlockPath.computeBlockPath(defaultConfig, 1L);
+            final ZipBlockAccessor actual = new ZipBlockAccessor(blockPath);
+            assertThatExceptionOfType(UnsupportedOperationException.class).isThrownBy(actual::delete);
+        }
+    }
 }
