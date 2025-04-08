@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
-package org.hiero.block.node.single.block;
+package org.hiero.block.node.access.service;
 
 import static org.hiero.block.node.app.fixtures.TestUtils.enableDebugLogging;
 import static org.hiero.block.node.app.fixtures.blocks.BlockItemUtils.toBlockItemsUnparsed;
 import static org.hiero.block.node.app.fixtures.blocks.SimpleTestBlockItemBuilder.createNumberOfVerySimpleBlocks;
-import static org.hiero.block.node.single.block.GetSingleBlockPlugin.BlockAccessServiceMethod.singleBlock;
+import static org.hiero.block.node.access.service.BlockAccessServicePlugin.BlockAccessServiceMethod.singleBlock;
 import static org.hiero.block.node.spi.BlockNodePlugin.UNKNOWN_BLOCK_NUMBER;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
@@ -20,14 +20,15 @@ import java.util.List;
 import org.hiero.block.node.app.fixtures.plugintest.GrpcPluginTestBase;
 import org.hiero.block.node.app.fixtures.plugintest.SimpleInMemoryHistoricalBlockFacility;
 import org.hiero.block.node.spi.blockmessaging.BlockItems;
+import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
-public class GetSingleBlockPluginTest extends GrpcPluginTestBase<GetSingleBlockPlugin> {
+public class BlockAccessServicePluginTest extends GrpcPluginTestBase<BlockAccessServicePlugin> {
 
-    public GetSingleBlockPluginTest() {
-        super(new GetSingleBlockPlugin(), singleBlock, new SimpleInMemoryHistoricalBlockFacility());
+    public BlockAccessServicePluginTest() {
+        super(new BlockAccessServicePlugin(), singleBlock, new SimpleInMemoryHistoricalBlockFacility());
     }
 
     /**
@@ -45,7 +46,7 @@ public class GetSingleBlockPluginTest extends GrpcPluginTestBase<GetSingleBlockP
      * Test the service methods are correctly defined.
      */
     @Test
-    @DisplayName("Test the service interface for GetSingleBlockPlugin")
+    @DisplayName("Test the service interface for BlockAccessServicePlugin")
     void testServiceInterfaceBasics() {
         // check we have a service interface
         assertNotNull(serviceInterface);
@@ -57,7 +58,7 @@ public class GetSingleBlockPluginTest extends GrpcPluginTestBase<GetSingleBlockP
     }
 
     @Test
-    @DisplayName("Happy Path Test, GetSingleBlockPlugin for an existing Block Number")
+    @DisplayName("Happy Path Test, BlockAccessServicePlugin for an existing Block Number")
     void happyTestGetSingleBlock() throws ParseException {
         final long blockNumber = 1;
         final SingleBlockRequest request = SingleBlockRequest.newBuilder().blockNumber(blockNumber).allowUnverified(true).retrieveLatest(false).build();
@@ -67,9 +68,9 @@ public class GetSingleBlockPluginTest extends GrpcPluginTestBase<GetSingleBlockP
         // parse the response
         SingleBlockResponse response = SingleBlockResponse.PROTOBUF.parse(fromPluginBytes.get(0));
         // check that the status is success
-        assertEquals(response.status(), SingleBlockResponseCode.READ_BLOCK_SUCCESS);
+        Assertions.assertEquals(response.status(), SingleBlockResponseCode.READ_BLOCK_SUCCESS);
         // check that the block number is correct
-        assertEquals(1, response.block().items().getFirst().blockHeader().number());
+        Assertions.assertEquals(1, response.block().items().getFirst().blockHeader().number());
     }
 
     @Test
@@ -83,7 +84,7 @@ public class GetSingleBlockPluginTest extends GrpcPluginTestBase<GetSingleBlockP
         // parse the response
         SingleBlockResponse response = SingleBlockResponse.PROTOBUF.parse(fromPluginBytes.get(0));
         // check that the status is NOT FOUND
-        assertEquals(response.status(), SingleBlockResponseCode.READ_BLOCK_NOT_AVAILABLE);
+        Assertions.assertEquals(response.status(), SingleBlockResponseCode.READ_BLOCK_NOT_AVAILABLE);
         // check block is null
         assertNull(response.block());
     }
@@ -98,13 +99,13 @@ public class GetSingleBlockPluginTest extends GrpcPluginTestBase<GetSingleBlockP
         // parse the response
         SingleBlockResponse response = SingleBlockResponse.PROTOBUF.parse(fromPluginBytes.get(0));
         // check that the status is success
-        assertEquals(response.status(), SingleBlockResponseCode.READ_BLOCK_SUCCESS);
+        Assertions.assertEquals(response.status(), SingleBlockResponseCode.READ_BLOCK_SUCCESS);
         // check that the block number is correct
-        assertEquals(24, response.block().items().getFirst().blockHeader().number());
+        Assertions.assertEquals(24, response.block().items().getFirst().blockHeader().number());
     }
 
     @Test
-    @DisplayName("Request Latest and a specific Block different from latest")
+    @DisplayName("Request Latest and a specific Block different from latest, should ignore the specific block and return latest")
     void testRequestLatestBlockDifferent() throws ParseException {
         final long blockNumber = 1;
         final SingleBlockRequest request = SingleBlockRequest.newBuilder().blockNumber(blockNumber).allowUnverified(true).retrieveLatest(true).build();
@@ -114,9 +115,9 @@ public class GetSingleBlockPluginTest extends GrpcPluginTestBase<GetSingleBlockP
         // parse the response
         SingleBlockResponse response = SingleBlockResponse.PROTOBUF.parse(fromPluginBytes.get(0));
         // check that the status is success
-        assertEquals(response.status(), SingleBlockResponseCode.READ_BLOCK_NOT_FOUND);
+        Assertions.assertEquals(response.status(), SingleBlockResponseCode.READ_BLOCK_SUCCESS);
         // check that the block number is correct
-        assertNull(response.block());
+        Assertions.assertEquals(24, response.block().items().getFirst().blockHeader().number());
     }
 
 

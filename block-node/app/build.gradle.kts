@@ -62,7 +62,7 @@ mainModuleInfo {
     runtimeOnly("org.hiero.block.node.blocks.cloud.historic")
     runtimeOnly("org.hiero.block.node.blocks.files.historic")
     runtimeOnly("org.hiero.block.node.blocks.files.recent")
-    runtimeOnly("org.hiero.block.node.single.block")
+    runtimeOnly("org.hiero.block.node.access.service")
 }
 
 testModuleInfo {
