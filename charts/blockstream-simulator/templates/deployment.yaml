@@ -32,6 +32,7 @@ spec:
         - name: data-storage
           persistentVolumeClaim:
             claimName: {{ if .Values.simulator.persistence.data.create }}{{ include "blockstream-simulator-chart.fullname" . }}-data{{ else }}{{ .Values.simulator.persistence.data.existingClaim }}{{ end }}
+      {{- if eq .Values.simulator.config.BLOCK_STREAM_SIMULATOR_MODE "PUBLISHER_CLIENT" }}
       initContainers:
         - name: init-storage-dirs
           image: busybox
@@ -45,6 +46,7 @@ spec:
           volumeMounts:
             - name: data-storage
               mountPath: /data-pvc
+      {{- end }}
       containers:
       - name: {{ .Chart.Name }}
         securityContext:
@@ -60,10 +62,12 @@ spec:
               name: {{ include "blockstream-simulator-chart.fullname" . }}-config
           - secretRef:
               name: {{ include "blockstream-simulator-chart.fullname" . }}-secret
+        {{- if eq .Values.simulator.config.BLOCK_STREAM_SIMULATOR_MODE "PUBLISHER_CLIENT" }}
         volumeMounts:
           - name: data-storage
             mountPath: {{ .Values.simulator.persistence.data.mountPath }}
             subPath: {{ .Values.simulator.persistence.data.subPath }}
+        {{- end }}
         {{- with .Values.resources }}
         resources:
           requests:
