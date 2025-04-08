@@ -14,7 +14,7 @@ dependencies.constraints {
     val helidonVersion = "4.1.6"
     val pbjVersion = "0.9.17"
     val protobufVersion = "4.30.2"
-    val swirldsVersion = "0.59.2"
+    val swirldsVersion = "0.61.1"
     val mockitoVersion = "5.17.0"
     val testContainersVersion = "1.20.6"
 
