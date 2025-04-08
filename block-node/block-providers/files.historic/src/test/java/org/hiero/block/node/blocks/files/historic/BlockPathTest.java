@@ -95,12 +95,12 @@ class BlockPathTest {
     private static Stream<Arguments> argumentsForBlockPath() {
         return Stream.of(
                 Arguments.of(
-                        123456789L,
+                        123_456_789L,
                         "0000000000123456789",
                         "0000000000123456789.blk.zstd",
                         "/opt/hashgraph/blocknode/data/historic/000/000/000/012/345/6000s.zip"),
                 Arguments.of(
-                        1234567890123456789L,
+                        1_234_567_890_123_456_789L,
                         "1234567890123456789",
                         "1234567890123456789.blk.zstd",
                         "/opt/hashgraph/blocknode/data/historic/123/456/789/012/345/6000s.zip"),
@@ -120,77 +120,77 @@ class BlockPathTest {
                         "0000000000000000100.blk.zstd",
                         "/opt/hashgraph/blocknode/data/historic/000/000/000/000/000/0000s.zip"),
                 Arguments.of(
-                        1000L,
+                        1_000L,
                         "0000000000000001000",
                         "0000000000000001000.blk.zstd",
                         "/opt/hashgraph/blocknode/data/historic/000/000/000/000/000/1000s.zip"),
                 Arguments.of(
-                        10000L,
+                        10_000L,
                         "0000000000000010000",
                         "0000000000000010000.blk.zstd",
                         "/opt/hashgraph/blocknode/data/historic/000/000/000/000/001/0000s.zip"),
                 Arguments.of(
-                        100000L,
+                        100_000L,
                         "0000000000000100000",
                         "0000000000000100000.blk.zstd",
                         "/opt/hashgraph/blocknode/data/historic/000/000/000/000/010/0000s.zip"),
                 Arguments.of(
-                        1000000L,
+                        1_000_000L,
                         "0000000000001000000",
                         "0000000000001000000.blk.zstd",
                         "/opt/hashgraph/blocknode/data/historic/000/000/000/000/100/0000s.zip"),
                 Arguments.of(
-                        10000000L,
+                        10_000_000L,
                         "0000000000010000000",
                         "0000000000010000000.blk.zstd",
                         "/opt/hashgraph/blocknode/data/historic/000/000/000/001/000/0000s.zip"),
                 Arguments.of(
-                        100000000L,
+                        100_000_000L,
                         "0000000000100000000",
                         "0000000000100000000.blk.zstd",
                         "/opt/hashgraph/blocknode/data/historic/000/000/000/010/000/0000s.zip"),
                 Arguments.of(
-                        1000000000L,
+                        1_000_000_000L,
                         "0000000001000000000",
                         "0000000001000000000.blk.zstd",
                         "/opt/hashgraph/blocknode/data/historic/000/000/000/100/000/0000s.zip"),
                 Arguments.of(
-                        10000000000L,
+                        10_000_000_000L,
                         "0000000010000000000",
                         "0000000010000000000.blk.zstd",
                         "/opt/hashgraph/blocknode/data/historic/000/000/001/000/000/0000s.zip"),
                 Arguments.of(
-                        100000000000L,
+                        100_000_000_000L,
                         "0000000100000000000",
                         "0000000100000000000.blk.zstd",
                         "/opt/hashgraph/blocknode/data/historic/000/000/010/000/000/0000s.zip"),
                 Arguments.of(
-                        1000000000000L,
+                        1_000_000_000_000L,
                         "0000001000000000000",
                         "0000001000000000000.blk.zstd",
                         "/opt/hashgraph/blocknode/data/historic/000/000/100/000/000/0000s.zip"),
                 Arguments.of(
-                        10000000000000L,
+                        10_000_000_000_000L,
                         "0000010000000000000",
                         "0000010000000000000.blk.zstd",
                         "/opt/hashgraph/blocknode/data/historic/000/001/000/000/000/0000s.zip"),
                 Arguments.of(
-                        100000000000000L,
+                        100_000_000_000_000L,
                         "0000100000000000000",
                         "0000100000000000000.blk.zstd",
                         "/opt/hashgraph/blocknode/data/historic/000/010/000/000/000/0000s.zip"),
                 Arguments.of(
-                        1000000000000000L,
+                        1_000_000_000_000_000L,
                         "0001000000000000000",
                         "0001000000000000000.blk.zstd",
                         "/opt/hashgraph/blocknode/data/historic/000/100/000/000/000/0000s.zip"),
                 Arguments.of(
-                        10000000000000000L,
+                        10_000_000_000_000_000L,
                         "0010000000000000000",
                         "0010000000000000000.blk.zstd",
                         "/opt/hashgraph/blocknode/data/historic/001/000/000/000/000/0000s.zip"),
                 Arguments.of(
-                        100000000000000000L,
+                        100_000_000_000_000_000L,
                         "0100000000000000000",
                         "0100000000000000000.blk.zstd",
                         "/opt/hashgraph/blocknode/data/historic/010/000/000/000/000/0000s.zip"),
