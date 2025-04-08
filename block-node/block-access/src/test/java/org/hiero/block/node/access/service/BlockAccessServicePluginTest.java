@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.node.access.service;
 
+import static org.hiero.block.node.access.service.BlockAccessServicePlugin.BlockAccessServiceMethod.singleBlock;
 import static org.hiero.block.node.app.fixtures.TestUtils.enableDebugLogging;
 import static org.hiero.block.node.app.fixtures.blocks.BlockItemUtils.toBlockItemsUnparsed;
 import static org.hiero.block.node.app.fixtures.blocks.SimpleTestBlockItemBuilder.createNumberOfVerySimpleBlocks;
-import static org.hiero.block.node.access.service.BlockAccessServicePlugin.BlockAccessServiceMethod.singleBlock;
 import static org.hiero.block.node.spi.BlockNodePlugin.UNKNOWN_BLOCK_NUMBER;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
@@ -60,7 +60,11 @@ public class BlockAccessServicePluginTest extends GrpcPluginTestBase<BlockAccess
     @DisplayName("Happy Path Test, BlockAccessServicePlugin for an existing Block Number")
     void happyTestGetSingleBlock() throws ParseException {
         final long blockNumber = 1;
-        final SingleBlockRequest request = SingleBlockRequest.newBuilder().blockNumber(blockNumber).allowUnverified(true).retrieveLatest(false).build();
+        final SingleBlockRequest request = SingleBlockRequest.newBuilder()
+                .blockNumber(blockNumber)
+                .allowUnverified(true)
+                .retrieveLatest(false)
+                .build();
         toPluginPipe.onNext(SingleBlockRequest.PROTOBUF.toBytes(request));
         // Check we get a response
         assertEquals(1, fromPluginBytes.size());
@@ -76,7 +80,11 @@ public class BlockAccessServicePluginTest extends GrpcPluginTestBase<BlockAccess
     @DisplayName("Negative Test, GetSingleBlock for a non-existing Block Number")
     void negativeTestNonExistingBlock() throws ParseException {
         final long blockNumber = 1000;
-        final SingleBlockRequest request = SingleBlockRequest.newBuilder().blockNumber(blockNumber).allowUnverified(true).retrieveLatest(false).build();
+        final SingleBlockRequest request = SingleBlockRequest.newBuilder()
+                .blockNumber(blockNumber)
+                .allowUnverified(true)
+                .retrieveLatest(false)
+                .build();
         toPluginPipe.onNext(SingleBlockRequest.PROTOBUF.toBytes(request));
         // Check we get a response
         assertEquals(1, fromPluginBytes.size());
@@ -91,7 +99,10 @@ public class BlockAccessServicePluginTest extends GrpcPluginTestBase<BlockAccess
     @Test
     @DisplayName("Request Latest Block")
     void testRequestLatestBlock() throws ParseException {
-        final SingleBlockRequest request = SingleBlockRequest.newBuilder().allowUnverified(true).retrieveLatest(true).build();
+        final SingleBlockRequest request = SingleBlockRequest.newBuilder()
+                .allowUnverified(true)
+                .retrieveLatest(true)
+                .build();
         toPluginPipe.onNext(SingleBlockRequest.PROTOBUF.toBytes(request));
         // Check we get a response
         assertEquals(1, fromPluginBytes.size());
@@ -104,10 +115,15 @@ public class BlockAccessServicePluginTest extends GrpcPluginTestBase<BlockAccess
     }
 
     @Test
-    @DisplayName("Request Latest and a specific Block different from latest, should ignore the specific block and return latest")
+    @DisplayName(
+            "Request Latest and a specific Block different from latest, should ignore the specific block and return latest")
     void testRequestLatestBlockDifferent() throws ParseException {
         final long blockNumber = 1;
-        final SingleBlockRequest request = SingleBlockRequest.newBuilder().blockNumber(blockNumber).allowUnverified(true).retrieveLatest(true).build();
+        final SingleBlockRequest request = SingleBlockRequest.newBuilder()
+                .blockNumber(blockNumber)
+                .allowUnverified(true)
+                .retrieveLatest(true)
+                .build();
         toPluginPipe.onNext(SingleBlockRequest.PROTOBUF.toBytes(request));
         // Check we get a response
         assertEquals(1, fromPluginBytes.size());
@@ -118,7 +134,6 @@ public class BlockAccessServicePluginTest extends GrpcPluginTestBase<BlockAccess
         // check that the block number is correct
         assertEquals(24, response.block().items().getFirst().blockHeader().number());
     }
-
 
     private void sendBlocks(int numberOfBlocks) {
 

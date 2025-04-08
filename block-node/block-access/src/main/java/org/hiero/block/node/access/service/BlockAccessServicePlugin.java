@@ -51,9 +51,10 @@ public class BlockAccessServicePlugin implements BlockNodePlugin, ServiceInterfa
         try {
             // Validate request
             if (request.retrieveLatest() && request.blockNumber() != 0) {
-                //LOGGER.log(System.Logger.Level.WARNING, "Invalid request: both block_number and retrieve_latest set");
-                //requestCounterNotFound.increment();
-                //return new SingleBlockResponse(SingleBlockResponseCode.READ_BLOCK_NOT_FOUND, null);
+                // LOGGER.log(System.Logger.Level.WARNING, "Invalid request: both block_number and retrieve_latest
+                // set");
+                // requestCounterNotFound.increment();
+                // return new SingleBlockResponse(SingleBlockResponseCode.READ_BLOCK_NOT_FOUND, null);
 
                 LOGGER.log(
                         System.Logger.Level.WARNING,
@@ -101,8 +102,7 @@ public class BlockAccessServicePlugin implements BlockNodePlugin, ServiceInterfa
         }
     }
 
-
-    //<editor-fold desc="BlockNodePlugin Methods">
+    // <editor-fold desc="BlockNodePlugin Methods">
     // ==== BlockNodePlugin Methods ====================================================================================
     @Override
     public String name() {
@@ -130,9 +130,9 @@ public class BlockAccessServicePlugin implements BlockNodePlugin, ServiceInterfa
         serviceBuilder.registerGrpcService(this);
     }
 
-    //</editor-fold>
+    // </editor-fold>
 
-    //<editor-fold desc="ServiceInterface Methods">
+    // <editor-fold desc="ServiceInterface Methods">
     // ==== ServiceInterface Methods ===================================================================================
 
     /**
@@ -194,5 +194,5 @@ public class BlockAccessServicePlugin implements BlockNodePlugin, ServiceInterfa
         };
     }
 
-    //</editor-fold>
+    // </editor-fold>
 }
