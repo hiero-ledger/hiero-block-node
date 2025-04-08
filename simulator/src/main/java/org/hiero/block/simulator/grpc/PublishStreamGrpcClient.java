@@ -2,7 +2,6 @@
 package org.hiero.block.simulator.grpc;
 
 import com.hedera.hapi.block.stream.protoc.Block;
-import com.hedera.hapi.block.stream.protoc.BlockItem;
 import java.util.List;
 
 /**
@@ -13,14 +12,6 @@ public interface PublishStreamGrpcClient {
      * Initialize, opens a gRPC channel and creates the needed stubs with the passed configuration.
      */
     void init();
-
-    /**
-     * Streams the block item.
-     *
-     * @param blockItems list of the block item to be streamed
-     * @return true if the block item is streamed successfully, false otherwise
-     */
-    boolean streamBlockItem(List<BlockItem> blockItems);
 
     /**
      * Streams the block.
