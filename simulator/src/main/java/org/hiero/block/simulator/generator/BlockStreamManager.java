@@ -26,7 +26,7 @@ public interface BlockStreamManager {
      * Get the next block item.
      *
      * @return the next block item
-     * @throws IOException if a I/O error occurs
+     * @throws IOException                    if a I/O error occurs
      * @throws BlockSimulatorParsingException if a parse error occurs
      */
     BlockItem getNextBlockItem() throws IOException, BlockSimulatorParsingException;
@@ -35,8 +35,12 @@ public interface BlockStreamManager {
      * Get the next block.
      *
      * @return the next block
-     * @throws IOException if a I/O error occurs
+     * @throws IOException                    if a I/O error occurs
      * @throws BlockSimulatorParsingException if a parse error occurs
      */
     Block getNextBlock() throws IOException, BlockSimulatorParsingException;
+
+    Block getLastBlock() throws IOException, BlockSimulatorParsingException;
+
+    Block getBlockByNumber(long blockNumber) throws IOException, BlockSimulatorParsingException;
 }

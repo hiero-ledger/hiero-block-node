@@ -71,6 +71,25 @@ class CraftBlockStreamManagerTest {
     }
 
     @Test
+    void testGetLastBlockReturnsLastGeneratedBlock() throws IOException, BlockSimulatorParsingException {
+        final Block generatedBlock = manager.getNextBlock();
+        final Block lastBlock = manager.getLastBlock();
+
+        assertNotNull(lastBlock);
+        assertEquals(generatedBlock, lastBlock);
+    }
+
+    @Test
+    void testGetLastBlockThrowsIfNoBlockGenerated() {
+        assertThrows(IllegalStateException.class, () -> manager.getLastBlock());
+    }
+
+    @Test
+    void testGetBlockByNumberThrowsUnsupportedOperation() {
+        assertThrows(UnsupportedOperationException.class, () -> manager.getBlockByNumber(1));
+    }
+
+    @Test
     void testBlockGenerationWithCustomValues() throws IOException, BlockSimulatorParsingException {
         Mockito.when(generatorConfigMock.minEventsPerBlock()).thenReturn(3);
         Mockito.when(generatorConfigMock.maxEventsPerBlock()).thenReturn(4);

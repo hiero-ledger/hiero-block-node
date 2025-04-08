@@ -102,4 +102,36 @@ public class BlockAsFileLargeDataSets implements BlockStreamManager {
 
         return block;
     }
+
+    @Override
+    public Block getLastBlock() throws IOException, BlockSimulatorParsingException {
+        if (currentBlock == null) {
+            throw new IllegalStateException("No block has been loaded yet.");
+        }
+        return currentBlock;
+    }
+
+    @Override
+    public Block getBlockByNumber(long blockNumber) throws IOException, BlockSimulatorParsingException {
+        if (blockNumber <= 0) {
+            throw new IllegalArgumentException("Block number must be greater than 0");
+        }
+
+        final String blockFileName = String.format(formatString, blockNumber);
+        final Path blockPath = Path.of(blockStreamPath).resolve(blockFileName);
+
+        if (!Files.exists(blockPath)) {
+            throw new IOException("Block file does not exist: " + blockPath);
+        }
+
+        final byte[] blockBytes = FileUtilities.readFileBytesUnsafe(blockPath, RECORD_EXTENSION, GZ_EXTENSION);
+
+        if (blockBytes == null) {
+            throw new BlockSimulatorParsingException(
+                    "Failed to read block file: " + blockPath + " with supported extensions");
+        }
+
+        LOGGER.log(INFO, "Loading block by number: " + blockNumber + " (" + blockPath.getFileName() + ")");
+        return Block.parseFrom(blockBytes);
+    }
 }

@@ -104,6 +104,24 @@ class BlockStreamConfigTest {
     }
 
     @Test
+    void testRecoveryModeVariants() {
+        BlockStreamConfig rollbackConfig = getBlockStreamConfigBuilder()
+                .recoveryMode(org.hiero.block.simulator.config.types.RecoveryMode.ROLLBACK)
+                .build();
+        assertEquals(org.hiero.block.simulator.config.types.RecoveryMode.ROLLBACK, rollbackConfig.recoveryMode());
+
+        BlockStreamConfig resendLastConfig = getBlockStreamConfigBuilder()
+                .recoveryMode(org.hiero.block.simulator.config.types.RecoveryMode.RESEND_LAST)
+                .build();
+        assertEquals(org.hiero.block.simulator.config.types.RecoveryMode.RESEND_LAST, resendLastConfig.recoveryMode());
+
+        BlockStreamConfig skipAheadConfig = getBlockStreamConfigBuilder()
+                .recoveryMode(org.hiero.block.simulator.config.types.RecoveryMode.SKIP_AHEAD)
+                .build();
+        assertEquals(org.hiero.block.simulator.config.types.RecoveryMode.SKIP_AHEAD, skipAheadConfig.recoveryMode());
+    }
+
+    @Test
     void testEmptyFolderRootPath() {
         // Setup empty folder root path and generation mode
         String folderRootPath = "";
