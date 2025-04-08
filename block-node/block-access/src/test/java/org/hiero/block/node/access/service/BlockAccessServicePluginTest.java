@@ -20,7 +20,6 @@ import java.util.List;
 import org.hiero.block.node.app.fixtures.plugintest.GrpcPluginTestBase;
 import org.hiero.block.node.app.fixtures.plugintest.SimpleInMemoryHistoricalBlockFacility;
 import org.hiero.block.node.spi.blockmessaging.BlockItems;
-import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -68,9 +67,9 @@ public class BlockAccessServicePluginTest extends GrpcPluginTestBase<BlockAccess
         // parse the response
         SingleBlockResponse response = SingleBlockResponse.PROTOBUF.parse(fromPluginBytes.get(0));
         // check that the status is success
-        Assertions.assertEquals(response.status(), SingleBlockResponseCode.READ_BLOCK_SUCCESS);
+        assertEquals(SingleBlockResponseCode.READ_BLOCK_SUCCESS, response.status());
         // check that the block number is correct
-        Assertions.assertEquals(1, response.block().items().getFirst().blockHeader().number());
+        assertEquals(1, response.block().items().getFirst().blockHeader().number());
     }
 
     @Test
@@ -84,7 +83,7 @@ public class BlockAccessServicePluginTest extends GrpcPluginTestBase<BlockAccess
         // parse the response
         SingleBlockResponse response = SingleBlockResponse.PROTOBUF.parse(fromPluginBytes.get(0));
         // check that the status is NOT FOUND
-        Assertions.assertEquals(response.status(), SingleBlockResponseCode.READ_BLOCK_NOT_AVAILABLE);
+        assertEquals(SingleBlockResponseCode.READ_BLOCK_NOT_AVAILABLE, response.status());
         // check block is null
         assertNull(response.block());
     }
@@ -99,9 +98,9 @@ public class BlockAccessServicePluginTest extends GrpcPluginTestBase<BlockAccess
         // parse the response
         SingleBlockResponse response = SingleBlockResponse.PROTOBUF.parse(fromPluginBytes.get(0));
         // check that the status is success
-        Assertions.assertEquals(response.status(), SingleBlockResponseCode.READ_BLOCK_SUCCESS);
+        assertEquals(SingleBlockResponseCode.READ_BLOCK_SUCCESS, response.status());
         // check that the block number is correct
-        Assertions.assertEquals(24, response.block().items().getFirst().blockHeader().number());
+        assertEquals(24, response.block().items().getFirst().blockHeader().number());
     }
 
     @Test
@@ -115,9 +114,9 @@ public class BlockAccessServicePluginTest extends GrpcPluginTestBase<BlockAccess
         // parse the response
         SingleBlockResponse response = SingleBlockResponse.PROTOBUF.parse(fromPluginBytes.get(0));
         // check that the status is success
-        Assertions.assertEquals(response.status(), SingleBlockResponseCode.READ_BLOCK_SUCCESS);
+        assertEquals(SingleBlockResponseCode.READ_BLOCK_SUCCESS, response.status());
         // check that the block number is correct
-        Assertions.assertEquals(24, response.block().items().getFirst().blockHeader().number());
+        assertEquals(24, response.block().items().getFirst().blockHeader().number());
     }
 
 
