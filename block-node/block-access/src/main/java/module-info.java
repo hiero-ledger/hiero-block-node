@@ -6,9 +6,9 @@ module org.hiero.block.node.access.service {
 
     requires transitive com.hedera.pbj.runtime;
     requires transitive org.hiero.block.node.spi;
+    requires com.swirlds.metrics.api;
     requires org.hiero.block.stream;
     requires com.github.spotbugs.annotations;
-    requires com.swirlds.metrics.api;
 
     provides org.hiero.block.node.spi.BlockNodePlugin with
             BlockAccessServicePlugin;
