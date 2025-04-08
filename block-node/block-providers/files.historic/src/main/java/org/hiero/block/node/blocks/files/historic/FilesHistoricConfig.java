@@ -7,6 +7,7 @@ import com.swirlds.config.api.validation.annotation.Max;
 import com.swirlds.config.api.validation.annotation.Min;
 import java.nio.file.Path;
 import java.util.Objects;
+import org.hiero.block.common.utils.Preconditions;
 import org.hiero.block.node.base.CompressionType;
 import org.hiero.block.node.base.Loggable;
 
@@ -23,7 +24,7 @@ import org.hiero.block.node.base.Loggable;
  * @param digitsPerZipFileContents the number of digits of files in the zip file. For example 4 = 1000 files in each zip
  */
 @ConfigData("files.historic")
-public record FilesHistoricConfig(
+record FilesHistoricConfig(
         @Loggable @ConfigProperty(defaultValue = "/opt/hashgraph/blocknode/data/historic") Path rootPath,
         @Loggable @ConfigProperty(defaultValue = "ZSTD") CompressionType compression,
         @Loggable @ConfigProperty(defaultValue = "3") @Min(1) @Max(6) int digitsPerDir,
@@ -32,7 +33,11 @@ public record FilesHistoricConfig(
     /**
      * Constructor.
      */
-    public FilesHistoricConfig {
+    FilesHistoricConfig {
         Objects.requireNonNull(rootPath);
+        Objects.requireNonNull(compression);
+        Preconditions.requireInRange(digitsPerDir, 1, 6);
+        Preconditions.requireInRange(digitsPerZipFileName, 1, 10);
+        Preconditions.requireInRange(digitsPerZipFileContents, 1, 10);
     }
 }
