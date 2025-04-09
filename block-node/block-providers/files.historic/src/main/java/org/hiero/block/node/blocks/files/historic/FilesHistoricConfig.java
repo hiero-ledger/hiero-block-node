@@ -7,6 +7,7 @@ import com.swirlds.config.api.validation.annotation.Max;
 import com.swirlds.config.api.validation.annotation.Min;
 import java.nio.file.Path;
 import java.util.Objects;
+import org.hiero.block.common.utils.Preconditions;
 import org.hiero.block.node.base.CompressionType;
 import org.hiero.block.node.base.Loggable;
 
@@ -34,5 +35,9 @@ public record FilesHistoricConfig(
      */
     public FilesHistoricConfig {
         Objects.requireNonNull(rootPath);
+        Objects.requireNonNull(compression);
+        Preconditions.requireInRange(digitsPerDir, 1, 6);
+        Preconditions.requireInRange(digitsPerZipFileName, 1, 10);
+        Preconditions.requireInRange(digitsPerZipFileContents, 1, 10);
     }
 }
