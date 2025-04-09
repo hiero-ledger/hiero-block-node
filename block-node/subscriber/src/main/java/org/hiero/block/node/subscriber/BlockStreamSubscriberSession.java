@@ -109,8 +109,10 @@ public class BlockStreamSubscriberSession implements NoBackPressureBlockItemHand
                 .getOrCreate(new Counter.Config(METRICS_CATEGORY, "liveToHistoricStreamTransitions")
                         .withDescription("Live to Historic Stream Transitions"));
         // get latest available blocks
-        final long oldestBlockNumber = context.historicalBlockProvider().oldestBlockNumber();
-        final long latestBlockNumber = context.historicalBlockProvider().latestBlockNumber();
+        final long oldestBlockNumber =
+                context.historicalBlockProvider().availableBlocks().min();
+        final long latestBlockNumber =
+                context.historicalBlockProvider().availableBlocks().max();
         // we have just received a new subscribe request, now we need to work out if we can service it
         if (!request.allowUnverified()) {
             // ----------> VALIDATED STREAM <----------
@@ -150,7 +152,7 @@ public class BlockStreamSubscriberSession implements NoBackPressureBlockItemHand
                             + "historical. Newest historical block is {2}",
                     clientId,
                     startBlockNumber,
-                    context.historicalBlockProvider().latestBlockNumber());
+                    context.historicalBlockProvider().availableBlocks().max());
             // send invalid start block number response
             responsePipeline.onNext(SubscribeStreamResponseUnparsed.newBuilder()
                     .status(SubscribeStreamResponseCode.READ_STREAM_INVALID_START_BLOCK_NUMBER)

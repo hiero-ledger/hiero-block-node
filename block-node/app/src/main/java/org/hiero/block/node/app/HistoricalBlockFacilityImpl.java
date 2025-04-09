@@ -6,8 +6,10 @@ import java.util.List;
 import java.util.ServiceLoader;
 import java.util.ServiceLoader.Provider;
 import java.util.stream.Collectors;
+import org.hiero.block.node.base.ranges.CombinedBlockRangeSet;
 import org.hiero.block.node.spi.historicalblocks.BlockAccessor;
 import org.hiero.block.node.spi.historicalblocks.BlockProviderPlugin;
+import org.hiero.block.node.spi.historicalblocks.BlockRangeSet;
 import org.hiero.block.node.spi.historicalblocks.HistoricalBlockFacility;
 
 /**
@@ -23,17 +25,20 @@ public class HistoricalBlockFacilityImpl implements HistoricalBlockFacility {
     private final List<BlockProviderPlugin> providers;
 
     /**
+     * The set of available blocks.
+     */
+    private final CombinedBlockRangeSet availableBlocks;
+
+    /**
      * Constructor for the HistoricalBlockFacilityImpl class. This constructor loads the block providers using the Java
      * ServiceLoader.
      */
     @SuppressWarnings("unused")
     public HistoricalBlockFacilityImpl() {
         // TODO: Add configuration to the choose block providers and override the priorities
-        providers = ServiceLoader.load(BlockProviderPlugin.class, getClass().getClassLoader()).stream()
+        this(ServiceLoader.load(BlockProviderPlugin.class, HistoricalBlockFacilityImpl.class.getClassLoader()).stream()
                 .map(Provider::get)
-                .sorted(Comparator.comparingInt(BlockProviderPlugin::defaultPriority)
-                        .reversed())
-                .toList();
+                .toList());
     }
 
     /**
@@ -47,6 +52,8 @@ public class HistoricalBlockFacilityImpl implements HistoricalBlockFacility {
                 .sorted(Comparator.comparingInt(BlockProviderPlugin::defaultPriority)
                         .reversed())
                 .toList();
+        this.availableBlocks = new CombinedBlockRangeSet(
+                providers.stream().map(BlockProviderPlugin::availableBlocks).toArray(BlockRangeSet[]::new));
     }
 
     /**
@@ -77,30 +84,17 @@ public class HistoricalBlockFacilityImpl implements HistoricalBlockFacility {
      * {@inheritDoc}
      */
     @Override
-    public long oldestBlockNumber() {
-        return providers.stream()
-                .mapToLong(BlockProviderPlugin::oldestBlockNumber)
-                .filter(blockNumber -> blockNumber != BlockProviderPlugin.UNKNOWN_BLOCK_NUMBER)
-                .min()
-                .orElse(UNKNOWN_BLOCK_NUMBER);
+    public BlockRangeSet availableBlocks() {
+        return availableBlocks;
     }
 
     /**
      * {@inheritDoc}
      */
     @Override
-    public long latestBlockNumber() {
-        return providers.stream()
-                .mapToLong(BlockProviderPlugin::latestBlockNumber)
-                .max()
-                .orElse(UNKNOWN_BLOCK_NUMBER);
-    }
-
-    @Override
     public String toString() {
-        return "HistoricalBlockFacilityImpl{" + "oldest="
-                + oldestBlockNumber() + ", latest="
-                + latestBlockNumber() + ", providers=["
+        return "HistoricalBlockFacilityImpl{" + "availableBlocks="
+                + availableBlocks() + ", providers=["
                 + providers.stream().map(p -> p.getClass().getSimpleName()).collect(Collectors.joining(", ")) + "]"
                 + '}';
     }

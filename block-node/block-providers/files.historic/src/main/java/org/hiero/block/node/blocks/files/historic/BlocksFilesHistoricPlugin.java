@@ -8,7 +8,7 @@ import java.nio.file.Files;
 import java.util.List;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
-import java.util.concurrent.atomic.AtomicLong;
+import org.hiero.block.node.base.ranges.ConcurrentLongRangeSet;
 import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.ServiceBuilder;
 import org.hiero.block.node.spi.blockmessaging.BlockNotification;
@@ -16,6 +16,7 @@ import org.hiero.block.node.spi.blockmessaging.BlockNotification.Type;
 import org.hiero.block.node.spi.blockmessaging.BlockNotificationHandler;
 import org.hiero.block.node.spi.historicalblocks.BlockAccessor;
 import org.hiero.block.node.spi.historicalblocks.BlockProviderPlugin;
+import org.hiero.block.node.spi.historicalblocks.BlockRangeSet;
 
 /**
  * This plugin provides a block provider that stores historical blocks in file. It is designed to store them in the
@@ -32,10 +33,8 @@ public class BlocksFilesHistoricPlugin implements BlockProviderPlugin, BlockNoti
     private ZipBlockArchive zipBlockArchive;
     /** The number of blocks per zip file. */
     private int numberOfBlocksPerZipFile;
-    /** The first block number stored by this plugin */
-    private final AtomicLong firstBlockNumber = new AtomicLong(0);
-    /** The last block number stored by this plugin */
-    private final AtomicLong lastBlockNumber = new AtomicLong(0);
+    /** The set of available blocks. */
+    private final ConcurrentLongRangeSet availableBlocks = new ConcurrentLongRangeSet();
 
     // ==== BlockProviderPlugin Methods ================================================================================
 
@@ -67,8 +66,7 @@ public class BlocksFilesHistoricPlugin implements BlockProviderPlugin, BlockNoti
         numberOfBlocksPerZipFile = (int) Math.pow(10, config.digitsPerZipFileContents());
         zipBlockArchive = new ZipBlockArchive(context, config);
         // get the first and last block numbers from the zipBlockArchive
-        firstBlockNumber.set(zipBlockArchive.minStoredBlockNumber());
-        lastBlockNumber.set(zipBlockArchive.maxStoredBlockNumber());
+        availableBlocks.add(zipBlockArchive.minStoredBlockNumber(), zipBlockArchive.maxStoredBlockNumber());
     }
 
     /**
@@ -78,10 +76,11 @@ public class BlocksFilesHistoricPlugin implements BlockProviderPlugin, BlockNoti
     public void start() {
         // determine if there are any batches of blocks that need to be moved to zip files
         // get the largest stored block number
-        long largestStoredBlockNumber = context.historicalBlockProvider().latestBlockNumber();
-        if (largestStoredBlockNumber > lastBlockNumber.get()) {
+        long largestStoredBlockNumber =
+                context.historicalBlockProvider().availableBlocks().max();
+        if (largestStoredBlockNumber > availableBlocks.max()) {
             // complete if there are any blocks that need to be moved to zip files
-            long startBlockNumber = lastBlockNumber.get() + 1;
+            long startBlockNumber = availableBlocks.max() + 1;
             while ((startBlockNumber + numberOfBlocksPerZipFile) < largestStoredBlockNumber) {
                 // move the batch of blocks to a zip file
                 final long firstBlock = startBlockNumber;
@@ -106,7 +105,7 @@ public class BlocksFilesHistoricPlugin implements BlockProviderPlugin, BlockNoti
     @Override
     public BlockAccessor block(long blockNumber) {
         // check if the block number is in the range of blocks
-        if (blockNumber < firstBlockNumber.get() || blockNumber > lastBlockNumber.get()) {
+        if (blockNumber < availableBlocks.min() || blockNumber > availableBlocks.max()) {
             return null;
         }
         return zipBlockArchive.blockAccessor(blockNumber);
@@ -115,17 +114,8 @@ public class BlocksFilesHistoricPlugin implements BlockProviderPlugin, BlockNoti
     /**
      * {@inheritDoc}
      */
-    @Override
-    public long oldestBlockNumber() {
-        return firstBlockNumber.get();
-    }
-
-    /**
-     * {@inheritDoc}
-     */
-    @Override
-    public long latestBlockNumber() {
-        return lastBlockNumber.get();
+    public BlockRangeSet availableBlocks() {
+        return availableBlocks;
     }
 
     // ==== BlockNotificationHandler Methods ===========================================================================
@@ -138,7 +128,7 @@ public class BlocksFilesHistoricPlugin implements BlockProviderPlugin, BlockNoti
         if (notification.type() == Type.BLOCK_PERSISTED) {
             // check if this crosses a block zip file boundary
             if (notification.blockNumber() > 0
-                    && notification.blockNumber() > lastBlockNumber.get()
+                    && notification.blockNumber() > availableBlocks.max()
                     && notification.blockNumber() % numberOfBlocksPerZipFile == 0) {
                 final long firstBlockNumber = notification.blockNumber() - numberOfBlocksPerZipFile;
                 // move the batch of blocks to a zip file
@@ -165,9 +155,7 @@ public class BlocksFilesHistoricPlugin implements BlockProviderPlugin, BlockNoti
                     batchLastBlockNumber);
             final List<BlockAccessor> blockAccessors = zipBlockArchive.writeNewZipFile(batchFirstBlockNumber);
             // update the first and last block numbers
-            firstBlockNumber.getAndUpdate(value ->
-                    value == UNKNOWN_BLOCK_NUMBER ? numberOfBlocksPerZipFile : Math.min(value, batchFirstBlockNumber));
-            lastBlockNumber.getAndUpdate(value -> Math.max(value, batchLastBlockNumber));
+            availableBlocks.add(batchFirstBlockNumber, batchLastBlockNumber);
             // log done
             LOGGER.log(
                     System.Logger.Level.INFO,

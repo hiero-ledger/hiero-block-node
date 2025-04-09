@@ -1,15 +1,20 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.node.app;
 
-import static org.junit.jupiter.api.Assertions.*;
-import static org.mockito.Mockito.*;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.mockStatic;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 import java.util.List;
 import java.util.ServiceLoader;
 import java.util.stream.Stream;
 import org.hiero.block.node.spi.historicalblocks.BlockAccessor;
 import org.hiero.block.node.spi.historicalblocks.BlockProviderPlugin;
-import org.hiero.block.node.spi.historicalblocks.HistoricalBlockFacility;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -114,81 +119,6 @@ class HistoricalBlockFacilityImplTest {
         assertNull(result);
         verify(provider1).block(blockNumber);
         verify(provider2).block(blockNumber);
-    }
-
-    /**
-     * Tests retrieval of the oldest block number.
-     */
-    @Test
-    @DisplayName("Test oldest block number")
-    void testOldestBlockNumber() {
-        when(provider1.oldestBlockNumber()).thenReturn(100L);
-        when(provider2.oldestBlockNumber()).thenReturn(200L);
-
-        final long result = facility.oldestBlockNumber();
-
-        assertEquals(100L, result);
-    }
-
-    /**
-     * Tests retrieval of the oldest block number when it is unknown.
-     */
-    @Test
-    @DisplayName("Test oldest block number unknown")
-    void testOldestBlockNumberUnknown() {
-        when(provider1.oldestBlockNumber()).thenReturn(BlockProviderPlugin.UNKNOWN_BLOCK_NUMBER);
-        when(provider2.oldestBlockNumber()).thenReturn(BlockProviderPlugin.UNKNOWN_BLOCK_NUMBER);
-
-        final long result = facility.oldestBlockNumber();
-
-        assertEquals(HistoricalBlockFacility.UNKNOWN_BLOCK_NUMBER, result);
-    }
-
-    /**
-     * Tests retrieval of the latest block number.
-     */
-    @Test
-    @DisplayName("Test latest block number")
-    void testLatestBlockNumber() {
-        when(provider1.latestBlockNumber()).thenReturn(300L);
-        when(provider2.latestBlockNumber()).thenReturn(400L);
-
-        final long result = facility.latestBlockNumber();
-
-        assertEquals(400L, result);
-    }
-
-    /**
-     * Tests retrieval of the latest block number when it is unknown.
-     */
-    @Test
-    @DisplayName("Test latest block number unknown")
-    void testLatestBlockNumberUnknown() {
-        when(provider1.latestBlockNumber()).thenReturn(BlockProviderPlugin.UNKNOWN_BLOCK_NUMBER);
-        when(provider2.latestBlockNumber()).thenReturn(BlockProviderPlugin.UNKNOWN_BLOCK_NUMBER);
-
-        final long result = facility.latestBlockNumber();
-
-        assertEquals(HistoricalBlockFacility.UNKNOWN_BLOCK_NUMBER, result);
-    }
-
-    /**
-     * Tests the toString method.
-     */
-    @Test
-    @DisplayName("Test toString method")
-    void testToString() {
-        when(provider1.oldestBlockNumber()).thenReturn(100L);
-        when(provider2.oldestBlockNumber()).thenReturn(200L);
-        when(provider1.latestBlockNumber()).thenReturn(300L);
-        when(provider2.latestBlockNumber()).thenReturn(400L);
-
-        final String result = facility.toString();
-
-        assertTrue(result.contains("oldest=100"));
-        assertTrue(result.contains("latest=400"));
-        assertTrue(result.contains("providers=[" + provider1.getClass().getSimpleName() + ", "
-                + provider2.getClass().getSimpleName() + "]"));
     }
 
     @Test

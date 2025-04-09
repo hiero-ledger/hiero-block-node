@@ -89,36 +89,40 @@ class BlockFileRecentPluginTest {
             final long blockNumber = blockBlockItems[0].blockHeader().number();
             // check the block is not stored yet
             assertNull(plugin.block(blockNumber));
-            assertEquals(UNKNOWN_BLOCK_NUMBER, plugin.latestBlockNumber());
-            assertEquals(UNKNOWN_BLOCK_NUMBER, plugin.oldestBlockNumber());
+            assertEquals(UNKNOWN_BLOCK_NUMBER, plugin.availableBlocks().max());
+            assertEquals(UNKNOWN_BLOCK_NUMBER, plugin.availableBlocks().min());
             assertEquals(
                     UNKNOWN_BLOCK_NUMBER,
-                    blockNodeContext.historicalBlockProvider().latestBlockNumber());
+                    blockNodeContext.historicalBlockProvider().availableBlocks().max());
             assertEquals(
                     UNKNOWN_BLOCK_NUMBER,
-                    blockNodeContext.historicalBlockProvider().oldestBlockNumber());
+                    blockNodeContext.historicalBlockProvider().availableBlocks().min());
             // send it to messaging
             blockMessaging.sendBlockItems(new BlockItems(toBlockItemsUnparsed(blockBlockItems), blockNumber));
             // check if we try to read we get null as nothing is verified yet
             assertNull(plugin.block(blockNumber));
-            assertEquals(UNKNOWN_BLOCK_NUMBER, plugin.latestBlockNumber());
-            assertEquals(UNKNOWN_BLOCK_NUMBER, plugin.oldestBlockNumber());
+            assertEquals(UNKNOWN_BLOCK_NUMBER, plugin.availableBlocks().max());
+            assertEquals(UNKNOWN_BLOCK_NUMBER, plugin.availableBlocks().min());
             assertEquals(
                     UNKNOWN_BLOCK_NUMBER,
-                    blockNodeContext.historicalBlockProvider().latestBlockNumber());
+                    blockNodeContext.historicalBlockProvider().availableBlocks().max());
             assertEquals(
                     UNKNOWN_BLOCK_NUMBER,
-                    blockNodeContext.historicalBlockProvider().oldestBlockNumber());
+                    blockNodeContext.historicalBlockProvider().availableBlocks().min());
             // send verified block notification
             blockMessaging.sendBlockNotification(new BlockNotification(blockNumber, Type.BLOCK_VERIFIED, Bytes.EMPTY));
             // now try and read it back
             final Block block = plugin.block(blockNumber).block();
             // check we got the correct block
             assertArrayEquals(blockBlockItems, block.items().toArray());
-            assertEquals(blockNumber, plugin.latestBlockNumber());
-            assertEquals(blockNumber, plugin.oldestBlockNumber());
-            assertEquals(blockNumber, blockNodeContext.historicalBlockProvider().latestBlockNumber());
-            assertEquals(blockNumber, blockNodeContext.historicalBlockProvider().oldestBlockNumber());
+            assertEquals(blockNumber, plugin.availableBlocks().max());
+            assertEquals(blockNumber, plugin.availableBlocks().min());
+            assertEquals(
+                    blockNumber,
+                    blockNodeContext.historicalBlockProvider().availableBlocks().max());
+            assertEquals(
+                    blockNumber,
+                    blockNodeContext.historicalBlockProvider().availableBlocks().min());
         }
 
         /**
@@ -134,36 +138,40 @@ class BlockFileRecentPluginTest {
             final long blockNumber = blockBlockItems[0].blockHeader().number();
             // check the block is not stored yet
             assertNull(plugin.block(blockNumber));
-            assertEquals(UNKNOWN_BLOCK_NUMBER, plugin.latestBlockNumber());
-            assertEquals(UNKNOWN_BLOCK_NUMBER, plugin.oldestBlockNumber());
+            assertEquals(UNKNOWN_BLOCK_NUMBER, plugin.availableBlocks().max());
+            assertEquals(UNKNOWN_BLOCK_NUMBER, plugin.availableBlocks().min());
             assertEquals(
                     UNKNOWN_BLOCK_NUMBER,
-                    blockNodeContext.historicalBlockProvider().latestBlockNumber());
+                    blockNodeContext.historicalBlockProvider().availableBlocks().max());
             assertEquals(
                     UNKNOWN_BLOCK_NUMBER,
-                    blockNodeContext.historicalBlockProvider().oldestBlockNumber());
+                    blockNodeContext.historicalBlockProvider().availableBlocks().min());
             // send verified block notification
             blockMessaging.sendBlockNotification(new BlockNotification(blockNumber, Type.BLOCK_VERIFIED, Bytes.EMPTY));
             // check if we try to read we get null as nothing is persisted yet
             assertNull(plugin.block(blockNumber));
-            assertEquals(UNKNOWN_BLOCK_NUMBER, plugin.latestBlockNumber());
-            assertEquals(UNKNOWN_BLOCK_NUMBER, plugin.oldestBlockNumber());
+            assertEquals(UNKNOWN_BLOCK_NUMBER, plugin.availableBlocks().max());
+            assertEquals(UNKNOWN_BLOCK_NUMBER, plugin.availableBlocks().min());
             assertEquals(
                     UNKNOWN_BLOCK_NUMBER,
-                    blockNodeContext.historicalBlockProvider().latestBlockNumber());
+                    blockNodeContext.historicalBlockProvider().availableBlocks().max());
             assertEquals(
                     UNKNOWN_BLOCK_NUMBER,
-                    blockNodeContext.historicalBlockProvider().oldestBlockNumber());
+                    blockNodeContext.historicalBlockProvider().availableBlocks().min());
             // send it to messaging
             blockMessaging.sendBlockItems(new BlockItems(toBlockItemsUnparsed(blockBlockItems), blockNumber));
             // now try and read it back
             final Block block = plugin.block(blockNumber).block();
             // check we got the correct block
             assertArrayEquals(blockBlockItems, block.items().toArray());
-            assertEquals(blockNumber, plugin.latestBlockNumber());
-            assertEquals(blockNumber, plugin.oldestBlockNumber());
-            assertEquals(blockNumber, blockNodeContext.historicalBlockProvider().latestBlockNumber());
-            assertEquals(blockNumber, blockNodeContext.historicalBlockProvider().oldestBlockNumber());
+            assertEquals(blockNumber, plugin.availableBlocks().max());
+            assertEquals(blockNumber, plugin.availableBlocks().min());
+            assertEquals(
+                    blockNumber,
+                    blockNodeContext.historicalBlockProvider().availableBlocks().max());
+            assertEquals(
+                    blockNumber,
+                    blockNodeContext.historicalBlockProvider().availableBlocks().min());
         }
 
         /**

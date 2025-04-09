@@ -3,6 +3,7 @@ package org.hiero.block.node.blocks.cloud.historic;
 
 import org.hiero.block.node.spi.historicalblocks.BlockAccessor;
 import org.hiero.block.node.spi.historicalblocks.BlockProviderPlugin;
+import org.hiero.block.node.spi.historicalblocks.BlockRangeSet;
 
 /**
  * This is a plugin for the block provider that uses cloud storage for historic blocks. It should be very similar to the
@@ -10,23 +11,26 @@ import org.hiero.block.node.spi.historicalblocks.BlockProviderPlugin;
  */
 public class BlocksCloudHistoricPlugin implements BlockProviderPlugin {
 
+    /**
+     * {@inheritDoc}
+     */
     @Override
     public int defaultPriority() {
         return 2000;
     }
 
+    /**
+     * {@inheritDoc}
+     */
     @Override
     public BlockAccessor block(long blockNumber) {
         return null;
     }
 
-    @Override
-    public long oldestBlockNumber() {
-        return UNKNOWN_BLOCK_NUMBER;
-    }
-
-    @Override
-    public long latestBlockNumber() {
-        return UNKNOWN_BLOCK_NUMBER;
+    /**
+     * {@inheritDoc}
+     */
+    public BlockRangeSet availableBlocks() {
+        return BlockRangeSet.EMPTY;
     }
 }
