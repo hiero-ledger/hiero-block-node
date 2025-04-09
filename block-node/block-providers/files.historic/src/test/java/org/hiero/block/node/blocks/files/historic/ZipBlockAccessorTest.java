@@ -184,9 +184,7 @@ class ZipBlockAccessorTest {
         return new FilesHistoricConfig(
                 basePath,
                 compressionType,
-                localDefaultConfig.digitsPerDir(),
-                localDefaultConfig.digitsPerZipFileName(),
-                localDefaultConfig.digitsPerZipFileContents());
+                localDefaultConfig.powersOfTenPerZipFileContents());
     }
 
     private FilesHistoricConfig getDefaultConfiguration() {

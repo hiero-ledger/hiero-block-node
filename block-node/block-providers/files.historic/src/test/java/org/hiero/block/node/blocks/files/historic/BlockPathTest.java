@@ -13,7 +13,10 @@ import com.swirlds.config.api.ConfigurationBuilder;
 import java.io.IOException;
 import java.nio.file.FileSystem;
 import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.stream.Stream;
+import org.hiero.block.node.base.CompressionType;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -27,6 +30,7 @@ import org.junit.jupiter.params.provider.MethodSource;
  * Test for {@link BlockPath}.
  */
 class BlockPathTest {
+    private static final String ROOT_PATH = "/foo/bar";
     /** The testing in-memory file system. */
     private FileSystem jimfs;
 
@@ -167,25 +171,24 @@ class BlockPathTest {
          */
         @ParameterizedTest
         @MethodSource({
-            //            "org.hiero.block.node.blocks.files.historic.BlockPathTest#validBlockPathsDefaultConfig",
+            "org.hiero.block.node.blocks.files.historic.BlockPathTest#validBlockPathsDefaultConfig",
             "org.hiero.block.node.blocks.files.historic.BlockPathTest#validBlockPathsConfigVariation1"
         })
         @DisplayName("Test computeBlockPath with valid inputs")
         void testComputeBlockPath(
                 final String expectedBlockNumStr,
                 final String expectedBlockFileName,
-                final String zipFilePath,
+                final String expectedRelativeZipFilePathStr,
                 final long blockNumber,
-                final FilesHistoricConfig baseConfig) {
-            final Path expectedZipFilePath = jimfs.getPath(zipFilePath);
+                final CompressionType compressionType,
+                final int digitsPerZipFileContents) {
+            final Path expectedZipFilePath = jimfs.getPath(ROOT_PATH + expectedRelativeZipFilePathStr);
             final Path expectedDirPath = expectedZipFilePath.getParent();
             // create the config to use for the test, resolve paths with jimfs
             final FilesHistoricConfig testConfig = new FilesHistoricConfig(
-                    jimfs.getPath(baseConfig.rootPath().toString()),
-                    baseConfig.compression(),
-                    baseConfig.digitsPerDir(),
-                    baseConfig.digitsPerZipFileName(),
-                    baseConfig.digitsPerZipFileContents());
+                    jimfs.getPath(ROOT_PATH),
+                    compressionType,
+                    digitsPerZipFileContents);
             final BlockPath actual = BlockPath.computeBlockPath(testConfig, blockNumber);
             assertThat(actual)
                     .isNotNull()
@@ -205,275 +208,333 @@ class BlockPathTest {
                 .withConfigDataType(FilesHistoricConfig.class)
                 .build()
                 .getConfigData(FilesHistoricConfig.class);
-        // root path from config, to use below to create the zip file path (concat)
-        final String configRootPath = baseConfig.rootPath().toString();
         return Stream.of(
                 Arguments.of(
                         "0000000000123456789",
                         "0000000000123456789.blk.zstd",
-                        configRootPath.concat("/000/000/000/012/345/6000s.zip"),
+                        "/000/000/000/012/34/50000s.zip",
                         123_456_789L,
-                        baseConfig),
+                        baseConfig.compression(),
+                        baseConfig.powersOfTenPerZipFileContents()),
                 Arguments.of(
                         "1234567890123456789",
                         "1234567890123456789.blk.zstd",
-                        configRootPath.concat("/123/456/789/012/345/6000s.zip"),
+                        "/123/456/789/012/34/50000s.zip",
                         1_234_567_890_123_456_789L,
-                        baseConfig),
+                        baseConfig.compression(),
+                        baseConfig.powersOfTenPerZipFileContents()),
                 Arguments.of(
                         "0000000000000000000",
                         "0000000000000000000.blk.zstd",
-                        configRootPath.concat("/000/000/000/000/000/0000s.zip"),
+                        "/000/000/000/000/00/00000s.zip",
                         0L,
-                        baseConfig),
+                        baseConfig.compression(),
+                        baseConfig.powersOfTenPerZipFileContents()),
                 Arguments.of(
                         "0000000000000000010",
                         "0000000000000000010.blk.zstd",
-                        configRootPath.concat("/000/000/000/000/000/0000s.zip"),
+                        "/000/000/000/000/00/00000s.zip",
                         10L,
-                        baseConfig),
+                        baseConfig.compression(),
+                        baseConfig.powersOfTenPerZipFileContents()),
                 Arguments.of(
                         "0000000000000000100",
                         "0000000000000000100.blk.zstd",
-                        configRootPath.concat("/000/000/000/000/000/0000s.zip"),
+                        "/000/000/000/000/00/00000s.zip",
                         100L,
-                        baseConfig),
+                        baseConfig.compression(),
+                        baseConfig.powersOfTenPerZipFileContents()),
                 Arguments.of(
                         "0000000000000001000",
                         "0000000000000001000.blk.zstd",
-                        configRootPath.concat("/000/000/000/000/000/1000s.zip"),
+                        "/000/000/000/000/00/00000s.zip",
                         1_000L,
-                        baseConfig),
+                        baseConfig.compression(),
+                        baseConfig.powersOfTenPerZipFileContents()),
                 Arguments.of(
                         "0000000000000010000",
                         "0000000000000010000.blk.zstd",
-                        configRootPath.concat("/000/000/000/000/001/0000s.zip"),
+                        "/000/000/000/000/00/10000s.zip",
                         10_000L,
-                        baseConfig),
+                        baseConfig.compression(),
+                        baseConfig.powersOfTenPerZipFileContents()),
                 Arguments.of(
                         "0000000000000100000",
                         "0000000000000100000.blk.zstd",
-                        configRootPath.concat("/000/000/000/000/010/0000s.zip"),
+                        "/000/000/000/000/01/00000s.zip",
                         100_000L,
-                        baseConfig),
+                        baseConfig.compression(),
+                        baseConfig.powersOfTenPerZipFileContents()),
                 Arguments.of(
                         "0000000000001000000",
                         "0000000000001000000.blk.zstd",
-                        configRootPath.concat("/000/000/000/000/100/0000s.zip"),
+                        "/000/000/000/000/10/00000s.zip",
                         1_000_000L,
-                        baseConfig),
+                        baseConfig.compression(),
+                        baseConfig.powersOfTenPerZipFileContents()),
                 Arguments.of(
                         "0000000000010000000",
                         "0000000000010000000.blk.zstd",
-                        configRootPath.concat("/000/000/000/001/000/0000s.zip"),
+                        "/000/000/000/001/00/00000s.zip",
                         10_000_000L,
-                        baseConfig),
+                        baseConfig.compression(),
+                        baseConfig.powersOfTenPerZipFileContents()),
                 Arguments.of(
                         "0000000000100000000",
                         "0000000000100000000.blk.zstd",
-                        configRootPath.concat("/000/000/000/010/000/0000s.zip"),
+                        "/000/000/000/010/00/00000s.zip",
                         100_000_000L,
-                        baseConfig),
+                        baseConfig.compression(),
+                        baseConfig.powersOfTenPerZipFileContents()),
                 Arguments.of(
                         "0000000001000000000",
                         "0000000001000000000.blk.zstd",
-                        configRootPath.concat("/000/000/000/100/000/0000s.zip"),
+                        "/000/000/000/100/00/00000s.zip",
                         1_000_000_000L,
-                        baseConfig),
+                        baseConfig.compression(),
+                        baseConfig.powersOfTenPerZipFileContents()),
                 Arguments.of(
                         "0000000010000000000",
                         "0000000010000000000.blk.zstd",
-                        configRootPath.concat("/000/000/001/000/000/0000s.zip"),
+                        "/000/000/001/000/00/00000s.zip",
                         10_000_000_000L,
-                        baseConfig),
+                        baseConfig.compression(),
+                        baseConfig.powersOfTenPerZipFileContents()),
                 Arguments.of(
                         "0000000100000000000",
                         "0000000100000000000.blk.zstd",
-                        configRootPath.concat("/000/000/010/000/000/0000s.zip"),
+                        "/000/000/010/000/00/00000s.zip",
                         100_000_000_000L,
-                        baseConfig),
+                        baseConfig.compression(),
+                        baseConfig.powersOfTenPerZipFileContents()),
                 Arguments.of(
                         "0000001000000000000",
                         "0000001000000000000.blk.zstd",
-                        configRootPath.concat("/000/000/100/000/000/0000s.zip"),
+                        "/000/000/100/000/00/00000s.zip",
                         1_000_000_000_000L,
-                        baseConfig),
+                        baseConfig.compression(),
+                        baseConfig.powersOfTenPerZipFileContents()),
                 Arguments.of(
                         "0000010000000000000",
                         "0000010000000000000.blk.zstd",
-                        configRootPath.concat("/000/001/000/000/000/0000s.zip"),
+                        "/000/001/000/000/00/00000s.zip",
                         10_000_000_000_000L,
-                        baseConfig),
+                        baseConfig.compression(),
+                        baseConfig.powersOfTenPerZipFileContents()),
                 Arguments.of(
                         "0000100000000000000",
                         "0000100000000000000.blk.zstd",
-                        configRootPath.concat("/000/010/000/000/000/0000s.zip"),
+                        "/000/010/000/000/00/00000s.zip",
                         100_000_000_000_000L,
-                        baseConfig),
+                        baseConfig.compression(),
+                        baseConfig.powersOfTenPerZipFileContents()),
                 Arguments.of(
                         "0001000000000000000",
                         "0001000000000000000.blk.zstd",
-                        configRootPath.concat("/000/100/000/000/000/0000s.zip"),
+                        "/000/100/000/000/00/00000s.zip",
                         1_000_000_000_000_000L,
-                        baseConfig),
+                        baseConfig.compression(),
+                        baseConfig.powersOfTenPerZipFileContents()),
                 Arguments.of(
                         "0010000000000000000",
                         "0010000000000000000.blk.zstd",
-                        configRootPath.concat("/001/000/000/000/000/0000s.zip"),
+                        "/001/000/000/000/00/00000s.zip",
                         10_000_000_000_000_000L,
-                        baseConfig),
+                        baseConfig.compression(),
+                        baseConfig.powersOfTenPerZipFileContents()),
                 Arguments.of(
                         "0100000000000000000",
                         "0100000000000000000.blk.zstd",
-                        configRootPath.concat("/010/000/000/000/000/0000s.zip"),
+                        "/010/000/000/000/00/00000s.zip",
                         100_000_000_000_000_000L,
-                        baseConfig),
+                        baseConfig.compression(),
+                        baseConfig.powersOfTenPerZipFileContents()),
                 Arguments.of(
                         "9223372036854775807",
                         "9223372036854775807.blk.zstd",
-                        configRootPath.concat("/922/337/203/685/477/5000s.zip"),
+                        "/922/337/203/685/47/70000s.zip",
                         Long.MAX_VALUE,
-                        baseConfig));
+                        baseConfig.compression(),
+                        baseConfig.powersOfTenPerZipFileContents()));
     }
 
     /**
      * Stream of arguments of valid block paths with config variation 1.
      */
     private static Stream<Arguments> validBlockPathsConfigVariation1() {
-        // default configuration
-        final FilesHistoricConfig baseConfig = ConfigurationBuilder.create()
-                .withConfigDataType(FilesHistoricConfig.class)
-                .withValue("files.historic.digitsPerDir", "1")
-                .build()
-                .getConfigData(FilesHistoricConfig.class);
-        // root path from config, to use below to create the zip file path (concat)
-        final String configRootPath = baseConfig.rootPath().toString();
-        return Stream.of(
-                Arguments.of(
-                        "0000000000123456789",
-                        "0000000000123456789.blk.zstd",
-                        configRootPath.concat("/0/0/0/0/0/0/0/0/0/0/1/2/3/4/5/6000s.zip"),
-                        123_456_789L,
-                        baseConfig),
-                Arguments.of(
-                        "1234567890123456789",
-                        "1234567890123456789.blk.zstd",
-                        configRootPath.concat("/123/456/789/012/345/6000s.zip"),
-                        1_234_567_890_123_456_789L,
-                        baseConfig),
-                Arguments.of(
-                        "0000000000000000000",
-                        "0000000000000000000.blk.zstd",
-                        configRootPath.concat("/000/000/000/000/000/0000s.zip"),
-                        0L,
-                        baseConfig),
-                Arguments.of(
-                        "0000000000000000010",
-                        "0000000000000000010.blk.zstd",
-                        configRootPath.concat("/000/000/000/000/000/0000s.zip"),
-                        10L,
-                        baseConfig),
-                Arguments.of(
-                        "0000000000000000100",
-                        "0000000000000000100.blk.zstd",
-                        configRootPath.concat("/000/000/000/000/000/0000s.zip"),
-                        100L,
-                        baseConfig),
-                Arguments.of(
-                        "0000000000000001000",
-                        "0000000000000001000.blk.zstd",
-                        configRootPath.concat("/000/000/000/000/000/1000s.zip"),
-                        1_000L,
-                        baseConfig),
-                Arguments.of(
-                        "0000000000000010000",
-                        "0000000000000010000.blk.zstd",
-                        configRootPath.concat("/000/000/000/000/001/0000s.zip"),
-                        10_000L,
-                        baseConfig),
-                Arguments.of(
-                        "0000000000000100000",
-                        "0000000000000100000.blk.zstd",
-                        configRootPath.concat("/000/000/000/000/010/0000s.zip"),
-                        100_000L,
-                        baseConfig),
-                Arguments.of(
-                        "0000000000001000000",
-                        "0000000000001000000.blk.zstd",
-                        configRootPath.concat("/000/000/000/000/100/0000s.zip"),
-                        1_000_000L,
-                        baseConfig),
-                Arguments.of(
-                        "0000000000010000000",
-                        "0000000000010000000.blk.zstd",
-                        configRootPath.concat("/000/000/000/001/000/0000s.zip"),
-                        10_000_000L,
-                        baseConfig),
-                Arguments.of(
-                        "0000000000100000000",
-                        "0000000000100000000.blk.zstd",
-                        configRootPath.concat("/000/000/000/010/000/0000s.zip"),
-                        100_000_000L,
-                        baseConfig),
-                Arguments.of(
-                        "0000000001000000000",
-                        "0000000001000000000.blk.zstd",
-                        configRootPath.concat("/000/000/000/100/000/0000s.zip"),
-                        1_000_000_000L,
-                        baseConfig),
-                Arguments.of(
-                        "0000000010000000000",
-                        "0000000010000000000.blk.zstd",
-                        configRootPath.concat("/000/000/001/000/000/0000s.zip"),
-                        10_000_000_000L,
-                        baseConfig),
-                Arguments.of(
-                        "0000000100000000000",
-                        "0000000100000000000.blk.zstd",
-                        configRootPath.concat("/000/000/010/000/000/0000s.zip"),
-                        100_000_000_000L,
-                        baseConfig),
-                Arguments.of(
-                        "0000001000000000000",
-                        "0000001000000000000.blk.zstd",
-                        configRootPath.concat("/000/000/100/000/000/0000s.zip"),
-                        1_000_000_000_000L,
-                        baseConfig),
-                Arguments.of(
-                        "0000010000000000000",
-                        "0000010000000000000.blk.zstd",
-                        configRootPath.concat("/000/001/000/000/000/0000s.zip"),
-                        10_000_000_000_000L,
-                        baseConfig),
-                Arguments.of(
-                        "0000100000000000000",
-                        "0000100000000000000.blk.zstd",
-                        configRootPath.concat("/000/010/000/000/000/0000s.zip"),
-                        100_000_000_000_000L,
-                        baseConfig),
-                Arguments.of(
-                        "0001000000000000000",
-                        "0001000000000000000.blk.zstd",
-                        configRootPath.concat("/000/100/000/000/000/0000s.zip"),
-                        1_000_000_000_000_000L,
-                        baseConfig),
-                Arguments.of(
-                        "0010000000000000000",
-                        "0010000000000000000.blk.zstd",
-                        configRootPath.concat("/001/000/000/000/000/0000s.zip"),
-                        10_000_000_000_000_000L,
-                        baseConfig),
-                Arguments.of(
-                        "0100000000000000000",
-                        "0100000000000000000.blk.zstd",
-                        configRootPath.concat("/010/000/000/000/000/0000s.zip"),
-                        100_000_000_000_000_000L,
-                        baseConfig),
-                Arguments.of(
-                        "9223372036854775807",
-                        "9223372036854775807.blk.zstd",
-                        configRootPath.concat("/922/337/203/685/477/5000s.zip"),
-                        Long.MAX_VALUE,
-                        baseConfig));
+        final List<Arguments> argumentsList = new ArrayList<>();
+        for(CompressionType compressionType : CompressionType.values()) {
+            argumentsList.addAll(List.of(
+                    Arguments.of(
+                            "0000000000123456789",
+                            "0000000000123456789.blk"+ compressionType.extension(),
+                            "/000/000/000/012/345/67/80s.zip",
+                            123_456_789L,
+                            compressionType,
+                            1),
+                    Arguments.of(
+                            "0000000000123456789",
+                            "0000000000123456789.blk"+ compressionType.extension(),
+                            "/000/000/000/012/345/6/700s.zip",
+                            123_456_789L,
+                            compressionType,
+                            2),
+                    Arguments.of(
+                            "0000000000123456789",
+                            "0000000000123456789.blk"+ compressionType.extension(),
+                            "/000/000/000/012/345/6000s.zip",
+                            123_456_789L,
+                            compressionType,
+                            3),
+                    Arguments.of(
+                            "0000000000123456789",
+                            "0000000000123456789.blk"+ compressionType.extension(),
+                            "/000/000/000/012/34/50000s.zip",
+                            123_456_789L,
+                            compressionType,
+                            4),
+                    Arguments.of(
+                            "0000000000123456789",
+                            "0000000000123456789.blk"+ compressionType.extension(),
+                            "/000/000/000/012/3/400000s.zip",
+                            123_456_789L,
+                            compressionType,
+                            5),
+                    Arguments.of(
+                            "0000000000000000000",
+                            "0000000000000000000.blk"+ compressionType.extension(),
+                            "/000/000/000/000/000/0000s.zip",
+                            0L,
+                            compressionType,
+                            3),
+                    Arguments.of(
+                            "0000000000000000010",
+                            "0000000000000000010.blk"+ compressionType.extension(),
+                            "/000/000/000/000/000/0000s.zip",
+                            10L,
+                            compressionType,
+                            3),
+                    Arguments.of(
+                            "0000000000000000100",
+                            "0000000000000000100.blk"+ compressionType.extension(),
+                            "/000/000/000/000/000/0000s.zip",
+                            100L,
+                            compressionType,
+                            3),
+                    Arguments.of(
+                            "0000000000000001000",
+                            "0000000000000001000.blk"+ compressionType.extension(),
+                            "/000/000/000/000/000/1000s.zip",
+                            1_000L,
+                            compressionType,
+                            3),
+                    Arguments.of(
+                            "0000000000000010000",
+                            "0000000000000010000.blk"+ compressionType.extension(),
+                            "/000/000/000/000/001/0000s.zip",
+                            10_000L,
+                            compressionType,
+                            3),
+                    Arguments.of(
+                            "0000000000000100000",
+                            "0000000000000100000.blk"+ compressionType.extension(),
+                            "/000/000/000/000/010/0000s.zip",
+                            100_000L,
+                            compressionType,
+                            3),
+                    Arguments.of(
+                            "0000000000001000000",
+                            "0000000000001000000.blk"+ compressionType.extension(),
+                            "/000/000/000/000/100/0000s.zip",
+                            1_000_000L,
+                            compressionType,
+                            3),
+                    Arguments.of(
+                            "0000000000010000000",
+                            "0000000000010000000.blk"+ compressionType.extension(),
+                            "/000/000/000/001/000/0000s.zip",
+                            10_000_000L,
+                            compressionType,
+                            3),
+                    Arguments.of(
+                            "0000000000100000000",
+                            "0000000000100000000.blk"+ compressionType.extension(),
+                            "/000/000/000/010/000/0000s.zip",
+                            100_000_000L,
+                            compressionType,
+                            3),
+                    Arguments.of(
+                            "0000000001000000000",
+                            "0000000001000000000.blk"+ compressionType.extension(),
+                            "/000/000/000/100/000/0000s.zip",
+                            1_000_000_000L,
+                            compressionType,
+                            3),
+                    Arguments.of(
+                            "0000000010000000000",
+                            "0000000010000000000.blk"+ compressionType.extension(),
+                            "/000/000/001/000/000/0000s.zip",
+                            10_000_000_000L,
+                            compressionType,
+                            3),
+                    Arguments.of(
+                            "0000000100000000000",
+                            "0000000100000000000.blk"+ compressionType.extension(),
+                            "/000/000/010/000/000/0000s.zip",
+                            100_000_000_000L,
+                            compressionType,
+                            3),
+                    Arguments.of(
+                            "0000001000000000000",
+                            "0000001000000000000.blk"+ compressionType.extension(),
+                            "/000/000/100/000/000/0000s.zip",
+                            1_000_000_000_000L,
+                            compressionType,
+                            3),
+                    Arguments.of(
+                            "0000010000000000000",
+                            "0000010000000000000.blk"+ compressionType.extension(),
+                            "/000/001/000/000/000/0000s.zip",
+                            10_000_000_000_000L,
+                            compressionType,
+                            3),
+                    Arguments.of(
+                            "0000100000000000000",
+                            "0000100000000000000.blk"+ compressionType.extension(),
+                            "/000/010/000/000/000/0000s.zip",
+                            100_000_000_000_000L,
+                            compressionType,
+                            3),
+                    Arguments.of(
+                            "0001000000000000000",
+                            "0001000000000000000.blk"+ compressionType.extension(),
+                            "/000/100/000/000/000/0000s.zip",
+                            1_000_000_000_000_000L,
+                            compressionType,
+                            3),
+                    Arguments.of(
+                            "0010000000000000000",
+                            "0010000000000000000.blk"+ compressionType.extension(),
+                            "/001/000/000/000/000/0000s.zip",
+                            10_000_000_000_000_000L,
+                            compressionType,
+                            3),
+                    Arguments.of(
+                            "0100000000000000000",
+                            "0100000000000000000.blk"+ compressionType.extension(),
+                            "/010/000/000/000/000/0000s.zip",
+                            100_000_000_000_000_000L,
+                            compressionType,
+                            3),
+                    Arguments.of(
+                            "9223372036854775807",
+                            "9223372036854775807.blk"+ compressionType.extension(),
+                            "/922/337/203/685/477/5000s.zip",
+                            Long.MAX_VALUE,
+                            compressionType,
+                            3)
+            ));
+        }
+        return argumentsList.stream();
     }
 }
