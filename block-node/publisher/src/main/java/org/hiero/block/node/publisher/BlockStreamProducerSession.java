@@ -176,9 +176,9 @@ public final class BlockStreamProducerSession implements Pipeline<List<BlockItem
         // let client know we do not need more data for the current block
         if (responsePipeline != null) {
             try {
-                final PublishStreamResponse behindResponse = new PublishStreamResponse(
-                        new OneOf<>(ResponseOneOfType.ACKNOWLEDGEMENT, new SkipBlock(currentBlockNumber)));
-                responsePipeline.onNext(behindResponse);
+                final PublishStreamResponse skipBlockResponse = new PublishStreamResponse(
+                        new OneOf<>(ResponseOneOfType.SKIP_BLOCK, new SkipBlock(currentBlockNumber)));
+                responsePipeline.onNext(skipBlockResponse);
             } catch (ClassCastException e) {
                 // temporary until we find out why it cannot cast skipblock to ack
                 LOGGER.log(WARNING, "Session {0} has thrown an exception: {1}", this, e.getMessage());
