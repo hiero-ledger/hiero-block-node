@@ -4,7 +4,10 @@ package org.hiero.block.node.blocks.files.historic;
 import static org.hiero.block.node.base.BlockFile.BLOCK_FILE_EXTENSION;
 import static org.hiero.block.node.base.BlockFile.blockNumberFormated;
 
+import edu.umd.cs.findbugs.annotations.NonNull;
 import java.nio.file.Path;
+import java.util.Objects;
+import org.hiero.block.common.utils.Preconditions;
 
 /**
  * Record for block path components
@@ -15,14 +18,32 @@ import java.nio.file.Path;
  * @param blockFileName The name of the block file in the zip file
  */
 record BlockPath(Path dirPath, Path zipFilePath, String blockNumStr, String blockFileName) {
+    /**
+     * Constructor.
+     *
+     * @param dirPath       valid, non-null path to the directory that contains the zip file
+     * @param zipFilePath   valid, non-null path to the zip file
+     * @param blockNumStr   valid, non-blank block number string
+     * @param blockFileName valid, non-blank block file name
+     */
+    BlockPath {
+        Objects.requireNonNull(dirPath);
+        Objects.requireNonNull(zipFilePath);
+        Preconditions.requireNotBlank(blockNumStr);
+        Preconditions.requireNotBlank(blockFileName);
+    }
 
     /**
-     * Compute the path to a block file
+     * Compute the path to a block file.
      *
-     * @param blockNumber The block number
+     * @param config      The configuration for the block provider, must be non-null
+     * @param blockNumber The block number, must be a whole number
+     *
      * @return The path to the block file
      */
-    static BlockPath computeBlockPath(final FilesHistoricConfig config, final long blockNumber) {
+    static BlockPath computeBlockPath(@NonNull final FilesHistoricConfig config, final long blockNumber) {
+        Objects.requireNonNull(config);
+        Preconditions.requireWhole(blockNumber);
         // convert block number to string
         final String blockNumberStr = blockNumberFormated(blockNumber);
         // split string into digits for zip and for directories
