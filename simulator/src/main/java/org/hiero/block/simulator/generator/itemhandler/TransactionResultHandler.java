@@ -41,19 +41,24 @@ public class TransactionResultHandler extends AbstractBlockItemHandler {
         long debitAccount = generateRandomValue(1, 100);
         long amount = generateRandomValue(100, 200);
 
+        long shard = generateRandomValue(1, 100);
+        long realm = generateRandomValue(1, 100);
+
         return TransferList.newBuilder()
-                .addAccountAmounts(createAccountAmount(creditAccount, -amount))
-                .addAccountAmounts(createAccountAmount(debitAccount, amount))
+                .addAccountAmounts(createAccountAmount(shard, realm, creditAccount, -amount))
+                .addAccountAmounts(createAccountAmount(shard, realm, debitAccount, amount))
                 .build();
     }
 
-    private AccountAmount createAccountAmount(long accountNum, long accountAmount) {
+    private AccountAmount createAccountAmount(long shardNum, long realmNum, long accountNum, long accountAmount) {
         Preconditions.requirePositive(accountNum);
         // todo(700) Add support for non-zero shard/realm entity
+        Preconditions.requirePositive(shardNum);
+        Preconditions.requirePositive(realmNum);
         return AccountAmount.newBuilder()
                 .setAccountID(AccountID.newBuilder()
-                        .setRealmNum(0)
-                        .setShardNum(0)
+                        .setRealmNum(realmNum)
+                        .setShardNum(shardNum)
                         .setAccountNum(accountNum)
                         .build())
                 .setAmount(accountAmount)
@@ -66,10 +71,16 @@ public class TransactionResultHandler extends AbstractBlockItemHandler {
         long debitAccount = generateRandomValue(1, 100);
         long amount = generateRandomValue(100, 200);
 
+        long shard = generateRandomValue(1, 100);
+        long realm = generateRandomValue(1, 100);
+
         return TokenTransferList.newBuilder()
-                .setToken(TokenID.newBuilder().setRealmNum(0).setShardNum(0).setTokenNum(tokenId))
-                .addTransfers(createAccountAmount(creditAccount, -amount))
-                .addTransfers(createAccountAmount(debitAccount, amount))
+                .setToken(TokenID.newBuilder()
+                        .setRealmNum(shard)
+                        .setShardNum(realm)
+                        .setTokenNum(tokenId))
+                .addTransfers(createAccountAmount(shard, realm, creditAccount, -amount))
+                .addTransfers(createAccountAmount(shard, realm, debitAccount, amount))
                 .build();
     }
 }
