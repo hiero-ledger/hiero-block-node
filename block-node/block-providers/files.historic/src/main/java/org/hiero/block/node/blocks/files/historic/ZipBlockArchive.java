@@ -81,7 +81,12 @@ public class ZipBlockArchive {
             zipOutputStream.setMethod(ZipOutputStream.STORED);
             for (long blockNumber = firstBlockNumber; blockNumber < lastBlockNumber; blockNumber++) {
                 // compute block filename
-                final String blockFileName = BlockFile.blockFileName(blockNumber);
+                // todo should we also not append the compression extension to the filename?
+                // todo I feel like the accessor should generally be getting us the block file name
+                //   what if the file is zstd compressed but the current runtime compression is none?
+                //   then the file name would be wrong?
+                final String blockFileName = BlockFile.blockFileName(blockNumber)
+                        .concat(config.compression().extension());
                 // get block accessor
                 final BlockAccessor blockAccessor = blockAccessors.get((int) (blockNumber - firstBlockNumber));
                 // get the bytes to write, we have to do this as we need to know the size
@@ -115,7 +120,8 @@ public class ZipBlockArchive {
         final BlockPath blockPath = computeBlockPath(config, blockNumber);
         if (Files.exists(blockPath.zipFilePath())) {
             return new ZipBlockAccessor(blockPath);
-        }
+        } // todo should we also not check if the entry exists so that we know
+        //     for sure that the block exists?
         return null;
     }
 
