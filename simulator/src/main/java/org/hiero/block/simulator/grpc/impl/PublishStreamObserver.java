@@ -7,7 +7,6 @@ import static java.util.Objects.requireNonNull;
 
 import com.hedera.hapi.block.protoc.PublishStreamResponse;
 import com.hedera.hapi.block.protoc.PublishStreamResponse.BlockAcknowledgement;
-import com.hedera.hapi.block.protoc.PublishStreamResponseCode;
 import edu.umd.cs.findbugs.annotations.NonNull;
 import io.grpc.Status;
 import io.grpc.stub.StreamObserver;
@@ -60,18 +59,22 @@ public class PublishStreamObserver implements StreamObserver<PublishStreamRespon
         if (lastKnownStatuses.size() >= lastKnownStatusesCapacity) {
             lastKnownStatuses.pollFirst();
         }
-        final BlockAcknowledgement ack =
-                publishStreamResponse.getAcknowledgement().getBlockAck();
-        final PublishStreamResponseCode responseCode =
-                publishStreamResponse.getStatus().getStatus();
-        try {
-            startupData.updateLatestAckBlockStartupData(
-                    ack.getBlockNumber(),
-                    ack.getBlockRootHash().toByteArray(),
-                    ack.getBlockAlreadyExists(),
-                    responseCode);
-        } catch (final IOException e) {
-            throw new UncheckedIOException(e);
+
+        if (publishStreamResponse.hasAcknowledgement()) {
+            final BlockAcknowledgement ack =
+                    publishStreamResponse.getAcknowledgement().getBlockAck();
+            try {
+                startupData.updateLatestAckBlockStartupData(
+                        ack.getBlockNumber(), ack.getBlockRootHash().toByteArray(), ack.getBlockAlreadyExists());
+            } catch (final IOException e) {
+                throw new UncheckedIOException(e);
+            }
+        } else if (publishStreamResponse.hasResendBlock()) {
+            // TODO handle resend block response
+        } else if (publishStreamResponse.hasSkipBlock()) {
+            // TODO handle skip block response
+        } else if (publishStreamResponse.hasEndStream()) {
+            // TODO handle end of stream response
         }
         lastKnownStatuses.add(publishStreamResponse.toString());
         LOGGER.log(INFO, "Received Response: " + publishStreamResponse);
@@ -79,7 +82,7 @@ public class PublishStreamObserver implements StreamObserver<PublishStreamRespon
 
     /**
      * Handles stream errors by disabling the stream and logging the error.
-     * Currently stops the stream for all errors, but could be enhanced with
+     * Currently, stops the stream for all errors, but could be enhanced with
      * retry logic in the future.
      *
      * @param streamError The error that occurred during streaming
