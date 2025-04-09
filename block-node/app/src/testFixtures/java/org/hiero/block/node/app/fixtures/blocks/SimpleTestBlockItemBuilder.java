@@ -11,7 +11,10 @@ import com.hedera.hapi.node.base.SemanticVersion;
 import com.hedera.hapi.node.base.Timestamp;
 import com.hedera.pbj.runtime.OneOf;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
+import java.util.ArrayList;
 import java.util.Collections;
+import java.util.List;
+import org.hiero.block.node.spi.blockmessaging.BlockItems;
 import org.hiero.hapi.block.node.BlockItemUnparsed;
 
 /**
@@ -89,14 +92,7 @@ public final class SimpleTestBlockItemBuilder {
      * @return an array of BlockItem objects
      */
     public static BlockItem[] createNumberOfVerySimpleBlocks(final int numberOfBlocks) {
-        final BlockItem[] blockItems = new BlockItem[numberOfBlocks * 3];
-        for (int i = 0; i < blockItems.length; i += 3) {
-            long blockNumber = i / 3;
-            blockItems[i] = sampleBlockHeader(blockNumber);
-            blockItems[i + 1] = sampleRoundHeader(blockNumber * 10);
-            blockItems[i + 2] = sampleBlockProof(blockNumber);
-        }
-        return blockItems;
+        return createNumberOfVerySimpleBlocks(0, numberOfBlocks);
     }
 
     /**
@@ -107,13 +103,15 @@ public final class SimpleTestBlockItemBuilder {
      * @param endBlockNumber the ending block number, non-inclusive
      * @return an array of BlockItem objects
      */
-    public static BlockItem[] createNumberOfVerySimpleBlocks(final long startBlockNumber, final int endBlockNumber) {
-        final int numberOfBlocks = (int) (endBlockNumber - startBlockNumber);
+    public static BlockItem[] createNumberOfVerySimpleBlocks(final int startBlockNumber, final int endBlockNumber) {
+        assert startBlockNumber < endBlockNumber;
+        assert startBlockNumber >= 0;
+        final int numberOfBlocks = endBlockNumber - startBlockNumber;
         final BlockItem[] blockItems = new BlockItem[numberOfBlocks * 3];
-        for (long blockNumber = startBlockNumber; blockNumber < endBlockNumber; blockNumber++) {
-            final int i = (int) ((blockNumber - startBlockNumber) * 3);
+        for (int blockNumber = startBlockNumber; blockNumber < endBlockNumber; blockNumber++) {
+            final int i = (blockNumber - startBlockNumber) * 3;
             blockItems[i] = sampleBlockHeader(blockNumber);
-            blockItems[i + 1] = sampleRoundHeader(blockNumber * 10);
+            blockItems[i + 1] = sampleRoundHeader(blockNumber * 10L);
             blockItems[i + 2] = sampleBlockProof(blockNumber);
         }
         return blockItems;
@@ -126,6 +124,14 @@ public final class SimpleTestBlockItemBuilder {
      * @return an array of BlockItem objects
      */
     public static BlockItemUnparsed[] createNumberOfVerySimpleBlocksUnparsed(final int numberOfBlocks) {
+        return createNumberOfVerySimpleBlocksUnparsed(0, numberOfBlocks);
+    }
+
+    public static BlockItemUnparsed[] createNumberOfVerySimpleBlocksUnparsed(
+            final int startBlockNumber, final int endBlockNumber) {
+        assert startBlockNumber < endBlockNumber;
+        assert startBlockNumber >= 0;
+        final int numberOfBlocks = endBlockNumber - startBlockNumber;
         final BlockItemUnparsed[] blockItems = new BlockItemUnparsed[numberOfBlocks * 3];
         for (int i = 0; i < blockItems.length; i += 3) {
             long blockNumber = i / 3;
@@ -134,6 +140,25 @@ public final class SimpleTestBlockItemBuilder {
             blockItems[i + 2] = sampleBlockProofUnparsed(blockNumber);
         }
         return blockItems;
+    }
+
+    public static BlockItems[] createNumberOfSimpleBlockBatches(final int numberOfBatches) {
+        return createNumberOfSimpleBlockBatches(0, numberOfBatches);
+    }
+
+    public static BlockItems[] createNumberOfSimpleBlockBatches(final int startBlockNumber, final int endBlockNumber) {
+        assert startBlockNumber < endBlockNumber;
+        assert startBlockNumber >= 0;
+        final int numberOfBatches = endBlockNumber - startBlockNumber;
+        final BlockItems[] batches = new BlockItems[numberOfBatches];
+        for (int i = startBlockNumber; i < endBlockNumber; i++) {
+            List<BlockItemUnparsed> oneBatch = new ArrayList<>(3);
+            oneBatch.add(sampleBlockHeaderUnparsed(i));
+            oneBatch.add(sampleRoundHeaderUnparsed(i * 10L));
+            oneBatch.add(sampleBlockProofUnparsed(i));
+            batches[i - startBlockNumber] = new BlockItems(oneBatch, i);
+        }
+        return batches;
     }
 
     private SimpleTestBlockItemBuilder() {}
