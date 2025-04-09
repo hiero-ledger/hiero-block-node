@@ -1,6 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.node.access.service;
 
+import static java.lang.System.Logger.Level.DEBUG;
+import static java.lang.System.Logger.Level.ERROR;
+import static java.lang.System.Logger.Level.INFO;
+
 import com.hedera.hapi.block.stream.Block;
 import com.hedera.pbj.runtime.grpc.GrpcException;
 import com.hedera.pbj.runtime.grpc.Pipeline;
@@ -30,12 +34,12 @@ public class BlockAccessServicePlugin implements BlockNodePlugin, ServiceInterfa
     private HistoricalBlockFacility blockProvider;
     /** Counter for the number of requests */
     private Counter requestCounter;
-    /** Counter for the number of requests Success */
-    private Counter requestCounterSuccess;
-    /** Counter for the number of requests */
-    private Counter requestCounterNotAvailable;
-    /** Counter for the number of requests */
-    private Counter requestCounterNotFound;
+    /** Counter for the number of responses Success */
+    private Counter responseCounterSuccess;
+    /** Counter for the number of responses not available */
+    private Counter responseCounterNotAvailable;
+    /** Counter for the number of responses not found */
+    private Counter responseCounterNotFound;
 
     /**
      * Handle a request for a single block
@@ -44,20 +48,14 @@ public class BlockAccessServicePlugin implements BlockNodePlugin, ServiceInterfa
      * @return the response containing the block or an error status
      */
     private SingleBlockResponse handleSingleBlockRequest(SingleBlockRequest request) {
-        LOGGER.log(
-                System.Logger.Level.DEBUG, "Received SingleBlockRequest for block number: {0}", request.blockNumber());
+        LOGGER.log(DEBUG, "Received SingleBlockRequest for block number: {0}", request.blockNumber());
         requestCounter.increment();
 
         try {
-            // Validate request
+            // Log in case both block_number and retrieve_latest are set, this should not happen (but we allow it)
             if (request.retrieveLatest() && request.blockNumber() != 0) {
-                // LOGGER.log(System.Logger.Level.WARNING, "Invalid request: both block_number and retrieve_latest
-                // set");
-                // requestCounterNotFound.increment();
-                // return new SingleBlockResponse(SingleBlockResponseCode.READ_BLOCK_NOT_FOUND, null);
-
                 LOGGER.log(
-                        System.Logger.Level.WARNING,
+                        INFO,
                         "Both block_number and retrieve_latest set. Using retrieve_latest instead of block_number: {0}",
                         request.blockNumber());
             }
@@ -65,10 +63,10 @@ public class BlockAccessServicePlugin implements BlockNodePlugin, ServiceInterfa
 
             // if retrieveLatest is set, get the latest block number
             if (request.retrieveLatest()) {
-                blockNumberToRetrieve = blockProvider.latestBlockNumber();
+                blockNumberToRetrieve = blockProvider.availableBlocks().max();
                 if (blockNumberToRetrieve < 0) {
-                    LOGGER.log(System.Logger.Level.WARNING, "Latest block number not available");
-                    requestCounterNotAvailable.increment();
+                    LOGGER.log(INFO, "Latest block number not available");
+                    responseCounterNotAvailable.increment();
                     return new SingleBlockResponse(SingleBlockResponseCode.READ_BLOCK_NOT_AVAILABLE, null);
                 }
             } else {
@@ -76,28 +74,28 @@ public class BlockAccessServicePlugin implements BlockNodePlugin, ServiceInterfa
             }
 
             // Check if block is within available range
-            long lowestBlockNumber = blockProvider.oldestBlockNumber();
-            long highestBlockNumber = blockProvider.latestBlockNumber();
+            long lowestBlockNumber = blockProvider.availableBlocks().min();
+            long highestBlockNumber = blockProvider.availableBlocks().max();
 
             if (blockNumberToRetrieve < lowestBlockNumber || blockNumberToRetrieve > highestBlockNumber) {
                 LOGGER.log(
-                        System.Logger.Level.WARNING,
+                        DEBUG,
                         "Requested block {0} is outside available range [{1}, {2}]",
                         blockNumberToRetrieve,
                         lowestBlockNumber,
                         highestBlockNumber);
-                requestCounterNotAvailable.increment();
+                responseCounterNotAvailable.increment();
                 return new SingleBlockResponse(SingleBlockResponseCode.READ_BLOCK_NOT_AVAILABLE, null);
             }
 
             // Retrieve the block
             Block block = blockProvider.block(blockNumberToRetrieve).block();
-            requestCounterSuccess.increment();
+            responseCounterSuccess.increment();
             return new SingleBlockResponse(SingleBlockResponseCode.READ_BLOCK_SUCCESS, block);
 
-        } catch (Exception e) {
-            LOGGER.log(System.Logger.Level.ERROR, "Failed to retrieve block number: {0}", request.blockNumber());
-            requestCounterNotFound.increment();
+        } catch (RuntimeException e) {
+            LOGGER.log(ERROR, "Failed to retrieve block number: {0}", request.blockNumber());
+            responseCounterNotFound.increment();
             return new SingleBlockResponse(SingleBlockResponseCode.READ_BLOCK_NOT_FOUND, null);
         }
     }
@@ -115,13 +113,13 @@ public class BlockAccessServicePlugin implements BlockNodePlugin, ServiceInterfa
         requestCounter = context.metrics()
                 .getOrCreate(new Counter.Config(METRICS_CATEGORY, "single-block-requests")
                         .withDescription("Number of single block requests"));
-        requestCounterSuccess = context.metrics()
+        responseCounterSuccess = context.metrics()
                 .getOrCreate(new Counter.Config(METRICS_CATEGORY, "single-block-requests-success")
                         .withDescription("Number of successful single block requests"));
-        requestCounterNotAvailable = context.metrics()
+        responseCounterNotAvailable = context.metrics()
                 .getOrCreate(new Counter.Config(METRICS_CATEGORY, "single-block-requests-not-available")
                         .withDescription("Number of single block requests that were not available"));
-        requestCounterNotFound = context.metrics()
+        responseCounterNotFound = context.metrics()
                 .getOrCreate(new Counter.Config(METRICS_CATEGORY, "single-block-requests-not-found")
                         .withDescription("Number of single block requests that were not found"));
         // Get the block provider
