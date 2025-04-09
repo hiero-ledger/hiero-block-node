@@ -12,13 +12,6 @@ import static org.hiero.block.node.spi.BlockNodePlugin.UNKNOWN_BLOCK_NUMBER;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 
-import com.hedera.hapi.block.Acknowledgement;
-import com.hedera.hapi.block.BlockAcknowledgement;
-import com.hedera.hapi.block.BlockItemSet;
-import com.hedera.hapi.block.PublishStreamRequest;
-import com.hedera.hapi.block.PublishStreamRequest.RequestOneOfType;
-import com.hedera.hapi.block.PublishStreamResponse;
-import com.hedera.hapi.block.PublishStreamResponseCode;
 import com.hedera.hapi.block.stream.BlockItem;
 import com.hedera.pbj.runtime.OneOf;
 import com.hedera.pbj.runtime.ParseException;
@@ -30,6 +23,13 @@ import org.hiero.block.node.app.fixtures.plugintest.GrpcPluginTestBase;
 import org.hiero.block.node.app.fixtures.plugintest.NoBlocksHistoricalBlockFacility;
 import org.hiero.block.node.spi.blockmessaging.BlockNotification;
 import org.hiero.block.node.spi.blockmessaging.BlockNotification.Type;
+import org.hiero.hapi.block.node.BlockItemSet;
+import org.hiero.hapi.block.node.PublishStreamRequest;
+import org.hiero.hapi.block.node.PublishStreamRequest.RequestOneOfType;
+import org.hiero.hapi.block.node.PublishStreamResponse;
+import org.hiero.hapi.block.node.PublishStreamResponse.Acknowledgement;
+import org.hiero.hapi.block.node.PublishStreamResponse.BlockAcknowledgement;
+import org.hiero.hapi.block.node.PublishStreamResponseCode;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 

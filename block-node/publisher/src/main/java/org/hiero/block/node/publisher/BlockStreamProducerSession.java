@@ -6,11 +6,6 @@ import static java.lang.System.Logger.Level.WARNING;
 import static java.util.Objects.requireNonNull;
 import static org.hiero.block.node.spi.BlockNodePlugin.UNKNOWN_BLOCK_NUMBER;
 
-import com.hedera.hapi.block.PublishStreamResponse;
-import com.hedera.hapi.block.PublishStreamResponse.Acknowledgement;
-import com.hedera.hapi.block.PublishStreamResponse.BlockAcknowledgement;
-import com.hedera.hapi.block.PublishStreamResponse.EndOfStream;
-import com.hedera.hapi.block.PublishStreamResponseCode;
 import com.hedera.hapi.block.stream.output.BlockHeader;
 import com.hedera.pbj.runtime.OneOf;
 import com.hedera.pbj.runtime.ParseException;
@@ -25,7 +20,16 @@ import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.Consumer;
 import org.hiero.block.node.publisher.UpdateCallback.UpdateType;
 import org.hiero.block.node.spi.BlockNodePlugin;
+import org.hiero.block.node.spi.blockmessaging.BlockItems;
 import org.hiero.hapi.block.node.BlockItemUnparsed;
+import org.hiero.hapi.block.node.PublishStreamResponse;
+import org.hiero.hapi.block.node.PublishStreamResponse.Acknowledgement;
+import org.hiero.hapi.block.node.PublishStreamResponse.BlockAcknowledgement;
+import org.hiero.hapi.block.node.PublishStreamResponse.EndOfStream;
+import org.hiero.hapi.block.node.PublishStreamResponse.ResendBlock;
+import org.hiero.hapi.block.node.PublishStreamResponse.ResponseOneOfType;
+import org.hiero.hapi.block.node.PublishStreamResponse.SkipBlock;
+import org.hiero.hapi.block.node.PublishStreamResponseCode;
 
 /**
  * BlockStreamProducerSession is a session for a block stream producer. It handles the incoming block stream and sends
