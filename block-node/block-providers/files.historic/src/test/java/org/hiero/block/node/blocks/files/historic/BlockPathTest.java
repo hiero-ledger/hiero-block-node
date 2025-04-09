@@ -166,7 +166,10 @@ class BlockPathTest {
          * number and default configuration.
          */
         @ParameterizedTest
-        @MethodSource("org.hiero.block.node.blocks.files.historic.BlockPathTest#validBlockPathsDefaultConfig")
+        @MethodSource({
+            //            "org.hiero.block.node.blocks.files.historic.BlockPathTest#validBlockPathsDefaultConfig",
+            "org.hiero.block.node.blocks.files.historic.BlockPathTest#validBlockPathsConfigVariation1"
+        })
         @DisplayName("Test computeBlockPath with valid inputs")
         void testComputeBlockPath(
                 final String expectedBlockNumStr,
@@ -194,7 +197,7 @@ class BlockPathTest {
     }
 
     /**
-     * Stream of arguments of valid block paths.
+     * Stream of arguments of valid block paths with default config.
      */
     private static Stream<Arguments> validBlockPathsDefaultConfig() {
         // default configuration
@@ -209,6 +212,147 @@ class BlockPathTest {
                         "0000000000123456789",
                         "0000000000123456789.blk.zstd",
                         configRootPath.concat("/000/000/000/012/345/6000s.zip"),
+                        123_456_789L,
+                        baseConfig),
+                Arguments.of(
+                        "1234567890123456789",
+                        "1234567890123456789.blk.zstd",
+                        configRootPath.concat("/123/456/789/012/345/6000s.zip"),
+                        1_234_567_890_123_456_789L,
+                        baseConfig),
+                Arguments.of(
+                        "0000000000000000000",
+                        "0000000000000000000.blk.zstd",
+                        configRootPath.concat("/000/000/000/000/000/0000s.zip"),
+                        0L,
+                        baseConfig),
+                Arguments.of(
+                        "0000000000000000010",
+                        "0000000000000000010.blk.zstd",
+                        configRootPath.concat("/000/000/000/000/000/0000s.zip"),
+                        10L,
+                        baseConfig),
+                Arguments.of(
+                        "0000000000000000100",
+                        "0000000000000000100.blk.zstd",
+                        configRootPath.concat("/000/000/000/000/000/0000s.zip"),
+                        100L,
+                        baseConfig),
+                Arguments.of(
+                        "0000000000000001000",
+                        "0000000000000001000.blk.zstd",
+                        configRootPath.concat("/000/000/000/000/000/1000s.zip"),
+                        1_000L,
+                        baseConfig),
+                Arguments.of(
+                        "0000000000000010000",
+                        "0000000000000010000.blk.zstd",
+                        configRootPath.concat("/000/000/000/000/001/0000s.zip"),
+                        10_000L,
+                        baseConfig),
+                Arguments.of(
+                        "0000000000000100000",
+                        "0000000000000100000.blk.zstd",
+                        configRootPath.concat("/000/000/000/000/010/0000s.zip"),
+                        100_000L,
+                        baseConfig),
+                Arguments.of(
+                        "0000000000001000000",
+                        "0000000000001000000.blk.zstd",
+                        configRootPath.concat("/000/000/000/000/100/0000s.zip"),
+                        1_000_000L,
+                        baseConfig),
+                Arguments.of(
+                        "0000000000010000000",
+                        "0000000000010000000.blk.zstd",
+                        configRootPath.concat("/000/000/000/001/000/0000s.zip"),
+                        10_000_000L,
+                        baseConfig),
+                Arguments.of(
+                        "0000000000100000000",
+                        "0000000000100000000.blk.zstd",
+                        configRootPath.concat("/000/000/000/010/000/0000s.zip"),
+                        100_000_000L,
+                        baseConfig),
+                Arguments.of(
+                        "0000000001000000000",
+                        "0000000001000000000.blk.zstd",
+                        configRootPath.concat("/000/000/000/100/000/0000s.zip"),
+                        1_000_000_000L,
+                        baseConfig),
+                Arguments.of(
+                        "0000000010000000000",
+                        "0000000010000000000.blk.zstd",
+                        configRootPath.concat("/000/000/001/000/000/0000s.zip"),
+                        10_000_000_000L,
+                        baseConfig),
+                Arguments.of(
+                        "0000000100000000000",
+                        "0000000100000000000.blk.zstd",
+                        configRootPath.concat("/000/000/010/000/000/0000s.zip"),
+                        100_000_000_000L,
+                        baseConfig),
+                Arguments.of(
+                        "0000001000000000000",
+                        "0000001000000000000.blk.zstd",
+                        configRootPath.concat("/000/000/100/000/000/0000s.zip"),
+                        1_000_000_000_000L,
+                        baseConfig),
+                Arguments.of(
+                        "0000010000000000000",
+                        "0000010000000000000.blk.zstd",
+                        configRootPath.concat("/000/001/000/000/000/0000s.zip"),
+                        10_000_000_000_000L,
+                        baseConfig),
+                Arguments.of(
+                        "0000100000000000000",
+                        "0000100000000000000.blk.zstd",
+                        configRootPath.concat("/000/010/000/000/000/0000s.zip"),
+                        100_000_000_000_000L,
+                        baseConfig),
+                Arguments.of(
+                        "0001000000000000000",
+                        "0001000000000000000.blk.zstd",
+                        configRootPath.concat("/000/100/000/000/000/0000s.zip"),
+                        1_000_000_000_000_000L,
+                        baseConfig),
+                Arguments.of(
+                        "0010000000000000000",
+                        "0010000000000000000.blk.zstd",
+                        configRootPath.concat("/001/000/000/000/000/0000s.zip"),
+                        10_000_000_000_000_000L,
+                        baseConfig),
+                Arguments.of(
+                        "0100000000000000000",
+                        "0100000000000000000.blk.zstd",
+                        configRootPath.concat("/010/000/000/000/000/0000s.zip"),
+                        100_000_000_000_000_000L,
+                        baseConfig),
+                Arguments.of(
+                        "9223372036854775807",
+                        "9223372036854775807.blk.zstd",
+                        configRootPath.concat("/922/337/203/685/477/5000s.zip"),
+                        Long.MAX_VALUE,
+                        baseConfig));
+    }
+
+    /**
+     * Stream of arguments of valid block paths with config variation 1.
+     */
+    private static Stream<Arguments> validBlockPathsConfigVariation1() {
+        // default configuration
+        final FilesHistoricConfig baseConfig = ConfigurationBuilder.create()
+                .withConfigDataType(FilesHistoricConfig.class)
+                .withValue("files.historic.digitsPerDir", "1")
+                .build()
+                .getConfigData(FilesHistoricConfig.class);
+        // root path from config, to use below to create the zip file path (concat)
+        final String configRootPath = baseConfig.rootPath().toString();
+        return Stream.of(
+                Arguments.of(
+                        "0000000000123456789",
+                        "0000000000123456789.blk.zstd",
+                        configRootPath.concat("/0/0/0/0/0/0/0/0/0/0/1/2/3/4/5/6000s.zip"),
                         123_456_789L,
                         baseConfig),
                 Arguments.of(
