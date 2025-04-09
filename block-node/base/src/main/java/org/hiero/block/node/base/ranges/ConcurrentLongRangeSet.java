@@ -6,8 +6,12 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.stream.Collectors;
 import java.util.stream.LongStream;
 import java.util.stream.Stream;
+import org.hiero.block.node.spi.BlockNodePlugin;
+import org.hiero.block.node.spi.historicalblocks.BlockRangeSet;
+import org.hiero.block.node.spi.historicalblocks.LongRange;
 
 /**
  * Collection that represents a set of long values. This is represented internally as a set of contiguous ranges of
@@ -21,7 +25,7 @@ import java.util.stream.Stream;
  * Long.MAX_VALUE-1 inclusive.
  */
 @SuppressWarnings("unused")
-public class ConcurrentLongRangeSet {
+public class ConcurrentLongRangeSet implements BlockRangeSet {
     /**
      * The main data for this set. It is an atomic reference to an immutable {@link List}.All other changes mean the
      * atomic reference's value will be replaced with a new immutable list. This means that all changes to the
@@ -46,13 +50,25 @@ public class ConcurrentLongRangeSet {
     }
 
     /**
-     * Constructs a LongRangeSet with multiple ranges.
+     * Constructs a LongRangeSet with multiple ranges. If there is more than one range they will be merged into a single
+     * set of ranges with no overlaps or duplication.
      *
      * @param longRanges the ranges to include in this set
      * @throws NullPointerException if longRanges is null
      */
     public ConcurrentLongRangeSet(LongRange... longRanges) {
-        ranges.set(List.of(longRanges));
+        if (longRanges.length == 0) {
+            this.ranges.set(Collections.emptyList());
+        } else if (longRanges.length == 1) {
+            this.ranges.set(List.of(longRanges[0]));
+        } else {
+            // Sort and merge the ranges
+            List<LongRange> ranges = List.of(longRanges[0]);
+            for (int i = 1; i < longRanges.length; i++) {
+                ranges = mergeRange(ranges, longRanges[i]);
+            }
+            this.ranges.set(ranges);
+        }
     }
 
     /**
@@ -61,6 +77,7 @@ public class ConcurrentLongRangeSet {
      * @param value the long value to check
      * @return true if the value is contained in any of the ranges, false otherwise
      */
+    @Override
     public boolean contains(long value) {
         if (value < 0 || value > Long.MAX_VALUE - 1) {
             return false;
@@ -90,6 +107,7 @@ public class ConcurrentLongRangeSet {
      * @param end the last value in range
      * @return true if the range is contained in any of the ranges, false otherwise
      */
+    @Override
     public boolean contains(long start, long end) {
         if (start < 0 || end > Long.MAX_VALUE - 1 || start > end) {
             return false;
@@ -143,11 +161,19 @@ public class ConcurrentLongRangeSet {
      */
     public void add(long start, long end) {
         // LongRange constructor will validate the range
-        LongRange newRange = new LongRange(start, end);
+        add(new LongRange(start, end));
+    }
 
+    /**
+     * Adds a new range to the set. This will append to the ends of any existing ranges if one matches otherwise it
+     * will add a new range. Only new values that are not in the set will be added.
+     *
+     * @param range the range to add
+     */
+    public void add(LongRange range) {
         while (true) {
             List<LongRange> currentRanges = ranges.get();
-            List<LongRange> newRanges = mergeRange(currentRanges, newRange);
+            List<LongRange> newRanges = mergeRange(currentRanges, range);
 
             // If ranges didn't change (already contained all values), no need to update
             if (newRanges == currentRanges) {
@@ -160,16 +186,6 @@ public class ConcurrentLongRangeSet {
             }
             // If CAS fails, retry with current ranges
         }
-    }
-
-    /**
-     * Adds a new range to the set. This will append to the ends of any existing ranges if one matches otherwise it
-     * will add a new range. Only new values that are not in the set will be added.
-     *
-     * @param range the range to add
-     */
-    public void add(LongRange range) {
-        add(range.start(), range.end());
     }
 
     /**
@@ -230,15 +246,19 @@ public class ConcurrentLongRangeSet {
      * @param end the last value in range
      */
     public void remove(long start, long end) {
-        if (start > end) {
-            throw new IllegalArgumentException("Range start must be less than or equal to end");
-        }
+        remove(new LongRange(start, end));
+    }
 
-        LongRange rangeToRemove = new LongRange(start, end);
-
+    /**
+     * Removes a range from the set. This will remove the range from any existing ranges. If the range is not in the set,
+     * no change will be made.
+     *
+     * @param range the range to remove
+     */
+    public void remove(LongRange range) {
         while (true) {
             List<LongRange> currentRanges = ranges.get();
-            List<LongRange> newRanges = removeRange(currentRanges, rangeToRemove);
+            List<LongRange> newRanges = removeRange(currentRanges, range);
 
             // If ranges didn't change, no need to update
             if (newRanges == currentRanges) {
@@ -251,16 +271,6 @@ public class ConcurrentLongRangeSet {
             }
             // If CAS fails, retry with current ranges
         }
-    }
-
-    /**
-     * Removes a range from the set. This will remove the range from any existing ranges. If the range is not in the set,
-     * no change will be made.
-     *
-     * @param range the range to remove
-     */
-    public void remove(LongRange range) {
-        remove(range.start(), range.end());
     }
 
     /**
@@ -359,7 +369,7 @@ public class ConcurrentLongRangeSet {
             lastAffected++;
         }
 
-        // Check if insertPosition is valid and we need to merge with any existing range
+        // Check if insertPosition is valid, and we need to merge with any existing range
         // Fix: Check that firstAffected is in bounds and either overlaps or is adjacent to newRange
         if (firstAffected < size
                 && (currentRanges.get(firstAffected).overlaps(newRange)
@@ -482,8 +492,37 @@ public class ConcurrentLongRangeSet {
      *
      * @return the number of long values in the set
      */
+    @Override
     public long size() {
         return ranges.get().stream().mapToLong(LongRange::size).sum();
+    }
+
+    /**
+     * Returns the minimum value in the set.
+     *
+     * @return the minimum value, or BlockNodePlugin.UNKNOWN_BLOCK_NUMBER if the set is empty
+     */
+    @Override
+    public long min() {
+        final List<LongRange> currentRanges = ranges.get();
+        if (currentRanges.isEmpty()) {
+            return BlockNodePlugin.UNKNOWN_BLOCK_NUMBER;
+        }
+        return currentRanges.getFirst().start();
+    }
+
+    /**
+     * Returns the maximum value in the set.
+     *
+     * @return the maximum value, or BlockNodePlugin.UNKNOWN_BLOCK_NUMBER if the set is empty
+     */
+    @Override
+    public long max() {
+        final List<LongRange> currentRanges = ranges.get();
+        if (currentRanges.isEmpty()) {
+            return BlockNodePlugin.UNKNOWN_BLOCK_NUMBER;
+        }
+        return currentRanges.getLast().end();
     }
 
     /**
@@ -500,6 +539,7 @@ public class ConcurrentLongRangeSet {
      *
      * @return a stream of long values in the set
      */
+    @Override
     public LongStream stream() {
         return ranges.get().stream().flatMapToLong(LongRange::stream);
     }
@@ -509,7 +549,20 @@ public class ConcurrentLongRangeSet {
      *
      * @return a stream of ranges in the set
      */
+    @Override
     public Stream<LongRange> streamRanges() {
         return ranges.get().stream();
+    }
+
+    /**
+     * Returns a string representation of the set.
+     *
+     * @return a string representation of the set in the format: "ConcurrentLongRangeSet{start->end, start->end, ...}"
+     */
+    @Override
+    public String toString() {
+        return "ConcurrentLongRangeSet{"
+                + ranges.get().stream().map(LongRange::toString).collect(Collectors.joining(", "))
+                + '}';
     }
 }

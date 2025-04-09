@@ -3,6 +3,7 @@ package org.hiero.block.node.blocks.cloud.archive;
 
 import org.hiero.block.node.spi.historicalblocks.BlockAccessor;
 import org.hiero.block.node.spi.historicalblocks.BlockProviderPlugin;
+import org.hiero.block.node.spi.historicalblocks.BlockRangeSet;
 
 /**
  * This a block provider plugin that stores blocks in a cloud archive. It designed to be read only. It intentionally
@@ -36,23 +37,8 @@ public class BlocksCloudArchivePlugin implements BlockProviderPlugin {
 
     /**
      * {@inheritDoc}
-     * <p>
-     * This method always returns UNKNOWN_BLOCK_NUMBER. This is because this plugin does not provide any blocks. It is a
-     * read only plugin that is used to archive block only.
      */
-    @Override
-    public long oldestBlockNumber() {
-        return UNKNOWN_BLOCK_NUMBER;
-    }
-
-    /**
-     * {@inheritDoc}
-     * <p>
-     * This method always returns UNKNOWN_BLOCK_NUMBER. This is because this plugin does not provide any blocks. It is a
-     * read only plugin that is used to archive block only.
-     */
-    @Override
-    public long latestBlockNumber() {
-        return UNKNOWN_BLOCK_NUMBER;
+    public BlockRangeSet availableBlocks() {
+        return BlockRangeSet.EMPTY;
     }
 }

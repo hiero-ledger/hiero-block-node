@@ -380,7 +380,8 @@ public final class PublisherServicePlugin implements BlockNodePlugin, ServiceInt
     @Override
     public void start() {
         // get the latest block number known to the system and add one for the current block
-        final long latestBlockNumber = context.historicalBlockProvider().latestBlockNumber();
+        final long latestBlockNumber =
+                context.historicalBlockProvider().availableBlocks().max();
         // check if we know of any blocks
         if (latestBlockNumber != UNKNOWN_BLOCK_NUMBER) {
             // set the current block number to the latest block number known + 1
@@ -422,7 +423,6 @@ public final class PublisherServicePlugin implements BlockNodePlugin, ServiceInt
      *
      * @param notification the block notification to handle
      */
-    @SuppressWarnings("RedundantLabeledSwitchRuleCodeBlock")
     @Override
     public void handleBlockNotification(@NonNull final BlockNotification notification) {
         Objects.requireNonNull(notification);

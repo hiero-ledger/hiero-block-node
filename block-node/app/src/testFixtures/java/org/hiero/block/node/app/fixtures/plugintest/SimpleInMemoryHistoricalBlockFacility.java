@@ -12,6 +12,7 @@ import java.util.concurrent.atomic.AtomicLong;
 import org.hiero.block.node.spi.blockmessaging.BlockItemHandler;
 import org.hiero.block.node.spi.blockmessaging.BlockItems;
 import org.hiero.block.node.spi.historicalblocks.BlockAccessor;
+import org.hiero.block.node.spi.historicalblocks.BlockRangeSet;
 import org.hiero.block.node.spi.historicalblocks.HistoricalBlockFacility;
 
 /**
@@ -20,8 +21,7 @@ import org.hiero.block.node.spi.historicalblocks.HistoricalBlockFacility;
  */
 public class SimpleInMemoryHistoricalBlockFacility implements HistoricalBlockFacility, BlockItemHandler {
     private final ConcurrentHashMap<Long, Block> blockStorage = new ConcurrentHashMap<>();
-    private final AtomicLong oldestBlockNumber = new AtomicLong(UNKNOWN_BLOCK_NUMBER);
-    private final AtomicLong latestBlockNumber = new AtomicLong(UNKNOWN_BLOCK_NUMBER);
+    private final SimpleBlockRangeSet availableBlocks = new SimpleBlockRangeSet();
     private final AtomicLong currentBlockNumber = new AtomicLong(UNKNOWN_BLOCK_NUMBER);
     private final List<BlockItems> partialBlock = new ArrayList<>();
 
@@ -45,7 +45,7 @@ public class SimpleInMemoryHistoricalBlockFacility implements HistoricalBlockFac
             }
             Block block = new Block(bi);
             blockStorage.put(currentBlockNumber.get(), block);
-            latestBlockNumber.set(currentBlockNumber.get());
+            availableBlocks.add(currentBlockNumber.get());
             currentBlockNumber.set(UNKNOWN_BLOCK_NUMBER);
             partialBlock.clear();
         }
@@ -64,15 +64,7 @@ public class SimpleInMemoryHistoricalBlockFacility implements HistoricalBlockFac
      * {@inheritDoc}
      */
     @Override
-    public long oldestBlockNumber() {
-        return oldestBlockNumber.get();
-    }
-
-    /**
-     * {@inheritDoc}
-     */
-    @Override
-    public long latestBlockNumber() {
-        return latestBlockNumber.get();
+    public BlockRangeSet availableBlocks() {
+        return availableBlocks;
     }
 }

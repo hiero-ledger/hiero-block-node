@@ -25,7 +25,7 @@ val cloneHederaProtobufs =
 
         // uncomment below to use a specific tag
         // tag = "v0.53.0" or a specific commit like "0047255"
-        tag = "e1a5ff21befe8fc3555b6d7dc7c848889ece19ce"
+        tag = "c71e879a03f713961f52fb774e706e38c5e9d48a"
 
         // uncomment below to use a specific branch
         // branch = "main"
