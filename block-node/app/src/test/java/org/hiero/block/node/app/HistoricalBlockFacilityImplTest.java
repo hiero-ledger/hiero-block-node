@@ -15,6 +15,7 @@ import java.util.ServiceLoader;
 import java.util.stream.Stream;
 import org.hiero.block.node.spi.historicalblocks.BlockAccessor;
 import org.hiero.block.node.spi.historicalblocks.BlockProviderPlugin;
+import org.hiero.block.node.spi.historicalblocks.BlockRangeSet;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -129,5 +130,42 @@ class HistoricalBlockFacilityImplTest {
         assertEquals(2, providers.size());
         assertTrue(providers.contains(provider1));
         assertTrue(providers.contains(provider2));
+    }
+
+    /**
+     * Tests the availableBlocks method.
+     */
+    @Test
+    @DisplayName("Test availableBlocks")
+    void testAvailableBlocks() {
+        BlockRangeSet mockRangeSet = mock(BlockRangeSet.class);
+        when(provider1.availableBlocks()).thenReturn(mockRangeSet);
+        when(provider2.availableBlocks()).thenReturn(mockRangeSet);
+
+        facility = new HistoricalBlockFacilityImpl(List.of(provider1, provider2));
+        BlockRangeSet result = facility.availableBlocks();
+
+        assertNotNull(result);
+        assertEquals(facility.availableBlocks(), result);
+    }
+
+    /**
+     * Tests the toString method.
+     */
+    @Test
+    @DisplayName("Test toString method")
+    void testToString() {
+        BlockRangeSet mockRangeSet = mock(BlockRangeSet.class);
+        when(provider1.availableBlocks()).thenReturn(mockRangeSet);
+        when(provider2.availableBlocks()).thenReturn(mockRangeSet);
+
+        facility = new HistoricalBlockFacilityImpl(List.of(provider1, provider2));
+        String result = facility.toString();
+
+        assertNotNull(result);
+        assertTrue(result.contains("HistoricalBlockFacilityImpl"));
+        assertTrue(result.contains("availableBlocks="));
+        assertTrue(result.contains(provider1.getClass().getSimpleName()));
+        assertTrue(result.contains(provider2.getClass().getSimpleName()));
     }
 }

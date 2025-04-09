@@ -4,7 +4,6 @@ package org.hiero.block.node.base.ranges;
 import static org.hiero.block.node.spi.BlockNodePlugin.UNKNOWN_BLOCK_NUMBER;
 
 import java.util.Arrays;
-import java.util.stream.Collectors;
 import java.util.stream.LongStream;
 import java.util.stream.Stream;
 import org.hiero.block.node.spi.historicalblocks.BlockRangeSet;
@@ -98,12 +97,10 @@ public class CombinedBlockRangeSet implements BlockRangeSet {
      */
     @Override
     public LongStream stream() {
-        final ConcurrentLongRangeSet combinedSet = new ConcurrentLongRangeSet();
-        Arrays.stream(blockRangeSets)
-                .flatMap(BlockRangeSet::streamRanges)
-                .collect(Collectors.toSet())
-                .forEach(combinedSet::add);
-        return combinedSet.stream();
+        return new ConcurrentLongRangeSet(Arrays.stream(blockRangeSets)
+                        .flatMap(BlockRangeSet::streamRanges)
+                        .toArray(LongRange[]::new))
+                .stream();
     }
 
     /**
