@@ -100,7 +100,6 @@ public class BlockAccessServicePlugin implements BlockNodePlugin, ServiceInterfa
         }
     }
 
-    // <editor-fold desc="BlockNodePlugin Methods">
     // ==== BlockNodePlugin Methods ====================================================================================
     @Override
     public String name() {
@@ -128,11 +127,7 @@ public class BlockAccessServicePlugin implements BlockNodePlugin, ServiceInterfa
         serviceBuilder.registerGrpcService(this);
     }
 
-    // </editor-fold>
-
-    // <editor-fold desc="ServiceInterface Methods">
     // ==== ServiceInterface Methods ===================================================================================
-
     /**
      * BlockAccessService methods define the gRPC methods available on the BlockAccessService.
      */
@@ -191,6 +186,4 @@ public class BlockAccessServicePlugin implements BlockNodePlugin, ServiceInterfa
                         .build();
         };
     }
-
-    // </editor-fold>
 }
