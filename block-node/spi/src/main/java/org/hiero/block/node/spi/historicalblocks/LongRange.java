@@ -26,17 +26,21 @@ public record LongRange(long start, long end) implements Comparable<LongRange> {
      *                                  or if start is greater than end
      */
     public LongRange {
-        if (start < 0) {
-            throw new IllegalArgumentException("Range start must be non-negative: " + start);
-        }
-        if (end < 0) {
-            throw new IllegalArgumentException("Range end must be non-negative: " + end);
-        }
-        if (start > end) {
-            throw new IllegalArgumentException("Range start must be less than or equal to end: " + start + " > " + end);
-        }
-        if (end > Long.MAX_VALUE - 1) {
-            throw new IllegalArgumentException("Range end must be less than or equal to Long.MAX_VALUE-1: " + end);
+        // Special case: allow both start and end to be -1 for clean state initialization
+        if (!(start == -1 && end == -1)) {
+            if (start < 0) {
+                throw new IllegalArgumentException("Range start must be non-negative: " + start);
+            }
+            if (end < 0) {
+                throw new IllegalArgumentException("Range end must be non-negative: " + end);
+            }
+            if (start > end) {
+                throw new IllegalArgumentException(
+                        "Range start must be less than or equal to end: " + start + " > " + end);
+            }
+            if (end > Long.MAX_VALUE - 1) {
+                throw new IllegalArgumentException("Range end must be less than or equal to Long.MAX_VALUE-1: " + end);
+            }
         }
     }
 
