@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-package org.hiero.block.node.base.ranges;
+package org.hiero.block.node.spi.historicalblocks;
 
 import edu.umd.cs.findbugs.annotations.NonNull;
 import java.util.Comparator;
@@ -137,5 +137,15 @@ public record LongRange(long start, long end) implements Comparable<LongRange> {
     @Override
     public int compareTo(@NonNull LongRange o) {
         return COMPARATOR.compare(this, o);
+    }
+
+    /**
+     * Returns a string representation of the range.
+     *
+     * @return a string representation of the range in the format "start->end"
+     */
+    @Override
+    public String toString() {
+        return start + "->" + end;
     }
 }

@@ -209,8 +209,8 @@ public class BlockNodeApp implements HealthFacility {
                 INFO,
                 LIGHT_GREEN + "Started BlockNode Server : State = {0}, Historic blocks = {1} -> {2}",
                 state.get(),
-                historicalBlockFacility.oldestBlockNumber(),
-                historicalBlockFacility.latestBlockNumber());
+                historicalBlockFacility.availableBlocks().min(),
+                historicalBlockFacility.availableBlocks().max());
     }
 
     /**

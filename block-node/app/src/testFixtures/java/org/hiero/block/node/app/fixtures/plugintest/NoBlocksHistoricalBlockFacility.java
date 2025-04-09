@@ -2,6 +2,7 @@
 package org.hiero.block.node.app.fixtures.plugintest;
 
 import org.hiero.block.node.spi.historicalblocks.BlockAccessor;
+import org.hiero.block.node.spi.historicalblocks.BlockRangeSet;
 import org.hiero.block.node.spi.historicalblocks.HistoricalBlockFacility;
 
 /**
@@ -14,12 +15,7 @@ public class NoBlocksHistoricalBlockFacility implements HistoricalBlockFacility 
     }
 
     @Override
-    public long oldestBlockNumber() {
-        return UNKNOWN_BLOCK_NUMBER;
-    }
-
-    @Override
-    public long latestBlockNumber() {
-        return UNKNOWN_BLOCK_NUMBER;
+    public BlockRangeSet availableBlocks() {
+        return BlockRangeSet.EMPTY;
     }
 }

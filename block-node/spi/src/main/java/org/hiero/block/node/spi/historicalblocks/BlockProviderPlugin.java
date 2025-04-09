@@ -43,18 +43,9 @@ public interface BlockProviderPlugin extends BlockNodePlugin {
     BlockAccessor block(long blockNumber);
 
     /**
-     * Use this method to get the oldest block number available from this provider.
+     * Use this method to get the set of all blocks available from this plugin.
      *
-     * @return the oldest block number available from this provider,
+     * @return the set of all blocks available in from this plugin
      */
-    long oldestBlockNumber();
-
-    /**
-     * Get the latest block number available from this provider. This is used to determine the latest block number
-     * they block node knows about so it can be used to determine the next block number it needs.
-     *
-     * @return the latest block number available from this provider,
-     * {@link org.hiero.block.node.spi.BlockNodePlugin#UNKNOWN_BLOCK_NUMBER} -1 if no blocks are available
-     */
-    long latestBlockNumber();
+    BlockRangeSet availableBlocks();
 }

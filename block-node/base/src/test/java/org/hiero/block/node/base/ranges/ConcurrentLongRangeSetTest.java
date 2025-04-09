@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.node.base.ranges;
 
+import static org.hiero.block.node.spi.BlockNodePlugin.UNKNOWN_BLOCK_NUMBER;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -8,6 +9,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.Collections;
 import java.util.List;
+import org.hiero.block.node.spi.historicalblocks.LongRange;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
@@ -651,5 +653,48 @@ class ConcurrentLongRangeSetTest {
         set.add(47, 50);
         assertEquals(46, set.size());
         assertEquals(3, set.rangeCount());
+    }
+
+    /**
+     * Tests the min() method.
+     */
+    @Test
+    @DisplayName("min() should return the minimum value in the set")
+    void testMin() {
+        final ConcurrentLongRangeSet set = new ConcurrentLongRangeSet(10, 20);
+        assertEquals(10, set.min());
+
+        set.add(5, 8);
+        assertEquals(5, set.min());
+
+        set.remove(5, 10);
+        assertEquals(11, set.min());
+    }
+
+    /**
+     * Tests the max() method.
+     */
+    @Test
+    @DisplayName("max() should return the maximum value in the set")
+    void testMax() {
+        final ConcurrentLongRangeSet set = new ConcurrentLongRangeSet(10, 20);
+        assertEquals(20, set.max());
+
+        set.add(25, 30);
+        assertEquals(30, set.max());
+
+        set.remove(20, 30);
+        assertEquals(19, set.max());
+    }
+
+    /**
+     * Tests min() and max() on an empty set.
+     */
+    @Test
+    @DisplayName("min() and max() should throw IllegalStateException for an empty set")
+    void testMinMaxEmptySet() {
+        final ConcurrentLongRangeSet set = new ConcurrentLongRangeSet();
+        assertEquals(UNKNOWN_BLOCK_NUMBER, set.min());
+        assertEquals(UNKNOWN_BLOCK_NUMBER, set.max());
     }
 }

@@ -1,8 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.node.blocks.files.recent;
 
-import static org.hiero.block.node.base.BlockFile.nestedDirectoriesMaxBlockNumber;
-import static org.hiero.block.node.base.BlockFile.nestedDirectoriesMinBlockNumber;
+import static org.hiero.block.node.base.BlockFile.nestedDirectoriesAllBlockNumbers;
 
 import com.hedera.pbj.runtime.io.stream.WritableStreamingData;
 import edu.umd.cs.findbugs.annotations.NonNull;
@@ -16,10 +15,10 @@ import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.Stream;
 import org.hiero.block.common.utils.FileUtilities;
 import org.hiero.block.node.base.BlockFile;
+import org.hiero.block.node.base.ranges.ConcurrentLongRangeSet;
 import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.ServiceBuilder;
 import org.hiero.block.node.spi.blockmessaging.BlockItemHandler;
@@ -29,6 +28,7 @@ import org.hiero.block.node.spi.blockmessaging.BlockNotification;
 import org.hiero.block.node.spi.blockmessaging.BlockNotificationHandler;
 import org.hiero.block.node.spi.historicalblocks.BlockAccessor;
 import org.hiero.block.node.spi.historicalblocks.BlockProviderPlugin;
+import org.hiero.block.node.spi.historicalblocks.BlockRangeSet;
 import org.hiero.hapi.block.node.BlockItemUnparsed;
 import org.hiero.hapi.block.node.BlockUnparsed;
 
@@ -70,10 +70,8 @@ public final class BlocksFilesRecentPlugin implements BlockProviderPlugin, Block
     private FilesRecentConfig config;
     /** The block messaging facility. */
     private BlockMessagingFacility blockMessaging;
-    /** The block number of the oldest verified block, this is inclusive. */
-    private final AtomicLong oldestVerifiedBlockNumber = new AtomicLong(UNKNOWN_BLOCK_NUMBER);
-    /** The block number of the newest verified block, this is also inclusive. */
-    private final AtomicLong newestVerifiedBlockNumber = new AtomicLong(UNKNOWN_BLOCK_NUMBER);
+    /** The set of available blocks. */
+    private final ConcurrentLongRangeSet availableBlocks = new ConcurrentLongRangeSet();
     /** The handler for unverified blocks. */
     private UnverifiedHandler unverifiedHandler;
 
@@ -150,8 +148,9 @@ public final class BlocksFilesRecentPlugin implements BlockProviderPlugin, Block
             context.serverHealth().shutdown(BlocksFilesRecentPlugin.class.getName(), e.getMessage());
         }
         // scan file system to find the oldest and newest blocks
-        oldestVerifiedBlockNumber.set(nestedDirectoriesMinBlockNumber(config.liveRootPath(), config.compression()));
-        newestVerifiedBlockNumber.set(nestedDirectoriesMaxBlockNumber(config.liveRootPath(), config.compression()));
+        // TODO this can be way for efficient, very brute force at the moment
+        nestedDirectoriesAllBlockNumbers(config.liveRootPath(), config.compression())
+                .forEach(availableBlocks::add);
     }
 
     /**
@@ -169,7 +168,7 @@ public final class BlocksFilesRecentPlugin implements BlockProviderPlugin, Block
      */
     @Override
     public BlockAccessor block(final long blockNumber) {
-        if (blockNumber >= oldestVerifiedBlockNumber.get() || blockNumber <= newestVerifiedBlockNumber.get()) {
+        if (availableBlocks.contains(blockNumber)) {
             // we should have this block stored so go file the file and return accessor to it
             final Path verifiedBlockPath = BlockFile.nestedDirectoriesBlockFilePath(
                     config.liveRootPath(), blockNumber, config.compression(), config.maxFilesPerDir());
@@ -189,17 +188,8 @@ public final class BlocksFilesRecentPlugin implements BlockProviderPlugin, Block
     /**
      * {@inheritDoc}
      */
-    @Override
-    public long oldestBlockNumber() {
-        return oldestVerifiedBlockNumber.get();
-    }
-
-    /**
-     * {@inheritDoc}
-     */
-    @Override
-    public long latestBlockNumber() {
-        return newestVerifiedBlockNumber.get();
+    public BlockRangeSet availableBlocks() {
+        return availableBlocks;
     }
 
     // ==== BlockNotificationHandler Methods ===========================================================================
@@ -292,9 +282,7 @@ public final class BlocksFilesRecentPlugin implements BlockProviderPlugin, Block
             // move the file
             Files.move(unverifiedBlockPath, verifiedBlockPath, StandardCopyOption.ATOMIC_MOVE);
             // update the oldest and newest verified block numbers
-            oldestVerifiedBlockNumber.updateAndGet(
-                    oldest -> oldest == UNKNOWN_BLOCK_NUMBER ? blockNumber : Math.min(oldest, blockNumber));
-            newestVerifiedBlockNumber.updateAndGet(newest -> Math.max(newest, blockNumber));
+            availableBlocks.add(blockNumber);
             LOGGER.log(Level.DEBUG, "Moved block: {0} from Unverified to Verified", blockNumber);
             // send block persisted notification
             blockMessaging.sendBlockNotification(
@@ -340,9 +328,7 @@ public final class BlocksFilesRecentPlugin implements BlockProviderPlugin, Block
                     blockNumber,
                     verifiedBlockPath.toAbsolutePath().toString());
             // update the oldest and newest verified block numbers
-            oldestVerifiedBlockNumber.updateAndGet(
-                    oldest -> oldest == UNKNOWN_BLOCK_NUMBER ? blockNumber : Math.min(oldest, blockNumber));
-            newestVerifiedBlockNumber.updateAndGet(newest -> Math.max(newest, blockNumber));
+            availableBlocks.add(blockNumber);
             // send block persisted notification
             blockMessaging.sendBlockNotification(
                     new BlockNotification(blockNumber, BlockNotification.Type.BLOCK_PERSISTED, null));
