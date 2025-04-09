@@ -110,7 +110,7 @@ class PublishStreamGrpcClientImplTest {
                                                 .setBlockNumber(lastBlockNumber)
                                                 .build();
                                 responseObserver.onNext(PublishStreamResponse.newBuilder()
-                                        .setStatus(endOfStream)
+                                        .setEndStream(endOfStream)
                                         .build());
                                 responseObserver.onCompleted();
                             }

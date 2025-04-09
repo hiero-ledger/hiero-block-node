@@ -23,7 +23,6 @@ public final class SimpleTestBlockItemBuilder {
                 new SemanticVersion(1, 2, 3, "a", "b"),
                 new SemanticVersion(4, 5, 6, "c", "d"),
                 blockNumber,
-                Bytes.wrap("hash".getBytes()),
                 new Timestamp(123L, 456),
                 BlockHashAlgorithm.SHA2_384);
     }

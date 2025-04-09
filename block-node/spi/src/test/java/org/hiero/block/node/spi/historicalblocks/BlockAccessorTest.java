@@ -40,7 +40,6 @@ public class BlockAccessorTest {
                             new SemanticVersion(1, 2, 3, "a", "b"),
                             new SemanticVersion(4, 5, 6, "c", "d"),
                             123,
-                            Bytes.wrap("hash".getBytes()),
                             new Timestamp(123L, 456),
                             BlockHashAlgorithm.SHA2_384))),
             new BlockItem(new OneOf<>(ItemOneOfType.ROUND_HEADER, new RoundHeader(827))),
