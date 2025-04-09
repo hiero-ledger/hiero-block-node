@@ -4,6 +4,7 @@ package org.hiero.block.simulator.config.data;
 import com.swirlds.config.api.ConfigData;
 import com.swirlds.config.api.ConfigProperty;
 import org.hiero.block.simulator.config.logging.Loggable;
+import org.hiero.block.simulator.config.types.RecoveryMode;
 import org.hiero.block.simulator.config.types.SimulatorMode;
 import org.hiero.block.simulator.config.types.StreamingMode;
 
@@ -26,7 +27,8 @@ public record BlockStreamConfig(
         @Loggable @ConfigProperty(defaultValue = "100_000") int maxBlockItemsToStream,
         @Loggable @ConfigProperty(defaultValue = "MILLIS_PER_BLOCK") StreamingMode streamingMode,
         @Loggable @ConfigProperty(defaultValue = "1000") int millisecondsPerBlock,
-        @Loggable @ConfigProperty(defaultValue = "1000") int blockItemsBatchSize) {
+        @Loggable @ConfigProperty(defaultValue = "1000") int blockItemsBatchSize,
+        @Loggable @ConfigProperty(defaultValue = "RESEND_LAST") RecoveryMode recoveryMode) {
 
     /**
      * Creates a new {@link Builder} instance for constructing a {@code BlockStreamConfig}.
@@ -42,6 +44,7 @@ public record BlockStreamConfig(
      */
     public static class Builder {
         private SimulatorMode simulatorMode = SimulatorMode.PUBLISHER_CLIENT;
+        private RecoveryMode recoveryMode = RecoveryMode.RESEND_LAST;
         private int lastKnownStatusesCapacity = 10;
         private int delayBetweenBlockItems = 1_500_000;
         private int maxBlockItemsToStream = 10_000;
@@ -64,6 +67,11 @@ public record BlockStreamConfig(
          */
         public Builder simulatorMode(SimulatorMode simulatorMode) {
             this.simulatorMode = simulatorMode;
+            return this;
+        }
+
+        public Builder recoveryMode(RecoveryMode recoveryMode) {
+            this.recoveryMode = recoveryMode;
             return this;
         }
 
@@ -146,7 +154,8 @@ public record BlockStreamConfig(
                     maxBlockItemsToStream,
                     streamingMode,
                     millisecondsPerBlock,
-                    blockItemsBatchSize);
+                    blockItemsBatchSize,
+                    recoveryMode);
         }
     }
 }

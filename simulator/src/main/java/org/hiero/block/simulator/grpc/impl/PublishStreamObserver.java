@@ -29,6 +29,7 @@ public class PublishStreamObserver implements StreamObserver<PublishStreamRespon
     private final int lastKnownStatusesCapacity;
     private final Deque<String> lastKnownStatuses;
     private final SimulatorStartupData startupData;
+    private final PublishStreamGrpcClientImpl grpcClient;
 
     /**
      * Creates a new PublishStreamObserver instance.
@@ -43,11 +44,13 @@ public class PublishStreamObserver implements StreamObserver<PublishStreamRespon
             @NonNull final SimulatorStartupData startupData,
             @NonNull final AtomicBoolean streamEnabled,
             @NonNull final Deque<String> lastKnownStatuses,
-            final int lastKnownStatusesCapacity) {
+            final int lastKnownStatusesCapacity,
+            @NonNull final PublishStreamGrpcClientImpl grpcClient) {
         this.streamEnabled = requireNonNull(streamEnabled);
         this.lastKnownStatuses = requireNonNull(lastKnownStatuses);
         this.lastKnownStatusesCapacity = lastKnownStatusesCapacity;
         this.startupData = requireNonNull(startupData);
+        this.grpcClient = requireNonNull(grpcClient);
     }
 
     /**
@@ -90,6 +93,7 @@ public class PublishStreamObserver implements StreamObserver<PublishStreamRespon
         Status status = Status.fromThrowable(streamError);
         lastKnownStatuses.add(status.toString());
         LOGGER.log(ERROR, "Error %s with status %s.".formatted(streamError, status), streamError);
+        grpcClient.recoverStream();
     }
 
     /**
