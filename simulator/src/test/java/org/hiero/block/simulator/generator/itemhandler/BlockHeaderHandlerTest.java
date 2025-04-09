@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.simulator.generator.itemhandler;
 
-import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
@@ -34,7 +33,6 @@ class BlockHeaderHandlerTest {
         BlockHeader header = item.getBlockHeader();
         assertEquals(BlockHashAlgorithm.SHA2_384, header.getHashAlgorithm());
         assertEquals(blockNumber, header.getNumber());
-        assertArrayEquals(previousBlockHash, header.getPreviousBlockHash().toByteArray());
         assertNotNull(header.getFirstTransactionConsensusTime());
         assertNotNull(header.getHapiProtoVersion());
         assertNotNull(header.getSoftwareVersion());
