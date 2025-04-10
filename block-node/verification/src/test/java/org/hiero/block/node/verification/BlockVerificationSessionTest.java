@@ -21,7 +21,7 @@ class BlockVerificationSessionTest {
 
     @BeforeEach
     void setUp() throws IOException, ParseException {
-        sampleBlockInfo = BlockUtils.getSampleBlockInfo(BlockUtils.SAMPLE_BLOCKS.PERF_10K_1731);
+        sampleBlockInfo = BlockUtils.getSampleBlockInfo(BlockUtils.SAMPLE_BLOCKS.GENERATED_10);
         blockItems = sampleBlockInfo.blockUnparsed().blockItems();
     }
 
@@ -30,8 +30,8 @@ class BlockVerificationSessionTest {
      * */
     @Test
     void happyPath() throws ParseException {
-        BlockHeader blockHeader =
-                BlockHeader.PROTOBUF.parse(blockItems.getFirst().blockHeader());
+        BlockHeader blockHeader = BlockHeader.PROTOBUF.parse(blockItems.getFirst().blockHeaderOrThrow());
+
         long blockNumber = blockHeader.number();
 
         BlockVerificationSession session = new BlockVerificationSession(blockNumber);

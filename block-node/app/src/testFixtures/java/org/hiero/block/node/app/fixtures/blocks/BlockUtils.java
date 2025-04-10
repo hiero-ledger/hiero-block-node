@@ -80,10 +80,9 @@ public final class BlockUtils {
      * These blocks are used for testing purposes only.
      */
     public enum SAMPLE_BLOCKS {
-        PERF_10K_1731(
-                "perf-10K-1731.blk.gz",
-                "6d8707da4c8265508ec5a26c8c483036c9bf95615bd6613e15131635a2a33528d0c5d4c1552aba3efb5fedcdff0804f8",
-                1731);
+        GENERATED_10("generated-10.blk.gz",
+                "1d315470a3cfe12838d10cda3ad17f93a577a563efb45725f78a58384b8d2ebddf1dd5d849f922ddd72e9e824f565ebc",
+                10);
 
         private final String blockName;
         private final Bytes blockHash;
