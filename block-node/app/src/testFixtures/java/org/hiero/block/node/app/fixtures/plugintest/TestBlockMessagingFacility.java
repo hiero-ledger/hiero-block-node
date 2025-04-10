@@ -2,11 +2,11 @@
 package org.hiero.block.node.app.fixtures.plugintest;
 
 import java.lang.System.Logger.Level;
-import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.ConcurrentSkipListSet;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.RejectedExecutionException;
 import org.hiero.block.node.spi.blockmessaging.BlockItemHandler;
 import org.hiero.block.node.spi.blockmessaging.BlockItems;
@@ -36,9 +36,9 @@ public class TestBlockMessagingFacility implements BlockMessagingFacility {
     private final Set<BlockNotificationHandler> blockNotificationHandlers =
             new ConcurrentSkipListSet<>(Comparator.comparingInt(Object::hashCode));
     /** list of all sent block items */
-    private final List<BlockItems> sentBlockBlockItems = new ArrayList<>();
+    private final List<BlockItems> sentBlockBlockItems = new CopyOnWriteArrayList<>();
     /** list of all sent block notifications */
-    private final List<BlockNotification> sentBlockNotifications = new ArrayList<>();
+    private final List<BlockNotification> sentBlockNotifications = new CopyOnWriteArrayList<>();
     /** Set of handlers for which we must simulate a handler that is behind and producing backpressure. */
     private final Set<BlockItemHandler> handlersWithBackpressure =
             new ConcurrentSkipListSet<>(Comparator.comparingInt(Object::hashCode));

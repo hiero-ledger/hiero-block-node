@@ -348,7 +348,8 @@ public final class BlockStreamProducerSession implements Pipeline<List<BlockItem
         if (items.isEmpty()) {
             // We received empty list so we update the plugin regarding this session
             // This should trigger a resend from the plugin for this session and move it out of primary, if it is.
-            onUpdate.update(this, UpdateType.BLOCK_ITEMS_RECEIVED);
+            LOGGER.log(DEBUG, "Received empty list of items");
+            onUpdate.update(this, UpdateType.BLOCK_ITEMS_RECEIVED, currentBlockNumber);
             return;
         }
 
@@ -367,7 +368,7 @@ public final class BlockStreamProducerSession implements Pipeline<List<BlockItem
             onUpdate.update(this, UpdateType.START_BLOCK, currentBlockNumber);
         } else {
             // we are not starting or ending a block, so we can just update the state
-            onUpdate.update(this, UpdateType.BLOCK_ITEMS_RECEIVED);
+            onUpdate.update(this, UpdateType.BLOCK_ITEMS_RECEIVED, currentBlockNumber);
         }
     }
 
@@ -383,7 +384,7 @@ public final class BlockStreamProducerSession implements Pipeline<List<BlockItem
             close();
             // call the onUpdate method to notify the block messaging service that we have received data and updated our
             // state
-            onUpdate.update(this, UpdateType.SESSION_CLOSED);
+            onUpdate.update(this, UpdateType.SESSION_CLOSED, UNKNOWN_BLOCK_NUMBER);
         } finally {
             stateLock.unlock();
         }
@@ -401,7 +402,7 @@ public final class BlockStreamProducerSession implements Pipeline<List<BlockItem
             close();
             // call the onUpdate method to notify the block messaging service that we have received data and updated our
             // state
-            onUpdate.update(this, UpdateType.SESSION_CLOSED);
+            onUpdate.update(this, UpdateType.SESSION_CLOSED, UNKNOWN_BLOCK_NUMBER);
         } finally {
             stateLock.unlock();
         }
@@ -419,7 +420,7 @@ public final class BlockStreamProducerSession implements Pipeline<List<BlockItem
             close();
             // call the onUpdate method to notify the block messaging service that we have received data and updated our
             // state
-            onUpdate.update(this, UpdateType.SESSION_CLOSED);
+            onUpdate.update(this, UpdateType.SESSION_CLOSED, UNKNOWN_BLOCK_NUMBER);
         } finally {
             stateLock.unlock();
         }

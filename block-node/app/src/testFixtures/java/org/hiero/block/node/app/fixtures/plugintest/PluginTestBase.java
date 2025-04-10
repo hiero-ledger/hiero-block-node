@@ -39,6 +39,7 @@ public abstract class PluginTestBase<P extends BlockNodePlugin> {
 
     public PluginTestBase(P plugin, HistoricalBlockFacility historicalBlockFacility) {
         this.plugin = plugin;
+        org.hiero.block.node.app.fixtures.logging.CleanColorfulFormatter.makeLoggingColorful();
         // Build the configuration
         //noinspection unchecked
         final Configuration configuration = ConfigurationBuilder.create()

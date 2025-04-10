@@ -1,6 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
 module org.hiero.block.node.app.test.fixtures {
-    // it is expected the app module will never
     exports org.hiero.block.node.app.fixtures.blocks;
     exports org.hiero.block.node.app.fixtures.plugintest;
 
