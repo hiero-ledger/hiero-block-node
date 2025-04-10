@@ -26,7 +26,7 @@ class VerificationServicePluginTest extends PluginTestBase {
     void testVerificationPlugin() throws IOException, ParseException {
 
         BlockUtils.SampleBlockInfo sampleBlockInfo =
-                BlockUtils.getSampleBlockInfo(BlockUtils.SAMPLE_BLOCKS.PERF_10K_1731);
+                BlockUtils.getSampleBlockInfo(BlockUtils.SAMPLE_BLOCKS.GENERATED_10);
 
         List<BlockItemUnparsed> blockItems = sampleBlockInfo.blockUnparsed().blockItems();
         long blockNumber = sampleBlockInfo.blockNumber();
@@ -55,7 +55,7 @@ class VerificationServicePluginTest extends PluginTestBase {
     void testFailedVerification() throws IOException, ParseException {
 
         BlockUtils.SampleBlockInfo sampleBlockInfo =
-                BlockUtils.getSampleBlockInfo(BlockUtils.SAMPLE_BLOCKS.PERF_10K_1731);
+                BlockUtils.getSampleBlockInfo(BlockUtils.SAMPLE_BLOCKS.GENERATED_10);
 
         List<BlockItemUnparsed> blockItems = sampleBlockInfo.blockUnparsed().blockItems();
         // remove one block item, so the hash is no longer valid
