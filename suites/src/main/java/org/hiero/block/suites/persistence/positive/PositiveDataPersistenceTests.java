@@ -21,7 +21,6 @@ import org.testcontainers.containers.Container;
  */
 @DisplayName("Positive Data Persistence Tests")
 public class PositiveDataPersistenceTests extends BaseSuite {
-    // @todo(#371) - the default life/archive root path must be absolute starting from /opt
     private final String[] GET_BLOCKS_COMMAND =
             new String[] {"find", "../opt/hashgraph/blocknode/data/live", "-mindepth", "5", "-maxdepth", "7"};
 
@@ -47,6 +46,7 @@ public class PositiveDataPersistenceTests extends BaseSuite {
      *     commands
      */
     @Test
+    @DisplayName("Should save block data in correct directory")
     public void verifyBlockDataSavedInCorrectDirectory() throws InterruptedException, IOException {
         String savedBlocksFolderBefore = getContainerCommandResult(GET_BLOCKS_COMMAND);
         int savedBlocksCountBefore = getSavedBlocksCount(savedBlocksFolderBefore);
