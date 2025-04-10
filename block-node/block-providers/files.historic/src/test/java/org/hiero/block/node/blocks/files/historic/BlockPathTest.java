@@ -13,7 +13,10 @@ import com.swirlds.config.api.ConfigurationBuilder;
 import java.io.IOException;
 import java.nio.file.FileSystem;
 import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.stream.Stream;
+import org.hiero.block.node.base.CompressionType;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -27,27 +30,15 @@ import org.junit.jupiter.params.provider.MethodSource;
  * Test for {@link BlockPath}.
  */
 class BlockPathTest {
+    private static final String ROOT_PATH = "/foo/bar";
     /** The testing in-memory file system. */
     private FileSystem jimfs;
-    /** The configuration for the test. */
-    private FilesHistoricConfig defaultConfig;
 
     /** Set up the test environment before each test. */
     @BeforeEach
     void setup() {
         // Initialize the in-memory file system
         jimfs = Jimfs.newFileSystem(Configuration.unix());
-        final FilesHistoricConfig localDefaultConfig = ConfigurationBuilder.create()
-                .withConfigDataType(FilesHistoricConfig.class)
-                .build()
-                .getConfigData(FilesHistoricConfig.class);
-        // Set the default configuration for the test, use jimfs for paths
-        defaultConfig = new FilesHistoricConfig(
-                jimfs.getPath("/opt/hashgraph/blocknode/data/historic"),
-                localDefaultConfig.compression(),
-                localDefaultConfig.digitsPerDir(),
-                localDefaultConfig.digitsPerZipFileName(),
-                localDefaultConfig.digitsPerZipFileContents());
     }
 
     /** Tear down the test environment after each test. */
@@ -71,13 +62,49 @@ class BlockPathTest {
          * valid inputs.
          */
         @ParameterizedTest
-        @MethodSource("org.hiero.block.node.blocks.files.historic.BlockPathTest#validBlockPaths")
+        @MethodSource({
+            "org.hiero.block.node.blocks.files.historic.BlockPathTest#validBlockPathsDefaultConfig",
+            "org.hiero.block.node.blocks.files.historic.BlockPathTest#validBlockPathsConfigVariation1"
+        })
         @DisplayName("Test constructor throws no exceptions with valid inputs")
-        void testConstructorValidInput(final String blockNumStr, final String blockFileName, final String zipFilePath) {
+        void testConstructorValidInput(final ArgumentsAccessor argAccessor) {
+            final String blockNumStr = argAccessor.getString(0);
+            final String blockFileName = argAccessor.getString(1);
+            final String zipFilePath = argAccessor.getString(2);
+            final CompressionType compressionType = argAccessor.get(4, CompressionType.class);
             final Path resolvedZipFilePath = jimfs.getPath(zipFilePath);
             final Path resolvedDirPath = resolvedZipFilePath.getParent();
             assertThatNoException()
-                    .isThrownBy(() -> new BlockPath(resolvedDirPath, resolvedZipFilePath, blockNumStr, blockFileName));
+                    .isThrownBy(() -> new BlockPath(
+                            resolvedDirPath, resolvedZipFilePath, blockNumStr, blockFileName, compressionType));
+        }
+
+        /**
+         * This test aims to assert that the constructor of the
+         * {@link BlockPath} class does not throw any exceptions when given
+         * valid inputs.
+         */
+        @ParameterizedTest
+        @MethodSource({
+            "org.hiero.block.node.blocks.files.historic.BlockPathTest#validBlockPathsDefaultConfig",
+            "org.hiero.block.node.blocks.files.historic.BlockPathTest#validBlockPathsConfigVariation1"
+        })
+        @DisplayName("Test constructor does not create any paths with valid inputs")
+        void testConstructorValidInputNoCreatePaths(final ArgumentsAccessor argAccessor) {
+            final String blockNumStr = argAccessor.getString(0);
+            final String blockFileName = argAccessor.getString(1);
+            final String zipFilePath = argAccessor.getString(2);
+            final CompressionType compressionType = argAccessor.get(4, CompressionType.class);
+            final Path resolvedZipFilePath = jimfs.getPath(zipFilePath);
+            final Path resolvedDirPath = resolvedZipFilePath.getParent();
+            // Check that the directory and zip file paths do not exist pre call
+            assertThat(resolvedDirPath).doesNotExist();
+            assertThat(resolvedZipFilePath).doesNotExist();
+            // call
+            new BlockPath(resolvedDirPath, resolvedZipFilePath, blockNumStr, blockFileName, compressionType);
+            // Check that the directory and zip file paths are not created post call
+            assertThat(resolvedDirPath).doesNotExist();
+            assertThat(resolvedZipFilePath).doesNotExist();
         }
 
         /**
@@ -86,13 +113,20 @@ class BlockPathTest {
          * the directory path is null.
          */
         @ParameterizedTest
-        @MethodSource("org.hiero.block.node.blocks.files.historic.BlockPathTest#validBlockPaths")
+        @MethodSource({
+            "org.hiero.block.node.blocks.files.historic.BlockPathTest#validBlockPathsDefaultConfig",
+            "org.hiero.block.node.blocks.files.historic.BlockPathTest#validBlockPathsConfigVariation1"
+        })
         @DisplayName("Test constructor throws NullPointerException when dirPath is null")
-        void testConstructorDirPathNull(
-                final String blockNumStr, final String blockFileName, final String zipFilePath) {
+        void testConstructorDirPathNull(final ArgumentsAccessor argAccessor) {
+            final String blockNumStr = argAccessor.getString(0);
+            final String blockFileName = argAccessor.getString(1);
+            final String zipFilePath = argAccessor.getString(2);
+            final CompressionType compressionType = argAccessor.get(4, CompressionType.class);
             final Path resolvedZipFilePath = jimfs.getPath(zipFilePath);
             assertThatNullPointerException()
-                    .isThrownBy(() -> new BlockPath(null, resolvedZipFilePath, blockNumStr, blockFileName));
+                    .isThrownBy(() ->
+                            new BlockPath(null, resolvedZipFilePath, blockNumStr, blockFileName, compressionType));
         }
 
         /**
@@ -101,13 +135,20 @@ class BlockPathTest {
          * the zip file path is null.
          */
         @ParameterizedTest
-        @MethodSource("org.hiero.block.node.blocks.files.historic.BlockPathTest#validBlockPaths")
+        @MethodSource({
+            "org.hiero.block.node.blocks.files.historic.BlockPathTest#validBlockPathsDefaultConfig",
+            "org.hiero.block.node.blocks.files.historic.BlockPathTest#validBlockPathsConfigVariation1"
+        })
         @DisplayName("Test constructor throws NullPointerException when zipFilePath is null")
-        void testConstructorZipFilePathNull(
-                final String blockNumStr, final String blockFileName, final String zipFilePath) {
+        void testConstructorZipFilePathNull(final ArgumentsAccessor argAccessor) {
+            final String blockNumStr = argAccessor.getString(0);
+            final String blockFileName = argAccessor.getString(1);
+            final String zipFilePath = argAccessor.getString(2);
+            final CompressionType compressionType = argAccessor.get(4, CompressionType.class);
             final Path resolvedDirPath = jimfs.getPath(zipFilePath).getParent();
             assertThatNullPointerException()
-                    .isThrownBy(() -> new BlockPath(resolvedDirPath, null, blockNumStr, blockFileName));
+                    .isThrownBy(
+                            () -> new BlockPath(resolvedDirPath, null, blockNumStr, blockFileName, compressionType));
         }
 
         /**
@@ -116,15 +157,20 @@ class BlockPathTest {
          * the block number string is blank.
          */
         @ParameterizedTest
-        @MethodSource("org.hiero.block.node.blocks.files.historic.BlockPathTest#validBlockPaths")
+        @MethodSource({
+            "org.hiero.block.node.blocks.files.historic.BlockPathTest#validBlockPathsDefaultConfig",
+            "org.hiero.block.node.blocks.files.historic.BlockPathTest#validBlockPathsConfigVariation1"
+        })
         @DisplayName("Test constructor throws IllegalArgumentException when blockNumStr is blank")
         void testConstructorBlockNumStrBlank(final ArgumentsAccessor argAccessor) {
             final String blockFileName = argAccessor.getString(1);
             final String zipFilePath = argAccessor.getString(2);
+            final CompressionType compressionType = argAccessor.get(4, CompressionType.class);
             final Path resolvedZipFilePath = jimfs.getPath(zipFilePath);
             final Path resolvedDirPath = resolvedZipFilePath.getParent();
             assertThatIllegalArgumentException()
-                    .isThrownBy(() -> new BlockPath(resolvedDirPath, resolvedZipFilePath, "", blockFileName));
+                    .isThrownBy(() ->
+                            new BlockPath(resolvedDirPath, resolvedZipFilePath, "", blockFileName, compressionType));
         }
 
         /**
@@ -133,15 +179,20 @@ class BlockPathTest {
          * the block file name is blank.
          */
         @ParameterizedTest
-        @MethodSource("org.hiero.block.node.blocks.files.historic.BlockPathTest#validBlockPaths")
+        @MethodSource({
+            "org.hiero.block.node.blocks.files.historic.BlockPathTest#validBlockPathsDefaultConfig",
+            "org.hiero.block.node.blocks.files.historic.BlockPathTest#validBlockPathsConfigVariation1"
+        })
         @DisplayName("Test constructor throws IllegalArgumentException when blockFileName is blank")
         void testConstructorBlockFileNameBlank(final ArgumentsAccessor argAccessor) {
             final String blockNumStr = argAccessor.getString(0);
             final String zipFilePath = argAccessor.getString(2);
+            final CompressionType compressionType = argAccessor.get(4, CompressionType.class);
             final Path resolvedZipFilePath = jimfs.getPath(zipFilePath);
             final Path resolvedDirPath = resolvedZipFilePath.getParent();
             assertThatIllegalArgumentException()
-                    .isThrownBy(() -> new BlockPath(resolvedDirPath, resolvedZipFilePath, blockNumStr, ""));
+                    .isThrownBy(() ->
+                            new BlockPath(resolvedDirPath, resolvedZipFilePath, blockNumStr, "", compressionType));
         }
     }
 
@@ -157,134 +208,369 @@ class BlockPathTest {
          * number and default configuration.
          */
         @ParameterizedTest
-        @MethodSource("org.hiero.block.node.blocks.files.historic.BlockPathTest#validBlockPaths")
+        @MethodSource({
+            "org.hiero.block.node.blocks.files.historic.BlockPathTest#validBlockPathsDefaultConfig",
+            "org.hiero.block.node.blocks.files.historic.BlockPathTest#validBlockPathsConfigVariation1"
+        })
         @DisplayName("Test computeBlockPath with valid inputs")
         void testComputeBlockPath(
                 final String expectedBlockNumStr,
                 final String expectedBlockFileName,
-                final String zipFilePath,
-                final long blockNumber) {
-            final Path expectedZipFilePath = jimfs.getPath(zipFilePath);
+                final String expectedRelativeZipFilePathStr,
+                final long blockNumber,
+                final CompressionType expectedCompressionType,
+                final int digitsPerZipFileContents) {
+            final Path expectedZipFilePath = jimfs.getPath(ROOT_PATH + expectedRelativeZipFilePathStr);
             final Path expectedDirPath = expectedZipFilePath.getParent();
-            final BlockPath actual = BlockPath.computeBlockPath(defaultConfig, blockNumber);
+            // create the config to use for the test, resolve paths with jimfs
+            final FilesHistoricConfig testConfig = new FilesHistoricConfig(
+                    jimfs.getPath(ROOT_PATH), expectedCompressionType, digitsPerZipFileContents);
+            final BlockPath actual = BlockPath.computeBlockPath(testConfig, blockNumber);
             assertThat(actual)
                     .isNotNull()
                     .returns(expectedBlockNumStr, from(BlockPath::blockNumStr))
                     .returns(expectedBlockFileName, from(BlockPath::blockFileName))
                     .returns(expectedZipFilePath, from(BlockPath::zipFilePath))
-                    .returns(expectedDirPath, from(BlockPath::dirPath));
+                    .returns(expectedDirPath, from(BlockPath::dirPath))
+                    .returns(expectedCompressionType, from(BlockPath::compressionType));
         }
     }
 
     /**
-     * Stream of arguments of valid block paths.
+     * Stream of arguments of valid block paths with default config.
      */
-    private static Stream<Arguments> validBlockPaths() {
+    private static Stream<Arguments> validBlockPathsDefaultConfig() {
+        // default configuration
+        final FilesHistoricConfig baseConfig = ConfigurationBuilder.create()
+                .withConfigDataType(FilesHistoricConfig.class)
+                .build()
+                .getConfigData(FilesHistoricConfig.class);
         return Stream.of(
                 Arguments.of(
                         "0000000000123456789",
                         "0000000000123456789.blk.zstd",
-                        "/opt/hashgraph/blocknode/data/historic/000/000/000/012/345/6000s.zip",
-                        123_456_789L),
+                        "/000/000/000/012/34/50000s.zip",
+                        123_456_789L,
+                        baseConfig.compression(),
+                        baseConfig.powersOfTenPerZipFileContents()),
                 Arguments.of(
                         "1234567890123456789",
                         "1234567890123456789.blk.zstd",
-                        "/opt/hashgraph/blocknode/data/historic/123/456/789/012/345/6000s.zip",
-                        1_234_567_890_123_456_789L),
+                        "/123/456/789/012/34/50000s.zip",
+                        1_234_567_890_123_456_789L,
+                        baseConfig.compression(),
+                        baseConfig.powersOfTenPerZipFileContents()),
                 Arguments.of(
                         "0000000000000000000",
                         "0000000000000000000.blk.zstd",
-                        "/opt/hashgraph/blocknode/data/historic/000/000/000/000/000/0000s.zip",
-                        0L),
+                        "/000/000/000/000/00/00000s.zip",
+                        0L,
+                        baseConfig.compression(),
+                        baseConfig.powersOfTenPerZipFileContents()),
                 Arguments.of(
                         "0000000000000000010",
                         "0000000000000000010.blk.zstd",
-                        "/opt/hashgraph/blocknode/data/historic/000/000/000/000/000/0000s.zip",
-                        10L),
+                        "/000/000/000/000/00/00000s.zip",
+                        10L,
+                        baseConfig.compression(),
+                        baseConfig.powersOfTenPerZipFileContents()),
                 Arguments.of(
                         "0000000000000000100",
                         "0000000000000000100.blk.zstd",
-                        "/opt/hashgraph/blocknode/data/historic/000/000/000/000/000/0000s.zip",
-                        100L),
+                        "/000/000/000/000/00/00000s.zip",
+                        100L,
+                        baseConfig.compression(),
+                        baseConfig.powersOfTenPerZipFileContents()),
                 Arguments.of(
                         "0000000000000001000",
                         "0000000000000001000.blk.zstd",
-                        "/opt/hashgraph/blocknode/data/historic/000/000/000/000/000/1000s.zip",
-                        1_000L),
+                        "/000/000/000/000/00/00000s.zip",
+                        1_000L,
+                        baseConfig.compression(),
+                        baseConfig.powersOfTenPerZipFileContents()),
                 Arguments.of(
                         "0000000000000010000",
                         "0000000000000010000.blk.zstd",
-                        "/opt/hashgraph/blocknode/data/historic/000/000/000/000/001/0000s.zip",
-                        10_000L),
+                        "/000/000/000/000/00/10000s.zip",
+                        10_000L,
+                        baseConfig.compression(),
+                        baseConfig.powersOfTenPerZipFileContents()),
                 Arguments.of(
                         "0000000000000100000",
                         "0000000000000100000.blk.zstd",
-                        "/opt/hashgraph/blocknode/data/historic/000/000/000/000/010/0000s.zip",
-                        100_000L),
+                        "/000/000/000/000/01/00000s.zip",
+                        100_000L,
+                        baseConfig.compression(),
+                        baseConfig.powersOfTenPerZipFileContents()),
                 Arguments.of(
                         "0000000000001000000",
                         "0000000000001000000.blk.zstd",
-                        "/opt/hashgraph/blocknode/data/historic/000/000/000/000/100/0000s.zip",
-                        1_000_000L),
+                        "/000/000/000/000/10/00000s.zip",
+                        1_000_000L,
+                        baseConfig.compression(),
+                        baseConfig.powersOfTenPerZipFileContents()),
                 Arguments.of(
                         "0000000000010000000",
                         "0000000000010000000.blk.zstd",
-                        "/opt/hashgraph/blocknode/data/historic/000/000/000/001/000/0000s.zip",
-                        10_000_000L),
+                        "/000/000/000/001/00/00000s.zip",
+                        10_000_000L,
+                        baseConfig.compression(),
+                        baseConfig.powersOfTenPerZipFileContents()),
                 Arguments.of(
                         "0000000000100000000",
                         "0000000000100000000.blk.zstd",
-                        "/opt/hashgraph/blocknode/data/historic/000/000/000/010/000/0000s.zip",
-                        100_000_000L),
+                        "/000/000/000/010/00/00000s.zip",
+                        100_000_000L,
+                        baseConfig.compression(),
+                        baseConfig.powersOfTenPerZipFileContents()),
                 Arguments.of(
                         "0000000001000000000",
                         "0000000001000000000.blk.zstd",
-                        "/opt/hashgraph/blocknode/data/historic/000/000/000/100/000/0000s.zip",
-                        1_000_000_000L),
+                        "/000/000/000/100/00/00000s.zip",
+                        1_000_000_000L,
+                        baseConfig.compression(),
+                        baseConfig.powersOfTenPerZipFileContents()),
                 Arguments.of(
                         "0000000010000000000",
                         "0000000010000000000.blk.zstd",
-                        "/opt/hashgraph/blocknode/data/historic/000/000/001/000/000/0000s.zip",
-                        10_000_000_000L),
+                        "/000/000/001/000/00/00000s.zip",
+                        10_000_000_000L,
+                        baseConfig.compression(),
+                        baseConfig.powersOfTenPerZipFileContents()),
                 Arguments.of(
                         "0000000100000000000",
                         "0000000100000000000.blk.zstd",
-                        "/opt/hashgraph/blocknode/data/historic/000/000/010/000/000/0000s.zip",
-                        100_000_000_000L),
+                        "/000/000/010/000/00/00000s.zip",
+                        100_000_000_000L,
+                        baseConfig.compression(),
+                        baseConfig.powersOfTenPerZipFileContents()),
                 Arguments.of(
                         "0000001000000000000",
                         "0000001000000000000.blk.zstd",
-                        "/opt/hashgraph/blocknode/data/historic/000/000/100/000/000/0000s.zip",
-                        1_000_000_000_000L),
+                        "/000/000/100/000/00/00000s.zip",
+                        1_000_000_000_000L,
+                        baseConfig.compression(),
+                        baseConfig.powersOfTenPerZipFileContents()),
                 Arguments.of(
                         "0000010000000000000",
                         "0000010000000000000.blk.zstd",
-                        "/opt/hashgraph/blocknode/data/historic/000/001/000/000/000/0000s.zip",
-                        10_000_000_000_000L),
+                        "/000/001/000/000/00/00000s.zip",
+                        10_000_000_000_000L,
+                        baseConfig.compression(),
+                        baseConfig.powersOfTenPerZipFileContents()),
                 Arguments.of(
                         "0000100000000000000",
                         "0000100000000000000.blk.zstd",
-                        "/opt/hashgraph/blocknode/data/historic/000/010/000/000/000/0000s.zip",
-                        100_000_000_000_000L),
+                        "/000/010/000/000/00/00000s.zip",
+                        100_000_000_000_000L,
+                        baseConfig.compression(),
+                        baseConfig.powersOfTenPerZipFileContents()),
                 Arguments.of(
                         "0001000000000000000",
                         "0001000000000000000.blk.zstd",
-                        "/opt/hashgraph/blocknode/data/historic/000/100/000/000/000/0000s.zip",
-                        1_000_000_000_000_000L),
+                        "/000/100/000/000/00/00000s.zip",
+                        1_000_000_000_000_000L,
+                        baseConfig.compression(),
+                        baseConfig.powersOfTenPerZipFileContents()),
                 Arguments.of(
                         "0010000000000000000",
                         "0010000000000000000.blk.zstd",
-                        "/opt/hashgraph/blocknode/data/historic/001/000/000/000/000/0000s.zip",
-                        10_000_000_000_000_000L),
+                        "/001/000/000/000/00/00000s.zip",
+                        10_000_000_000_000_000L,
+                        baseConfig.compression(),
+                        baseConfig.powersOfTenPerZipFileContents()),
                 Arguments.of(
                         "0100000000000000000",
                         "0100000000000000000.blk.zstd",
-                        "/opt/hashgraph/blocknode/data/historic/010/000/000/000/000/0000s.zip",
-                        100_000_000_000_000_000L),
+                        "/010/000/000/000/00/00000s.zip",
+                        100_000_000_000_000_000L,
+                        baseConfig.compression(),
+                        baseConfig.powersOfTenPerZipFileContents()),
                 Arguments.of(
                         "9223372036854775807",
                         "9223372036854775807.blk.zstd",
-                        "/opt/hashgraph/blocknode/data/historic/922/337/203/685/477/5000s.zip",
-                        Long.MAX_VALUE));
+                        "/922/337/203/685/47/70000s.zip",
+                        Long.MAX_VALUE,
+                        baseConfig.compression(),
+                        baseConfig.powersOfTenPerZipFileContents()));
+    }
+
+    /**
+     * Stream of arguments of valid block paths with config variation 1.
+     */
+    private static Stream<Arguments> validBlockPathsConfigVariation1() {
+        final List<Arguments> argumentsList = new ArrayList<>();
+        for (final CompressionType compressionType : CompressionType.values()) {
+            argumentsList.addAll(List.of(
+                    Arguments.of(
+                            "0000000000123456789",
+                            "0000000000123456789.blk" + compressionType.extension(),
+                            "/000/000/000/012/345/67/80s.zip",
+                            123_456_789L,
+                            compressionType,
+                            1),
+                    Arguments.of(
+                            "0000000000123456789",
+                            "0000000000123456789.blk" + compressionType.extension(),
+                            "/000/000/000/012/345/6/700s.zip",
+                            123_456_789L,
+                            compressionType,
+                            2),
+                    Arguments.of(
+                            "0000000000123456789",
+                            "0000000000123456789.blk" + compressionType.extension(),
+                            "/000/000/000/012/345/6000s.zip",
+                            123_456_789L,
+                            compressionType,
+                            3),
+                    Arguments.of(
+                            "0000000000123456789",
+                            "0000000000123456789.blk" + compressionType.extension(),
+                            "/000/000/000/012/34/50000s.zip",
+                            123_456_789L,
+                            compressionType,
+                            4),
+                    Arguments.of(
+                            "0000000000123456789",
+                            "0000000000123456789.blk" + compressionType.extension(),
+                            "/000/000/000/012/3/400000s.zip",
+                            123_456_789L,
+                            compressionType,
+                            5),
+                    Arguments.of(
+                            "0000000000000000000",
+                            "0000000000000000000.blk" + compressionType.extension(),
+                            "/000/000/000/000/0000000s.zip",
+                            0L,
+                            compressionType,
+                            6),
+                    Arguments.of(
+                            "0000000000000000010",
+                            "0000000000000000010.blk" + compressionType.extension(),
+                            "/000/000/000/000/000/0000s.zip",
+                            10L,
+                            compressionType,
+                            3),
+                    Arguments.of(
+                            "0000000000000000100",
+                            "0000000000000000100.blk" + compressionType.extension(),
+                            "/000/000/000/000/000/0000s.zip",
+                            100L,
+                            compressionType,
+                            3),
+                    Arguments.of(
+                            "0000000000000001000",
+                            "0000000000000001000.blk" + compressionType.extension(),
+                            "/000/000/000/000/000/1000s.zip",
+                            1_000L,
+                            compressionType,
+                            3),
+                    Arguments.of(
+                            "0000000000000010000",
+                            "0000000000000010000.blk" + compressionType.extension(),
+                            "/000/000/000/000/001/0000s.zip",
+                            10_000L,
+                            compressionType,
+                            3),
+                    Arguments.of(
+                            "0000000000000100000",
+                            "0000000000000100000.blk" + compressionType.extension(),
+                            "/000/000/000/000/010/0000s.zip",
+                            100_000L,
+                            compressionType,
+                            3),
+                    Arguments.of(
+                            "0000000000001000000",
+                            "0000000000001000000.blk" + compressionType.extension(),
+                            "/000/000/000/000/100/0000s.zip",
+                            1_000_000L,
+                            compressionType,
+                            3),
+                    Arguments.of(
+                            "0000000000010000000",
+                            "0000000000010000000.blk" + compressionType.extension(),
+                            "/000/000/000/001/000/0000s.zip",
+                            10_000_000L,
+                            compressionType,
+                            3),
+                    Arguments.of(
+                            "0000000000100000000",
+                            "0000000000100000000.blk" + compressionType.extension(),
+                            "/000/000/000/010/000/0000s.zip",
+                            100_000_000L,
+                            compressionType,
+                            3),
+                    Arguments.of(
+                            "0000000001000000000",
+                            "0000000001000000000.blk" + compressionType.extension(),
+                            "/000/000/000/100/000/0000s.zip",
+                            1_000_000_000L,
+                            compressionType,
+                            3),
+                    Arguments.of(
+                            "0000000010000000000",
+                            "0000000010000000000.blk" + compressionType.extension(),
+                            "/000/000/001/000/000/0000s.zip",
+                            10_000_000_000L,
+                            compressionType,
+                            3),
+                    Arguments.of(
+                            "0000000100000000000",
+                            "0000000100000000000.blk" + compressionType.extension(),
+                            "/000/000/010/000/000/0000s.zip",
+                            100_000_000_000L,
+                            compressionType,
+                            3),
+                    Arguments.of(
+                            "0000001000000000000",
+                            "0000001000000000000.blk" + compressionType.extension(),
+                            "/000/000/100/000/000/0000s.zip",
+                            1_000_000_000_000L,
+                            compressionType,
+                            3),
+                    Arguments.of(
+                            "0000010000000000000",
+                            "0000010000000000000.blk" + compressionType.extension(),
+                            "/000/001/000/000/000/0000s.zip",
+                            10_000_000_000_000L,
+                            compressionType,
+                            3),
+                    Arguments.of(
+                            "0000100000000000000",
+                            "0000100000000000000.blk" + compressionType.extension(),
+                            "/000/010/000/000/000/0000s.zip",
+                            100_000_000_000_000L,
+                            compressionType,
+                            3),
+                    Arguments.of(
+                            "0001000000000000000",
+                            "0001000000000000000.blk" + compressionType.extension(),
+                            "/000/100/000/000/000/0000s.zip",
+                            1_000_000_000_000_000L,
+                            compressionType,
+                            3),
+                    Arguments.of(
+                            "0010000000000000000",
+                            "0010000000000000000.blk" + compressionType.extension(),
+                            "/001/000/000/000/000/0000s.zip",
+                            10_000_000_000_000_000L,
+                            compressionType,
+                            3),
+                    Arguments.of(
+                            "0100000000000000000",
+                            "0100000000000000000.blk" + compressionType.extension(),
+                            "/010/000/000/000/000/0000s.zip",
+                            100_000_000_000_000_000L,
+                            compressionType,
+                            3),
+                    Arguments.of(
+                            "9223372036854775807",
+                            "9223372036854775807.blk" + compressionType.extension(),
+                            "/922/337/203/685/477/5000s.zip",
+                            Long.MAX_VALUE,
+                            compressionType,
+                            3)));
+        }
+        return argumentsList.stream();
     }
 }

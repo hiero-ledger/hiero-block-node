@@ -17,27 +17,22 @@ import org.hiero.block.node.base.Loggable;
  * @param rootPath provides the root path for saving historic blocks
  * @param compression compression type to use for the storage. It is assumed this never changes while a node is running
  *                    and has existing files.
- * @param digitsPerDir the number of block number digits per directory level. For example 3 = 1000 directories in each
- *                     directory
- * @param digitsPerZipFileName the number of digits of zip files in bottom level directory, For example 1 = 10 zip files
- *                             in each directory
- * @param digitsPerZipFileContents the number of digits of files in the zip file. For example 4 = 1000 files in each zip
+ * @param powersOfTenPerZipFileContents the number files in a zip file specified in powers of ten. Can can be one of
+ *                                 1 = 10, 2 = 100, 3 = 1000, 4 = 10,000, 5 = 100,000, or 6 = 1,000,000 files per
+ *                                 zip. Changing this is handy for testing, as having to wait for 10,000 blocks to be
+ *                                 created is a long time.
  */
 @ConfigData("files.historic")
 public record FilesHistoricConfig(
         @Loggable @ConfigProperty(defaultValue = "/opt/hashgraph/blocknode/data/historic") Path rootPath,
         @Loggable @ConfigProperty(defaultValue = "ZSTD") CompressionType compression,
-        @Loggable @ConfigProperty(defaultValue = "3") @Min(1) @Max(6) int digitsPerDir,
-        @Loggable @ConfigProperty(defaultValue = "1") @Min(1) @Max(10) int digitsPerZipFileName,
-        @Loggable @ConfigProperty(defaultValue = "4") @Min(1) @Max(10) int digitsPerZipFileContents) {
+        @Loggable @ConfigProperty(defaultValue = "4") @Min(1) @Max(6) int powersOfTenPerZipFileContents) {
     /**
      * Constructor.
      */
     public FilesHistoricConfig {
         Objects.requireNonNull(rootPath);
         Objects.requireNonNull(compression);
-        Preconditions.requireInRange(digitsPerDir, 1, 6);
-        Preconditions.requireInRange(digitsPerZipFileName, 1, 10);
-        Preconditions.requireInRange(digitsPerZipFileContents, 1, 10);
+        Preconditions.requireInRange(powersOfTenPerZipFileContents, 1, 6);
     }
 }
