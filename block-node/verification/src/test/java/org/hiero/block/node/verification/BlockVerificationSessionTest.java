@@ -30,7 +30,8 @@ class BlockVerificationSessionTest {
      * */
     @Test
     void happyPath() throws ParseException {
-        BlockHeader blockHeader = BlockHeader.PROTOBUF.parse(blockItems.getFirst().blockHeaderOrThrow());
+        BlockHeader blockHeader =
+                BlockHeader.PROTOBUF.parse(blockItems.getFirst().blockHeaderOrThrow());
 
         long blockNumber = blockHeader.number();
 
