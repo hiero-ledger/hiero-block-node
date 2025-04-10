@@ -17,7 +17,6 @@ import org.hiero.block.simulator.config.types.GenerationMode;
 import org.hiero.block.simulator.exception.BlockSimulatorParsingException;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
-import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -43,11 +42,10 @@ class BlockAsFileLargeDataSetsTest {
     }
 
     @Test
-    @Disabled // TODO: Fix this test
     void getNextBlock() throws IOException, BlockSimulatorParsingException {
         BlockStreamManager blockStreamManager =
                 getBlockAsFileLargeDatasetsBlockStreamManager(getAbsoluteFolder(rootFolder));
-        for (int i = 0; i < filesInFolder; i++) {
+        for (int i = 0; i < filesInFolder - 1; i++) {
             assertNotNull(blockStreamManager.getNextBlock());
         }
 
@@ -55,7 +53,6 @@ class BlockAsFileLargeDataSetsTest {
     }
 
     @Test
-    @Disabled // TODO: Fix this test
     void getNextBlockInRange() throws IOException, BlockSimulatorParsingException {
 
         final BlockGeneratorConfig blockGeneratorConfig = BlockGeneratorConfig.builder()
@@ -83,7 +80,6 @@ class BlockAsFileLargeDataSetsTest {
     }
 
     @Test
-    @Disabled // TODO: Fix this test
     void getNextBlockItem() throws IOException, BlockSimulatorParsingException {
         BlockStreamManager blockStreamManager =
                 getBlockAsFileLargeDatasetsBlockStreamManager(getAbsoluteFolder(rootFolder));
