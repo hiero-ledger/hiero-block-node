@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.node.app.fixtures.plugintest;
 
+import static java.util.concurrent.locks.LockSupport.parkNanos;
 import static org.hiero.block.node.app.fixtures.blocks.BlockItemUtils.toBlockItems;
 
 import com.hedera.hapi.block.stream.Block;
@@ -8,6 +9,7 @@ import com.hedera.hapi.block.stream.BlockItem;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import org.hiero.block.node.spi.blockmessaging.BlockItemHandler;
 import org.hiero.block.node.spi.blockmessaging.BlockItems;
@@ -24,6 +26,7 @@ public class SimpleInMemoryHistoricalBlockFacility implements HistoricalBlockFac
     private final SimpleBlockRangeSet availableBlocks = new SimpleBlockRangeSet();
     private final AtomicLong currentBlockNumber = new AtomicLong(UNKNOWN_BLOCK_NUMBER);
     private final List<BlockItems> partialBlock = new ArrayList<>();
+    private final AtomicBoolean delayResponses = new AtomicBoolean(false);
 
     /**
      * {@inheritDoc}
@@ -57,7 +60,16 @@ public class SimpleInMemoryHistoricalBlockFacility implements HistoricalBlockFac
     @Override
     public BlockAccessor block(long blockNumber) {
         Block block = blockStorage.get(blockNumber);
+        while (delayResponses.get()) parkNanos(500_000L);
         return block == null ? null : () -> block;
+    }
+
+    public void setDelayResponses() {
+        delayResponses.compareAndSet(false, true);
+    }
+
+    public void clearDelayResponses() {
+        delayResponses.compareAndSet(true, false);
     }
 
     /**

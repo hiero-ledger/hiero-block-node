@@ -1,11 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.node.app.fixtures.plugintest;
 
+import java.lang.System.Logger.Level;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.ConcurrentSkipListSet;
+import java.util.concurrent.RejectedExecutionException;
 import org.hiero.block.node.spi.blockmessaging.BlockItemHandler;
 import org.hiero.block.node.spi.blockmessaging.BlockItems;
 import org.hiero.block.node.spi.blockmessaging.BlockMessagingFacility;
@@ -27,6 +29,9 @@ public class TestBlockMessagingFacility implements BlockMessagingFacility {
     /** set of block item handlers */
     private final Set<BlockItemHandler> blockItemHandlers =
             new ConcurrentSkipListSet<>(Comparator.comparingInt(Object::hashCode));
+    /** set of non-backpressure block item handlers */
+    private final Set<BlockItemHandler> nonBackpressureBlockItemHandlers =
+            new ConcurrentSkipListSet<>(Comparator.comparingInt(Object::hashCode));
     /** set of block notification handlers */
     private final Set<BlockNotificationHandler> blockNotificationHandlers =
             new ConcurrentSkipListSet<>(Comparator.comparingInt(Object::hashCode));
@@ -34,6 +39,9 @@ public class TestBlockMessagingFacility implements BlockMessagingFacility {
     private final List<BlockItems> sentBlockBlockItems = new ArrayList<>();
     /** list of all sent block notifications */
     private final List<BlockNotification> sentBlockNotifications = new ArrayList<>();
+    /** Set of handlers for which we must simulate a handler that is behind and producing backpressure. */
+    private final Set<BlockItemHandler> handlersWithBackpressure =
+            new ConcurrentSkipListSet<>(Comparator.comparingInt(Object::hashCode));
 
     /**
      * Get all block items sent to the block messaging facility.
@@ -71,17 +79,67 @@ public class TestBlockMessagingFacility implements BlockMessagingFacility {
         return blockNotificationHandlers.size();
     }
 
+    /**
+     * Initiate "slow mode" for a handler.
+     * Make the messaging facility act like a particular handler has
+     * fallen behind when reading blocks, and either apply backpressure or
+     * call the `onTooFarBehind` method for non-backpressure handlers.
+     */
+    public void setHandlerBehind(final BlockItemHandler handler) {
+        if (handler instanceof NoBackPressureBlockItemHandler nonBlockingHandler) {
+            unregisterBlockItemHandler(nonBlockingHandler);
+            nonBlockingHandler.onTooFarBehindError();
+        } else {
+            handlersWithBackpressure.add(handler);
+        }
+    }
+
+    public void clearBackpressure(final BlockItemHandler handler) {
+        if (handlersWithBackpressure.contains(handler)) {
+            handlersWithBackpressure.remove(handler);
+        } else if (handler instanceof NoBackPressureBlockItemHandler nonBlockingHandler) {
+            registerNoBackpressureBlockItemHandler(nonBlockingHandler, false, handler.toString());
+        }
+    }
+
     // ==== BlockMessagingFacility Methods =============================================================================
 
     /**
      * {@inheritDoc}
+     * <p>
+     * This implementation will throw a {@link RejectedExecutionException} if a handler is behind
+     * and this causes backpressure.  This is <strong>different from the interface</strong> so that
+     * unit tests can detect backpressure without having to handle threading and possible deadlock.
+     * <p>
+     * Important note:
+     * <blockquote>
+     * All handlers will receive the published block before the exception is thrown, to avoid leaving handlers
+     * in inconsistent states.
+     * </blockquote>
      */
     @Override
     public void sendBlockItems(BlockItems blockItems) {
-        LOGGER.log(System.Logger.Level.DEBUG, "Sending block items " + blockItems);
+        final int handlerCount = blockItemHandlers.size() + nonBackpressureBlockItemHandlers.size();
+        LOGGER.log(
+                Level.TRACE,
+                "Sending next %d block items to %d handlers."
+                        .formatted(blockItems.blockItems().size(), handlerCount));
         sentBlockBlockItems.add(blockItems);
+        boolean handlerHasBackpressure = false;
         for (BlockItemHandler handler : blockItemHandlers) {
+            if (handlersWithBackpressure.contains(handler)) {
+                handlerHasBackpressure = true;
+            }
+            LOGGER.log(Level.TRACE, "Calling Handler %s.".formatted(handler));
             handler.handleBlockItemsReceived(blockItems);
+        }
+        for (BlockItemHandler handler : nonBackpressureBlockItemHandlers) {
+            LOGGER.log(Level.TRACE, "Calling Handler %s.".formatted(handler));
+            handler.handleBlockItemsReceived(blockItems);
+        }
+        LOGGER.log(Level.TRACE, "Sent block items:%n%s".formatted(blockItems));
+        if (handlerHasBackpressure) {
+            throw new RejectedExecutionException();
         }
     }
 
@@ -99,7 +157,10 @@ public class TestBlockMessagingFacility implements BlockMessagingFacility {
     @Override
     public void registerNoBackpressureBlockItemHandler(
             NoBackPressureBlockItemHandler handler, boolean cpuIntensiveHandler, String handlerName) {
-        blockItemHandlers.add(handler);
+        nonBackpressureBlockItemHandlers.add(handler);
+        LOGGER.log(
+                Level.DEBUG,
+                "Added handler %s as %sCPU intensive.".formatted(handlerName, cpuIntensiveHandler ? "" : "not "));
     }
 
     /**
@@ -107,7 +168,13 @@ public class TestBlockMessagingFacility implements BlockMessagingFacility {
      */
     @Override
     public void unregisterBlockItemHandler(BlockItemHandler handler) {
-        blockItemHandlers.remove(handler);
+        if (blockItemHandlers.contains(handler)) {
+            blockItemHandlers.remove(handler);
+        } else if (nonBackpressureBlockItemHandlers.contains(handler)) {
+            nonBackpressureBlockItemHandlers.remove(handler);
+        } else {
+            LOGGER.log(Level.TRACE, "Handler %s unregistered without being registered.".formatted(handler));
+        }
     }
 
     /**
@@ -115,7 +182,7 @@ public class TestBlockMessagingFacility implements BlockMessagingFacility {
      */
     @Override
     public void sendBlockNotification(BlockNotification notification) {
-        LOGGER.log(System.Logger.Level.DEBUG, "Sending block notification " + notification);
+        LOGGER.log(Level.TRACE, "Sending block notification " + notification);
         sentBlockNotifications.add(notification);
         for (BlockNotificationHandler handler : blockNotificationHandlers) {
             handler.handleBlockNotification(notification);
