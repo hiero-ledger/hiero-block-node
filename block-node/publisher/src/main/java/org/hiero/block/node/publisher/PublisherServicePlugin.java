@@ -257,7 +257,7 @@ public final class PublisherServicePlugin implements BlockNodePlugin, ServiceInt
                     .filter(openSession -> openSession.currentBlockState() == BlockStreamProducerSession.BlockState.NEW
                             && openSession.currentBlockNumber() >= currentBlockNumber)
                     .min(Comparator.comparingLong(BlockStreamProducerSession::startTimeOfCurrentBlock));
-            LOGGER.log(INFO, "onSessionUpdate: newPrimarySession was found {0}", newPrimarySession);
+            LOGGER.log(DEBUG, "onSessionUpdate: newPrimarySession was found {0}", newPrimarySession);
             if (newPrimarySession.isPresent()) {
                 final BlockStreamProducerSession openSession = newPrimarySession.get();
                 // skip setting currentPrimarySession, because this is a whole block and setting here as primary
@@ -432,7 +432,7 @@ public final class PublisherServicePlugin implements BlockNodePlugin, ServiceInt
             switch (notification.type()) {
                 case BLOCK_PERSISTED -> {
                     LOGGER.log(
-                            INFO,
+                            DEBUG,
                             "Received notification that block {0} have been persisted.",
                             notification.blockNumber());
                     // let all subscribers know we have a good copy of the block saved to disk
@@ -442,7 +442,7 @@ public final class PublisherServicePlugin implements BlockNodePlugin, ServiceInt
                 }
                 case BLOCK_FAILED_VERIFICATION -> {
                     LOGGER.log(
-                            INFO,
+                            DEBUG,
                             "Received notification that block {0} have failed verification.",
                             notification.blockNumber());
                     // set the chosen source for the current block to null as we do not have one yet

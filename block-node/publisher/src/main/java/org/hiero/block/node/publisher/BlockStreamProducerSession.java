@@ -2,7 +2,6 @@
 package org.hiero.block.node.publisher;
 
 import static java.lang.System.Logger.Level.DEBUG;
-import static java.lang.System.Logger.Level.WARNING;
 import static java.util.Objects.requireNonNull;
 import static org.hiero.block.node.spi.BlockNodePlugin.UNKNOWN_BLOCK_NUMBER;
 
@@ -175,14 +174,9 @@ public final class BlockStreamProducerSession implements Pipeline<List<BlockItem
         newBlockItems.clear();
         // let client know we do not need more data for the current block
         if (responsePipeline != null) {
-            try {
-                final PublishStreamResponse skipBlockResponse = new PublishStreamResponse(
-                        new OneOf<>(ResponseOneOfType.SKIP_BLOCK, new SkipBlock(currentBlockNumber)));
-                responsePipeline.onNext(skipBlockResponse);
-            } catch (ClassCastException e) {
-                // temporary until we find out why it cannot cast skipblock to ack
-                LOGGER.log(WARNING, "Session {0} has thrown an exception: {1}", this, e.getMessage());
-            }
+            final PublishStreamResponse skipBlockResponse = new PublishStreamResponse(
+                    new OneOf<>(ResponseOneOfType.SKIP_BLOCK, new SkipBlock(currentBlockNumber)));
+            responsePipeline.onNext(skipBlockResponse);
         }
     }
 
