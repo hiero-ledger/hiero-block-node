@@ -126,8 +126,10 @@ public final class PublisherServicePlugin implements BlockNodePlugin, ServiceInt
      * @param blockNumber the block number associated with the update
      */
     private void onSessionUpdate(BlockStreamProducerSession session, UpdateType updateType, long blockNumber) {
-        LOGGER.log(DEBUG, "onSessionUpdate: type={0} blockNumber={1} session={2}", updateType, blockNumber, session);
         stateLock.lock();
+        // log from inside the lock so only one onSessionUpdate thread is logging at a time
+        LOGGER.log(
+                DEBUG, "START onSessionUpdate: type={0} blockNumber={1} session={2}", updateType, blockNumber, session);
         try {
             // ==== Update Metrics =====================================================================
             final LongSummaryStatistics blockNumbersStats = openSessions.stream()
@@ -189,15 +191,15 @@ public final class PublisherServicePlugin implements BlockNodePlugin, ServiceInt
 
                 // we do not have a good primary session, aka not providing correct block number
                 if (currentPrimaryHasTimedOut) {
-                    LOGGER.log(
-                            WARNING,
-                            "onSessionUpdate: currentPrimaryHasTimedOut, primarySession={1}",
-                            currentPrimarySession);
+                    LOGGER.log(WARNING, "    currentPrimaryHasTimedOut, primarySession={1}", currentPrimarySession);
+                } else if (currentBlockNumber == blockNumber) {
+                    // all good with session so just return
+                    return;
                 } else {
                     // this is odd, we have a primary session, but it is not the current block number
                     LOGGER.log(
                             WARNING,
-                            "onSessionUpdate: currentPrimarySession is not providing correct block number, "
+                            "    currentPrimarySession is not providing correct block number, "
                                     + "currentBlockNumber={0} primarySession={1}",
                             currentBlockNumber,
                             currentPrimarySession);
@@ -232,8 +234,7 @@ public final class PublisherServicePlugin implements BlockNodePlugin, ServiceInt
                 if (newCurrentBlockNumber.isPresent()) {
                     LOGGER.log(
                             INFO,
-                            "onSessionUpdate: currentBlockNumber updated from {0} to {1} from sessions, "
-                                    + "availableBlocks={2}",
+                            "    currentBlockNumber updated from {0} to {1} from sessions, " + "availableBlocks={2}",
                             currentBlockNumber,
                             newCurrentBlockNumber.getAsLong(),
                             openSessions.stream()
@@ -245,7 +246,7 @@ public final class PublisherServicePlugin implements BlockNodePlugin, ServiceInt
                     // this is not ideal, we have no sessions that are ahead of the current block number
                     LOGGER.log(
                             WARNING,
-                            "onSessionUpdate: currentBlockNumber or newer is not being provided by any "
+                            "    currentBlockNumber or newer is not being provided by any "
                                     + "session, currentBlockNumber={0} availableBlocks={1}",
                             currentBlockNumber,
                             openSessions.stream()
@@ -257,7 +258,7 @@ public final class PublisherServicePlugin implements BlockNodePlugin, ServiceInt
                     .filter(openSession -> openSession.currentBlockState() == BlockStreamProducerSession.BlockState.NEW
                             && openSession.currentBlockNumber() >= currentBlockNumber)
                     .min(Comparator.comparingLong(BlockStreamProducerSession::startTimeOfCurrentBlock));
-            LOGGER.log(DEBUG, "onSessionUpdate: newPrimarySession was found {0}", newPrimarySession);
+            LOGGER.log(DEBUG, "    newPrimarySession was found {0}", newPrimarySession);
             if (newPrimarySession.isPresent()) {
                 final BlockStreamProducerSession openSession = newPrimarySession.get();
                 // skip setting currentPrimarySession, because this is a whole block and setting here as primary
@@ -280,7 +281,7 @@ public final class PublisherServicePlugin implements BlockNodePlugin, ServiceInt
                 // that will mean we will never get any blocks
                 if (openSessions.isEmpty()) {
                     // think this should never happen or at least be very rare
-                    LOGGER.log(WARNING, "No sessions found, yet we got a onSessionUpdate() call");
+                    LOGGER.log(WARNING, "   No sessions found, yet we got a onSessionUpdate() call");
                 } else {
                     final long currentMinSessionBlockNumber = openSessions.stream()
                             .mapToLong(BlockStreamProducerSession::currentBlockNumber)
@@ -289,7 +290,7 @@ public final class PublisherServicePlugin implements BlockNodePlugin, ServiceInt
                     if (currentMinSessionBlockNumber > currentBlockNumber) {
                         LOGGER.log(
                                 WARNING,
-                                "All sessions are ahead [{1}] of the current block number [{2}], "
+                                "   All sessions are ahead [{1}] of the current block number [{2}], "
                                         + "this means we wil never get another block",
                                 currentMinSessionBlockNumber,
                                 currentBlockNumber);
