@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.node.app.fixtures.plugintest;
 
+import static java.lang.System.Logger.Level.TRACE;
 import static org.junit.jupiter.api.Assertions.fail;
 
 import com.hedera.pbj.runtime.grpc.Pipeline;
@@ -30,37 +31,42 @@ public abstract class GrpcPluginTestBase<P extends BlockNodePlugin> extends Plug
     private record ReqOptions(Optional<String> authority, boolean isProtobuf, boolean isJson, String contentType)
             implements ServiceInterface.RequestOptions {}
 
+    /** The logger for this class. */
+    private final System.Logger LOGGER = System.getLogger(getClass().getName());
+
     protected final List<Bytes> fromPluginBytes = new ArrayList<>();
     protected final Pipeline<? super Bytes> toPluginPipe;
+    protected final Pipeline<Bytes> fromPluginPipe;
     protected ServiceInterface serviceInterface;
 
     public GrpcPluginTestBase(P plugin, Method method, HistoricalBlockFacility historicalBlockFacility) {
         super(plugin, historicalBlockFacility);
         // setup to receive bytes from the plugin
-        final Pipeline<Bytes> fromPluginPipe = new Pipeline<>() {
+        fromPluginPipe = new Pipeline<>() {
             @Override
             public void clientEndStreamReceived() {
-                System.out.println("PublisherTest.clientEndStreamReceived");
+                LOGGER.log(TRACE, "clientEndStreamReceived");
             }
 
             @Override
             public void onNext(Bytes item) throws RuntimeException {
                 fromPluginBytes.add(item);
+                LOGGER.log(TRACE, "onNext: %d".formatted(fromPluginBytes.size()));
             }
 
             @Override
             public void onSubscribe(Subscription subscription) {
-                System.out.println("PublisherTest.onSubscribe");
+                LOGGER.log(TRACE, "onSubscribe");
             }
 
             @Override
             public void onError(Throwable throwable) {
-                fail("PublisherTest.onError: ", throwable);
+                fail("onError: ", throwable);
             }
 
             @Override
             public void onComplete() {
-                System.out.println("PublisherTest.onComplete");
+                LOGGER.log(TRACE, "onComplete");
             }
         };
         // open a fake GRPC connection to the plugin
