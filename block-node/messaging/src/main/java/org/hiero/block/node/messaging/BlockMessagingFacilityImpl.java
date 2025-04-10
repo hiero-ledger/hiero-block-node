@@ -162,13 +162,13 @@ public class BlockMessagingFacilityImpl implements BlockMessagingFacility {
         final MessagingConfig messagingConfig = context.configuration().getConfigData(MessagingConfig.class);
         blockItemDisruptor = new Disruptor<>(
                 BlockItemBatchRingEvent::new,
-                messagingConfig.queueSize(),
+                messagingConfig.blockItemQueueSize(),
                 VIRTUAL_THREAD_FACTORY,
                 ProducerType.SINGLE,
                 new SleepingWaitStrategy());
         blockNotificationDisruptor = new Disruptor<>(
                 BlockNotificationRingEvent::new,
-                messagingConfig.queueSize(),
+                messagingConfig.blockNotificationQueueSize(),
                 VIRTUAL_THREAD_FACTORY,
                 ProducerType.SINGLE,
                 new SleepingWaitStrategy());

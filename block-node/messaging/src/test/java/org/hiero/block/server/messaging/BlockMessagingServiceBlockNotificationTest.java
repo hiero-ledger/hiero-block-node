@@ -38,7 +38,7 @@ public class BlockMessagingServiceBlockNotificationTest {
      * test the back pressure and the slow handler.
      */
     public static final int TEST_DATA_COUNT =
-            TestConfig.getConfig().getConfigData(MessagingConfig.class).queueSize() * 2;
+            TestConfig.getConfig().getConfigData(MessagingConfig.class).blockItemQueueSize() * 2;
 
     /**
      * Simple test to verify that the messaging service can handle multiple block notification handlers and that
@@ -221,7 +221,7 @@ public class BlockMessagingServiceBlockNotificationTest {
                 // wait for a bit to let the handler unregister
                 LockSupport.parkNanos(500_000);
             }
-            messagingService.sendBlockNotification(new BlockNotification(i, Type.BLOCK_PERSISTED, null));
+            messagingService.sendBlockNotification(new BlockNotification(i, Type.BLOCK_PERSISTED, null, null));
             // have to slow down production to make test reliable
             LockSupport.parkNanos(500_000);
         }
@@ -298,7 +298,7 @@ public class BlockMessagingServiceBlockNotificationTest {
         @Override
         public void run() {
             for (int i = 0; i < TEST_DATA_COUNT; i++) {
-                messagingService.sendBlockNotification(new BlockNotification(i, Type.BLOCK_PERSISTED, null));
+                messagingService.sendBlockNotification(new BlockNotification(i, Type.BLOCK_PERSISTED, null, null));
                 int totalSent = sentCounter.incrementAndGet();
                 if (pauseControl != null) {
                     // release the pause control occasionally, to slow a handler by some amount.
