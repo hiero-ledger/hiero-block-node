@@ -9,27 +9,19 @@ import java.io.BufferedOutputStream;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.lang.System.Logger.Level;
-import java.nio.file.FileSystems;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.StandardCopyOption;
-import java.util.ArrayList;
 import java.util.List;
-import java.util.stream.Stream;
-import org.hiero.block.common.utils.FileUtilities;
 import org.hiero.block.node.base.BlockFile;
 import org.hiero.block.node.base.ranges.ConcurrentLongRangeSet;
 import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.ServiceBuilder;
-import org.hiero.block.node.spi.blockmessaging.BlockItemHandler;
-import org.hiero.block.node.spi.blockmessaging.BlockItems;
 import org.hiero.block.node.spi.blockmessaging.BlockMessagingFacility;
 import org.hiero.block.node.spi.blockmessaging.BlockNotification;
 import org.hiero.block.node.spi.blockmessaging.BlockNotificationHandler;
 import org.hiero.block.node.spi.historicalblocks.BlockAccessor;
 import org.hiero.block.node.spi.historicalblocks.BlockProviderPlugin;
 import org.hiero.block.node.spi.historicalblocks.BlockRangeSet;
-import org.hiero.hapi.block.node.BlockItemUnparsed;
 import org.hiero.hapi.block.node.BlockUnparsed;
 
 /**
@@ -63,7 +55,7 @@ import org.hiero.hapi.block.node.BlockUnparsed;
  * format so they are ready to just be moved to the live directory when they are verified. The compression type is
  * configured and can be changed at any time. The compression level is also configured and can be changed at any time.
  */
-public final class BlocksFilesRecentPlugin implements BlockProviderPlugin, BlockNotificationHandler, BlockItemHandler {
+public final class BlocksFilesRecentPlugin implements BlockProviderPlugin, BlockNotificationHandler {
     /** The logger for this class. */
     private final System.Logger LOGGER = System.getLogger(getClass().getName());
     /** The configuration for this plugin. */
@@ -72,8 +64,6 @@ public final class BlocksFilesRecentPlugin implements BlockProviderPlugin, Block
     private BlockMessagingFacility blockMessaging;
     /** The set of available blocks. */
     private final ConcurrentLongRangeSet availableBlocks = new ConcurrentLongRangeSet();
-    /** The handler for unverified blocks. */
-    private UnverifiedHandler unverifiedHandler;
 
     /**
      * Default constructor for the plugin. This is used for normal service loading.
@@ -113,40 +103,12 @@ public final class BlocksFilesRecentPlugin implements BlockProviderPlugin, Block
         // create plugin data root directory if it does not exist
         try {
             Files.createDirectories(config.liveRootPath());
-            Files.createDirectories(config.unverifiedRootPath());
         } catch (final IOException e) {
             LOGGER.log(Level.ERROR, "Could not create root directory", e);
             context.serverHealth().shutdown(name(), "Could not create root directory");
         }
-        // create the unverified handler
-        unverifiedHandler = new UnverifiedHandler(config, this::moveFileToLiveStorage);
-        // we want to listen to incoming block items and write them into files in this plugins storage
-        context.blockMessaging().registerBlockItemHandler(this, false, "BlocksFilesRecent");
         // we want to listen to block notifications and to know when blocks are verified
         context.blockMessaging().registerBlockNotificationHandler(this, false, "BlocksFilesRecent");
-        // on start-up we can clear the unverified path as all unverified blocks will have to be resent
-        try (final Stream<Path> stream = Files.walk(config.unverifiedRootPath(), 1)) {
-            // TODO check it is not a directory abd us a block file, ie. don't delete files if dir is "/" :-)
-            stream.filter(Files::isRegularFile).forEach(file -> {
-                try {
-                    Files.deleteIfExists(file);
-                } catch (final IOException e) {
-                    LOGGER.log(
-                            System.Logger.Level.ERROR,
-                            "Failed to delete unverified file: %s, error: %s",
-                            file.toString(),
-                            e.getMessage());
-                    throw new UncheckedIOException(e);
-                }
-            });
-        } catch (final IOException e) {
-            LOGGER.log(
-                    System.Logger.Level.ERROR,
-                    "Failed to delete unverified files in path: %s, error: %s",
-                    config.unverifiedRootPath(),
-                    e.getMessage());
-            context.serverHealth().shutdown(BlocksFilesRecentPlugin.class.getName(), e.getMessage());
-        }
         // scan file system to find the oldest and newest blocks
         // TODO this can be way for efficient, very brute force at the moment
         nestedDirectoriesAllBlockNumbers(config.liveRootPath(), config.compression())
@@ -202,109 +164,20 @@ public final class BlocksFilesRecentPlugin implements BlockProviderPlugin, Block
     @Override
     public void handleBlockNotification(final BlockNotification notification) {
         if (notification.type() == BlockNotification.Type.BLOCK_VERIFIED) {
-            unverifiedHandler.blockVerified(notification.blockNumber());
-        }
-    }
-
-    // ==== BlockItemHandler State & Methods ===========================================================================
-
-    /**
-     * The block number of the current incoming block. This is set when the start of a new block is received. It is only
-     * ever accessed on the block item handler thread.
-     */
-    private long currentIncomingBlockNumber = UNKNOWN_BLOCK_NUMBER;
-
-    /**
-     * The list of block items for the current incoming block. This is cleared when the start of a new block is
-     * received, then new items appended till we get end of block proof. It is only ever accessed on the block item
-     * handler thread.
-     */
-    private final List<BlockItemUnparsed> currentBlocksItems = new ArrayList<>();
-
-    /**
-     * {@inheritDoc}
-     * <p>
-     * Called when the block node receives new block items, this is called on the block item handler thread.
-     */
-    @Override
-    public void handleBlockItemsReceived(final BlockItems blockItems) {
-        if (currentIncomingBlockNumber == UNKNOWN_BLOCK_NUMBER) {
-            // we are not in any block, so check if this is the start of a new block
-            if (blockItems.isStartOfNewBlock()) {
-                // we are starting a new block, so set the current block number
-                currentIncomingBlockNumber = blockItems.newBlockNumber();
-                // double check that we are not in the middle of a block and previous block was closed
-                if (!currentBlocksItems.isEmpty()) {
-                    LOGGER.log(Level.ERROR, "Previous block was not complete, block: {0}", currentIncomingBlockNumber);
-                    currentBlocksItems.clear();
-                }
-            } else {
-                // we are in the middle of a block so wait for the start of next clean block
-                return;
-            }
-        }
-        // append the block items to the current block items
-        currentBlocksItems.addAll(blockItems.blockItems());
-        // check if we are at the end of the block
-        if (blockItems.isEndOfBlock()) {
-            if (!unverifiedHandler.storeIfUnverifiedBlock(currentBlocksItems, currentIncomingBlockNumber)) {
-                // the block is already verified, so we can just write the block to the live path
-                writeBlockToLivePath(currentBlocksItems, currentIncomingBlockNumber);
-            }
-            // so we are done with block so clear the current block items and block number
-            currentBlocksItems.clear();
-            currentIncomingBlockNumber = UNKNOWN_BLOCK_NUMBER;
+            // write the block to the live path and send notification of block persisted
+            writeBlockToLivePath(notification.block(), notification.blockNumber());
         }
     }
 
     // ==== Action Methods =============================================================================================
 
     /**
-     * Move an unverified block file to the live storage. This is called when the block is verified and has already been
-     * written to unverified storage.
-     *
-     * @param blockNumber the block number of the block to move
-     */
-    private void moveFileToLiveStorage(final long blockNumber) {
-        // we need to move it to the verified block storage
-        final Path unverifiedBlockPath =
-                BlockFile.standaloneBlockFilePath(config.unverifiedRootPath(), blockNumber, config.compression());
-        final Path verifiedBlockPath = BlockFile.nestedDirectoriesBlockFilePath(
-                config.liveRootPath(), blockNumber, config.compression(), config.maxFilesPerDir());
-        try {
-            // create parent directory if it does not exist
-            if (verifiedBlockPath.getFileSystem().equals(FileSystems.getDefault())) {
-                // we are using the default file system so we need to create the parent directory
-                Files.createDirectories(verifiedBlockPath.getParent(), FileUtilities.DEFAULT_FOLDER_PERMISSIONS);
-            } else {
-                Files.createDirectories(verifiedBlockPath.getParent());
-            }
-            // move the file
-            Files.move(unverifiedBlockPath, verifiedBlockPath, StandardCopyOption.ATOMIC_MOVE);
-            // update the oldest and newest verified block numbers
-            availableBlocks.add(blockNumber);
-            LOGGER.log(Level.DEBUG, "Moved block: {0} from Unverified to Verified", blockNumber);
-            // send block persisted notification
-            blockMessaging.sendBlockNotification(
-                    new BlockNotification(blockNumber, BlockNotification.Type.BLOCK_PERSISTED, null));
-        } catch (final IOException e) {
-            LOGGER.log(
-                    Level.ERROR,
-                    "Failed to move unverified file: {0} to verified path: {1}, error: {2}",
-                    unverifiedBlockPath.toAbsolutePath().toString(),
-                    verifiedBlockPath.toAbsolutePath().toString(),
-                    e.getMessage());
-            throw new UncheckedIOException(e);
-        }
-    }
-
-    /**
      * Directly write a block to verified storage. This is used when the block is already verified when we receive it.
      *
-     * @param blockItems the block items representing block to write
+     * @param block       the block to write
      * @param blockNumber the block number of the block to write
      */
-    private void writeBlockToLivePath(final List<BlockItemUnparsed> blockItems, final long blockNumber) {
+    private void writeBlockToLivePath(final BlockUnparsed block, final long blockNumber) {
         final Path verifiedBlockPath = BlockFile.nestedDirectoriesBlockFilePath(
                 config.liveRootPath(), blockNumber, config.compression(), config.maxFilesPerDir());
         try {
@@ -320,7 +193,7 @@ public final class BlocksFilesRecentPlugin implements BlockProviderPlugin, Block
         }
         try (final WritableStreamingData streamingData = new WritableStreamingData(new BufferedOutputStream(
                 config.compression().wrapStream(Files.newOutputStream(verifiedBlockPath)), 1024 * 1024))) {
-            BlockUnparsed.PROTOBUF.write(new BlockUnparsed(blockItems), streamingData);
+            BlockUnparsed.PROTOBUF.write(block, streamingData);
             streamingData.flush();
             LOGGER.log(
                     Level.DEBUG,
@@ -331,7 +204,7 @@ public final class BlocksFilesRecentPlugin implements BlockProviderPlugin, Block
             availableBlocks.add(blockNumber);
             // send block persisted notification
             blockMessaging.sendBlockNotification(
-                    new BlockNotification(blockNumber, BlockNotification.Type.BLOCK_PERSISTED, null));
+                    new BlockNotification(blockNumber, BlockNotification.Type.BLOCK_PERSISTED, null, null));
         } catch (final IOException e) {
             LOGGER.log(
                     System.Logger.Level.ERROR,

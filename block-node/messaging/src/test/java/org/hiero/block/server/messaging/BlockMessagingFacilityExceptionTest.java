@@ -120,8 +120,8 @@ public class BlockMessagingFacilityExceptionTest {
         } catch (InterruptedException e) {
             throw new RuntimeException(e);
         }
-        service.sendBlockNotification(new BlockNotification(1, Type.BLOCK_VERIFIED, null));
-        service.sendBlockNotification(new BlockNotification(1, Type.BLOCK_VERIFIED, null));
+        service.sendBlockNotification(new BlockNotification(1, Type.BLOCK_FAILED_VERIFICATION, null, null));
+        service.sendBlockNotification(new BlockNotification(1, Type.BLOCK_PERSISTED, null, null));
         service.stop();
         // wait for the log handler to process the log messages
         for (int i = 0; i < 10 && logHandler.getLogMessages().isEmpty(); i++) {

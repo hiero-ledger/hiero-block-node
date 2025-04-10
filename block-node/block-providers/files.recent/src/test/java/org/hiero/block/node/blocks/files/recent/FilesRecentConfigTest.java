@@ -30,8 +30,6 @@ class FilesRecentConfigTest {
     private FileSystem jimfs;
     /** Default live root path value. */
     private Path defaultLiveRootPath;
-    /** Default unverified root path value. */
-    private Path defaultUnverifiedRootPath;
     /** Default compression value. */
     private CompressionType defaultCompression;
     /** Default max files per dir value. */
@@ -47,7 +45,6 @@ class FilesRecentConfigTest {
         // and should be void of any logic
         jimfs = Jimfs.newFileSystem(Configuration.unix());
         defaultLiveRootPath = jimfs.getPath("/opt/hiero/blocknode/data/live");
-        defaultUnverifiedRootPath = jimfs.getPath("/opt/hiero/blocknode/data/unverified");
         defaultCompression = CompressionType.ZSTD;
         defaultMaxFilesPerDir = 3;
     }
@@ -78,21 +75,7 @@ class FilesRecentConfigTest {
         void testNullLiveRootPath() {
             // call && assert
             assertThatNullPointerException()
-                    .isThrownBy(() -> new FilesRecentConfig(
-                            null, defaultUnverifiedRootPath, defaultCompression, defaultMaxFilesPerDir));
-        }
-
-        /**
-         * This test asserts that a {@link NullPointerException} is thrown when
-         * the input unverifiedRootPath is null.
-         */
-        @Test
-        @DisplayName("Test that NullPointerException is thrown when unverifiedRootPath is null")
-        void testNullUnverifiedRootPath() {
-            // call && assert
-            assertThatNullPointerException()
-                    .isThrownBy(() -> new FilesRecentConfig(
-                            defaultLiveRootPath, null, defaultCompression, defaultMaxFilesPerDir));
+                    .isThrownBy(() -> new FilesRecentConfig(null, defaultCompression, defaultMaxFilesPerDir));
         }
 
         /**
@@ -104,8 +87,7 @@ class FilesRecentConfigTest {
         void testNullCompression() {
             // call && assert
             assertThatNullPointerException()
-                    .isThrownBy(() -> new FilesRecentConfig(
-                            defaultLiveRootPath, defaultUnverifiedRootPath, null, defaultMaxFilesPerDir));
+                    .isThrownBy(() -> new FilesRecentConfig(defaultLiveRootPath, null, defaultMaxFilesPerDir));
         }
 
         /**
@@ -118,8 +100,8 @@ class FilesRecentConfigTest {
         void testNegativeMaxFilesPerDir(final int invalidMaxFilesPerDir) {
             // call && assert
             assertThatIllegalArgumentException()
-                    .isThrownBy(() -> new FilesRecentConfig(
-                            defaultLiveRootPath, defaultUnverifiedRootPath, defaultCompression, invalidMaxFilesPerDir));
+                    .isThrownBy(() ->
+                            new FilesRecentConfig(defaultLiveRootPath, defaultCompression, invalidMaxFilesPerDir));
         }
 
         /**
@@ -132,10 +114,7 @@ class FilesRecentConfigTest {
             // call && assert
             assertThatNoException()
                     .isThrownBy(() -> new FilesRecentConfig(
-                            defaultLiveRootPath.resolve("valid"),
-                            defaultUnverifiedRootPath.resolve("valid"),
-                            CompressionType.NONE,
-                            defaultMaxFilesPerDir + 1));
+                            defaultLiveRootPath.resolve("valid"), CompressionType.NONE, defaultMaxFilesPerDir + 1));
         }
 
         /**
@@ -147,8 +126,8 @@ class FilesRecentConfigTest {
         void testValidConstructorWithDefaults() {
             // call && assert
             assertThatNoException()
-                    .isThrownBy(() -> new FilesRecentConfig(
-                            defaultLiveRootPath, defaultUnverifiedRootPath, defaultCompression, defaultMaxFilesPerDir));
+                    .isThrownBy(() ->
+                            new FilesRecentConfig(defaultLiveRootPath, defaultCompression, defaultMaxFilesPerDir));
         }
 
         /**
@@ -160,13 +139,10 @@ class FilesRecentConfigTest {
         void testNoPathCreation() {
             // assert that no paths exist before the constructor is called
             assertThat(defaultLiveRootPath).doesNotExist();
-            assertThat(defaultUnverifiedRootPath).doesNotExist();
             // call
-            new FilesRecentConfig(
-                    defaultLiveRootPath, defaultUnverifiedRootPath, defaultCompression, defaultMaxFilesPerDir);
+            new FilesRecentConfig(defaultLiveRootPath, defaultCompression, defaultMaxFilesPerDir);
             // assert that no paths exist after the constructor is called
             assertThat(defaultLiveRootPath).doesNotExist();
-            assertThat(defaultUnverifiedRootPath).doesNotExist();
         }
     }
 
