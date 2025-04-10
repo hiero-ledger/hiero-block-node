@@ -5,9 +5,14 @@ import static org.hiero.block.node.base.BlockFile.BLOCK_FILE_EXTENSION;
 import static org.hiero.block.node.base.BlockFile.blockNumberFormated;
 
 import edu.umd.cs.findbugs.annotations.NonNull;
+import java.io.IOException;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Objects;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipFile;
 import org.hiero.block.common.utils.Preconditions;
+import org.hiero.block.node.base.CompressionType;
 
 /**
  * Record for block path components
@@ -17,7 +22,8 @@ import org.hiero.block.common.utils.Preconditions;
  * @param blockNumStr   The block number as a string
  * @param blockFileName The name of the block file in the zip file
  */
-record BlockPath(Path dirPath, Path zipFilePath, String blockNumStr, String blockFileName) {
+record BlockPath(
+        Path dirPath, Path zipFilePath, String blockNumStr, String blockFileName, CompressionType compressionType) {
     /** The number of block number digits per directory level. For example 3 = 1000 directories in each directory */
     public static final int DIGITS_PER_DIR = 3;
     /** The number of digits of zip files in bottom level directory, For example 1 = 10 zip files in each directory */
@@ -36,6 +42,7 @@ record BlockPath(Path dirPath, Path zipFilePath, String blockNumStr, String bloc
         Objects.requireNonNull(zipFilePath);
         Preconditions.requireNotBlank(blockNumStr);
         Preconditions.requireNotBlank(blockFileName);
+        Objects.requireNonNull(compressionType);
     }
 
     /**
@@ -75,6 +82,48 @@ record BlockPath(Path dirPath, Path zipFilePath, String blockNumStr, String bloc
         final String fileName =
                 blockNumberStr + BLOCK_FILE_EXTENSION + config.compression().extension();
         // assemble the BlockPath from all the components
-        return new BlockPath(dirPath, dirPath.resolve(zipFileName), blockNumberStr, fileName);
+        return new BlockPath(dirPath, dirPath.resolve(zipFileName), blockNumberStr, fileName, config.compression());
+    }
+
+    static BlockPath computeExistingBlockPath(@NonNull final FilesHistoricConfig config, final long blockNumber)
+            throws IOException {
+        // compute the path to the block file based on current configuration
+        final BlockPath computed = computeBlockPath(config, blockNumber);
+        // check if the zip file exists
+        if (Files.exists(computed.zipFilePath)) {
+            try (final ZipFile zipFile = new ZipFile(computed.zipFilePath.toFile())) {
+                // check if the block file (entry) exists happy path
+                final ZipEntry entry = zipFile.getEntry(computed.blockFileName);
+                if (entry != null) {
+                    return computed;
+                } else {
+                    // if happy path not found, check if persisted with another
+                    // compression extension.
+                    final CompressionType[] compressionOpts =
+                            config.compression().getDeclaringClass().getEnumConstants();
+                    for (int i = 0; i < compressionOpts.length; i++) {
+                        final CompressionType currentOpt = compressionOpts[i];
+                        // we are only
+                        if (!currentOpt.equals(config.compression())) {
+                            // check if the block file exists
+                            final String newFileName =
+                                    computed.blockNumStr + BLOCK_FILE_EXTENSION + currentOpt.extension();
+                            final ZipEntry newEntry = zipFile.getEntry(newFileName);
+                            if (newEntry != null) {
+                                // if found, update and return
+                                return new BlockPath(
+                                        computed.dirPath,
+                                        computed.zipFilePath,
+                                        computed.blockNumStr,
+                                        newFileName,
+                                        currentOpt);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        // if none found, return null as we could not find the block existing
+        return null;
     }
 }

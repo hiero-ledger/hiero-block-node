@@ -3,10 +3,12 @@ package org.hiero.block.node.blocks.files.historic;
 
 import static org.hiero.block.node.base.BlockFile.blockNumberFromFile;
 import static org.hiero.block.node.blocks.files.historic.BlockPath.computeBlockPath;
+import static org.hiero.block.node.blocks.files.historic.BlockPath.computeExistingBlockPath;
 
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import java.io.BufferedOutputStream;
 import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
@@ -117,12 +119,13 @@ public class ZipBlockArchive {
      * @return The block accessor for the block number
      */
     public BlockAccessor blockAccessor(long blockNumber) {
-        final BlockPath blockPath = computeBlockPath(config, blockNumber);
-        if (Files.exists(blockPath.zipFilePath())) {
-            return new ZipBlockAccessor(blockPath);
-        } // todo should we also not check if the entry exists so that we know
-        //     for sure that the block exists?
-        return null;
+        try {
+            // get existing block path or null if we cannot find it
+            final BlockPath blockPath = computeExistingBlockPath(config, blockNumber);
+            return blockPath == null ? null : new ZipBlockAccessor(blockPath);
+        } catch (final IOException e) {
+            throw new UncheckedIOException(e);
+        }
     }
 
     /**

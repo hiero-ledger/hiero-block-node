@@ -6,7 +6,6 @@ import static org.assertj.core.api.Assertions.assertThatExceptionOfType;
 import static org.assertj.core.api.Assertions.assertThatNoException;
 import static org.assertj.core.api.Assertions.assertThatNullPointerException;
 
-import com.github.luben.zstd.Zstd;
 import com.google.common.jimfs.Configuration;
 import com.google.common.jimfs.Jimfs;
 import com.hedera.hapi.block.stream.Block;
@@ -97,6 +96,7 @@ class ZipBlockAccessorTest {
             assertThatNullPointerException().isThrownBy(() -> new ZipBlockAccessor(null));
         }
     }
+
     /**
      * Tests for the {@link ZipBlockAccessor} functionality.
      */
@@ -152,7 +152,7 @@ class ZipBlockAccessorTest {
             case NONE -> bytesToWrite = protoBytes.toByteArray();
             case ZSTD -> {
                 final byte[] compressedBytes = protoBytes.toByteArray();
-                bytesToWrite = Zstd.compress(compressedBytes);
+                bytesToWrite = CompressionType.ZSTD.compress(compressedBytes);
             }
             default -> throw new IllegalStateException("Unhandled compression type: " + testConfig.compression());
         }

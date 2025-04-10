@@ -62,13 +62,21 @@ class BlockPathTest {
          * valid inputs.
          */
         @ParameterizedTest
-        @MethodSource("org.hiero.block.node.blocks.files.historic.BlockPathTest#validBlockPathsDefaultConfig")
+        @MethodSource({
+            "org.hiero.block.node.blocks.files.historic.BlockPathTest#validBlockPathsDefaultConfig",
+            "org.hiero.block.node.blocks.files.historic.BlockPathTest#validBlockPathsConfigVariation1"
+        })
         @DisplayName("Test constructor throws no exceptions with valid inputs")
-        void testConstructorValidInput(final String blockNumStr, final String blockFileName, final String zipFilePath) {
+        void testConstructorValidInput(final ArgumentsAccessor argAccessor) {
+            final String blockNumStr = argAccessor.getString(0);
+            final String blockFileName = argAccessor.getString(1);
+            final String zipFilePath = argAccessor.getString(2);
+            final CompressionType compressionType = argAccessor.get(4, CompressionType.class);
             final Path resolvedZipFilePath = jimfs.getPath(zipFilePath);
             final Path resolvedDirPath = resolvedZipFilePath.getParent();
             assertThatNoException()
-                    .isThrownBy(() -> new BlockPath(resolvedDirPath, resolvedZipFilePath, blockNumStr, blockFileName));
+                    .isThrownBy(() -> new BlockPath(
+                            resolvedDirPath, resolvedZipFilePath, blockNumStr, blockFileName, compressionType));
         }
 
         /**
@@ -77,17 +85,23 @@ class BlockPathTest {
          * valid inputs.
          */
         @ParameterizedTest
-        @MethodSource("org.hiero.block.node.blocks.files.historic.BlockPathTest#validBlockPathsDefaultConfig")
+        @MethodSource({
+            "org.hiero.block.node.blocks.files.historic.BlockPathTest#validBlockPathsDefaultConfig",
+            "org.hiero.block.node.blocks.files.historic.BlockPathTest#validBlockPathsConfigVariation1"
+        })
         @DisplayName("Test constructor does not create any paths with valid inputs")
-        void testConstructorValidInputNoCreatePaths(
-                final String blockNumStr, final String blockFileName, final String zipFilePath) {
+        void testConstructorValidInputNoCreatePaths(final ArgumentsAccessor argAccessor) {
+            final String blockNumStr = argAccessor.getString(0);
+            final String blockFileName = argAccessor.getString(1);
+            final String zipFilePath = argAccessor.getString(2);
+            final CompressionType compressionType = argAccessor.get(4, CompressionType.class);
             final Path resolvedZipFilePath = jimfs.getPath(zipFilePath);
             final Path resolvedDirPath = resolvedZipFilePath.getParent();
             // Check that the directory and zip file paths do not exist pre call
             assertThat(resolvedDirPath).doesNotExist();
             assertThat(resolvedZipFilePath).doesNotExist();
             // call
-            new BlockPath(resolvedDirPath, resolvedZipFilePath, blockNumStr, blockFileName);
+            new BlockPath(resolvedDirPath, resolvedZipFilePath, blockNumStr, blockFileName, compressionType);
             // Check that the directory and zip file paths are not created post call
             assertThat(resolvedDirPath).doesNotExist();
             assertThat(resolvedZipFilePath).doesNotExist();
@@ -99,13 +113,20 @@ class BlockPathTest {
          * the directory path is null.
          */
         @ParameterizedTest
-        @MethodSource("org.hiero.block.node.blocks.files.historic.BlockPathTest#validBlockPathsDefaultConfig")
+        @MethodSource({
+            "org.hiero.block.node.blocks.files.historic.BlockPathTest#validBlockPathsDefaultConfig",
+            "org.hiero.block.node.blocks.files.historic.BlockPathTest#validBlockPathsConfigVariation1"
+        })
         @DisplayName("Test constructor throws NullPointerException when dirPath is null")
-        void testConstructorDirPathNull(
-                final String blockNumStr, final String blockFileName, final String zipFilePath) {
+        void testConstructorDirPathNull(final ArgumentsAccessor argAccessor) {
+            final String blockNumStr = argAccessor.getString(0);
+            final String blockFileName = argAccessor.getString(1);
+            final String zipFilePath = argAccessor.getString(2);
+            final CompressionType compressionType = argAccessor.get(4, CompressionType.class);
             final Path resolvedZipFilePath = jimfs.getPath(zipFilePath);
             assertThatNullPointerException()
-                    .isThrownBy(() -> new BlockPath(null, resolvedZipFilePath, blockNumStr, blockFileName));
+                    .isThrownBy(() ->
+                            new BlockPath(null, resolvedZipFilePath, blockNumStr, blockFileName, compressionType));
         }
 
         /**
@@ -114,13 +135,20 @@ class BlockPathTest {
          * the zip file path is null.
          */
         @ParameterizedTest
-        @MethodSource("org.hiero.block.node.blocks.files.historic.BlockPathTest#validBlockPathsDefaultConfig")
+        @MethodSource({
+            "org.hiero.block.node.blocks.files.historic.BlockPathTest#validBlockPathsDefaultConfig",
+            "org.hiero.block.node.blocks.files.historic.BlockPathTest#validBlockPathsConfigVariation1"
+        })
         @DisplayName("Test constructor throws NullPointerException when zipFilePath is null")
-        void testConstructorZipFilePathNull(
-                final String blockNumStr, final String blockFileName, final String zipFilePath) {
+        void testConstructorZipFilePathNull(final ArgumentsAccessor argAccessor) {
+            final String blockNumStr = argAccessor.getString(0);
+            final String blockFileName = argAccessor.getString(1);
+            final String zipFilePath = argAccessor.getString(2);
+            final CompressionType compressionType = argAccessor.get(4, CompressionType.class);
             final Path resolvedDirPath = jimfs.getPath(zipFilePath).getParent();
             assertThatNullPointerException()
-                    .isThrownBy(() -> new BlockPath(resolvedDirPath, null, blockNumStr, blockFileName));
+                    .isThrownBy(
+                            () -> new BlockPath(resolvedDirPath, null, blockNumStr, blockFileName, compressionType));
         }
 
         /**
@@ -129,15 +157,20 @@ class BlockPathTest {
          * the block number string is blank.
          */
         @ParameterizedTest
-        @MethodSource("org.hiero.block.node.blocks.files.historic.BlockPathTest#validBlockPathsDefaultConfig")
+        @MethodSource({
+            "org.hiero.block.node.blocks.files.historic.BlockPathTest#validBlockPathsDefaultConfig",
+            "org.hiero.block.node.blocks.files.historic.BlockPathTest#validBlockPathsConfigVariation1"
+        })
         @DisplayName("Test constructor throws IllegalArgumentException when blockNumStr is blank")
         void testConstructorBlockNumStrBlank(final ArgumentsAccessor argAccessor) {
             final String blockFileName = argAccessor.getString(1);
             final String zipFilePath = argAccessor.getString(2);
+            final CompressionType compressionType = argAccessor.get(4, CompressionType.class);
             final Path resolvedZipFilePath = jimfs.getPath(zipFilePath);
             final Path resolvedDirPath = resolvedZipFilePath.getParent();
             assertThatIllegalArgumentException()
-                    .isThrownBy(() -> new BlockPath(resolvedDirPath, resolvedZipFilePath, "", blockFileName));
+                    .isThrownBy(() ->
+                            new BlockPath(resolvedDirPath, resolvedZipFilePath, "", blockFileName, compressionType));
         }
 
         /**
@@ -146,15 +179,20 @@ class BlockPathTest {
          * the block file name is blank.
          */
         @ParameterizedTest
-        @MethodSource("org.hiero.block.node.blocks.files.historic.BlockPathTest#validBlockPathsDefaultConfig")
+        @MethodSource({
+            "org.hiero.block.node.blocks.files.historic.BlockPathTest#validBlockPathsDefaultConfig",
+            "org.hiero.block.node.blocks.files.historic.BlockPathTest#validBlockPathsConfigVariation1"
+        })
         @DisplayName("Test constructor throws IllegalArgumentException when blockFileName is blank")
         void testConstructorBlockFileNameBlank(final ArgumentsAccessor argAccessor) {
             final String blockNumStr = argAccessor.getString(0);
             final String zipFilePath = argAccessor.getString(2);
+            final CompressionType compressionType = argAccessor.get(4, CompressionType.class);
             final Path resolvedZipFilePath = jimfs.getPath(zipFilePath);
             final Path resolvedDirPath = resolvedZipFilePath.getParent();
             assertThatIllegalArgumentException()
-                    .isThrownBy(() -> new BlockPath(resolvedDirPath, resolvedZipFilePath, blockNumStr, ""));
+                    .isThrownBy(() ->
+                            new BlockPath(resolvedDirPath, resolvedZipFilePath, blockNumStr, "", compressionType));
         }
     }
 
@@ -180,20 +218,21 @@ class BlockPathTest {
                 final String expectedBlockFileName,
                 final String expectedRelativeZipFilePathStr,
                 final long blockNumber,
-                final CompressionType compressionType,
+                final CompressionType expectedCompressionType,
                 final int digitsPerZipFileContents) {
             final Path expectedZipFilePath = jimfs.getPath(ROOT_PATH + expectedRelativeZipFilePathStr);
             final Path expectedDirPath = expectedZipFilePath.getParent();
             // create the config to use for the test, resolve paths with jimfs
-            final FilesHistoricConfig testConfig =
-                    new FilesHistoricConfig(jimfs.getPath(ROOT_PATH), compressionType, digitsPerZipFileContents);
+            final FilesHistoricConfig testConfig = new FilesHistoricConfig(
+                    jimfs.getPath(ROOT_PATH), expectedCompressionType, digitsPerZipFileContents);
             final BlockPath actual = BlockPath.computeBlockPath(testConfig, blockNumber);
             assertThat(actual)
                     .isNotNull()
                     .returns(expectedBlockNumStr, from(BlockPath::blockNumStr))
                     .returns(expectedBlockFileName, from(BlockPath::blockFileName))
                     .returns(expectedZipFilePath, from(BlockPath::zipFilePath))
-                    .returns(expectedDirPath, from(BlockPath::dirPath));
+                    .returns(expectedDirPath, from(BlockPath::dirPath))
+                    .returns(expectedCompressionType, from(BlockPath::compressionType));
         }
     }
 
