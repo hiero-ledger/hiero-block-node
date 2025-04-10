@@ -19,9 +19,9 @@ import java.util.List;
 import org.hiero.block.node.app.HistoricalBlockFacilityImpl;
 import org.hiero.block.node.app.fixtures.plugintest.PluginTestBase;
 import org.hiero.block.node.base.CompressionType;
-import org.hiero.block.node.spi.blockmessaging.BlockItems;
 import org.hiero.block.node.spi.blockmessaging.BlockNotification;
 import org.hiero.block.node.spi.blockmessaging.BlockNotification.Type;
+import org.hiero.hapi.block.node.BlockUnparsed;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -45,8 +45,7 @@ class BlockFileRecentPluginTest {
      */
     BlockFileRecentPluginTest() {
         this.fileSystem = Jimfs.newFileSystem(Configuration.unix());
-        this.filesRecentConfig = new FilesRecentConfig(
-                fileSystem.getPath("/live"), fileSystem.getPath("/unverified"), CompressionType.ZSTD, 3);
+        this.filesRecentConfig = new FilesRecentConfig(fileSystem.getPath("/live"), CompressionType.ZSTD, 3);
         this.blocksFilesRecentPlugin = new BlocksFilesRecentPlugin(this.filesRecentConfig);
         this.historicalBlockFacility = new HistoricalBlockFacilityImpl(List.of(blocksFilesRecentPlugin));
     }
@@ -97,8 +96,6 @@ class BlockFileRecentPluginTest {
             assertEquals(
                     UNKNOWN_BLOCK_NUMBER,
                     blockNodeContext.historicalBlockProvider().availableBlocks().min());
-            // send it to messaging
-            blockMessaging.sendBlockItems(new BlockItems(toBlockItemsUnparsed(blockBlockItems), blockNumber));
             // check if we try to read we get null as nothing is verified yet
             assertNull(plugin.block(blockNumber));
             assertEquals(UNKNOWN_BLOCK_NUMBER, plugin.availableBlocks().max());
@@ -110,7 +107,11 @@ class BlockFileRecentPluginTest {
                     UNKNOWN_BLOCK_NUMBER,
                     blockNodeContext.historicalBlockProvider().availableBlocks().min());
             // send verified block notification
-            blockMessaging.sendBlockNotification(new BlockNotification(blockNumber, Type.BLOCK_VERIFIED, Bytes.EMPTY));
+            blockMessaging.sendBlockNotification(new BlockNotification(
+                    blockNumber,
+                    Type.BLOCK_VERIFIED,
+                    Bytes.EMPTY,
+                    new BlockUnparsed(toBlockItemsUnparsed(blockBlockItems))));
             // now try and read it back
             final Block block = plugin.block(blockNumber).block();
             // check we got the correct block
@@ -135,6 +136,7 @@ class BlockFileRecentPluginTest {
         void testSendingBlockAndReadingBackVerificationFirst() {
             // create sample block of block items
             final BlockItem[] blockBlockItems = createNumberOfVerySimpleBlocks(1);
+            final BlockUnparsed blockOrig = new BlockUnparsed(toBlockItemsUnparsed(blockBlockItems));
             final long blockNumber = blockBlockItems[0].blockHeader().number();
             // check the block is not stored yet
             assertNull(plugin.block(blockNumber));
@@ -146,8 +148,6 @@ class BlockFileRecentPluginTest {
             assertEquals(
                     UNKNOWN_BLOCK_NUMBER,
                     blockNodeContext.historicalBlockProvider().availableBlocks().min());
-            // send verified block notification
-            blockMessaging.sendBlockNotification(new BlockNotification(blockNumber, Type.BLOCK_VERIFIED, Bytes.EMPTY));
             // check if we try to read we get null as nothing is persisted yet
             assertNull(plugin.block(blockNumber));
             assertEquals(UNKNOWN_BLOCK_NUMBER, plugin.availableBlocks().max());
@@ -158,8 +158,9 @@ class BlockFileRecentPluginTest {
             assertEquals(
                     UNKNOWN_BLOCK_NUMBER,
                     blockNodeContext.historicalBlockProvider().availableBlocks().min());
-            // send it to messaging
-            blockMessaging.sendBlockItems(new BlockItems(toBlockItemsUnparsed(blockBlockItems), blockNumber));
+            // send verified block notification
+            blockMessaging.sendBlockNotification(
+                    new BlockNotification(blockNumber, Type.BLOCK_VERIFIED, Bytes.EMPTY, blockOrig));
             // now try and read it back
             final Block block = plugin.block(blockNumber).block();
             // check we got the correct block

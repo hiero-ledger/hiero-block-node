@@ -7,6 +7,7 @@ import com.hedera.hapi.block.stream.BlockProof;
 import com.hedera.pbj.runtime.ParseException;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import edu.umd.cs.findbugs.annotations.NonNull;
+import java.util.ArrayList;
 import java.util.List;
 import org.hiero.block.common.hasher.HashingUtilities;
 import org.hiero.block.common.hasher.NaiveStreamingTreeHasher;
@@ -14,6 +15,7 @@ import org.hiero.block.common.hasher.StreamingTreeHasher;
 import org.hiero.block.node.spi.blockmessaging.BlockNotification;
 import org.hiero.block.node.spi.blockmessaging.BlockNotification.Type;
 import org.hiero.hapi.block.node.BlockItemUnparsed;
+import org.hiero.hapi.block.node.BlockUnparsed;
 
 /**
  * Block verification for a single block, aka. session. A new one is created for each block to verify. This is a simple
@@ -26,6 +28,11 @@ public class BlockVerificationSession {
     protected final StreamingTreeHasher inputTreeHasher;
     /** The tree hasher for output hashes. */
     protected final StreamingTreeHasher outputTreeHasher;
+    /**
+     * The block items for the block this session is responsible for. We collect them here so we can provide the
+     * complete block in the final notification.
+     */
+    protected final List<BlockItemUnparsed> blockItems = new ArrayList<>();
 
     /**
      * Constructs the session with shared initialization logic.
@@ -49,6 +56,9 @@ public class BlockVerificationSession {
      * @throws ParseException if a parsing error occurs
      */
     public BlockNotification processBlockItems(List<BlockItemUnparsed> blockItems) throws ParseException {
+        // Collect the block items for later use in producing the block notification
+        this.blockItems.addAll(blockItems);
+        // branch based on the type of block item and update respective merkle tree
         for (BlockItemUnparsed item : blockItems) {
             final BlockItemUnparsed.ItemOneOfType kind = item.item().kind();
             switch (kind) {
@@ -57,10 +67,10 @@ public class BlockVerificationSession {
                         getBlockItemHash(item));
             }
         }
-
         // Check if this batch contains the final block proof
         final BlockItemUnparsed lastItem = blockItems.getLast();
         if (lastItem.hasBlockProof()) {
+            @SuppressWarnings("DataFlowIssue")
             BlockProof blockProof = BlockProof.PROTOBUF.parse(lastItem.blockProof());
             return finalizeVerification(blockProof);
         }
@@ -79,9 +89,9 @@ public class BlockVerificationSession {
         final Bytes blockHash = HashingUtilities.computeFinalBlockHash(blockProof, inputTreeHasher, outputTreeHasher);
         final boolean verified = verifySignature(blockHash, blockProof.blockSignature());
         if (verified) {
-            return new BlockNotification(blockNumber, Type.BLOCK_VERIFIED, blockHash);
+            return new BlockNotification(blockNumber, Type.BLOCK_VERIFIED, blockHash, new BlockUnparsed(blockItems));
         } else {
-            return new BlockNotification(blockNumber, Type.BLOCK_FAILED_VERIFICATION, blockHash);
+            return new BlockNotification(blockNumber, Type.BLOCK_FAILED_VERIFICATION, null, null);
         }
     }
 

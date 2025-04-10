@@ -37,7 +37,7 @@ public class BlockMessagingServiceBlockItemTest {
      * test the back pressure and the slow handler.
      */
     public static final int TEST_DATA_COUNT =
-            TestConfig.getConfig().getConfigData(MessagingConfig.class).queueSize() * 2;
+            TestConfig.getConfig().getConfigData(MessagingConfig.class).blockItemQueueSize() * 2;
 
     /**
      * Simple test to verify that the messaging service can handle multiple block notification handlers and that
