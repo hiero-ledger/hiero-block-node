@@ -28,6 +28,7 @@ public class PositiveServerAvailabilityTests extends BaseSuite {
      * <p>The test checks if the Block Node container is  running and marked as healthy.
      */
     @Test
+    @DisplayName("Should start gRPC server successfully")
     public void verifyGrpcServerStartsSuccessfully() {
         assertTrue(blockNodeContainer.isRunning(), "Block Node container should be running.");
         assertTrue(blockNodeContainer.isHealthy(), "Block Node container should be healthy.");
@@ -40,6 +41,7 @@ public class PositiveServerAvailabilityTests extends BaseSuite {
      * exposed port matches the expected gRPC server port.
      */
     @Test
+    @DisplayName("Should listen on correct gRPC port")
     public void verifyGrpcServerListeningOnCorrectPort() {
         assertTrue(blockNodeContainer.isRunning(), "Block Node container should be running.");
         assertEquals(1, blockNodeContainer.getExposedPorts().size(), "There should be exactly one exposed port.");
