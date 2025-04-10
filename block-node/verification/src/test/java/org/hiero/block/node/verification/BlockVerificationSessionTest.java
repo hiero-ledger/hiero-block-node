@@ -4,7 +4,6 @@ package org.hiero.block.node.verification;
 import com.hedera.hapi.block.stream.output.BlockHeader;
 import com.hedera.pbj.runtime.ParseException;
 import java.io.IOException;
-import java.net.URISyntaxException;
 import java.util.List;
 import org.hiero.block.common.utils.ChunkUtils;
 import org.hiero.block.node.app.fixtures.blocks.BlockUtils;
@@ -39,6 +38,16 @@ class BlockVerificationSessionTest {
 
         BlockNotification blockNotification = session.processBlockItems(blockItems);
 
+        Assertions.assertArrayEquals(
+                blockItems.toArray(),
+                session.blockItems.toArray(),
+                "The internal block items should be the same as ones sent in");
+
+        Assertions.assertArrayEquals(
+                blockItems.toArray(),
+                blockNotification.block().blockItems().toArray(),
+                "The notification's block items should be the same as ones sent in");
+
         Assertions.assertEquals(
                 blockNumber,
                 blockNotification.blockNumber(),
@@ -59,7 +68,7 @@ class BlockVerificationSessionTest {
      * Happy path test for the BlockVerificationSession class with chunked list of items, to simulate actual usage.
      * */
     @Test
-    void happyPath_chunked() throws IOException, ParseException, URISyntaxException {
+    void happyPath_chunked() throws ParseException {
         List<List<BlockItemUnparsed>> chunkifiedItems = ChunkUtils.chunkify(blockItems, 2);
         int currentChunk = 0;
         long blockNumber = sampleBlockInfo.blockNumber();
@@ -87,13 +96,23 @@ class BlockVerificationSessionTest {
                 BlockNotification.Type.BLOCK_VERIFIED,
                 blockNotification.type(),
                 "The block notification type should be BLOCK_VERIFIED");
+
+        Assertions.assertArrayEquals(
+                blockItems.toArray(),
+                session.blockItems.toArray(),
+                "The internal block items should be the same as ones sent in");
+
+        Assertions.assertArrayEquals(
+                blockItems.toArray(),
+                blockNotification.block().blockItems().toArray(),
+                "The notification's block items should be the same as ones sent in");
     }
 
     /**
      * Non-Happy path test for the BlockVerificationSession class with invalid hash
      * */
     @Test
-    void invalidHash() throws IOException, ParseException, URISyntaxException {
+    void invalidHash() throws ParseException {
         // if we remove a block item, the hash will be different
         blockItems.remove(5);
 
@@ -121,7 +140,7 @@ class BlockVerificationSessionTest {
      * Non-Happy path test for the BlockVerificationSession class with invalid hash with chunked list of items, to simulate actual usage.
      * */
     @Test
-    void invalidHash_chunked() throws IOException, ParseException, URISyntaxException {
+    void invalidHash_chunked() throws ParseException {
         // remove a block item, the hash will be different
         blockItems.remove(5);
         // chunkify the list of items

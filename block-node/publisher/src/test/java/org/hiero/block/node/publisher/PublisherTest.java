@@ -17,13 +17,14 @@ import com.hedera.pbj.runtime.OneOf;
 import com.hedera.pbj.runtime.ParseException;
 import com.hedera.pbj.runtime.grpc.ServiceInterface.Method;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
-import java.io.IOException;
+import java.util.Collections;
 import java.util.List;
 import org.hiero.block.node.app.fixtures.plugintest.GrpcPluginTestBase;
 import org.hiero.block.node.app.fixtures.plugintest.NoBlocksHistoricalBlockFacility;
 import org.hiero.block.node.spi.blockmessaging.BlockNotification;
 import org.hiero.block.node.spi.blockmessaging.BlockNotification.Type;
 import org.hiero.hapi.block.node.BlockItemSet;
+import org.hiero.hapi.block.node.BlockUnparsed;
 import org.hiero.hapi.block.node.PublishStreamRequest;
 import org.hiero.hapi.block.node.PublishStreamRequest.RequestOneOfType;
 import org.hiero.hapi.block.node.PublishStreamResponse;
@@ -36,7 +37,7 @@ import org.junit.jupiter.api.Test;
 /**
  * Tests for the PublisherServicePlugin. It mocks out the rest of the block node so we can simply test just this plugin.
  */
-@SuppressWarnings({"FieldCanBeLocal", "MismatchedQueryAndUpdateOfCollection", "SameParameterValue"})
+@SuppressWarnings({"FieldCanBeLocal", "MismatchedQueryAndUpdateOfCollection", "SameParameterValue", "DataFlowIssue"})
 public class PublisherTest extends GrpcPluginTestBase<PublisherServicePlugin> {
 
     public PublisherTest() {
@@ -99,7 +100,7 @@ public class PublisherTest extends GrpcPluginTestBase<PublisherServicePlugin> {
      */
     @Test
     void testPublisherSendsOnBlockPersistedNotification() throws ParseException {
-        blockMessaging.sendBlockNotification(new BlockNotification(100, Type.BLOCK_PERSISTED, null));
+        blockMessaging.sendBlockNotification(new BlockNotification(100, Type.BLOCK_PERSISTED, null, null));
         // check the data was sent through to the test block messaging facility
         assertEquals(1, blockMessaging.getSentBlockNotifications().size());
         // check if a response was sent to CN
@@ -113,16 +114,17 @@ public class PublisherTest extends GrpcPluginTestBase<PublisherServicePlugin> {
     @Test
     @DisplayName(
             "When publisher receives a Duplicated (already acked) block, it should send an ack with duplicate flag")
-    void testPublisherDuplicateBlock() throws IOException, ParseException {
+    void testPublisherDuplicateBlock() throws ParseException {
         // create sample block 1
         final BlockItem blockHeader1 = sampleBlockHeader(1);
         toPluginPipe.onNext(blockItemsToPublishStreamRequest(blockHeader1));
         // check the data was sent through to the block messaging facility
         assertEquals(1, blockMessaging.getSentBlockItems().size());
         // simulate verification success
-        blockMessaging.sendBlockNotification(new BlockNotification(1, Type.BLOCK_VERIFIED, Bytes.wrap("hash1")));
+        blockMessaging.sendBlockNotification(new BlockNotification(
+                1, Type.BLOCK_VERIFIED, Bytes.wrap("hash1"), new BlockUnparsed(Collections.emptyList())));
         // simulate persistence success
-        blockMessaging.sendBlockNotification(new BlockNotification(1, Type.BLOCK_PERSISTED, null));
+        blockMessaging.sendBlockNotification(new BlockNotification(1, Type.BLOCK_PERSISTED, null, null));
         // re-attempt to send same block.
 
         final BlockItem blockHeader1Duplicate = sampleBlockHeader(0);
@@ -146,9 +148,10 @@ public class PublisherTest extends GrpcPluginTestBase<PublisherServicePlugin> {
         // check the data was sent through to the block messaging facility
         assertEquals(1, blockMessaging.getSentBlockItems().size());
         // simulate verification success
-        blockMessaging.sendBlockNotification(new BlockNotification(1, Type.BLOCK_VERIFIED, Bytes.wrap("hash1")));
+        blockMessaging.sendBlockNotification(new BlockNotification(
+                1, Type.BLOCK_VERIFIED, Bytes.wrap("hash1"), new BlockUnparsed(Collections.emptyList())));
         // simulate persistence success
-        blockMessaging.sendBlockNotification(new BlockNotification(1, Type.BLOCK_PERSISTED, null));
+        blockMessaging.sendBlockNotification(new BlockNotification(1, Type.BLOCK_PERSISTED, null, null));
 
         // create sample block 5
         final BlockItem blockHeader5 = sampleBlockHeader(5);

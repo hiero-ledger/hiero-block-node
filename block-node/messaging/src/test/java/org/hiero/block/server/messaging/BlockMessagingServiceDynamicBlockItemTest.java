@@ -33,7 +33,7 @@ public class BlockMessagingServiceDynamicBlockItemTest {
      * test the back pressure and the slow handler.
      */
     public static final int TEST_DATA_COUNT =
-            TestConfig.getConfig().getConfigData(MessagingConfig.class).queueSize() * 2;
+            TestConfig.getConfig().getConfigData(MessagingConfig.class).blockItemQueueSize() * 2;
 
     /**
      * Test to verify that the messaging service can handle dynamic handlers with no back pressure and a slow handler is
