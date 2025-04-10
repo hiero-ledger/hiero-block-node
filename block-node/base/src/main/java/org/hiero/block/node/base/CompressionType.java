@@ -1,9 +1,14 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.node.base;
 
+import com.github.luben.zstd.Zstd;
+import com.github.luben.zstd.ZstdInputStream;
+import com.github.luben.zstd.ZstdOutputStream;
+import edu.umd.cs.findbugs.annotations.NonNull;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.util.Objects;
 
 /**
  * An enum that reflects the type of compression that is used to compress the blocks that are stored within the
@@ -20,6 +25,8 @@ public enum CompressionType {
      */
     NONE("");
 
+    /** The default compression level for Zstandard compression. */
+    private static final int DEFAULT_ZSTD_COMPRESSION_LEVEL = 3;
     /** The file extension for this compression type. */
     private final String fileExtension;
 
@@ -48,9 +55,10 @@ public enum CompressionType {
      * @return the wrapped input stream
      * @throws IOException if an I/O error occurs
      */
-    public InputStream wrapStream(InputStream streamToWrap) throws IOException {
+    public InputStream wrapStream(@NonNull final InputStream streamToWrap) throws IOException {
+        Objects.requireNonNull(streamToWrap);
         return switch (this) {
-            case ZSTD -> new com.github.luben.zstd.ZstdInputStream(streamToWrap);
+            case ZSTD -> new ZstdInputStream(streamToWrap);
             case NONE -> streamToWrap;
         };
     }
@@ -62,10 +70,39 @@ public enum CompressionType {
      * @return the wrapped output stream
      * @throws IOException if an I/O error occurs
      */
-    public OutputStream wrapStream(OutputStream streamToWrap) throws IOException {
+    public OutputStream wrapStream(@NonNull final OutputStream streamToWrap) throws IOException {
+        Objects.requireNonNull(streamToWrap);
         return switch (this) {
-            case ZSTD -> new com.github.luben.zstd.ZstdOutputStream(streamToWrap, 3);
+            case ZSTD -> new ZstdOutputStream(streamToWrap, DEFAULT_ZSTD_COMPRESSION_LEVEL);
             case NONE -> streamToWrap;
+        };
+    }
+
+    /**
+     * Compresses the given data using the appropriate compression type.
+     *
+     * @param data the data to compress
+     * @return the compressed data
+     */
+    public byte[] compress(@NonNull final byte[] data) {
+        Objects.requireNonNull(data);
+        return switch (this) {
+            case ZSTD -> Zstd.compress(data, DEFAULT_ZSTD_COMPRESSION_LEVEL);
+            case NONE -> data;
+        };
+    }
+
+    /**
+     * Decompresses the given data using the appropriate compression type.
+     *
+     * @param data the data to decompress
+     * @return the decompressed data
+     */
+    public byte[] decompress(@NonNull final byte[] data) {
+        Objects.requireNonNull(data);
+        return switch (this) {
+            case ZSTD -> Zstd.decompress(data, data.length);
+            case NONE -> data;
         };
     }
 }
