@@ -10,6 +10,7 @@ import com.swirlds.metrics.api.Counter;
 import java.lang.System.Logger.Level;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Flow;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.locks.LockSupport;
 import java.util.function.Consumer;
@@ -18,6 +19,7 @@ import org.hiero.block.node.spi.blockmessaging.BlockItems;
 import org.hiero.block.node.spi.blockmessaging.NoBackPressureBlockItemHandler;
 import org.hiero.block.node.spi.historicalblocks.BlockAccessor;
 import org.hiero.hapi.block.node.BlockItemSetUnparsed;
+import org.hiero.hapi.block.node.BlockUnparsed;
 import org.hiero.hapi.block.node.SubscribeStreamRequest;
 import org.hiero.hapi.block.node.SubscribeStreamResponseCode;
 import org.hiero.hapi.block.node.SubscribeStreamResponseUnparsed;
@@ -67,17 +69,19 @@ public class BlockStreamSubscriberSession implements NoBackPressureBlockItemHand
     /** The thread for the historical stream */
     private Thread historicalStreamThread;
     /** The current block being sent to the client */
-    private long currentBlockBeingSent = UNKNOWN_BLOCK_NUMBER;
+    private final AtomicLong currentBlockBeingSent = new AtomicLong(UNKNOWN_BLOCK_NUMBER);
     /** The latest block received from the live stream, start at crazy negative so more than 10 away from block 0 */
-    private long latestLiveStreamBlock = Long.MIN_VALUE;
+    private final AtomicLong latestLiveStreamBlock = new AtomicLong(Long.MIN_VALUE);
     /** The barrier to hold the live stream until we are ready to switch over from historic */
-    private final AtomicReference<CountDownLatch> holdLiveStreamBarrier = new AtomicReference<>();
+    private final AtomicReference<CountDownLatch> holdLiveStreamBarrier = new AtomicReference<>(null);
     /** The block number of the block that the live stream is waiting on */
     private long blockLiveStreamIsWaitingReadyToSend = UNKNOWN_BLOCK_NUMBER;
     /** The first block number to stream */
     private final long startBlockNumber;
     /** The last block number to stream, can be Long.MAX_VALUE to mean infinite */
     private final long endBlockNumber;
+
+    private final String handlerName;
 
     /**
      * Constructor for the BlockStreamSubscriberSession class.
@@ -95,12 +99,12 @@ public class BlockStreamSubscriberSession implements NoBackPressureBlockItemHand
         LOGGER.log(Level.ERROR, request.toString());
         this.clientId = clientId;
         this.startBlockNumber = request.startBlockNumber();
-        this.endBlockNumber = request.endBlockNumber() == 0 || request.endBlockNumber() == UNKNOWN_BLOCK_NUMBER
-                ? Long.MAX_VALUE
-                : request.endBlockNumber();
+        this.endBlockNumber =
+                request.endBlockNumber() == UNKNOWN_BLOCK_NUMBER ? Long.MAX_VALUE : request.endBlockNumber();
         this.responsePipeline = responsePipeline;
         this.context = context;
         this.closeCallback = closeCallback;
+        handlerName = "liveStream client " + clientId;
         // create metrics
         historicToLiveStreamTransitions = context.metrics()
                 .getOrCreate(new Counter.Config(METRICS_CATEGORY, "historicToLiveStreamTransitions")
@@ -116,7 +120,7 @@ public class BlockStreamSubscriberSession implements NoBackPressureBlockItemHand
         // we have just received a new subscribe request, now we need to work out if we can service it
         if (!request.allowUnverified()) {
             // ----------> VALIDATED STREAM <----------
-            LOGGER.log(Level.WARNING, "Client {0} requested a validated stream but this is not supported", clientId);
+            LOGGER.log(Level.DEBUG, "Client {0} requested a validated stream but this is not supported", clientId);
             // send response to client
             responsePipeline.onNext(SubscribeStreamResponseUnparsed.newBuilder()
                     .status(SubscribeStreamResponseCode.READ_STREAM_NOT_AVAILABLE)
@@ -124,16 +128,24 @@ public class BlockStreamSubscriberSession implements NoBackPressureBlockItemHand
             close();
         } else if (request.startBlockNumber() < UNKNOWN_BLOCK_NUMBER) {
             // ----------> NEGATIVE START AND NOT UNKNOWN_BLOCK_NUMBER <----------
-            LOGGER.log(Level.WARNING, "Client {0} requested negative block {1}", clientId, request.startBlockNumber());
+            LOGGER.log(Level.DEBUG, "Client {0} requested negative block {1}", clientId, request.startBlockNumber());
             // send invalid start block number response
             responsePipeline.onNext(SubscribeStreamResponseUnparsed.newBuilder()
                     .status(SubscribeStreamResponseCode.READ_STREAM_INVALID_START_BLOCK_NUMBER)
                     .build());
             close();
-        } else if (request.endBlockNumber() > 0 && startBlockNumber > endBlockNumber) {
+        } else if (request.endBlockNumber() < UNKNOWN_BLOCK_NUMBER) {
+            // ----------> NEGATIVE END AND NOT UNKNOWN_BLOCK_NUMBER <----------
+            LOGGER.log(Level.DEBUG, "Client {0} requested negative end block {1}", clientId, request.endBlockNumber());
+            // send invalid end block number response
+            responsePipeline.onNext(SubscribeStreamResponseUnparsed.newBuilder()
+                    .status(SubscribeStreamResponseCode.READ_STREAM_INVALID_END_BLOCK_NUMBER)
+                    .build());
+            close();
+        } else if (request.endBlockNumber() >= 0 && startBlockNumber > endBlockNumber) {
             // ----------> END BEFORE START <----------
             LOGGER.log(
-                    Level.WARNING,
+                    Level.DEBUG,
                     "Client {0} requested end block {1} before start {2}",
                     clientId,
                     request.endBlockNumber(),
@@ -147,8 +159,8 @@ public class BlockStreamSubscriberSession implements NoBackPressureBlockItemHand
                 && (startBlockNumber < oldestBlockNumber || startBlockNumber > (latestBlockNumber + 30))) {
             // client has requested a block that is neither live nor available historical
             LOGGER.log(
-                    Level.WARNING,
-                    "Client {0} requested start block {1} that is neither live or "
+                    Level.DEBUG,
+                    "Client {0} requested start block {1} that is neither live nor "
                             + "historical. Newest historical block is {2}",
                     clientId,
                     startBlockNumber,
@@ -161,9 +173,9 @@ public class BlockStreamSubscriberSession implements NoBackPressureBlockItemHand
         } else {
             // ----------> VALID REQUEST EITHER LATEST LIVE OR HISTORIC <----------
             // register us to listen to block items from the block messaging system
-            context.blockMessaging()
-                    .registerNoBackpressureBlockItemHandler(this, false, "liveStream client " + clientId);
-            if (startBlockNumber == UNKNOWN_BLOCK_NUMBER) {
+            LOGGER.log(Level.DEBUG, "Registering a block subscriber handler for " + handlerName);
+            context.blockMessaging().registerNoBackpressureBlockItemHandler(this, false, handlerName);
+            if (startBlockNumber == UNKNOWN_BLOCK_NUMBER || startBlockNumber == latestBlockNumber) {
                 // ----------> START AT ANY BLOCK <----------
                 currentState = SubscriberState.SENDING_LIVE_STREAM_WAITING_FOR_ANY_BLOCK_START;
                 LOGGER.log(Level.INFO, "Client {0} has started streaming live blocks", clientId);
@@ -202,6 +214,21 @@ public class BlockStreamSubscriberSession implements NoBackPressureBlockItemHand
         return clientId;
     }
 
+    @Override
+    public String toString() {
+        return handlerName;
+    }
+
+    // Visible for testing.
+    synchronized boolean isHistoryStreamActive() {
+        return historicalStreamThread != null && holdLiveStreamBarrier.get() != null;
+    }
+
+    // Visible for testing.
+    long getCurrentBlockBeingSent() {
+        return currentBlockBeingSent.get();
+    }
+
     /**
      * Close this session. This will unregister us from the block messaging system and cancel the subscription.
      */
@@ -231,10 +258,10 @@ public class BlockStreamSubscriberSession implements NoBackPressureBlockItemHand
     private synchronized void processBlockItemsForClient(final BlockItems blockItems) {
         // check if blockItems is start of new block, and we have an end block number to check against
         if (blockItems.newBlockNumber() != UNKNOWN_BLOCK_NUMBER) {
-            currentBlockBeingSent = blockItems.newBlockNumber();
+            currentBlockBeingSent.set(blockItems.newBlockNumber());
             // check if we have got past the end block number and should stop streaming
-            if (blockItems.newBlockNumber() > endBlockNumber) {
-                LOGGER.log(Level.DEBUG, "Client {0} has reached end block number {1}", clientId, endBlockNumber);
+            if (endBlockNumber != UNKNOWN_BLOCK_NUMBER && blockItems.newBlockNumber() > endBlockNumber) {
+                LOGGER.log(Level.TRACE, "Client {0} has reached end block number {1}", clientId, endBlockNumber);
                 // send end of stream response
                 responsePipeline.onNext(SubscribeStreamResponseUnparsed.newBuilder()
                         .status(SubscribeStreamResponseCode.READ_STREAM_SUCCESS)
@@ -260,66 +287,8 @@ public class BlockStreamSubscriberSession implements NoBackPressureBlockItemHand
     private synchronized void sendHistoricalStream(long startBlockNumber, long endBlockNumberRaw) {
         final long endBlockNumber = endBlockNumberRaw == UNKNOWN_BLOCK_NUMBER ? Long.MAX_VALUE : endBlockNumberRaw;
         if (historicalStreamThread == null) {
-            historicalStreamThread = new Thread(() -> {
-                try {
-                    for (long i = startBlockNumber;
-                            i <= endBlockNumber && !Thread.currentThread().isInterrupted();
-                            i++) {
-                        // check if live stream is waiting ready for us at the barrier
-                        final CountDownLatch barrier = holdLiveStreamBarrier.get();
-                        if (barrier != null) {
-                            synchronized (BlockStreamSubscriberSession.this) {
-                                if (i == blockLiveStreamIsWaitingReadyToSend) {
-                                    // release the barrier
-                                    barrier.countDown();
-                                    holdLiveStreamBarrier.set(null);
-                                    historicToLiveStreamTransitions.increment();
-                                    // stop historical streaming as live should now take over
-                                    return;
-                                }
-                            }
-                        }
-                        // request historical block
-                        LOGGER.log(
-                                Level.TRACE,
-                                "Client {0} requesting historical block {1} from HistoricalBlockProvider, live block is {2}",
-                                clientId,
-                                i,
-                                latestLiveStreamBlock);
-                        final BlockAccessor blockAccessor =
-                                context.historicalBlockProvider().block(i);
-                        if (blockAccessor != null) {
-                            final var block = blockAccessor.blockUnparsed();
-                            // handle as if it was received from the block messaging system
-                            processBlockItemsForClient(new BlockItems(block.blockItems(), i));
-                        } else if (latestLiveStreamBlock == Long.MIN_VALUE) {
-                            // we have streamed all the historical blocks so fast we have not even got one block item
-                            // message yet so wait a couple seconds and try again
-                            LOGGER.log(
-                                    Level.DEBUG,
-                                    "Client {0} has sent all historic and is waiting for first live",
-                                    clientId);
-                            LockSupport.parkNanos(2_000_000_000L);
-                            LOGGER.log(
-                                    Level.DEBUG,
-                                    "Client {0} has sent all historic and has waited for first live, live block is {1}",
-                                    clientId,
-                                    latestLiveStreamBlock);
-                        } else {
-                            // we have not received a block yet, so ignore the block items
-                            LOGGER.log(
-                                    Level.DEBUG,
-                                    "Client {0} failed to get block {1} from HistoricalBlockProvider {2}",
-                                    clientId,
-                                    i,
-                                    context.historicalBlockProvider());
-                            close();
-                        }
-                    }
-                } catch (Exception e) {
-                    LOGGER.log(Level.ERROR, "Error in BlockStreamSubscriberSession for client " + clientId, e);
-                }
-            });
+            BlockStreamSubscriberSession owningSession = this;
+            historicalStreamThread = new HistoricalStreamThread(this, startBlockNumber, endBlockNumber);
             historicalStreamThread.start();
         }
     }
@@ -337,24 +306,22 @@ public class BlockStreamSubscriberSession implements NoBackPressureBlockItemHand
                 LOGGER.log(Level.INFO, "Client {0} has fallen too far behind the live stream", clientId);
                 currentState = SubscriberState.SENDING_HISTORICAL_STREAM;
                 liveToHistoricStreamTransitions.increment();
-                sendHistoricalStream(currentBlockBeingSent, endBlockNumber);
+                sendHistoricalStream(currentBlockBeingSent.get() + 1, endBlockNumber);
             }
             case SENDING_HISTORICAL_STREAM -> {
-                // we have fallen too far behind the historical stream, so reset barriers and reconnect to the
-                // live stream
+                // we have caught up to the live stream, so reset barriers and register the handler.
                 LOGGER.log(
                         Level.INFO,
                         "Client {0} has fallen too far behind, while awaiting joining from the historical stream",
                         clientId);
-                final CountDownLatch barrier = holdLiveStreamBarrier.get();
-                if (barrier != null) {
+                if (holdLiveStreamBarrier.get() != null) {
                     // release the barrier
-                    barrier.countDown();
+                    holdLiveStreamBarrier.get().countDown();
                     holdLiveStreamBarrier.set(null);
                     blockLiveStreamIsWaitingReadyToSend = UNKNOWN_BLOCK_NUMBER;
                 }
                 // reconnect to the live stream
-                context.blockMessaging().registerBlockItemHandler(this, false, "blockStream client " + clientId);
+                context.blockMessaging().registerBlockItemHandler(this, false, handlerName);
             }
         }
     }
@@ -366,60 +333,59 @@ public class BlockStreamSubscriberSession implements NoBackPressureBlockItemHand
      */
     @Override
     public void handleBlockItemsReceived(BlockItems blockItems) {
-        System.out.println("BlockStreamSubscriberSession.handleBlockItemsReceived " + blockItems);
         synchronized (this) {
             // if we get the start of a block then update the latest live stream block
             if (blockItems.isStartOfNewBlock()) {
-                latestLiveStreamBlock = blockItems.newBlockNumber();
+                latestLiveStreamBlock.set(blockItems.newBlockNumber());
             }
             switch (currentState) {
                 case SENDING_LIVE_STREAM_WAITING_FOR_ANY_BLOCK_START -> {
                     if (blockItems.isStartOfNewBlock()) {
                         // we have received a block, so we can start streaming
                         LOGGER.log(
-                                Level.DEBUG,
+                                Level.TRACE,
                                 "Client {0} has started streaming live blocks from {1}",
                                 clientId,
                                 blockItems.newBlockNumber());
                         currentState = SubscriberState.SENDING_LIVE_STREAM;
-                        currentBlockBeingSent = blockItems.newBlockNumber();
+                        currentBlockBeingSent.set(blockItems.newBlockNumber());
                         // send the block items to the client
                         processBlockItemsForClient(blockItems);
                     } else {
                         // we have not received a block yet, so ignore the block items
-                        LOGGER.log(Level.DEBUG, "Client {0} is waiting for start of new block", clientId);
+                        LOGGER.log(Level.TRACE, "Client {0} is waiting for start of new block", clientId);
                     }
                 }
                 case SENDING_LIVE_STREAM_WAITING_FOR_EXPLICIT_BLOCK_START -> {
                     // handle cases where the client is waiting for a future block
-                    if (latestLiveStreamBlock > startBlockNumber) {
+                    if (latestLiveStreamBlock.get() > startBlockNumber) {
                         // we have started a block newer and have failed to start streaming so return error to client
                         LOGGER.log(
-                                Level.DEBUG,
+                                Level.TRACE,
                                 "Client {0} has started streaming live blocks from {1} but we are waiting for {2} "
                                         + "which is now in the past",
                                 clientId,
-                                latestLiveStreamBlock,
+                                latestLiveStreamBlock.get(),
                                 startBlockNumber);
                         responsePipeline.onNext(SubscribeStreamResponseUnparsed.newBuilder()
                                 .status(SubscribeStreamResponseCode.READ_STREAM_INVALID_START_BLOCK_NUMBER)
                                 .build());
                         close();
-                    } else if (latestLiveStreamBlock == startBlockNumber) {
+                    } else if (latestLiveStreamBlock.get() == startBlockNumber) {
                         // we have received the start block, so we can start streaming
                         LOGGER.log(
-                                Level.DEBUG,
+                                Level.TRACE,
                                 "Client {0} has started streaming live blocks from {1}",
                                 clientId,
                                 blockItems.newBlockNumber());
                         currentState = SubscriberState.SENDING_LIVE_STREAM;
-                        currentBlockBeingSent = blockItems.newBlockNumber();
+                        currentBlockBeingSent.set(blockItems.newBlockNumber());
                         // send the block items to the client
                         processBlockItemsForClient(blockItems);
                     } else {
                         // we have not received a block yet, so ignore the block items
                         LOGGER.log(
-                                Level.DEBUG,
+                                Level.TRACE,
                                 "Client {0} is waiting for start of block {1}",
                                 clientId,
                                 startBlockNumber);
@@ -428,14 +394,14 @@ public class BlockStreamSubscriberSession implements NoBackPressureBlockItemHand
                 case SENDING_LIVE_STREAM -> processBlockItemsForClient(blockItems);
                 case SENDING_HISTORICAL_STREAM -> {
                     // check if the historical sending has caught up enough that it is within 10 blocks of the live
-                    // stream
-                    // if so we will hold the live stream at the barrier and wait for the historical stream to switch
-                    // over
-                    if (blockItems.isStartOfNewBlock()
-                            && (latestLiveStreamBlock - Math.max(0, currentBlockBeingSent)) < 10) {
-                        // we are waiting for the live stream to catch up, so get ready to block until we are ready to
-                        // send the live stream. Don't just block here as we are in a synchronized block, and we will
-                        // cause a deadlock.
+                    // stream. if so we will hold the live stream at the barrier and wait for the historical stream to
+                    // switch over
+                    final long differenceFromLive =
+                            latestLiveStreamBlock.get() - Math.max(0, currentBlockBeingSent.get());
+                    if (differenceFromLive > 0 && differenceFromLive < 10 && blockItems.isStartOfNewBlock()) {
+                        // we are waiting for the historical stream to catch up, so get ready to
+                        // block until we are ready to send the live stream. Don't just block here
+                        // as we are in a synchronized block, and we will cause a deadlock.
                         holdLiveStreamBarrier.set(new CountDownLatch(1));
                         blockLiveStreamIsWaitingReadyToSend = blockItems.newBlockNumber();
                     }
@@ -443,110 +409,108 @@ public class BlockStreamSubscriberSession implements NoBackPressureBlockItemHand
             }
         }
         // block if needed, done outside the synchronized block to avoid deadlock
-        final CountDownLatch barrier = holdLiveStreamBarrier.get();
-        if (barrier != null) {
+        if (holdLiveStreamBarrier.get() != null) {
             try {
                 LOGGER.log(
-                        Level.INFO,
+                        Level.DEBUG,
                         "Client {0} block item listener is waiting for historical stream to "
                                 + "catch up to live stream. Current block {1} and live stream is at {2}",
                         clientId,
-                        currentBlockBeingSent,
-                        latestLiveStreamBlock);
-                barrier.await();
+                        currentBlockBeingSent.get(),
+                        latestLiveStreamBlock.get());
+                holdLiveStreamBarrier.get().await();
                 // we are now past the barrier, so we can send new block items to client and switch to live-streaming
                 synchronized (this) {
                     currentState = SubscriberState.SENDING_LIVE_STREAM;
-                    currentBlockBeingSent = blockItems.newBlockNumber();
+                    currentBlockBeingSent.set(blockItems.newBlockNumber());
                     processBlockItemsForClient(blockItems);
                 }
             } catch (InterruptedException e) {
                 LOGGER.log(
-                        Level.ERROR,
-                        "Error waiting on barrier in BlockStreamSubscriberSession for client {1}",
+                        Level.INFO,
+                        "Interrupted waiting on barrier in BlockStreamSubscriberSession for client {1}",
                         clientId,
                         e);
+                Thread.currentThread().interrupt();
             }
         }
     }
-    //
-    //    public synchronized void itemsToSend(BlockItems blockItems) {
-    //        switch (currentState) {
-    //            case SENDING_LIVE_STREAM_WAITING_FOR_ANY_BLOCK_START -> {
-    //                if (newBlockNumber != UNKNOWN_BLOCK_NUMBER) {
-    //                    // we have received a block, so we can start streaming
-    //                    LOGGER.log(
-    //                            Level.DEBUG,
-    //                            "Client {0} has started streaming live blocks from {1}",
-    //                            clientId,
-    //                            newBlockNumber);
-    //                    currentState = SubscriberState.SENDING_LIVE_STREAM;
-    //                    currentBlockBeingSent = newBlockNumber;
-    //                    // send the block items to the client
-    //                    processBlockItemsForClient(blockItems);
-    //                } else {
-    //                    // we have not received a block yet, so ignore the block items
-    //                    LOGGER.log(Level.DEBUG, "Client {0} is waiting for start of new block", clientId);
-    //                }
-    //            }
-    //            case SENDING_LIVE_STREAM_WAITING_FOR_EXPLICIT_BLOCK_START -> {
-    //                // handle cases where the client is waiting for a future block
-    //                } else if (newBlockNumber == subscribeStreamRequest.startBlockNumber()) {
-    //                    // we have received a block, so we can start streaming
-    //                    LOGGER.log(
-    //                            Level.DEBUG,
-    //                            "Client {0} has started streaming live blocks from {1}",
-    //                            clientId,
-    //                            newBlockNumber);
-    //                    currentState = SubscriberState.SENDING_LIVE_STREAM;
-    //                    currentBlockBeingSent = newBlockNumber;
-    //                    // send the block items to the client
-    //                    processBlockItemsForClient(blockItems);
-    //                } else {
-    //                    // we have not received a block yet, so ignore the block items
-    //                    LOGGER.log(
-    //                            Level.DEBUG,
-    //                            "Client {0} is waiting for start of block {1}",
-    //                            clientId,
-    //                            subscribeStreamRequest.startBlockNumber());
-    //                }
-    //            }
-    //            case SENDING_LIVE_STREAM -> processBlockItemsForClient(blockItems);
-    //            case SENDING_HISTORICAL_STREAM -> {
-    //                // check if start of new block,
-    //                if (newBlockNumber != UNKNOWN_BLOCK_NUMBER) {
-    //                    // check if we are within 10 blocks of where we are sending from history, if we are then use
-    // barrier
-    //                    // to
-    //                    // wait for the historical streaming to catch up
-    //                    if ((newBlockNumber - Math.max(0,currentBlockBeingSent)) < 10) {
-    //                        // wait for the live stream to catch up
-    //                        LOGGER.log(
-    //                                Level.DEBUG,
-    //                                "Client {0} listener is waiting for historical stream to catch up to live stream.
-    // " +
-    //                                "Current block {1} and live stream is at {2}",
-    //                                clientId, currentBlockBeingSent, newBlockNumber);
-    //                        // wait for the barrier to be released
-    //                        holdLiveStreamBarrier = new CountDownLatch(1);
-    //                        try {
-    //                            holdLiveStreamBarrier.await();
-    //                            // we are now past the barrier, so we can send new block items to client and switch to
-    //                            // live-streaming
-    //                            currentState = SubscriberState.SENDING_LIVE_STREAM;
-    //                            currentBlockBeingSent = newBlockNumber;
-    //                            processBlockItemsForClient(blockItems);
-    //                        } catch (InterruptedException e) {
-    //                            LOGGER.log(
-    //                                    Level.ERROR,
-    //                                    "Error waiting on barrier in BlockStreamSubscriberSession for client {1}",
-    //                                    clientId,
-    //                                    e);
-    //                        }
-    //                    }
-    //                }
-    //            }
-    //        }
-    //        // in all other states we just ignore the block items
-    //    }
+
+    private static class HistoricalStreamThread extends Thread {
+        private final BlockStreamSubscriberSession owningSession;
+        private final long startBlockNumber;
+        private final long endBlockNumber;
+
+        public HistoricalStreamThread(
+                BlockStreamSubscriberSession owningSession, long startBlockNumber, long endBlockNumber) {
+            this.owningSession = owningSession;
+            this.startBlockNumber = startBlockNumber;
+            this.endBlockNumber = endBlockNumber;
+        }
+
+        @Override
+        public void run() {
+            try {
+                for (long i = startBlockNumber;
+                        i <= endBlockNumber && !Thread.currentThread().isInterrupted();
+                        i++) {
+                    // check if live stream is waiting ready for us at the barrier
+                    if (owningSession.holdLiveStreamBarrier.get() != null) {
+                        synchronized (owningSession) {
+                            if (i == owningSession.blockLiveStreamIsWaitingReadyToSend) {
+                                // release the barrier
+                                owningSession.holdLiveStreamBarrier.get().countDown();
+                                owningSession.holdLiveStreamBarrier.set(null);
+                                owningSession.historicToLiveStreamTransitions.increment();
+                                // stop historical streaming as live should now take over
+                                return;
+                            }
+                        }
+                    }
+                    // request historical block
+                    owningSession.LOGGER.log(
+                            Level.TRACE,
+                            "Client {0} requesting historical block {1} from HistoricalBlockProvider, latest block seen is {2}",
+                            owningSession.clientId,
+                            i,
+                            owningSession.latestLiveStreamBlock.get());
+                    final BlockAccessor blockAccessor =
+                            owningSession.context.historicalBlockProvider().block(i);
+                    if (blockAccessor != null) {
+                        final BlockUnparsed block = blockAccessor.blockUnparsed();
+                        // handle as if it was received from the block messaging system
+                        owningSession.processBlockItemsForClient(new BlockItems(block.blockItems(), i));
+                    } else if (owningSession.latestLiveStreamBlock.get() == Long.MIN_VALUE) {
+                        // we have streamed all the historical blocks so fast we have not even got one block item
+                        // message yet so wait a half second and try again
+                        owningSession.LOGGER.log(
+                                Level.TRACE,
+                                "Client {0} has sent all historic and is waiting for first live",
+                                owningSession.clientId);
+                        LockSupport.parkNanos(500_000_000L);
+                        owningSession.LOGGER.log(
+                                Level.TRACE,
+                                "Client {0} has sent all historic and has waited for first live, latest block seen is {1}",
+                                owningSession.clientId,
+                                owningSession.latestLiveStreamBlock.get());
+                    } else {
+                        // we have not received a block yet, so ignore the block items
+                        owningSession.LOGGER.log(
+                                Level.TRACE,
+                                "Client {0} failed to get block {1} from HistoricalBlockProvider {2}",
+                                owningSession.clientId,
+                                i,
+                                owningSession.context.historicalBlockProvider());
+                        owningSession.close();
+                    }
+                }
+            } catch (RuntimeException e) {
+                owningSession.LOGGER.log(
+                        Level.WARNING,
+                        "Unexpected exception in HistoricalStreamThread for client " + owningSession.clientId,
+                        e);
+                throw e;
+            }
+        }
+    }
 }
