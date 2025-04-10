@@ -3,10 +3,12 @@ package org.hiero.block.node.blocks.files.historic;
 
 import static org.hiero.block.node.base.BlockFile.blockNumberFromFile;
 import static org.hiero.block.node.blocks.files.historic.BlockPath.computeBlockPath;
+import static org.hiero.block.node.blocks.files.historic.BlockPath.computeExistingBlockPath;
 
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import java.io.BufferedOutputStream;
 import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
@@ -49,7 +51,7 @@ public class ZipBlockArchive {
         this.context = context;
         this.historicalBlockFacility = context.historicalBlockProvider();
         this.config = historicConfig;
-        numberOfBlocksPerZipFile = (int) Math.pow(10, historicConfig.digitsPerZipFileContents());
+        numberOfBlocksPerZipFile = (int) Math.pow(10, historicConfig.powersOfTenPerZipFileContents());
         format = switch (historicConfig.compression()) {
             case ZSTD -> Format.ZSTD_PROTOBUF;
             case NONE -> Format.PROTOBUF;};
@@ -81,7 +83,12 @@ public class ZipBlockArchive {
             zipOutputStream.setMethod(ZipOutputStream.STORED);
             for (long blockNumber = firstBlockNumber; blockNumber < lastBlockNumber; blockNumber++) {
                 // compute block filename
-                final String blockFileName = BlockFile.blockFileName(blockNumber);
+                // todo should we also not append the compression extension to the filename?
+                // todo I feel like the accessor should generally be getting us the block file name
+                //   what if the file is zstd compressed but the current runtime compression is none?
+                //   then the file name would be wrong?
+                final String blockFileName = BlockFile.blockFileName(blockNumber)
+                        .concat(config.compression().extension());
                 // get block accessor
                 final BlockAccessor blockAccessor = blockAccessors.get((int) (blockNumber - firstBlockNumber));
                 // get the bytes to write, we have to do this as we need to know the size
@@ -112,11 +119,13 @@ public class ZipBlockArchive {
      * @return The block accessor for the block number
      */
     public BlockAccessor blockAccessor(long blockNumber) {
-        final BlockPath blockPath = computeBlockPath(config, blockNumber);
-        if (Files.exists(blockPath.zipFilePath())) {
-            return new ZipBlockAccessor(blockPath);
+        try {
+            // get existing block path or null if we cannot find it
+            final BlockPath blockPath = computeExistingBlockPath(config, blockNumber);
+            return blockPath == null ? null : new ZipBlockAccessor(blockPath);
+        } catch (final IOException e) {
+            throw new UncheckedIOException(e);
         }
-        return null;
     }
 
     /**
