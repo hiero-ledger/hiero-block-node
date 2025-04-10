@@ -403,10 +403,10 @@ class BlockPathTest {
                     Arguments.of(
                             "0000000000000000000",
                             "0000000000000000000.blk"+ compressionType.extension(),
-                            "/000/000/000/000/000/0000s.zip",
+                            "/000/000/000/000/0000000s.zip",
                             0L,
                             compressionType,
-                            3),
+                            6),
                     Arguments.of(
                             "0000000000000000010",
                             "0000000000000000010.blk"+ compressionType.extension(),
