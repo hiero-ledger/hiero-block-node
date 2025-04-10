@@ -91,4 +91,18 @@ public enum CompressionType {
             case NONE -> data;
         };
     }
+
+    /**
+     * Decompresses the given data using the appropriate compression type.
+     *
+     * @param data the data to decompress
+     * @return the decompressed data
+     */
+    public byte[] decompress(@NonNull final byte[] data) {
+        Objects.requireNonNull(data);
+        return switch (this) {
+            case ZSTD -> Zstd.decompress(data, data.length);
+            case NONE -> data;
+        };
+    }
 }
