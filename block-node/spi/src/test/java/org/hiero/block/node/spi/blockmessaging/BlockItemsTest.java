@@ -60,10 +60,12 @@ public class BlockItemsTest {
     @Test
     @DisplayName("Test isStartOfNewBlock method")
     void testIsStartOfNewBlock() {
-        BlockItems blockItems = new BlockItems(blockItemList, 1);
+        BlockItems blockItems =
+                new BlockItems(List.of(new BlockItemUnparsed(new OneOf<>(ItemOneOfType.BLOCK_HEADER, null))), 1);
         assertTrue(blockItems.isStartOfNewBlock());
 
-        BlockItems blockItemsUnknown = new BlockItems(blockItemList, UNKNOWN_BLOCK_NUMBER);
+        BlockItems blockItemsUnknown = new BlockItems(
+                List.of(new BlockItemUnparsed(new OneOf<>(ItemOneOfType.BLOCK_PROOF, null))), UNKNOWN_BLOCK_NUMBER);
         assertFalse(blockItemsUnknown.isStartOfNewBlock());
     }
 
