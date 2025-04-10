@@ -53,17 +53,16 @@ record BlockPath(Path dirPath, Path zipFilePath, String blockNumStr, String bloc
         final String blockNumberStr = blockNumberFormated(blockNumber);
         // split string into digits for zip and for directories
         // offsetToZip is the number of digits in the block number that will be split into directories
-        final int offsetToZip = blockNumberStr.length() - DIGITS_PER_ZIP_FILE_NAME - config.powersOfTenPerZipFileContents();
+        final int offsetToZip =
+                blockNumberStr.length() - DIGITS_PER_ZIP_FILE_NAME - config.powersOfTenPerZipFileContents();
         // slice the block number string, directory part
         final String directoryDigits = blockNumberStr.substring(0, offsetToZip);
         // slice the block number string, zip file part, with DIGITS_PER_ZIP_FILE_NAME = 1 this is always 1 digit
-        final String zipFileNameDigits =
-                blockNumberStr.substring(offsetToZip, offsetToZip + DIGITS_PER_ZIP_FILE_NAME);
+        final String zipFileNameDigits = blockNumberStr.substring(offsetToZip, offsetToZip + DIGITS_PER_ZIP_FILE_NAME);
         // start building directory path to zip file, by slicing directoryDigits by DIGITS_PER_DIR
         Path dirPath = config.rootPath();
         for (int i = 0; i < directoryDigits.length(); i += DIGITS_PER_DIR) {
-            final String dirName =
-                    directoryDigits.substring(i, Math.min(i + DIGITS_PER_DIR, directoryDigits.length()));
+            final String dirName = directoryDigits.substring(i, Math.min(i + DIGITS_PER_DIR, directoryDigits.length()));
             dirPath = dirPath.resolve(dirName);
         }
         // create zip file name, there are always 10 zip files in each base directory as DIGITS_PER_ZIP_FILE_NAME = 1

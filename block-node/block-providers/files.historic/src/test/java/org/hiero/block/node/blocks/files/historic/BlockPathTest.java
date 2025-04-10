@@ -185,10 +185,8 @@ class BlockPathTest {
             final Path expectedZipFilePath = jimfs.getPath(ROOT_PATH + expectedRelativeZipFilePathStr);
             final Path expectedDirPath = expectedZipFilePath.getParent();
             // create the config to use for the test, resolve paths with jimfs
-            final FilesHistoricConfig testConfig = new FilesHistoricConfig(
-                    jimfs.getPath(ROOT_PATH),
-                    compressionType,
-                    digitsPerZipFileContents);
+            final FilesHistoricConfig testConfig =
+                    new FilesHistoricConfig(jimfs.getPath(ROOT_PATH), compressionType, digitsPerZipFileContents);
             final BlockPath actual = BlockPath.computeBlockPath(testConfig, blockNumber);
             assertThat(actual)
                     .isNotNull()
@@ -363,177 +361,176 @@ class BlockPathTest {
      */
     private static Stream<Arguments> validBlockPathsConfigVariation1() {
         final List<Arguments> argumentsList = new ArrayList<>();
-        for(CompressionType compressionType : CompressionType.values()) {
+        for (final CompressionType compressionType : CompressionType.values()) {
             argumentsList.addAll(List.of(
                     Arguments.of(
                             "0000000000123456789",
-                            "0000000000123456789.blk"+ compressionType.extension(),
+                            "0000000000123456789.blk" + compressionType.extension(),
                             "/000/000/000/012/345/67/80s.zip",
                             123_456_789L,
                             compressionType,
                             1),
                     Arguments.of(
                             "0000000000123456789",
-                            "0000000000123456789.blk"+ compressionType.extension(),
+                            "0000000000123456789.blk" + compressionType.extension(),
                             "/000/000/000/012/345/6/700s.zip",
                             123_456_789L,
                             compressionType,
                             2),
                     Arguments.of(
                             "0000000000123456789",
-                            "0000000000123456789.blk"+ compressionType.extension(),
+                            "0000000000123456789.blk" + compressionType.extension(),
                             "/000/000/000/012/345/6000s.zip",
                             123_456_789L,
                             compressionType,
                             3),
                     Arguments.of(
                             "0000000000123456789",
-                            "0000000000123456789.blk"+ compressionType.extension(),
+                            "0000000000123456789.blk" + compressionType.extension(),
                             "/000/000/000/012/34/50000s.zip",
                             123_456_789L,
                             compressionType,
                             4),
                     Arguments.of(
                             "0000000000123456789",
-                            "0000000000123456789.blk"+ compressionType.extension(),
+                            "0000000000123456789.blk" + compressionType.extension(),
                             "/000/000/000/012/3/400000s.zip",
                             123_456_789L,
                             compressionType,
                             5),
                     Arguments.of(
                             "0000000000000000000",
-                            "0000000000000000000.blk"+ compressionType.extension(),
+                            "0000000000000000000.blk" + compressionType.extension(),
                             "/000/000/000/000/0000000s.zip",
                             0L,
                             compressionType,
                             6),
                     Arguments.of(
                             "0000000000000000010",
-                            "0000000000000000010.blk"+ compressionType.extension(),
+                            "0000000000000000010.blk" + compressionType.extension(),
                             "/000/000/000/000/000/0000s.zip",
                             10L,
                             compressionType,
                             3),
                     Arguments.of(
                             "0000000000000000100",
-                            "0000000000000000100.blk"+ compressionType.extension(),
+                            "0000000000000000100.blk" + compressionType.extension(),
                             "/000/000/000/000/000/0000s.zip",
                             100L,
                             compressionType,
                             3),
                     Arguments.of(
                             "0000000000000001000",
-                            "0000000000000001000.blk"+ compressionType.extension(),
+                            "0000000000000001000.blk" + compressionType.extension(),
                             "/000/000/000/000/000/1000s.zip",
                             1_000L,
                             compressionType,
                             3),
                     Arguments.of(
                             "0000000000000010000",
-                            "0000000000000010000.blk"+ compressionType.extension(),
+                            "0000000000000010000.blk" + compressionType.extension(),
                             "/000/000/000/000/001/0000s.zip",
                             10_000L,
                             compressionType,
                             3),
                     Arguments.of(
                             "0000000000000100000",
-                            "0000000000000100000.blk"+ compressionType.extension(),
+                            "0000000000000100000.blk" + compressionType.extension(),
                             "/000/000/000/000/010/0000s.zip",
                             100_000L,
                             compressionType,
                             3),
                     Arguments.of(
                             "0000000000001000000",
-                            "0000000000001000000.blk"+ compressionType.extension(),
+                            "0000000000001000000.blk" + compressionType.extension(),
                             "/000/000/000/000/100/0000s.zip",
                             1_000_000L,
                             compressionType,
                             3),
                     Arguments.of(
                             "0000000000010000000",
-                            "0000000000010000000.blk"+ compressionType.extension(),
+                            "0000000000010000000.blk" + compressionType.extension(),
                             "/000/000/000/001/000/0000s.zip",
                             10_000_000L,
                             compressionType,
                             3),
                     Arguments.of(
                             "0000000000100000000",
-                            "0000000000100000000.blk"+ compressionType.extension(),
+                            "0000000000100000000.blk" + compressionType.extension(),
                             "/000/000/000/010/000/0000s.zip",
                             100_000_000L,
                             compressionType,
                             3),
                     Arguments.of(
                             "0000000001000000000",
-                            "0000000001000000000.blk"+ compressionType.extension(),
+                            "0000000001000000000.blk" + compressionType.extension(),
                             "/000/000/000/100/000/0000s.zip",
                             1_000_000_000L,
                             compressionType,
                             3),
                     Arguments.of(
                             "0000000010000000000",
-                            "0000000010000000000.blk"+ compressionType.extension(),
+                            "0000000010000000000.blk" + compressionType.extension(),
                             "/000/000/001/000/000/0000s.zip",
                             10_000_000_000L,
                             compressionType,
                             3),
                     Arguments.of(
                             "0000000100000000000",
-                            "0000000100000000000.blk"+ compressionType.extension(),
+                            "0000000100000000000.blk" + compressionType.extension(),
                             "/000/000/010/000/000/0000s.zip",
                             100_000_000_000L,
                             compressionType,
                             3),
                     Arguments.of(
                             "0000001000000000000",
-                            "0000001000000000000.blk"+ compressionType.extension(),
+                            "0000001000000000000.blk" + compressionType.extension(),
                             "/000/000/100/000/000/0000s.zip",
                             1_000_000_000_000L,
                             compressionType,
                             3),
                     Arguments.of(
                             "0000010000000000000",
-                            "0000010000000000000.blk"+ compressionType.extension(),
+                            "0000010000000000000.blk" + compressionType.extension(),
                             "/000/001/000/000/000/0000s.zip",
                             10_000_000_000_000L,
                             compressionType,
                             3),
                     Arguments.of(
                             "0000100000000000000",
-                            "0000100000000000000.blk"+ compressionType.extension(),
+                            "0000100000000000000.blk" + compressionType.extension(),
                             "/000/010/000/000/000/0000s.zip",
                             100_000_000_000_000L,
                             compressionType,
                             3),
                     Arguments.of(
                             "0001000000000000000",
-                            "0001000000000000000.blk"+ compressionType.extension(),
+                            "0001000000000000000.blk" + compressionType.extension(),
                             "/000/100/000/000/000/0000s.zip",
                             1_000_000_000_000_000L,
                             compressionType,
                             3),
                     Arguments.of(
                             "0010000000000000000",
-                            "0010000000000000000.blk"+ compressionType.extension(),
+                            "0010000000000000000.blk" + compressionType.extension(),
                             "/001/000/000/000/000/0000s.zip",
                             10_000_000_000_000_000L,
                             compressionType,
                             3),
                     Arguments.of(
                             "0100000000000000000",
-                            "0100000000000000000.blk"+ compressionType.extension(),
+                            "0100000000000000000.blk" + compressionType.extension(),
                             "/010/000/000/000/000/0000s.zip",
                             100_000_000_000_000_000L,
                             compressionType,
                             3),
                     Arguments.of(
                             "9223372036854775807",
-                            "9223372036854775807.blk"+ compressionType.extension(),
+                            "9223372036854775807.blk" + compressionType.extension(),
                             "/922/337/203/685/477/5000s.zip",
                             Long.MAX_VALUE,
                             compressionType,
-                            3)
-            ));
+                            3)));
         }
         return argumentsList.stream();
     }
