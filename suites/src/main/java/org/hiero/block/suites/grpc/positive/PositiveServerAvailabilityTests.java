@@ -69,14 +69,14 @@ public class PositiveServerAvailabilityTests extends BaseSuite {
 
         // Test /healthz/readyz endpoint
         final HttpURLConnection readyzConnection =
-                (java.net.HttpURLConnection) new java.net.URL(baseUrl + "/healthz/readyz").openConnection();
+                (HttpURLConnection) new java.net.URL(baseUrl + "/healthz/readyz").openConnection();
         readyzConnection.setRequestMethod("GET");
         final int readyzResponseCode = readyzConnection.getResponseCode();
         assertEquals(200, readyzResponseCode, "Expected HTTP 200 for /healthz/readyz endpoint.");
 
         // Test /healthz/livez endpoint
         final HttpURLConnection livezConnection =
-                (java.net.HttpURLConnection) new java.net.URL(baseUrl + "/healthz/livez").openConnection();
+                (HttpURLConnection) new java.net.URL(baseUrl + "/healthz/livez").openConnection();
         livezConnection.setRequestMethod("GET");
         final int livezResponseCode = livezConnection.getResponseCode();
         assertEquals(200, livezResponseCode, "Expected HTTP 200 for /healthz/livez endpoint.");
@@ -96,7 +96,7 @@ public class PositiveServerAvailabilityTests extends BaseSuite {
 
         // Test /metrics endpoint
         final HttpURLConnection metricsConnection =
-                (java.net.HttpURLConnection) new java.net.URL(baseUrl + "/metrics").openConnection();
+                (HttpURLConnection) new java.net.URL(baseUrl + "/metrics").openConnection();
         metricsConnection.setRequestMethod("GET");
         final int metricsResponseCode = metricsConnection.getResponseCode();
         assertEquals(200, metricsResponseCode, "Expected HTTP 200 for /metrics endpoint.");

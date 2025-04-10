@@ -13,11 +13,4 @@ import org.junit.platform.suite.api.Suite;
  */
 @Suite
 @SelectClasses({GetSingleBlockApiTests.class})
-public class BlockAccessTestSuites {
-
-    /**
-     * Default constructor for the {@link BlockAccessTestSuites} class. This constructor is empty as
-     * it does not need to perform any initialization.
-     */
-    public BlockAccessTestSuites() {}
-}
+public class BlockAccessTestSuites {}

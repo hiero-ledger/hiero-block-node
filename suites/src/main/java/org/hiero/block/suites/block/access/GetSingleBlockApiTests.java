@@ -39,12 +39,6 @@ import org.junit.jupiter.api.TestInstance;
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
 public class GetSingleBlockApiTests extends BaseSuite {
 
-    /**
-     * Default constructor for the {@link GetSingleBlockApiTests} class. This constructor does not
-     * require any specific initialization.
-     */
-    public GetSingleBlockApiTests() {}
-
     // Simulator instance to be used for testing
     private BlockStreamSimulatorApp blockStreamSimulatorApp;
 
