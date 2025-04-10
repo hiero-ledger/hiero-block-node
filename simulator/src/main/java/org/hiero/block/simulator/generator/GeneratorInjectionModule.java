@@ -16,7 +16,6 @@ public interface GeneratorInjectionModule {
     /**
      * Provides the block stream manager based on the configuration settings.
      * For DIR generation mode:
-     * - BlockAsDirBlockStreamManager if explicitly configured
      * - BlockAsFileLargeDataSets if explicitly configured
      * - BlockAsFileBlockStreamManager as default
      * For CRAFT generation mode:
@@ -35,9 +34,7 @@ public interface GeneratorInjectionModule {
         final GenerationMode generationMode = generatorConfig.generationMode();
         return switch (generationMode) {
             case DIR -> {
-                if ("BlockAsDirBlockStreamManager".equalsIgnoreCase(managerImpl)) {
-                    yield new BlockAsDirBlockStreamManager(generatorConfig);
-                } else if ("BlockAsFileLargeDataSets".equalsIgnoreCase(managerImpl)) {
+                if ("BlockAsFileLargeDataSets".equalsIgnoreCase(managerImpl)) {
                     yield new BlockAsFileLargeDataSets(generatorConfig);
                 }
                 yield new BlockAsFileBlockStreamManager(generatorConfig);
