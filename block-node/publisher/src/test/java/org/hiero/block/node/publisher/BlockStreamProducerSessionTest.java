@@ -20,6 +20,7 @@ import java.util.function.Consumer;
 import org.hiero.block.node.spi.blockmessaging.BlockItems;
 import org.hiero.hapi.block.node.BlockItemUnparsed;
 import org.hiero.hapi.block.node.PublishStreamResponse;
+import org.hiero.hapi.block.node.PublishStreamResponse.ResponseOneOfType;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -111,9 +112,7 @@ public class BlockStreamProducerSessionTest {
         // Verify state change
         assertEquals(BlockStreamProducerSession.BlockState.BEHIND, session.currentBlockState());
         assertNotNull(lastResponse);
-        assertEquals(
-                PublishStreamResponse.ResponseOneOfType.ACKNOWLEDGEMENT,
-                lastResponse.response().kind());
+        assertEquals(ResponseOneOfType.SKIP_BLOCK, lastResponse.response().kind());
     }
 
     /**

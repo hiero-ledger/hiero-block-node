@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-package org.hiero.block.node.app.logging;
+package org.hiero.block.node.app.fixtures.logging;
 
 import java.io.PrintWriter;
 import java.io.StringWriter;
