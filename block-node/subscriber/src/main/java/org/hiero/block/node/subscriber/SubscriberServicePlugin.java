@@ -8,6 +8,7 @@ import com.hedera.pbj.runtime.grpc.ServiceInterface;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import com.swirlds.metrics.api.LongGauge;
 import edu.umd.cs.findbugs.annotations.NonNull;
+import java.lang.System.Logger.Level;
 import java.util.Arrays;
 import java.util.Comparator;
 import java.util.List;
@@ -21,7 +22,8 @@ import org.hiero.hapi.block.node.SubscribeStreamResponseUnparsed;
 
 /** Provides implementation for the health endpoints of the server. */
 public class SubscriberServicePlugin implements BlockNodePlugin, ServiceInterface {
-
+    /** The logger for this class. */
+    private final System.Logger LOGGER = System.getLogger(getClass().getName());
     /** The next client id to use when a new client session is created */
     private final AtomicLong nextClientId = new AtomicLong(0);
     /** Set of open client sessions */
@@ -39,9 +41,21 @@ public class SubscriberServicePlugin implements BlockNodePlugin, ServiceInterfac
      */
     private void closedSubscriberSessionCallback(
             @NonNull final BlockStreamSubscriberSession blockStreamProducerSession) {
+        long sessionIndex = blockStreamProducerSession.clientId();
+        int sessionCount = openSessions.size();
         // remove the session from the set of open sessions
+        LOGGER.log(Level.DEBUG, "Removing session ID %d of %d.".formatted(sessionIndex, sessionCount));
         openSessions.remove(blockStreamProducerSession);
         numberOfSubscribers.set(openSessions.size());
+    }
+
+    private static final BlockStreamSubscriberSession[] EMPTY_SESSION_ARRAY = {};
+    /**
+     * Testing method to provide visibility into the open sessions (which are message handlers)
+     * so we can trigger messaging behaviors and see results.
+     */
+    BlockStreamSubscriberSession[] getOpenSessions() {
+        return openSessions.toArray(EMPTY_SESSION_ARRAY);
     }
 
     // ==== BlockNodePlugin Methods ====================================================================================
@@ -65,7 +79,7 @@ public class SubscriberServicePlugin implements BlockNodePlugin, ServiceInterfac
     /**
      * BlockStreamSubscriberService types define the gRPC methods available on the BlockStreamSubscriberService.
      */
-    enum BlockStreamSubscriberServiceMethod implements Method {
+    enum SubscriberServiceMethod implements Method {
         /**
          * The subscribeBlockStream method represents the server-streaming gRPC method
          * consumers should use to subscribe to the BlockStream from the Block Node.
@@ -94,7 +108,7 @@ public class SubscriberServicePlugin implements BlockNodePlugin, ServiceInterfac
      */
     @NonNull
     public List<Method> methods() {
-        return Arrays.asList(BlockStreamSubscriberServiceMethod.values());
+        return Arrays.asList(SubscriberServiceMethod.values());
     }
 
     /**
@@ -107,24 +121,23 @@ public class SubscriberServicePlugin implements BlockNodePlugin, ServiceInterfac
     public Pipeline<? super Bytes> open(
             @NonNull Method method, @NonNull RequestOptions opts, @NonNull Pipeline<? super Bytes> responses)
             throws GrpcException {
-        final BlockStreamSubscriberServiceMethod blockStreamSubscriberServiceMethod =
-                (BlockStreamSubscriberServiceMethod) method;
-        return switch (blockStreamSubscriberServiceMethod) {
+        LOGGER.log(Level.INFO, "Real Plugin Open called");
+        final SubscriberServiceMethod subscriberServiceMethod = (SubscriberServiceMethod) method;
+        return switch (subscriberServiceMethod) {
             case subscribeBlockStream:
                 // subscribeBlockStream is server streaming end point so the client sends a single request and the
                 // server sends many responses
                 yield Pipelines.<SubscribeStreamRequest, SubscribeStreamResponseUnparsed>serverStreaming()
                         .mapRequest(SubscribeStreamRequest.PROTOBUF::parse)
                         .method((request, responsePipeline) -> {
-                            final BlockStreamSubscriberSession blockStreamProducerSession =
-                                    new BlockStreamSubscriberSession(
-                                            nextClientId.getAndIncrement(),
-                                            request,
-                                            responsePipeline,
-                                            context,
-                                            this::closedSubscriberSessionCallback);
+                            final BlockStreamSubscriberSession blockStreamSession = new BlockStreamSubscriberSession(
+                                    nextClientId.getAndIncrement(),
+                                    request,
+                                    responsePipeline,
+                                    context,
+                                    this::closedSubscriberSessionCallback);
                             // add the session to the set of open sessions
-                            openSessions.add(blockStreamProducerSession);
+                            openSessions.add(blockStreamSession);
                             numberOfSubscribers.set(openSessions.size());
                         })
                         .mapResponse(SubscribeStreamResponseUnparsed.PROTOBUF::toBytes)
