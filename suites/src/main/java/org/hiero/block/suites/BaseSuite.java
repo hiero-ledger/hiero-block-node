@@ -44,6 +44,9 @@ public abstract class BaseSuite {
     /** Port that is used by the Block Node Application */
     protected static int blockNodePort;
 
+    /** Port that is used by the Block Node Application for metrics */
+    protected static int blockNodeMetricsPort;
+
     /** Executor service for managing threads */
     protected static ErrorLoggingExecutor executorService;
 
@@ -105,8 +108,10 @@ public abstract class BaseSuite {
     protected static GenericContainer<?> createContainer() {
         String blockNodeVersion = BaseSuite.getBlockNodeVersion();
         blockNodePort = 8080;
+        blockNodeMetricsPort = 9999;
         List<String> portBindings = new ArrayList<>();
         portBindings.add(String.format("%d:%2d", blockNodePort, blockNodePort));
+        portBindings.add(String.format("%d:%2d", blockNodeMetricsPort, blockNodeMetricsPort));
         blockNodeContainer = new GenericContainer<>(DockerImageName.parse("block-node-server:" + blockNodeVersion))
                 .withExposedPorts(blockNodePort)
                 .withEnv("VERSION", blockNodeVersion)
