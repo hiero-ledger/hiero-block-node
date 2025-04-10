@@ -17,7 +17,6 @@ module org.hiero.block.node.blocks.files.historic {
     requires com.hedera.pbj.runtime;
     requires org.hiero.block.common;
     requires org.hiero.block.stream;
-    requires com.github.luben.zstd_jni;
     requires com.github.spotbugs.annotations;
 
     provides org.hiero.block.node.spi.historicalblocks.BlockProviderPlugin with

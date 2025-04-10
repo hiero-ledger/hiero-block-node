@@ -80,7 +80,8 @@ public final class BlockUtils {
      * These blocks are used for testing purposes only.
      */
     public enum SAMPLE_BLOCKS {
-        GENERATED_10("generated-10.blk.gz",
+        GENERATED_10(
+                "generated-10.blk.gz",
                 "1d315470a3cfe12838d10cda3ad17f93a577a563efb45725f78a58384b8d2ebddf1dd5d849f922ddd72e9e824f565ebc",
                 10);
 
