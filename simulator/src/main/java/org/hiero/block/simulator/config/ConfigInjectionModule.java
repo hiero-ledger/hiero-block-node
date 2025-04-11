@@ -11,6 +11,7 @@ import org.hiero.block.simulator.config.data.BlockStreamConfig;
 import org.hiero.block.simulator.config.data.ConsumerConfig;
 import org.hiero.block.simulator.config.data.GrpcConfig;
 import org.hiero.block.simulator.config.data.SimulatorStartupDataConfig;
+import org.hiero.block.simulator.config.data.UnorderedStreamConfig;
 import org.hiero.block.simulator.config.logging.ConfigurationLogging;
 import org.hiero.block.simulator.config.logging.SimulatorConfigurationLogger;
 
@@ -100,5 +101,17 @@ public interface ConfigInjectionModule {
     @Provides
     static SimulatorStartupDataConfig providesSimulatorStartupDataConfig(final Configuration configuration) {
         return configuration.getConfigData(SimulatorStartupDataConfig.class);
+    }
+
+    /**
+     * Provides the unordered stream configuration.
+     *
+     * @param configuration the configuration to be used by the unordered stream
+     * @return the unordered stream configuration
+     */
+    @Singleton
+    @Provides
+    static UnorderedStreamConfig provideUnorderedStreamConfig(final Configuration configuration) {
+        return configuration.getConfigData(UnorderedStreamConfig.class);
     }
 }
