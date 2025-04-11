@@ -4,6 +4,7 @@ package org.hiero.block.suites.grpc.positive;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.net.HttpURLConnection;
 import org.hiero.block.suites.BaseSuite;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -49,5 +50,55 @@ public class PositiveServerAvailabilityTests extends BaseSuite {
                 blockNodePort,
                 blockNodeContainer.getExposedPorts().getFirst(),
                 "The exposed port should match the expected gRPC server port.");
+    }
+
+    /**
+     * Test should verify the healthz endpoints of the REST API.
+     *
+     * <p>The test asserts that /healthz/readyz REST endpoint returns HTTP 200 Status</p>
+     * <p>The test asserts that /healthz/livez REST endpoint returns HTTP 200 Status</p>
+     *
+     * @throws Exception catch all exceptions
+     */
+    @Test
+    @DisplayName("Verify /healthz endpoints")
+    public void verifyHealthzEndpoints() throws Exception {
+        final String host = "localhost";
+        final int port = blockNodeContainer.getExposedPorts().getFirst();
+        final String baseUrl = String.format("http://%s:%d", host, port);
+
+        // Test /healthz/readyz endpoint
+        final HttpURLConnection readyzConnection =
+                (HttpURLConnection) new java.net.URL(baseUrl + "/healthz/readyz").openConnection();
+        readyzConnection.setRequestMethod("GET");
+        final int readyzResponseCode = readyzConnection.getResponseCode();
+        assertEquals(200, readyzResponseCode, "Expected HTTP 200 for /healthz/readyz endpoint.");
+
+        // Test /healthz/livez endpoint
+        final HttpURLConnection livezConnection =
+                (HttpURLConnection) new java.net.URL(baseUrl + "/healthz/livez").openConnection();
+        livezConnection.setRequestMethod("GET");
+        final int livezResponseCode = livezConnection.getResponseCode();
+        assertEquals(200, livezResponseCode, "Expected HTTP 200 for /healthz/livez endpoint.");
+    }
+
+    /**
+     * Test should verify the metrics endpoints of the REST API.
+     *
+     * @throws Exception catch all exceptions
+     */
+    @Test
+    @DisplayName("Verify /metrics endpoint")
+    public void verifyMetricsEndpoint() throws Exception {
+        final String host = "localhost";
+        final int port = 9999;
+        final String baseUrl = String.format("http://%s:%d", host, port);
+
+        // Test /metrics endpoint
+        final HttpURLConnection metricsConnection =
+                (HttpURLConnection) new java.net.URL(baseUrl + "/metrics").openConnection();
+        metricsConnection.setRequestMethod("GET");
+        final int metricsResponseCode = metricsConnection.getResponseCode();
+        assertEquals(200, metricsResponseCode, "Expected HTTP 200 for /metrics endpoint.");
     }
 }

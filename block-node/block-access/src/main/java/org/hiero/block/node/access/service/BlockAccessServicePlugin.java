@@ -52,13 +52,22 @@ public class BlockAccessServicePlugin implements BlockNodePlugin, ServiceInterfa
         requestCounter.increment();
 
         try {
-            // Log in case both block_number and retrieve_latest are set, this should not happen (but we allow it)
-            if (request.retrieveLatest() && request.blockNumber() != 0) {
+            // Log in case both block_number and retrieve_latest are set, this should not happen
+            if (request.retrieveLatest() && request.blockNumber() != -1) {
                 LOGGER.log(
                         INFO,
                         "Both block_number and retrieve_latest set. Using retrieve_latest instead of block_number: {0}",
                         request.blockNumber());
+                responseCounterNotFound.increment();
+                return new SingleBlockResponse(SingleBlockResponseCode.READ_BLOCK_NOT_FOUND, null);
             }
+            // when block_number is -1 and retrieve_latest is false, return an NOT_FOUND error
+            if (request.blockNumber() == -1 && !request.retrieveLatest()) {
+                LOGGER.log(INFO, "Block number is -1 and retrieve_latest is false");
+                responseCounterNotFound.increment();
+                return new SingleBlockResponse(SingleBlockResponseCode.READ_BLOCK_NOT_FOUND, null);
+            }
+
             long blockNumberToRetrieve;
 
             // if retrieveLatest is set, get the latest block number
@@ -74,10 +83,9 @@ public class BlockAccessServicePlugin implements BlockNodePlugin, ServiceInterfa
             }
 
             // Check if block is within available range
-            long lowestBlockNumber = blockProvider.availableBlocks().min();
-            long highestBlockNumber = blockProvider.availableBlocks().max();
-
-            if (blockNumberToRetrieve < lowestBlockNumber || blockNumberToRetrieve > highestBlockNumber) {
+            if (!blockProvider.availableBlocks().contains(blockNumberToRetrieve)) {
+                long lowestBlockNumber = blockProvider.availableBlocks().min();
+                long highestBlockNumber = blockProvider.availableBlocks().max();
                 LOGGER.log(
                         DEBUG,
                         "Requested block {0} is outside available range [{1}, {2}]",
