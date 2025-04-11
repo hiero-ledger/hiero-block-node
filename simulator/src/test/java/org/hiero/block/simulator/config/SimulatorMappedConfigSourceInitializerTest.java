@@ -47,6 +47,8 @@ class SimulatorMappedConfigSourceInitializerTest {
         new ConfigMapping("blockStream.streamingMode", "BLOCK_STREAM_STREAMING_MODE"),
         new ConfigMapping("blockStream.millisecondsPerBlock", "BLOCK_STREAM_MILLISECONDS_PER_BLOCK"),
         new ConfigMapping("blockStream.blockItemsBatchSize", "BLOCK_STREAM_BLOCK_ITEMS_BATCH_SIZE"),
+        new ConfigMapping("blockStream.midBlockFailType", "BLOCK_STREAM_MID_BLOCK_FAIL_TYPE"),
+        new ConfigMapping("blockStream.midBlockFailOffset", "BLOCK_STREAM_MID_BLOCK_FAIL_OFFSET"),
 
         // Block consumer configuration
         new ConfigMapping("consumer.startBlockNumber", "CONSUMER_START_BLOCK_NUMBER"),

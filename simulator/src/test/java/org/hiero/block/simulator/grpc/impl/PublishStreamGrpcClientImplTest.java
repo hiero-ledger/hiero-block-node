@@ -3,6 +3,7 @@ package org.hiero.block.simulator.grpc.impl;
 
 import static org.hiero.block.simulator.TestUtils.findFreePort;
 import static org.hiero.block.simulator.TestUtils.getTestMetrics;
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -17,6 +18,7 @@ import com.hedera.hapi.block.stream.output.protoc.BlockHeader;
 import com.hedera.hapi.block.stream.protoc.Block;
 import com.hedera.hapi.block.stream.protoc.BlockItem;
 import com.hedera.hapi.block.stream.protoc.BlockProof;
+import com.hedera.hapi.platform.event.legacy.EventTransaction;
 import com.swirlds.config.api.Configuration;
 import io.grpc.Server;
 import io.grpc.ServerBuilder;
@@ -27,6 +29,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import org.hiero.block.simulator.TestUtils;
 import org.hiero.block.simulator.config.data.BlockStreamConfig;
 import org.hiero.block.simulator.config.data.GrpcConfig;
+import org.hiero.block.simulator.config.types.MidBlockFailType;
 import org.hiero.block.simulator.grpc.PublishStreamGrpcClient;
 import org.hiero.block.simulator.metrics.MetricsService;
 import org.hiero.block.simulator.metrics.MetricsServiceImpl;
@@ -148,20 +151,6 @@ class PublishStreamGrpcClientImplTest {
     }
 
     @Test
-    void testStreamBlockItem_Success() {
-        publishStreamGrpcClient.init();
-
-        BlockItem blockItem = BlockItem.newBuilder()
-                .setBlockHeader(BlockHeader.newBuilder().setNumber(0).build())
-                .build();
-
-        List<BlockItem> blockItems = List.of(blockItem);
-
-        final boolean result = publishStreamGrpcClient.streamBlockItem(blockItems);
-        assertTrue(result);
-    }
-
-    @Test
     void testStreamBlock_Success() throws InterruptedException {
         publishStreamGrpcClient.init();
         final int streamedBlocks = 3;
@@ -205,7 +194,7 @@ class PublishStreamGrpcClientImplTest {
         final int streamedBlocks = 3;
 
         for (int i = 0; i < streamedBlocks; i++) {
-            final Block block = constructBlock(i);
+            final Block block = constructBlock(i, false);
             final boolean result = publishStreamGrpcClient.streamBlock(block);
             assertTrue(result);
         }
@@ -228,22 +217,94 @@ class PublishStreamGrpcClientImplTest {
         publishStreamGrpcClient.shutdown();
         isShutdownCalled = true;
 
-        final Block block = constructBlock(0);
+        final Block block = constructBlock(0, false);
         IllegalStateException exception =
                 assertThrows(IllegalStateException.class, () -> publishStreamGrpcClient.streamBlock(block));
         assertEquals("Stream is already completed, no further calls are allowed", exception.getMessage());
     }
 
-    private Block constructBlock(long number) {
+    @Test
+    public void handleMidBlockFailIfSetNone() {
+        blockStreamConfig = BlockStreamConfig.builder()
+                .midBlockFailType(MidBlockFailType.NONE)
+                .midBlockFailOffset(0L)
+                .build();
+        publishStreamGrpcClient = new PublishStreamGrpcClientImpl(
+                grpcConfig, blockStreamConfig, metricsService, streamEnabled, startupDataMock);
+
+        publishStreamGrpcClient.init();
+        assertDoesNotThrow(() -> publishStreamGrpcClient.streamBlock(constructBlock(0, true)));
+        assertDoesNotThrow(() -> publishStreamGrpcClient.streamBlock(constructBlock(1, true)));
+    }
+
+    @Test
+    public void handleMidBlockFailIfSetAbrupt() {
+        blockStreamConfig = BlockStreamConfig.builder()
+                .midBlockFailType(MidBlockFailType.ABRUPT)
+                .midBlockFailOffset(1L)
+                .build();
+        publishStreamGrpcClient = new PublishStreamGrpcClientImpl(
+                grpcConfig, blockStreamConfig, metricsService, streamEnabled, startupDataMock);
+
+        publishStreamGrpcClient.init();
+        assertDoesNotThrow(() -> publishStreamGrpcClient.streamBlock(constructBlock(0, true)));
+        RuntimeException ex = assertThrows(
+                RuntimeException.class, () -> publishStreamGrpcClient.streamBlock(constructBlock(1, true)));
+        assertEquals("Configured abrupt disconnection occurred", ex.getMessage());
+    }
+
+    @Test
+    public void handleMidBlockFailIfSetEos() {
+        blockStreamConfig = BlockStreamConfig.builder()
+                .midBlockFailType(MidBlockFailType.EOS)
+                .midBlockFailOffset(1L)
+                .build();
+        publishStreamGrpcClient = new PublishStreamGrpcClientImpl(
+                grpcConfig, blockStreamConfig, metricsService, streamEnabled, startupDataMock);
+
+        publishStreamGrpcClient.init();
+        assertDoesNotThrow(() -> publishStreamGrpcClient.streamBlock(constructBlock(0, true)));
+        assertThrows(IllegalStateException.class, () -> publishStreamGrpcClient.streamBlock(constructBlock(1, true)));
+        isShutdownCalled = true; // to avoid calling onCompleted after onError
+    }
+
+    @Test
+    public void handleMidBlockFailIfSetStreamingBatchTooSmall() {
+        blockStreamConfig = BlockStreamConfig.builder()
+                .midBlockFailType(MidBlockFailType.ABRUPT)
+                .midBlockFailOffset(0L)
+                .build();
+        publishStreamGrpcClient = new PublishStreamGrpcClientImpl(
+                grpcConfig, blockStreamConfig, metricsService, streamEnabled, startupDataMock);
+        publishStreamGrpcClient.init();
+        assertDoesNotThrow(() -> publishStreamGrpcClient.streamBlock(constructBlock(1, false)));
+    }
+
+    private Block constructBlock(long number, boolean withItems) {
         BlockItem blockItemHeader = BlockItem.newBuilder()
                 .setBlockHeader(BlockHeader.newBuilder().setNumber(number).build())
                 .build();
         BlockItem blockItemProof = BlockItem.newBuilder()
                 .setBlockProof(BlockProof.newBuilder().setBlock(number).build())
                 .build();
-        return Block.newBuilder()
-                .addItems(blockItemHeader)
-                .addItems(blockItemProof)
-                .build();
+        if (withItems) {
+            BlockItem blockItemEventTransaction1 = BlockItem.newBuilder()
+                    .setEventTransaction(EventTransaction.newBuilder().build())
+                    .build();
+            BlockItem blockItemEventTransaction2 = BlockItem.newBuilder()
+                    .setEventTransaction(EventTransaction.newBuilder().build())
+                    .build();
+            return Block.newBuilder()
+                    .addItems(blockItemHeader)
+                    .addItems(blockItemEventTransaction1)
+                    .addItems(blockItemEventTransaction2)
+                    .addItems(blockItemProof)
+                    .build();
+        } else {
+            return Block.newBuilder()
+                    .addItems(blockItemHeader)
+                    .addItems(blockItemProof)
+                    .build();
+        }
     }
 }
