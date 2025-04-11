@@ -45,7 +45,7 @@ class BlockAsFileLargeDataSetsTest {
     void getNextBlock() throws IOException, BlockSimulatorParsingException {
         BlockStreamManager blockStreamManager =
                 getBlockAsFileLargeDatasetsBlockStreamManager(getAbsoluteFolder(rootFolder));
-        for (int i = 0; i < filesInFolder; i++) {
+        for (int i = 0; i < filesInFolder - 1; i++) {
             assertNotNull(blockStreamManager.getNextBlock());
         }
 

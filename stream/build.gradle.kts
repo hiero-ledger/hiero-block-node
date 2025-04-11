@@ -25,7 +25,7 @@ val cloneHederaProtobufs =
 
         // uncomment below to use a specific tag
         // tag = "v0.53.0" or a specific commit like "0047255"
-        tag = "eab8b58e30336512bcf387c803e6fc86b6ebe010"
+        tag = "c71e879a03f713961f52fb774e706e38c5e9d48a"
 
         // uncomment below to use a specific branch
         // branch = "main"
@@ -46,6 +46,12 @@ sourceSets {
             srcDir(cloneHederaProtobufs.flatMap { it.localCloneDirectory.dir("streams") })
         }
     }
+}
+
+tasks.test {
+    // we can exclude the standard protobuf generated tests as we don't need to test them again here
+    // this speeds up the block node project test run no end :-)
+    exclude("**com/hedera/**")
 }
 
 testModuleInfo {

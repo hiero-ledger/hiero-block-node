@@ -6,7 +6,7 @@ plugins {
 }
 
 dependencies {
-    implementation(project(":block-node-server"))
+    implementation(project(":block-node-app"))
     implementation(project(":simulator"))
     implementation(project(":suites"))
     implementation(project(":tools"))

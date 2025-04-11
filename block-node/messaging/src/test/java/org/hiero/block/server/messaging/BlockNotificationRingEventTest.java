@@ -4,7 +4,9 @@ package org.hiero.block.server.messaging;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 
-import org.hiero.block.server.messaging.impl.BlockNotificationRingEvent;
+import org.hiero.block.node.messaging.BlockNotificationRingEvent;
+import org.hiero.block.node.spi.blockmessaging.BlockNotification;
+import org.hiero.block.node.spi.blockmessaging.BlockNotification.Type;
 import org.junit.jupiter.api.Test;
 
 /**
@@ -17,7 +19,7 @@ public class BlockNotificationRingEventTest {
         // should be null before set
         assertNull(event.get(), "The get method should return null if no value has been set");
         // create a BlockNotification instance
-        BlockNotification notification = new BlockNotification(1, BlockNotification.Type.BLOCK_VERIFIED);
+        BlockNotification notification = new BlockNotification(1, Type.BLOCK_PERSISTED, null, null);
         // set the notification
         event.set(notification);
         // verify that the get method returns the same notification

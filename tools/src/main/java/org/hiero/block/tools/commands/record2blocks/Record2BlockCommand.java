@@ -223,7 +223,6 @@ public class Record2BlockCommand implements Runnable {
                         recordFileVersionInfo.hapiProtoVersion(),
                         recordFileVersionInfo.hapiProtoVersion(),
                         blockNumber,
-                        previousBlockHash,
                         new Timestamp(blockTimeInstant.getEpochSecond(), blockTimeInstant.getNano()),
                         BlockHashAlgorithm.SHA2_384);
                 final RecordFileItem recordFileItem = new RecordFileItem(

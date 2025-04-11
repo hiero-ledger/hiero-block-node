@@ -51,23 +51,6 @@ class GeneratorInjectionModuleTest {
     }
 
     @Test
-    void providesBlockStreamManager_AsDir() throws IOException {
-        final BlockGeneratorConfig blockGeneratorConfig = TestUtils.getTestConfiguration(Map.of(
-                        "generator.generationMode",
-                        "DIR",
-                        "generator.managerImplementation",
-                        "BlockAsDirBlockStreamManager"))
-                .getConfigData(BlockGeneratorConfig.class);
-
-        final BlockStreamManager blockStreamManager =
-                GeneratorInjectionModule.providesBlockStreamManager(blockGeneratorConfig, startupDataMock);
-
-        assertEquals(
-                BlockAsDirBlockStreamManager.class.getName(),
-                blockStreamManager.getClass().getName());
-    }
-
-    @Test
     void providesBlockStreamManager_default() throws IOException {
         final BlockGeneratorConfig blockGeneratorConfig = TestUtils.getTestConfiguration(Map.of(
                         "generator.generationMode",

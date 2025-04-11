@@ -51,6 +51,7 @@ public class PositiveEndpointBehaviourTests extends BaseSuite {
      * @throws InterruptedException if the simulator thread is interrupted during execution.
      */
     @Test
+    @DisplayName("Should successfully publish blocks through gRPC endpoint")
     void verifyPublishBlockStreamEndpoint() throws IOException, InterruptedException {
         blockStreamSimulatorApp = createBlockSimulator();
         simulatorThread = startSimulatorInThread(blockStreamSimulatorApp);
