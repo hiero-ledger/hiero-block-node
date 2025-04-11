@@ -11,8 +11,8 @@ import io.helidon.webserver.http.HttpService;
 import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.BlockNodePlugin;
 import org.hiero.block.node.spi.ServiceBuilder;
+import org.hiero.block.node.spi.ServiceLoaderFunction;
 import org.hiero.block.node.spi.blockmessaging.BlockItemHandler;
-import org.hiero.block.node.spi.blockmessaging.BlockMessagingFacility;
 import org.hiero.block.node.spi.blockmessaging.BlockNotificationHandler;
 import org.hiero.block.node.spi.health.HealthFacility;
 import org.hiero.block.node.spi.historicalblocks.HistoricalBlockFacility;
@@ -54,33 +54,13 @@ public abstract class PluginTestBase<P extends BlockNodePlugin> {
         // mock health facility
         final HealthFacility healthFacility = new TestHealthFacility();
         // create block node context
-        blockNodeContext = new BlockNodeContext() {
-            @Override
-            public Configuration configuration() {
-                return configuration;
-            }
-
-            @Override
-            public Metrics metrics() {
-                return metrics;
-            }
-
-            @Override
-            public HealthFacility serverHealth() {
-                return healthFacility;
-            }
-
-            @Override
-            public BlockMessagingFacility blockMessaging() {
-                return blockMessaging;
-            }
-
-            @Override
-            public HistoricalBlockFacility historicalBlockProvider() {
-                return historicalBlockFacility;
-            }
-        };
-
+        blockNodeContext = new BlockNodeContext(
+                configuration,
+                metrics,
+                healthFacility,
+                blockMessaging,
+                historicalBlockFacility,
+                new ServiceLoaderFunction());
         // if the subclass implements ServiceBuilder, use it otherwise create a mock
         ServiceBuilder mockServiceBuilder = (this instanceof ServiceBuilder)
                 ? (ServiceBuilder) this
