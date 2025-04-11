@@ -52,7 +52,7 @@ public abstract class PluginTestBase<P extends BlockNodePlugin> {
         final Metrics metrics = metricsProvider.createGlobalMetrics();
         metricsProvider.start();
         // mock health facility
-        final HealthFacility healthFacility = new AllwaysRunningHealthFacility();
+        final HealthFacility healthFacility = new TestHealthFacility();
         // create block node context
         blockNodeContext = new BlockNodeContext() {
             @Override
