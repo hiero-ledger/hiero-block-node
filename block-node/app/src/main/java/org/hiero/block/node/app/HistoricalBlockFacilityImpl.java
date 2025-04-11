@@ -3,14 +3,14 @@ package org.hiero.block.node.app;
 
 import java.util.Comparator;
 import java.util.List;
-import java.util.ServiceLoader;
-import java.util.ServiceLoader.Provider;
 import java.util.stream.Collectors;
 import org.hiero.block.node.base.ranges.CombinedBlockRangeSet;
+import org.hiero.block.node.spi.ServiceLoaderFunction;
 import org.hiero.block.node.spi.historicalblocks.BlockAccessor;
 import org.hiero.block.node.spi.historicalblocks.BlockProviderPlugin;
 import org.hiero.block.node.spi.historicalblocks.BlockRangeSet;
 import org.hiero.block.node.spi.historicalblocks.HistoricalBlockFacility;
+import org.hiero.block.node.spi.historicalblocks.LongRange;
 
 /**
  * The HistoricalBlockFacilityImpl class is an implementation of the HistoricalBlockFacility interface. It provides
@@ -30,15 +30,16 @@ public class HistoricalBlockFacilityImpl implements HistoricalBlockFacility {
     private final CombinedBlockRangeSet availableBlocks;
 
     /**
-     * Constructor for the HistoricalBlockFacilityImpl class. This constructor loads the block providers using the Java
+     * Constructor for the HistoricalBlockFacilityImpl class. This constructor loads the block providers using provided
      * ServiceLoader.
+     *
+     * @param serviceLoader the service loader to use to load the block providers
      */
     @SuppressWarnings("unused")
-    public HistoricalBlockFacilityImpl() {
-        // TODO: Add configuration to the choose block providers and override the priorities
-        this(ServiceLoader.load(BlockProviderPlugin.class, HistoricalBlockFacilityImpl.class.getClassLoader()).stream()
-                .map(Provider::get)
-                .toList());
+    public HistoricalBlockFacilityImpl(final ServiceLoaderFunction serviceLoader) {
+        //noinspection unchecked
+        this((List<BlockProviderPlugin>)
+                serviceLoader.loadServices(BlockProviderPlugin.class).toList());
     }
 
     /**
@@ -48,6 +49,7 @@ public class HistoricalBlockFacilityImpl implements HistoricalBlockFacility {
      * @param providers the list of block providers to use
      */
     public HistoricalBlockFacilityImpl(List<BlockProviderPlugin> providers) {
+        // TODO: Add configuration to the choose block providers and override the priorities
         this.providers = providers.stream()
                 .sorted(Comparator.comparingInt(BlockProviderPlugin::defaultPriority)
                         .reversed())
@@ -93,8 +95,9 @@ public class HistoricalBlockFacilityImpl implements HistoricalBlockFacility {
      */
     @Override
     public String toString() {
-        return "HistoricalBlockFacilityImpl{" + "availableBlocks="
-                + availableBlocks() + ", providers=["
+        return "HistoricalBlockFacilityImpl{" + "availableBlocks=["
+                + availableBlocks().streamRanges().map(LongRange::toString).collect(Collectors.joining(", "))
+                + "], providers=["
                 + providers.stream().map(p -> p.getClass().getSimpleName()).collect(Collectors.joining(", ")) + "]"
                 + '}';
     }
