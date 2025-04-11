@@ -172,20 +172,17 @@ public class BlockStreamSubscriberSession implements NoBackPressureBlockItemHand
             close();
         } else {
             // ----------> VALID REQUEST EITHER LATEST LIVE OR HISTORIC <----------
-            // register us to listen to block items from the block messaging system
-            LOGGER.log(Level.DEBUG, "Registering a block subscriber handler for " + handlerName);
-            context.blockMessaging().registerNoBackpressureBlockItemHandler(this, false, handlerName);
             if (startBlockNumber == UNKNOWN_BLOCK_NUMBER || startBlockNumber == latestBlockNumber) {
                 // ----------> START AT ANY BLOCK <----------
                 currentState = SubscriberState.SENDING_LIVE_STREAM_WAITING_FOR_ANY_BLOCK_START;
-                LOGGER.log(Level.INFO, "Client {0} has started streaming live blocks", clientId);
+                LOGGER.log(Level.TRACE, "Client {0} has started streaming live blocks", clientId);
             } else if (startBlockNumber > latestBlockNumber) {
                 // ----------> SHORTLY AHEAD OF CURRENT BLOCK <----------
                 // they requested a block that is not yet available, but should be shortly, so we need to hold the
                 // live stream till we get to that block
                 currentState = SubscriberState.SENDING_LIVE_STREAM_WAITING_FOR_EXPLICIT_BLOCK_START;
                 LOGGER.log(
-                        Level.INFO,
+                        Level.TRACE,
                         "Client {0} has started streaming, waiting for block {1}",
                         clientId,
                         startBlockNumber);
@@ -195,13 +192,17 @@ public class BlockStreamSubscriberSession implements NoBackPressureBlockItemHand
                 // stream
                 currentState = SubscriberState.SENDING_HISTORICAL_STREAM;
                 LOGGER.log(
-                        Level.INFO,
+                        Level.TRACE,
                         "Client {0} has started streaming historical blocks from {1}",
                         clientId,
                         startBlockNumber);
                 // start the historical stream
                 sendHistoricalStream(startBlockNumber, endBlockNumber);
             }
+            // Important, register this _after_ determining initial state and setting the currentState value.
+            // register us to listen to block items from the block messaging system
+            LOGGER.log(Level.TRACE, "Registering a block subscriber handler for " + handlerName);
+            context.blockMessaging().registerNoBackpressureBlockItemHandler(this, false, handlerName);
         }
     }
 
@@ -233,7 +234,7 @@ public class BlockStreamSubscriberSession implements NoBackPressureBlockItemHand
      * Close this session. This will unregister us from the block messaging system and cancel the subscription.
      */
     public synchronized void close() {
-        LOGGER.log(Level.DEBUG, "Closing BlockStreamSubscriberSession for client {0}", clientId);
+        LOGGER.log(Level.TRACE, "Closing BlockStreamSubscriberSession for client {0}", clientId);
         closeCallback.accept(this);
         currentState = SubscriberState.DISCONNECTED;
         // unregister us from the block messaging system, if we are not registered then this is noop
@@ -303,7 +304,7 @@ public class BlockStreamSubscriberSession implements NoBackPressureBlockItemHand
         switch (currentState) {
             case SENDING_LIVE_STREAM -> {
                 // we have fallen too far behind the live stream, switch to historical stream
-                LOGGER.log(Level.INFO, "Client {0} has fallen too far behind the live stream", clientId);
+                LOGGER.log(Level.DEBUG, "Client {0} has fallen too far behind the live stream", clientId);
                 currentState = SubscriberState.SENDING_HISTORICAL_STREAM;
                 liveToHistoricStreamTransitions.increment();
                 sendHistoricalStream(currentBlockBeingSent.get() + 1, endBlockNumber);
@@ -311,7 +312,7 @@ public class BlockStreamSubscriberSession implements NoBackPressureBlockItemHand
             case SENDING_HISTORICAL_STREAM -> {
                 // we have caught up to the live stream, so reset barriers and register the handler.
                 LOGGER.log(
-                        Level.INFO,
+                        Level.DEBUG,
                         "Client {0} has fallen too far behind, while awaiting joining from the historical stream",
                         clientId);
                 if (holdLiveStreamBarrier.get() != null) {
