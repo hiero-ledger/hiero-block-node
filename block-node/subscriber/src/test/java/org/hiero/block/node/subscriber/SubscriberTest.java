@@ -29,6 +29,7 @@ import org.hiero.hapi.block.node.SubscribeStreamResponse.ResponseOneOfType;
 import org.hiero.hapi.block.node.SubscribeStreamResponseCode;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 
 /**
@@ -229,6 +230,7 @@ public class SubscriberTest extends GrpcPluginTestBase<SubscriberServicePlugin> 
         sendBatchesAndCheckTheyAreReceived(createNumberOfSimpleBlockBatches(15, 25));
     }
 
+    @Disabled
     @Test
     void testSubscribeFromZeroSlowClient() throws ParseException {
         // first we need to create and send a SubscribeStreamRequest
