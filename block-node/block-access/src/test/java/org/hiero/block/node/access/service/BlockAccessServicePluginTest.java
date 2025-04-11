@@ -100,6 +100,7 @@ public class BlockAccessServicePluginTest extends GrpcPluginTestBase<BlockAccess
     @DisplayName("Request Latest Block")
     void testRequestLatestBlock() throws ParseException {
         final SingleBlockRequest request = SingleBlockRequest.newBuilder()
+                .blockNumber(-1)
                 .allowUnverified(true)
                 .retrieveLatest(true)
                 .build();
@@ -115,8 +116,7 @@ public class BlockAccessServicePluginTest extends GrpcPluginTestBase<BlockAccess
     }
 
     @Test
-    @DisplayName(
-            "Request Latest and a specific Block different from latest, should ignore the specific block and return latest")
+    @DisplayName("Request Latest and a specific Block different from latest, should fail with READ_BLOCK_NOT_FOUND")
     void testRequestLatestBlockDifferent() throws ParseException {
         final long blockNumber = 1;
         final SingleBlockRequest request = SingleBlockRequest.newBuilder()
@@ -130,9 +130,24 @@ public class BlockAccessServicePluginTest extends GrpcPluginTestBase<BlockAccess
         // parse the response
         SingleBlockResponse response = SingleBlockResponse.PROTOBUF.parse(fromPluginBytes.get(0));
         // check that the status is success
-        assertEquals(SingleBlockResponseCode.READ_BLOCK_SUCCESS, response.status());
-        // check that the block number is correct
-        assertEquals(24, response.block().items().getFirst().blockHeader().number());
+        assertEquals(SingleBlockResponseCode.READ_BLOCK_NOT_FOUND, response.status());
+    }
+
+    @Test
+    @DisplayName("block_number is -1 and retrieve_latest is false - should return READ_BLOCK_NOT_FOUND")
+    void testBlockNumberIsMinusOneAndRetrieveLatestIsFalse() throws ParseException {
+        final SingleBlockRequest request = SingleBlockRequest.newBuilder()
+                .blockNumber(-1)
+                .allowUnverified(true)
+                .retrieveLatest(false)
+                .build();
+        toPluginPipe.onNext(SingleBlockRequest.PROTOBUF.toBytes(request));
+        // Check we get a response
+        assertEquals(1, fromPluginBytes.size());
+        // parse the response
+        SingleBlockResponse response = SingleBlockResponse.PROTOBUF.parse(fromPluginBytes.get(0));
+        // check that the status is READ_BLOCK_NOT_FOUND
+        assertEquals(SingleBlockResponseCode.READ_BLOCK_NOT_FOUND, response.status());
     }
 
     private void sendBlocks(int numberOfBlocks) {
