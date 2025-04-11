@@ -8,7 +8,7 @@ import org.hiero.block.node.spi.health.HealthFacility;
 import org.hiero.block.node.spi.historicalblocks.HistoricalBlockFacility;
 
 /**
- * The BlockNodeContext interface is used to provide access to the different facilities of the block node. This is a
+ * The BlockNodeContext record is used to provide access to the different facilities of the block node. This is a
  * standard global context that provides default facilities to all plugins.
  * <p><b><i>
  * Important this interface will want to grow, that urge should be fought against. The goal is to keep this interface
@@ -21,40 +21,18 @@ import org.hiero.block.node.spi.historicalblocks.HistoricalBlockFacility;
  * signatures. It is aiming for the best balance between allowing future expansion, avoiding growth into a mess and
  * keeping the API clean.
  * </p>
+ *
+ * @param configuration the configuration of the block node
+ * @param metrics the metrics of the block node
+ * @param serverHealth the health of the block node
+ * @param blockMessaging the block messaging service of the block node
+ * @param historicalBlockProvider the historical block provider of the block node
+ * @param serviceLoader the service loader function to use to load services
  */
-public interface BlockNodeContext {
-    /**
-     * Use this method to get the configuration of the block node.
-     *
-     * @return the configuration of the block node
-     */
-    Configuration configuration();
-
-    /**
-     * Use this method to get the metrics of the block node.
-     *
-     * @return the metrics of the block node
-     */
-    Metrics metrics();
-
-    /**
-     * Use this method to get the health of the block node.
-     *
-     * @return the status service of the block node
-     */
-    HealthFacility serverHealth();
-
-    /**
-     * Use this method to get the block messaging service of the block node.
-     *
-     * @return the block messaging service of the block node
-     */
-    BlockMessagingFacility blockMessaging();
-
-    /**
-     * Use this method to get the historical block provider of the block node.
-     *
-     * @return the block provider of the block node
-     */
-    HistoricalBlockFacility historicalBlockProvider();
-}
+public record BlockNodeContext(
+        Configuration configuration,
+        Metrics metrics,
+        HealthFacility serverHealth,
+        BlockMessagingFacility blockMessaging,
+        HistoricalBlockFacility historicalBlockProvider,
+        ServiceLoaderFunction serviceLoader) {}
