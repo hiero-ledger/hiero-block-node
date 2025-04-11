@@ -145,12 +145,4 @@ public class VerificationServicePlugin implements BlockNodePlugin, BlockItemHand
             context.serverHealth().shutdown(VerificationServicePlugin.class.getSimpleName(), e.getMessage());
         }
     }
-
-    public VerificationConfig verificationConfig() {
-        return verificationConfig;
-    }
-
-    public void setVerificationConfig(VerificationConfig verificationConfig) {
-        this.verificationConfig = verificationConfig;
-    }
 }

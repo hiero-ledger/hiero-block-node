@@ -4,19 +4,29 @@ package org.hiero.block.node.verification;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
+import com.hedera.pbj.runtime.OneOf;
 import com.hedera.pbj.runtime.ParseException;
 import java.io.IOException;
 import java.util.List;
 import org.hiero.block.node.app.fixtures.blocks.BlockUtils;
 import org.hiero.block.node.app.fixtures.plugintest.NoBlocksHistoricalBlockFacility;
 import org.hiero.block.node.app.fixtures.plugintest.PluginTestBase;
+import org.hiero.block.node.app.fixtures.plugintest.TestHealthFacility;
 import org.hiero.block.node.spi.blockmessaging.BlockItems;
 import org.hiero.block.node.spi.blockmessaging.BlockNotification;
 import org.hiero.hapi.block.node.BlockItemUnparsed;
+import org.hiero.hapi.block.node.BlockItemUnparsed.ItemOneOfType;
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
-class VerificationServicePluginTest extends PluginTestBase {
+/**
+ * Unit test for {@link VerificationServicePlugin}.
+ */
+class VerificationServicePluginTest extends PluginTestBase<VerificationServicePlugin> {
 
     public VerificationServicePluginTest() {
         super(new VerificationServicePlugin(), new NoBlocksHistoricalBlockFacility());
@@ -81,5 +91,47 @@ class VerificationServicePluginTest extends PluginTestBase {
                 sampleBlockInfo.blockRootHash(),
                 blockNotification.blockHash(),
                 "The block hash should NOT be the same");
+    }
+
+    @Test
+    @DisplayName("Test handleBlockItemsReceived without a block header")
+    void testHandleBlockItemsReceived_NoCurrentSession() throws IOException, ParseException {
+        // create sample block data
+        BlockUtils.SampleBlockInfo sampleBlockInfo =
+                BlockUtils.getSampleBlockInfo(BlockUtils.SAMPLE_BLOCKS.GENERATED_10);
+        long blockNumber = sampleBlockInfo.blockNumber();
+        List<BlockItemUnparsed> blockItems = sampleBlockInfo.blockUnparsed().blockItems();
+        // remove the header to simulate a case where receive items and have never received a header
+        blockItems.removeFirst();
+        // send some items to the plugin, they should be ignored
+        plugin.handleBlockItemsReceived(new BlockItems(blockItems, blockNumber));
+        // check we did not receive a block verification
+        assertEquals(0, blockMessaging.getSentBlockNotifications().size());
+    }
+
+    @Test
+    @DisplayName("Test handleBlockItemsReceived with non-running server")
+    void testHandleBlockItemsReceived_NotRunning() {
+        // make the server state not running
+        ((TestHealthFacility) blockNodeContext.serverHealth()).isRunning.set(false);
+        // send some items to the plugin, they should be ignored
+        plugin.handleBlockItemsReceived(
+                new BlockItems(List.of(new BlockItemUnparsed(new OneOf<>(ItemOneOfType.BLOCK_HEADER, null))), -1));
+        // check we did not receive a block verification
+        assertEquals(0, blockMessaging.getSentBlockNotifications().size());
+    }
+
+    @Test
+    @DisplayName("Test handleBlockItemsReceived with BlockItems that throws an exception")
+    void testHandleBlockItemsReceived_ExceptionThrown() {
+        // mock a BlockItems object to throw an exception when isStartOfNewBlock is called
+        BlockItems blockItems = mock(BlockItems.class);
+        when(blockItems.isStartOfNewBlock()).thenThrow(new RuntimeException("Test Exception"));
+        // sent the mocked BlockItems to the plugin
+        plugin.handleBlockItemsReceived(blockItems);
+        // check the exception was thrown and resulted in a shutdown
+        assertTrue(
+                ((TestHealthFacility) blockNodeContext.serverHealth()).shutdownCalled.get(),
+                "The server should be shutdown after an exception is thrown");
     }
 }
