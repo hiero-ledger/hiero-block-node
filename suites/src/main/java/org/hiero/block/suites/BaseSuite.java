@@ -24,8 +24,8 @@ import java.util.concurrent.TimeUnit;
 import org.hiero.block.simulator.BlockStreamSimulatorApp;
 import org.hiero.block.simulator.BlockStreamSimulatorInjectionComponent;
 import org.hiero.block.simulator.DaggerBlockStreamSimulatorInjectionComponent;
-import org.junit.jupiter.api.AfterAll;
-import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.containers.wait.strategy.Wait;
 import org.testcontainers.utility.DockerImageName;
@@ -73,12 +73,12 @@ public abstract class BaseSuite {
     }
 
     /**
-     * Setup method to be executed before all tests.
+     * Setup method to be executed before each test.
      *
      * <p>This method initializes the Block Node server container using Testcontainers.
      */
-    @BeforeAll
-    public static void setup() {
+    @BeforeEach
+    public void setup() {
         blockNodeContainer = createContainer();
         blockNodeContainer.start();
         executorService = new ErrorLoggingExecutor();
@@ -86,13 +86,13 @@ public abstract class BaseSuite {
     }
 
     /**
-     * Teardown method to be executed after all tests.
+     * Teardown method to be executed after each test.
      *
      * <p>This method stops the Block Node server container if it is running. It ensures that
      * resources are cleaned up after the test suite execution is complete.
      */
-    @AfterAll
-    public static void teardown() throws InterruptedException {
+    @AfterEach
+    public void teardown() throws InterruptedException {
         if (blockNodeContainer != null) {
             blockNodeContainer.stop();
             blockNodeContainer.close();
@@ -191,6 +191,7 @@ public abstract class BaseSuite {
      */
     protected SingleBlockResponse getLatestBlock(final boolean allowUnverified) {
         SingleBlockRequest request = SingleBlockRequest.newBuilder()
+                .setBlockNumber(-1)
                 .setRetrieveLatest(true)
                 .setAllowUnverified(allowUnverified)
                 .build();

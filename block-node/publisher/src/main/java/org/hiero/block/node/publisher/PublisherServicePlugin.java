@@ -141,9 +141,8 @@ public final class PublisherServicePlugin implements BlockNodePlugin, ServiceInt
 
             // ==== Clean Up ===========================================================================
 
-            openSessions.removeIf(
-                    openSession -> openSession.currentBlockState() == BlockStreamProducerSession.BlockState.DISCONNECTED
-                            && openSession.sessionId() != session.sessionId());
+            openSessions.removeIf(openSession ->
+                    openSession.currentBlockState() == BlockStreamProducerSession.BlockState.DISCONNECTED);
             numberOfProducers.set(openSessions.size());
 
             // ==== Pre-checks handle ===================================================================

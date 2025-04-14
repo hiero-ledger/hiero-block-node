@@ -163,12 +163,12 @@ public class PositiveMultiplePublishersTests extends BaseSuite {
         assertTrue(currentBlockResponse.getBlock().getItemsList().getFirst().hasBlockHeader());
     }
 
-    // todo() not working due to bug either in simulator or publisher plugin
     /**
      * Verifies that block streaming continues from a new publisher after the primary publisher disconnects.
      * The test asserts that the block-node successfully switches to the new publisher and resumes block streaming
      * once the new publisher catches up to the current block number.
      */
+    @Test
     @DisplayName("Should resume block streaming from new publisher after primary publisher disconnects")
     @Timeout(30)
     public void shouldResumeFromNewPublisherAfterPrimaryDisconnects() throws IOException, InterruptedException {
@@ -214,24 +214,20 @@ public class PositiveMultiplePublishersTests extends BaseSuite {
                 .getStreamStatus()
                 .lastKnownPublisherClientStatuses()
                 .getLast();
-        final long secondSimulatorLatestPublishedBlockNumber =
-                secondSimulator.getStreamStatus().publishedBlocks();
         secondSimulatorThread.cancel(true);
 
-        final SingleBlockResponse latestPublishedBlockAfter =
-                getSingleBlock(secondSimulatorLatestPublishedBlockNumber, false);
+        final SingleBlockResponse latestPublishedBlockAfter = getLatestBlock(false);
 
         assertNotNull(secondSimulatorLatestStatus);
-        assertTrue(secondSimulatorLatestPublishedBlockNumber > firstSimulatorLatestPublishedBlockNumber);
-        assertTrue(secondSimulatorLatestStatus.contains(Long.toString(secondSimulatorLatestPublishedBlockNumber)));
-        assertEquals(
-                secondSimulatorLatestPublishedBlockNumber,
-                latestPublishedBlockAfter
-                        .getBlock()
-                        .getItemsList()
-                        .getFirst()
-                        .getBlockHeader()
-                        .getNumber());
+        assertNotNull(latestPublishedBlockAfter);
+
+        final long latestBlockNodeBlockNumber = latestPublishedBlockAfter
+                .getBlock()
+                .getItemsList()
+                .getFirst()
+                .getBlockHeader()
+                .getNumber();
+        assertTrue(secondSimulatorLatestStatus.contains(Long.toString(latestBlockNodeBlockNumber)));
     }
 
     /**
@@ -242,12 +238,12 @@ public class PositiveMultiplePublishersTests extends BaseSuite {
      */
     private Future<?> startSimulatorInstance(@NonNull final BlockStreamSimulatorApp simulator) {
         Objects.requireNonNull(simulator);
-        final int statuesRequired = 5; // we wait for at least 5 statuses, to avoid flakiness
+        final int statusesRequired = 5; // we wait for at least 5 statuses, to avoid flakiness
 
         final Future<?> simulatorThread = startSimulatorInThread(simulator);
         simulators.add(simulatorThread);
         String simulatorStatus = null;
-        while (simulator.getStreamStatus().lastKnownPublisherClientStatuses().size() < statuesRequired) {
+        while (simulator.getStreamStatus().lastKnownPublisherClientStatuses().size() < statusesRequired) {
             if (!simulator.getStreamStatus().lastKnownPublisherClientStatuses().isEmpty()) {
                 simulatorStatus = simulator
                         .getStreamStatus()

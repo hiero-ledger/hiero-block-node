@@ -2,6 +2,7 @@
 package org.hiero.block.node.publisher;
 
 import static java.lang.System.Logger.Level.DEBUG;
+import static java.lang.System.Logger.Level.WARNING;
 import static java.util.Objects.requireNonNull;
 import static org.hiero.block.node.spi.BlockNodePlugin.UNKNOWN_BLOCK_NUMBER;
 
@@ -11,6 +12,7 @@ import com.hedera.pbj.runtime.ParseException;
 import com.hedera.pbj.runtime.grpc.Pipeline;
 import com.swirlds.metrics.api.Counter;
 import edu.umd.cs.findbugs.annotations.NonNull;
+import java.io.UncheckedIOException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.SortedSet;
@@ -182,43 +184,38 @@ public final class BlockStreamProducerSession implements Pipeline<List<BlockItem
         // throw away any items we have in the new items list
         newBlockItems.clear();
         // let client know we do not need more data for the current block
-        if (responsePipeline != null) {
-            final PublishStreamResponse skipBlockResponse = new PublishStreamResponse(
-                    new OneOf<>(ResponseOneOfType.SKIP_BLOCK, new SkipBlock(currentBlockNumber)));
-            responsePipeline.onNext(skipBlockResponse);
-        }
+        final PublishStreamResponse skipBlockResponse =
+                new PublishStreamResponse(new OneOf<>(ResponseOneOfType.SKIP_BLOCK, new SkipBlock(currentBlockNumber)));
+        sendResponse(skipBlockResponse);
     }
 
     /**
      * Send a message to the client that they are probably behind, and that this is a duplicate block.
      * @param latestAckBlock the latestBlock that we already acknowledged.
      */
-    void sendDuplicateAck(long latestAckBlock) {
+    void sendDuplicateAck(final long latestAckBlock) {
         currentBlockState = BlockState.BEHIND;
         newBlockItems.clear();
-        if (responsePipeline != null) {
-            final BlockAcknowledgement ack = new BlockAcknowledgement(latestAckBlock, null, true);
-            final Acknowledgement acknowledgement = new Acknowledgement(ack);
-            final PublishStreamResponse duplicateResponse =
-                    new PublishStreamResponse(new OneOf<>(ResponseOneOfType.ACKNOWLEDGEMENT, acknowledgement));
-            responsePipeline.onNext(duplicateResponse);
-        }
+
+        final BlockAcknowledgement ack = new BlockAcknowledgement(latestAckBlock, null, true);
+        final Acknowledgement acknowledgement = new Acknowledgement(ack);
+        final PublishStreamResponse duplicateResponse =
+                new PublishStreamResponse(new OneOf<>(ResponseOneOfType.ACKNOWLEDGEMENT, acknowledgement));
+        sendResponse(duplicateResponse);
     }
 
     /**
      * Send a message to the client that we are behind and need to resend from latest block number.
      * @param latestAckBlock the latest block number that we already acknowledged.
      */
-    void sendStreamItemsBehind(long latestAckBlock) {
+    void sendStreamItemsBehind(final long latestAckBlock) {
         currentBlockState = BlockState.WAITING_FOR_RESEND;
         newBlockItems.clear();
-        if (responsePipeline != null) {
-            final EndOfStream endOfStream =
-                    new EndOfStream(PublishStreamResponseCode.STREAM_ITEMS_BEHIND, latestAckBlock);
-            final PublishStreamResponse response =
-                    new PublishStreamResponse(new OneOf<>(ResponseOneOfType.END_STREAM, endOfStream));
-            responsePipeline.onNext(response);
-        }
+
+        final EndOfStream endOfStream = new EndOfStream(PublishStreamResponseCode.STREAM_ITEMS_BEHIND, latestAckBlock);
+        final PublishStreamResponse response =
+                new PublishStreamResponse(new OneOf<>(ResponseOneOfType.END_STREAM, endOfStream));
+        sendResponse(response);
     }
 
     /**
@@ -234,11 +231,9 @@ public final class BlockStreamProducerSession implements Pipeline<List<BlockItem
         // throw away any items we have in the new items list
         newBlockItems.clear();
         // resend the block request to the block messaging service
-        if (responsePipeline != null) {
-            final PublishStreamResponse resendBlockResponse = new PublishStreamResponse(
-                    new OneOf<>(ResponseOneOfType.RESEND_BLOCK, new ResendBlock(blockNumber)));
-            responsePipeline.onNext(resendBlockResponse);
-        }
+        final PublishStreamResponse resendBlockResponse =
+                new PublishStreamResponse(new OneOf<>(ResponseOneOfType.RESEND_BLOCK, new ResendBlock(blockNumber)));
+        sendResponse(resendBlockResponse);
     }
 
     /**
@@ -248,12 +243,12 @@ public final class BlockStreamProducerSession implements Pipeline<List<BlockItem
         if (currentBlockState != BlockState.DISCONNECTED) {
             currentBlockState = BlockState.DISCONNECTED;
             // try to send a close response to the client
-            if (responsePipeline != null) {
-                final PublishStreamResponse closeResponse = new PublishStreamResponse(new OneOf<>(
-                        ResponseOneOfType.END_STREAM,
-                        new EndOfStream(PublishStreamResponseCode.STREAM_ITEMS_SUCCESS, currentBlockNumber)));
-                responsePipeline.onNext(closeResponse);
-            }
+
+            final PublishStreamResponse closeResponse = new PublishStreamResponse(new OneOf<>(
+                    ResponseOneOfType.END_STREAM,
+                    new EndOfStream(PublishStreamResponseCode.STREAM_ITEMS_SUCCESS, currentBlockNumber)));
+            sendResponse(closeResponse);
+
             if (subscription != null) {
                 subscription.cancel();
                 subscription = null;
@@ -291,11 +286,32 @@ public final class BlockStreamProducerSession implements Pipeline<List<BlockItem
                         ResponseOneOfType.ACKNOWLEDGEMENT,
                         new Acknowledgement(new BlockAcknowledgement(blockToSend, null, false))));
                 // send the acknowledgment to the client
-                responsePipeline.onNext(goodBlockResponse);
+                sendResponse(goodBlockResponse);
                 blockToSend++;
             }
         } finally {
             stateLock.unlock();
+        }
+    }
+
+    /**
+     * Attempts sending response in the responsePipeline, switch the session to disconnected upon failure.
+     * @param response scheduled for sending to the producer
+     */
+    private void sendResponse(final PublishStreamResponse response) {
+        if (responsePipeline == null) {
+            return;
+        }
+
+        try {
+            responsePipeline.onNext(response);
+        } catch (UncheckedIOException e) {
+            LOGGER.log(
+                    WARNING,
+                    "Failed to send response to {0}. Disconnecting this session. Error: {1}",
+                    this,
+                    e.getMessage());
+            currentBlockState = BlockState.DISCONNECTED;
         }
     }
 

@@ -14,7 +14,7 @@ import java.util.concurrent.Future;
 import org.hiero.block.simulator.BlockStreamSimulatorApp;
 import org.hiero.block.suites.BaseSuite;
 import org.junit.jupiter.api.AfterEach;
-import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestInstance;
@@ -48,7 +48,7 @@ public class GetSingleBlockApiTests extends BaseSuite {
         }
     }
 
-    @BeforeAll
+    @BeforeEach
     void publishSomeBlocks() throws IOException, InterruptedException {
         // Use the simulator to publish some blocks
         blockStreamSimulatorApp = createBlockSimulator();
@@ -101,7 +101,7 @@ public class GetSingleBlockApiTests extends BaseSuite {
     @DisplayName("Get a Single Block using API - Request Latest Block")
     void requestLatestBlockUsingSingleBlockAPI() {
         // Request the latest block
-        final SingleBlockResponse response = getSingleBlock(-1, true);
+        final SingleBlockResponse response = getLatestBlock(false);
 
         // Verify the response
         assertNotNull(response, "Response should not be null");
