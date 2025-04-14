@@ -9,6 +9,8 @@ import com.google.common.jimfs.Configuration;
 import com.google.common.jimfs.Jimfs;
 import com.hedera.hapi.block.stream.Block;
 import com.hedera.hapi.block.stream.BlockItem;
+import com.hedera.hapi.block.stream.output.BlockHeader;
+import com.hedera.pbj.runtime.ParseException;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import com.swirlds.config.api.ConfigurationBuilder;
 import java.io.IOException;
@@ -21,6 +23,8 @@ import java.util.zip.ZipFile;
 import java.util.zip.ZipOutputStream;
 import org.hiero.block.node.app.fixtures.blocks.SimpleTestBlockItemBuilder;
 import org.hiero.block.node.base.CompressionType;
+import org.hiero.hapi.block.node.BlockItemUnparsed;
+import org.hiero.hapi.block.node.BlockUnparsed;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -123,7 +127,30 @@ class ZipBlockAccessorTest {
             final ZipBlockAccessor toTest = createBlockAndGetAssociatedAccessor(testConfig, blockPath, protoBytes);
             final Block actual = toTest.block();
             assertThat(actual).isEqualTo(expected);
-            // todo for now will not work with no compression as the production logic needs to support that
+        }
+
+        /**
+         * This test aims to verify that the {@link ZipBlockAccessor#blockUnparsed()}
+         * will correctly return a zipped block unparsed.
+         */
+        @ParameterizedTest
+        @EnumSource(CompressionType.class)
+        @DisplayName("Test block method returns correctly a persisted block")
+        @SuppressWarnings("DataFlowIssue")
+        void testBlockUnparsed(final CompressionType compressionType) throws IOException, ParseException {
+            // build a test block
+            final BlockItemUnparsed[] blockItems = SimpleTestBlockItemBuilder.createNumberOfVerySimpleBlocksUnparsed(1);
+            final FilesHistoricConfig testConfig = createTestConfiguration(tempDir, compressionType);
+            final Bytes blockHeaderBytes = blockItems[0].blockHeader();
+            final long blockNumber =
+                    BlockHeader.PROTOBUF.parse(blockHeaderBytes).number();
+            final BlockPath blockPath = BlockPath.computeBlockPath(testConfig, blockNumber);
+            final BlockUnparsed expected = new BlockUnparsed(List.of(blockItems));
+            final Bytes protoBytes = BlockUnparsed.PROTOBUF.toBytes(expected);
+            // test zipBlockAccessor.blockUnparsed()
+            final ZipBlockAccessor toTest = createBlockAndGetAssociatedAccessor(testConfig, blockPath, protoBytes);
+            final BlockUnparsed actual = toTest.blockUnparsed();
+            assertThat(actual).isEqualTo(expected);
         }
     }
 
