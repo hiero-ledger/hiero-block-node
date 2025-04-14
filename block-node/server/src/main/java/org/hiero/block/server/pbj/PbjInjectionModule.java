@@ -30,4 +30,8 @@ public interface PbjInjectionModule {
     @Singleton
     @Binds
     PbjBlockAccessService bindPbjBlockAccessService(PbjBlockAccessServiceProxy pbjBlockAccessServiceProxy);
+
+    @Singleton
+    @Binds
+    PbjServerStatusService bindPbjServerStatusService(PbjServerStatusServiceProxy pbjServerStatusServiceProxy);
 }
