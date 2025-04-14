@@ -30,6 +30,7 @@ public class SimpleInMemoryHistoricalBlockFacility implements HistoricalBlockFac
     private final AtomicLong currentBlockNumber = new AtomicLong(UNKNOWN_BLOCK_NUMBER);
     private final List<BlockItems> partialBlock = new ArrayList<>();
     private final AtomicBoolean delayResponses = new AtomicBoolean(false);
+    private final AtomicBoolean disablePlugin = new AtomicBoolean(false);
     private BlockNodeContext blockNodeContext;
 
     @Override
@@ -42,28 +43,30 @@ public class SimpleInMemoryHistoricalBlockFacility implements HistoricalBlockFac
      */
     @Override
     public void handleBlockItemsReceived(BlockItems blockItems) {
-        if (blockItems.isStartOfNewBlock()) {
-            if (!partialBlock.isEmpty()) {
-                throw new RuntimeException("Something went wrong, partitionedBlock is not empty. So we never got a end "
-                        + "block for current block");
+        if (!disablePlugin.get()) {
+            if (blockItems.isStartOfNewBlock()) {
+                if (!partialBlock.isEmpty()) {
+                    throw new RuntimeException(
+                            "Something went wrong, partitionedBlock is not empty. So we never got a end block for current block");
+                }
+                currentBlockNumber.set(blockItems.newBlockNumber());
             }
-            currentBlockNumber.set(blockItems.newBlockNumber());
-        }
-        partialBlock.add(blockItems);
-        if (blockItems.isEndOfBlock()) {
-            final long blockNumber = currentBlockNumber.getAndSet(UNKNOWN_BLOCK_NUMBER);
-            List<BlockItem> bi = new ArrayList<>();
-            for (BlockItems items : partialBlock) {
-                bi.addAll(toBlockItems(items.blockItems()));
+            partialBlock.add(blockItems);
+            if (blockItems.isEndOfBlock()) {
+                final long blockNumber = currentBlockNumber.getAndSet(UNKNOWN_BLOCK_NUMBER);
+                List<BlockItem> bi = new ArrayList<>();
+                for (BlockItems items : partialBlock) {
+                    bi.addAll(toBlockItems(items.blockItems()));
+                }
+                Block block = new Block(bi);
+                blockStorage.put(blockNumber, block);
+                availableBlocks.add(blockNumber);
+                partialBlock.clear();
+                // send block persisted message
+                blockNodeContext
+                        .blockMessaging()
+                        .sendBlockPersisted(new PersistedNotification(blockNumber, blockNumber, 2000));
             }
-            Block block = new Block(bi);
-            blockStorage.put(blockNumber, block);
-            availableBlocks.add(blockNumber);
-            partialBlock.clear();
-            // send block persisted message
-            blockNodeContext
-                    .blockMessaging()
-                    .sendBlockPersisted(new PersistedNotification(blockNumber, blockNumber, 2000));
         }
     }
 
@@ -95,6 +98,14 @@ public class SimpleInMemoryHistoricalBlockFacility implements HistoricalBlockFac
 
     public void clearDelayResponses() {
         delayResponses.compareAndSet(true, false);
+    }
+
+    public void setDisablePlugin() {
+        disablePlugin.compareAndSet(false, true);
+    }
+
+    public void clearDisablePlugin() {
+        disablePlugin.compareAndSet(true, false);
     }
 
     /**
