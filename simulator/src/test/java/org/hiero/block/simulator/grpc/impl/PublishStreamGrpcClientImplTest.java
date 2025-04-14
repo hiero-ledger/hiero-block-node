@@ -27,6 +27,8 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import org.hiero.block.simulator.TestUtils;
 import org.hiero.block.simulator.config.data.BlockStreamConfig;
 import org.hiero.block.simulator.config.data.GrpcConfig;
+import org.hiero.block.simulator.config.types.RecoveryMode;
+import org.hiero.block.simulator.generator.BlockStreamManager;
 import org.hiero.block.simulator.grpc.PublishStreamGrpcClient;
 import org.hiero.block.simulator.metrics.MetricsService;
 import org.hiero.block.simulator.metrics.MetricsServiceImpl;
@@ -47,6 +49,9 @@ class PublishStreamGrpcClientImplTest {
 
     @Mock
     private SimulatorStartupData startupDataMock;
+
+    @Mock
+    private BlockStreamManager blockStreamManagerMock;
 
     private BlockStreamConfig blockStreamConfig;
     private AtomicBoolean streamEnabled;
@@ -116,7 +121,10 @@ class PublishStreamGrpcClientImplTest {
                 })
                 .build()
                 .start();
-        blockStreamConfig = BlockStreamConfig.builder().blockItemsBatchSize(2).build();
+        blockStreamConfig = BlockStreamConfig.builder()
+                .recoveryMode(RecoveryMode.RESEND_LAST)
+                .blockItemsBatchSize(2)
+                .build();
 
         Configuration config = TestUtils.getTestConfiguration();
         metricsService = new MetricsServiceImpl(getTestMetrics(config));
@@ -126,7 +134,7 @@ class PublishStreamGrpcClientImplTest {
         when(grpcConfig.port()).thenReturn(serverPort);
 
         publishStreamGrpcClient = new PublishStreamGrpcClientImpl(
-                grpcConfig, blockStreamConfig, metricsService, streamEnabled, startupDataMock);
+                grpcConfig, blockStreamConfig, metricsService, streamEnabled, startupDataMock, blockStreamManagerMock);
     }
 
     @AfterEach
@@ -197,6 +205,62 @@ class PublishStreamGrpcClientImplTest {
         assertEquals(streamedBlocks, publishStreamGrpcClient.getPublishedBlocks());
         assertEquals(
                 streamedBlocks, publishStreamGrpcClient.getLastKnownStatuses().size());
+    }
+
+    @Test
+    void testRecoverStream_ResendLast() throws Exception {
+        when(startupDataMock.getLatestAckBlockNumber()).thenReturn(5L);
+        when(grpcConfig.rollbackDistance()).thenReturn(1L);
+        Block dummyBlock = constructBlock(5);
+
+        when(blockStreamManagerMock.getLastBlock()).thenReturn(dummyBlock);
+
+        publishStreamGrpcClient.init();
+        publishStreamGrpcClient.recoverStream();
+
+        assertTrue(streamEnabled.get(), "Stream should be re-enabled after recovery with RESEND_LAST");
+        assertEquals(1, publishStreamGrpcClient.getPublishedBlocks());
+    }
+
+    @Test
+    void testRecoverStream_Rollback() throws Exception {
+        when(startupDataMock.getLatestAckBlockNumber()).thenReturn(3L);
+        when(grpcConfig.rollbackDistance()).thenReturn(2L);
+        for (long i = 1; i <= 3; i++) {
+            when(blockStreamManagerMock.getBlockByNumber(i)).thenReturn(constructBlock(i));
+        }
+
+        publishStreamGrpcClient.init();
+        publishStreamGrpcClient.recoverStream();
+
+        assertTrue(streamEnabled.get(), "Stream should be re-enabled after recovery with ROLLBACK");
+        assertEquals(3, publishStreamGrpcClient.getPublishedBlocks());
+    }
+
+    @Test
+    void testRecoverStream_SkipAhead() throws Exception {
+        when(startupDataMock.getLatestAckBlockNumber()).thenReturn(10L);
+        Block nextBlock = constructBlock(11);
+        when(blockStreamManagerMock.getNextBlock()).thenReturn(nextBlock);
+
+        publishStreamGrpcClient.init();
+        publishStreamGrpcClient.recoverStream();
+
+        assertTrue(streamEnabled.get(), "Stream should be re-enabled after SKIP_AHEAD");
+        assertEquals(1, publishStreamGrpcClient.getPublishedBlocks());
+    }
+
+    @Test
+    void testRecoverStreamFailsAfterMaxRetries() throws Exception {
+        when(startupDataMock.getLatestAckBlockNumber()).thenReturn(0L);
+        when(grpcConfig.rollbackDistance()).thenReturn(1L);
+        // force an exception during block access
+        when(blockStreamManagerMock.getLastBlock()).thenThrow(new IOException("Simulated failure"));
+
+        publishStreamGrpcClient.init();
+        publishStreamGrpcClient.recoverStream();
+
+        assertTrue(!streamEnabled.get(), "Stream should be disabled after max retries");
     }
 
     @Test

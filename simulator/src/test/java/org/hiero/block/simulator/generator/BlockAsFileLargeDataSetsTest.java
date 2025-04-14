@@ -6,6 +6,7 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
+import com.hedera.hapi.block.stream.protoc.Block;
 import com.hedera.hapi.block.stream.protoc.BlockItem;
 import java.io.File;
 import java.io.IOException;
@@ -91,6 +92,33 @@ class BlockAsFileLargeDataSetsTest {
             }
             assertNotNull(blockItem);
         }
+    }
+
+    @Test
+    void getBlockByNumberReturnsBlockIfExists() throws IOException, BlockSimulatorParsingException {
+        BlockAsFileLargeDataSets blockStreamManager =
+                getBlockAsFileLargeDatasetsBlockStreamManager(getAbsoluteFolder(rootFolder));
+
+        Block block = blockStreamManager.getBlockByNumber(1);
+        assertNotNull(block);
+        assertNotNull(block.getItemsList()); // optional: sanity check on block content
+    }
+
+    @Test
+    void getBlockByNumberThrowsIfBlockDoesNotExist() throws IOException {
+        BlockAsFileLargeDataSets blockStreamManager =
+                getBlockAsFileLargeDatasetsBlockStreamManager(getAbsoluteFolder(rootFolder));
+
+        long nonExistentBlock = 999_999L;
+        assertThrows(IOException.class, () -> blockStreamManager.getBlockByNumber(nonExistentBlock));
+    }
+
+    @Test
+    void getBlockByNumberThrowsForInvalidBlockNumber() throws IOException {
+        BlockAsFileLargeDataSets blockStreamManager =
+                getBlockAsFileLargeDatasetsBlockStreamManager(getAbsoluteFolder(rootFolder));
+
+        assertThrows(IllegalArgumentException.class, () -> blockStreamManager.getBlockByNumber(0));
     }
 
     @Test
