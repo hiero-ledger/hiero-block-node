@@ -21,8 +21,8 @@ import java.util.Collections;
 import java.util.List;
 import org.hiero.block.node.app.fixtures.plugintest.GrpcPluginTestBase;
 import org.hiero.block.node.app.fixtures.plugintest.NoBlocksHistoricalBlockFacility;
-import org.hiero.block.node.spi.blockmessaging.BlockNotification;
-import org.hiero.block.node.spi.blockmessaging.BlockNotification.Type;
+import org.hiero.block.node.spi.blockmessaging.PersistedNotification;
+import org.hiero.block.node.spi.blockmessaging.VerificationNotification;
 import org.hiero.hapi.block.node.BlockItemSet;
 import org.hiero.hapi.block.node.BlockUnparsed;
 import org.hiero.hapi.block.node.PublishStreamRequest;
@@ -72,7 +72,7 @@ public class PublisherTest extends GrpcPluginTestBase<PublisherServicePlugin> {
         toPluginPipe.onNext(publishBlockProof1StreamRequest);
         // check the data was sent through to the block messaging facility
         assertEquals(3, blockMessaging.getSentBlockItems().size());
-        assertEquals(0, blockMessaging.getSentBlockNotifications().size());
+        assertEquals(0, blockMessaging.getSentVerificationNotifications().size());
         assertEquals(
                 toBlockItemJson(blockHeader1),
                 toBlockItemJson(
@@ -100,9 +100,9 @@ public class PublisherTest extends GrpcPluginTestBase<PublisherServicePlugin> {
      */
     @Test
     void testPublisherSendsOnBlockPersistedNotification() throws ParseException {
-        blockMessaging.sendBlockNotification(new BlockNotification(100, Type.BLOCK_PERSISTED, null, null));
+        blockMessaging.sendBlockPersisted(new PersistedNotification(100, 100, 1));
         // check the data was sent through to the test block messaging facility
-        assertEquals(1, blockMessaging.getSentBlockNotifications().size());
+        assertEquals(1, blockMessaging.getSentPersistedNotifications().size());
         // check if a response was sent to CN
         assertEquals(1, fromPluginBytes.size());
         PublishStreamResponse response = PublishStreamResponse.PROTOBUF.parse(fromPluginBytes.getFirst());
@@ -121,10 +121,10 @@ public class PublisherTest extends GrpcPluginTestBase<PublisherServicePlugin> {
         // check the data was sent through to the block messaging facility
         assertEquals(1, blockMessaging.getSentBlockItems().size());
         // simulate verification success
-        blockMessaging.sendBlockNotification(new BlockNotification(
-                1, Type.BLOCK_VERIFIED, Bytes.wrap("hash1"), new BlockUnparsed(Collections.emptyList())));
+        blockMessaging.sendBlockVerification(
+                new VerificationNotification(true, 1, Bytes.wrap("hash1"), new BlockUnparsed(Collections.emptyList())));
         // simulate persistence success
-        blockMessaging.sendBlockNotification(new BlockNotification(1, Type.BLOCK_PERSISTED, null, null));
+        blockMessaging.sendBlockPersisted(new PersistedNotification(1, 1, 1));
         // re-attempt to send same block.
 
         final BlockItem blockHeader1Duplicate = sampleBlockHeader(0);
@@ -148,10 +148,10 @@ public class PublisherTest extends GrpcPluginTestBase<PublisherServicePlugin> {
         // check the data was sent through to the block messaging facility
         assertEquals(1, blockMessaging.getSentBlockItems().size());
         // simulate verification success
-        blockMessaging.sendBlockNotification(new BlockNotification(
-                1, Type.BLOCK_VERIFIED, Bytes.wrap("hash1"), new BlockUnparsed(Collections.emptyList())));
+        blockMessaging.sendBlockVerification(
+                new VerificationNotification(true, 1, Bytes.wrap("hash1"), new BlockUnparsed(Collections.emptyList())));
         // simulate persistence success
-        blockMessaging.sendBlockNotification(new BlockNotification(1, Type.BLOCK_PERSISTED, null, null));
+        blockMessaging.sendBlockPersisted(new PersistedNotification(1, 1, 1));
 
         // create sample block 5
         final BlockItem blockHeader5 = sampleBlockHeader(5);

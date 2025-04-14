@@ -17,8 +17,9 @@ import org.hiero.block.node.base.ranges.ConcurrentLongRangeSet;
 import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.ServiceBuilder;
 import org.hiero.block.node.spi.blockmessaging.BlockMessagingFacility;
-import org.hiero.block.node.spi.blockmessaging.BlockNotification;
 import org.hiero.block.node.spi.blockmessaging.BlockNotificationHandler;
+import org.hiero.block.node.spi.blockmessaging.PersistedNotification;
+import org.hiero.block.node.spi.blockmessaging.VerificationNotification;
 import org.hiero.block.node.spi.historicalblocks.BlockAccessor;
 import org.hiero.block.node.spi.historicalblocks.BlockProviderPlugin;
 import org.hiero.block.node.spi.historicalblocks.BlockRangeSet;
@@ -136,7 +137,7 @@ public final class BlocksFilesRecentPlugin implements BlockProviderPlugin, Block
                     config.liveRootPath(), blockNumber, config.compression(), config.maxFilesPerDir());
             if (Files.exists(verifiedBlockPath)) {
                 // we have the block so return it
-                return new BlockFileBlockAccessor(config.liveRootPath(), verifiedBlockPath, config.compression());
+                return new BlockFileBlockAccessor(verifiedBlockPath, config.compression());
             } else {
                 LOGGER.log(
                         Level.WARNING,
@@ -159,14 +160,13 @@ public final class BlocksFilesRecentPlugin implements BlockProviderPlugin, Block
     /**
      * {@inheritDoc}
      * <p>
-     * This method is called when a block notification is received. It is called on the block item notification thread.
+     * This method is called when a block verification notification is received. It is called on the block item
+     * notification thread.
      */
     @Override
-    public void handleBlockNotification(final BlockNotification notification) {
-        if (notification.type() == BlockNotification.Type.BLOCK_VERIFIED) {
-            // write the block to the live path and send notification of block persisted
-            writeBlockToLivePath(notification.block(), notification.blockNumber());
-        }
+    public void handleVerification(VerificationNotification notification) {
+        // write the block to the live path and send notification of block persisted
+        writeBlockToLivePath(notification.block(), notification.blockNumber());
     }
 
     // ==== Action Methods =============================================================================================
@@ -203,8 +203,7 @@ public final class BlocksFilesRecentPlugin implements BlockProviderPlugin, Block
             // update the oldest and newest verified block numbers
             availableBlocks.add(blockNumber);
             // send block persisted notification
-            blockMessaging.sendBlockNotification(
-                    new BlockNotification(blockNumber, BlockNotification.Type.BLOCK_PERSISTED, null, null));
+            blockMessaging.sendBlockPersisted(new PersistedNotification(blockNumber, blockNumber, defaultPriority()));
         } catch (final IOException e) {
             LOGGER.log(
                     System.Logger.Level.ERROR,

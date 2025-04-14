@@ -11,9 +11,8 @@ import java.util.concurrent.Executors;
 import org.hiero.block.node.base.ranges.ConcurrentLongRangeSet;
 import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.ServiceBuilder;
-import org.hiero.block.node.spi.blockmessaging.BlockNotification;
-import org.hiero.block.node.spi.blockmessaging.BlockNotification.Type;
 import org.hiero.block.node.spi.blockmessaging.BlockNotificationHandler;
+import org.hiero.block.node.spi.blockmessaging.PersistedNotification;
 import org.hiero.block.node.spi.historicalblocks.BlockAccessor;
 import org.hiero.block.node.spi.historicalblocks.BlockProviderPlugin;
 import org.hiero.block.node.spi.historicalblocks.BlockRangeSet;
@@ -120,17 +119,16 @@ public class BlocksFilesHistoricPlugin implements BlockProviderPlugin, BlockNoti
 
     // ==== BlockNotificationHandler Methods ===========================================================================
 
-    /**
-     * {@inheritDoc}
-     */
     @Override
-    public void handleBlockNotification(BlockNotification notification) {
-        if (notification.type() == Type.BLOCK_PERSISTED) {
+    public void handlePersisted(PersistedNotification notification) {
+        for (long blockNumber = notification.startBlockNumber();
+                blockNumber <= notification.endBlockNumber();
+                blockNumber++) {
+            // add the block number to the available blocks
+            availableBlocks.add(blockNumber);
             // check if this crosses a block zip file boundary
-            if (notification.blockNumber() > 0
-                    && notification.blockNumber() > availableBlocks.max()
-                    && notification.blockNumber() % numberOfBlocksPerZipFile == 0) {
-                final long firstBlockNumber = notification.blockNumber() - numberOfBlocksPerZipFile;
+            if (blockNumber > 0 && blockNumber > availableBlocks.max() && blockNumber % numberOfBlocksPerZipFile == 0) {
+                final long firstBlockNumber = blockNumber - numberOfBlocksPerZipFile;
                 // move the batch of blocks to a zip file
                 zipMoveExecutorService.submit(() -> moveBatchOfBlocksToZipFile(firstBlockNumber));
             }
@@ -153,7 +151,7 @@ public class BlocksFilesHistoricPlugin implements BlockProviderPlugin, BlockNoti
                     "Moving batch of blocks[%d -> %d] to zip file",
                     batchFirstBlockNumber,
                     batchLastBlockNumber);
-            final List<BlockAccessor> blockAccessors = zipBlockArchive.writeNewZipFile(batchFirstBlockNumber);
+            zipBlockArchive.writeNewZipFile(batchFirstBlockNumber);
             // update the first and last block numbers
             availableBlocks.add(batchFirstBlockNumber, batchLastBlockNumber);
             // log done
@@ -162,11 +160,10 @@ public class BlocksFilesHistoricPlugin implements BlockProviderPlugin, BlockNoti
                     "Moved batch of blocks[%d -> %d] to zip file",
                     batchFirstBlockNumber,
                     batchLastBlockNumber);
-            // now all the blocks are in the zip file and accessible, delete the original blocks
-            for (BlockAccessor blockAccessor : blockAccessors) {
-                // TODO what happens if delete throws an exception, retry? catch here per delete?
-                blockAccessor.delete();
-            }
+            // now all the blocks are in the zip file and accessible, send notification
+            context.blockMessaging()
+                    .sendBlockPersisted(
+                            new PersistedNotification(batchFirstBlockNumber, batchLastBlockNumber, defaultPriority()));
         } catch (Exception e) {
             LOGGER.log(
                     System.Logger.Level.ERROR,

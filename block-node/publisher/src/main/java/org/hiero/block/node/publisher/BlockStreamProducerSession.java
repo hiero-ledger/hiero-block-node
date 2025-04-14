@@ -9,17 +9,19 @@ import com.hedera.hapi.block.stream.output.BlockHeader;
 import com.hedera.pbj.runtime.OneOf;
 import com.hedera.pbj.runtime.ParseException;
 import com.hedera.pbj.runtime.grpc.Pipeline;
-import com.hedera.pbj.runtime.io.buffer.Bytes;
 import com.swirlds.metrics.api.Counter;
 import edu.umd.cs.findbugs.annotations.NonNull;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.SortedSet;
+import java.util.TreeSet;
 import java.util.concurrent.Flow;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.Consumer;
 import org.hiero.block.node.publisher.UpdateCallback.UpdateType;
 import org.hiero.block.node.spi.BlockNodePlugin;
 import org.hiero.block.node.spi.blockmessaging.BlockItems;
+import org.hiero.block.node.spi.blockmessaging.PersistedNotification;
 import org.hiero.hapi.block.node.BlockItemUnparsed;
 import org.hiero.hapi.block.node.PublishStreamResponse;
 import org.hiero.hapi.block.node.PublishStreamResponse.Acknowledgement;
@@ -69,6 +71,13 @@ public final class BlockStreamProducerSession implements Pipeline<List<BlockItem
     private long startTimeOfCurrentBlock = 0;
     /** list used to store items if we are new and ahead of the current message stream block */
     private final List<BlockItemUnparsed> newBlockItems = new ArrayList<>();
+    /**
+     * Set of ids of blocks that have been acknowledged that are >= the currentBlockNumber. This should only happen if
+     * this publisher is a way behind
+     */
+    private final SortedSet<Long> futureBlockAcknowledgments = new TreeSet<>();
+    /** The block number of the last block we sent acknowledgment for, -1 if none has been sent */
+    private long latestAcknowledgedBlock = -1;
 
     /**
      * Constructor for BlockStreamProducerSession.
@@ -253,19 +262,38 @@ public final class BlockStreamProducerSession implements Pipeline<List<BlockItem
     }
 
     /**
-     * Send a block persisted message to the client. This is totally asynchronous call and independent of the current
-     * block and state of thi session.
+     * Handle block persisted notification. This is may result in acknowledgement to the client, or may be stored for
+     * later sending.
      *
-     * @param blockNumber the block number
-     * @param blockHash   the block hash
+     * @param notification the block persisted notification to send
      */
-    void sendBlockPersisted(long blockNumber, Bytes blockHash) {
-        if (responsePipeline != null) {
-            final PublishStreamResponse goodBlockResponse = new PublishStreamResponse(new OneOf<>(
-                    ResponseOneOfType.ACKNOWLEDGEMENT,
-                    new Acknowledgement(new BlockAcknowledgement(blockNumber, blockHash, false))));
-            // send the response to the client
-            responsePipeline.onNext(goodBlockResponse);
+    void handlePersisted(PersistedNotification notification) {
+        stateLock.lock();
+        try {
+            if (currentBlockState != BlockState.DISCONNECTED) {
+                // add all blocks that were acknowledged to the future block acknowledgments that are greater than
+                // latest acknowledged block
+                if (notification.endBlockNumber() > latestAcknowledgedBlock) { // we have some new acknowledgments
+                    for (long blockNumber = Math.max(notification.startBlockNumber(), latestAcknowledgedBlock + 1);
+                            blockNumber <= notification.endBlockNumber();
+                            blockNumber++) {
+                        futureBlockAcknowledgments.add(blockNumber);
+                    }
+                }
+            }
+            // send acknowledgment to the client for all blocks that are in the future block acknowledgments that are
+            // directly following the latestAcknowledgedBlock
+            long blockToSend = latestAcknowledgedBlock + 1;
+            while (futureBlockAcknowledgments.contains(blockToSend)) {
+                latestAcknowledgedBlock = blockToSend;
+                // TODO BlockAcknowledgement block hash should be removed
+                final PublishStreamResponse goodBlockResponse = new PublishStreamResponse(new OneOf<>(
+                        ResponseOneOfType.ACKNOWLEDGEMENT,
+                        new Acknowledgement(new BlockAcknowledgement(blockToSend, null, false))));
+                blockToSend++;
+            }
+        } finally {
+            stateLock.unlock();
         }
     }
 

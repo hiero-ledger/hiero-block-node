@@ -42,18 +42,6 @@ final class ZipBlockAccessor implements BlockAccessor {
      * {@inheritDoc}
      */
     @Override
-    public void delete() {
-        // TODO feels like this should be implemented but there is no good way to delete a single file from a zip file
-        //  without extracting the whole zip file, deleting the file, and then re-creating the zip file. So we could
-        //  implement this but it would be slow and not very useful. So for now we just throw an exception. To properly
-        //  support we need to create a new API for moving and deleting batches of blocks.
-        BlockAccessor.super.delete();
-    }
-
-    /**
-     * {@inheritDoc}
-     */
-    @Override
     public Block block() {
         try {
             return Block.PROTOBUF.parse(blockBytes(Format.PROTOBUF));

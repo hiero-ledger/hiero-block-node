@@ -12,7 +12,7 @@ import org.hiero.block.node.spi.BlockNodePlugin;
 import org.hiero.block.node.spi.ServiceBuilder;
 import org.hiero.block.node.spi.blockmessaging.BlockItemHandler;
 import org.hiero.block.node.spi.blockmessaging.BlockItems;
-import org.hiero.block.node.spi.blockmessaging.BlockNotification;
+import org.hiero.block.node.spi.blockmessaging.VerificationNotification;
 
 /** Provides implementation for the health endpoints of the server. */
 @SuppressWarnings("unused")
@@ -121,20 +121,17 @@ public class VerificationServicePlugin implements BlockNodePlugin, BlockItemHand
                 // when the block node is just starting vs in the middle of running normal as that should not happen.
                 LOGGER.log(ERROR, "Received block items before a block header.");
             } else {
-                BlockNotification notification = currentSession.processBlockItems(blockItems.blockItems());
+                VerificationNotification notification = currentSession.processBlockItems(blockItems.blockItems());
                 if (notification != null) {
-                    switch (notification.type()) {
-                        case BLOCK_VERIFIED -> {
-                            verificationBlocksVerified.increment();
-                            verificationBlockTime.add(System.nanoTime() - blockWorkStartTime);
-                        }
-                        case BLOCK_FAILED_VERIFICATION -> {
-                            verificationBlocksFailed.increment();
-                            verificationBlockTime.add(System.nanoTime() - blockWorkStartTime);
-                            LOGGER.log(WARNING, "Block verification failed for block number: {0}", currentBlockNumber);
-                        }
+                    if (notification.success()) {
+                        verificationBlocksVerified.increment();
+                        verificationBlockTime.add(System.nanoTime() - blockWorkStartTime);
+                    } else {
+                        verificationBlocksFailed.increment();
+                        verificationBlockTime.add(System.nanoTime() - blockWorkStartTime);
+                        LOGGER.log(WARNING, "Block verification failed for block number: {0}", currentBlockNumber);
                     }
-                    context.blockMessaging().sendBlockNotification(notification);
+                    context.blockMessaging().sendBlockVerification(notification);
                 }
             }
         } catch (final Exception e) {
