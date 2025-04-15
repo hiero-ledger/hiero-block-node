@@ -51,10 +51,11 @@ class ZipBlockArchive {
      * Constructor for ZipBlockArchive.
      *
      * @param context The block node context
+     * @param filesHistoricConfig Configuration to be used internally
      */
-    ZipBlockArchive(@NonNull final BlockNodeContext context) {
+    ZipBlockArchive(@NonNull final BlockNodeContext context, @NonNull final FilesHistoricConfig filesHistoricConfig) {
         this.context = Objects.requireNonNull(context);
-        this.config = context.configuration().getConfigData(FilesHistoricConfig.class);
+        this.config = Objects.requireNonNull(filesHistoricConfig);
         this.historicalBlockFacility = Objects.requireNonNull(context.historicalBlockProvider());
         numberOfBlocksPerZipFile = (int) Math.pow(10, this.config.powersOfTenPerZipFileContents());
         format = switch (this.config.compression()) {
