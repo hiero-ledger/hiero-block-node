@@ -92,7 +92,7 @@ public final class SimpleTestBlockItemBuilder {
      * @return an array of BlockItem objects
      */
     public static BlockItem[] createNumberOfVerySimpleBlocks(final int numberOfBlocks) {
-        return createNumberOfVerySimpleBlocks(0, numberOfBlocks);
+        return createNumberOfVerySimpleBlocks(0, numberOfBlocks - 1);
     }
 
     /**
@@ -100,15 +100,15 @@ public final class SimpleTestBlockItemBuilder {
      * but not including endBlockNumber.
      *
      * @param startBlockNumber the starting block number
-     * @param endBlockNumber the ending block number, non-inclusive
+     * @param endBlockNumber the ending block number, inclusive
      * @return an array of BlockItem objects
      */
     public static BlockItem[] createNumberOfVerySimpleBlocks(final int startBlockNumber, final int endBlockNumber) {
-        assert startBlockNumber < endBlockNumber;
+        assert startBlockNumber <= endBlockNumber;
         assert startBlockNumber >= 0;
-        final int numberOfBlocks = endBlockNumber - startBlockNumber;
+        final int numberOfBlocks = endBlockNumber - startBlockNumber + 1;
         final BlockItem[] blockItems = new BlockItem[numberOfBlocks * 3];
-        for (int blockNumber = startBlockNumber; blockNumber < endBlockNumber; blockNumber++) {
+        for (int blockNumber = startBlockNumber; blockNumber <= endBlockNumber; blockNumber++) {
             final int i = (blockNumber - startBlockNumber) * 3;
             blockItems[i] = sampleBlockHeader(blockNumber);
             blockItems[i + 1] = sampleRoundHeader(blockNumber * 10L);

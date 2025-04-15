@@ -11,8 +11,9 @@ import java.util.logging.LogRecord;
 import org.hiero.block.node.messaging.BlockMessagingFacilityImpl;
 import org.hiero.block.node.spi.blockmessaging.BlockItems;
 import org.hiero.block.node.spi.blockmessaging.BlockMessagingFacility;
-import org.hiero.block.node.spi.blockmessaging.BlockNotification;
-import org.hiero.block.node.spi.blockmessaging.BlockNotification.Type;
+import org.hiero.block.node.spi.blockmessaging.BlockNotificationHandler;
+import org.hiero.block.node.spi.blockmessaging.PersistedNotification;
+import org.hiero.block.node.spi.blockmessaging.VerificationNotification;
 import org.hiero.hapi.block.node.BlockItemUnparsed;
 import org.hiero.hapi.block.node.BlockItemUnparsed.ItemOneOfType;
 import org.junit.jupiter.api.BeforeEach;
@@ -107,9 +108,18 @@ public class BlockMessagingFacilityExceptionTest {
         service.init(BLOCK_NODE_CONTEXT, null);
         // register a block notification handler that just throws an exception
         service.registerBlockNotificationHandler(
-                blockNotification -> {
-                    // Simulate an exception
-                    throw new RuntimeException("Simulated exception");
+                new BlockNotificationHandler() {
+                    @Override
+                    public void handleVerification(VerificationNotification notification) {
+                        // Simulate an exception
+                        throw new RuntimeException("Simulated exception");
+                    }
+
+                    @Override
+                    public void handlePersisted(PersistedNotification notification) {
+                        // Simulate an exception
+                        throw new RuntimeException("Simulated exception");
+                    }
                 },
                 false,
                 null);
@@ -120,8 +130,8 @@ public class BlockMessagingFacilityExceptionTest {
         } catch (InterruptedException e) {
             throw new RuntimeException(e);
         }
-        service.sendBlockNotification(new BlockNotification(1, Type.BLOCK_FAILED_VERIFICATION, null, null));
-        service.sendBlockNotification(new BlockNotification(1, Type.BLOCK_PERSISTED, null, null));
+        service.sendBlockVerification(new VerificationNotification(true, 1, null, null));
+        service.sendBlockPersisted(new PersistedNotification(1, 1, 1));
         service.stop();
         // wait for the log handler to process the log messages
         for (int i = 0; i < 10 && logHandler.getLogMessages().isEmpty(); i++) {

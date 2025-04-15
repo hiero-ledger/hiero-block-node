@@ -6,10 +6,18 @@ package org.hiero.block.node.spi.blockmessaging;
  */
 public interface BlockNotificationHandler {
     /**
-     * Handle a block notification. Always called on handler thread. Each registered handler will have its own virtual
-     * thread.
+     * Handle a block verification notification. Always called on handler thread. Each registered handler will have its
+     * own virtual thread.
      *
-     * @param notification the block notification to handle
+     * @param notification the block verification notification to handle
      */
-    void handleBlockNotification(BlockNotification notification);
+    default void handleVerification(VerificationNotification notification) {}
+
+    /**
+     * Handle a block persisted notification. Always called on handler thread. Each registered handler will have its
+     * own virtual thread.
+     *
+     * @param notification the block persisted notification to handle
+     */
+    default void handlePersisted(PersistedNotification notification) {}
 }
