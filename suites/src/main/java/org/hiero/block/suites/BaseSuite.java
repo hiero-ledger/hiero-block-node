@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.suites;
 
+import com.hedera.hapi.block.protoc.BlockAccessServiceGrpc;
+import com.hedera.hapi.block.protoc.SingleBlockRequest;
+import com.hedera.hapi.block.protoc.SingleBlockResponse;
 import com.swirlds.config.api.Configuration;
 import com.swirlds.config.api.ConfigurationBuilder;
 import com.swirlds.config.extensions.sources.ClasspathFileConfigSource;
@@ -8,6 +11,8 @@ import com.swirlds.config.extensions.sources.SimpleConfigSource;
 import com.swirlds.config.extensions.sources.SystemEnvironmentConfigSource;
 import com.swirlds.config.extensions.sources.SystemPropertiesConfigSource;
 import edu.umd.cs.findbugs.annotations.NonNull;
+import io.grpc.ManagedChannel;
+import io.grpc.ManagedChannelBuilder;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -15,11 +20,12 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 import org.hiero.block.simulator.BlockStreamSimulatorApp;
 import org.hiero.block.simulator.BlockStreamSimulatorInjectionComponent;
 import org.hiero.block.simulator.DaggerBlockStreamSimulatorInjectionComponent;
-import org.junit.jupiter.api.AfterAll;
-import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.containers.wait.strategy.Wait;
 import org.testcontainers.utility.DockerImageName;
@@ -50,6 +56,12 @@ public abstract class BaseSuite {
     /** Executor service for managing threads */
     protected static ErrorLoggingExecutor executorService;
 
+    /** gRPC channel for connecting to Block Node */
+    protected static ManagedChannel channel;
+
+    /** gRPC client stub for BlockAccessService */
+    protected static BlockAccessServiceGrpc.BlockAccessServiceBlockingStub blockAccessStub;
+
     /**
      * Default constructor for the BaseSuite class.
      *
@@ -61,31 +73,35 @@ public abstract class BaseSuite {
     }
 
     /**
-     * Setup method to be executed before all tests.
+     * Setup method to be executed before each test.
      *
      * <p>This method initializes the Block Node server container using Testcontainers.
      */
-    @BeforeAll
-    public static void setup() {
+    @BeforeEach
+    public void setup() {
         blockNodeContainer = createContainer();
         blockNodeContainer.start();
         executorService = new ErrorLoggingExecutor();
+        blockAccessStub = initializeBlockAccessGrpcClient();
     }
 
     /**
-     * Teardown method to be executed after all tests.
+     * Teardown method to be executed after each test.
      *
      * <p>This method stops the Block Node server container if it is running. It ensures that
      * resources are cleaned up after the test suite execution is complete.
      */
-    @AfterAll
-    public static void teardown() {
+    @AfterEach
+    public void teardown() throws InterruptedException {
         if (blockNodeContainer != null) {
             blockNodeContainer.stop();
             blockNodeContainer.close();
         }
         if (executorService != null) {
             executorService.shutdownNow();
+        }
+        if (channel != null) {
+            channel.shutdown().awaitTermination(5, TimeUnit.SECONDS);
         }
     }
 
@@ -119,6 +135,67 @@ public abstract class BaseSuite {
                 .waitingFor(Wait.forHealthcheck());
         blockNodeContainer.setPortBindings(portBindings);
         return blockNodeContainer;
+    }
+
+    /**
+     * Initializes the gRPC client for connecting to the Block Node with BlockAccessStub for requesting single blocks.
+     */
+    protected static BlockAccessServiceGrpc.BlockAccessServiceBlockingStub initializeBlockAccessGrpcClient() {
+        String host = blockNodeContainer.getHost();
+        int port = blockNodePort;
+
+        channel = ManagedChannelBuilder.forAddress(host, port)
+                .usePlaintext() // For testing only
+                .build();
+
+        return BlockAccessServiceGrpc.newBlockingStub(channel);
+    }
+
+    /**
+     * Creates a SingleBlockRequest to retrieve a specific block.
+     *
+     * @param blockNumber The block number to retrieve
+     * @param latest Whether to retrieve the latest block
+     * @return A SingleBlockRequest object
+     */
+    protected SingleBlockRequest createSingleBlockRequest(long blockNumber, boolean latest) {
+        return SingleBlockRequest.newBuilder()
+                .setBlockNumber(blockNumber)
+                .setRetrieveLatest(latest)
+                .setAllowUnverified(true)
+                .build();
+    }
+
+    /**
+     * Retrieves a single block using the Block Node API.
+     *
+     * @param blockNumber The block number to retrieve
+     * @param allowUnverified A flag to indicate that the requested block may be sent without
+     *   verifying its `BlockProof`
+     * @return The SingleBlockResponse from the API
+     */
+    protected SingleBlockResponse getSingleBlock(final long blockNumber, final boolean allowUnverified) {
+        SingleBlockRequest request = SingleBlockRequest.newBuilder()
+                .setBlockNumber(blockNumber)
+                .setAllowUnverified(allowUnverified)
+                .build();
+        return blockAccessStub.singleBlock(request);
+    }
+
+    /**
+     * Retrieves a single block using the Block Node API.
+     *
+     * @param allowUnverified A flag to indicate that the requested block may be sent without
+     * verifying its `BlockProof`
+     * @return The SingleBlockResponse from the API
+     */
+    protected SingleBlockResponse getLatestBlock(final boolean allowUnverified) {
+        SingleBlockRequest request = SingleBlockRequest.newBuilder()
+                .setBlockNumber(-1)
+                .setRetrieveLatest(true)
+                .setAllowUnverified(allowUnverified)
+                .build();
+        return blockAccessStub.singleBlock(request);
     }
 
     /**
