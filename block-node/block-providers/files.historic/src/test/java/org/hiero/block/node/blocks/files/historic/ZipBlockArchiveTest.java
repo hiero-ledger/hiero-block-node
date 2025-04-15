@@ -16,6 +16,7 @@ import org.hiero.block.node.app.fixtures.plugintest.SimpleInMemoryHistoricalBloc
 import org.hiero.block.node.spi.BlockNodeContext;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
@@ -112,6 +113,30 @@ class ZipBlockArchiveTest {
             final Path testRootPath = tempDir.resolve("testRootPath");
             Files.createDirectories(testRootPath);
             final ZipBlockArchive toTest = new ZipBlockArchive(testContext, createTestConfiguration(testRootPath, 1));
+            final long actual = toTest.minStoredBlockNumber();
+            assertThat(actual).isEqualTo(-1L);
+        }
+
+        /**
+         * This test aims to assert that the
+         * {@link ZipBlockArchive#minStoredBlockNumber()} returns -1L if the
+         * archive is empty.
+         */
+        @Test
+        @DisplayName("Test minStoredBlockNumber() returns -1L when zip file has no entries")
+        @Disabled(
+                "todo determine if the zips should have 's' at the end cause if so, then the logic in the min method must change")
+        void testMinStoredEmptyZipFile() throws IOException {
+            final Path testRootPath = tempDir.resolve("testRootPath");
+            Files.createDirectories(testRootPath);
+            final FilesHistoricConfig testConfiguration = createTestConfiguration(testRootPath, 1);
+            final BlockPath computedBlockPath00s = BlockPath.computeBlockPath(testConfiguration, 0L);
+            final BlockPath computedBlockPath10s = BlockPath.computeBlockPath(testConfiguration, 10L);
+            Files.createDirectories(computedBlockPath00s.dirPath());
+            Files.createFile(computedBlockPath00s.zipFilePath());
+            Files.createDirectories(computedBlockPath10s.dirPath());
+            Files.createFile(computedBlockPath10s.zipFilePath());
+            final ZipBlockArchive toTest = new ZipBlockArchive(testContext, testConfiguration);
             final long actual = toTest.minStoredBlockNumber();
             assertThat(actual).isEqualTo(-1L);
         }
