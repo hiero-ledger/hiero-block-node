@@ -380,14 +380,72 @@ class ZipBlockAccessorTest {
             assertThat(actual.toHex()).isEqualTo(Bytes.wrap(expected).toHex());
         }
 
+        /**
+         * This test aims to verify that the
+         * {@link ZipBlockAccessor#writeBytesTo(Format, com.hedera.pbj.runtime.io.WritableSequentialData)}
+         * will correctly write the bytes to a target output stream. This test
+         * always uses Zstandard compression to write the bytes to the target
+         * wsd.
+         */
+        @ParameterizedTest
+        @EnumSource(CompressionType.class)
+        @DisplayName("Test writeBytesTo() correctly writes the bytes to a target wsd using zstd compression")
+        @SuppressWarnings("DataFlowIssue")
+        void testWriteBytesToWSDZSTDCompression(final CompressionType compressionType) throws IOException {
+            // build a test block
+            final BlockItem[] blockItems = SimpleTestBlockItemBuilder.createNumberOfVerySimpleBlocks(1);
+            final FilesHistoricConfig testConfig = createTestConfiguration(tempDir, compressionType);
+            final BlockPath blockPath = BlockPath.computeBlockPath(
+                    testConfig, blockItems[0].blockHeader().number());
+            final Block block = new Block(List.of(blockItems));
+            final Bytes protoBytes = Block.PROTOBUF.toBytes(block);
+            // test zipBlockAccessor.writeBytesTo()
+            final ZipBlockAccessor toTest = createBlockAndGetAssociatedAccessor(testConfig, blockPath, protoBytes);
+            // we must always compress the bytes to compare them with whatever compression type
+            // was used to persist the block
+            final byte[] expected = CompressionType.ZSTD.compress(protoBytes.toByteArray());
+            final BufferedData wsd = BufferedData.allocate(expected.length);
+            toTest.writeBytesTo(Format.ZSTD_PROTOBUF, wsd);
+            final Bytes actual = wsd.getBytes(0, expected.length);
+            assertThat(actual.toByteArray()).isEqualTo(expected).containsExactly(expected);
+            assertThat(actual.toHex()).isEqualTo(Bytes.wrap(expected).toHex());
+        }
+
+        /**
+         * This test aims to verify that the
+         * {@link ZipBlockAccessor#writeBytesTo(Format, com.hedera.pbj.runtime.io.WritableSequentialData)}
+         * will correctly write the bytes to a target output stream. This test
+         * always uses no compression to write the bytes to the target
+         * wsd.
+         */
+        @ParameterizedTest
+        @EnumSource(CompressionType.class)
+        @DisplayName("Test writeBytesTo() correctly writes the bytes to a target wsd using no compression")
+        @SuppressWarnings("DataFlowIssue")
+        void testWriteBytesToWSDNoCompression(final CompressionType compressionType) throws IOException {
+            // build a test block
+            final BlockItem[] blockItems = SimpleTestBlockItemBuilder.createNumberOfVerySimpleBlocks(1);
+            final FilesHistoricConfig testConfig = createTestConfiguration(tempDir, compressionType);
+            final BlockPath blockPath = BlockPath.computeBlockPath(
+                    testConfig, blockItems[0].blockHeader().number());
+            final Block block = new Block(List.of(blockItems));
+            final Bytes protoBytes = Block.PROTOBUF.toBytes(block);
+            // test zipBlockAccessor.writeBytesTo()
+            final ZipBlockAccessor toTest = createBlockAndGetAssociatedAccessor(testConfig, blockPath, protoBytes);
+            // we always expect that the bytes are not compressed
+            final byte[] expected = protoBytes.toByteArray();
+            final BufferedData wsd = BufferedData.allocate(expected.length);
+            toTest.writeBytesTo(Format.PROTOBUF, wsd);
+            final Bytes actual = wsd.getBytes(0, expected.length);
+            assertThat(actual.toByteArray()).isEqualTo(expected).containsExactly(expected);
+            assertThat(actual.toHex()).isEqualTo(Bytes.wrap(expected).toHex());
+        }
+
         private Format getHappyPathFormat(final CompressionType compressionType) {
-            final Format format;
-            switch (compressionType) {
-                case ZSTD -> format = Format.ZSTD_PROTOBUF;
-                case NONE -> format = Format.PROTOBUF;
-                default -> throw new IllegalStateException("Unhandled compression type: " + compressionType);
-            }
-            return format;
+            return switch (compressionType) {
+                case ZSTD -> Format.ZSTD_PROTOBUF;
+                case NONE -> Format.PROTOBUF;
+            };
         }
     }
 
