@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.node.blocks.files.recent;
 
+import static java.lang.System.Logger.Level.DEBUG;
+import static java.lang.System.Logger.Level.WARNING;
 import static org.hiero.block.node.base.BlockFile.nestedDirectoriesAllBlockNumbers;
 
 import com.hedera.pbj.runtime.io.stream.WritableStreamingData;
@@ -17,8 +19,9 @@ import org.hiero.block.node.base.ranges.ConcurrentLongRangeSet;
 import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.ServiceBuilder;
 import org.hiero.block.node.spi.blockmessaging.BlockMessagingFacility;
-import org.hiero.block.node.spi.blockmessaging.BlockNotification;
 import org.hiero.block.node.spi.blockmessaging.BlockNotificationHandler;
+import org.hiero.block.node.spi.blockmessaging.PersistedNotification;
+import org.hiero.block.node.spi.blockmessaging.VerificationNotification;
 import org.hiero.block.node.spi.historicalblocks.BlockAccessor;
 import org.hiero.block.node.spi.historicalblocks.BlockProviderPlugin;
 import org.hiero.block.node.spi.historicalblocks.BlockRangeSet;
@@ -120,7 +123,7 @@ public final class BlocksFilesRecentPlugin implements BlockProviderPlugin, Block
      */
     @Override
     public int defaultPriority() {
-        return 0;
+        return 2_000;
     }
 
     /**
@@ -136,7 +139,7 @@ public final class BlocksFilesRecentPlugin implements BlockProviderPlugin, Block
                     config.liveRootPath(), blockNumber, config.compression(), config.maxFilesPerDir());
             if (Files.exists(verifiedBlockPath)) {
                 // we have the block so return it
-                return new BlockFileBlockAccessor(config.liveRootPath(), verifiedBlockPath, config.compression());
+                return new BlockFileBlockAccessor(verifiedBlockPath, config.compression());
             } else {
                 LOGGER.log(
                         Level.WARNING,
@@ -159,13 +162,36 @@ public final class BlocksFilesRecentPlugin implements BlockProviderPlugin, Block
     /**
      * {@inheritDoc}
      * <p>
-     * This method is called when a block notification is received. It is called on the block item notification thread.
+     * This method is called when a block verification notification is received. It is called on the block notification
+     * thread.
      */
     @Override
-    public void handleBlockNotification(final BlockNotification notification) {
-        if (notification.type() == BlockNotification.Type.BLOCK_VERIFIED) {
-            // write the block to the live path and send notification of block persisted
-            writeBlockToLivePath(notification.block(), notification.blockNumber());
+    public void handleVerification(VerificationNotification notification) {
+        // write the block to the live path and send notification of block persisted
+        writeBlockToLivePath(notification.block(), notification.blockNumber());
+    }
+
+    /**
+     * {@inheritDoc}
+     * <p>
+     * This method is called when a block persisted notification is received. It is called on the block notification
+     * thread. We will get notifications from ourselves and other plugins. We are looking for notifications from other
+     * plugins with lower priority that have stored blocks so we can delete ours as we do not need to store them anymore
+     * if another plugin has them.
+     *
+     * @param notification the block persisted notification to handle
+     */
+    @Override
+    public void handlePersisted(PersistedNotification notification) {
+        if (notification.blockProviderPriority() < defaultPriority()) {
+            // remove range from available blocks
+            availableBlocks.remove(notification.startBlockNumber(), notification.endBlockNumber());
+            // delete all files in range
+            for (long blockNumber = notification.startBlockNumber();
+                    blockNumber <= notification.endBlockNumber();
+                    blockNumber++) {
+                delete(blockNumber);
+            }
         }
     }
 
@@ -203,8 +229,7 @@ public final class BlocksFilesRecentPlugin implements BlockProviderPlugin, Block
             // update the oldest and newest verified block numbers
             availableBlocks.add(blockNumber);
             // send block persisted notification
-            blockMessaging.sendBlockNotification(
-                    new BlockNotification(blockNumber, BlockNotification.Type.BLOCK_PERSISTED, null, null));
+            blockMessaging.sendBlockPersisted(new PersistedNotification(blockNumber, blockNumber, defaultPriority()));
         } catch (final IOException e) {
             LOGGER.log(
                     System.Logger.Level.ERROR,
@@ -212,6 +237,40 @@ public final class BlocksFilesRecentPlugin implements BlockProviderPlugin, Block
                     blockNumber,
                     e);
             throw new UncheckedIOException(e);
+        }
+    }
+
+    /**
+     * Delete a block file from the live path. This is used when the block is no longer needed as it is stored by
+     * another plugin.
+     */
+    private void delete(long blockNumber) {
+        // compute file path for the block
+        final Path blockFilePath = BlockFile.nestedDirectoriesBlockFilePath(
+                config.liveRootPath(), blockNumber, config.compression(), config.maxFilesPerDir());
+        try {
+            // log we are deleting the block file
+            LOGGER.log(DEBUG, "Deleting block file: " + blockFilePath);
+            // delete the block file
+            Files.deleteIfExists(blockFilePath);
+            // clean up any empty parent directories up to the base directory
+            Path parentDir = blockFilePath.getParent();
+            while (parentDir != null && !parentDir.equals(config.liveRootPath())) {
+                try (var filesList = Files.list(parentDir)) {
+                    if (filesList.findAny().isPresent()) {
+                        break;
+                    }
+                } catch (IOException e) {
+                    LOGGER.log(WARNING, "Failed to list files in directory: " + parentDir, e);
+                }
+                // we did not find any files in the directory, so delete it
+                Files.deleteIfExists(parentDir);
+                // move up to the parent directory
+                parentDir = parentDir.getParent();
+            }
+        } catch (IOException e) {
+            LOGGER.log(WARNING, "Failed to delete block file: " + blockFilePath, e);
+            throw new RuntimeException(e);
         }
     }
 }

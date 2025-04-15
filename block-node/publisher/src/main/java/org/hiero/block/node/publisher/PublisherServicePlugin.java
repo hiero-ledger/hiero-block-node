@@ -29,8 +29,9 @@ import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.BlockNodePlugin;
 import org.hiero.block.node.spi.ServiceBuilder;
 import org.hiero.block.node.spi.blockmessaging.BlockItems;
-import org.hiero.block.node.spi.blockmessaging.BlockNotification;
 import org.hiero.block.node.spi.blockmessaging.BlockNotificationHandler;
+import org.hiero.block.node.spi.blockmessaging.PersistedNotification;
+import org.hiero.block.node.spi.blockmessaging.VerificationNotification;
 import org.hiero.hapi.block.node.BlockItemUnparsed;
 import org.hiero.hapi.block.node.PublishStreamRequestUnparsed;
 import org.hiero.hapi.block.node.PublishStreamResponse;
@@ -408,6 +409,65 @@ public final class PublisherServicePlugin implements BlockNodePlugin, ServiceInt
     // ==== BlockNotificationHandler Methods ===========================================================================
 
     /**
+     * Receive verification notifications from verification and update our handling of listeners accordingly. This is
+     * called on thread dedicated to this registered handler.
+     *
+     * @param notification the block verification notification to handle
+     */
+    @Override
+    public void handleVerification(VerificationNotification notification) {
+        Objects.requireNonNull(notification);
+        // we only care about failed verifications as we will need to request a resend of the block
+        if (!notification.success()) {
+            stateLock.lock();
+            try {
+                LOGGER.log(
+                        DEBUG,
+                        "Received notification that block {0} have failed verification.",
+                        notification.blockNumber());
+                // set the chosen source for the current block to null as we do not have one yet
+                // do this first to try and avoid more bad items sent into the system
+                currentPrimarySession = null;
+                // We need to go and request all sessions to resend the block
+                openSessions.forEach(session -> session.requestResend(notification.blockNumber()));
+                // reset out block number to last good block
+                currentBlockNumber = notification.blockNumber() - 1;
+                currentBlockNumberInbound.set(currentBlockNumber);
+            } finally {
+                stateLock.unlock();
+            }
+        }
+    }
+
+    /**
+     * Receive persisted notifications from the block node and update our handling of listeners accordingly. This is
+     * called on thread dedicated to this registered handler.
+     *
+     * @param notification the block persisted notification to handle
+     */
+    @Override
+    public void handlePersisted(PersistedNotification notification) {
+        Objects.requireNonNull(notification);
+        stateLock.lock();
+        try {
+            LOGGER.log(
+                    DEBUG,
+                    "Received notification that blocks {0}->{1} have been persisted.",
+                    notification.startBlockNumber(),
+                    notification.endBlockNumber());
+            latestAckedBlockNumber = notification.endBlockNumber();
+            // pass on the notification to all open sessions
+            for (BlockStreamProducerSession session : openSessions) {
+                session.handlePersisted(notification);
+            }
+        } finally {
+            stateLock.unlock();
+        }
+    }
+
+    // ==== ServiceInterface Methods ===================================================================================
+
+    /**
      * BlockStreamPublisherService types define the gRPC methods available on the BlockStreamPublisherService.
      */
     enum BlockStreamPublisherServiceMethod implements Method {
@@ -417,51 +477,6 @@ public final class PublisherServicePlugin implements BlockNodePlugin, ServiceInt
          */
         publishBlockStream
     }
-
-    /**
-     * Receive notifications from verification and persistence services and update our handling of listeners
-     * accordingly. This is called on thread dedicated to this registered handler.
-     *
-     * @param notification the block notification to handle
-     */
-    @Override
-    public void handleBlockNotification(@NonNull final BlockNotification notification) {
-        Objects.requireNonNull(notification);
-        stateLock.lock();
-        try {
-            // We have nothing to do for BlockNotification.BLOCK_VERIFIED so can ignore it
-            switch (notification.type()) {
-                case BLOCK_PERSISTED -> {
-                    LOGGER.log(
-                            DEBUG,
-                            "Received notification that block {0} have been persisted.",
-                            notification.blockNumber());
-                    // let all subscribers know we have a good copy of the block saved to disk
-                    latestAckedBlockNumber = notification.blockNumber();
-                    openSessions.forEach(session ->
-                            session.sendBlockPersisted(notification.blockNumber(), notification.blockHash()));
-                }
-                case BLOCK_FAILED_VERIFICATION -> {
-                    LOGGER.log(
-                            DEBUG,
-                            "Received notification that block {0} have failed verification.",
-                            notification.blockNumber());
-                    // set the chosen source for the current block to null as we do not have one yet
-                    // do this first to try and avoid more bad items sent into the system
-                    currentPrimarySession = null;
-                    // We need to go and request all sessions to resend the block
-                    openSessions.forEach(session -> session.requestResend(notification.blockNumber()));
-                    // reset out block number to last good block
-                    currentBlockNumber = notification.blockNumber() - 1;
-                    currentBlockNumberInbound.set(currentBlockNumber);
-                }
-            }
-        } finally {
-            stateLock.unlock();
-        }
-    }
-
-    // ==== ServiceInterface Methods ===================================================================================
 
     /**
      * {@inheritDoc}
