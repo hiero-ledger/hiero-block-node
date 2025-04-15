@@ -11,9 +11,10 @@ import java.util.concurrent.RejectedExecutionException;
 import org.hiero.block.node.spi.blockmessaging.BlockItemHandler;
 import org.hiero.block.node.spi.blockmessaging.BlockItems;
 import org.hiero.block.node.spi.blockmessaging.BlockMessagingFacility;
-import org.hiero.block.node.spi.blockmessaging.BlockNotification;
 import org.hiero.block.node.spi.blockmessaging.BlockNotificationHandler;
 import org.hiero.block.node.spi.blockmessaging.NoBackPressureBlockItemHandler;
+import org.hiero.block.node.spi.blockmessaging.PersistedNotification;
+import org.hiero.block.node.spi.blockmessaging.VerificationNotification;
 
 /**
  * A test implementation of the {@link BlockMessagingFacility} interface.
@@ -37,8 +38,10 @@ public class TestBlockMessagingFacility implements BlockMessagingFacility {
             new ConcurrentSkipListSet<>(Comparator.comparingInt(Object::hashCode));
     /** list of all sent block items */
     private final List<BlockItems> sentBlockBlockItems = new CopyOnWriteArrayList<>();
-    /** list of all sent block notifications */
-    private final List<BlockNotification> sentBlockNotifications = new CopyOnWriteArrayList<>();
+    /** list of all sent block verification notifications */
+    private final List<VerificationNotification> sentVerificationNotifications = new CopyOnWriteArrayList<>();
+    /** list of all sent block persistence notifications */
+    private final List<PersistedNotification> sentPersistedNotifications = new CopyOnWriteArrayList<>();
     /** Set of handlers for which we must simulate a handler that is behind and producing backpressure. */
     private final Set<BlockItemHandler> handlersWithBackpressure =
             new ConcurrentSkipListSet<>(Comparator.comparingInt(Object::hashCode));
@@ -53,12 +56,21 @@ public class TestBlockMessagingFacility implements BlockMessagingFacility {
     }
 
     /**
-     * Get all block notifications sent to the block messaging facility.
+     * Get all block verification notifications sent to the block messaging facility.
      *
-     * @return the list of sent block notifications
+     * @return the list of sent block verification notifications
      */
-    public List<BlockNotification> getSentBlockNotifications() {
-        return sentBlockNotifications;
+    public List<VerificationNotification> getSentVerificationNotifications() {
+        return sentVerificationNotifications;
+    }
+
+    /**
+     * Get all block persistence notifications sent to the block messaging facility.
+     *
+     * @return the list of sent block persistence notifications
+     */
+    public List<PersistedNotification> getSentPersistedNotifications() {
+        return sentPersistedNotifications;
     }
 
     /**
@@ -181,11 +193,23 @@ public class TestBlockMessagingFacility implements BlockMessagingFacility {
      * {@inheritDoc}
      */
     @Override
-    public void sendBlockNotification(BlockNotification notification) {
+    public void sendBlockVerification(VerificationNotification notification) {
         LOGGER.log(Level.TRACE, "Sending block notification " + notification);
-        sentBlockNotifications.add(notification);
+        sentVerificationNotifications.add(notification);
         for (BlockNotificationHandler handler : blockNotificationHandlers) {
-            handler.handleBlockNotification(notification);
+            handler.handleVerification(notification);
+        }
+    }
+
+    /**
+     * {@inheritDoc}
+     */
+    @Override
+    public void sendBlockPersisted(PersistedNotification notification) {
+        LOGGER.log(Level.TRACE, "Sending block notification " + notification);
+        sentPersistedNotifications.add(notification);
+        for (BlockNotificationHandler handler : blockNotificationHandlers) {
+            handler.handlePersisted(notification);
         }
     }
 

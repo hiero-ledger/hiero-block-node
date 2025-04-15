@@ -74,25 +74,6 @@ class BlockFileBlockAccessorTest {
     @DisplayName("Constructor Tests")
     @SuppressWarnings("all")
     final class ConstructorTests {
-        /**
-         * This test asserts that a {@link NullPointerException} is thrown when
-         * the input base path is null.
-         */
-        @Test
-        void testNullBasePath() throws IOException {
-            // resolve, create & assert existing block file path before call
-            final Path blockFilePath = testBasePath.resolve("1.blk");
-            Files.createFile(blockFilePath);
-            assertThat(blockFilePath)
-                    .exists()
-                    .isRegularFile()
-                    .isEmptyFile()
-                    .isReadable()
-                    .isWritable();
-            // call && assert
-            assertThatNullPointerException()
-                    .isThrownBy(() -> new BlockFileBlockAccessor(null, blockFilePath, CompressionType.NONE));
-        }
 
         /**
          * This test asserts that a {@link NullPointerException} is thrown when
@@ -101,8 +82,7 @@ class BlockFileBlockAccessorTest {
         @Test
         void testNullBlockFilePath() {
             // call && assert
-            assertThatNullPointerException()
-                    .isThrownBy(() -> new BlockFileBlockAccessor(testBasePath, null, CompressionType.NONE));
+            assertThatNullPointerException().isThrownBy(() -> new BlockFileBlockAccessor(null, CompressionType.NONE));
         }
 
         /**
@@ -121,8 +101,7 @@ class BlockFileBlockAccessorTest {
                     .isReadable()
                     .isWritable();
             // call && assert
-            assertThatNullPointerException()
-                    .isThrownBy(() -> new BlockFileBlockAccessor(testBasePath, blockFilePath, null));
+            assertThatNullPointerException().isThrownBy(() -> new BlockFileBlockAccessor(blockFilePath, null));
         }
 
         /**
@@ -133,7 +112,7 @@ class BlockFileBlockAccessorTest {
         void testBlockFilePathNotAFile() {
             // call && assert
             assertThatIllegalArgumentException()
-                    .isThrownBy(() -> new BlockFileBlockAccessor(testBasePath, testBasePath, CompressionType.NONE));
+                    .isThrownBy(() -> new BlockFileBlockAccessor(testBasePath, CompressionType.NONE));
         }
 
         /**
@@ -147,50 +126,7 @@ class BlockFileBlockAccessorTest {
             assertThat(blockFilePath).doesNotExist();
             // call && assert
             assertThatIllegalArgumentException()
-                    .isThrownBy(() -> new BlockFileBlockAccessor(testBasePath, blockFilePath, CompressionType.NONE));
-        }
-
-        /**
-         * This test asserts that a {@link NullPointerException} is thrown when
-         * the input base path is not a directory.
-         */
-        @Test
-        void testBasePathNotADirectory() throws IOException {
-            // resolve, create & assert existing block file path before call
-            final Path blockFilePath = testBasePath.resolve("1.blk");
-            Files.createFile(blockFilePath);
-            assertThat(blockFilePath)
-                    .exists()
-                    .isRegularFile()
-                    .isEmptyFile()
-                    .isReadable()
-                    .isWritable();
-            // call && assert
-            assertThatIllegalArgumentException()
-                    .isThrownBy(() -> new BlockFileBlockAccessor(blockFilePath, blockFilePath, CompressionType.NONE));
-        }
-
-        /**
-         * This test asserts that a {@link NullPointerException} is thrown when
-         * the input base path does not exist.
-         */
-        @Test
-        void testBasePathNotExists() throws IOException {
-            // resolve, create & assert existing block file path before call
-            final Path blockFilePath = testBasePath.resolve("1.blk");
-            Files.createFile(blockFilePath);
-            assertThat(blockFilePath)
-                    .exists()
-                    .isRegularFile()
-                    .isEmptyFile()
-                    .isReadable()
-                    .isWritable();
-            // resolve & assert not existing base path
-            final Path basePath = testBasePath.resolve("non-existing");
-            assertThat(basePath).doesNotExist();
-            // call && assert
-            assertThatIllegalArgumentException()
-                    .isThrownBy(() -> new BlockFileBlockAccessor(basePath, blockFilePath, CompressionType.NONE));
+                    .isThrownBy(() -> new BlockFileBlockAccessor(blockFilePath, CompressionType.NONE));
         }
 
         /**
@@ -209,8 +145,7 @@ class BlockFileBlockAccessorTest {
                     .isReadable()
                     .isWritable();
             // call && assert
-            assertThatNoException()
-                    .isThrownBy(() -> new BlockFileBlockAccessor(testBasePath, blockFilePath, CompressionType.NONE));
+            assertThatNoException().isThrownBy(() -> new BlockFileBlockAccessor(blockFilePath, CompressionType.NONE));
         }
     }
 
@@ -627,59 +562,6 @@ class BlockFileBlockAccessorTest {
             assertThat(actual).isEqualTo(expected);
         }
 
-        /**
-         * This test aims to verify that the {@link BlockFileBlockAccessor#delete()}will correctly delete
-         * an existing persisted block.
-         */
-        @ParameterizedTest
-        @EnumSource(CompressionType.class)
-        @DisplayName("Test delete method will correctly delete a persisted block")
-        void testBlockDelete(final CompressionType compressionType) throws IOException {
-            // create block file path before call
-            final Path blockFilePath = testBasePath.resolve("0.blk".concat(compressionType.extension()));
-            // create instance to test
-            final BlockFileBlockAccessor toTest =
-                    buildAndCreateBlockAndGetAssociatedAccessor(blockFilePath, compressionType, 1);
-            // test accessor.delete()
-            toTest.delete();
-            assertThat(blockFilePath).doesNotExist();
-        }
-
-        @ParameterizedTest
-        @EnumSource(CompressionType.class)
-        void testDeleteNestedEmptyParentDirectory(final CompressionType compressionType) throws IOException {
-            // create parents dirs
-            final Path depth1Dir = Files.createDirectories(Path.of(testBasePath + "/depth1"));
-            final Path depth2Dir = Files.createDirectories(Path.of(testBasePath + "/depth1/depth2"));
-            final Path depth3Dir = Files.createDirectories(Path.of(testBasePath + "/depth1/depth2/depth3"));
-
-            // create 1st block file at depth 2, leaving depth 1 empty
-            final Path blockFile1Path = depth2Dir.resolve("7.blk".concat(compressionType.extension()));
-            // create instance to test
-            final BlockFileBlockAccessor toTest1 =
-                    buildAndCreateBlockAndGetAssociatedAccessor(blockFile1Path, compressionType, 2);
-
-            // create 2nd block file at depth 3
-            final Path blockFile2Path = depth3Dir.resolve("8.blk".concat(compressionType.extension()));
-            // create instance to test
-            final BlockFileBlockAccessor toTest2 =
-                    buildAndCreateBlockAndGetAssociatedAccessor(blockFile2Path, compressionType, 3);
-
-            // test accessor2.delete() expecting depth 1 and 2 contents to remain but 3 to be removed
-            toTest2.delete();
-            assertThat(blockFile2Path).doesNotExist();
-            assertThat(depth3Dir).doesNotExist();
-            assertThat(depth2Dir).exists();
-            assertThat(blockFile1Path).exists();
-            assertThat(depth1Dir).exists();
-
-            // test accessor1.delete() expecting depth 1 and 2 contents to be removed
-            toTest1.delete();
-            assertThat(depth2Dir).doesNotExist();
-            assertThat(depth1Dir).doesNotExist();
-            assertThat(blockFile1Path).doesNotExist();
-        }
-
         private BlockFileBlockAccessor createBlockAndGetAssociatedAccessor(
                 final Path blockFilePath, final CompressionType compressionType, Bytes protoBytes) throws IOException {
 
@@ -692,7 +574,7 @@ class BlockFileBlockAccessorTest {
             }
             // assert the test block file is populated
             assertThat(blockFilePath).isNotEmptyFile();
-            return new BlockFileBlockAccessor(testBasePath, blockFilePath, compressionType);
+            return new BlockFileBlockAccessor(blockFilePath, compressionType);
         }
 
         private BlockFileBlockAccessor buildAndCreateBlockAndGetAssociatedAccessor(

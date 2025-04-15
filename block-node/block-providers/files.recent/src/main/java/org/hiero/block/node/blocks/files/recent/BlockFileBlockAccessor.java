@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.node.blocks.files.recent;
 
-import static java.lang.System.Logger.Level.DEBUG;
 import static java.lang.System.Logger.Level.WARNING;
 
 import com.github.luben.zstd.Zstd;
@@ -38,8 +37,6 @@ final class BlockFileBlockAccessor implements BlockAccessor {
     private static final int BUFFER_SIZE = 1024 * 1024;
     /** The logger for this class. */
     private final System.Logger LOGGER = System.getLogger(getClass().getName());
-    /** The base directory for all block files. */
-    private final Path baseDir;
     /** The path to the block file. */
     private final Path blockFilePath;
     /** The compression type used for the block file. */
@@ -48,48 +45,12 @@ final class BlockFileBlockAccessor implements BlockAccessor {
     /**
      * Constructs a BlockFileBlockAccessor with the specified block file path and compression type.
      *
-     * @param baseDir         the base directory for all block files, must exist
      * @param blockFilePath   the path to the block file, must exist
      * @param compressionType the compression type used for the block file
      */
-    BlockFileBlockAccessor(
-            @NonNull final Path baseDir,
-            @NonNull final Path blockFilePath,
-            @NonNull final CompressionType compressionType) {
-        this.baseDir = Preconditions.requireDirectory(baseDir);
+    BlockFileBlockAccessor(@NonNull final Path blockFilePath, @NonNull final CompressionType compressionType) {
         this.blockFilePath = Preconditions.requireRegularFile(blockFilePath);
         this.compressionType = Objects.requireNonNull(compressionType);
-    }
-
-    /**
-     * {@inheritDoc}
-     */
-    @Override
-    public void delete() {
-        try {
-            // log we are deleting the block file
-            LOGGER.log(DEBUG, "Deleting block file: " + blockFilePath);
-            // delete the block file
-            Files.deleteIfExists(blockFilePath);
-            // clean up any empty parent directories up to the base directory
-            Path parentDir = blockFilePath.getParent();
-            while (parentDir != null && !parentDir.equals(baseDir)) {
-                try (var filesList = Files.list(parentDir)) {
-                    if (filesList.findAny().isPresent()) {
-                        break;
-                    }
-                } catch (IOException e) {
-                    LOGGER.log(WARNING, "Failed to list files in directory: " + parentDir, e);
-                }
-                // we did not find any files in the directory, so delete it
-                Files.deleteIfExists(parentDir);
-                // move up to the parent directory
-                parentDir = parentDir.getParent();
-            }
-        } catch (IOException e) {
-            LOGGER.log(WARNING, "Failed to delete block file: " + blockFilePath, e);
-            throw new RuntimeException(e);
-        }
     }
 
     /**

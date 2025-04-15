@@ -59,11 +59,18 @@ public interface BlockMessagingFacility extends BlockNodePlugin {
     void unregisterBlockItemHandler(BlockItemHandler handler);
 
     /**
-     * Use this method to send block notifications to all registered handlers.
+     * Use this method to send block verification notifications to all registered handlers.
      *
-     * @param notification the block notification to send
+     * @param notification the block verification notification to send
      */
-    void sendBlockNotification(BlockNotification notification);
+    void sendBlockVerification(VerificationNotification notification);
+
+    /**
+     * Use this method to send block persisted notifications to all registered handlers.
+     *
+     * @param notification the block persisted notification to send
+     */
+    void sendBlockPersisted(PersistedNotification notification);
 
     /**
      * Use this method to register a block notification handler. The handler will be called every time new block

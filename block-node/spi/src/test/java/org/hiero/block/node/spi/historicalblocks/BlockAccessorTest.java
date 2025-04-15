@@ -77,13 +77,6 @@ public class BlockAccessorTest {
     }
 
     @Test
-    @DisplayName("Test delete method throws UnsupportedOperationException")
-    void testDeleteMethod() {
-        BlockAccessor accessor = new TestBlockAccessor();
-        assertThrows(UnsupportedOperationException.class, accessor::delete);
-    }
-
-    @Test
     @DisplayName("Test blockUnparsed method")
     void testBlockUnparsed() throws ParseException {
         BlockAccessor accessor = new TestBlockAccessor();
