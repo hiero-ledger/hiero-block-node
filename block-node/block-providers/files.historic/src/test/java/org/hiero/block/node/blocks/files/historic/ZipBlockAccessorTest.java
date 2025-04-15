@@ -261,8 +261,8 @@ class ZipBlockAccessorTest {
             final FilesHistoricConfig testConfig = createTestConfiguration(tempDir, compressionType);
             final BlockPath blockPath = BlockPath.computeBlockPath(
                     testConfig, blockItems[0].blockHeader().number());
-            final Block expected = new Block(List.of(blockItems));
-            final Bytes protoBytes = Block.PROTOBUF.toBytes(expected);
+            final Block block = new Block(List.of(blockItems));
+            final Bytes protoBytes = Block.PROTOBUF.toBytes(block);
             // test zipBlockAccessor.writeBytesTo()
             final ZipBlockAccessor toTest = createBlockAndGetAssociatedAccessor(testConfig, blockPath, protoBytes);
             final Format format = getHappyPathFormat(compressionType);
@@ -272,7 +272,8 @@ class ZipBlockAccessorTest {
             final byte[] actual = baos.toByteArray();
             // we must always compress the bytes to compare them with whatever compression type
             // was used to persist the block
-            assertThat(actual).isEqualTo(compressionType.compress(protoBytes.toByteArray()));
+            final byte[] expected = compressionType.compress(protoBytes.toByteArray());
+            assertThat(actual).isEqualTo(expected).containsExactly(expected);
         }
 
         /**
@@ -294,8 +295,8 @@ class ZipBlockAccessorTest {
             final FilesHistoricConfig testConfig = createTestConfiguration(tempDir, compressionType);
             final BlockPath blockPath = BlockPath.computeBlockPath(
                     testConfig, blockItems[0].blockHeader().number());
-            final Block expected = new Block(List.of(blockItems));
-            final Bytes protoBytes = Block.PROTOBUF.toBytes(expected);
+            final Block block = new Block(List.of(blockItems));
+            final Bytes protoBytes = Block.PROTOBUF.toBytes(block);
             // test zipBlockAccessor.writeBytesTo()
             final ZipBlockAccessor toTest = createBlockAndGetAssociatedAccessor(testConfig, blockPath, protoBytes);
             final ByteArrayOutputStream baos = new ByteArrayOutputStream();
@@ -303,7 +304,8 @@ class ZipBlockAccessorTest {
             baos.close();
             final byte[] actual = baos.toByteArray();
             // we must always compress the bytes to compare them with the zstd compression type
-            assertThat(actual).isEqualTo(CompressionType.ZSTD.compress(protoBytes.toByteArray()));
+            final byte[] expected = CompressionType.ZSTD.compress(protoBytes.toByteArray());
+            assertThat(actual).isEqualTo(expected).containsExactly(expected);
         }
 
         /**
@@ -325,8 +327,8 @@ class ZipBlockAccessorTest {
             final FilesHistoricConfig testConfig = createTestConfiguration(tempDir, compressionType);
             final BlockPath blockPath = BlockPath.computeBlockPath(
                     testConfig, blockItems[0].blockHeader().number());
-            final Block expected = new Block(List.of(blockItems));
-            final Bytes protoBytes = Block.PROTOBUF.toBytes(expected);
+            final Block block = new Block(List.of(blockItems));
+            final Bytes protoBytes = Block.PROTOBUF.toBytes(block);
             // test zipBlockAccessor.writeBytesTo()
             final ZipBlockAccessor toTest = createBlockAndGetAssociatedAccessor(testConfig, blockPath, protoBytes);
             final ByteArrayOutputStream baos = new ByteArrayOutputStream();
@@ -334,7 +336,8 @@ class ZipBlockAccessorTest {
             baos.close();
             final byte[] actual = baos.toByteArray();
             // we must always compress the bytes to compare them with the zstd compression type
-            assertThat(actual).isEqualTo(protoBytes.toByteArray());
+            final byte[] expected = protoBytes.toByteArray();
+            assertThat(actual).isEqualTo(expected).containsExactly(expected);
         }
 
         private Format getHappyPathFormat(final CompressionType compressionType) {
