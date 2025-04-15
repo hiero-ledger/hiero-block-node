@@ -286,10 +286,12 @@ public final class BlockStreamProducerSession implements Pipeline<List<BlockItem
             long blockToSend = latestAcknowledgedBlock + 1;
             while (futureBlockAcknowledgments.contains(blockToSend)) {
                 latestAcknowledgedBlock = blockToSend;
-                // TODO BlockAcknowledgement block hash should be removed
+                // TODO BlockAcknowledgement block hash should be removed from spec as not needed
                 final PublishStreamResponse goodBlockResponse = new PublishStreamResponse(new OneOf<>(
                         ResponseOneOfType.ACKNOWLEDGEMENT,
                         new Acknowledgement(new BlockAcknowledgement(blockToSend, null, false))));
+                // send the acknowledgment to the client
+                responsePipeline.onNext(goodBlockResponse);
                 blockToSend++;
             }
         } finally {

@@ -27,7 +27,7 @@ import org.hiero.block.node.spi.blockmessaging.BlockMessagingFacility;
 public interface BlockProviderPlugin extends BlockNodePlugin {
     /**
      * The default priority of the plugin. This is used to sort the plugins by priority. The higher the number, the higher
-     * the priority.
+     * the priority. Blocks are read from the highest priority plugin first.
      *
      * @return the default priority of the plugin
      */
