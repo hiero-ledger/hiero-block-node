@@ -13,6 +13,7 @@ import com.hedera.hapi.block.stream.output.BlockHeader;
 import com.hedera.pbj.runtime.ParseException;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import com.swirlds.config.api.ConfigurationBuilder;
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.nio.file.FileSystem;
 import java.nio.file.Files;
@@ -128,12 +129,7 @@ class ZipBlockAccessorTest {
             final Bytes expected = Block.PROTOBUF.toBytes(block);
             // test zipBlockAccessor.block()
             final ZipBlockAccessor toTest = createBlockAndGetAssociatedAccessor(testConfig, blockPath, expected);
-            final Format format;
-            switch (compressionType) {
-                case ZSTD -> format = Format.ZSTD_PROTOBUF;
-                case NONE -> format = Format.PROTOBUF;
-                default -> throw new IllegalStateException("Unhandled compression type: " + compressionType);
-            }
+            final Format format = getHappyPathFormat(compressionType);
             // The blockBytes method should return the bytes of the block with the
             // specified format. In order to assert the same bytes, we need to decompress
             // the bytes returned by the blockBytes method and compare them to the expected.
@@ -245,6 +241,110 @@ class ZipBlockAccessorTest {
             final ZipBlockAccessor toTest = createBlockAndGetAssociatedAccessor(testConfig, blockPath, protoBytes);
             final BlockUnparsed actual = toTest.blockUnparsed();
             assertThat(actual).isEqualTo(expected);
+        }
+
+        /**
+         * This test aims to verify that the
+         * {@link ZipBlockAccessor#writeBytesTo(Format, java.io.OutputStream)}
+         * will correctly write the bytes to a target output stream. This is the
+         * happy path test meaning the compression type used to write the bytes
+         * is the same as the compression type used to write to the target
+         * output stream.
+         */
+        @ParameterizedTest
+        @EnumSource(CompressionType.class)
+        @DisplayName("Test writeBytesTo() correctly writes the bytes to a target output stream happy path")
+        @SuppressWarnings("DataFlowIssue")
+        void testWriteBytesToOutputStreamHappyPath(final CompressionType compressionType) throws IOException {
+            // build a test block
+            final BlockItem[] blockItems = SimpleTestBlockItemBuilder.createNumberOfVerySimpleBlocks(1);
+            final FilesHistoricConfig testConfig = createTestConfiguration(tempDir, compressionType);
+            final BlockPath blockPath = BlockPath.computeBlockPath(
+                    testConfig, blockItems[0].blockHeader().number());
+            final Block expected = new Block(List.of(blockItems));
+            final Bytes protoBytes = Block.PROTOBUF.toBytes(expected);
+            // test zipBlockAccessor.writeBytesTo()
+            final ZipBlockAccessor toTest = createBlockAndGetAssociatedAccessor(testConfig, blockPath, protoBytes);
+            final Format format = getHappyPathFormat(compressionType);
+            final ByteArrayOutputStream baos = new ByteArrayOutputStream();
+            toTest.writeBytesTo(format, baos);
+            baos.close();
+            final byte[] actual = baos.toByteArray();
+            // we must always compress the bytes to compare them with whatever compression type
+            // was used to persist the block
+            assertThat(actual).isEqualTo(compressionType.compress(protoBytes.toByteArray()));
+        }
+
+        /**
+         * This test aims to verify that the
+         * {@link ZipBlockAccessor#writeBytesTo(Format, java.io.OutputStream)}
+         * will correctly write the bytes to a target output stream. This is the
+         * happy path test meaning the compression type used to write the bytes
+         * is the same as the compression type used to write to the target
+         * output stream.
+         */
+        @ParameterizedTest
+        @EnumSource(CompressionType.class)
+        @DisplayName(
+                "Test writeBytesTo() correctly writes the bytes to a target output stream always using ZSTD compression")
+        @SuppressWarnings("DataFlowIssue")
+        void testWriteBytesToOutputStreamZSTDCompression(final CompressionType compressionType) throws IOException {
+            // build a test block
+            final BlockItem[] blockItems = SimpleTestBlockItemBuilder.createNumberOfVerySimpleBlocks(1);
+            final FilesHistoricConfig testConfig = createTestConfiguration(tempDir, compressionType);
+            final BlockPath blockPath = BlockPath.computeBlockPath(
+                    testConfig, blockItems[0].blockHeader().number());
+            final Block expected = new Block(List.of(blockItems));
+            final Bytes protoBytes = Block.PROTOBUF.toBytes(expected);
+            // test zipBlockAccessor.writeBytesTo()
+            final ZipBlockAccessor toTest = createBlockAndGetAssociatedAccessor(testConfig, blockPath, protoBytes);
+            final ByteArrayOutputStream baos = new ByteArrayOutputStream();
+            toTest.writeBytesTo(Format.ZSTD_PROTOBUF, baos);
+            baos.close();
+            final byte[] actual = baos.toByteArray();
+            // we must always compress the bytes to compare them with the zstd compression type
+            assertThat(actual).isEqualTo(CompressionType.ZSTD.compress(protoBytes.toByteArray()));
+        }
+
+        /**
+         * This test aims to verify that the
+         * {@link ZipBlockAccessor#writeBytesTo(Format, java.io.OutputStream)}
+         * will correctly write the bytes to a target output stream. This is the
+         * happy path test meaning the compression type used to write the bytes
+         * is the same as the compression type used to write to the target
+         * output stream.
+         */
+        @ParameterizedTest
+        @EnumSource(CompressionType.class)
+        @DisplayName(
+                "Test writeBytesTo() correctly writes the bytes to a target output stream always using no compression")
+        @SuppressWarnings("DataFlowIssue")
+        void testWriteBytesToOutputStreamNoCompression(final CompressionType compressionType) throws IOException {
+            // build a test block
+            final BlockItem[] blockItems = SimpleTestBlockItemBuilder.createNumberOfVerySimpleBlocks(1);
+            final FilesHistoricConfig testConfig = createTestConfiguration(tempDir, compressionType);
+            final BlockPath blockPath = BlockPath.computeBlockPath(
+                    testConfig, blockItems[0].blockHeader().number());
+            final Block expected = new Block(List.of(blockItems));
+            final Bytes protoBytes = Block.PROTOBUF.toBytes(expected);
+            // test zipBlockAccessor.writeBytesTo()
+            final ZipBlockAccessor toTest = createBlockAndGetAssociatedAccessor(testConfig, blockPath, protoBytes);
+            final ByteArrayOutputStream baos = new ByteArrayOutputStream();
+            toTest.writeBytesTo(Format.PROTOBUF, baos);
+            baos.close();
+            final byte[] actual = baos.toByteArray();
+            // we must always compress the bytes to compare them with the zstd compression type
+            assertThat(actual).isEqualTo(protoBytes.toByteArray());
+        }
+
+        private Format getHappyPathFormat(final CompressionType compressionType) {
+            final Format format;
+            switch (compressionType) {
+                case ZSTD -> format = Format.ZSTD_PROTOBUF;
+                case NONE -> format = Format.PROTOBUF;
+                default -> throw new IllegalStateException("Unhandled compression type: " + compressionType);
+            }
+            return format;
         }
     }
 
