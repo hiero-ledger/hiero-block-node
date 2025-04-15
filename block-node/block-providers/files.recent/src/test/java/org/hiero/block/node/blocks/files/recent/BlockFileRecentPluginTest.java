@@ -19,8 +19,7 @@ import java.util.List;
 import org.hiero.block.node.app.HistoricalBlockFacilityImpl;
 import org.hiero.block.node.app.fixtures.plugintest.PluginTestBase;
 import org.hiero.block.node.base.CompressionType;
-import org.hiero.block.node.spi.blockmessaging.BlockNotification;
-import org.hiero.block.node.spi.blockmessaging.BlockNotification.Type;
+import org.hiero.block.node.spi.blockmessaging.VerificationNotification;
 import org.hiero.hapi.block.node.BlockUnparsed;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
@@ -107,11 +106,8 @@ class BlockFileRecentPluginTest {
                     UNKNOWN_BLOCK_NUMBER,
                     blockNodeContext.historicalBlockProvider().availableBlocks().min());
             // send verified block notification
-            blockMessaging.sendBlockNotification(new BlockNotification(
-                    blockNumber,
-                    Type.BLOCK_VERIFIED,
-                    Bytes.EMPTY,
-                    new BlockUnparsed(toBlockItemsUnparsed(blockBlockItems))));
+            blockMessaging.sendBlockVerification(new VerificationNotification(
+                    true, blockNumber, Bytes.EMPTY, new BlockUnparsed(toBlockItemsUnparsed(blockBlockItems))));
             // now try and read it back
             final Block block = plugin.block(blockNumber).block();
             // check we got the correct block
@@ -159,8 +155,8 @@ class BlockFileRecentPluginTest {
                     UNKNOWN_BLOCK_NUMBER,
                     blockNodeContext.historicalBlockProvider().availableBlocks().min());
             // send verified block notification
-            blockMessaging.sendBlockNotification(
-                    new BlockNotification(blockNumber, Type.BLOCK_VERIFIED, Bytes.EMPTY, blockOrig));
+            blockMessaging.sendBlockVerification(
+                    new VerificationNotification(true, blockNumber, Bytes.EMPTY, blockOrig));
             // now try and read it back
             final Block block = plugin.block(blockNumber).block();
             // check we got the correct block

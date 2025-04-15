@@ -7,7 +7,7 @@ import java.io.IOException;
 import java.util.List;
 import org.hiero.block.common.utils.ChunkUtils;
 import org.hiero.block.node.app.fixtures.blocks.BlockUtils;
-import org.hiero.block.node.spi.blockmessaging.BlockNotification;
+import org.hiero.block.node.spi.blockmessaging.VerificationNotification;
 import org.hiero.hapi.block.node.BlockItemUnparsed;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
@@ -36,7 +36,7 @@ class BlockVerificationSessionTest {
 
         BlockVerificationSession session = new BlockVerificationSession(blockNumber);
 
-        BlockNotification blockNotification = session.processBlockItems(blockItems);
+        VerificationNotification blockNotification = session.processBlockItems(blockItems);
 
         Assertions.assertArrayEquals(
                 blockItems.toArray(),
@@ -58,10 +58,12 @@ class BlockVerificationSessionTest {
                 blockNotification.blockHash(),
                 "The block hash should be the same as the one in the block header");
 
+        Assertions.assertTrue(blockNotification.success(), "The block notification should be successful");
+
         Assertions.assertEquals(
-                BlockNotification.Type.BLOCK_VERIFIED,
-                blockNotification.type(),
-                "The block notification type should be BLOCK_VERIFIED");
+                sampleBlockInfo.blockUnparsed(),
+                blockNotification.block(),
+                "The block should be the same as the one sent");
     }
 
     /**
@@ -75,7 +77,7 @@ class BlockVerificationSessionTest {
 
         BlockVerificationSession session = new BlockVerificationSession(blockNumber);
 
-        BlockNotification blockNotification = session.processBlockItems(chunkifiedItems.get(currentChunk));
+        VerificationNotification blockNotification = session.processBlockItems(chunkifiedItems.get(currentChunk));
 
         while (blockNotification == null) {
             currentChunk++;
@@ -92,10 +94,7 @@ class BlockVerificationSessionTest {
                 blockNotification.blockHash(),
                 "The block hash should be the same as the one in the block header");
 
-        Assertions.assertEquals(
-                BlockNotification.Type.BLOCK_VERIFIED,
-                blockNotification.type(),
-                "The block notification type should be BLOCK_VERIFIED");
+        Assertions.assertTrue(blockNotification.success(), "The block notification should be successful");
 
         Assertions.assertArrayEquals(
                 blockItems.toArray(),
@@ -118,7 +117,7 @@ class BlockVerificationSessionTest {
 
         long blockNumber = sampleBlockInfo.blockNumber();
         BlockVerificationSession session = new BlockVerificationSession(blockNumber);
-        BlockNotification blockNotification = session.processBlockItems(blockItems);
+        VerificationNotification blockNotification = session.processBlockItems(blockItems);
 
         Assertions.assertEquals(
                 blockNumber,
@@ -130,10 +129,7 @@ class BlockVerificationSessionTest {
                 blockNotification.blockHash(),
                 "The block hash should not be the same as the one in the block header");
 
-        Assertions.assertEquals(
-                BlockNotification.Type.BLOCK_FAILED_VERIFICATION,
-                blockNotification.type(),
-                "The block notification type should be BLOCK_FAILED_VERIFICATION");
+        Assertions.assertFalse(blockNotification.success(), "The block notification should be unsuccessful");
     }
 
     /**
@@ -149,7 +145,7 @@ class BlockVerificationSessionTest {
         long blockNumber = sampleBlockInfo.blockNumber();
 
         BlockVerificationSession session = new BlockVerificationSession(blockNumber);
-        BlockNotification blockNotification = session.processBlockItems(chunkifiedItems.get(currentChunk));
+        VerificationNotification blockNotification = session.processBlockItems(chunkifiedItems.get(currentChunk));
 
         while (blockNotification == null) {
             currentChunk++;
@@ -166,9 +162,6 @@ class BlockVerificationSessionTest {
                 blockNotification.blockHash(),
                 "The block hash should not be the same as the one in the block header");
 
-        Assertions.assertEquals(
-                BlockNotification.Type.BLOCK_FAILED_VERIFICATION,
-                blockNotification.type(),
-                "The block notification type should be BLOCK_FAILED_VERIFICATION");
+        Assertions.assertFalse(blockNotification.success(), "The block notification should be unsuccessful");
     }
 }

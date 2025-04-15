@@ -12,8 +12,7 @@ import java.util.List;
 import org.hiero.block.common.hasher.HashingUtilities;
 import org.hiero.block.common.hasher.NaiveStreamingTreeHasher;
 import org.hiero.block.common.hasher.StreamingTreeHasher;
-import org.hiero.block.node.spi.blockmessaging.BlockNotification;
-import org.hiero.block.node.spi.blockmessaging.BlockNotification.Type;
+import org.hiero.block.node.spi.blockmessaging.VerificationNotification;
 import org.hiero.hapi.block.node.BlockItemUnparsed;
 import org.hiero.hapi.block.node.BlockUnparsed;
 
@@ -52,10 +51,11 @@ public class BlockVerificationSession {
      * If the last item has a block proof, final verification is triggered.
      *
      * @param blockItems the block items to process
-     * @return BlockNotification indicating the result of the verification if these items included the final block proof otherwise null
+     * @return VerificationNotification indicating the result of the verification if these items included the final
+     *          block proof otherwise null
      * @throws ParseException if a parsing error occurs
      */
-    public BlockNotification processBlockItems(List<BlockItemUnparsed> blockItems) throws ParseException {
+    public VerificationNotification processBlockItems(List<BlockItemUnparsed> blockItems) throws ParseException {
         // Collect the block items for later use in producing the block notification
         this.blockItems.addAll(blockItems);
         // branch based on the type of block item and update respective merkle tree
@@ -83,16 +83,13 @@ public class BlockVerificationSession {
      * verifying its signature, and updating metrics accordingly.
      *
      * @param blockProof the block proof
-     * @return BlockNotification indicating the result of the verification
+     * @return VerificationNotification indicating the result of the verification
      */
-    BlockNotification finalizeVerification(BlockProof blockProof) {
+    VerificationNotification finalizeVerification(BlockProof blockProof) {
         final Bytes blockHash = HashingUtilities.computeFinalBlockHash(blockProof, inputTreeHasher, outputTreeHasher);
         final boolean verified = verifySignature(blockHash, blockProof.blockSignature());
-        if (verified) {
-            return new BlockNotification(blockNumber, Type.BLOCK_VERIFIED, blockHash, new BlockUnparsed(blockItems));
-        } else {
-            return new BlockNotification(blockNumber, Type.BLOCK_FAILED_VERIFICATION, null, null);
-        }
+        return new VerificationNotification(
+                verified, blockNumber, blockHash, verified ? new BlockUnparsed(blockItems) : null);
     }
 
     /**

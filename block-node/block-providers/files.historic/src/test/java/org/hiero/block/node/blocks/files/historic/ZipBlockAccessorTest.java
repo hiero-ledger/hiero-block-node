@@ -2,7 +2,6 @@
 package org.hiero.block.node.blocks.files.historic;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatExceptionOfType;
 import static org.assertj.core.api.Assertions.assertThatNoException;
 import static org.assertj.core.api.Assertions.assertThatNullPointerException;
 
@@ -103,19 +102,6 @@ class ZipBlockAccessorTest {
     @Nested
     @DisplayName("Functionality Tests")
     final class FunctionalityTests {
-        /**
-         * This test aims to assert that the
-         * {@link ZipBlockAccessor#delete()} method throws an
-         * {@link UnsupportedOperationException} when called.
-         */
-        @Test
-        @DisplayName("Test delete throws UnsupportedOperationException")
-        void testZipBlockAccessorFunctionality() {
-            // construct a valid ZipBlockAccessor
-            final BlockPath blockPath = BlockPath.computeBlockPath(defaultConfig, 1L);
-            final ZipBlockAccessor actual = new ZipBlockAccessor(blockPath);
-            assertThatExceptionOfType(UnsupportedOperationException.class).isThrownBy(actual::delete);
-        }
 
         /**
          * This test aims to verify that the {@link ZipBlockAccessor#block()}

@@ -2,8 +2,10 @@
 package org.hiero.block.node.verification;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
@@ -17,7 +19,7 @@ import org.hiero.block.node.app.fixtures.plugintest.NoBlocksHistoricalBlockFacil
 import org.hiero.block.node.app.fixtures.plugintest.PluginTestBase;
 import org.hiero.block.node.app.fixtures.plugintest.TestHealthFacility;
 import org.hiero.block.node.spi.blockmessaging.BlockItems;
-import org.hiero.block.node.spi.blockmessaging.BlockNotification;
+import org.hiero.block.node.spi.blockmessaging.VerificationNotification;
 import org.hiero.hapi.block.node.BlockItemUnparsed;
 import org.hiero.hapi.block.node.BlockItemUnparsed.ItemOneOfType;
 import org.junit.jupiter.api.DisplayName;
@@ -44,21 +46,22 @@ class VerificationServicePluginTest extends PluginTestBase<VerificationServicePl
         blockMessaging.sendBlockItems(new BlockItems(blockItems, blockNumber));
 
         // check we received a block verification
-        BlockNotification blockNotification =
-                blockMessaging.getSentBlockNotifications().getFirst();
+        VerificationNotification blockNotification =
+                blockMessaging.getSentVerificationNotifications().getFirst();
         assertNotNull(blockNotification);
         assertEquals(
                 blockNumber,
                 blockNotification.blockNumber(),
                 "The block number should be the same as the one in the block header");
-        assertEquals(
-                BlockNotification.Type.BLOCK_VERIFIED,
-                blockNotification.type(),
-                "The block notification type should be BLOCK_VERIFIED");
+        assertTrue(blockNotification.success(), "The verification should be successful");
         assertEquals(
                 sampleBlockInfo.blockRootHash(),
                 blockNotification.blockHash(),
                 "The block hash should be the same as the one in the block header");
+        assertEquals(
+                sampleBlockInfo.blockUnparsed(),
+                blockNotification.block(),
+                "The block should be the same as the one sent");
     }
 
     @Test
@@ -75,22 +78,20 @@ class VerificationServicePluginTest extends PluginTestBase<VerificationServicePl
         blockMessaging.sendBlockItems(new BlockItems(blockItems, blockNumber));
 
         // check we received a block verification
-        BlockNotification blockNotification =
-                blockMessaging.getSentBlockNotifications().getFirst();
+        VerificationNotification blockNotification =
+                blockMessaging.getSentVerificationNotifications().getFirst();
         assertNotNull(blockNotification);
 
         assertEquals(
                 blockNumber,
                 blockNotification.blockNumber(),
                 "The block number should be the same as the one in the block header");
-        assertEquals(
-                BlockNotification.Type.BLOCK_FAILED_VERIFICATION,
-                blockNotification.type(),
-                "The block notification type should be BLOCK_FAILED_VERIFICATION");
+        assertFalse(blockNotification.success(), "The verification should be unsuccessful");
         assertNotEquals(
                 sampleBlockInfo.blockRootHash(),
                 blockNotification.blockHash(),
-                "The block hash should NOT be the same");
+                "The block hash should be the same as the one in the block header");
+        assertNull(blockNotification.block(), "The block should be null since the verification failed");
     }
 
     @Test
@@ -106,7 +107,7 @@ class VerificationServicePluginTest extends PluginTestBase<VerificationServicePl
         // send some items to the plugin, they should be ignored
         plugin.handleBlockItemsReceived(new BlockItems(blockItems, blockNumber));
         // check we did not receive a block verification
-        assertEquals(0, blockMessaging.getSentBlockNotifications().size());
+        assertEquals(0, blockMessaging.getSentVerificationNotifications().size());
     }
 
     @Test
@@ -118,7 +119,7 @@ class VerificationServicePluginTest extends PluginTestBase<VerificationServicePl
         plugin.handleBlockItemsReceived(
                 new BlockItems(List.of(new BlockItemUnparsed(new OneOf<>(ItemOneOfType.BLOCK_HEADER, null))), -1));
         // check we did not receive a block verification
-        assertEquals(0, blockMessaging.getSentBlockNotifications().size());
+        assertEquals(0, blockMessaging.getSentVerificationNotifications().size());
     }
 
     @Test

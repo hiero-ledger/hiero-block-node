@@ -21,9 +21,10 @@ import org.hiero.block.node.spi.ServiceBuilder;
 import org.hiero.block.node.spi.blockmessaging.BlockItemHandler;
 import org.hiero.block.node.spi.blockmessaging.BlockItems;
 import org.hiero.block.node.spi.blockmessaging.BlockMessagingFacility;
-import org.hiero.block.node.spi.blockmessaging.BlockNotification;
 import org.hiero.block.node.spi.blockmessaging.BlockNotificationHandler;
 import org.hiero.block.node.spi.blockmessaging.NoBackPressureBlockItemHandler;
+import org.hiero.block.node.spi.blockmessaging.PersistedNotification;
+import org.hiero.block.node.spi.blockmessaging.VerificationNotification;
 
 /**
  * Implementation of the MessagingService interface. It uses the LMAX Disruptor to handle block item batches and block
@@ -262,7 +263,15 @@ public class BlockMessagingFacilityImpl implements BlockMessagingFacility {
      * {@inheritDoc}
      */
     @Override
-    public void sendBlockNotification(final BlockNotification notification) {
+    public void sendBlockVerification(VerificationNotification notification) {
+        blockNotificationDisruptor.getRingBuffer().publishEvent((event, sequence) -> event.set(notification));
+    }
+
+    /**
+     * {@inheritDoc}
+     */
+    @Override
+    public void sendBlockPersisted(PersistedNotification notification) {
         blockNotificationDisruptor.getRingBuffer().publishEvent((event, sequence) -> event.set(notification));
     }
 
@@ -275,7 +284,11 @@ public class BlockMessagingFacilityImpl implements BlockMessagingFacility {
         final InformedEventHandler<BlockNotificationRingEvent> informedEventHandler =
                 (event, sequence, endOfBatch, percentageBehindRingHead) -> {
                     // send on the event
-                    handler.handleBlockNotification(event.get());
+                    if (event.getVerificationNotification() != null) {
+                        handler.handleVerification(event.getVerificationNotification());
+                    } else {
+                        handler.handlePersisted(event.getPersistedNotification());
+                    }
                 };
         if (blockNotificationDisruptor.hasStarted()) {
             // if the disruptor is already running, we need to register the handler with the disruptor
