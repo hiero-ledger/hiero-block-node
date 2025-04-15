@@ -441,6 +441,109 @@ class ZipBlockAccessorTest {
             assertThat(actual.toHex()).isEqualTo(Bytes.wrap(expected).toHex());
         }
 
+        /**
+         * This test aims to verify that the
+         * {@link ZipBlockAccessor#writeTo(Format, Path)}
+         * will correctly write the bytes to a target output stream. This is the
+         * happy path test meaning the compression type used to write the bytes
+         * is the same as the compression type used to write to the target
+         * output stream.
+         */
+        @ParameterizedTest
+        @EnumSource(CompressionType.class)
+        @DisplayName("Test writeTo() correctly writes the bytes to a target path happy path")
+        @SuppressWarnings("DataFlowIssue")
+        void testWriteToPathHappyPath(final CompressionType compressionType) throws IOException {
+            // build a test block
+            final BlockItem[] blockItems = SimpleTestBlockItemBuilder.createNumberOfVerySimpleBlocks(1);
+            final FilesHistoricConfig testConfig = createTestConfiguration(tempDir, compressionType);
+            final BlockPath blockPath = BlockPath.computeBlockPath(
+                    testConfig, blockItems[0].blockHeader().number());
+            final Block block = new Block(List.of(blockItems));
+            final Bytes protoBytes = Block.PROTOBUF.toBytes(block);
+            // test zipBlockAccessor.writeTo()
+            final ZipBlockAccessor toTest = createBlockAndGetAssociatedAccessor(testConfig, blockPath, protoBytes);
+            final Format format = getHappyPathFormat(compressionType);
+            // we must always compress the bytes to compare them with whatever compression type
+            // was used to persist the block
+            final byte[] expected = compressionType.compress(protoBytes.toByteArray());
+            final Path targetPath = jimfs.getPath("/target/0.blk");
+            Files.createDirectories(targetPath.getParent());
+            Files.createFile(targetPath);
+            toTest.writeTo(format, targetPath);
+            final byte[] actual = Files.readAllBytes(targetPath);
+            assertThat(actual).isEqualTo(expected).containsExactly(expected);
+            assertThat(Bytes.wrap(actual).toHex())
+                    .isEqualTo(Bytes.wrap(expected).toHex());
+        }
+
+        /**
+         * This test aims to verify that the
+         * {@link ZipBlockAccessor#writeTo(Format, Path)}
+         * will correctly write the bytes to a target output stream. This test
+         * always uses Zstandard compression to write the bytes to the target
+         * path.
+         */
+        @ParameterizedTest
+        @EnumSource(CompressionType.class)
+        @DisplayName("Test writeTo() correctly writes the bytes to a target path using zstd compression")
+        @SuppressWarnings("DataFlowIssue")
+        void testWriteToPathZSTDCompression(final CompressionType compressionType) throws IOException {
+            // build a test block
+            final BlockItem[] blockItems = SimpleTestBlockItemBuilder.createNumberOfVerySimpleBlocks(1);
+            final FilesHistoricConfig testConfig = createTestConfiguration(tempDir, compressionType);
+            final BlockPath blockPath = BlockPath.computeBlockPath(
+                    testConfig, blockItems[0].blockHeader().number());
+            final Block block = new Block(List.of(blockItems));
+            final Bytes protoBytes = Block.PROTOBUF.toBytes(block);
+            // test zipBlockAccessor.writeTo()
+            final ZipBlockAccessor toTest = createBlockAndGetAssociatedAccessor(testConfig, blockPath, protoBytes);
+            // we must always compress the bytes to compare them with zstd compression type
+            // was used to persist the block
+            final byte[] expected = CompressionType.ZSTD.compress(protoBytes.toByteArray());
+            final Path targetPath = jimfs.getPath("/target/0.blk");
+            Files.createDirectories(targetPath.getParent());
+            Files.createFile(targetPath);
+            toTest.writeTo(Format.ZSTD_PROTOBUF, targetPath);
+            final byte[] actual = Files.readAllBytes(targetPath);
+            assertThat(actual).isEqualTo(expected).containsExactly(expected);
+            assertThat(Bytes.wrap(actual).toHex())
+                    .isEqualTo(Bytes.wrap(expected).toHex());
+        }
+
+        /**
+         * This test aims to verify that the
+         * {@link ZipBlockAccessor#writeTo(Format, Path)}
+         * will correctly write the bytes to a target output stream. This test
+         * always uses no compression to write the bytes to the target
+         * path.
+         */
+        @ParameterizedTest
+        @EnumSource(CompressionType.class)
+        @DisplayName("Test writeTo() correctly writes the bytes to a target path using no compression")
+        @SuppressWarnings("DataFlowIssue")
+        void testWriteToPathNoCompression(final CompressionType compressionType) throws IOException {
+            // build a test block
+            final BlockItem[] blockItems = SimpleTestBlockItemBuilder.createNumberOfVerySimpleBlocks(1);
+            final FilesHistoricConfig testConfig = createTestConfiguration(tempDir, compressionType);
+            final BlockPath blockPath = BlockPath.computeBlockPath(
+                    testConfig, blockItems[0].blockHeader().number());
+            final Block block = new Block(List.of(blockItems));
+            final Bytes protoBytes = Block.PROTOBUF.toBytes(block);
+            // test zipBlockAccessor.writeTo()
+            final ZipBlockAccessor toTest = createBlockAndGetAssociatedAccessor(testConfig, blockPath, protoBytes);
+            // we always expect the bytes to be uncompressed
+            final byte[] expected = protoBytes.toByteArray();
+            final Path targetPath = jimfs.getPath("/target/0.blk");
+            Files.createDirectories(targetPath.getParent());
+            Files.createFile(targetPath);
+            toTest.writeTo(Format.PROTOBUF, targetPath);
+            final byte[] actual = Files.readAllBytes(targetPath);
+            assertThat(actual).isEqualTo(expected).containsExactly(expected);
+            assertThat(Bytes.wrap(actual).toHex())
+                    .isEqualTo(Bytes.wrap(expected).toHex());
+        }
+
         private Format getHappyPathFormat(final CompressionType compressionType) {
             return switch (compressionType) {
                 case ZSTD -> Format.ZSTD_PROTOBUF;
