@@ -1,14 +1,19 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.suites.publisher.positive;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import com.hedera.hapi.block.protoc.SingleBlockResponse;
+import com.hedera.hapi.block.protoc.SingleBlockResponseCode;
+import edu.umd.cs.findbugs.annotations.NonNull;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.concurrent.Future;
 import org.hiero.block.simulator.BlockStreamSimulatorApp;
 import org.hiero.block.suites.BaseSuite;
@@ -28,6 +33,7 @@ public class PositiveMultiplePublishersTests extends BaseSuite {
 
     private final List<Future<?>> simulators = new ArrayList<>();
     private final List<BlockStreamSimulatorApp> simulatorAppsRef = new ArrayList<>();
+
     /** Default constructor for the {@link PositiveMultiplePublishersTests} class. */
     public PositiveMultiplePublishersTests() {}
 
@@ -40,7 +46,7 @@ public class PositiveMultiplePublishersTests extends BaseSuite {
                     Thread.sleep(100);
                 }
             } catch (InterruptedException e) {
-                throw new RuntimeException(e);
+                // Do nothing, this is not mandatory, we try to shut down  cleaner and graceful
             }
         });
         simulators.forEach(simulator -> simulator.cancel(true));
@@ -61,10 +67,9 @@ public class PositiveMultiplePublishersTests extends BaseSuite {
 
         final BlockStreamSimulatorApp slowerSimulator = createBlockSimulator(slowerSimulatorConfiguration);
         final BlockStreamSimulatorApp fasterSimulator = createBlockSimulator(fasterSimulatorConfiguration);
+        simulatorAppsRef.add(slowerSimulator);
+        simulatorAppsRef.add(fasterSimulator);
 
-        final int slowerSimulatorBlocksAhead = 6;
-
-        String lastSlowerSimulatorStatusBefore = null;
         String lastFasterSimulatorStatusBefore = null;
         String lastFasterSimulatorStatusAfter = null;
 
@@ -74,30 +79,11 @@ public class PositiveMultiplePublishersTests extends BaseSuite {
         long fasterSimulatorPublishedBlocksAfter = 0;
 
         // ===== Start slower simulator and make sure it's streaming ==================================
-        final Future<?> slowerSimulatorThread = startSimulatorInThread(slowerSimulator);
+        final Future<?> slowerSimulatorThread = startSimulatorInstance(slowerSimulator);
         simulators.add(slowerSimulatorThread);
-        simulatorAppsRef.add(slowerSimulator);
-
-        while (slowerSimulator
-                        .getStreamStatus()
-                        .lastKnownPublisherClientStatuses()
-                        .size()
-                < slowerSimulatorBlocksAhead) {
-            if (!slowerSimulator
-                    .getStreamStatus()
-                    .lastKnownPublisherClientStatuses()
-                    .isEmpty()) {
-                lastSlowerSimulatorStatusBefore = slowerSimulator
-                        .getStreamStatus()
-                        .lastKnownPublisherClientStatuses()
-                        .getLast();
-            }
-        }
-
         // ===== Start faster simulator and make sure it's streaming ==================================
         final Future<?> fasterSimulatorThread = startSimulatorInThread(fasterSimulator);
         simulators.add(fasterSimulatorThread);
-        simulatorAppsRef.add(fasterSimulator);
         while (lastFasterSimulatorStatusBefore == null) {
             if (!fasterSimulator
                     .getStreamStatus()
@@ -109,7 +95,6 @@ public class PositiveMultiplePublishersTests extends BaseSuite {
                         .getLast();
             }
         }
-        assertNotNull(lastSlowerSimulatorStatusBefore);
         assertTrue(lastFasterSimulatorStatusBefore.contains("block_already_exists"));
 
         // ===== Assert whether catching up to the slower will result in correct statutes =============
@@ -148,9 +133,34 @@ public class PositiveMultiplePublishersTests extends BaseSuite {
      */
     @Test
     @DisplayName("Should prefer publisher with current blocks over future blocks")
-    public void shouldPreferCurrentBlockPublisher() {
-        // Connect two simulators, one with future blocks, one with current. Block-node should keep receiving from the
-        // current
+    @Timeout(30)
+    public void shouldPreferCurrentBlockPublisher() throws IOException {
+        // ===== Prepare environment =================================================================
+        final Map<String, String> currentSimulatorConfiguration = Map.of("generator.startBlockNumber", "0");
+        final Map<String, String> futureSimulatorConfiguration = Map.of("generator.startBlockNumber", "1000");
+
+        final BlockStreamSimulatorApp currentSimulator = createBlockSimulator(currentSimulatorConfiguration);
+        final BlockStreamSimulatorApp futureSimulator = createBlockSimulator(futureSimulatorConfiguration);
+        simulatorAppsRef.add(currentSimulator);
+        simulatorAppsRef.add(futureSimulator);
+
+        // ===== Start current simulator and make sure it's streaming ==================================
+        final Future<?> currentSimulatorThread = startSimulatorInstance(currentSimulator);
+        simulators.add(currentSimulatorThread);
+
+        // ===== Start future simulator and make sure it's streaming ===================================
+        final Future<?> futureSimulatorThread = startSimulatorInstance(futureSimulator);
+        simulators.add(futureSimulatorThread);
+
+        // ===== Assert that we are persisting only the current blocks =================================
+        final SingleBlockResponse currentBlockResponse = getLatestBlock(false);
+        final SingleBlockResponse futureBlockResponse = getSingleBlock(1000, false);
+
+        assertNotNull(currentBlockResponse);
+        assertNotNull(futureBlockResponse);
+        assertEquals(SingleBlockResponseCode.READ_BLOCK_SUCCESS, currentBlockResponse.getStatus());
+        assertEquals(SingleBlockResponseCode.READ_BLOCK_NOT_AVAILABLE, futureBlockResponse.getStatus());
+        assertTrue(currentBlockResponse.getBlock().getItemsList().getFirst().hasBlockHeader());
     }
 
     /**
@@ -160,8 +170,89 @@ public class PositiveMultiplePublishersTests extends BaseSuite {
      */
     @Test
     @DisplayName("Should resume block streaming from new publisher after primary publisher disconnects")
-    public void shouldResumeFromNewPublisherAfterPrimaryDisconnects() {
-        // Connect two simualtors, get couple of blocks from the first one, stop it, start the second from begining,
-        // block-node should start receiving when simulator catches up
+    @Timeout(30)
+    public void shouldResumeFromNewPublisherAfterPrimaryDisconnects() throws IOException, InterruptedException {
+        // ===== Prepare and Start first simulator and make sure it's streaming ======================
+        final Map<String, String> firstSimulatorConfiguration = Map.of("generator.startBlockNumber", "1");
+        final BlockStreamSimulatorApp firstSimulator = createBlockSimulator(firstSimulatorConfiguration);
+        final Future<?> firstSimulatorThread = startSimulatorInstance(firstSimulator);
+        // ===== Stop simulator and assert ===========================================================]
+        firstSimulator.stop();
+        final String firstSimulatorLatestStatus = firstSimulator
+                .getStreamStatus()
+                .lastKnownPublisherClientStatuses()
+                .getLast();
+        final long firstSimulatorLatestPublishedBlockNumber =
+                firstSimulator.getStreamStatus().publishedBlocks();
+        firstSimulatorThread.cancel(true);
+
+        final SingleBlockResponse latestPublishedBlockBefore =
+                getSingleBlock(firstSimulatorLatestPublishedBlockNumber, false);
+        final SingleBlockResponse nextPublishedBlockBefore =
+                getSingleBlock(firstSimulatorLatestPublishedBlockNumber + 1, false);
+
+        assertNotNull(firstSimulatorLatestStatus);
+        assertTrue(firstSimulatorLatestStatus.contains(Long.toString(firstSimulatorLatestPublishedBlockNumber)));
+        assertEquals(
+                firstSimulatorLatestPublishedBlockNumber,
+                latestPublishedBlockBefore
+                        .getBlock()
+                        .getItemsList()
+                        .getFirst()
+                        .getBlockHeader()
+                        .getNumber());
+        assertEquals(SingleBlockResponseCode.READ_BLOCK_NOT_AVAILABLE, nextPublishedBlockBefore.getStatus());
+
+        // ===== Prepare and Start second simulator and make sure it's streaming =====================
+        final Map<String, String> secondSimulatorConfiguration =
+                Map.of("generator.startBlockNumber", Long.toString(firstSimulatorLatestPublishedBlockNumber - 1));
+        final BlockStreamSimulatorApp secondSimulator = createBlockSimulator(secondSimulatorConfiguration);
+        final Future<?> secondSimulatorThread = startSimulatorInstance(secondSimulator);
+        // ===== Assert that we are persisting blocks from the second simulator ======================
+        secondSimulator.stop();
+        final String secondSimulatorLatestStatus = secondSimulator
+                .getStreamStatus()
+                .lastKnownPublisherClientStatuses()
+                .getLast();
+        secondSimulatorThread.cancel(true);
+
+        final SingleBlockResponse latestPublishedBlockAfter = getLatestBlock(false);
+
+        assertNotNull(secondSimulatorLatestStatus);
+        assertNotNull(latestPublishedBlockAfter);
+
+        final long latestBlockNodeBlockNumber = latestPublishedBlockAfter
+                .getBlock()
+                .getItemsList()
+                .getFirst()
+                .getBlockHeader()
+                .getNumber();
+        assertTrue(secondSimulatorLatestStatus.contains(Long.toString(latestBlockNodeBlockNumber)));
+    }
+
+    /**
+     * Starts a simulator in a thread and make sure that it's running and trying to publish blocks
+     *
+     * @param simulator instance with configuration depending on the test
+     * @return a {@link Future} representing the asynchronous execution of the block stream simulator
+     */
+    private Future<?> startSimulatorInstance(@NonNull final BlockStreamSimulatorApp simulator) {
+        Objects.requireNonNull(simulator);
+        final int statusesRequired = 5; // we wait for at least 5 statuses, to avoid flakiness
+
+        final Future<?> simulatorThread = startSimulatorInThread(simulator);
+        simulators.add(simulatorThread);
+        String simulatorStatus = null;
+        while (simulator.getStreamStatus().lastKnownPublisherClientStatuses().size() < statusesRequired) {
+            if (!simulator.getStreamStatus().lastKnownPublisherClientStatuses().isEmpty()) {
+                simulatorStatus = simulator
+                        .getStreamStatus()
+                        .lastKnownPublisherClientStatuses()
+                        .getLast();
+            }
+        }
+        assertNotNull(simulatorStatus);
+        assertTrue(simulator.isRunning());
+        return simulatorThread;
     }
 }
