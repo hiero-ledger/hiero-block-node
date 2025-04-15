@@ -5,9 +5,11 @@ import com.github.luben.zstd.Zstd;
 import com.github.luben.zstd.ZstdInputStream;
 import com.github.luben.zstd.ZstdOutputStream;
 import edu.umd.cs.findbugs.annotations.NonNull;
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.io.UncheckedIOException;
 import java.util.Objects;
 
 /**
@@ -87,7 +89,24 @@ public enum CompressionType {
     public byte[] compress(@NonNull final byte[] data) {
         Objects.requireNonNull(data);
         return switch (this) {
-            case ZSTD -> Zstd.compress(data, DEFAULT_ZSTD_COMPRESSION_LEVEL);
+            case ZSTD -> {
+                // Seems that if we use Zstd.compress(data, DEFAULT_ZSTD_COMPRESSION_LEVEL);
+                // directly it will not produce the same result as wrapping
+                // a stream with the same compression level. For consistency,
+                // we need to use the same approach as the one used in the
+                // wrapStream method. This method is a convenience for
+                // compressing data in memory.
+                try (final ByteArrayOutputStream baos = new ByteArrayOutputStream();
+                        final OutputStream wrappedBaos = wrapStream(baos)) {
+                    wrappedBaos.write(data);
+                    wrappedBaos.close();
+                    // close before return so that we are absolutely sure that
+                    // all data is written including possible footer and others
+                    yield baos.toByteArray();
+                } catch (final IOException e) {
+                    throw new UncheckedIOException(e);
+                }
+            }
             case NONE -> data;
         };
     }
