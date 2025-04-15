@@ -395,7 +395,7 @@ public class BlockStreamProducerSessionTest {
                 sendToBlockMessaging);
 
         // Try to send a response that should trigger the exception
-        failingSession.sendBlockPersisted(100L, Bytes.fromHex("1234567890abcdef"));
+        failingSession.handlePersisted(new PersistedNotification(0L, 0L, 1));
 
         // Verify that the session was disconnected due to the failure
         assertEquals(BlockStreamProducerSession.BlockState.DISCONNECTED, failingSession.currentBlockState());
