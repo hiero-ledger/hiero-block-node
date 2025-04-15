@@ -13,6 +13,8 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import com.hedera.pbj.runtime.grpc.Pipeline;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import com.swirlds.metrics.api.Counter;
+import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.util.List;
 import java.util.concurrent.Flow;
 import java.util.concurrent.locks.ReentrantLock;
@@ -351,6 +353,52 @@ public class BlockStreamProducerSessionTest {
 
         // Verify state change
         assertEquals(BlockStreamProducerSession.BlockState.DISCONNECTED, session.currentBlockState());
+    }
+
+    /**
+     * Tests handling of response sending failures.
+     * Verifies that the session correctly handles UncheckedIOException when sending responses.
+     */
+    @Test
+    @DisplayName("Should handle response sending failures")
+    void testResponseSendingFailure() {
+        // Create a mock response pipeline that throws UncheckedIOException
+        Pipeline<? super PublishStreamResponse> failingPipeline = new Pipeline<>() {
+            @Override
+            public void onSubscribe(Flow.Subscription subscription) {
+                throw new UnsupportedOperationException("Not implemented");
+            }
+
+            @Override
+            public void onNext(PublishStreamResponse item) {
+                throw new UncheckedIOException(new IOException("Test IO failure"));
+            }
+
+            @Override
+            public void onError(Throwable throwable) {
+                throw new UnsupportedOperationException("Not implemented");
+            }
+
+            @Override
+            public void onComplete() {
+                throw new UnsupportedOperationException("Not implemented");
+            }
+        };
+
+        // Create a new session with the failing pipeline
+        BlockStreamProducerSession failingSession = new BlockStreamProducerSession(
+                2L, // sessionId
+                failingPipeline,
+                onUpdate,
+                liveBlockItemsReceived,
+                new ReentrantLock(),
+                sendToBlockMessaging);
+
+        // Try to send a response that should trigger the exception
+        failingSession.handlePersisted(new PersistedNotification(0L, 0L, 1));
+
+        // Verify that the session was disconnected due to the failure
+        assertEquals(BlockStreamProducerSession.BlockState.DISCONNECTED, failingSession.currentBlockState());
     }
 
     private class ResponsePipeline implements Pipeline<PublishStreamResponse> {
