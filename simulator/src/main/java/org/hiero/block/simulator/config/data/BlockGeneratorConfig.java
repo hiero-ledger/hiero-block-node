@@ -20,6 +20,7 @@ import org.hiero.block.simulator.config.types.GenerationMode;
  * @param fileExtension the file extension used for block files
  * @param startBlockNumber the optional start block number for the BlockAsFileLargeDataSets manager
  * @param endBlockNumber the optional end block number for the BlockAsFileLargeDataSets manager
+ * @param invalidBlockHash if set to true, will send invalid block root hash
  */
 @ConfigData("generator")
 public record BlockGeneratorConfig(
@@ -34,7 +35,8 @@ public record BlockGeneratorConfig(
         @Loggable @ConfigProperty(defaultValue = ".blk.gz") String fileExtension,
         // Optional block number range for the BlockAsFileLargeDataSets manager
         @Loggable @ConfigProperty(defaultValue = "0") @Min(0) int startBlockNumber,
-        @Loggable @ConfigProperty(defaultValue = "-1") int endBlockNumber) {
+        @Loggable @ConfigProperty(defaultValue = "-1") int endBlockNumber,
+        @Loggable @ConfigProperty(defaultValue = "false") boolean invalidBlockHash) {
 
     /**
      * Constructs a new {@code BlockGeneratorConfig} instance with validation.
@@ -89,6 +91,7 @@ public record BlockGeneratorConfig(
         private String fileExtension = ".blk.gz";
         private int startBlockNumber;
         private int endBlockNumber;
+        private boolean invalidBlockHash = false;
 
         /**
          * Creates a new instance of the {@code Builder} class with default configuration values.
@@ -221,6 +224,17 @@ public record BlockGeneratorConfig(
         }
 
         /**
+         * Sets whether to send an invalid block root hash.
+         *
+         * @param invalidBlockHash true to send an invalid block root hash, false otherwise
+         * @return this {@code Builder} instance
+         */
+        public Builder invalidBlockHash(boolean invalidBlockHash) {
+            this.invalidBlockHash = invalidBlockHash;
+            return this;
+        }
+
+        /**
          * Builds a new {@link BlockGeneratorConfig} instance with the configured values.
          *
          * @return a new {@code BlockGeneratorConfig}
@@ -237,7 +251,8 @@ public record BlockGeneratorConfig(
                     paddedLength,
                     fileExtension,
                     startBlockNumber,
-                    endBlockNumber);
+                    endBlockNumber,
+                    invalidBlockHash);
         }
     }
 }
