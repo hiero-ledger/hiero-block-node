@@ -11,6 +11,7 @@ import com.hedera.hapi.block.stream.Block;
 import com.hedera.hapi.block.stream.BlockItem;
 import com.hedera.hapi.block.stream.output.BlockHeader;
 import com.hedera.pbj.runtime.ParseException;
+import com.hedera.pbj.runtime.io.buffer.BufferedData;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import com.swirlds.config.api.ConfigurationBuilder;
 import java.io.ByteArrayOutputStream;
@@ -274,6 +275,8 @@ class ZipBlockAccessorTest {
             // was used to persist the block
             final byte[] expected = compressionType.compress(protoBytes.toByteArray());
             assertThat(actual).isEqualTo(expected).containsExactly(expected);
+            assertThat(Bytes.wrap(actual).toHex())
+                    .isEqualTo(Bytes.wrap(expected).toHex());
         }
 
         /**
@@ -306,6 +309,8 @@ class ZipBlockAccessorTest {
             // we must always compress the bytes to compare them with the zstd compression type
             final byte[] expected = CompressionType.ZSTD.compress(protoBytes.toByteArray());
             assertThat(actual).isEqualTo(expected).containsExactly(expected);
+            assertThat(Bytes.wrap(actual).toHex())
+                    .isEqualTo(Bytes.wrap(expected).toHex());
         }
 
         /**
@@ -338,6 +343,41 @@ class ZipBlockAccessorTest {
             // we must always compress the bytes to compare them with the zstd compression type
             final byte[] expected = protoBytes.toByteArray();
             assertThat(actual).isEqualTo(expected).containsExactly(expected);
+            assertThat(Bytes.wrap(actual).toHex())
+                    .isEqualTo(Bytes.wrap(expected).toHex());
+        }
+
+        /**
+         * This test aims to verify that the
+         * {@link ZipBlockAccessor#writeBytesTo(Format, com.hedera.pbj.runtime.io.WritableSequentialData)}
+         * will correctly write the bytes to a target output stream. This is the
+         * happy path test meaning the compression type used to write the bytes
+         * is the same as the compression type used to write to the target
+         * output stream.
+         */
+        @ParameterizedTest
+        @EnumSource(CompressionType.class)
+        @DisplayName("Test writeBytesTo() correctly writes the bytes to a target wsd happy path")
+        @SuppressWarnings("DataFlowIssue")
+        void testWriteBytesToWSDHappyPath(final CompressionType compressionType) throws IOException {
+            // build a test block
+            final BlockItem[] blockItems = SimpleTestBlockItemBuilder.createNumberOfVerySimpleBlocks(1);
+            final FilesHistoricConfig testConfig = createTestConfiguration(tempDir, compressionType);
+            final BlockPath blockPath = BlockPath.computeBlockPath(
+                    testConfig, blockItems[0].blockHeader().number());
+            final Block block = new Block(List.of(blockItems));
+            final Bytes protoBytes = Block.PROTOBUF.toBytes(block);
+            // test zipBlockAccessor.writeBytesTo()
+            final ZipBlockAccessor toTest = createBlockAndGetAssociatedAccessor(testConfig, blockPath, protoBytes);
+            final Format format = getHappyPathFormat(compressionType);
+            // we must always compress the bytes to compare them with whatever compression type
+            // was used to persist the block
+            final byte[] expected = compressionType.compress(protoBytes.toByteArray());
+            final BufferedData wsd = BufferedData.allocate(expected.length);
+            toTest.writeBytesTo(format, wsd);
+            final Bytes actual = wsd.getBytes(0, expected.length);
+            assertThat(actual.toByteArray()).isEqualTo(expected).containsExactly(expected);
+            assertThat(actual.toHex()).isEqualTo(Bytes.wrap(expected).toHex());
         }
 
         private Format getHappyPathFormat(final CompressionType compressionType) {
