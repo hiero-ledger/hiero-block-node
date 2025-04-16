@@ -76,8 +76,8 @@ public class TransactionResultHandler extends AbstractBlockItemHandler {
 
         return TokenTransferList.newBuilder()
                 .setToken(TokenID.newBuilder()
-                        .setRealmNum(shard)
-                        .setShardNum(realm)
+                        .setRealmNum(realm)
+                        .setShardNum(shard)
                         .setTokenNum(tokenId))
                 .addTransfers(createAccountAmount(shard, realm, creditAccount, -amount))
                 .addTransfers(createAccountAmount(shard, realm, debitAccount, amount))
