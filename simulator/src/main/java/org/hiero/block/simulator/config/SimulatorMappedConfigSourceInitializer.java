@@ -41,6 +41,7 @@ public final class SimulatorMappedConfigSourceInitializer {
             new ConfigMapping("generator.fileExtension", "GENERATOR_FILE_EXTENSION"),
             new ConfigMapping("generator.startBlockNumber", "GENERATOR_START_BLOCK_NUMBER"),
             new ConfigMapping("generator.endBlockNumber", "GENERATOR_END_BLOCK_NUMBER"),
+            new ConfigMapping("generator.invalidBlockHash", "GENERATOR_INVALID_BLOCK_HASH"),
 
             // Prometheus configuration
             new ConfigMapping("prometheus.endpointEnabled", "PROMETHEUS_ENDPOINT_ENABLED"),

@@ -7,5 +7,5 @@ import org.hiero.block.simulator.config.logging.Loggable;
 
 @ConfigData("consumer")
 public record ConsumerConfig(
-        @Loggable @ConfigProperty(defaultValue = "0") long startBlockNumber,
-        @Loggable @ConfigProperty(defaultValue = "0") long endBlockNumber) {}
+        @Loggable @ConfigProperty(defaultValue = "-1") long startBlockNumber,
+        @Loggable @ConfigProperty(defaultValue = "-1") long endBlockNumber) {}
