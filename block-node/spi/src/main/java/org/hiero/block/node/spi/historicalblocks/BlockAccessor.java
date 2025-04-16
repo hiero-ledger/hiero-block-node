@@ -47,6 +47,13 @@ public interface BlockAccessor {
     }
 
     /**
+     * Get the block number of the block.
+     *
+     * @return the block number
+     */
+    long blockNumber();
+
+    /**
      * Get the block as parsed {@code Block} Java object. This is the simplest but usually the least efficient way to
      * get the block.
      *

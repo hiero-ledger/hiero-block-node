@@ -58,10 +58,20 @@ public class SimpleInMemoryHistoricalBlockFacility implements HistoricalBlockFac
      * {@inheritDoc}
      */
     @Override
-    public BlockAccessor block(long blockNumber) {
-        Block block = blockStorage.get(blockNumber);
+    public BlockAccessor block(final long blockNumber) {
+        final Block block = blockStorage.get(blockNumber);
         while (delayResponses.get()) parkNanos(500_000L);
-        return block == null ? null : () -> block;
+        return block == null ? null : new BlockAccessor() {
+            @Override
+            public long blockNumber() {
+                return blockNumber;
+            }
+
+            @Override
+            public Block block() {
+                return block;
+            }
+        };
     }
 
     public void setDelayResponses() {
