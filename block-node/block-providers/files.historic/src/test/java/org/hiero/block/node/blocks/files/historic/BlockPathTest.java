@@ -12,15 +12,20 @@ import com.google.common.jimfs.Jimfs;
 import com.swirlds.config.api.ConfigurationBuilder;
 import java.io.IOException;
 import java.nio.file.FileSystem;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.stream.Stream;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipOutputStream;
 import org.hiero.block.node.base.CompressionType;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
+import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.aggregator.ArgumentsAccessor;
 import org.junit.jupiter.params.provider.Arguments;
@@ -33,6 +38,9 @@ class BlockPathTest {
     private static final String ROOT_PATH = "/foo/bar";
     /** The testing in-memory file system. */
     private FileSystem jimfs;
+    /** The temporary directory for the test. */
+    @TempDir
+    private Path tempDir;
 
     /** Set up the test environment before each test. */
     @BeforeEach
@@ -233,6 +241,157 @@ class BlockPathTest {
                     .returns(expectedZipFilePath, from(BlockPath::zipFilePath))
                     .returns(expectedDirPath, from(BlockPath::dirPath))
                     .returns(expectedCompressionType, from(BlockPath::compressionType));
+        }
+
+        /**
+         * This test aims to verify that the
+         * {@link BlockPath#computeExistingBlockPath(FilesHistoricConfig, long)}
+         * method correctly computes and returns the block path based on the
+         * given block number.
+         */
+        @ParameterizedTest
+        @MethodSource({
+            "org.hiero.block.node.blocks.files.historic.BlockPathTest#validBlockPathsDefaultConfig",
+            "org.hiero.block.node.blocks.files.historic.BlockPathTest#validBlockPathsConfigVariation1"
+        })
+        @DisplayName("Test computeExistingBlockPath with valid inputs")
+        void testComputeExistingBlockPath(
+                final String expectedBlockNumStr,
+                final String expectedBlockFileName,
+                final String expectedRelativeZipFilePathStr,
+                final long blockNumber,
+                final CompressionType expectedCompressionType,
+                final int digitsPerZipFileContents)
+                throws IOException {
+            final Path expectedZipFilePath = tempDir.resolve(tempDir + expectedRelativeZipFilePathStr);
+            final Path expectedDirPath = expectedZipFilePath.getParent();
+            // create the config to use for the test, resolve paths temp dir as jimfs does not support
+            // the File abstraction
+            final FilesHistoricConfig testConfig =
+                    new FilesHistoricConfig(tempDir, expectedCompressionType, digitsPerZipFileContents);
+            // create the zip file and directory and add entry
+            createZipAndAddEntry(expectedDirPath, expectedZipFilePath, expectedBlockFileName);
+            // call
+            final BlockPath actual = BlockPath.computeExistingBlockPath(testConfig, blockNumber);
+            assertThat(actual)
+                    .isNotNull()
+                    .returns(expectedBlockNumStr, from(BlockPath::blockNumStr))
+                    .returns(expectedBlockFileName, from(BlockPath::blockFileName))
+                    .returns(expectedZipFilePath, from(BlockPath::zipFilePath))
+                    .returns(expectedDirPath, from(BlockPath::dirPath))
+                    .returns(expectedCompressionType, from(BlockPath::compressionType));
+        }
+
+        /**
+         * This test aims to verify that the
+         * {@link BlockPath#computeExistingBlockPath(FilesHistoricConfig, long)}
+         * method correctly computes and returns the block path based on the
+         * given block number when the configuration has a different compression
+         * type than the file was written in, based on extension.
+         */
+        @ParameterizedTest
+        @MethodSource({
+            "org.hiero.block.node.blocks.files.historic.BlockPathTest#validBlockPathsDefaultConfig",
+            "org.hiero.block.node.blocks.files.historic.BlockPathTest#validBlockPathsConfigVariation1"
+        })
+        @DisplayName("Test computeExistingBlockPath with valid inputs and different compression type")
+        void testComputeExistingBlockPathWithOtherCompressionType(
+                final String expectedBlockNumStr,
+                final String expectedBlockFileName,
+                final String expectedRelativeZipFilePathStr,
+                final long blockNumber,
+                final CompressionType expectedCompressionType,
+                final int digitsPerZipFileContents)
+                throws IOException {
+            final Path expectedZipFilePath = tempDir.resolve(tempDir + expectedRelativeZipFilePathStr);
+            final Path expectedDirPath = expectedZipFilePath.getParent();
+            // get a different compression type than what the files are written in to use for the
+            // config. It does not matter which one, just that it is different. If we are left
+            // with only one compression type, we should throw and think about if this test should
+            // be skipped.
+            final CompressionType differentCompressionType = Arrays.stream(CompressionType.values())
+                    .filter(t -> t != expectedCompressionType)
+                    .findAny()
+                    .orElseThrow();
+            // create the config to use for the test, resolve paths temp dir as jimfs does not support
+            // the File abstraction
+            final FilesHistoricConfig testConfig =
+                    new FilesHistoricConfig(tempDir, differentCompressionType, digitsPerZipFileContents);
+            // create the zip file and directory and add entry
+            createZipAndAddEntry(expectedDirPath, expectedZipFilePath, expectedBlockFileName);
+            // call
+            final BlockPath actual = BlockPath.computeExistingBlockPath(testConfig, blockNumber);
+            assertThat(actual)
+                    .isNotNull()
+                    .returns(expectedBlockNumStr, from(BlockPath::blockNumStr))
+                    .returns(expectedBlockFileName, from(BlockPath::blockFileName))
+                    .returns(expectedZipFilePath, from(BlockPath::zipFilePath))
+                    .returns(expectedDirPath, from(BlockPath::dirPath))
+                    .returns(expectedCompressionType, from(BlockPath::compressionType));
+        }
+
+        /**
+         * This test aims to verify that the
+         * {@link BlockPath#computeExistingBlockPath(FilesHistoricConfig, long)}
+         * method correctly returns null when the zip file does not exist.
+         */
+        @ParameterizedTest
+        @MethodSource({
+            "org.hiero.block.node.blocks.files.historic.BlockPathTest#validBlockPathsDefaultConfig",
+            "org.hiero.block.node.blocks.files.historic.BlockPathTest#validBlockPathsConfigVariation1"
+        })
+        @DisplayName("Test computeExistingBlockPath returns null when zip file does not exist")
+        void testComputeExistingBlockPathZipFileNotExist(final ArgumentsAccessor argAccessor) throws IOException {
+            // create the config to use for the test
+            final Long blockNumber = argAccessor.getLong(3);
+            final CompressionType expectedCompressionType = argAccessor.get(4, CompressionType.class);
+            final int digitsPerZipFileContents = argAccessor.getInteger(5);
+            final FilesHistoricConfig testConfig =
+                    new FilesHistoricConfig(tempDir, expectedCompressionType, digitsPerZipFileContents);
+            // call
+            final BlockPath actual = BlockPath.computeExistingBlockPath(testConfig, blockNumber);
+            assertThat(actual).isNull();
+        }
+
+        /**
+         * This test aims to verify that the
+         * {@link BlockPath#computeExistingBlockPath(FilesHistoricConfig, long)}
+         * method correctly returns null when the zip file exists but the block
+         * file does not exist.
+         */
+        @ParameterizedTest
+        @MethodSource({
+            "org.hiero.block.node.blocks.files.historic.BlockPathTest#validBlockPathsDefaultConfig",
+            "org.hiero.block.node.blocks.files.historic.BlockPathTest#validBlockPathsConfigVariation1"
+        })
+        @DisplayName("Test computeExistingBlockPath returns null when zip file exists but block file does not exist")
+        void testComputeExistingBlockPathZipFileExistsBlockFileNotExist(final ArgumentsAccessor argAccessor)
+                throws IOException {
+            final String expectedRelativeZipFilePathStr = argAccessor.getString(2);
+            final Long blockNumber = argAccessor.getLong(3);
+            final CompressionType expectedCompressionType = argAccessor.get(4, CompressionType.class);
+            final int digitsPerZipFileContents = argAccessor.getInteger(5);
+            final Path expectedZipFilePath = tempDir.resolve(tempDir + expectedRelativeZipFilePathStr);
+            final Path expectedDirPath = expectedZipFilePath.getParent();
+            // create the config to use for the test
+            final FilesHistoricConfig testConfig =
+                    new FilesHistoricConfig(tempDir, expectedCompressionType, digitsPerZipFileContents);
+            // create the zip file and directory and add entry
+            createZipAndAddEntry(expectedDirPath, expectedZipFilePath, "nonexistent.blk.zstd");
+            // call
+            final BlockPath actual = BlockPath.computeExistingBlockPath(testConfig, blockNumber);
+            assertThat(actual).isNull();
+        }
+
+        private void createZipAndAddEntry(
+                final Path expectedDirPath, final Path expectedZipFilePath, final String entryName) throws IOException {
+            Files.createDirectories(expectedDirPath);
+            Files.createFile(expectedZipFilePath);
+            try (final ZipOutputStream out = new ZipOutputStream(Files.newOutputStream(expectedZipFilePath))) {
+                final ZipEntry zipEntry = new ZipEntry(entryName);
+                out.putNextEntry(zipEntry);
+                out.closeEntry();
+            }
         }
     }
 

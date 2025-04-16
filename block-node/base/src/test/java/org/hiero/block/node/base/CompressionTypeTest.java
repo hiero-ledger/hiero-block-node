@@ -135,4 +135,43 @@ class CompressionTypeTest {
         final byte[] actual = compressionType.decompress(compressed);
         assertThat(actual).isEqualTo(expected).containsExactly(expected);
     }
+
+    /**
+     * This test aims to verify that the compress static method and wrapping
+     * a stream will produce the same result.
+     */
+    @ParameterizedTest
+    @EnumSource(CompressionType.class)
+    @DisplayName("Test compress() and wrapStream() methods produce same result")
+    void testCompressAndWrap(final CompressionType compressionType) throws IOException {
+        final byte[] testData = "test expected data".getBytes();
+        final ByteArrayOutputStream baosTarget;
+        try (final ByteArrayOutputStream baos = new ByteArrayOutputStream();
+                final OutputStream wrappedBaos = compressionType.wrapStream(baos)) {
+            wrappedBaos.write(testData);
+            baosTarget = baos;
+        }
+        final byte[] bytesFromBaos = baosTarget.toByteArray();
+        final byte[] bytesFromCompress = compressionType.compress(testData);
+        assertThat(bytesFromBaos).isEqualTo(bytesFromCompress).containsExactly(bytesFromCompress);
+    }
+
+    /**
+     * This test aims to verify that the decompress static method and wrapping
+     * a stream will produce the same result.
+     */
+    @ParameterizedTest
+    @EnumSource(CompressionType.class)
+    @DisplayName("Test decompress() and wrapStream() methods produce same result")
+    void testDecompressAndWrap(final CompressionType compressionType) throws IOException {
+        final byte[] testData = "test expected data".getBytes();
+        final byte[] compressedData = compressionType.compress(testData);
+        final byte[] bytesFromInputStream;
+        try (final ByteArrayInputStream bais = new ByteArrayInputStream(compressedData);
+                final InputStream wrappedBais = compressionType.wrapStream(bais)) {
+            bytesFromInputStream = wrappedBais.readAllBytes();
+        }
+        final byte[] bytesFromDecompress = compressionType.decompress(compressedData);
+        assertThat(bytesFromInputStream).isEqualTo(bytesFromDecompress).containsExactly(bytesFromDecompress);
+    }
 }

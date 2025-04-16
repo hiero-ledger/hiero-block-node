@@ -101,6 +101,7 @@ record BlockPath(
                     // compression extension.
                     final CompressionType[] compressionOpts =
                             config.compression().getDeclaringClass().getEnumConstants();
+                    // noinspection ForLoopReplaceableByForEach
                     for (int i = 0; i < compressionOpts.length; i++) {
                         final CompressionType currentOpt = compressionOpts[i];
                         // we are only
