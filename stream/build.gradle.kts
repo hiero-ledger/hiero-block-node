@@ -4,7 +4,9 @@ import org.hiero.gradle.tasks.GitClone
 plugins {
     id("org.hiero.gradle.module.library")
     id("org.hiero.gradle.feature.protobuf")
-    id("com.hedera.pbj.pbj-compiler") version "0.9.17"
+    // When upgrading pbjVersion, also need to update pbjVersion on
+    // hiero-dependency-versions/build.gradle.kts
+    id("com.hedera.pbj.pbj-compiler") version "0.11.0"
 }
 
 description = "Hiero API"

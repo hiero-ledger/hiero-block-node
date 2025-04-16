@@ -3,7 +3,6 @@ package org.hiero.block.simulator.grpc.impl;
 
 import static java.lang.System.Logger.Level.DEBUG;
 import static java.lang.System.Logger.Level.ERROR;
-import static java.lang.System.Logger.Level.INFO;
 import static java.util.Objects.requireNonNull;
 import static org.hiero.block.simulator.metrics.SimulatorMetricTypes.Counter.LiveBlockItemsSent;
 import static org.hiero.block.simulator.metrics.SimulatorMetricTypes.Counter.LiveBlocksSent;
@@ -20,11 +19,13 @@ import io.grpc.stub.StreamObserver;
 import java.util.ArrayDeque;
 import java.util.Deque;
 import java.util.List;
+import java.util.Random;
 import java.util.concurrent.atomic.AtomicBoolean;
 import javax.inject.Inject;
 import org.hiero.block.common.utils.ChunkUtils;
 import org.hiero.block.simulator.config.data.BlockStreamConfig;
 import org.hiero.block.simulator.config.data.GrpcConfig;
+import org.hiero.block.simulator.config.types.MidBlockFailType;
 import org.hiero.block.simulator.grpc.PublishStreamGrpcClient;
 import org.hiero.block.simulator.metrics.MetricsService;
 import org.hiero.block.simulator.startup.SimulatorStartupData;
@@ -57,11 +58,11 @@ public class PublishStreamGrpcClientImpl implements PublishStreamGrpcClient {
     /**
      * Creates a new PublishStreamGrpcClientImpl with the specified dependencies.
      *
-     * @param grpcConfig The configuration for gRPC connection settings
+     * @param grpcConfig        The configuration for gRPC connection settings
      * @param blockStreamConfig The configuration for block streaming parameters
-     * @param metricsService The service for recording publication metrics
-     * @param streamEnabled Flag controlling stream state
-     * @param startupData The startup data for the simulator
+     * @param metricsService    The service for recording publication metrics
+     * @param streamEnabled     Flag controlling stream state
+     * @param startupData       The startup data for the simulator
      * @throws NullPointerException if any parameter is null
      */
     @Inject
@@ -96,33 +97,6 @@ public class PublishStreamGrpcClientImpl implements PublishStreamGrpcClient {
     }
 
     /**
-     * Streams a list of block items to the server.
-     *
-     * @param blockItems The list of block items to stream
-     * @return true if streaming should continue, false if streaming should stop
-     */
-    @Override
-    public boolean streamBlockItem(List<BlockItem> blockItems) {
-        if (streamEnabled.get()) {
-            requestStreamObserver.onNext(PublishStreamRequest.newBuilder()
-                    .setBlockItems(BlockItemSet.newBuilder()
-                            .addAllBlockItems(blockItems)
-                            .build())
-                    .build());
-
-            metricsService.get(LiveBlockItemsSent).add(blockItems.size());
-            LOGGER.log(
-                    INFO,
-                    "Number of block items sent: "
-                            + metricsService.get(LiveBlockItemsSent).get());
-        } else {
-            LOGGER.log(ERROR, "Not allowed to send next batch of block items");
-        }
-
-        return streamEnabled.get();
-    }
-
-    /**
      * Streams a complete block to the server, chunking it if necessary based on configuration.
      *
      * @param block The block to stream
@@ -134,6 +108,7 @@ public class PublishStreamGrpcClientImpl implements PublishStreamGrpcClient {
                 ChunkUtils.chunkify(block.getItemsList(), blockStreamConfig.blockItemsBatchSize());
         for (List<BlockItem> streamingBatch : streamingBatches) {
             if (streamEnabled.get()) {
+                handleMidBlockFailIfSet(streamingBatch);
                 requestStreamObserver.onNext(PublishStreamRequest.newBuilder()
                         .setBlockItems(BlockItemSet.newBuilder()
                                 .addAllBlockItems(streamingBatch)
@@ -191,5 +166,26 @@ public class PublishStreamGrpcClientImpl implements PublishStreamGrpcClient {
     public void shutdown() throws InterruptedException {
         completeStreaming();
         channel.shutdown();
+    }
+
+    private void handleMidBlockFailIfSet(@NonNull final List<BlockItem> streamingBatch) {
+        requireNonNull(streamingBatch);
+        if (blockStreamConfig.midBlockFailType() == MidBlockFailType.NONE
+                || streamingBatch.size() < 3
+                || blockStreamConfig.midBlockFailOffset()
+                        != metricsService.get(LiveBlocksSent).get()) {
+            return;
+        }
+        final int failIndex = new Random().nextInt(1, streamingBatch.size() - 1);
+        final List<BlockItem> streamingBatchBeforeFail = streamingBatch.subList(0, failIndex);
+        requestStreamObserver.onNext(PublishStreamRequest.newBuilder()
+                .setBlockItems(BlockItemSet.newBuilder()
+                        .addAllBlockItems(streamingBatchBeforeFail)
+                        .build())
+                .build());
+        if (blockStreamConfig.midBlockFailType() == MidBlockFailType.ABRUPT) {
+            throw new RuntimeException("Configured abrupt disconnection occurred");
+        }
+        requestStreamObserver.onError(new Exception("Configured failure occurred, calling onError()"));
     }
 }

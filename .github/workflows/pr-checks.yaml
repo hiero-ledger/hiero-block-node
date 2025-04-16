@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-name: "PR Gradle Checks"
+name: "PR Checks"
 on:
   push:
     branches:
@@ -26,6 +26,7 @@ permissions:
 jobs:
   check-gradle:
     name: Gradle
+    if: ${{ github.base_ref == 'main' || startsWith(github.base_ref, 'release/') }}
     uses: ./.github/workflows/zxc-verify-gradle-build-determinism.yaml
     with:
       ref: ${{ github.event.inputs.ref || '' }}
@@ -34,7 +35,7 @@ jobs:
 
   compile:
     timeout-minutes: 20
-    name: "Gradle Checks"
+    name: "Quality Checks and UTs"
     runs-on: hiero-block-node-linux-medium
     steps:
       - name: Harden Runner
@@ -56,7 +57,7 @@ jobs:
           fi
 
       - name: Set up JDK 21
-        uses: actions/setup-java@3a4f6e1af504cf6a31855fa899c6aa5355ba6c12 # v4.7.0
+        uses: actions/setup-java@c5195efecf7bdfc987ee8bae7a71cb8b11521c00 # v4.7.1
         with:
           distribution: "temurin"
           java-version: "21.0.6"
@@ -84,7 +85,7 @@ jobs:
         run: ${GRADLE_EXEC} check
 
       - name: Upload coverage report
-        uses: codecov/codecov-action@0565863a31f2c772f9f0395002a31e3f06189574 # v5.4.0
+        uses: codecov/codecov-action@ad3126e916f78f00edff4ed0317cf185271ccc2d # v5.4.2
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
           files: gradle/aggregation/build/reports/jacoco/testCodeCoverageReport/testCodeCoverageReport.xml

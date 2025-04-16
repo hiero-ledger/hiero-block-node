@@ -4,6 +4,7 @@ package org.hiero.block.simulator.config.data;
 import com.swirlds.config.api.ConfigData;
 import com.swirlds.config.api.ConfigProperty;
 import org.hiero.block.simulator.config.logging.Loggable;
+import org.hiero.block.simulator.config.types.MidBlockFailType;
 import org.hiero.block.simulator.config.types.SimulatorMode;
 import org.hiero.block.simulator.config.types.StreamingMode;
 
@@ -26,7 +27,9 @@ public record BlockStreamConfig(
         @Loggable @ConfigProperty(defaultValue = "100_000") int maxBlockItemsToStream,
         @Loggable @ConfigProperty(defaultValue = "MILLIS_PER_BLOCK") StreamingMode streamingMode,
         @Loggable @ConfigProperty(defaultValue = "1000") int millisecondsPerBlock,
-        @Loggable @ConfigProperty(defaultValue = "1000") int blockItemsBatchSize) {
+        @Loggable @ConfigProperty(defaultValue = "1000") int blockItemsBatchSize,
+        @Loggable @ConfigProperty(defaultValue = "NONE") MidBlockFailType midBlockFailType,
+        @Loggable @ConfigProperty(defaultValue = "0") long midBlockFailOffset) {
 
     /**
      * Creates a new {@link Builder} instance for constructing a {@code BlockStreamConfig}.
@@ -48,6 +51,8 @@ public record BlockStreamConfig(
         private StreamingMode streamingMode = StreamingMode.MILLIS_PER_BLOCK;
         private int millisecondsPerBlock = 1000;
         private int blockItemsBatchSize = 1000;
+        private MidBlockFailType midBlockFailType = MidBlockFailType.NONE;
+        private long midBlockFailOffset = 0;
 
         /**
          * Creates a new instance of the {@code Builder} class with default configuration values.
@@ -134,6 +139,28 @@ public record BlockStreamConfig(
         }
 
         /**
+         * Sets a failure type to occur while streaming.
+         *
+         * @param midBlockFailType the failure type
+         * @return this {@code Builder} instance
+         */
+        public Builder midBlockFailType(MidBlockFailType midBlockFailType) {
+            this.midBlockFailType = midBlockFailType;
+            return this;
+        }
+
+        /**
+         * Sets the index of the failing block.
+         *
+         * @param midBlockFailOffset the index of the failing block
+         * @return this {@code Builder} instance
+         */
+        public Builder midBlockFailOffset(long midBlockFailOffset) {
+            this.midBlockFailOffset = midBlockFailOffset;
+            return this;
+        }
+
+        /**
          * Builds a new {@link BlockStreamConfig} instance with the configured values.
          *
          * @return a new {@code BlockStreamConfig}
@@ -146,7 +173,9 @@ public record BlockStreamConfig(
                     maxBlockItemsToStream,
                     streamingMode,
                     millisecondsPerBlock,
-                    blockItemsBatchSize);
+                    blockItemsBatchSize,
+                    midBlockFailType,
+                    midBlockFailOffset);
         }
     }
 }
