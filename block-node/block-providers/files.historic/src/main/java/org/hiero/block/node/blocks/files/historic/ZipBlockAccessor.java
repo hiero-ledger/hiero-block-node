@@ -42,6 +42,15 @@ final class ZipBlockAccessor implements BlockAccessor {
      * {@inheritDoc}
      */
     @Override
+    public long blockNumber() {
+        // TODO maybe there is nice option here than having to parse the string
+        return Long.parseLong(blockPath.blockNumStr());
+    }
+
+    /**
+     * {@inheritDoc}
+     */
+    @Override
     public Block block() {
         try {
             return Block.PROTOBUF.parse(blockBytes(Format.PROTOBUF));

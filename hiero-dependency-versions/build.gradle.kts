@@ -4,7 +4,7 @@ plugins {
     id("org.hiero.gradle.base.jpms-modules")
     id("org.hiero.gradle.check.spotless")
     id("org.hiero.gradle.check.spotless-kotlin")
-}
+    }
 
 dependencies { api(platform("com.google.cloud:libraries-bom:26.59.0")) }
 
@@ -84,4 +84,5 @@ dependencies.constraints {
         because("com.google.auto.service.processor")
     }
     api("com.google.jimfs:jimfs:1.3.0") { because("com.google.common.jimfs") }
+    api("io.minio:minio:8.5.17") { because("io.minio") }
 }
