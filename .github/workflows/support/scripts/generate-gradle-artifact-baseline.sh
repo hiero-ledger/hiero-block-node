@@ -2,7 +2,7 @@
 set -o pipefail
 set +e
 
-readonly RELEASE_APPS_PATH="block-node/server/build/libs"
+readonly RELEASE_APPS_PATH="block-node/app/build/distributions"
 
 GROUP_ACTIVE="false"
 
@@ -103,13 +103,13 @@ start_group "Configuring Environment"
   end_task "DONE (Found: ${SHA256SUM})"
 
   start_task "Checking for prebuilt applications"
-    ls -al "${GITHUB_WORKSPACE}/${RELEASE_APPS_PATH}"/*.jar >/dev/null 2>&1 || fail "ERROR (Exit Code: ${?})" "${?}"
-  end_task "FOUND (Path: ${GITHUB_WORKSPACE}/${RELEASE_APPS_PATH}/*.jar)"
+    ls -al "${GITHUB_WORKSPACE}/${RELEASE_APPS_PATH}"/*.tar >/dev/null 2>&1 || fail "ERROR (Exit Code: ${?})" "${?}"
+  end_task "FOUND (Path: ${GITHUB_WORKSPACE}/${RELEASE_APPS_PATH}/*.tar)"
 end_group
 
-start_group "Generating Application Hashes (${GITHUB_WORKSPACE}/${RELEASE_APPS_PATH}/*.jar)"
+start_group "Generating Application Hashes (${GITHUB_WORKSPACE}/${RELEASE_APPS_PATH}/*.tar)"
   pushd "${GITHUB_WORKSPACE}/${RELEASE_APPS_PATH}" >/dev/null 2>&1 || fail "PUSHD ERROR (Exit Code: ${?})" "${?}"
-  ${SHA256SUM} -b -- *.jar | sort -k 2 | tee -a "${TEMP_DIR}"/applications.sha256
+  ${SHA256SUM} -b -- *.tar | sort -k 2 | tee -a "${TEMP_DIR}"/applications.sha256
   popd >/dev/null 2>&1 || fail "POPD ERROR (Exit Code: ${?})" "${?}"
 end_group
 
