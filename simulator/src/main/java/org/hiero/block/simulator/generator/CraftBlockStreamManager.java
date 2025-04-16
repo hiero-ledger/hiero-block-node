@@ -45,6 +45,7 @@ public class CraftBlockStreamManager implements BlockStreamManager {
     private final int maxEventsPerBlock;
     private final int minTransactionsPerEvent;
     private final int maxTransactionsPerEvent;
+    private final boolean invalidBlockHash;
 
     // State
     private final GenerationMode generationMode;
@@ -71,6 +72,7 @@ public class CraftBlockStreamManager implements BlockStreamManager {
         this.maxEventsPerBlock = blockGeneratorConfig.maxEventsPerBlock();
         this.minTransactionsPerEvent = blockGeneratorConfig.minTransactionsPerEvent();
         this.maxTransactionsPerEvent = blockGeneratorConfig.maxTransactionsPerEvent();
+        this.invalidBlockHash = blockGeneratorConfig.invalidBlockHash();
         this.random = new Random();
         this.previousStateRootHash = new byte[StreamingTreeHasher.HASH_LENGTH];
         this.currentBlockHash = new byte[StreamingTreeHasher.HASH_LENGTH];
@@ -144,6 +146,12 @@ public class CraftBlockStreamManager implements BlockStreamManager {
 
         processBlockItems(blockItemsUnparsed);
         updateCurrentBlockHash();
+
+        // if the block hash is invalid, generate a random hash and overwrite the legitimate one
+        if (invalidBlockHash) {
+            currentBlockHash = new byte[StreamingTreeHasher.HASH_LENGTH];
+            random.nextBytes(currentBlockHash);
+        }
 
         ItemHandler proofItemHandler = new BlockProofHandler(previousBlockHash, currentBlockHash, currentBlockNumber);
         items.add(proofItemHandler);
