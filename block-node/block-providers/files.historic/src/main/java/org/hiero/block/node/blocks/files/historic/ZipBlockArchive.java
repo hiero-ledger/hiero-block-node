@@ -6,6 +6,7 @@ import static org.hiero.block.node.blocks.files.historic.BlockPath.computeBlockP
 import static org.hiero.block.node.blocks.files.historic.BlockPath.computeExistingBlockPath;
 
 import com.hedera.pbj.runtime.io.buffer.Bytes;
+import edu.umd.cs.findbugs.annotations.NonNull;
 import java.io.BufferedOutputStream;
 import java.io.IOException;
 import java.io.UncheckedIOException;
@@ -14,6 +15,7 @@ import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.stream.IntStream;
 import java.util.zip.CRC32;
@@ -31,28 +33,32 @@ import org.hiero.block.node.spi.historicalblocks.HistoricalBlockFacility;
  * The ZipBlockArchive class provides methods for creating and managing zip files containing blocks.
  * It allows for writing new zip files and accessing individual blocks within the zip files.
  */
-public class ZipBlockArchive {
+class ZipBlockArchive {
     /** The logger for this class. */
     private final System.Logger LOGGER = System.getLogger(getClass().getName());
-
+    /** The block node context. */
     private final BlockNodeContext context;
+    /** The configuration for the historic files. */
     private final FilesHistoricConfig config;
+    /** The historical block facility. */
     private final HistoricalBlockFacility historicalBlockFacility;
+    /** The number of blocks per zip file. */
     private final int numberOfBlocksPerZipFile;
+    /** The format for the blocks. */
     private final Format format;
 
     /**
      * Constructor for ZipBlockArchive.
      *
      * @param context The block node context
-     * @param historicConfig The configuration for the historic files
+     * @param filesHistoricConfig Configuration to be used internally
      */
-    public ZipBlockArchive(BlockNodeContext context, FilesHistoricConfig historicConfig) {
-        this.context = context;
-        this.historicalBlockFacility = context.historicalBlockProvider();
-        this.config = historicConfig;
-        numberOfBlocksPerZipFile = (int) Math.pow(10, historicConfig.powersOfTenPerZipFileContents());
-        format = switch (historicConfig.compression()) {
+    ZipBlockArchive(@NonNull final BlockNodeContext context, @NonNull final FilesHistoricConfig filesHistoricConfig) {
+        this.context = Objects.requireNonNull(context);
+        this.config = Objects.requireNonNull(filesHistoricConfig);
+        this.historicalBlockFacility = Objects.requireNonNull(context.historicalBlockProvider());
+        numberOfBlocksPerZipFile = (int) Math.pow(10, this.config.powersOfTenPerZipFileContents());
+        format = switch (this.config.compression()) {
             case ZSTD -> Format.ZSTD_PROTOBUF;
             case NONE -> Format.PROTOBUF;};
     }
@@ -64,7 +70,7 @@ public class ZipBlockArchive {
      * @throws IOException If an error occurs writing the block
      * @return A list of block accessors for the blocks written to the zip file, can be used to delete the blocks
      */
-    public List<BlockAccessor> writeNewZipFile(long firstBlockNumber) throws IOException {
+    List<BlockAccessor> writeNewZipFile(long firstBlockNumber) throws IOException {
         final long lastBlockNumber = firstBlockNumber + numberOfBlocksPerZipFile - 1;
         // compute block path
         final BlockPath firstBlockPath = computeBlockPath(config, firstBlockNumber);
@@ -118,7 +124,7 @@ public class ZipBlockArchive {
      * @param blockNumber The block number
      * @return The block accessor for the block number
      */
-    public BlockAccessor blockAccessor(long blockNumber) {
+    BlockAccessor blockAccessor(long blockNumber) {
         try {
             // get existing block path or null if we cannot find it
             final BlockPath blockPath = computeExistingBlockPath(config, blockNumber);
@@ -133,7 +139,7 @@ public class ZipBlockArchive {
      *
      * @return the minimum block number, or -1 if no block files are found
      */
-    public long minStoredBlockNumber() {
+    long minStoredBlockNumber() {
         // find the lowest block number first
         Path lowestPath = config.rootPath();
         while (lowestPath != null) {
@@ -190,7 +196,7 @@ public class ZipBlockArchive {
      *
      * @return the maximum block number, or -1 if no block files are found
      */
-    public long maxStoredBlockNumber() {
+    long maxStoredBlockNumber() {
         // find the highest block number
         Path highestPath = config.rootPath();
         while (highestPath != null) {
