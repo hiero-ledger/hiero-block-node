@@ -153,7 +153,12 @@ class CompressionTypeTest {
         }
         final byte[] bytesFromBaos = baosTarget.toByteArray();
         final byte[] bytesFromCompress = compressionType.compress(testData);
-        assertThat(bytesFromBaos).isEqualTo(bytesFromCompress).containsExactly(bytesFromCompress);
+        // we must always decompress as the binary content may be different, but
+        // a decompression after compression asserts that the results have been
+        // preserved after a compression has occurred
+        final byte[] actual = compressionType.decompress(bytesFromBaos);
+        final byte[] expected = compressionType.decompress(bytesFromCompress);
+        assertThat(actual).isEqualTo(expected).containsExactly(expected);
     }
 
     /**
