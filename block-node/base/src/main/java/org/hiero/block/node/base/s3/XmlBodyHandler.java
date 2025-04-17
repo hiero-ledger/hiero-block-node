@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-package org.hiero.block.node.archive;
+package org.hiero.block.node.base.s3;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -18,6 +18,8 @@ public class XmlBodyHandler implements HttpResponse.BodyHandler<Document> {
 
     /**
      * {@inheritDoc}
+     *
+     * @throws UncheckedIOException if an error occurs during parsing
      */
     @Override
     public HttpResponse.BodySubscriber<Document> apply(HttpResponse.ResponseInfo responseInfo) {
@@ -42,19 +44,17 @@ public class XmlBodyHandler implements HttpResponse.BodyHandler<Document> {
      *
      * @param inputStream the InputStream to parse
      * @return parsed XML Document
+     * @throws UncheckedIOException if an error occurs during parsing
      */
     private static Document parseXml(InputStream inputStream) {
         try {
             DocumentBuilderFactory factory = DocumentBuilderFactory.newInstance();
             factory.setNamespaceAware(true);
             DocumentBuilder builder = factory.newDocumentBuilder();
-            Document doc = builder.parse(inputStream);
-            return doc;
+            return builder.parse(inputStream);
         } catch (IOException e) {
-            e.printStackTrace();
             throw new UncheckedIOException("Failed to parse XML", e);
         } catch (ParserConfigurationException | SAXException e) {
-            e.printStackTrace();
             throw new UncheckedIOException(new IOException("Failed to parse XML", e));
         }
     }

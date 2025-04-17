@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-package org.hiero.block.node.archive;
+package org.hiero.block.node.base.s3;
 
 import edu.umd.cs.findbugs.annotations.NonNull;
 import java.io.IOException;
@@ -11,6 +11,8 @@ import java.net.URLEncoder;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.net.http.HttpResponse.BodyHandler;
+import java.net.http.HttpResponse.BodyHandlers;
 import java.nio.charset.StandardCharsets;
 import java.security.InvalidKeyException;
 import java.security.MessageDigest;
@@ -37,7 +39,7 @@ import org.w3c.dom.Element;
 import org.w3c.dom.NodeList;
 
 /**
- * Simple standalone S3 client for uploading and listing objects from S3.
+ * Simple standalone S3 client for uploading, downloading and listing objects from S3.
  */
 @SuppressWarnings("JavadocLinkAsPlainText")
 public class S3Client implements AutoCloseable {
@@ -126,7 +128,7 @@ public class S3Client implements AutoCloseable {
     public List<String> listObjects(String prefix, int maxResults) {
         String canonicalQueryString = "list-type=2&prefix=" + prefix + "&max-keys=" + maxResults;
         HttpResponse<Document> response =
-                request(endpoint + bucketName + "/?" + canonicalQueryString, "GET", Collections.emptyMap(), null);
+                requestXML(endpoint + bucketName + "/?" + canonicalQueryString, "GET", Collections.emptyMap(), null);
         // extract the object keys from the XML response
         List<String> keys = new ArrayList<>();
         // Get all "Contents" elements
@@ -144,87 +146,57 @@ public class S3Client implements AutoCloseable {
     }
 
     /**
-     * Creates a multipart upload for the specified object key.
+     * Uploads a file to S3 using multipart upload, assumes the file is small enough as uses single part upload.
      *
-     * @param key The object key.
-     * @param storageClass The storage class (e.g. "STANDARD", "REDUCED_REDUNDANCY").
-     * @param contentType The content type of the object.
-     * @return The upload ID for the multipart upload.
+     * @param objectKey the key for the object in S3 (e.g., "myfolder/myfile.txt")
+     * @param storageClass the storage class (e.g., "STANDARD", "REDUCED_REDUNDANCY")
+     * @param content the content of the file as a string
+     * @return true if the upload was successful, false otherwise
      */
-    public String createMultipartUpload(String key, String storageClass, String contentType) {
-        String canonicalQueryString = "uploads=";
-        Map<String, String> headers = new HashMap<>();
-        headers.put("content-type", contentType);
-        if (storageClass != null) {
-            headers.put("x-amz-storage-class", storageClass);
-        }
-        // TODO add checksum algorithm and overall checksum support using x-amz-checksum-algorithm=SHA256 and
-        //  x-amz-checksum-type=COMPOSITE
+    public boolean uploadTextFile(String objectKey, String storageClass, String content) {
+        final byte[] contentData = content.getBytes(StandardCharsets.UTF_8);
+        final Map<String, String> headers = new HashMap<>();
+        headers.put("content-length", Integer.toString(contentData.length));
+        headers.put("content-type", "text/plain");
+        headers.put("x-amz-storage-class", storageClass);
+        headers.put("x-amz-content-sha256", base64(sha256(contentData)));
         try {
             HttpResponse<Document> response =
-                    request(endpoint + bucketName + "/" + key + "?" + canonicalQueryString, "POST", headers, null);
+                    requestXML(endpoint + bucketName + "/" + urlEncode(objectKey, true), "PUT", headers, contentData);
             if (response.statusCode() != 200) {
-                throw new RuntimeException("Failed to create multipart upload: " + response.statusCode());
+                throw new RuntimeException(
+                        "Failed to upload text file: " + response.statusCode() + "\n" + response.body());
             }
-            return response.body().getElementsByTagName("UploadId").item(0).getTextContent();
+            return true;
         } catch (Exception e) {
             throw new RuntimeException(e);
         }
     }
 
     /**
-     * Uploads a part of a multipart upload.
+     * Downloads a text file from S3, assumes the file is small enough as uses single part download.
      *
-     * @param key The object key.
-     * @param uploadId The upload ID for the multipart upload.
-     * @param partNumber The part number (1-based).
-     * @param partData The data for the part.
-     * @return The ETag of the uploaded part.
+     * @param objectKey the key for the object in S3 (e.g., "myfolder/myfile.txt")
+     * @return the content of the file as a string, null if the file doesn't exist
      */
-    public String multipartUploadPart(String key, String uploadId, int partNumber, byte[] partData) {
-        String canonicalQueryString = "uploadId=" + uploadId + "&partNumber=" + partNumber;
-        Map<String, String> headers = new HashMap<>();
-        headers.put("content-length", Integer.toString(partData.length));
-        headers.put("content-type", "application/octet-stream");
-        headers.put("x-amz-content-sha256", base64(sha256(partData)));
+    public String downloadTextFile(String objectKey) {
+        final Map<String, String> headers = new HashMap<>();
         try {
-            HttpResponse<Document> response =
-                    request(endpoint + bucketName + "/" + key + "?" + canonicalQueryString, "PUT", headers, partData);
-            if (response.statusCode() != 200) {
-                throw new RuntimeException("Failed to upload multipart part: " + response.statusCode());
+            HttpResponse<String> response = request(
+                    endpoint + bucketName + "/" + urlEncode(objectKey, true),
+                    "GET",
+                    headers,
+                    new byte[0],
+                    BodyHandlers.ofString(StandardCharsets.UTF_8));
+            if (response.statusCode() == 404) {
+                return null;
+            } else if (response.statusCode() != 200) {
+                throw new RuntimeException(
+                        "Failed to download text file: " + response.statusCode() + "\n" + response.body());
             }
-            return response.headers().firstValue("ETag").orElse(null);
+            return response.body();
         } catch (Exception e) {
             throw new RuntimeException(e);
-        }
-    }
-
-    /**
-     * Completes a multipart upload.
-     *
-     * @param key The object key.
-     * @param uploadId The upload ID for the multipart upload.
-     * @param eTags The list of ETags for the uploaded parts.
-     */
-    public void completeMultipartUpload(String key, String uploadId, List<String> eTags) {
-        String canonicalQueryString = "uploadId=" + uploadId;
-        Map<String, String> headers = new HashMap<>();
-        headers.put("content-type", "application/xml");
-        StringBuilder sb = new StringBuilder();
-        sb.append("<CompleteMultipartUpload>");
-        for (int i = 0; i < eTags.size(); i++) {
-            sb.append("<Part><PartNumber>")
-                    .append(i + 1)
-                    .append("</PartNumber><ETag>")
-                    .append(eTags.get(i))
-                    .append("</ETag></Part>");
-        }
-        sb.append("</CompleteMultipartUpload>");
-        byte[] partData = sb.toString().getBytes(StandardCharsets.UTF_8);
-        HttpResponse<Document> response =
-                request(endpoint + bucketName + "/" + key + "?" + canonicalQueryString, "POST", headers, partData);
-        if (response.statusCode() != 200) {
-            throw new RuntimeException("Failed to complete multipart upload: " + response.statusCode());
         }
     }
 
@@ -283,16 +255,121 @@ public class S3Client implements AutoCloseable {
     }
 
     /**
+     * Creates a multipart upload for the specified object key.
+     *
+     * @param key The object key.
+     * @param storageClass The storage class (e.g. "STANDARD", "REDUCED_REDUNDANCY").
+     * @param contentType The content type of the object.
+     * @return The upload ID for the multipart upload.
+     */
+    String createMultipartUpload(String key, String storageClass, String contentType) {
+        String canonicalQueryString = "uploads=";
+        Map<String, String> headers = new HashMap<>();
+        headers.put("content-type", contentType);
+        if (storageClass != null) {
+            headers.put("x-amz-storage-class", storageClass);
+        }
+        // TODO add checksum algorithm and overall checksum support using x-amz-checksum-algorithm=SHA256 and
+        //  x-amz-checksum-type=COMPOSITE
+        try {
+            HttpResponse<Document> response =
+                    requestXML(endpoint + bucketName + "/" + key + "?" + canonicalQueryString, "POST", headers, null);
+            if (response.statusCode() != 200) {
+                throw new RuntimeException("Failed to create multipart upload: " + response.statusCode());
+            }
+            return response.body().getElementsByTagName("UploadId").item(0).getTextContent();
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    /**
+     * Uploads a part of a multipart upload.
+     *
+     * @param key The object key.
+     * @param uploadId The upload ID for the multipart upload.
+     * @param partNumber The part number (1-based).
+     * @param partData The data for the part.
+     * @return The ETag of the uploaded part.
+     */
+    String multipartUploadPart(String key, String uploadId, int partNumber, byte[] partData) {
+        String canonicalQueryString = "uploadId=" + uploadId + "&partNumber=" + partNumber;
+        Map<String, String> headers = new HashMap<>();
+        headers.put("content-length", Integer.toString(partData.length));
+        headers.put("content-type", "application/octet-stream");
+        headers.put("x-amz-content-sha256", base64(sha256(partData)));
+        try {
+            HttpResponse<Document> response = requestXML(
+                    endpoint + bucketName + "/" + key + "?" + canonicalQueryString, "PUT", headers, partData);
+            if (response.statusCode() != 200) {
+                throw new RuntimeException("Failed to upload multipart part: " + response.statusCode());
+            }
+            return response.headers().firstValue("ETag").orElse(null);
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    /**
+     * Completes a multipart upload.
+     *
+     * @param key The object key.
+     * @param uploadId The upload ID for the multipart upload.
+     * @param eTags The list of ETags for the uploaded parts.
+     */
+    void completeMultipartUpload(String key, String uploadId, List<String> eTags) {
+        String canonicalQueryString = "uploadId=" + uploadId;
+        Map<String, String> headers = new HashMap<>();
+        headers.put("content-type", "application/xml");
+        StringBuilder sb = new StringBuilder();
+        sb.append("<CompleteMultipartUpload>");
+        for (int i = 0; i < eTags.size(); i++) {
+            sb.append("<Part><PartNumber>")
+                    .append(i + 1)
+                    .append("</PartNumber><ETag>")
+                    .append(eTags.get(i))
+                    .append("</ETag></Part>");
+        }
+        sb.append("</CompleteMultipartUpload>");
+        byte[] partData = sb.toString().getBytes(StandardCharsets.UTF_8);
+        HttpResponse<Document> response =
+                requestXML(endpoint + bucketName + "/" + key + "?" + canonicalQueryString, "POST", headers, partData);
+        if (response.statusCode() != 200) {
+            throw new RuntimeException("Failed to complete multipart upload: " + response.statusCode());
+        }
+    }
+
+    /**
      * Performs an HTTP request to S3 to the specified URL with the given parameters.
      *
      * @param url         The URL to send the request to.
      * @param httpMethod  The HTTP method to use (e.g. "GET", "POST", "PUT").
      * @param headers     The request headers to send.
      * @param requestBody The request body to send, or null if no request body is needed.
-     * @return HTTP response and result parsed as XML, if no response body was returned it will be an empty document
+     * @return HTTP response and result parsed as an XML document. If there is no response body, the result is empty
+     * document.
      */
-    private HttpResponse<Document> request(
+    private HttpResponse<Document> requestXML(
             final String url, final String httpMethod, final Map<String, String> headers, byte[] requestBody) {
+        return request(url, httpMethod, headers, requestBody, new XmlBodyHandler());
+    }
+
+    /**
+     * Performs an HTTP request to S3 to the specified URL with the given parameters.
+     *
+     * @param url         The URL to send the request to.
+     * @param httpMethod  The HTTP method to use (e.g. "GET", "POST", "PUT").
+     * @param headers     The request headers to send.
+     * @param requestBody The request body to send, or null if no request body is needed.
+     * @param bodyHandler The body handler for parsing response.
+     * @return HTTP response and result parsed using the provided body handler.
+     */
+    private <T> HttpResponse<T> request(
+            final String url,
+            final String httpMethod,
+            final Map<String, String> headers,
+            byte[] requestBody,
+            BodyHandler<T> bodyHandler) {
         try {
             // the region-specific endpoint to the target object expressed in path style
             URI endpointUrl = new URI(url);
@@ -327,7 +404,7 @@ public class S3Client implements AutoCloseable {
 
             HttpRequest request = requestBuilder.build();
 
-            return httpClient.send(request, new XmlBodyHandler());
+            return httpClient.send(request, bodyHandler);
         } catch (IOException e) {
             throw new UncheckedIOException(e);
         } catch (InterruptedException | URISyntaxException e) {

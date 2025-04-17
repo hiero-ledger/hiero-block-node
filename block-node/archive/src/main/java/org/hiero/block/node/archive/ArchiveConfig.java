@@ -22,7 +22,7 @@ import org.hiero.block.node.base.Loggable;
  */
 @ConfigData("archive")
 public record ArchiveConfig(
-        @Loggable @ConfigProperty(defaultValue = "10") int blocksPerFile,
+        @Loggable @ConfigProperty(defaultValue = "100000") int blocksPerFile,
         @Loggable @ConfigProperty(defaultValue = "") String endpointUrl,
         @Loggable @ConfigProperty(defaultValue = "block-node-archive") String bucketName,
         @Loggable @ConfigProperty(defaultValue = "blocks") String basePath,

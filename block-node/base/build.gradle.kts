@@ -18,4 +18,6 @@ testModuleInfo {
     requires("org.junit.jupiter.params")
     requires("org.assertj.core")
     requires("org.mockito")
+    requires("org.testcontainers")
+    requires("io.minio")
 }
