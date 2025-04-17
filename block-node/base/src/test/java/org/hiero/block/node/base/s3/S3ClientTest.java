@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
-package org.hiero.block.node.archive;
+package org.hiero.block.node.base.s3;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import io.minio.GetObjectArgs;
 import io.minio.MakeBucketArgs;
@@ -17,6 +18,7 @@ import java.util.List;
 import java.util.Random;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestInstance;
 import org.testcontainers.containers.GenericContainer;
@@ -96,6 +98,7 @@ public class S3ClientTest {
     }
 
     @Test
+    @DisplayName("Test multipart upload")
     void testMultipartUpload() throws Exception {
         final String key = "foo.txt";
         // create sample data
@@ -135,6 +138,7 @@ public class S3ClientTest {
     }
 
     @Test
+    @DisplayName("Test upload of a large file")
     void testUploadFile() throws Exception {
         final int testContentSize = 8 * 1024 * 1024 + 826;
         final String key = "foo.txt";
@@ -177,5 +181,40 @@ public class S3ClientTest {
         assertEquals(content, new String(downloadedContent), "Downloaded content does not match expected content");
         assertArrayEquals(
                 contentBytes, downloadedContent, "Downloaded content bytes does not match expected content bytes");
+    }
+
+    @Test
+    @DisplayName("Test upload and download of a text file")
+    void testTextFileUploadAndDownload() throws Exception {
+        final String key = "test-text-file.txt";
+        final String text = "Hello, MinIO!";
+
+        try (S3Client s3Client =
+                new S3Client(REGION_NAME, endpoint, BUCKET_NAME, MINIO_ROOT_USER, MINIO_ROOT_PASSWORD)) {
+            assertTrue(s3Client.uploadTextFile(key, "STANDARD", text));
+            // check download with minio client
+            assertEquals(
+                    text,
+                    new String(
+                            minioClient
+                                    .getObject(GetObjectArgs.builder()
+                                            .bucket(BUCKET_NAME)
+                                            .object(key)
+                                            .build())
+                                    .readAllBytes(),
+                            StandardCharsets.UTF_8),
+                    "Downloaded content does not match expected content");
+            // check download with s3 client
+            assertEquals(text, s3Client.downloadTextFile(key), "Downloaded content does not match expected content");
+        }
+    }
+
+    @Test
+    @DisplayName("Test fetching a non-existent object")
+    void testFetchNonExistentObject() throws Exception {
+        try (S3Client s3Client =
+                new S3Client(REGION_NAME, endpoint, BUCKET_NAME, MINIO_ROOT_USER, MINIO_ROOT_PASSWORD)) {
+            assertTrue(s3Client.downloadTextFile("non-existent-object.txt") == null);
+        }
     }
 }

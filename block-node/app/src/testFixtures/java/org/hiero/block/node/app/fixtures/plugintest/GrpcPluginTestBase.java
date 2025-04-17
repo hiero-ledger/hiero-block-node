@@ -25,22 +25,31 @@ import org.hiero.block.node.spi.historicalblocks.HistoricalBlockFacility;
  * plugin. It's parent PluginTestBase mocks out all the base functionality of the block node, including the
  * configuration, metrics, health, block messaging, and historical block facilities. See {@link PluginTestBase} for
  * more details.
+ * <p>
+ * Implementations of this class should call one of the start() methods. This will start the plugin and initialize the
+ * test fixture.
  */
 public abstract class GrpcPluginTestBase<P extends BlockNodePlugin> extends PluginTestBase<P>
         implements ServiceBuilder {
     private record ReqOptions(Optional<String> authority, boolean isProtobuf, boolean isJson, String contentType)
             implements ServiceInterface.RequestOptions {}
-
-    /** The logger for this class. */
-    private final System.Logger LOGGER = System.getLogger(getClass().getName());
-
-    protected final List<Bytes> fromPluginBytes = new ArrayList<>();
-    protected final Pipeline<? super Bytes> toPluginPipe;
-    protected final Pipeline<Bytes> fromPluginPipe;
+    /** The GRPC bytes received from the plugin. */
+    protected List<Bytes> fromPluginBytes = new ArrayList<>();
+    /** The pipeline for GRPC bytes to the plugin. */
+    protected Pipeline<? super Bytes> toPluginPipe;
+    /** The pipeline for GRPC bytes from the plugin. */
+    protected Pipeline<Bytes> fromPluginPipe;
+    /** The GRPC service interface for the plugin. */
     protected ServiceInterface serviceInterface;
 
-    public GrpcPluginTestBase(P plugin, Method method, HistoricalBlockFacility historicalBlockFacility) {
-        super(plugin, historicalBlockFacility);
+    /**
+     * Start the test fixture with the given plugin and historical block facility.
+     *
+     * @param plugin the plugin to be tested
+     * @param historicalBlockFacility the historical block facility to be used
+     */
+    public void start(P plugin, Method method, HistoricalBlockFacility historicalBlockFacility) {
+        super.start(plugin, historicalBlockFacility);
         // setup to receive bytes from the plugin
         fromPluginPipe = new Pipeline<>() {
             @Override
