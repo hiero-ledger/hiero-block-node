@@ -22,7 +22,6 @@ import java.util.zip.CRC32;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipFile;
 import java.util.zip.ZipOutputStream;
-import org.hiero.block.common.utils.FileUtilities;
 import org.hiero.block.node.base.BlockFile;
 import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.historicalblocks.BlockAccessor;
@@ -75,7 +74,7 @@ class ZipBlockArchive {
         // compute block path
         final BlockPath firstBlockPath = computeBlockPath(config, firstBlockNumber);
         // create directories
-        Files.createDirectories(firstBlockPath.dirPath(), FileUtilities.DEFAULT_FOLDER_PERMISSIONS);
+        Files.createDirectories(firstBlockPath.dirPath());
         // create list for all block accessors, so we can delete files after we are done
         final List<BlockAccessor> blockAccessors = IntStream.rangeClosed((int) firstBlockNumber, (int) lastBlockNumber)
                 .mapToObj(historicalBlockFacility::block)
@@ -87,14 +86,15 @@ class ZipBlockArchive {
                 1024 * 1204))) {
             // don't compress the zip file as files are already compressed
             zipOutputStream.setMethod(ZipOutputStream.STORED);
-            for (long blockNumber = firstBlockNumber; blockNumber < lastBlockNumber; blockNumber++) {
+            // todo should we not also set the level to Deflater.NO_COMPRESSION
+            for (long blockNumber = firstBlockNumber; blockNumber <= lastBlockNumber; blockNumber++) {
                 // compute block filename
                 // todo should we also not append the compression extension to the filename?
                 // todo I feel like the accessor should generally be getting us the block file name
                 //   what if the file is zstd compressed but the current runtime compression is none?
-                //   then the file name would be wrong?
-                final String blockFileName = BlockFile.blockFileName(blockNumber)
-                        .concat(config.compression().extension());
+                //   then the file name would be wrong? For now appending, maybe a slight cleanup is in order for this
+                //   logic.
+                final String blockFileName = BlockFile.blockFileName(blockNumber, config.compression());
                 // get block accessor
                 final BlockAccessor blockAccessor = blockAccessors.get((int) (blockNumber - firstBlockNumber));
                 // get the bytes to write, we have to do this as we need to know the size
@@ -115,6 +115,8 @@ class ZipBlockArchive {
             }
         }
         // return block accessors
+        // todo should these accessors be returned? they were here because a delete
+        //   was supposed to be called on them, but we have changed the approach
         return blockAccessors;
     }
 
@@ -160,7 +162,7 @@ class ZipBlockArchive {
                             .filter(path -> path.getFileName().toString().endsWith(".zip"))
                             .min(Comparator.comparingLong(filePath -> {
                                 String fileName = filePath.getFileName().toString();
-                                return Long.parseLong(fileName.substring(0, fileName.indexOf('.')));
+                                return Long.parseLong(fileName.substring(0, fileName.indexOf('s')));
                             }));
                     if (zipFilePath.isPresent()) {
                         try (var zipFile = new ZipFile(zipFilePath.get().toFile())) {
@@ -168,24 +170,19 @@ class ZipBlockArchive {
                                     .mapToLong(entry -> blockNumberFromFile(entry.getName()))
                                     .min()
                                     .orElse(-1);
-                        } catch (IOException e) {
-                            LOGGER.log(System.Logger.Level.ERROR, "Failed to read zip file", e);
-                            context.serverHealth()
-                                    .shutdown(
-                                            ZipBlockArchive.class.getName(),
-                                            "Error reading directory: " + lowestPath + " because " + e.getMessage());
                         }
                     } else {
                         // no zip files found in min directory
                         return -1;
                     }
                 }
-            } catch (Exception e) {
+            } catch (final Exception e) {
                 LOGGER.log(System.Logger.Level.ERROR, "Error reading directory: " + lowestPath, e);
                 context.serverHealth()
                         .shutdown(
                                 ZipBlockArchive.class.getName(),
                                 "Error reading directory: " + lowestPath + " because " + e.getMessage());
+                lowestPath = null;
             }
         }
         return -1;
@@ -217,7 +214,7 @@ class ZipBlockArchive {
                             .filter(path -> path.getFileName().toString().endsWith(".zip"))
                             .max(Comparator.comparingLong(filePath -> {
                                 String fileName = filePath.getFileName().toString();
-                                return Long.parseLong(fileName.substring(0, fileName.indexOf('.')));
+                                return Long.parseLong(fileName.substring(0, fileName.indexOf('s')));
                             }));
                     if (zipFilePath.isPresent()) {
                         try (var zipFile = new ZipFile(zipFilePath.get().toFile())) {
@@ -225,24 +222,19 @@ class ZipBlockArchive {
                                     .mapToLong(entry -> blockNumberFromFile(entry.getName()))
                                     .max()
                                     .orElse(-1);
-                        } catch (IOException e) {
-                            LOGGER.log(System.Logger.Level.ERROR, "Failed to read zip file", e);
-                            context.serverHealth()
-                                    .shutdown(
-                                            ZipBlockArchive.class.getName(),
-                                            "Error reading directory: " + highestPath + " because " + e.getMessage());
                         }
                     } else {
                         // no zip files found in max directory
                         return -1;
                     }
                 }
-            } catch (Exception e) {
+            } catch (final Exception e) {
                 LOGGER.log(System.Logger.Level.ERROR, "Error reading directory: " + highestPath, e);
                 context.serverHealth()
                         .shutdown(
                                 ZipBlockArchive.class.getName(),
                                 "Error reading directory: " + highestPath + " because " + e.getMessage());
+                highestPath = null;
             }
         }
         return -1;

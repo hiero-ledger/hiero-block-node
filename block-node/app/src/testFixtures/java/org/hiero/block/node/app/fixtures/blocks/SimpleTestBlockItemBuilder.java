@@ -161,5 +161,21 @@ public final class SimpleTestBlockItemBuilder {
         return batches;
     }
 
+    public static BlockItem[] createSimpleBlockWithNumber(final long blockNumber) {
+        final BlockItem[] blockItems = new BlockItem[3];
+        blockItems[0] = sampleBlockHeader(blockNumber);
+        blockItems[1] = sampleRoundHeader(blockNumber * 10L);
+        blockItems[2] = sampleBlockProof(blockNumber);
+        return blockItems;
+    }
+
+    public static BlockItemUnparsed[] createSimpleBlockUnparsedWithNumber(final long blockNumber) {
+        final BlockItemUnparsed[] blockItems = new BlockItemUnparsed[3];
+        blockItems[0] = sampleBlockHeaderUnparsed(blockNumber);
+        blockItems[1] = sampleRoundHeaderUnparsed(blockNumber * 10L);
+        blockItems[2] = sampleBlockProofUnparsed(blockNumber);
+        return blockItems;
+    }
+
     private SimpleTestBlockItemBuilder() {}
 }

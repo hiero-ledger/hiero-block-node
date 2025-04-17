@@ -270,10 +270,12 @@ class ZipBlockAccessorTest {
             final ByteArrayOutputStream baos = new ByteArrayOutputStream();
             toTest.writeBytesTo(format, baos);
             baos.close();
-            final byte[] actual = baos.toByteArray();
-            // we must always compress the bytes to compare them with whatever compression type
-            // was used to persist the block
-            final byte[] expected = compressionType.compress(protoBytes.toByteArray());
+            // we must always decompress the bytes to compare them with the expected
+            // as different ways of compressing (streamed/static) may produce
+            // different binary content, but decompression will always get us
+            // the actual bytes
+            final byte[] actual = compressionType.decompress(baos.toByteArray());
+            final byte[] expected = protoBytes.toByteArray();
             assertThat(actual).isEqualTo(expected).containsExactly(expected);
             assertThat(Bytes.wrap(actual).toHex())
                     .isEqualTo(Bytes.wrap(expected).toHex());
@@ -304,10 +306,12 @@ class ZipBlockAccessorTest {
             final ZipBlockAccessor toTest = createBlockAndGetAssociatedAccessor(testConfig, blockPath, protoBytes);
             final ByteArrayOutputStream baos = new ByteArrayOutputStream();
             toTest.writeBytesTo(Format.ZSTD_PROTOBUF, baos);
-            baos.close();
-            final byte[] actual = baos.toByteArray();
-            // we must always compress the bytes to compare them with the zstd compression type
-            final byte[] expected = CompressionType.ZSTD.compress(protoBytes.toByteArray());
+            // we must always decompress the bytes to compare them with the expected
+            // as different ways of compressing (streamed/static) may produce
+            // different binary content, but decompression will always get us
+            // the actual bytes
+            final byte[] actual = CompressionType.ZSTD.decompress(baos.toByteArray());
+            final byte[] expected = protoBytes.toByteArray();
             assertThat(actual).isEqualTo(expected).containsExactly(expected);
             assertThat(Bytes.wrap(actual).toHex())
                     .isEqualTo(Bytes.wrap(expected).toHex());
@@ -340,7 +344,6 @@ class ZipBlockAccessorTest {
             toTest.writeBytesTo(Format.PROTOBUF, baos);
             baos.close();
             final byte[] actual = baos.toByteArray();
-            // we must always compress the bytes to compare them with the zstd compression type
             final byte[] expected = protoBytes.toByteArray();
             assertThat(actual).isEqualTo(expected).containsExactly(expected);
             assertThat(Bytes.wrap(actual).toHex())
@@ -371,7 +374,9 @@ class ZipBlockAccessorTest {
             final ZipBlockAccessor toTest = createBlockAndGetAssociatedAccessor(testConfig, blockPath, protoBytes);
             final Format format = getHappyPathFormat(compressionType);
             // we must always compress the bytes to compare them with whatever compression type
-            // was used to persist the block
+            // was used to persist the block. For this test we need to be sure that
+            // the compress static method will produce the same result as the compress streamed
+            // approach, since we need to allocate for the buffer
             final byte[] expected = compressionType.compress(protoBytes.toByteArray());
             final BufferedData wsd = BufferedData.allocate(expected.length);
             toTest.writeBytesTo(format, wsd);
@@ -464,14 +469,16 @@ class ZipBlockAccessorTest {
             // test zipBlockAccessor.writeTo()
             final ZipBlockAccessor toTest = createBlockAndGetAssociatedAccessor(testConfig, blockPath, protoBytes);
             final Format format = getHappyPathFormat(compressionType);
-            // we must always compress the bytes to compare them with whatever compression type
-            // was used to persist the block
-            final byte[] expected = compressionType.compress(protoBytes.toByteArray());
             final Path targetPath = jimfs.getPath("/target/0.blk");
             Files.createDirectories(targetPath.getParent());
             Files.createFile(targetPath);
             toTest.writeTo(format, targetPath);
-            final byte[] actual = Files.readAllBytes(targetPath);
+            // we must always decompress the bytes to compare them with the expected
+            // as different ways of compressing (streamed/static) may produce
+            // different binary content, but decompression will always get us
+            // the actual bytes
+            final byte[] actual = compressionType.decompress(Files.readAllBytes(targetPath));
+            final byte[] expected = protoBytes.toByteArray();
             assertThat(actual).isEqualTo(expected).containsExactly(expected);
             assertThat(Bytes.wrap(actual).toHex())
                     .isEqualTo(Bytes.wrap(expected).toHex());
@@ -498,14 +505,16 @@ class ZipBlockAccessorTest {
             final Bytes protoBytes = Block.PROTOBUF.toBytes(block);
             // test zipBlockAccessor.writeTo()
             final ZipBlockAccessor toTest = createBlockAndGetAssociatedAccessor(testConfig, blockPath, protoBytes);
-            // we must always compress the bytes to compare them with zstd compression type
-            // was used to persist the block
-            final byte[] expected = CompressionType.ZSTD.compress(protoBytes.toByteArray());
             final Path targetPath = jimfs.getPath("/target/0.blk");
             Files.createDirectories(targetPath.getParent());
             Files.createFile(targetPath);
             toTest.writeTo(Format.ZSTD_PROTOBUF, targetPath);
-            final byte[] actual = Files.readAllBytes(targetPath);
+            // we must always decompress the bytes to compare them with the expected
+            // as different ways of compressing (streamed/static) may produce
+            // different binary content, but decompression will always get us
+            // the actual bytes
+            final byte[] actual = CompressionType.ZSTD.decompress(Files.readAllBytes(targetPath));
+            final byte[] expected = protoBytes.toByteArray();
             assertThat(actual).isEqualTo(expected).containsExactly(expected);
             assertThat(Bytes.wrap(actual).toHex())
                     .isEqualTo(Bytes.wrap(expected).toHex());
@@ -532,12 +541,12 @@ class ZipBlockAccessorTest {
             final Bytes protoBytes = Block.PROTOBUF.toBytes(block);
             // test zipBlockAccessor.writeTo()
             final ZipBlockAccessor toTest = createBlockAndGetAssociatedAccessor(testConfig, blockPath, protoBytes);
-            // we always expect the bytes to be uncompressed
-            final byte[] expected = protoBytes.toByteArray();
             final Path targetPath = jimfs.getPath("/target/0.blk");
             Files.createDirectories(targetPath.getParent());
             Files.createFile(targetPath);
             toTest.writeTo(Format.PROTOBUF, targetPath);
+            // we always expect the bytes to be uncompressed
+            final byte[] expected = protoBytes.toByteArray();
             final byte[] actual = Files.readAllBytes(targetPath);
             assertThat(actual).isEqualTo(expected).containsExactly(expected);
             assertThat(Bytes.wrap(actual).toHex())
