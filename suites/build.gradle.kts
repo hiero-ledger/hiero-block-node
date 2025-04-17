@@ -14,6 +14,7 @@ application {
 mainModuleInfo {
     runtimeOnly("org.testcontainers.junit.jupiter")
     runtimeOnly("org.junit.jupiter.engine")
+    runtimeOnly("org.junit.platform.launcher")
     runtimeOnly("org.testcontainers")
     runtimeOnly("com.swirlds.config.impl")
 }
