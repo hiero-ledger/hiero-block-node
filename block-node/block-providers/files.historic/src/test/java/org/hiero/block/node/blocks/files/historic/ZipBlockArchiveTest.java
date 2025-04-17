@@ -23,7 +23,9 @@ import java.util.zip.ZipOutputStream;
 import org.hiero.block.node.app.fixtures.blocks.SimpleTestBlockItemBuilder;
 import org.hiero.block.node.app.fixtures.plugintest.SimpleInMemoryHistoricalBlockFacility;
 import org.hiero.block.node.app.fixtures.plugintest.TestHealthFacility;
+import org.hiero.block.node.base.CompressionType;
 import org.hiero.block.node.spi.BlockNodeContext;
+import org.hiero.block.node.spi.historicalblocks.BlockAccessor;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -280,6 +282,61 @@ class ZipBlockArchiveTest {
             assertThat(actual).isEqualTo(expected);
             assertThat(testContext.serverHealth().isRunning()).isTrue();
         }
+
+        /**
+         * This test aims to assert that the
+         * {@link ZipBlockArchive#blockAccessor(long)} returns null if no block
+         * is present
+         */
+        @Test
+        @DisplayName("Test blockAccessor() returns null when no block is present")
+        void testBlockAccessorNoBlocksPresent() {
+            final ZipBlockArchive toTest = new ZipBlockArchive(testContext, testConfig);
+            // call
+            final BlockAccessor actual = toTest.blockAccessor(1L);
+            // assert
+            assertThat(actual).isNull();
+        }
+
+        /**
+         * This test aims to assert that the
+         * {@link ZipBlockArchive#blockAccessor(long)} returns null if block is
+         * not found
+         */
+        @Test
+        @DisplayName("Test blockAccessor() returns null when block is not found")
+        void testBlockAccessorBlockNotFound() throws IOException {
+            // we create a block with number 0L so we have some block present,
+            createAndAddBlockEntry(0L);
+            final ZipBlockArchive toTest = new ZipBlockArchive(testContext, testConfig);
+            // call
+            final BlockAccessor actual = toTest.blockAccessor(1L);
+            // assert
+            assertThat(actual).isNull();
+        }
+
+        /**
+         * This test aims to assert that the
+         * {@link ZipBlockArchive#blockAccessor(long)} returns a valid
+         * {@link ZipBlockAccessor} if the block by the given number exists.
+         */
+        @Test
+        @DisplayName("Test blockAccessor() returns valid ZipBlockAccessor when block with number exists")
+        void testBlockAccessorFound() throws IOException {
+            // create test environment, for this test we need one zip file with two zip entries inside
+            final long targetBlockNumber = 1L;
+            final ZipBlockAccessor expected = createAndAddBlockEntry(targetBlockNumber);
+            // create test instance
+            final ZipBlockArchive toTest = new ZipBlockArchive(testContext, testConfig);
+            // call
+            final BlockAccessor actual = toTest.blockAccessor(targetBlockNumber);
+            // assert
+            assertThat(actual)
+                    .isNotNull()
+                    .isExactlyInstanceOf(ZipBlockAccessor.class)
+                    .extracting(BlockAccessor::block)
+                    .isEqualTo(expected.block());
+        }
     }
 
     private ZipBlockAccessor createAndAddBlockEntry(final long blockNumber) throws IOException {
@@ -342,14 +399,6 @@ class ZipBlockArchiveTest {
     }
 
     private FilesHistoricConfig createTestConfiguration(final Path basePath, final int powersOfTenPerZipFileContents) {
-        final FilesHistoricConfig localDefaultConfig = getDefaultConfiguration();
-        return new FilesHistoricConfig(basePath, localDefaultConfig.compression(), powersOfTenPerZipFileContents);
-    }
-
-    private FilesHistoricConfig getDefaultConfiguration() {
-        return ConfigurationBuilder.create()
-                .withConfigDataType(FilesHistoricConfig.class)
-                .build()
-                .getConfigData(FilesHistoricConfig.class);
+        return new FilesHistoricConfig(basePath, CompressionType.NONE, powersOfTenPerZipFileContents);
     }
 }
