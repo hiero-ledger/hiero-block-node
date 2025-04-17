@@ -161,5 +161,13 @@ public final class SimpleTestBlockItemBuilder {
         return batches;
     }
 
+    public static BlockItem[] createSimpleBlockWithNumber(final long blockNumber) {
+        final BlockItem[] blockItems = new BlockItem[3];
+        blockItems[0] = sampleBlockHeader(blockNumber);
+        blockItems[1] = sampleRoundHeader(blockNumber * 10L);
+        blockItems[2] = sampleBlockProof(blockNumber);
+        return blockItems;
+    }
+
     private SimpleTestBlockItemBuilder() {}
 }

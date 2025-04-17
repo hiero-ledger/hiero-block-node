@@ -160,7 +160,7 @@ class ZipBlockArchive {
                             .filter(path -> path.getFileName().toString().endsWith(".zip"))
                             .min(Comparator.comparingLong(filePath -> {
                                 String fileName = filePath.getFileName().toString();
-                                return Long.parseLong(fileName.substring(0, fileName.indexOf('.')));
+                                return Long.parseLong(fileName.substring(0, fileName.indexOf('s')));
                             }));
                     if (zipFilePath.isPresent()) {
                         try (var zipFile = new ZipFile(zipFilePath.get().toFile())) {
@@ -168,24 +168,19 @@ class ZipBlockArchive {
                                     .mapToLong(entry -> blockNumberFromFile(entry.getName()))
                                     .min()
                                     .orElse(-1);
-                        } catch (IOException e) {
-                            LOGGER.log(System.Logger.Level.ERROR, "Failed to read zip file", e);
-                            context.serverHealth()
-                                    .shutdown(
-                                            ZipBlockArchive.class.getName(),
-                                            "Error reading directory: " + lowestPath + " because " + e.getMessage());
                         }
                     } else {
                         // no zip files found in min directory
                         return -1;
                     }
                 }
-            } catch (Exception e) {
+            } catch (final Exception e) {
                 LOGGER.log(System.Logger.Level.ERROR, "Error reading directory: " + lowestPath, e);
                 context.serverHealth()
                         .shutdown(
                                 ZipBlockArchive.class.getName(),
                                 "Error reading directory: " + lowestPath + " because " + e.getMessage());
+                lowestPath = null;
             }
         }
         return -1;
@@ -217,7 +212,7 @@ class ZipBlockArchive {
                             .filter(path -> path.getFileName().toString().endsWith(".zip"))
                             .max(Comparator.comparingLong(filePath -> {
                                 String fileName = filePath.getFileName().toString();
-                                return Long.parseLong(fileName.substring(0, fileName.indexOf('.')));
+                                return Long.parseLong(fileName.substring(0, fileName.indexOf('s')));
                             }));
                     if (zipFilePath.isPresent()) {
                         try (var zipFile = new ZipFile(zipFilePath.get().toFile())) {
@@ -225,24 +220,19 @@ class ZipBlockArchive {
                                     .mapToLong(entry -> blockNumberFromFile(entry.getName()))
                                     .max()
                                     .orElse(-1);
-                        } catch (IOException e) {
-                            LOGGER.log(System.Logger.Level.ERROR, "Failed to read zip file", e);
-                            context.serverHealth()
-                                    .shutdown(
-                                            ZipBlockArchive.class.getName(),
-                                            "Error reading directory: " + highestPath + " because " + e.getMessage());
                         }
                     } else {
                         // no zip files found in max directory
                         return -1;
                     }
                 }
-            } catch (Exception e) {
+            } catch (final Exception e) {
                 LOGGER.log(System.Logger.Level.ERROR, "Error reading directory: " + highestPath, e);
                 context.serverHealth()
                         .shutdown(
                                 ZipBlockArchive.class.getName(),
                                 "Error reading directory: " + highestPath + " because " + e.getMessage());
+                highestPath = null;
             }
         }
         return -1;

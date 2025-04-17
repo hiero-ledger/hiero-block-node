@@ -12,11 +12,14 @@ import java.io.IOException;
 import java.nio.file.FileSystem;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipFile;
+import java.util.zip.ZipOutputStream;
 import org.hiero.block.node.app.fixtures.plugintest.SimpleInMemoryHistoricalBlockFacility;
+import org.hiero.block.node.app.fixtures.plugintest.TestHealthFacility;
 import org.hiero.block.node.spi.BlockNodeContext;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
@@ -56,7 +59,8 @@ class ZipBlockArchiveTest {
         // block context
         defaultTestConfig = createTestConfiguration(jimfs.getPath("/opt/hashgraph/blocknode/data/historic"), 1);
         historicalBlockProvider = new SimpleInMemoryHistoricalBlockFacility();
-        testContext = new BlockNodeContext(configuration, null, null, null, historicalBlockProvider, null);
+        testContext = new BlockNodeContext(
+                configuration, null, new TestHealthFacility(), null, historicalBlockProvider, null);
     }
 
     @AfterEach
@@ -110,35 +114,44 @@ class ZipBlockArchiveTest {
         @Test
         @DisplayName("Test minStoredBlockNumber() returns -1L when zip file is not present")
         void testMinStoredNoZipFile() throws IOException {
+            //
             final Path testRootPath = tempDir.resolve("testRootPath");
             Files.createDirectories(testRootPath);
             final ZipBlockArchive toTest = new ZipBlockArchive(testContext, createTestConfiguration(testRootPath, 1));
+            // assert that server is running before we call actual
+            assertThat(testContext.serverHealth().isRunning()).isTrue();
             final long actual = toTest.minStoredBlockNumber();
+            // assert that server is still running and -1 is returned
             assertThat(actual).isEqualTo(-1L);
+            assertThat(testContext.serverHealth().isRunning()).isTrue();
         }
 
         /**
          * This test aims to assert that the
-         * {@link ZipBlockArchive#minStoredBlockNumber()} returns -1L if the
-         * archive is empty.
+         * {@link ZipBlockArchive#minStoredBlockNumber()} calls shutdown on the
+         * health facility if an exception occurs.
          */
         @Test
-        @DisplayName("Test minStoredBlockNumber() returns -1L when zip file has no entries")
-        @Disabled(
-                "todo determine if the zips should have 's' at the end cause if so, then the logic in the min method must change")
+        @DisplayName("Test minStoredBlockNumber() shuts down server if exception occurs")
         void testMinStoredEmptyZipFile() throws IOException {
+            // create test config, use the temp dir as we will work with the File abstraction
             final Path testRootPath = tempDir.resolve("testRootPath");
             Files.createDirectories(testRootPath);
             final FilesHistoricConfig testConfiguration = createTestConfiguration(testRootPath, 1);
+            // create test environment, in this case we simply create an empty zip file which will produce
+            // an exception when we attempt to look for an entry inside
             final BlockPath computedBlockPath00s = BlockPath.computeBlockPath(testConfiguration, 0L);
-            final BlockPath computedBlockPath10s = BlockPath.computeBlockPath(testConfiguration, 10L);
             Files.createDirectories(computedBlockPath00s.dirPath());
             Files.createFile(computedBlockPath00s.zipFilePath());
-            Files.createDirectories(computedBlockPath10s.dirPath());
-            Files.createFile(computedBlockPath10s.zipFilePath());
+            // create test instance
             final ZipBlockArchive toTest = new ZipBlockArchive(testContext, testConfiguration);
+            // assert that server is running before we call actual
+            assertThat(testContext.serverHealth().isRunning()).isTrue();
+            // call
             final long actual = toTest.minStoredBlockNumber();
+            // assert no longer running server
             assertThat(actual).isEqualTo(-1L);
+            assertThat(testContext.serverHealth().isRunning()).isFalse();
         }
 
         /**
@@ -155,6 +168,36 @@ class ZipBlockArchiveTest {
             final long actual = toTest.maxStoredBlockNumber();
             assertThat(actual).isEqualTo(-1L);
         }
+    }
+
+    private ZipBlockAccessor createAndAddBlockEntry(final BlockPath blockPath, final byte[] bytesToWrite)
+            throws IOException {
+        // create & assert existing block file path before call
+        Files.createDirectories(blockPath.dirPath());
+        // it is important the output stream is closed as the compression writes a footer on close
+        if (Files.notExists(blockPath.dirPath())) {
+            Files.createFile(blockPath.zipFilePath());
+        }
+        try (final ZipOutputStream zipOut = new ZipOutputStream(Files.newOutputStream(blockPath.zipFilePath()))) {
+            // create a new zip entry
+            final ZipEntry zipEntry = new ZipEntry(blockPath.blockFileName());
+            zipOut.putNextEntry(zipEntry);
+            zipOut.write(bytesToWrite);
+            zipOut.closeEntry();
+        }
+        assertThat(blockPath.zipFilePath())
+                .exists()
+                .isReadable()
+                .isWritable()
+                .isNotEmptyFile()
+                .hasExtension("zip");
+        try (final ZipFile zipFile = new ZipFile(blockPath.zipFilePath().toFile())) {
+            final ZipEntry entry = zipFile.getEntry(blockPath.blockFileName());
+            assertThat(entry).isNotNull();
+            final byte[] fromZipEntry = zipFile.getInputStream(entry).readAllBytes();
+            assertThat(fromZipEntry).isEqualTo(bytesToWrite);
+        }
+        return new ZipBlockAccessor(blockPath);
     }
 
     private FilesHistoricConfig createTestConfiguration(final Path basePath, final int powersOfTenPerZipFileContents) {
