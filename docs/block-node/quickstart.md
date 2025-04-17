@@ -11,17 +11,17 @@
 
 ## Configuration
 
-Refer to the [Configuration](../../block-node/server/docs/configuration.md) for configuration options.
+Refer to the [Configuration](../configuration.md) for configuration options.
 
 ## Running locally
 
-- Server subproject qualifier: `:server`
+- Server subproject qualifier: `:block-node:app`
 - Assuming your working directory is the repo root
 
 > **NOTE:** one may use the `-p` flag for `./gradlew` in order to avoid
 > specifying the target subproject repeatedly on each task when running
 > multiple tasks. When running only a single task, however, it is
-> recommended to use the project qualifier (i.e. `:server:`) for
+> recommended to use the project qualifier (i.e. `:block-node:app:`) for
 > both simplicity and clarity.
 
 ### Build the Server
@@ -46,7 +46,7 @@ Refer to the [Configuration](../../block-node/server/docs/configuration.md) for 
 3. To build the Server docker image, do the following:
 
    ```bash
-   ./gradlew :server:createDockerImage
+   ./gradlew :block-node:app:createDockerImage
    ```
 
 ### Run the Server
@@ -54,7 +54,7 @@ Refer to the [Configuration](../../block-node/server/docs/configuration.md) for 
 1. To start the Server, do the following:
 
    ```bash
-   ./gradlew :server:startDockerContainer
+   ./gradlew :block-node:app:startDockerContainer
    ```
 
 ### Run the Server with Debug
@@ -62,7 +62,7 @@ Refer to the [Configuration](../../block-node/server/docs/configuration.md) for 
 1. To start the Server with debug enabled, do the following:
 
    ```bash
-   ./gradlew :server:startDockerDebugContainer
+   ./gradlew :block-node:app:startDockerDebugContainer
    ```
 2. Attach your remote jvm debugger to port 5005.
 
@@ -71,5 +71,5 @@ Refer to the [Configuration](../../block-node/server/docs/configuration.md) for 
 1. To stop the Server do the following:
 
    ```bash
-   ./gradlew :server:stopDockerContainer
+   ./gradlew :block-node:app:stopDockerContainer
    ```
