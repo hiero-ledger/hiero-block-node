@@ -16,7 +16,7 @@ with a well-defined transform from property name to environment variable name.
 
 ## Server
 
-Server configuration options are described at [Server Configuration](server/configuration.md).
+Server configuration options are described at [Server Configuration](block-node/configuration.md).
 
 ## Simulator
 
