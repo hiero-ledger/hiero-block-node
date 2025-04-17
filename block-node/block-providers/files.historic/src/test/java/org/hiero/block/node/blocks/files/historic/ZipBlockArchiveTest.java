@@ -6,15 +6,23 @@ import static org.assertj.core.api.Assertions.assertThatNoException;
 import static org.assertj.core.api.Assertions.assertThatNullPointerException;
 
 import com.google.common.jimfs.Jimfs;
+import com.hedera.hapi.block.stream.Block;
+import com.hedera.hapi.block.stream.BlockItem;
+import com.hedera.pbj.runtime.io.buffer.Bytes;
 import com.swirlds.config.api.Configuration;
 import com.swirlds.config.api.ConfigurationBuilder;
 import java.io.IOException;
+import java.io.InputStream;
 import java.nio.file.FileSystem;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
+import java.util.Enumeration;
+import java.util.List;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipFile;
 import java.util.zip.ZipOutputStream;
+import org.hiero.block.node.app.fixtures.blocks.SimpleTestBlockItemBuilder;
 import org.hiero.block.node.app.fixtures.plugintest.SimpleInMemoryHistoricalBlockFacility;
 import org.hiero.block.node.app.fixtures.plugintest.TestHealthFacility;
 import org.hiero.block.node.spi.BlockNodeContext;
@@ -154,6 +162,36 @@ class ZipBlockArchiveTest {
             assertThat(testContext.serverHealth().isRunning()).isFalse();
         }
 
+        @Test
+        @DisplayName("Test minStoredBlockNumber() correctly returns lowest block number single zip file")
+        void testMinStoredSingleZipFile() throws IOException {
+            // create test config, use the temp dir as we will work with the File abstraction
+            final Path testRootPath = tempDir.resolve("testRootPath");
+            Files.createDirectories(testRootPath);
+            final FilesHistoricConfig testConfiguration = createTestConfiguration(testRootPath, 1);
+            // create test environment, for this test we need one zip file with two zip entries inside
+            final long expected = 3L;
+            final BlockPath computedBlockPathBlock3 = BlockPath.computeBlockPath(testConfiguration, expected);
+            final BlockItem[] blockItemsForBlock3 = SimpleTestBlockItemBuilder.createSimpleBlockWithNumber(expected);
+            final Block block3 = new Block(List.of(blockItemsForBlock3));
+            final Bytes block3Bytes = Block.PROTOBUF.toBytes(block3);
+            createAndAddBlockEntry(computedBlockPathBlock3, block3Bytes.toByteArray());
+            final BlockPath computedBlockPathBlock4 = BlockPath.computeBlockPath(testConfiguration, 4L);
+            final BlockItem[] blockItemsForBlock4 = SimpleTestBlockItemBuilder.createSimpleBlockWithNumber(4L);
+            final Block block4 = new Block(List.of(blockItemsForBlock4));
+            final Bytes block4Bytes = Block.PROTOBUF.toBytes(block4);
+            createAndAddBlockEntry(computedBlockPathBlock4, block4Bytes.toByteArray());
+            // create test instance
+            final ZipBlockArchive toTest = new ZipBlockArchive(testContext, testConfiguration);
+            // assert that server is running before we call actual
+            assertThat(testContext.serverHealth().isRunning()).isTrue();
+            // call
+            final long actual = toTest.minStoredBlockNumber();
+            // assert expected result and still running server
+            assertThat(actual).isEqualTo(expected);
+            assertThat(testContext.serverHealth().isRunning()).isTrue();
+        }
+
         /**
          * This test aims to assert that the
          * {@link ZipBlockArchive#maxStoredBlockNumber()} returns -1L if the
@@ -175,15 +213,36 @@ class ZipBlockArchiveTest {
         // create & assert existing block file path before call
         Files.createDirectories(blockPath.dirPath());
         // it is important the output stream is closed as the compression writes a footer on close
-        if (Files.notExists(blockPath.dirPath())) {
+        if (Files.notExists(blockPath.zipFilePath())) {
             Files.createFile(blockPath.zipFilePath());
-        }
-        try (final ZipOutputStream zipOut = new ZipOutputStream(Files.newOutputStream(blockPath.zipFilePath()))) {
-            // create a new zip entry
-            final ZipEntry zipEntry = new ZipEntry(blockPath.blockFileName());
-            zipOut.putNextEntry(zipEntry);
-            zipOut.write(bytesToWrite);
-            zipOut.closeEntry();
+            try (final ZipOutputStream zipOut = new ZipOutputStream(Files.newOutputStream(blockPath.zipFilePath()))) {
+                // create a new zip entry
+                final ZipEntry zipEntry = new ZipEntry(blockPath.blockFileName());
+                zipOut.putNextEntry(zipEntry);
+                zipOut.write(bytesToWrite);
+                zipOut.closeEntry();
+            }
+        } else {
+            final Path tempZip = blockPath.zipFilePath().resolveSibling("temp.zip");
+            try (final ZipFile zipFile = new ZipFile(blockPath.zipFilePath().toFile());
+                    final ZipOutputStream zipOut = new ZipOutputStream(Files.newOutputStream(tempZip))) {
+                // Copy existing entries
+                final Enumeration<? extends ZipEntry> entries = zipFile.entries();
+                while (entries.hasMoreElements()) {
+                    final ZipEntry entry = entries.nextElement();
+                    zipOut.putNextEntry(new ZipEntry(entry.getName()));
+                    try (final InputStream inputStream = zipFile.getInputStream(entry)) {
+                        inputStream.transferTo(zipOut);
+                    }
+                    zipOut.closeEntry();
+                }
+                // Add the new entry
+                final ZipEntry newEntry = new ZipEntry(blockPath.blockFileName());
+                zipOut.putNextEntry(newEntry);
+                zipOut.write(bytesToWrite);
+                zipOut.closeEntry();
+            }
+            Files.move(tempZip, blockPath.zipFilePath(), StandardCopyOption.REPLACE_EXISTING);
         }
         assertThat(blockPath.zipFilePath())
                 .exists()
