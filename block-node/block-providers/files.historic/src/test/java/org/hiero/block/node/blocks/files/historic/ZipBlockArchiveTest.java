@@ -4,9 +4,11 @@ package org.hiero.block.node.blocks.files.historic;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatNoException;
 import static org.assertj.core.api.Assertions.assertThatNullPointerException;
+import static org.assertj.core.api.Assertions.from;
 
 import com.hedera.hapi.block.stream.Block;
 import com.hedera.hapi.block.stream.BlockItem;
+import com.hedera.pbj.runtime.ParseException;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import com.swirlds.config.api.Configuration;
 import com.swirlds.config.api.ConfigurationBuilder;
@@ -17,17 +19,22 @@ import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.util.Enumeration;
 import java.util.List;
+import java.util.Map;
+import java.util.TreeMap;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipFile;
 import java.util.zip.ZipOutputStream;
 import org.hiero.block.node.app.fixtures.blocks.SimpleTestBlockItemBuilder;
 import org.hiero.block.node.app.fixtures.plugintest.SimpleInMemoryHistoricalBlockFacility;
 import org.hiero.block.node.app.fixtures.plugintest.TestHealthFacility;
+import org.hiero.block.node.base.BlockFile;
 import org.hiero.block.node.base.CompressionType;
 import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.blockmessaging.BlockItems;
 import org.hiero.block.node.spi.historicalblocks.BlockAccessor;
+import org.hiero.block.node.spi.historicalblocks.BlockRangeSet;
 import org.hiero.hapi.block.node.BlockItemUnparsed;
+import org.hiero.hapi.block.node.BlockUnparsed;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -48,6 +55,8 @@ class ZipBlockArchiveTest {
     /** Temp dir used for testing as the File abstraction is not supported by jimfs */
     @TempDir
     private Path tempDir;
+    /** The {@link ZipBlockArchive} instance to be tested. */
+    private ZipBlockArchive toTest;
 
     /**
      * Environment setup before each test.
@@ -67,6 +76,7 @@ class ZipBlockArchiveTest {
         historicalBlockProvider = new SimpleInMemoryHistoricalBlockFacility();
         testContext = new BlockNodeContext(
                 configuration, null, new TestHealthFacility(), null, historicalBlockProvider, null);
+        toTest = new ZipBlockArchive(testContext, testConfig);
     }
 
     /**
@@ -357,6 +367,10 @@ class ZipBlockArchiveTest {
                         List.of(SimpleTestBlockItemBuilder.createSimpleBlockUnparsedWithNumber(i));
                 historicalBlockProvider.handleBlockItemsReceived(new BlockItems(blockItems, i));
             }
+            // before test assert that all the blocks for numbers 0-19 are present in the block facility
+            assertThat(historicalBlockProvider.availableBlocks())
+                    .returns(0L, from(BlockRangeSet::min))
+                    .returns(19L, from(BlockRangeSet::max));
             // create the instance to test
             final ZipBlockArchive toTest = new ZipBlockArchive(testContext, testConfig);
             // assert no zip file is created yet, the zip file will be all the same
@@ -375,6 +389,59 @@ class ZipBlockArchiveTest {
                     .isWritable()
                     .isNotEmptyFile()
                     .hasExtension("zip");
+        }
+
+        /**
+         * This test aims to assert that the
+         * {@link ZipBlockArchive#writeNewZipFile(long)} will produce the right
+         * contents for the created zip file
+         */
+        @Test
+        @DisplayName("Test writeNewZipFile() zip file has the right contents")
+        void testZipContents() throws IOException, ParseException {
+            final Map<String, BlockUnparsed> first10BlocksWithExpectedEntryNames = new TreeMap<>();
+            final long firstBlockNumber = 0L;
+            // add first 20 blocks to the historical block facility
+            // we expect that the zip file will be created with the first 10 blocks
+            // because the test config is set to 10 blocks per zip file
+            // create the instance to test
+            for (int i = (int) firstBlockNumber; i < 20; i++) {
+                final List<BlockItemUnparsed> blockItems =
+                        List.of(SimpleTestBlockItemBuilder.createSimpleBlockUnparsedWithNumber(i));
+                if (i < 10) {
+                    final String key = BlockFile.blockFileName(i, testConfig.compression());
+                    final BlockUnparsed value = new BlockUnparsed(blockItems);
+                    first10BlocksWithExpectedEntryNames.put(key, value);
+                }
+                historicalBlockProvider.handleBlockItemsReceived(new BlockItems(blockItems, i));
+            }
+            // before test assert that all the blocks for numbers 0-19 are present in the block facility
+            assertThat(historicalBlockProvider.availableBlocks())
+                    .returns(0L, from(BlockRangeSet::min))
+                    .returns(19L, from(BlockRangeSet::max));
+            final ZipBlockArchive toTest = new ZipBlockArchive(testContext, testConfig);
+            // assert no zip file is created yet, the zip file will be all the same
+            // for all the 10 zips, so we can rely on asserting based on computed path for the first block
+            // expected
+            final Path expected =
+                    BlockPath.computeBlockPath(testConfig, firstBlockNumber).zipFilePath();
+            assertThat(expected).doesNotExist();
+            // call
+            toTest.writeNewZipFile(firstBlockNumber);
+            // assert that each entry's contents matches what we initially intended
+            // to write
+            try (final ZipFile zipFile = new ZipFile(expected.toFile())) {
+                final Enumeration<? extends ZipEntry> entries = zipFile.entries();
+                while (entries.hasMoreElements()) {
+                    final ZipEntry zipEntry = entries.nextElement();
+                    final BlockUnparsed expectedValue = first10BlocksWithExpectedEntryNames.get(zipEntry.getName());
+                    try (final InputStream in = zipFile.getInputStream(zipEntry)) {
+                        final byte[] rawContents = in.readAllBytes();
+                        final BlockUnparsed actualValue = BlockUnparsed.PROTOBUF.parse(Bytes.wrap(rawContents));
+                        assertThat(actualValue).isEqualTo(expectedValue);
+                    }
+                }
+            }
         }
     }
 
@@ -438,6 +505,7 @@ class ZipBlockArchiveTest {
     }
 
     private FilesHistoricConfig createTestConfiguration(final Path basePath, final int powersOfTenPerZipFileContents) {
+        // for simplicity let's use no compression
         return new FilesHistoricConfig(basePath, CompressionType.NONE, powersOfTenPerZipFileContents);
     }
 }

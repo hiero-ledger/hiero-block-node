@@ -94,8 +94,7 @@ class ZipBlockArchive {
                 //   what if the file is zstd compressed but the current runtime compression is none?
                 //   then the file name would be wrong? For now appending, maybe a slight cleanup is in order for this
                 //   logic.
-                final String blockFileName = BlockFile.blockFileName(blockNumber)
-                        .concat(config.compression().extension());
+                final String blockFileName = BlockFile.blockFileName(blockNumber, config.compression());
                 // get block accessor
                 final BlockAccessor blockAccessor = blockAccessors.get((int) (blockNumber - firstBlockNumber));
                 // get the bytes to write, we have to do this as we need to know the size
