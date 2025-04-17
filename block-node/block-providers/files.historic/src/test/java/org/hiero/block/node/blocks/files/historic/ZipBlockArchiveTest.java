@@ -142,21 +142,18 @@ class ZipBlockArchiveTest {
             assertThat(testContext.serverHealth().isRunning()).isFalse();
         }
 
+        /**
+         * This test aims to assert that the
+         * {@link ZipBlockArchive#minStoredBlockNumber()} correctly returns the
+         * lowest block number based on single existing zip file.
+         */
         @Test
         @DisplayName("Test minStoredBlockNumber() correctly returns lowest block number single zip file")
         void testMinStoredSingleZipFile() throws IOException {
             // create test environment, for this test we need one zip file with two zip entries inside
             final long expected = 3L;
-            final BlockPath computedBlockPathBlock3 = BlockPath.computeBlockPath(testConfig, expected);
-            final BlockItem[] blockItemsForBlock3 = SimpleTestBlockItemBuilder.createSimpleBlockWithNumber(expected);
-            final Block block3 = new Block(List.of(blockItemsForBlock3));
-            final Bytes block3Bytes = Block.PROTOBUF.toBytes(block3);
-            createAndAddBlockEntry(computedBlockPathBlock3, block3Bytes.toByteArray());
-            final BlockPath computedBlockPathBlock4 = BlockPath.computeBlockPath(testConfig, 4L);
-            final BlockItem[] blockItemsForBlock4 = SimpleTestBlockItemBuilder.createSimpleBlockWithNumber(4L);
-            final Block block4 = new Block(List.of(blockItemsForBlock4));
-            final Bytes block4Bytes = Block.PROTOBUF.toBytes(block4);
-            createAndAddBlockEntry(computedBlockPathBlock4, block4Bytes.toByteArray());
+            createAndAddBlockEntry(expected);
+            createAndAddBlockEntry(4L);
             // create test instance
             final ZipBlockArchive toTest = new ZipBlockArchive(testContext, testConfig);
             // assert that server is running before we call actual
@@ -168,21 +165,21 @@ class ZipBlockArchiveTest {
             assertThat(testContext.serverHealth().isRunning()).isTrue();
         }
 
+        /**
+         * This test aims to assert that the
+         * {@link ZipBlockArchive#minStoredBlockNumber()} correctly returns the
+         * lowest block number based on multiple existing zip files.
+         */
         @Test
         @DisplayName("Test minStoredBlockNumber() correctly returns lowest block number multiple zip file")
         void testMinStoredMultipleZipFile() throws IOException {
-            // create test environment, for this test we need one zip file with two zip entries inside
+            // create test environment, for this test we need two zip files with two zip entries inside each
             final long expected = 3L;
-            final BlockPath computedBlockPathBlock3 = BlockPath.computeBlockPath(testConfig, expected);
-            final BlockItem[] blockItemsForBlock3 = SimpleTestBlockItemBuilder.createSimpleBlockWithNumber(expected);
-            final Block block3 = new Block(List.of(blockItemsForBlock3));
-            final Bytes block3Bytes = Block.PROTOBUF.toBytes(block3);
-            createAndAddBlockEntry(computedBlockPathBlock3, block3Bytes.toByteArray());
-            final BlockPath computedBlockPathBlock4 = BlockPath.computeBlockPath(testConfig, 4L);
-            final BlockItem[] blockItemsForBlock4 = SimpleTestBlockItemBuilder.createSimpleBlockWithNumber(4L);
-            final Block block4 = new Block(List.of(blockItemsForBlock4));
-            final Bytes block4Bytes = Block.PROTOBUF.toBytes(block4);
-            createAndAddBlockEntry(computedBlockPathBlock4, block4Bytes.toByteArray());
+            createAndAddBlockEntry(expected);
+            createAndAddBlockEntry(4L);
+            // zip size are 10 blocks, so the following 2 will be in another file
+            createAndAddBlockEntry(13L);
+            createAndAddBlockEntry(14L);
             // create test instance
             final ZipBlockArchive toTest = new ZipBlockArchive(testContext, testConfig);
             // assert that server is running before we call actual
@@ -206,6 +203,14 @@ class ZipBlockArchiveTest {
             final long actual = toTest.maxStoredBlockNumber();
             assertThat(actual).isEqualTo(-1L);
         }
+    }
+
+    private ZipBlockAccessor createAndAddBlockEntry(final long blockNumber) throws IOException {
+        final BlockPath blockPath = BlockPath.computeBlockPath(testConfig, blockNumber);
+        final BlockItem[] blockItems = SimpleTestBlockItemBuilder.createSimpleBlockWithNumber(blockNumber);
+        final Block block = new Block(List.of(blockItems));
+        final Bytes blockBytes = Block.PROTOBUF.toBytes(block);
+        return createAndAddBlockEntry(blockPath, blockBytes.toByteArray());
     }
 
     private ZipBlockAccessor createAndAddBlockEntry(final BlockPath blockPath, final byte[] bytesToWrite)
