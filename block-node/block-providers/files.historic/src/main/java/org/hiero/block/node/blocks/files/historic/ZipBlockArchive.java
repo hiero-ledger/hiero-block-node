@@ -22,7 +22,6 @@ import java.util.zip.CRC32;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipFile;
 import java.util.zip.ZipOutputStream;
-import org.hiero.block.common.utils.FileUtilities;
 import org.hiero.block.node.base.BlockFile;
 import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.historicalblocks.BlockAccessor;
@@ -75,7 +74,7 @@ class ZipBlockArchive {
         // compute block path
         final BlockPath firstBlockPath = computeBlockPath(config, firstBlockNumber);
         // create directories
-        Files.createDirectories(firstBlockPath.dirPath(), FileUtilities.DEFAULT_FOLDER_PERMISSIONS);
+        Files.createDirectories(firstBlockPath.dirPath());
         // create list for all block accessors, so we can delete files after we are done
         final List<BlockAccessor> blockAccessors = IntStream.rangeClosed((int) firstBlockNumber, (int) lastBlockNumber)
                 .mapToObj(historicalBlockFacility::block)
@@ -87,12 +86,14 @@ class ZipBlockArchive {
                 1024 * 1204))) {
             // don't compress the zip file as files are already compressed
             zipOutputStream.setMethod(ZipOutputStream.STORED);
-            for (long blockNumber = firstBlockNumber; blockNumber < lastBlockNumber; blockNumber++) {
+            // todo should we not also set the level to Deflater.NO_COMPRESSION
+            for (long blockNumber = firstBlockNumber; blockNumber <= lastBlockNumber; blockNumber++) {
                 // compute block filename
                 // todo should we also not append the compression extension to the filename?
                 // todo I feel like the accessor should generally be getting us the block file name
                 //   what if the file is zstd compressed but the current runtime compression is none?
-                //   then the file name would be wrong?
+                //   then the file name would be wrong? For now appending, maybe a slight cleanup is in order for this
+                //   logic.
                 final String blockFileName = BlockFile.blockFileName(blockNumber)
                         .concat(config.compression().extension());
                 // get block accessor
@@ -115,6 +116,8 @@ class ZipBlockArchive {
             }
         }
         // return block accessors
+        // todo should these accessors be returned? they were here because a delete
+        //   was supposed to be called on them, but we have changed the approach
         return blockAccessors;
     }
 

@@ -169,5 +169,13 @@ public final class SimpleTestBlockItemBuilder {
         return blockItems;
     }
 
+    public static BlockItemUnparsed[] createSimpleBlockUnparsedWithNumber(final long blockNumber) {
+        final BlockItemUnparsed[] blockItems = new BlockItemUnparsed[3];
+        blockItems[0] = sampleBlockHeaderUnparsed(blockNumber);
+        blockItems[1] = sampleRoundHeaderUnparsed(blockNumber * 10L);
+        blockItems[2] = sampleBlockProofUnparsed(blockNumber);
+        return blockItems;
+    }
+
     private SimpleTestBlockItemBuilder() {}
 }

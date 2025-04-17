@@ -25,7 +25,9 @@ import org.hiero.block.node.app.fixtures.plugintest.SimpleInMemoryHistoricalBloc
 import org.hiero.block.node.app.fixtures.plugintest.TestHealthFacility;
 import org.hiero.block.node.base.CompressionType;
 import org.hiero.block.node.spi.BlockNodeContext;
+import org.hiero.block.node.spi.blockmessaging.BlockItems;
 import org.hiero.block.node.spi.historicalblocks.BlockAccessor;
+import org.hiero.hapi.block.node.BlockItemUnparsed;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -336,6 +338,43 @@ class ZipBlockArchiveTest {
                     .isExactlyInstanceOf(ZipBlockAccessor.class)
                     .extracting(BlockAccessor::block)
                     .isEqualTo(expected.block());
+        }
+
+        /**
+         * This test aims to assert that the
+         * {@link ZipBlockArchive#writeNewZipFile(long)} will successfully
+         * create the target zip file
+         */
+        @Test
+        @DisplayName("Test writeNewZipFile() successfully creates the zip")
+        void testZipSuccessfullyCreated() throws IOException {
+            final long firstBlockNumber = 0L;
+            // add first 20 blocks to the historical block facility
+            // we expect that the zip file will be created with the first 10 blocks
+            // because the test config is set to 10 blocks per zip file
+            for (int i = (int) firstBlockNumber; i < 20; i++) {
+                final List<BlockItemUnparsed> blockItems =
+                        List.of(SimpleTestBlockItemBuilder.createSimpleBlockUnparsedWithNumber(i));
+                historicalBlockProvider.handleBlockItemsReceived(new BlockItems(blockItems, i));
+            }
+            // create the instance to test
+            final ZipBlockArchive toTest = new ZipBlockArchive(testContext, testConfig);
+            // assert no zip file is created yet, the zip file will be all the same
+            // for all the 10 zips, so we can rely on asserting based on computed path for the first block
+            // expected
+            final Path expected =
+                    BlockPath.computeBlockPath(testConfig, firstBlockNumber).zipFilePath();
+            assertThat(expected).doesNotExist();
+            // call
+            toTest.writeNewZipFile(firstBlockNumber);
+            // assert existing zip file
+            assertThat(expected)
+                    .exists()
+                    .isRegularFile()
+                    .isReadable()
+                    .isWritable()
+                    .isNotEmptyFile()
+                    .hasExtension("zip");
         }
     }
 
