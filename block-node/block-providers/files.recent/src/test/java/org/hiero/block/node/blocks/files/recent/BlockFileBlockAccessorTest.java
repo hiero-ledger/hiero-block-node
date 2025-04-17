@@ -82,7 +82,8 @@ class BlockFileBlockAccessorTest {
         @Test
         void testNullBlockFilePath() {
             // call && assert
-            assertThatNullPointerException().isThrownBy(() -> new BlockFileBlockAccessor(null, CompressionType.NONE, 0));
+            assertThatNullPointerException()
+                    .isThrownBy(() -> new BlockFileBlockAccessor(null, CompressionType.NONE, 0));
         }
 
         /**
@@ -145,7 +146,8 @@ class BlockFileBlockAccessorTest {
                     .isReadable()
                     .isWritable();
             // call && assert
-            assertThatNoException().isThrownBy(() -> new BlockFileBlockAccessor(blockFilePath, CompressionType.NONE, 0));
+            assertThatNoException()
+                    .isThrownBy(() -> new BlockFileBlockAccessor(blockFilePath, CompressionType.NONE, 0));
         }
     }
 
@@ -563,8 +565,8 @@ class BlockFileBlockAccessorTest {
         }
 
         private BlockFileBlockAccessor createBlockAndGetAssociatedAccessor(
-                long blockNumber, final Path blockFilePath, final CompressionType compressionType,
-                Bytes protoBytes) throws IOException {
+                long blockNumber, final Path blockFilePath, final CompressionType compressionType, Bytes protoBytes)
+                throws IOException {
 
             // create & assert existing block file path before call
             Files.createFile(blockFilePath);
@@ -579,7 +581,10 @@ class BlockFileBlockAccessorTest {
         }
 
         private BlockFileBlockAccessor buildAndCreateBlockAndGetAssociatedAccessor(
-                long blockNumber, final Path blockFilePath, final CompressionType compressionType, final int numberOfBlocks)
+                long blockNumber,
+                final Path blockFilePath,
+                final CompressionType compressionType,
+                final int numberOfBlocks)
                 throws IOException {
             final BlockItemUnparsed[] blockItems1 =
                     SimpleTestBlockItemBuilder.createNumberOfVerySimpleBlocksUnparsed(numberOfBlocks);

@@ -15,11 +15,12 @@ mainModuleInfo {
 }
 
 testModuleInfo {
-    requires("org.assertj.core")
     requires("org.junit.jupiter.api")
-    requires("org.junit.jupiter.params")
     requires("org.hiero.block.node.app.test.fixtures")
     requires("testcontainers.junit.jupiter")
     requires("org.testcontainers")
     requires("io.minio")
+    requires("com.github.luben.zstd_jni")
+    requires("com.hedera.pbj.runtime")
+    requires("org.hiero.block.stream")
 }

@@ -1,9 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.node.archive;
 
-import static org.hiero.block.node.archive.S3Upload.uploadFile;
-
-import com.hedera.pbj.runtime.io.buffer.Bytes;
+import java.util.Iterator;
 import java.util.stream.LongStream;
 import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.BlockNodePlugin;
@@ -19,6 +17,8 @@ import org.hiero.block.node.spi.historicalblocks.BlockAccessor.Format;
  * fetch those blocks from persistence plugins and upload to the archive.
  */
 public class ArchivePlugin implements BlockNodePlugin, BlockNotificationHandler {
+    /** The logger for this class. */
+    private final System.Logger LOGGER = System.getLogger(getClass().getName());
     // keep track of the last block number archived
     // have configuration for the number of blocks to archive at a time
     // on init register as a block notification handler, listen to persisted notifications
@@ -40,26 +40,35 @@ public class ArchivePlugin implements BlockNodePlugin, BlockNotificationHandler 
     }
 
     /**
-     * Upload a batch of blocks to the tar archive in S3 bucket. This is called when a batch of blocks is available to
+     * Upload a batch of blocks to the tar archive in S3 bucket. This is called when a batch of blocks can
      * be archived.
      *
      * @param startBlockNumber the first block number to upload
      * @param endBlockNumber the last block number to upload, inclusive
      */
-    public void uploadBlocksTar(long startBlockNumber, long endBlockNumber) {
+    void uploadBlocksTar(long startBlockNumber, long endBlockNumber) {
         // The HTTP client needs an Iterable of byte arrays, so create one from the blocks
-        final Iterable<byte[]> tarBlocks = () -> new TaredBlockIterator(Format.ZSTD_PROTOBUF,
-                LongStream.range(startBlockNumber, endBlockNumber+1)
-                        .mapToObj(blockNumber -> context.historicalBlockProvider().block(blockNumber))
+        final Iterator<byte[]> tarBlocks = new TaredBlockIterator(
+                Format.ZSTD_PROTOBUF,
+                LongStream.range(startBlockNumber, endBlockNumber + 1)
+                        .mapToObj(
+                                blockNumber -> context.historicalBlockProvider().block(blockNumber))
                         .iterator());
         // Upload the blocks to S3
-        uploadFile(archiveConfig.endpointUrl(),
+        try (final S3Client s3Client = new S3Client(
+                archiveConfig.regionName(),
+                archiveConfig.endpointUrl(),
                 archiveConfig.bucketName(),
-                archiveConfig.basePath() + "/"
-                        + startBlockNumber + "-" + endBlockNumber + ".tar",
                 archiveConfig.accessKey(),
-                archiveConfig.secretKey(),
-                tarBlocks,
-                "application/x-tar");
+                archiveConfig.secretKey())) {
+            s3Client.uploadFile(
+                    archiveConfig.basePath() + "/" + startBlockNumber + "-" + endBlockNumber + ".tar",
+                    archiveConfig.storageClass(),
+                    tarBlocks,
+                    "application/x-tar");
+        } catch (Exception e) {
+            LOGGER.log(System.Logger.Level.ERROR, "Failed to upload blocks to S3: " + e.getMessage(), e);
+            throw new RuntimeException(e);
+        }
     }
 }
