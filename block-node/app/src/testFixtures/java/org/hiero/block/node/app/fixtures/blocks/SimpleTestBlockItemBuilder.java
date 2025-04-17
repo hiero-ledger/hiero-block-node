@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.node.app.fixtures.blocks;
 
+import com.hedera.hapi.block.stream.Block;
 import com.hedera.hapi.block.stream.BlockItem;
 import com.hedera.hapi.block.stream.BlockItem.ItemOneOfType;
 import com.hedera.hapi.block.stream.BlockProof;
@@ -12,10 +13,13 @@ import com.hedera.hapi.node.base.Timestamp;
 import com.hedera.pbj.runtime.OneOf;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
-import org.hiero.block.internal.BlockItemUnparsed;
+import java.util.stream.LongStream;
 import org.hiero.block.node.spi.blockmessaging.BlockItems;
+import org.hiero.block.node.spi.historicalblocks.BlockAccessor;
+import org.hiero.block.internal.BlockItemUnparsed;
 
 /**
  * A utility class to create sample BlockItem objects for testing purposes.
@@ -103,18 +107,47 @@ public final class SimpleTestBlockItemBuilder {
      * @param endBlockNumber the ending block number, inclusive
      * @return an array of BlockItem objects
      */
-    public static BlockItem[] createNumberOfVerySimpleBlocks(final int startBlockNumber, final int endBlockNumber) {
+    public static BlockItem[] createNumberOfVerySimpleBlocks(final long startBlockNumber, final long endBlockNumber) {
         assert startBlockNumber <= endBlockNumber;
         assert startBlockNumber >= 0;
-        final int numberOfBlocks = endBlockNumber - startBlockNumber + 1;
+        final int numberOfBlocks = (int) (endBlockNumber - startBlockNumber + 1);
         final BlockItem[] blockItems = new BlockItem[numberOfBlocks * 3];
-        for (int blockNumber = startBlockNumber; blockNumber <= endBlockNumber; blockNumber++) {
-            final int i = (blockNumber - startBlockNumber) * 3;
+        for (int blockNumber = (int) startBlockNumber; blockNumber <= endBlockNumber; blockNumber++) {
+            final int i = (blockNumber - (int) startBlockNumber) * 3;
             blockItems[i] = sampleBlockHeader(blockNumber);
             blockItems[i + 1] = sampleRoundHeader(blockNumber * 10L);
             blockItems[i + 2] = sampleBlockProof(blockNumber);
         }
         return blockItems;
+    }
+
+    /**
+     * Creates an array of BlockAccessor objects representing a very simple block stream of blocks from startBlockNumber
+     * to but endBlockNumber inclusive.
+     *
+     * @param startBlockNumber the starting block number
+     * @param endBlockNumber the ending block number, inclusive
+     * @return an array of BlockAccessor objects
+     */
+    public static BlockAccessor[] createNumberOfVerySimpleBlockAccessors(
+            final int startBlockNumber, final int endBlockNumber) {
+        return LongStream.range(startBlockNumber, endBlockNumber + 1)
+                .mapToObj(bn -> {
+                    BlockItem[] blockItems = createNumberOfVerySimpleBlocks(bn, bn);
+                    Block block = new Block(Arrays.asList(blockItems));
+                    return new BlockAccessor() {
+                        @Override
+                        public long blockNumber() {
+                            return bn;
+                        }
+
+                        @Override
+                        public Block block() {
+                            return block;
+                        }
+                    };
+                })
+                .toArray(BlockAccessor[]::new);
     }
 
     /**

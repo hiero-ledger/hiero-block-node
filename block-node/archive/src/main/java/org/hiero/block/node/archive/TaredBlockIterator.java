@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.node.archive;
 
 import java.nio.charset.StandardCharsets;
@@ -43,7 +44,14 @@ public class TaredBlockIterator implements Iterator<byte[]> {
     /** True if we have written the end of archive */
     private boolean endOfArchiveWritten = false;
     /** The iterate state enum */
-    enum State { NEXT_FILE, WRITE_HEADER, WRITE_CONTENT, WRITE_PADDING, END_OF_ARCHIVE, DONE }
+    enum State {
+        NEXT_FILE,
+        WRITE_HEADER,
+        WRITE_CONTENT,
+        WRITE_PADDING,
+        END_OF_ARCHIVE,
+        DONE
+    }
 
     /**
      * Creates a new TaredBlockIterator.
@@ -56,8 +64,7 @@ public class TaredBlockIterator implements Iterator<byte[]> {
         this.extension = switch (format) {
             case Format.JSON -> ".json";
             case Format.PROTOBUF -> ".blk";
-            case Format.ZSTD_PROTOBUF -> ".blk.zstd";
-        };
+            case Format.ZSTD_PROTOBUF -> ".blk.zstd";};
         this.blockIterator = blockIterator;
         this.currentBuffer = new byte[CHUNK_SIZE];
         this.bufferPosition = 0;
@@ -114,8 +121,8 @@ public class TaredBlockIterator implements Iterator<byte[]> {
                     int contentBytesToCopy = Math.min(contentLeft, CHUNK_SIZE - bufferPosition);
 
                     if (contentBytesToCopy > 0) {
-                        System.arraycopy(currentBlockBytes, filePosition,
-                                currentBuffer, bufferPosition, contentBytesToCopy);
+                        System.arraycopy(
+                                currentBlockBytes, filePosition, currentBuffer, bufferPosition, contentBytesToCopy);
                         filePosition += contentBytesToCopy;
                         bufferPosition += contentBytesToCopy;
                     }

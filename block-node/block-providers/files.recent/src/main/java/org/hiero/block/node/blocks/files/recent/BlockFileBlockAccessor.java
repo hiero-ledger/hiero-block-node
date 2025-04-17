@@ -51,8 +51,8 @@ final class BlockFileBlockAccessor implements BlockAccessor {
      * @param compressionType the compression type used for the block file
      * @param blockNumber     the block number of the block
      */
-    BlockFileBlockAccessor(@NonNull final Path blockFilePath, @NonNull final CompressionType compressionType,
-            final long blockNumber) {
+    BlockFileBlockAccessor(
+            @NonNull final Path blockFilePath, @NonNull final CompressionType compressionType, final long blockNumber) {
         this.blockFilePath = Preconditions.requireRegularFile(blockFilePath);
         this.compressionType = Objects.requireNonNull(compressionType);
         this.blockNumber = blockNumber;

@@ -1,15 +1,22 @@
+// SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.node.archive;
 
+import static org.junit.jupiter.api.Assertions.*;
+
+import org.hiero.block.node.app.fixtures.plugintest.PluginTestBase;
 import org.hiero.block.node.spi.BlockNodePlugin;
+import org.hiero.block.node.spi.historicalblocks.HistoricalBlockFacility;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-
-import static org.junit.jupiter.api.Assertions.*;
 
 /**
  * Unit tests for the {@link ArchivePlugin} class.
  */
 class ArchivePluginTest extends PluginTestBase<ArchivePlugin> {
+
+    public ArchivePluginTest(ArchivePlugin plugin, HistoricalBlockFacility historicalBlockFacility) {
+        super(plugin, historicalBlockFacility);
+    }
 
     @Test
     @DisplayName("ArchivePlugin should implement BlockNodePlugin interface")
