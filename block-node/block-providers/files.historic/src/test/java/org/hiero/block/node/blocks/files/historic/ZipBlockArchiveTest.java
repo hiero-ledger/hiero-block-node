@@ -123,7 +123,6 @@ class ZipBlockArchiveTest {
         @Test
         @DisplayName("Test minStoredBlockNumber() returns -1L when zip file is not present")
         void testMinStoredNoZipFile() {
-            final ZipBlockArchive toTest = new ZipBlockArchive(testContext, testConfig);
             // assert that server is running before we call actual
             assertThat(testContext.serverHealth().isRunning()).isTrue();
             final long actual = toTest.minStoredBlockNumber();
@@ -145,8 +144,6 @@ class ZipBlockArchiveTest {
             final BlockPath computedBlockPath00s = BlockPath.computeBlockPath(testConfig, 0L);
             Files.createDirectories(computedBlockPath00s.dirPath());
             Files.createFile(computedBlockPath00s.zipFilePath());
-            // create test instance
-            final ZipBlockArchive toTest = new ZipBlockArchive(testContext, testConfig);
             // assert that server is running before we call actual
             assertThat(testContext.serverHealth().isRunning()).isTrue();
             // call
@@ -168,8 +165,6 @@ class ZipBlockArchiveTest {
             final long expected = 3L;
             createAndAddBlockEntry(expected);
             createAndAddBlockEntry(4L);
-            // create test instance
-            final ZipBlockArchive toTest = new ZipBlockArchive(testContext, testConfig);
             // assert that server is running before we call actual
             assertThat(testContext.serverHealth().isRunning()).isTrue();
             // call
@@ -194,8 +189,6 @@ class ZipBlockArchiveTest {
             // zip size are 10 blocks, so the following 2 will be in another file
             createAndAddBlockEntry(13L);
             createAndAddBlockEntry(14L);
-            // create test instance
-            final ZipBlockArchive toTest = new ZipBlockArchive(testContext, testConfig);
             // assert that server is running before we call actual
             assertThat(testContext.serverHealth().isRunning()).isTrue();
             // call
@@ -213,7 +206,6 @@ class ZipBlockArchiveTest {
         @Test
         @DisplayName("Test maxStoredBlockNumber() returns -1L when zip file is not present")
         void testMaxStoredNoZipFile() {
-            final ZipBlockArchive toTest = new ZipBlockArchive(testContext, testConfig);
             // assert that server is running before we call actual
             assertThat(testContext.serverHealth().isRunning()).isTrue();
             final long actual = toTest.maxStoredBlockNumber();
@@ -235,8 +227,6 @@ class ZipBlockArchiveTest {
             final BlockPath computedBlockPath00s = BlockPath.computeBlockPath(testConfig, 0L);
             Files.createDirectories(computedBlockPath00s.dirPath());
             Files.createFile(computedBlockPath00s.zipFilePath());
-            // create test instance
-            final ZipBlockArchive toTest = new ZipBlockArchive(testContext, testConfig);
             // assert that server is running before we call actual
             assertThat(testContext.serverHealth().isRunning()).isTrue();
             // call
@@ -258,8 +248,6 @@ class ZipBlockArchiveTest {
             final long expected = 4L;
             createAndAddBlockEntry(3L);
             createAndAddBlockEntry(expected);
-            // create test instance
-            final ZipBlockArchive toTest = new ZipBlockArchive(testContext, testConfig);
             // assert that server is running before we call actual
             assertThat(testContext.serverHealth().isRunning()).isTrue();
             // call
@@ -284,8 +272,6 @@ class ZipBlockArchiveTest {
             // zip size are 10 blocks, so the following 2 will be in another file
             createAndAddBlockEntry(13L);
             createAndAddBlockEntry(expected);
-            // create test instance
-            final ZipBlockArchive toTest = new ZipBlockArchive(testContext, testConfig);
             // assert that server is running before we call actual
             assertThat(testContext.serverHealth().isRunning()).isTrue();
             // call
@@ -303,7 +289,6 @@ class ZipBlockArchiveTest {
         @Test
         @DisplayName("Test blockAccessor() returns null when no block is present")
         void testBlockAccessorNoBlocksPresent() {
-            final ZipBlockArchive toTest = new ZipBlockArchive(testContext, testConfig);
             // call
             final BlockAccessor actual = toTest.blockAccessor(1L);
             // assert
@@ -320,7 +305,6 @@ class ZipBlockArchiveTest {
         void testBlockAccessorBlockNotFound() throws IOException {
             // we create a block with number 0L so we have some block present,
             createAndAddBlockEntry(0L);
-            final ZipBlockArchive toTest = new ZipBlockArchive(testContext, testConfig);
             // call
             final BlockAccessor actual = toTest.blockAccessor(1L);
             // assert
@@ -338,8 +322,6 @@ class ZipBlockArchiveTest {
             // create test environment, for this test we need one zip file with two zip entries inside
             final long targetBlockNumber = 1L;
             final ZipBlockAccessor expected = createAndAddBlockEntry(targetBlockNumber);
-            // create test instance
-            final ZipBlockArchive toTest = new ZipBlockArchive(testContext, testConfig);
             // call
             final BlockAccessor actual = toTest.blockAccessor(targetBlockNumber);
             // assert
@@ -371,8 +353,6 @@ class ZipBlockArchiveTest {
             assertThat(historicalBlockProvider.availableBlocks())
                     .returns(0L, from(BlockRangeSet::min))
                     .returns(19L, from(BlockRangeSet::max));
-            // create the instance to test
-            final ZipBlockArchive toTest = new ZipBlockArchive(testContext, testConfig);
             // assert no zip file is created yet, the zip file will be all the same
             // for all the 10 zips, so we can rely on asserting based on computed path for the first block
             // expected
@@ -419,7 +399,6 @@ class ZipBlockArchiveTest {
             assertThat(historicalBlockProvider.availableBlocks())
                     .returns(0L, from(BlockRangeSet::min))
                     .returns(19L, from(BlockRangeSet::max));
-            final ZipBlockArchive toTest = new ZipBlockArchive(testContext, testConfig);
             // assert no zip file is created yet, the zip file will be all the same
             // for all the 10 zips, so we can rely on asserting based on computed path for the first block
             // expected
@@ -439,6 +418,11 @@ class ZipBlockArchiveTest {
                         final byte[] rawContents = in.readAllBytes();
                         final BlockUnparsed actualValue = BlockUnparsed.PROTOBUF.parse(Bytes.wrap(rawContents));
                         assertThat(actualValue).isEqualTo(expectedValue);
+                        final String actualHex =
+                                BlockUnparsed.PROTOBUF.toBytes(actualValue).toHex();
+                        final String expectedHex =
+                                BlockUnparsed.PROTOBUF.toBytes(expectedValue).toHex();
+                        assertThat(actualHex).isEqualTo(expectedHex);
                     }
                 }
             }
