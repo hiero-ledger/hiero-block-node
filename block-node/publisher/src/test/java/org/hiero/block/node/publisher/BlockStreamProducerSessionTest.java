@@ -67,7 +67,8 @@ public class BlockStreamProducerSessionTest {
                 onUpdate,
                 liveBlockItemsReceived,
                 stateLock,
-                sendToBlockMessaging);
+                sendToBlockMessaging,
+                -1);
     }
 
     /**
@@ -392,7 +393,8 @@ public class BlockStreamProducerSessionTest {
                 onUpdate,
                 liveBlockItemsReceived,
                 new ReentrantLock(),
-                sendToBlockMessaging);
+                sendToBlockMessaging,
+                -1);
 
         // Try to send a response that should trigger the exception
         failingSession.handlePersisted(new PersistedNotification(0L, 0L, 1));

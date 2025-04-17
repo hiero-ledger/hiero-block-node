@@ -173,7 +173,7 @@ public class PositiveMultiplePublishersTests extends BaseSuite {
     @Timeout(30)
     public void shouldResumeFromNewPublisherAfterPrimaryDisconnects() throws IOException, InterruptedException {
         // ===== Prepare and Start first simulator and make sure it's streaming ======================
-        final Map<String, String> firstSimulatorConfiguration = Map.of("generator.startBlockNumber", "1");
+        final Map<String, String> firstSimulatorConfiguration = Map.of("generator.startBlockNumber", "0");
         final BlockStreamSimulatorApp firstSimulator = createBlockSimulator(firstSimulatorConfiguration);
         final Future<?> firstSimulatorThread = startSimulatorInstance(firstSimulator);
         // ===== Stop simulator and assert ===========================================================]
@@ -183,7 +183,7 @@ public class PositiveMultiplePublishersTests extends BaseSuite {
                 .lastKnownPublisherClientStatuses()
                 .getLast();
         final long firstSimulatorLatestPublishedBlockNumber =
-                firstSimulator.getStreamStatus().publishedBlocks();
+                firstSimulator.getStreamStatus().publishedBlocks() - 1; // we subtract one since we started on 0
         firstSimulatorThread.cancel(true);
 
         final SingleBlockResponse latestPublishedBlockBefore =
