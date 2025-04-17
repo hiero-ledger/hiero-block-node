@@ -125,7 +125,7 @@ class ZipBlockArchiveTest {
          */
         @Test
         @DisplayName("Test minStoredBlockNumber() shuts down server if exception occurs")
-        void testMinStoredEmptyZipFile() throws IOException {
+        void testMinStoredWithException() throws IOException {
             // create test environment, in this case we simply create an empty zip file which will produce
             // an exception when we attempt to look for an entry inside
             final BlockPath computedBlockPath00s = BlockPath.computeBlockPath(testConfig, 0L);
@@ -200,8 +200,85 @@ class ZipBlockArchiveTest {
         @DisplayName("Test maxStoredBlockNumber() returns -1L when zip file is not present")
         void testMaxStoredNoZipFile() {
             final ZipBlockArchive toTest = new ZipBlockArchive(testContext, testConfig);
+            // assert that server is running before we call actual
+            assertThat(testContext.serverHealth().isRunning()).isTrue();
             final long actual = toTest.maxStoredBlockNumber();
+            // assert that server is still running and -1 is returned
             assertThat(actual).isEqualTo(-1L);
+            assertThat(testContext.serverHealth().isRunning()).isTrue();
+        }
+
+        /**
+         * This test aims to assert that the
+         * {@link ZipBlockArchive#maxStoredBlockNumber()} calls shutdown on the
+         * health facility if an exception occurs.
+         */
+        @Test
+        @DisplayName("Test maxStoredBlockNumber() shuts down server if exception occurs")
+        void testMaxStoredWithException() throws IOException {
+            // create test environment, in this case we simply create an empty zip file which will produce
+            // an exception when we attempt to look for an entry inside
+            final BlockPath computedBlockPath00s = BlockPath.computeBlockPath(testConfig, 0L);
+            Files.createDirectories(computedBlockPath00s.dirPath());
+            Files.createFile(computedBlockPath00s.zipFilePath());
+            // create test instance
+            final ZipBlockArchive toTest = new ZipBlockArchive(testContext, testConfig);
+            // assert that server is running before we call actual
+            assertThat(testContext.serverHealth().isRunning()).isTrue();
+            // call
+            final long actual = toTest.maxStoredBlockNumber();
+            // assert no longer running server
+            assertThat(actual).isEqualTo(-1L);
+            assertThat(testContext.serverHealth().isRunning()).isFalse();
+        }
+
+        /**
+         * This test aims to assert that the
+         * {@link ZipBlockArchive#maxStoredBlockNumber()} correctly returns the
+         * highest block number based on single existing zip file.
+         */
+        @Test
+        @DisplayName("Test maxStoredBlockNumber() correctly returns highest block number single zip file")
+        void testMaxStoredSingleZipFile() throws IOException {
+            // create test environment, for this test we need one zip file with two zip entries inside
+            final long expected = 4L;
+            createAndAddBlockEntry(3L);
+            createAndAddBlockEntry(expected);
+            // create test instance
+            final ZipBlockArchive toTest = new ZipBlockArchive(testContext, testConfig);
+            // assert that server is running before we call actual
+            assertThat(testContext.serverHealth().isRunning()).isTrue();
+            // call
+            final long actual = toTest.maxStoredBlockNumber();
+            // assert expected result and still running server
+            assertThat(actual).isEqualTo(expected);
+            assertThat(testContext.serverHealth().isRunning()).isTrue();
+        }
+
+        /**
+         * This test aims to assert that the
+         * {@link ZipBlockArchive#maxStoredBlockNumber()} correctly returns the
+         * highest block number based on multiple existing zip files.
+         */
+        @Test
+        @DisplayName("Test maxStoredBlockNumber() correctly returns highest block number multiple zip file")
+        void testMaxStoredMultipleZipFile() throws IOException {
+            // create test environment, for this test we need two zip files with two zip entries inside each
+            final long expected = 14L;
+            createAndAddBlockEntry(3L);
+            createAndAddBlockEntry(4L);
+            // zip size are 10 blocks, so the following 2 will be in another file
+            createAndAddBlockEntry(13L);
+            createAndAddBlockEntry(expected);
+            // create test instance
+            final ZipBlockArchive toTest = new ZipBlockArchive(testContext, testConfig);
+            // assert that server is running before we call actual
+            assertThat(testContext.serverHealth().isRunning()).isTrue();
+            // call
+            final long actual = toTest.maxStoredBlockNumber();
+            // assert expected result and still running server
+            assertThat(actual).isEqualTo(expected);
+            assertThat(testContext.serverHealth().isRunning()).isTrue();
         }
     }
 
