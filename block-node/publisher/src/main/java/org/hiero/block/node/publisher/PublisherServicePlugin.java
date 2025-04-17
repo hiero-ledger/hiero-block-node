@@ -530,7 +530,8 @@ public final class PublisherServicePlugin implements BlockNodePlugin, ServiceInt
                                         this::onSessionUpdate,
                                         liveBlockItemsReceived,
                                         stateLock,
-                                        this::sendBlockItemsToMessagingService);
+                                        this::sendBlockItemsToMessagingService,
+                                        latestAckedBlockNumber);
                                 // add the session to the set of open sessions
                                 openSessions.add(producerBlockItemObserver);
                                 numberOfProducers.set(openSessions.size());

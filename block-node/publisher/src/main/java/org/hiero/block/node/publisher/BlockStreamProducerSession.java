@@ -90,6 +90,7 @@ public final class BlockStreamProducerSession implements Pipeline<List<BlockItem
      * @param liveBlockItemsReceived the metric for the number of live block items received
      * @param stateLock the lock for accessing state
      * @param sendToBlockMessaging the callback for sending block items to the block messaging service
+     * @param currentLatestAcknowledgedBlockNumber the current latest acknowledged block number
      */
     public BlockStreamProducerSession(
             final long sessionId,
@@ -97,7 +98,8 @@ public final class BlockStreamProducerSession implements Pipeline<List<BlockItem
             @NonNull final UpdateCallback onUpdate,
             @NonNull final Counter liveBlockItemsReceived,
             @NonNull final ReentrantLock stateLock,
-            @NonNull final Consumer<BlockItems> sendToBlockMessaging) {
+            @NonNull final Consumer<BlockItems> sendToBlockMessaging,
+            final long currentLatestAcknowledgedBlockNumber) {
         this.sessionId = sessionId;
         this.onUpdate = requireNonNull(onUpdate);
         this.responsePipeline = requireNonNull(responsePipeline);
@@ -106,6 +108,7 @@ public final class BlockStreamProducerSession implements Pipeline<List<BlockItem
         this.sendToBlockMessaging = requireNonNull(sendToBlockMessaging);
         // log the creation of the session
         LOGGER.log(DEBUG, "Created new BlockStreamProducerSession");
+        latestAcknowledgedBlock = currentLatestAcknowledgedBlockNumber;
     }
 
     /**
@@ -196,7 +199,8 @@ public final class BlockStreamProducerSession implements Pipeline<List<BlockItem
     void sendDuplicateAck(final long latestAckBlock) {
         currentBlockState = BlockState.BEHIND;
         newBlockItems.clear();
-
+        // sending a duplicate ack should also update the latestAck.
+        latestAcknowledgedBlock = latestAckBlock;
         final BlockAcknowledgement ack = new BlockAcknowledgement(latestAckBlock, null, true);
         final Acknowledgement acknowledgement = new Acknowledgement(ack);
         final PublishStreamResponse duplicateResponse =
