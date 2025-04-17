@@ -11,13 +11,11 @@ application {
     mainClass = "org.hiero.block.suites.BaseSuite"
 }
 
-dependencies {
-    implementation(platform("org.junit:junit-bom:5.12.2"))
-
-    implementation("org.testcontainers:testcontainers")
-    runtimeOnly("org.testcontainers:junit-jupiter")
-    runtimeOnly("org.junit.jupiter:junit-jupiter")
-    runtimeOnly("org.junit.platform:junit-platform-launcher")
+mainModuleInfo {
+    runtimeOnly("org.testcontainers.junit.jupiter")
+    runtimeOnly("org.junit.jupiter.engine")
+    runtimeOnly("org.testcontainers")
+    runtimeOnly("com.swirlds.config.impl")
 }
 
 tasks.register<Test>("runSuites") {
