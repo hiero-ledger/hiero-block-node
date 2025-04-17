@@ -31,6 +31,10 @@ env:
   PACKAGE_NAME: hedera-block-node
   REGISTRY: ghcr.io
   GRADLE_EXEC: "ionice -c 2 -n 2 nice -n 19 ./gradlew "
+  JAVA_DISTRIBUTION: "temurin"
+  JAVA_VERSION: "21.0.6"
+  DOCKER_MIRROR: "https://hub.mirror.docker.lat.ope.eng.hashgraph.io"
+  BUILDKIT_VERSION: "v0.22.0"
 
 jobs:
   check-gradle:
@@ -42,7 +46,7 @@ jobs:
       java-version: ${{ inputs.java-version || '21.0.6' }}
 
   publish-block-node-app:
-    timeout-minutes: 60
+    timeout-minutes: 30
     needs: [check-gradle]
     runs-on: hiero-block-node-linux-medium
 
@@ -60,8 +64,8 @@ jobs:
       - name: Install JDK
         uses: actions/setup-java@c5195efecf7bdfc987ee8bae7a71cb8b11521c00 # v4.7.1
         with:
-          distribution: "temurin"
-          java-version: "21.0.6"
+          distribution: ${{ env.JAVA_DISTRIBUTION }}
+          java-version: ${{ env.JAVA_VERSION }}
 
       - name: Build
         run: ${GRADLE_EXEC} clean assemble
@@ -82,8 +86,8 @@ jobs:
           driver-opts: network=host
           buildkitd-config-inline: |
             [registry."docker.io"]
-              mirrors = ["https://hub.mirror.docker.lat.ope.eng.hashgraph.io"]
-          version: v0.22.0
+              mirrors = ["${{ env.DOCKER_MIRROR }}"]
+          version: ${{ env.BUILDKIT_VERSION }}
 
       - name: Extract version
         id: extract_version
@@ -114,7 +118,7 @@ jobs:
             distributions=./block-node/server/build/distributions
 
   publish-simulator:
-    timeout-minutes: 60
+    timeout-minutes: 30
     needs: [check-gradle]
     runs-on: hiero-block-node-linux-medium
 
@@ -132,8 +136,8 @@ jobs:
       - name: Install JDK
         uses: actions/setup-java@c5195efecf7bdfc987ee8bae7a71cb8b11521c00 # v4.7.1
         with:
-          distribution: "temurin"
-          java-version: "21.0.6"
+          distribution: ${{ env.JAVA_DISTRIBUTION }}
+          java-version: ${{ env.JAVA_VERSION }}
 
       - name: Build
         run: ${GRADLE_EXEC} clean assemble
@@ -154,8 +158,8 @@ jobs:
           driver-opts: network=host
           buildkitd-config-inline: |
             [registry."docker.io"]
-              mirrors = ["https://hub.mirror.docker.lat.ope.eng.hashgraph.io"]
-          version: v0.22.0
+              mirrors = ["${{ env.DOCKER_MIRROR }}"]
+          version: ${{ env.BUILDKIT_VERSION }}
 
       - name: Extract version
         id: extract_version
