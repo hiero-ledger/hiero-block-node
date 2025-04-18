@@ -71,12 +71,12 @@ public abstract class PluginTestBase<P extends BlockNodePlugin> {
         org.hiero.block.node.app.fixtures.logging.CleanColorfulFormatter.makeLoggingColorful();
         // Build the configuration
         //noinspection unchecked
-        final ConfigurationBuilder configurationBuilder = ConfigurationBuilder.create()
+        ConfigurationBuilder configurationBuilder = ConfigurationBuilder.create()
                 .withConfigDataType(com.swirlds.common.metrics.config.MetricsConfig.class)
-                .withConfigDataType(com.swirlds.common.metrics.platform.prometheus.PrometheusConfig.class)
-                .withConfigDataTypes(plugin.configDataTypes().toArray(new Class[0]));
-        if (!configOverrides.isEmpty()) {
-            configOverrides.forEach(configurationBuilder::withValue);
+                .withConfigDataTypes(plugin.configDataTypes().toArray(new Class[0]))
+                .withConfigDataType(com.swirlds.common.metrics.platform.prometheus.PrometheusConfig.class);
+        for (var override : configOverrides.entrySet()) {
+            configurationBuilder = configurationBuilder.withValue(override.getKey(), override.getValue());
         }
         final Configuration configuration = configurationBuilder.build();
         // create metrics provider
@@ -103,7 +103,8 @@ public abstract class PluginTestBase<P extends BlockNodePlugin> {
                     @Override
                     public void registerGrpcService(@NonNull ServiceInterface service) {}
                 };
-
+        // initialize the block messaging facility
+        historicalBlockFacility.init(blockNodeContext, mockServiceBuilder);
         // if HistoricalBlockFacility is a BlockItemHandler, register it with the messaging facility
         if (historicalBlockFacility instanceof BlockItemHandler blockItemHandler) {
             blockMessaging.registerBlockItemHandler(
@@ -116,9 +117,10 @@ public abstract class PluginTestBase<P extends BlockNodePlugin> {
                     false,
                     historicalBlockFacility.getClass().getSimpleName());
         }
-
-        // start plugin
+        // init plugin
         plugin.init(blockNodeContext, mockServiceBuilder);
+        // start everything
+        historicalBlockFacility.start();
         plugin.start();
     }
 

@@ -80,6 +80,20 @@ public class BlockNodeApp implements HealthFacility {
         CleanColorfulFormatter.makeLoggingColorful();
         // tell helidon to use the same logging configuration
         System.setProperty("io.helidon.logging.config.disabled", "true");
+        // ==== LOG HIERO MODULES ======================================================================================
+        // this can be useful when debugging issues with modules/plugins not being loaded
+        LOGGER.log(INFO, "=".repeat(120));
+        LOGGER.log(INFO, "Loaded Hiero Java modules:");
+        // log all the modules loaded by the class loader
+        final String moduleClassPath = System.getProperty("jdk.module.path");
+        if (moduleClassPath != null) {
+            final String[] moduleClassPathArray = moduleClassPath.split(":");
+            for (String module : moduleClassPathArray) {
+                if (module.contains("hiero")) {
+                    LOGGER.log(INFO, GREY + "    " + module);
+                }
+            }
+        }
         // ==== FACILITY & PLUGIN LOADING ==============================================================================
         // Load Block Messaging Service plugin - for now allow nulls
         final BlockMessagingFacility blockMessagingService = serviceLoader

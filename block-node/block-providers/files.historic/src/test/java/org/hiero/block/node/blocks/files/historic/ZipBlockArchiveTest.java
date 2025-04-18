@@ -26,6 +26,7 @@ import java.util.zip.ZipFile;
 import java.util.zip.ZipOutputStream;
 import org.hiero.block.node.app.fixtures.blocks.SimpleTestBlockItemBuilder;
 import org.hiero.block.node.app.fixtures.plugintest.SimpleInMemoryHistoricalBlockFacility;
+import org.hiero.block.node.app.fixtures.plugintest.TestBlockMessagingFacility;
 import org.hiero.block.node.app.fixtures.plugintest.TestHealthFacility;
 import org.hiero.block.node.base.BlockFile;
 import org.hiero.block.node.base.CompressionType;
@@ -75,7 +76,13 @@ class ZipBlockArchiveTest {
         testConfig = createTestConfiguration(tempDir, 1);
         historicalBlockProvider = new SimpleInMemoryHistoricalBlockFacility();
         testContext = new BlockNodeContext(
-                configuration, null, new TestHealthFacility(), null, historicalBlockProvider, null);
+                configuration,
+                null,
+                new TestHealthFacility(),
+                new TestBlockMessagingFacility(),
+                historicalBlockProvider,
+                null);
+        historicalBlockProvider.init(testContext, null);
         toTest = new ZipBlockArchive(testContext, testConfig);
     }
 

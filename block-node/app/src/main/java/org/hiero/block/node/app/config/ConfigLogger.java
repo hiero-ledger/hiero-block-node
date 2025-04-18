@@ -35,8 +35,6 @@ public final class ConfigLogger {
         if (LOGGER.isLoggable(INFO)) {
             // Header
             LOGGER.log(INFO, BANNER_LINE);
-            LOGGER.log(INFO, "Block Node Configuration");
-            LOGGER.log(INFO, BANNER_LINE);
             // Log loaded configuration data types
             LOGGER.log(INFO, "Configuration data types:");
             for (final var type : configuration.getConfigDataTypes()) {
