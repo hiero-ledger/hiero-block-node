@@ -21,5 +21,4 @@ testModuleInfo {
     requires("org.testcontainers")
     requires("io.minio")
     requires("com.github.luben.zstd_jni")
-    requires("org.hiero.block.stream")
 }

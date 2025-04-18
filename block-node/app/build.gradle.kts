@@ -53,12 +53,12 @@ mainModuleInfo {
     // List of all "plugin modules" we need at runtime.
     // In the future, we may get Gradle to automatically infer this block
     //   https://github.com/gradlex-org/java-module-dependencies/issues/174
+    runtimeOnly("org.hiero.block.node.archive")
     runtimeOnly("org.hiero.block.node.messaging")
     runtimeOnly("org.hiero.block.node.health")
     runtimeOnly("org.hiero.block.node.publisher")
     runtimeOnly("org.hiero.block.node.subscriber")
     runtimeOnly("org.hiero.block.node.verification")
-    runtimeOnly("org.hiero.block.node.blocks.cloud.archive")
     runtimeOnly("org.hiero.block.node.blocks.cloud.historic")
     runtimeOnly("org.hiero.block.node.blocks.files.historic")
     runtimeOnly("org.hiero.block.node.blocks.files.recent")

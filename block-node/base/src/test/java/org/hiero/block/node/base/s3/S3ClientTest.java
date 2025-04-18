@@ -49,7 +49,6 @@ public class S3ClientTest {
         minioContainer.start();
         // Initialize MinIO client
         endpoint = "http://" + minioContainer.getHost() + ":" + minioContainer.getMappedPort(MINIO_ROOT_PORT);
-        System.out.println("endpoint = " + endpoint); // 63137
         minioClient = MinioClient.builder()
                 .endpoint(endpoint)
                 .credentials(MINIO_ROOT_USER, MINIO_ROOT_PASSWORD)

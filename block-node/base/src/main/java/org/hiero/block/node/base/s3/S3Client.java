@@ -160,17 +160,12 @@ public class S3Client implements AutoCloseable {
         headers.put("content-type", "text/plain");
         headers.put("x-amz-storage-class", storageClass);
         headers.put("x-amz-content-sha256", base64(sha256(contentData)));
-        try {
-            HttpResponse<Document> response =
-                    requestXML(endpoint + bucketName + "/" + urlEncode(objectKey, true), "PUT", headers, contentData);
-            if (response.statusCode() != 200) {
-                throw new RuntimeException(
-                        "Failed to upload text file: " + response.statusCode() + "\n" + response.body());
-            }
-            return true;
-        } catch (Exception e) {
-            throw new RuntimeException(e);
+        HttpResponse<Document> response =
+                requestXML(endpoint + bucketName + "/" + urlEncode(objectKey, true), "PUT", headers, contentData);
+        if (response.statusCode() != 200) {
+            throw new RuntimeException("Failed to upload text file: " + response.statusCode() + "\n" + response.body());
         }
+        return true;
     }
 
     /**
@@ -181,23 +176,19 @@ public class S3Client implements AutoCloseable {
      */
     public String downloadTextFile(String objectKey) {
         final Map<String, String> headers = new HashMap<>();
-        try {
-            HttpResponse<String> response = request(
-                    endpoint + bucketName + "/" + urlEncode(objectKey, true),
-                    "GET",
-                    headers,
-                    new byte[0],
-                    BodyHandlers.ofString(StandardCharsets.UTF_8));
-            if (response.statusCode() == 404) {
-                return null;
-            } else if (response.statusCode() != 200) {
-                throw new RuntimeException(
-                        "Failed to download text file: " + response.statusCode() + "\n" + response.body());
-            }
-            return response.body();
-        } catch (Exception e) {
-            throw new RuntimeException(e);
+        HttpResponse<String> response = request(
+                endpoint + bucketName + "/" + urlEncode(objectKey, true),
+                "GET",
+                headers,
+                new byte[0],
+                BodyHandlers.ofString(StandardCharsets.UTF_8));
+        if (response.statusCode() == 404) {
+            return null;
+        } else if (response.statusCode() != 200) {
+            throw new RuntimeException(
+                    "Failed to download text file: " + response.statusCode() + "\n" + response.body());
         }
+        return response.body();
     }
 
     /**
