@@ -11,8 +11,6 @@ import io.minio.MinioClient;
 import io.minio.PutObjectArgs;
 import java.io.ByteArrayInputStream;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
-import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Random;
@@ -83,16 +81,6 @@ public class S3ClientTest {
                     expectedKeys,
                     keys.stream().filter(name -> name.startsWith("block-")).toList(),
                     "Downloaded content does not match expected content");
-        }
-    }
-
-    @Test
-    void testMultipartUploadTemp() throws Exception {
-        Path file = Path.of("/Users/jasperpotts/Downloads/hedera-con.pptx");
-        try (var in = Files.newInputStream(file)) {
-            minioClient.putObject(PutObjectArgs.builder().bucket(BUCKET_NAME).object("bigFile.pptx").stream(
-                            in, file.toFile().length(), 5 * 1024 * 1024)
-                    .build());
         }
     }
 
