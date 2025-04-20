@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.node.app.fixtures.blocks;
 
+import com.hedera.hapi.block.stream.Block;
 import com.hedera.hapi.block.stream.BlockItem;
 import com.hedera.hapi.block.stream.BlockItem.ItemOneOfType;
 import com.hedera.hapi.block.stream.BlockProof;
@@ -11,10 +12,15 @@ import com.hedera.hapi.node.base.SemanticVersion;
 import com.hedera.hapi.node.base.Timestamp;
 import com.hedera.pbj.runtime.OneOf;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
+import java.time.Duration;
+import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
+import java.util.stream.LongStream;
 import org.hiero.block.node.spi.blockmessaging.BlockItems;
+import org.hiero.block.node.spi.historicalblocks.BlockAccessor;
 import org.hiero.hapi.block.node.BlockItemUnparsed;
 
 /**
@@ -65,6 +71,31 @@ public final class SimpleTestBlockItemBuilder {
                 .build();
     }
 
+    /**
+     * Creates a sample BlockItem representing a block header with the given block number and consensus time.
+     */
+    public static BlockItem sampleBlockHeader(final long blockNumber, Instant consensusTime) {
+        return new BlockItem(new OneOf<>(
+                ItemOneOfType.BLOCK_HEADER,
+                new BlockHeader(
+                        new SemanticVersion(1, 2, 3, "a", "b"),
+                        new SemanticVersion(4, 5, 6, "c", "d"),
+                        blockNumber,
+                        new Timestamp(consensusTime.getEpochSecond(), consensusTime.getNano()),
+                        BlockHashAlgorithm.SHA2_384)));
+    }
+
+    /**
+     * Creates a sample BlockItemUnparsed representing a block header with the given block number and consensus time.
+     */
+    public static BlockItemUnparsed sampleBlockHeaderUnparsed(final long blockNumber, Instant consensusTime) {
+        //noinspection DataFlowIssue
+        return BlockItemUnparsed.newBuilder()
+                .blockHeader(BlockHeader.PROTOBUF.toBytes(
+                        sampleBlockHeader(blockNumber, consensusTime).blockHeader()))
+                .build();
+    }
+
     public static BlockItem sampleRoundHeader(final long roundNumber) {
         return new BlockItem(new OneOf<>(ItemOneOfType.ROUND_HEADER, createRoundHeader(roundNumber)));
     }
@@ -103,18 +134,78 @@ public final class SimpleTestBlockItemBuilder {
      * @param endBlockNumber the ending block number, inclusive
      * @return an array of BlockItem objects
      */
-    public static BlockItem[] createNumberOfVerySimpleBlocks(final int startBlockNumber, final int endBlockNumber) {
+    public static BlockItem[] createNumberOfVerySimpleBlocks(final long startBlockNumber, final long endBlockNumber) {
         assert startBlockNumber <= endBlockNumber;
         assert startBlockNumber >= 0;
-        final int numberOfBlocks = endBlockNumber - startBlockNumber + 1;
+        final int numberOfBlocks = (int) (endBlockNumber - startBlockNumber + 1);
         final BlockItem[] blockItems = new BlockItem[numberOfBlocks * 3];
-        for (int blockNumber = startBlockNumber; blockNumber <= endBlockNumber; blockNumber++) {
-            final int i = (blockNumber - startBlockNumber) * 3;
+        for (int blockNumber = (int) startBlockNumber; blockNumber <= endBlockNumber; blockNumber++) {
+            final int i = (blockNumber - (int) startBlockNumber) * 3;
             blockItems[i] = sampleBlockHeader(blockNumber);
             blockItems[i + 1] = sampleRoundHeader(blockNumber * 10L);
             blockItems[i + 2] = sampleBlockProof(blockNumber);
         }
         return blockItems;
+    }
+
+    /**
+     * Creates an array of BlockItem objects representing a very simple block stream of blocks from startBlockNumber to
+     * but not including endBlockNumber.
+     *
+     * @param startBlockNumber the starting block number
+     * @param endBlockNumber the ending block number, inclusive
+     * @param firstBlockConsensusTime the consensus time of the first block
+     * @param consensusTimeBetweenBlocks the time between blocks starts with the first block at 2025-01-01T00:00:00Z
+     * @return an array of BlockItem objects
+     */
+    public static BlockItemUnparsed[] createNumberOfVerySimpleBlocksUnparsed(
+            final long startBlockNumber,
+            final long endBlockNumber,
+            Instant firstBlockConsensusTime,
+            Duration consensusTimeBetweenBlocks) {
+        assert startBlockNumber <= endBlockNumber;
+        assert startBlockNumber >= 0;
+        final int numberOfBlocks = (int) (endBlockNumber - startBlockNumber + 1);
+        final BlockItemUnparsed[] blockItems = new BlockItemUnparsed[numberOfBlocks * 3];
+        Instant blockTime = firstBlockConsensusTime;
+        for (int blockNumber = (int) startBlockNumber; blockNumber <= endBlockNumber; blockNumber++) {
+            final int i = (blockNumber - (int) startBlockNumber) * 3;
+            blockItems[i] = sampleBlockHeaderUnparsed(blockNumber, blockTime);
+            blockItems[i + 1] = sampleRoundHeaderUnparsed(blockNumber * 10L);
+            blockItems[i + 2] = sampleBlockProofUnparsed(blockNumber);
+            // Increment the block time by the consensus time between blocks
+            blockTime = blockTime.plus(consensusTimeBetweenBlocks);
+        }
+        return blockItems;
+    }
+
+    /**
+     * Creates an array of BlockAccessor objects representing a very simple block stream of blocks from startBlockNumber
+     * to but endBlockNumber inclusive.
+     *
+     * @param startBlockNumber the starting block number
+     * @param endBlockNumber the ending block number, inclusive
+     * @return an array of BlockAccessor objects
+     */
+    public static BlockAccessor[] createNumberOfVerySimpleBlockAccessors(
+            final int startBlockNumber, final int endBlockNumber) {
+        return LongStream.range(startBlockNumber, endBlockNumber + 1)
+                .mapToObj(bn -> {
+                    BlockItem[] blockItems = createNumberOfVerySimpleBlocks(bn, bn);
+                    Block block = new Block(Arrays.asList(blockItems));
+                    return new BlockAccessor() {
+                        @Override
+                        public long blockNumber() {
+                            return bn;
+                        }
+
+                        @Override
+                        public Block block() {
+                            return block;
+                        }
+                    };
+                })
+                .toArray(BlockAccessor[]::new);
     }
 
     /**

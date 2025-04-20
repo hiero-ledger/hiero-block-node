@@ -139,7 +139,7 @@ public final class BlocksFilesRecentPlugin implements BlockProviderPlugin, Block
                     config.liveRootPath(), blockNumber, config.compression(), config.maxFilesPerDir());
             if (Files.exists(verifiedBlockPath)) {
                 // we have the block so return it
-                return new BlockFileBlockAccessor(verifiedBlockPath, config.compression());
+                return new BlockFileBlockAccessor(verifiedBlockPath, config.compression(), blockNumber);
             } else {
                 LOGGER.log(
                         Level.WARNING,

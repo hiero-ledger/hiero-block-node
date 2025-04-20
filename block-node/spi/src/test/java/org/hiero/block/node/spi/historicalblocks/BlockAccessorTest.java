@@ -63,6 +63,11 @@ public class BlockAccessorTest {
 
     private static class TestBlockAccessor implements BlockAccessor {
         @Override
+        public long blockNumber() {
+            return 0;
+        }
+
+        @Override
         public Block block() {
             return SAMPLE_BLOCK;
         }
@@ -84,6 +89,11 @@ public class BlockAccessorTest {
         assertEquals(blockUnparsed, accessor.blockUnparsed());
         // create a parsing failure
         BlockAccessor emptyAccessor = new BlockAccessor() {
+            @Override
+            public long blockNumber() {
+                return 0;
+            }
+
             @Override
             public Block block() {
                 return null;
