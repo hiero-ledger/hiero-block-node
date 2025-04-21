@@ -1,9 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.suites;
 
-import org.hiero.block.api.protoc.BlockAccessServiceGrpc;
-import org.hiero.block.api.protoc.BlockRequest;
-import org.hiero.block.api.protoc.BlockResponse;
 import com.swirlds.config.api.Configuration;
 import com.swirlds.config.api.ConfigurationBuilder;
 import com.swirlds.config.extensions.sources.ClasspathFileConfigSource;
@@ -21,6 +18,9 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
+import org.hiero.block.api.protoc.BlockAccessServiceGrpc;
+import org.hiero.block.api.protoc.BlockRequest;
+import org.hiero.block.api.protoc.BlockResponse;
 import org.hiero.block.simulator.BlockStreamSimulatorApp;
 import org.hiero.block.simulator.BlockStreamSimulatorInjectionComponent;
 import org.hiero.block.simulator.DaggerBlockStreamSimulatorInjectionComponent;

@@ -6,8 +6,6 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import org.hiero.block.api.protoc.BlockResponse;
-import org.hiero.block.api.protoc.BlockResponse.BlockResponseCode;
 import edu.umd.cs.findbugs.annotations.NonNull;
 import java.io.IOException;
 import java.util.ArrayList;
@@ -15,6 +13,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.Future;
+import org.hiero.block.api.protoc.BlockResponse;
+import org.hiero.block.api.protoc.BlockResponse.BlockResponseCode;
 import org.hiero.block.simulator.BlockStreamSimulatorApp;
 import org.hiero.block.suites.BaseSuite;
 import org.junit.jupiter.api.AfterEach;
@@ -186,10 +186,8 @@ public class PositiveMultiplePublishersTests extends BaseSuite {
                 firstSimulator.getStreamStatus().publishedBlocks() - 1; // we subtract one since we started on 0
         firstSimulatorThread.cancel(true);
 
-        final BlockResponse latestPublishedBlockBefore =
-                getBlock(firstSimulatorLatestPublishedBlockNumber, false);
-        final BlockResponse nextPublishedBlockBefore =
-                getBlock(firstSimulatorLatestPublishedBlockNumber + 1, false);
+        final BlockResponse latestPublishedBlockBefore = getBlock(firstSimulatorLatestPublishedBlockNumber, false);
+        final BlockResponse nextPublishedBlockBefore = getBlock(firstSimulatorLatestPublishedBlockNumber + 1, false);
 
         assertNotNull(firstSimulatorLatestStatus);
         assertTrue(firstSimulatorLatestStatus.contains(Long.toString(firstSimulatorLatestPublishedBlockNumber)));

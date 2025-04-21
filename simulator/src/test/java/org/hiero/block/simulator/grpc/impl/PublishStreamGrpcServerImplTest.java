@@ -6,10 +6,6 @@ import static org.hiero.block.simulator.TestUtils.getTestMetrics;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.when;
 
-import org.hiero.block.api.protoc.BlockItemSet;
-import org.hiero.block.api.protoc.BlockStreamPublishServiceGrpc;
-import org.hiero.block.api.protoc.PublishStreamRequest;
-import org.hiero.block.api.protoc.PublishStreamResponse;
 import com.hedera.hapi.block.stream.output.protoc.BlockHeader;
 import com.hedera.hapi.block.stream.protoc.BlockItem;
 import com.hedera.hapi.block.stream.protoc.BlockProof;
@@ -21,6 +17,10 @@ import java.io.IOException;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+import org.hiero.block.api.protoc.BlockItemSet;
+import org.hiero.block.api.protoc.BlockStreamPublishServiceGrpc;
+import org.hiero.block.api.protoc.PublishStreamRequest;
+import org.hiero.block.api.protoc.PublishStreamResponse;
 import org.hiero.block.simulator.TestUtils;
 import org.hiero.block.simulator.config.data.BlockStreamConfig;
 import org.hiero.block.simulator.config.data.GrpcConfig;
@@ -87,7 +87,8 @@ class PublishStreamGrpcServerImplTest {
         CountDownLatch latch = new CountDownLatch(1);
 
         // Create the blocking stub
-        BlockStreamPublishServiceGrpc.BlockStreamPublishServiceStub stub = BlockStreamPublishServiceGrpc.newStub(channel);
+        BlockStreamPublishServiceGrpc.BlockStreamPublishServiceStub stub =
+                BlockStreamPublishServiceGrpc.newStub(channel);
 
         // Create response observer
         StreamObserver<PublishStreamResponse> responseObserver = new StreamObserver<>() {

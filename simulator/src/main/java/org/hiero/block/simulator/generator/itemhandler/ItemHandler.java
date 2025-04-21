@@ -2,8 +2,8 @@
 package org.hiero.block.simulator.generator.itemhandler;
 
 import com.hedera.hapi.block.stream.protoc.BlockItem;
-import org.hiero.block.simulator.exception.BlockSimulatorParsingException;
 import org.hiero.block.api.BlockItemUnparsed;
+import org.hiero.block.simulator.exception.BlockSimulatorParsingException;
 
 /**
  * Interface defining the contract for handling different types of block items.

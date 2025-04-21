@@ -6,11 +6,11 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.io.IOException;
+import java.util.concurrent.Future;
 import org.hiero.block.api.protoc.BlockRequest;
 import org.hiero.block.api.protoc.BlockResponse;
 import org.hiero.block.api.protoc.BlockResponse.BlockResponseCode;
-import java.io.IOException;
-import java.util.concurrent.Future;
 import org.hiero.block.simulator.BlockStreamSimulatorApp;
 import org.hiero.block.suites.BaseSuite;
 import org.junit.jupiter.api.AfterEach;
@@ -67,9 +67,7 @@ public class GetBlockApiTests extends BaseSuite {
         // Verify the response
         assertNotNull(response, "Response should not be null");
         assertEquals(
-                BlockResponseCode.READ_BLOCK_SUCCESS,
-                response.getStatus(),
-                "Block retrieval should be successful");
+                BlockResponseCode.READ_BLOCK_SUCCESS, response.getStatus(), "Block retrieval should be successful");
 
         // Verify the block content
         assertTrue(response.hasBlock(), "Response should contain a block");
@@ -106,9 +104,7 @@ public class GetBlockApiTests extends BaseSuite {
         // Verify the response
         assertNotNull(response, "Response should not be null");
         assertEquals(
-                BlockResponseCode.READ_BLOCK_SUCCESS,
-                response.getStatus(),
-                "Block retrieval should be successful");
+                BlockResponseCode.READ_BLOCK_SUCCESS, response.getStatus(), "Block retrieval should be successful");
 
         // Verify the block content
         final long latestPublishedBlock =

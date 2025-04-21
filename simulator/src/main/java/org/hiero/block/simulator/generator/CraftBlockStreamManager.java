@@ -14,6 +14,7 @@ import java.lang.System.Logger;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Random;
+import org.hiero.block.api.BlockItemUnparsed;
 import org.hiero.block.common.hasher.Hashes;
 import org.hiero.block.common.hasher.HashingUtilities;
 import org.hiero.block.common.hasher.NaiveStreamingTreeHasher;
@@ -28,7 +29,6 @@ import org.hiero.block.simulator.generator.itemhandler.EventTransactionHandler;
 import org.hiero.block.simulator.generator.itemhandler.ItemHandler;
 import org.hiero.block.simulator.generator.itemhandler.TransactionResultHandler;
 import org.hiero.block.simulator.startup.SimulatorStartupData;
-import org.hiero.block.api.BlockItemUnparsed;
 
 /**
  * Implementation of BlockStreamManager that crafts blocks from scratch rather than reading from an existing stream.

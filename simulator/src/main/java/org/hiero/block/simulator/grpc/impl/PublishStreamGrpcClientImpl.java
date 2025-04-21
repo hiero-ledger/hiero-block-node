@@ -7,9 +7,6 @@ import static java.util.Objects.requireNonNull;
 import static org.hiero.block.simulator.metrics.SimulatorMetricTypes.Counter.LiveBlockItemsSent;
 import static org.hiero.block.simulator.metrics.SimulatorMetricTypes.Counter.LiveBlocksSent;
 
-import org.hiero.block.api.protoc.BlockItemSet;
-import org.hiero.block.api.protoc.BlockStreamPublishServiceGrpc;
-import org.hiero.block.api.protoc.PublishStreamRequest;
 import com.hedera.hapi.block.stream.protoc.Block;
 import com.hedera.hapi.block.stream.protoc.BlockItem;
 import edu.umd.cs.findbugs.annotations.NonNull;
@@ -22,6 +19,9 @@ import java.util.List;
 import java.util.Random;
 import java.util.concurrent.atomic.AtomicBoolean;
 import javax.inject.Inject;
+import org.hiero.block.api.protoc.BlockItemSet;
+import org.hiero.block.api.protoc.BlockStreamPublishServiceGrpc;
+import org.hiero.block.api.protoc.PublishStreamRequest;
 import org.hiero.block.common.utils.ChunkUtils;
 import org.hiero.block.simulator.config.data.BlockStreamConfig;
 import org.hiero.block.simulator.config.data.GrpcConfig;
@@ -89,7 +89,8 @@ public class PublishStreamGrpcClientImpl implements PublishStreamGrpcClient {
         channel = ManagedChannelBuilder.forAddress(grpcConfig.serverAddress(), grpcConfig.port())
                 .usePlaintext()
                 .build();
-        final BlockStreamPublishServiceGrpc.BlockStreamPublishServiceStub stub = BlockStreamPublishServiceGrpc.newStub(channel);
+        final BlockStreamPublishServiceGrpc.BlockStreamPublishServiceStub stub =
+                BlockStreamPublishServiceGrpc.newStub(channel);
         final PublishStreamObserver publishStreamObserver =
                 new PublishStreamObserver(startupData, streamEnabled, lastKnownStatuses, lastKnownStatusesCapacity);
         requestStreamObserver = stub.publishBlockStream(publishStreamObserver);

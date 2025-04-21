@@ -5,8 +5,6 @@ import static java.lang.System.Logger.Level.ERROR;
 import static java.lang.System.Logger.Level.INFO;
 import static java.util.Objects.requireNonNull;
 
-import org.hiero.block.api.protoc.PublishStreamResponse;
-import org.hiero.block.api.protoc.PublishStreamResponse.BlockAcknowledgement;
 import edu.umd.cs.findbugs.annotations.NonNull;
 import io.grpc.Status;
 import io.grpc.stub.StreamObserver;
@@ -14,6 +12,8 @@ import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.util.Deque;
 import java.util.concurrent.atomic.AtomicBoolean;
+import org.hiero.block.api.protoc.PublishStreamResponse;
+import org.hiero.block.api.protoc.PublishStreamResponse.BlockAcknowledgement;
 import org.hiero.block.simulator.startup.SimulatorStartupData;
 
 /**

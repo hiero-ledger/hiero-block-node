@@ -5,9 +5,9 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import org.hiero.block.api.protoc.PublishStreamResponse;
 import java.util.ArrayDeque;
 import java.util.concurrent.atomic.AtomicBoolean;
+import org.hiero.block.api.protoc.PublishStreamResponse;
 import org.hiero.block.simulator.startup.SimulatorStartupData;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
