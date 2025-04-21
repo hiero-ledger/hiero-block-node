@@ -8,11 +8,11 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.when;
 
-import com.hedera.hapi.block.protoc.BlockItemSet;
-import com.hedera.hapi.block.protoc.BlockStreamServiceGrpc;
-import com.hedera.hapi.block.protoc.SubscribeStreamRequest;
-import com.hedera.hapi.block.protoc.SubscribeStreamResponse;
-import com.hedera.hapi.block.protoc.SubscribeStreamResponseCode;
+import org.hiero.block.api.protoc.BlockItemSet;
+import org.hiero.block.api.protoc.BlockStreamSubscribeServiceGrpc;
+import org.hiero.block.api.protoc.SubscribeStreamRequest;
+import org.hiero.block.api.protoc.SubscribeStreamResponse;
+import org.hiero.block.api.protoc.SubscribeStreamResponseCode;
 import com.hedera.hapi.block.stream.output.protoc.BlockHeader;
 import com.hedera.hapi.block.stream.protoc.BlockItem;
 import com.hedera.hapi.block.stream.protoc.BlockProof;
@@ -52,7 +52,7 @@ public class ConsumerStreamGrpcClientImplTest {
         MockitoAnnotations.openMocks(this);
         final int serverPort = findFreePort();
         server = ServerBuilder.forPort(serverPort)
-                .addService(new BlockStreamServiceGrpc.BlockStreamServiceImplBase() {
+                .addService(new BlockStreamSubscribeServiceGrpc.BlockStreamSubscribeServiceImplBase() {
                     @Override
                     public void subscribeBlockStream(
                             SubscribeStreamRequest request, StreamObserver<SubscribeStreamResponse> responseObserver) {

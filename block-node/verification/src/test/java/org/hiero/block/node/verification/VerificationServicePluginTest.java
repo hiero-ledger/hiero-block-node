@@ -20,8 +20,8 @@ import org.hiero.block.node.app.fixtures.plugintest.PluginTestBase;
 import org.hiero.block.node.app.fixtures.plugintest.TestHealthFacility;
 import org.hiero.block.node.spi.blockmessaging.BlockItems;
 import org.hiero.block.node.spi.blockmessaging.VerificationNotification;
-import org.hiero.hapi.block.node.BlockItemUnparsed;
-import org.hiero.hapi.block.node.BlockItemUnparsed.ItemOneOfType;
+import org.hiero.block.api.BlockItemUnparsed;
+import org.hiero.block.api.BlockItemUnparsed.ItemOneOfType;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 

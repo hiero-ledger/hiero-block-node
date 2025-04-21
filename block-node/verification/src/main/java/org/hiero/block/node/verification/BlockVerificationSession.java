@@ -13,8 +13,8 @@ import org.hiero.block.common.hasher.HashingUtilities;
 import org.hiero.block.common.hasher.NaiveStreamingTreeHasher;
 import org.hiero.block.common.hasher.StreamingTreeHasher;
 import org.hiero.block.node.spi.blockmessaging.VerificationNotification;
-import org.hiero.hapi.block.node.BlockItemUnparsed;
-import org.hiero.hapi.block.node.BlockUnparsed;
+import org.hiero.block.api.BlockItemUnparsed;
+import org.hiero.block.api.BlockUnparsed;
 
 /**
  * Block verification for a single block, aka. session. A new one is created for each block to verify. This is a simple

@@ -25,7 +25,7 @@ import java.nio.file.Path;
 import java.util.Collections;
 import java.util.List;
 import org.hiero.block.node.spi.historicalblocks.BlockAccessor.Format;
-import org.hiero.hapi.block.node.BlockUnparsed;
+import org.hiero.block.api.BlockUnparsed;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 

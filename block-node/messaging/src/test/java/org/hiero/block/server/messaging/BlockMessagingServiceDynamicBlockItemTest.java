@@ -22,8 +22,8 @@ import org.hiero.block.node.messaging.MessagingConfig;
 import org.hiero.block.node.spi.blockmessaging.BlockItems;
 import org.hiero.block.node.spi.blockmessaging.BlockMessagingFacility;
 import org.hiero.block.node.spi.blockmessaging.NoBackPressureBlockItemHandler;
-import org.hiero.hapi.block.node.BlockItemUnparsed;
-import org.hiero.hapi.block.node.BlockItemUnparsed.ItemOneOfType;
+import org.hiero.block.api.BlockItemUnparsed;
+import org.hiero.block.api.BlockItemUnparsed.ItemOneOfType;
 import org.junit.jupiter.api.Test;
 
 public class BlockMessagingServiceDynamicBlockItemTest {

@@ -10,8 +10,8 @@ import java.util.List;
 import java.util.stream.Collectors;
 import org.hiero.block.node.messaging.BlockItemBatchRingEvent;
 import org.hiero.block.node.spi.blockmessaging.BlockItems;
-import org.hiero.hapi.block.node.BlockItemUnparsed;
-import org.hiero.hapi.block.node.BlockItemUnparsed.ItemOneOfType;
+import org.hiero.block.api.BlockItemUnparsed;
+import org.hiero.block.api.BlockItemUnparsed.ItemOneOfType;
 import org.junit.jupiter.api.Test;
 
 /**

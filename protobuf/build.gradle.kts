@@ -32,7 +32,7 @@ val cloneHederaProtobufs =
 
         // remove the block_service.proto file pulled from hedera-protobufs in favour of local
         // version
-//        doLast { localCloneDirectory.file("block/block_service.proto").get().asFile.delete() }
+        doLast { localCloneDirectory.file("block/block_service.proto").get().asFile.delete() }
     }
 
 sourceSets {

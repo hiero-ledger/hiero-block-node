@@ -32,9 +32,9 @@ import org.hiero.block.node.spi.blockmessaging.BlockItems;
 import org.hiero.block.node.spi.blockmessaging.BlockNotificationHandler;
 import org.hiero.block.node.spi.blockmessaging.PersistedNotification;
 import org.hiero.block.node.spi.blockmessaging.VerificationNotification;
-import org.hiero.hapi.block.node.BlockItemUnparsed;
-import org.hiero.hapi.block.node.PublishStreamRequestUnparsed;
-import org.hiero.hapi.block.node.PublishStreamResponse;
+import org.hiero.block.api.BlockItemUnparsed;
+import org.hiero.block.api.PublishStreamRequestUnparsed;
+import org.hiero.block.api.PublishStreamResponse;
 
 /**
  * Provides implementation for the block stream publisher endpoints of the server. These handle incoming push block

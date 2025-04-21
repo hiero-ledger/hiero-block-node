@@ -22,7 +22,7 @@ class CombinedBlockRangeSetTest {
 
     @Test
     @DisplayName("contains() returns true if any underlying set contains the block number")
-    void testContainsSingleBlock() {
+    void testContainsBlock() {
         final BlockRangeSet set1 = mock(BlockRangeSet.class);
         final BlockRangeSet set2 = mock(BlockRangeSet.class);
         when(set1.contains(5L)).thenReturn(false);
@@ -37,7 +37,7 @@ class CombinedBlockRangeSetTest {
 
     @Test
     @DisplayName("contains() returns false if no underlying set contains the block number")
-    void testContainsSingleBlockNotFound() {
+    void testContainsBlockNotFound() {
         final BlockRangeSet set1 = mock(BlockRangeSet.class);
         final BlockRangeSet set2 = mock(BlockRangeSet.class);
         when(set1.contains(5L)).thenReturn(false);

@@ -6,7 +6,7 @@ import com.hedera.pbj.runtime.ParseException;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.List;
-import org.hiero.hapi.block.node.BlockItemUnparsed;
+import org.hiero.block.api.BlockItemUnparsed;
 
 /**
  * Utility class for testing block items.

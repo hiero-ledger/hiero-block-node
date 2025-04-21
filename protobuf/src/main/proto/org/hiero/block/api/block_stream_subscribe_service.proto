@@ -76,6 +76,12 @@ message SubscribeStreamRequest {
   bool allow_unverified = 3;
 }
 
+/**
+* An enumeration indicating the status of this request.
+*
+* This response code SHALL be the last message in the stream of responses.
+* This code SHALL represent the final status of the full request.
+*/
 enum SubscribeStreamResponseCode {
   /**
    * An "unset value" flag, this value SHALL NOT be used.<br/>
@@ -149,13 +155,6 @@ enum SubscribeStreamResponseCode {
  * sufficient to complete the request.
  */
 message SubscribeStreamResponse {
-/**
-* An enumeration indicating the status of this request.
-*
-* This response code SHALL be the last message in the stream of responses.
-* This code SHALL represent the final status of the full request.
-*/
-
 
   oneof response {
     /**
@@ -180,7 +179,7 @@ message SubscribeStreamResponse {
 /**
  * Remote procedure calls (RPCs) for the Block Node stream services.
  */
-service BlockStreamService {
+service BlockStreamSubscribeService {
 
   /**
    * Subscribe to a stream of blocks.

@@ -10,7 +10,7 @@ import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.List;
 import java.util.Objects;
-import org.hiero.block.internal.BlockItemUnparsed;
+import org.hiero.block.api.BlockItemUnparsed;
 
 /**
  * Provides common utility methods for hashing and combining hashes.

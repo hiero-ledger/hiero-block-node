@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.suites;
 
-import com.hedera.hapi.block.protoc.BlockAccessServiceGrpc;
-import com.hedera.hapi.block.protoc.SingleBlockRequest;
-import com.hedera.hapi.block.protoc.SingleBlockResponse;
+import org.hiero.block.api.protoc.BlockAccessServiceGrpc;
+import org.hiero.block.api.protoc.BlockRequest;
+import org.hiero.block.api.protoc.BlockResponse;
 import com.swirlds.config.api.Configuration;
 import com.swirlds.config.api.ConfigurationBuilder;
 import com.swirlds.config.extensions.sources.ClasspathFileConfigSource;
@@ -152,14 +152,14 @@ public abstract class BaseSuite {
     }
 
     /**
-     * Creates a SingleBlockRequest to retrieve a specific block.
+     * Creates a BlockRequest to retrieve a specific block.
      *
      * @param blockNumber The block number to retrieve
      * @param latest Whether to retrieve the latest block
-     * @return A SingleBlockRequest object
+     * @return A BlockRequest object
      */
-    protected SingleBlockRequest createSingleBlockRequest(long blockNumber, boolean latest) {
-        return SingleBlockRequest.newBuilder()
+    protected BlockRequest createBlockRequest(long blockNumber, boolean latest) {
+        return BlockRequest.newBuilder()
                 .setBlockNumber(blockNumber)
                 .setRetrieveLatest(latest)
                 .setAllowUnverified(true)
@@ -172,14 +172,14 @@ public abstract class BaseSuite {
      * @param blockNumber The block number to retrieve
      * @param allowUnverified A flag to indicate that the requested block may be sent without
      *   verifying its `BlockProof`
-     * @return The SingleBlockResponse from the API
+     * @return The BlockResponse from the API
      */
-    protected SingleBlockResponse getSingleBlock(final long blockNumber, final boolean allowUnverified) {
-        SingleBlockRequest request = SingleBlockRequest.newBuilder()
+    protected BlockResponse getBlock(final long blockNumber, final boolean allowUnverified) {
+        BlockRequest request = BlockRequest.newBuilder()
                 .setBlockNumber(blockNumber)
                 .setAllowUnverified(allowUnverified)
                 .build();
-        return blockAccessStub.singleBlock(request);
+        return blockAccessStub.getBlock(request);
     }
 
     /**
@@ -187,15 +187,15 @@ public abstract class BaseSuite {
      *
      * @param allowUnverified A flag to indicate that the requested block may be sent without
      * verifying its `BlockProof`
-     * @return The SingleBlockResponse from the API
+     * @return The BlockResponse from the API
      */
-    protected SingleBlockResponse getLatestBlock(final boolean allowUnverified) {
-        SingleBlockRequest request = SingleBlockRequest.newBuilder()
+    protected BlockResponse getLatestBlock(final boolean allowUnverified) {
+        BlockRequest request = BlockRequest.newBuilder()
                 .setBlockNumber(-1)
                 .setRetrieveLatest(true)
                 .setAllowUnverified(allowUnverified)
                 .build();
-        return blockAccessStub.singleBlock(request);
+        return blockAccessStub.getBlock(request);
     }
 
     /**

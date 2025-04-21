@@ -5,9 +5,9 @@ import static java.lang.System.Logger.Level.ERROR;
 import static java.util.Objects.requireNonNull;
 import static org.hiero.block.simulator.metrics.SimulatorMetricTypes.Counter.LiveBlocksProcessed;
 
-import com.hedera.hapi.block.protoc.BlockStreamServiceGrpc;
-import com.hedera.hapi.block.protoc.PublishStreamRequest;
-import com.hedera.hapi.block.protoc.PublishStreamResponse;
+import org.hiero.block.api.protoc.BlockStreamPublishServiceGrpc;
+import org.hiero.block.api.protoc.PublishStreamRequest;
+import org.hiero.block.api.protoc.PublishStreamResponse;
 import edu.umd.cs.findbugs.annotations.NonNull;
 import io.grpc.Server;
 import io.grpc.ServerBuilder;
@@ -70,7 +70,7 @@ public class PublishStreamGrpcServerImpl implements PublishStreamGrpcServer {
     @Override
     public void init() {
         server = ServerBuilder.forPort(grpcConfig.port())
-                .addService(new BlockStreamServiceGrpc.BlockStreamServiceImplBase() {
+                .addService(new BlockStreamPublishServiceGrpc.BlockStreamPublishServiceImplBase() {
                     @Override
                     public StreamObserver<PublishStreamRequest> publishBlockStream(
                             StreamObserver<PublishStreamResponse> responseObserver) {

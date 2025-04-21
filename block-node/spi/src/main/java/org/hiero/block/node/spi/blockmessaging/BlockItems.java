@@ -6,7 +6,7 @@ import static org.hiero.block.node.spi.BlockNodePlugin.UNKNOWN_BLOCK_NUMBER;
 import java.util.List;
 import java.util.Objects;
 import org.hiero.block.node.spi.BlockNodePlugin;
-import org.hiero.hapi.block.node.BlockItemUnparsed;
+import org.hiero.block.api.BlockItemUnparsed;
 
 /**
  * A record that holds a list of block items and the block number if items start with block header of a new block.

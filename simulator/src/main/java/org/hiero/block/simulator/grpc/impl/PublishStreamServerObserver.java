@@ -6,10 +6,10 @@ import static java.lang.System.Logger.Level.INFO;
 import static java.util.Objects.requireNonNull;
 import static org.hiero.block.simulator.metrics.SimulatorMetricTypes.Counter.LiveBlocksProcessed;
 
-import com.hedera.hapi.block.protoc.PublishStreamRequest;
-import com.hedera.hapi.block.protoc.PublishStreamResponse;
-import com.hedera.hapi.block.protoc.PublishStreamResponse.Acknowledgement;
-import com.hedera.hapi.block.protoc.PublishStreamResponse.BlockAcknowledgement;
+import org.hiero.block.api.protoc.PublishStreamRequest;
+import org.hiero.block.api.protoc.PublishStreamResponse;
+import org.hiero.block.api.protoc.PublishStreamResponse.Acknowledgement;
+import org.hiero.block.api.protoc.PublishStreamResponse.BlockAcknowledgement;
 import com.hedera.hapi.block.stream.protoc.BlockItem;
 import com.hedera.hapi.block.stream.protoc.BlockProof;
 import edu.umd.cs.findbugs.annotations.NonNull;

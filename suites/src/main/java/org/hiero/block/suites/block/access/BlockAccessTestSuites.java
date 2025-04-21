@@ -8,9 +8,9 @@ import org.junit.platform.suite.api.Suite;
  * Test suite for running block access tests, including both positive and negative test
  * scenarios.
  *
- * <p>This suite aggregates the tests from {@link GetSingleBlockApiTests}. The {@code @Suite}
+ * <p>This suite aggregates the tests from {@link GetBlockApiTests}. The {@code @Suite}
  * annotation allows running all selected classes in a single test run.
  */
 @Suite
-@SelectClasses({GetSingleBlockApiTests.class})
+@SelectClasses({GetBlockApiTests.class})
 public class BlockAccessTestSuites {}

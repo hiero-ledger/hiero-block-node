@@ -12,7 +12,7 @@ import java.io.OutputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
-import org.hiero.hapi.block.node.BlockUnparsed;
+import org.hiero.block.api.BlockUnparsed;
 
 /**
  * The BlockAccessor interface is used to provide access to a block and its serialized forms. It allows for getting

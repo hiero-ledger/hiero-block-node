@@ -4,9 +4,9 @@ package org.hiero.block.simulator.grpc.impl;
 import static java.util.Objects.requireNonNull;
 import static org.hiero.block.simulator.metrics.SimulatorMetricTypes.Counter.LiveBlocksConsumed;
 
-import com.hedera.hapi.block.protoc.BlockStreamServiceGrpc;
-import com.hedera.hapi.block.protoc.SubscribeStreamRequest;
-import com.hedera.hapi.block.protoc.SubscribeStreamResponse;
+import org.hiero.block.api.protoc.BlockStreamSubscribeServiceGrpc;
+import org.hiero.block.api.protoc.SubscribeStreamRequest;
+import org.hiero.block.api.protoc.SubscribeStreamResponse;
 import edu.umd.cs.findbugs.annotations.NonNull;
 import io.grpc.ManagedChannel;
 import io.grpc.ManagedChannelBuilder;
@@ -38,7 +38,7 @@ public class ConsumerStreamGrpcClientImpl implements ConsumerStreamGrpcClient {
 
     // gRPC components
     private ManagedChannel channel;
-    private BlockStreamServiceGrpc.BlockStreamServiceStub stub;
+    private BlockStreamSubscribeServiceGrpc.BlockStreamSubscribeServiceStub stub;
     private StreamObserver<SubscribeStreamResponse> consumerStreamObserver;
 
     // State
@@ -72,7 +72,7 @@ public class ConsumerStreamGrpcClientImpl implements ConsumerStreamGrpcClient {
         channel = ManagedChannelBuilder.forAddress(grpcConfig.serverAddress(), grpcConfig.port())
                 .usePlaintext()
                 .build();
-        stub = BlockStreamServiceGrpc.newStub(channel);
+        stub = BlockStreamSubscribeServiceGrpc.newStub(channel);
         lastKnownStatuses.clear();
         streamLatch = new CountDownLatch(1);
     }

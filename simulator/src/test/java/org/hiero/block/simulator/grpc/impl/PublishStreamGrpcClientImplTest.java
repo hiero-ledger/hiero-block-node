@@ -9,11 +9,11 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.when;
 
-import com.hedera.hapi.block.protoc.BlockItemSet;
-import com.hedera.hapi.block.protoc.BlockStreamServiceGrpc;
-import com.hedera.hapi.block.protoc.PublishStreamRequest;
-import com.hedera.hapi.block.protoc.PublishStreamResponse;
-import com.hedera.hapi.block.protoc.PublishStreamResponseCode;
+import org.hiero.block.api.protoc.BlockItemSet;
+import org.hiero.block.api.protoc.BlockStreamPublishServiceGrpc;
+import org.hiero.block.api.protoc.PublishStreamRequest;
+import org.hiero.block.api.protoc.PublishStreamResponse;
+import org.hiero.block.api.protoc.PublishStreamResponseCode;
 import com.hedera.hapi.block.stream.output.protoc.BlockHeader;
 import com.hedera.hapi.block.stream.protoc.Block;
 import com.hedera.hapi.block.stream.protoc.BlockItem;
@@ -63,7 +63,7 @@ class PublishStreamGrpcClientImplTest {
 
         final int serverPort = findFreePort();
         server = ServerBuilder.forPort(serverPort)
-                .addService(new BlockStreamServiceGrpc.BlockStreamServiceImplBase() {
+                .addService(new BlockStreamPublishServiceGrpc.BlockStreamPublishServiceImplBase() {
                     @Override
                     public StreamObserver<PublishStreamRequest> publishBlockStream(
                             StreamObserver<PublishStreamResponse> responseObserver) {

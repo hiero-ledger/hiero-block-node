@@ -18,12 +18,12 @@ import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.blockmessaging.BlockItems;
 import org.hiero.block.node.spi.blockmessaging.NoBackPressureBlockItemHandler;
 import org.hiero.block.node.spi.historicalblocks.BlockAccessor;
-import org.hiero.hapi.block.node.BlockItemSetUnparsed;
-import org.hiero.hapi.block.node.BlockUnparsed;
-import org.hiero.hapi.block.node.SubscribeStreamRequest;
-import org.hiero.hapi.block.node.SubscribeStreamResponseCode;
-import org.hiero.hapi.block.node.SubscribeStreamResponseUnparsed;
-import org.hiero.hapi.block.node.SubscribeStreamResponseUnparsed.ResponseOneOfType;
+import org.hiero.block.api.BlockItemSetUnparsed;
+import org.hiero.block.api.BlockUnparsed;
+import org.hiero.block.api.SubscribeStreamRequest;
+import org.hiero.block.api.SubscribeStreamResponseCode;
+import org.hiero.block.api.SubscribeStreamResponseUnparsed;
+import org.hiero.block.api.SubscribeStreamResponseUnparsed.ResponseOneOfType;
 
 /**
  * This class is used to represent a session for a single BlockStream subscriber that has connected to the block node.

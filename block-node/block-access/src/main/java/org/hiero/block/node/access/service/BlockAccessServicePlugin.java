@@ -19,12 +19,12 @@ import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.BlockNodePlugin;
 import org.hiero.block.node.spi.ServiceBuilder;
 import org.hiero.block.node.spi.historicalblocks.HistoricalBlockFacility;
-import org.hiero.hapi.block.node.SingleBlockRequest;
-import org.hiero.hapi.block.node.SingleBlockResponse;
-import org.hiero.hapi.block.node.SingleBlockResponseCode;
+import org.hiero.block.api.BlockRequest;
+import org.hiero.block.api.BlockResponse;
+import org.hiero.block.api.BlockResponse.BlockResponseCode;
 
 /**
- * Plugin that implements the BlockAccessService and provides the 'singleBlock' RPC.
+ * Plugin that implements the BlockAccessService and provides the 'block' RPC.
  */
 public class BlockAccessServicePlugin implements BlockNodePlugin, ServiceInterface {
 
@@ -47,8 +47,8 @@ public class BlockAccessServicePlugin implements BlockNodePlugin, ServiceInterfa
      * @param request the request containing the block number or latest flag
      * @return the response containing the block or an error status
      */
-    private SingleBlockResponse handleSingleBlockRequest(SingleBlockRequest request) {
-        LOGGER.log(DEBUG, "Received SingleBlockRequest for block number: {0}", request.blockNumber());
+    private BlockResponse handleBlockRequest(BlockRequest request) {
+        LOGGER.log(DEBUG, "Received BlockRequest for block number: {0}", request.blockNumber());
         requestCounter.increment();
 
         try {
@@ -59,13 +59,13 @@ public class BlockAccessServicePlugin implements BlockNodePlugin, ServiceInterfa
                         "Both block_number and retrieve_latest set. Using retrieve_latest instead of block_number: {0}",
                         request.blockNumber());
                 responseCounterNotFound.increment();
-                return new SingleBlockResponse(SingleBlockResponseCode.READ_BLOCK_NOT_FOUND, null);
+                return new BlockResponse(BlockResponseCode.READ_BLOCK_NOT_FOUND, null);
             }
             // when block_number is -1 and retrieve_latest is false, return an NOT_FOUND error
             if (request.blockNumber() == -1 && !request.retrieveLatest()) {
                 LOGGER.log(INFO, "Block number is -1 and retrieve_latest is false");
                 responseCounterNotFound.increment();
-                return new SingleBlockResponse(SingleBlockResponseCode.READ_BLOCK_NOT_FOUND, null);
+                return new BlockResponse(BlockResponseCode.READ_BLOCK_NOT_FOUND, null);
             }
 
             long blockNumberToRetrieve;
@@ -76,7 +76,7 @@ public class BlockAccessServicePlugin implements BlockNodePlugin, ServiceInterfa
                 if (blockNumberToRetrieve < 0) {
                     LOGGER.log(INFO, "Latest block number not available");
                     responseCounterNotAvailable.increment();
-                    return new SingleBlockResponse(SingleBlockResponseCode.READ_BLOCK_NOT_AVAILABLE, null);
+                    return new BlockResponse(BlockResponseCode.READ_BLOCK_NOT_AVAILABLE, null);
                 }
             } else {
                 blockNumberToRetrieve = request.blockNumber();
@@ -93,18 +93,18 @@ public class BlockAccessServicePlugin implements BlockNodePlugin, ServiceInterfa
                         lowestBlockNumber,
                         highestBlockNumber);
                 responseCounterNotAvailable.increment();
-                return new SingleBlockResponse(SingleBlockResponseCode.READ_BLOCK_NOT_AVAILABLE, null);
+                return new BlockResponse(BlockResponseCode.READ_BLOCK_NOT_AVAILABLE, null);
             }
 
             // Retrieve the block
             Block block = blockProvider.block(blockNumberToRetrieve).block();
             responseCounterSuccess.increment();
-            return new SingleBlockResponse(SingleBlockResponseCode.READ_BLOCK_SUCCESS, block);
+            return new BlockResponse(BlockResponseCode.READ_BLOCK_SUCCESS, block);
 
         } catch (RuntimeException e) {
             LOGGER.log(ERROR, "Failed to retrieve block number: {0}", request.blockNumber());
             responseCounterNotFound.increment();
-            return new SingleBlockResponse(SingleBlockResponseCode.READ_BLOCK_NOT_FOUND, null);
+            return new BlockResponse(BlockResponseCode.READ_BLOCK_NOT_FOUND, null);
         }
     }
 
@@ -141,9 +141,9 @@ public class BlockAccessServicePlugin implements BlockNodePlugin, ServiceInterfa
      */
     enum BlockAccessServiceMethod implements Method {
         /**
-         * The singleBlock method retrieves a single block from the block node.
+         * The getBlock method retrieves a single block from the block node.
          */
-        singleBlock
+        getBlock
     }
 
     /**
@@ -185,11 +185,11 @@ public class BlockAccessServicePlugin implements BlockNodePlugin, ServiceInterfa
             throws GrpcException {
         final BlockAccessServiceMethod blockAccessServiceMethod = (BlockAccessServiceMethod) method;
         return switch (blockAccessServiceMethod) {
-            case singleBlock:
-                yield Pipelines.<SingleBlockRequest, SingleBlockResponse>unary()
-                        .mapRequest(SingleBlockRequest.PROTOBUF::parse)
-                        .method(this::handleSingleBlockRequest)
-                        .mapResponse(SingleBlockResponse.PROTOBUF::toBytes)
+            case getBlock:
+                yield Pipelines.<BlockRequest, BlockResponse>unary()
+                        .mapRequest(BlockRequest.PROTOBUF::parse)
+                        .method(this::handleBlockRequest)
+                        .mapResponse(BlockResponse.PROTOBUF::toBytes)
                         .respondTo(pipeline)
                         .build();
         };

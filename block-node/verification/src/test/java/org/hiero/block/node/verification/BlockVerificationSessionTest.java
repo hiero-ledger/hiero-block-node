@@ -8,7 +8,7 @@ import java.util.List;
 import org.hiero.block.common.utils.ChunkUtils;
 import org.hiero.block.node.app.fixtures.blocks.BlockUtils;
 import org.hiero.block.node.spi.blockmessaging.VerificationNotification;
-import org.hiero.hapi.block.node.BlockItemUnparsed;
+import org.hiero.block.api.BlockItemUnparsed;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;

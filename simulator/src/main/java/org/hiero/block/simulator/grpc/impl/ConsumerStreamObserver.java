@@ -7,7 +7,7 @@ import static java.lang.System.Logger.Level.WARNING;
 import static java.util.Objects.requireNonNull;
 import static org.hiero.block.simulator.metrics.SimulatorMetricTypes.Counter.LiveBlocksConsumed;
 
-import com.hedera.hapi.block.protoc.SubscribeStreamResponse;
+import org.hiero.block.api.protoc.SubscribeStreamResponse;
 import com.hedera.hapi.block.stream.protoc.BlockItem;
 import edu.umd.cs.findbugs.annotations.NonNull;
 import io.grpc.Status;

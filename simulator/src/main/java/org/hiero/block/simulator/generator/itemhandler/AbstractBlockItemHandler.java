@@ -9,7 +9,7 @@ import com.hederahashgraph.api.proto.java.Timestamp;
 import java.util.Random;
 import org.hiero.block.common.utils.Preconditions;
 import org.hiero.block.simulator.exception.BlockSimulatorParsingException;
-import org.hiero.hapi.block.node.BlockItemUnparsed;
+import org.hiero.block.api.BlockItemUnparsed;
 
 /**
  * Abstract base class for block item handlers providing common functionality.

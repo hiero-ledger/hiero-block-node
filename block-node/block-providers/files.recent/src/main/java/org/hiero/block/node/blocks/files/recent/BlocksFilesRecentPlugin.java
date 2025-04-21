@@ -25,7 +25,7 @@ import org.hiero.block.node.spi.blockmessaging.VerificationNotification;
 import org.hiero.block.node.spi.historicalblocks.BlockAccessor;
 import org.hiero.block.node.spi.historicalblocks.BlockProviderPlugin;
 import org.hiero.block.node.spi.historicalblocks.BlockRangeSet;
-import org.hiero.hapi.block.node.BlockUnparsed;
+import org.hiero.block.api.BlockUnparsed;
 
 /**
  * This plugin is responsible for providing the "Files Recent" block provider. This stores incoming blocks in files in

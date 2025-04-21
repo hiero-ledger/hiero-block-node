@@ -6,9 +6,9 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import com.hedera.hapi.block.protoc.SingleBlockRequest;
-import com.hedera.hapi.block.protoc.SingleBlockResponse;
-import com.hedera.hapi.block.protoc.SingleBlockResponseCode;
+import org.hiero.block.api.protoc.BlockRequest;
+import org.hiero.block.api.protoc.BlockResponse;
+import org.hiero.block.api.protoc.BlockResponse.BlockResponseCode;
 import java.io.IOException;
 import java.util.concurrent.Future;
 import org.hiero.block.simulator.BlockStreamSimulatorApp;
@@ -21,19 +21,19 @@ import org.junit.jupiter.api.TestInstance;
 
 /**
  *
- * Test class for verifying the functionality of the GetSingleBlock API in the Block Node
+ * Test class for verifying the functionality of the GetBlock API in the Block Node
  * application.
  *
- * <p>This class is part of the Block Node suite and aims to test the behavior of the GetSingleBlock
+ * <p>This class is part of the Block Node suite and aims to test the behavior of the GetBlock
  * API under various conditions, including both positive and negative scenarios.
  *
  * <p>Inherits from {@link BaseSuite} to reuse the container setup and teardown logic for the Block
  * Node.
  *
  */
-@DisplayName("GetSingleBlockApiTests")
+@DisplayName("GetBlockApiTests")
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
-public class GetSingleBlockApiTests extends BaseSuite {
+public class GetBlockApiTests extends BaseSuite {
 
     // Simulator instance to be used for testing
     private BlockStreamSimulatorApp blockStreamSimulatorApp;
@@ -59,15 +59,15 @@ public class GetSingleBlockApiTests extends BaseSuite {
 
     @Test
     @DisplayName("Get a Single Block using API - Happy Path")
-    void requestExistingBlockUsingSingleBlockAPI() {
+    void requestExistingBlockUsingBlockAPI() {
         // Request block number 1 (which should have been published by the simulator)
         final long blockNumber = 1;
-        final SingleBlockResponse response = getSingleBlock(blockNumber, false);
+        final BlockResponse response = getBlock(blockNumber, false);
 
         // Verify the response
         assertNotNull(response, "Response should not be null");
         assertEquals(
-                SingleBlockResponseCode.READ_BLOCK_SUCCESS,
+                BlockResponseCode.READ_BLOCK_SUCCESS,
                 response.getStatus(),
                 "Block retrieval should be successful");
 
@@ -81,15 +81,15 @@ public class GetSingleBlockApiTests extends BaseSuite {
 
     @Test
     @DisplayName("Get a Single Block using API - Negative Test - Non-existing Block")
-    void requestNonExistingBlockUsingSingleBlockAPI() {
+    void requestNonExistingBlockUsingBlockAPI() {
         // Request a non-existing block number
         final long blockNumber = 1000;
-        final SingleBlockResponse response = getSingleBlock(blockNumber, false);
+        final BlockResponse response = getBlock(blockNumber, false);
 
         // Verify the response
         assertNotNull(response, "Response should not be null");
         assertEquals(
-                SingleBlockResponseCode.READ_BLOCK_NOT_AVAILABLE,
+                BlockResponseCode.READ_BLOCK_NOT_AVAILABLE,
                 response.getStatus(),
                 "Block retrieval should fail for non-existing block");
 
@@ -99,14 +99,14 @@ public class GetSingleBlockApiTests extends BaseSuite {
 
     @Test
     @DisplayName("Get a Single Block using API - Request Latest Block")
-    void requestLatestBlockUsingSingleBlockAPI() {
+    void requestLatestBlockUsingBlockAPI() {
         // Request the latest block
-        final SingleBlockResponse response = getLatestBlock(false);
+        final BlockResponse response = getLatestBlock(false);
 
         // Verify the response
         assertNotNull(response, "Response should not be null");
         assertEquals(
-                SingleBlockResponseCode.READ_BLOCK_SUCCESS,
+                BlockResponseCode.READ_BLOCK_SUCCESS,
                 response.getStatus(),
                 "Block retrieval should be successful");
 
@@ -122,16 +122,16 @@ public class GetSingleBlockApiTests extends BaseSuite {
 
     @Test
     @DisplayName("Get a Single Block using API - Request Latest and Specific Block - should fail with NOT_FOUND")
-    void requestLatestBlockAndSpecificBlockUsingSingleBlockAPI() {
+    void requestLatestBlockAndSpecificBlockUsingBlockAPI() {
         // Request the latest block and a specific block number
         final long blockNumber = 1;
-        final SingleBlockRequest request = createSingleBlockRequest(blockNumber, true);
-        final SingleBlockResponse response = blockAccessStub.singleBlock(request);
+        final BlockRequest request = createBlockRequest(blockNumber, true);
+        final BlockResponse response = blockAccessStub.getBlock(request);
 
         // Verify the response
         assertNotNull(response, "Response should not be null");
         assertEquals(
-                SingleBlockResponseCode.READ_BLOCK_NOT_FOUND,
+                BlockResponseCode.READ_BLOCK_NOT_FOUND,
                 response.getStatus(),
                 "Block retrieval should fail for non-existing block");
 
@@ -144,13 +144,13 @@ public class GetSingleBlockApiTests extends BaseSuite {
             "Get a Single Block using API - block_number to -1 and retrieve_latest to false - should return NOT_FOUND")
     void requestWithoutBlockNumberAndRetrieveLatestFalse() {
         // Request the latest block and a specific block number
-        final SingleBlockRequest request = createSingleBlockRequest(-1, false);
-        final SingleBlockResponse response = blockAccessStub.singleBlock(request);
+        final BlockRequest request = createBlockRequest(-1, false);
+        final BlockResponse response = blockAccessStub.getBlock(request);
 
         // Verify the response
         assertNotNull(response, "Response should not be null");
         assertEquals(
-                SingleBlockResponseCode.READ_BLOCK_NOT_FOUND,
+                BlockResponseCode.READ_BLOCK_NOT_FOUND,
                 response.getStatus(),
                 "Block retrieval should fail for non-existing block");
 

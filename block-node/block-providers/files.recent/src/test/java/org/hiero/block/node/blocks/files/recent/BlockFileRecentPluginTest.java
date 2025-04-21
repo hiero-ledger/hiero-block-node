@@ -20,7 +20,7 @@ import org.hiero.block.node.app.HistoricalBlockFacilityImpl;
 import org.hiero.block.node.app.fixtures.plugintest.PluginTestBase;
 import org.hiero.block.node.base.CompressionType;
 import org.hiero.block.node.spi.blockmessaging.VerificationNotification;
-import org.hiero.hapi.block.node.BlockUnparsed;
+import org.hiero.block.api.BlockUnparsed;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;

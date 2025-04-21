@@ -15,7 +15,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import org.hiero.block.node.spi.blockmessaging.BlockItems;
-import org.hiero.hapi.block.node.BlockItemUnparsed;
+import org.hiero.block.api.BlockItemUnparsed;
 
 /**
  * A utility class to create sample BlockItem objects for testing purposes.

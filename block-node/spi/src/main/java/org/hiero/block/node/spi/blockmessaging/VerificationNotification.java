@@ -12,4 +12,4 @@ import com.hedera.pbj.runtime.io.buffer.Bytes;
  * @param block       the block, if the type is BLOCK_VERIFIED
  */
 public record VerificationNotification(
-        boolean success, long blockNumber, Bytes blockHash, org.hiero.hapi.block.node.BlockUnparsed block) {}
+        boolean success, long blockNumber, Bytes blockHash, org.hiero.block.api.BlockUnparsed block) {}

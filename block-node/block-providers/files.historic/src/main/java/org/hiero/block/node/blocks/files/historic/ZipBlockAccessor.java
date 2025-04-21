@@ -18,7 +18,7 @@ import java.util.zip.ZipEntry;
 import java.util.zip.ZipFile;
 import org.hiero.block.node.base.CompressionType;
 import org.hiero.block.node.spi.historicalblocks.BlockAccessor;
-import org.hiero.hapi.block.node.BlockUnparsed;
+import org.hiero.block.api.BlockUnparsed;
 
 /**
  * The ZipBlockAccessor class provides access to a block stored in a zip file.
