@@ -24,10 +24,10 @@ import "stream/block_item.proto";
  * MUST be the last item in the list.
  */
 message BlockItemSet {
-  /**
-   * An ordered list of `BlockItem`s.<br/>
-   * This list supports sending block items to subscribers in batches
-   * for greater channel efficiency.
-   */
-  repeated com.hedera.hapi.block.stream.BlockItem block_items = 1;
+    /**
+     * An ordered list of `BlockItem`s.<br/>
+     * This list supports sending block items to subscribers in batches
+     * for greater channel efficiency.
+     */
+    repeated com.hedera.hapi.block.stream.BlockItem block_items = 1;
 }
