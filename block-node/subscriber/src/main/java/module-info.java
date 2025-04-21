@@ -7,7 +7,7 @@ module org.hiero.block.node.subscriber {
 
     requires transitive com.hedera.pbj.runtime;
     requires transitive org.hiero.block.node.spi;
-    requires transitive org.hiero.block.stream;
+    requires transitive org.hiero.block.protobuf;
     requires com.swirlds.metrics.api;
     requires com.github.spotbugs.annotations;
 

@@ -16,7 +16,7 @@ module org.hiero.block.node.blocks.files.recent {
     requires transitive org.hiero.block.node.spi;
     requires com.hedera.pbj.runtime;
     requires org.hiero.block.common;
-    requires org.hiero.block.stream;
+    requires org.hiero.block.protobuf;
     requires com.github.luben.zstd_jni;
     requires com.github.spotbugs.annotations;
 

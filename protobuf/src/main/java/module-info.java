@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-module org.hiero.block.stream {
+module org.hiero.block.protobuf {
     exports com.hedera.hapi.block;
     exports com.hedera.hapi.block.protoc;
     exports com.hedera.hapi.block.stream.protoc;

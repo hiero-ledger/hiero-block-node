@@ -8,7 +8,7 @@ module org.hiero.block.node.app.test.fixtures {
     requires com.swirlds.config.api;
     requires com.swirlds.metrics.api;
     requires org.hiero.block.node.spi;
-    requires org.hiero.block.stream;
+    requires org.hiero.block.protobuf;
     requires io.helidon.webserver;
     requires java.logging;
     requires org.junit.jupiter.api;

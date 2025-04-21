@@ -15,7 +15,7 @@ module org.hiero.block.node.verification {
     requires transitive com.swirlds.config.api;
     requires transitive org.hiero.block.common;
     requires transitive org.hiero.block.node.spi;
-    requires transitive org.hiero.block.stream;
+    requires transitive org.hiero.block.protobuf;
     requires com.swirlds.metrics.api;
     requires org.hiero.block.node.base;
     requires com.github.spotbugs.annotations;
