@@ -20,8 +20,8 @@ import java.util.List;
 import org.assertj.core.api.SoftAssertions;
 import org.hiero.block.api.SubscribeStreamRequest;
 import org.hiero.block.api.SubscribeStreamResponse;
+import org.hiero.block.api.SubscribeStreamResponse.Code;
 import org.hiero.block.api.SubscribeStreamResponse.ResponseOneOfType;
-import org.hiero.block.api.SubscribeStreamResponse.SubscribeStreamResponseCode;
 import org.hiero.block.internal.BlockItemUnparsed;
 import org.hiero.block.node.app.fixtures.plugintest.GrpcPluginTestBase;
 import org.hiero.block.node.app.fixtures.plugintest.SimpleInMemoryHistoricalBlockFacility;
@@ -260,7 +260,7 @@ public class SubscriberTest extends GrpcPluginTestBase<SubscriberServicePlugin> 
         // check we did not get a bad response
         SubscribeStreamResponse response = parseResponse(fromPluginBytes.getFirst());
         assertEquals(ResponseOneOfType.STATUS, response.response().kind());
-        assertEquals(SubscribeStreamResponseCode.READ_STREAM_INVALID_START_BLOCK_NUMBER, response.status());
+        assertEquals(Code.READ_STREAM_INVALID_START_BLOCK_NUMBER, response.status());
     }
 
     @Test
@@ -280,7 +280,7 @@ public class SubscriberTest extends GrpcPluginTestBase<SubscriberServicePlugin> 
                 .isGreaterThan(0);
         SubscribeStreamResponse response = parseResponse(fromPluginBytes.getFirst());
         assertEquals(ResponseOneOfType.STATUS, response.response().kind());
-        assertEquals(SubscribeStreamResponseCode.READ_STREAM_INVALID_END_BLOCK_NUMBER, response.status());
+        assertEquals(Code.READ_STREAM_INVALID_END_BLOCK_NUMBER, response.status());
     }
 
     @Test
@@ -299,7 +299,7 @@ public class SubscriberTest extends GrpcPluginTestBase<SubscriberServicePlugin> 
         assertThat(fromPluginBytes.size()).isGreaterThan(0);
         SubscribeStreamResponse response = parseResponse(fromPluginBytes.getFirst());
         assertEquals(ResponseOneOfType.STATUS, response.response().kind());
-        assertEquals(SubscribeStreamResponseCode.READ_STREAM_INVALID_END_BLOCK_NUMBER, response.status());
+        assertEquals(Code.READ_STREAM_INVALID_END_BLOCK_NUMBER, response.status());
     }
 
     // ==== Testing Utility Methods ====================================================================================

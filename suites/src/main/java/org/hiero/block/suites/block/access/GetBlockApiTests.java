@@ -10,7 +10,7 @@ import java.io.IOException;
 import java.util.concurrent.Future;
 import org.hiero.block.api.protoc.BlockRequest;
 import org.hiero.block.api.protoc.BlockResponse;
-import org.hiero.block.api.protoc.BlockResponse.BlockResponseCode;
+import org.hiero.block.api.protoc.BlockResponse.Code;
 import org.hiero.block.simulator.BlockStreamSimulatorApp;
 import org.hiero.block.suites.BaseSuite;
 import org.junit.jupiter.api.AfterEach;
@@ -66,8 +66,7 @@ public class GetBlockApiTests extends BaseSuite {
 
         // Verify the response
         assertNotNull(response, "Response should not be null");
-        assertEquals(
-                BlockResponseCode.READ_BLOCK_SUCCESS, response.getStatus(), "Block retrieval should be successful");
+        assertEquals(Code.READ_BLOCK_SUCCESS, response.getStatus(), "Block retrieval should be successful");
 
         // Verify the block content
         assertTrue(response.hasBlock(), "Response should contain a block");
@@ -87,7 +86,7 @@ public class GetBlockApiTests extends BaseSuite {
         // Verify the response
         assertNotNull(response, "Response should not be null");
         assertEquals(
-                BlockResponseCode.READ_BLOCK_NOT_AVAILABLE,
+                Code.READ_BLOCK_NOT_AVAILABLE,
                 response.getStatus(),
                 "Block retrieval should fail for non-existing block");
 
@@ -103,8 +102,7 @@ public class GetBlockApiTests extends BaseSuite {
 
         // Verify the response
         assertNotNull(response, "Response should not be null");
-        assertEquals(
-                BlockResponseCode.READ_BLOCK_SUCCESS, response.getStatus(), "Block retrieval should be successful");
+        assertEquals(Code.READ_BLOCK_SUCCESS, response.getStatus(), "Block retrieval should be successful");
 
         // Verify the block content
         final long latestPublishedBlock =
@@ -127,9 +125,7 @@ public class GetBlockApiTests extends BaseSuite {
         // Verify the response
         assertNotNull(response, "Response should not be null");
         assertEquals(
-                BlockResponseCode.READ_BLOCK_NOT_FOUND,
-                response.getStatus(),
-                "Block retrieval should fail for non-existing block");
+                Code.READ_BLOCK_NOT_FOUND, response.getStatus(), "Block retrieval should fail for non-existing block");
 
         // Verify that the block is null
         assertFalse(response.hasBlock(), "Response should not contain a block");
@@ -146,9 +142,7 @@ public class GetBlockApiTests extends BaseSuite {
         // Verify the response
         assertNotNull(response, "Response should not be null");
         assertEquals(
-                BlockResponseCode.READ_BLOCK_NOT_FOUND,
-                response.getStatus(),
-                "Block retrieval should fail for non-existing block");
+                Code.READ_BLOCK_NOT_FOUND, response.getStatus(), "Block retrieval should fail for non-existing block");
 
         // Verify that the block is null
         assertFalse(response.hasBlock(), "Response should not contain a block");

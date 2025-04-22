@@ -16,7 +16,7 @@ import com.hedera.pbj.runtime.grpc.ServiceInterface;
 import java.util.List;
 import org.hiero.block.api.BlockRequest;
 import org.hiero.block.api.BlockResponse;
-import org.hiero.block.api.BlockResponse.BlockResponseCode;
+import org.hiero.block.api.BlockResponse.Code;
 import org.hiero.block.node.app.fixtures.plugintest.GrpcPluginTestBase;
 import org.hiero.block.node.app.fixtures.plugintest.SimpleInMemoryHistoricalBlockFacility;
 import org.hiero.block.node.spi.blockmessaging.BlockItems;
@@ -71,7 +71,7 @@ public class BlockAccessServicePluginTest extends GrpcPluginTestBase<BlockAccess
         // parse the response
         BlockResponse response = BlockResponse.PROTOBUF.parse(fromPluginBytes.get(0));
         // check that the status is success
-        assertEquals(BlockResponseCode.READ_BLOCK_SUCCESS, response.status());
+        assertEquals(Code.READ_BLOCK_SUCCESS, response.status());
         // check that the block number is correct
         assertEquals(1, response.block().items().getFirst().blockHeader().number());
     }
@@ -91,7 +91,7 @@ public class BlockAccessServicePluginTest extends GrpcPluginTestBase<BlockAccess
         // parse the response
         BlockResponse response = BlockResponse.PROTOBUF.parse(fromPluginBytes.get(0));
         // check that the status is NOT FOUND
-        assertEquals(BlockResponseCode.READ_BLOCK_NOT_AVAILABLE, response.status());
+        assertEquals(Code.READ_BLOCK_NOT_AVAILABLE, response.status());
         // check block is null
         assertNull(response.block());
     }
@@ -110,7 +110,7 @@ public class BlockAccessServicePluginTest extends GrpcPluginTestBase<BlockAccess
         // parse the response
         BlockResponse response = BlockResponse.PROTOBUF.parse(fromPluginBytes.get(0));
         // check that the status is success
-        assertEquals(BlockResponseCode.READ_BLOCK_SUCCESS, response.status());
+        assertEquals(Code.READ_BLOCK_SUCCESS, response.status());
         // check that the block number is correct
         assertEquals(24, response.block().items().getFirst().blockHeader().number());
     }
@@ -130,7 +130,7 @@ public class BlockAccessServicePluginTest extends GrpcPluginTestBase<BlockAccess
         // parse the response
         BlockResponse response = BlockResponse.PROTOBUF.parse(fromPluginBytes.get(0));
         // check that the status is success
-        assertEquals(BlockResponseCode.READ_BLOCK_NOT_FOUND, response.status());
+        assertEquals(Code.READ_BLOCK_NOT_FOUND, response.status());
     }
 
     @Test
@@ -147,7 +147,7 @@ public class BlockAccessServicePluginTest extends GrpcPluginTestBase<BlockAccess
         // parse the response
         BlockResponse response = BlockResponse.PROTOBUF.parse(fromPluginBytes.get(0));
         // check that the status is READ_BLOCK_NOT_FOUND
-        assertEquals(BlockResponseCode.READ_BLOCK_NOT_FOUND, response.status());
+        assertEquals(Code.READ_BLOCK_NOT_FOUND, response.status());
     }
 
     private void sendBlocks(int numberOfBlocks) {

@@ -57,7 +57,7 @@ message StateSnapshotResponse {
     /**
      * An enumeration indicating the status of a StateSnapshotResponse request.
      */
-    enum StateSnapshotResponseCode {
+    enum Code {
         /**
          * An "unset value" flag, this value SHALL NOT be used.<br/>
          * This status indicates the server software failed to set a status,
@@ -87,7 +87,7 @@ message StateSnapshotResponse {
      * This code SHALL indicate a successful call, or the detailed
      * reason for failure.
      */
-    StateSnapshotResponseCode status = 1;
+    Code status = 1;
 
     /**
      * A block number.

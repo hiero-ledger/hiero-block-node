@@ -21,7 +21,7 @@ message SubscribeStreamResponseUnparsed {
          * <p>
          * The block node server SHALL end the stream following this message.
          */
-        org.hiero.block.api.SubscribeStreamResponse.SubscribeStreamResponseCode status = 1;
+        org.hiero.block.api.SubscribeStreamResponse.Code status = 1;
 
         /**
          * A stream response item containing one or more `BlockItem`s.
@@ -34,7 +34,7 @@ message SubscribeStreamResponseUnparsed {
 }
 
 message BlockResponseUnparsed {
-    org.hiero.block.api.BlockResponse.BlockResponseCode status = 1;
+    org.hiero.block.api.BlockResponse.Code status = 1;
     BlockUnparsed block = 2;
 }
 

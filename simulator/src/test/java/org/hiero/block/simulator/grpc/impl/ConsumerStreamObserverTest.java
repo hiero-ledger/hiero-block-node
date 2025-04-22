@@ -18,7 +18,7 @@ import java.util.ArrayDeque;
 import java.util.concurrent.CountDownLatch;
 import org.hiero.block.api.protoc.BlockItemSet;
 import org.hiero.block.api.protoc.SubscribeStreamResponse;
-import org.hiero.block.api.protoc.SubscribeStreamResponse.SubscribeStreamResponseCode;
+import org.hiero.block.api.protoc.SubscribeStreamResponse.Code;
 import org.hiero.block.simulator.TestUtils;
 import org.hiero.block.simulator.metrics.MetricsService;
 import org.hiero.block.simulator.metrics.MetricsServiceImpl;
@@ -63,7 +63,7 @@ class ConsumerStreamObserverTest {
     @Test
     void testOnNextWithStatusResponse() {
         SubscribeStreamResponse response = SubscribeStreamResponse.newBuilder()
-                .setStatus(SubscribeStreamResponseCode.READ_STREAM_SUCCESS)
+                .setStatus(Code.READ_STREAM_SUCCESS)
                 .build();
 
         observer.onNext(response);

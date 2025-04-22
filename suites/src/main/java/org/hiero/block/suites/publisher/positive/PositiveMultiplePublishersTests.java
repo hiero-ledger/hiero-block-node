@@ -14,7 +14,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.Future;
 import org.hiero.block.api.protoc.BlockResponse;
-import org.hiero.block.api.protoc.BlockResponse.BlockResponseCode;
+import org.hiero.block.api.protoc.BlockResponse.Code;
 import org.hiero.block.simulator.BlockStreamSimulatorApp;
 import org.hiero.block.suites.BaseSuite;
 import org.junit.jupiter.api.AfterEach;
@@ -158,8 +158,8 @@ public class PositiveMultiplePublishersTests extends BaseSuite {
 
         assertNotNull(currentBlockResponse);
         assertNotNull(futureBlockResponse);
-        assertEquals(BlockResponseCode.READ_BLOCK_SUCCESS, currentBlockResponse.getStatus());
-        assertEquals(BlockResponseCode.READ_BLOCK_NOT_AVAILABLE, futureBlockResponse.getStatus());
+        assertEquals(Code.READ_BLOCK_SUCCESS, currentBlockResponse.getStatus());
+        assertEquals(Code.READ_BLOCK_NOT_AVAILABLE, futureBlockResponse.getStatus());
         assertTrue(currentBlockResponse.getBlock().getItemsList().getFirst().hasBlockHeader());
     }
 
@@ -199,7 +199,7 @@ public class PositiveMultiplePublishersTests extends BaseSuite {
                         .getFirst()
                         .getBlockHeader()
                         .getNumber());
-        assertEquals(BlockResponseCode.READ_BLOCK_NOT_AVAILABLE, nextPublishedBlockBefore.getStatus());
+        assertEquals(Code.READ_BLOCK_NOT_AVAILABLE, nextPublishedBlockBefore.getStatus());
 
         // ===== Prepare and Start second simulator and make sure it's streaming =====================
         final Map<String, String> secondSimulatorConfiguration =

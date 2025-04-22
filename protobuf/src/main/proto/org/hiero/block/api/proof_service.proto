@@ -106,7 +106,7 @@ message BlockContentsProofResponse {
  *
  * These codes indicate the outcome of a request for a block content proof.
  */
-    enum BlockContentsProofResponseCode {
+    enum Code {
         /**
          * The response code is unspecified.
          */
@@ -140,7 +140,7 @@ message BlockContentsProofResponse {
      * Represented as a value from `BlockContentProofResponseCode` indicating
      * the outcome of the request.
      */
-    BlockContentsProofResponseCode status = 1;
+    Code status = 1;
 
     /**
      * The block content proof details.
@@ -195,7 +195,7 @@ message StateProof {
 }
 
 message StateProofResponse {
-    enum StateProofResponseCode {
+    enum Code {
         /**
          * The response code is unspecified.
          */
@@ -223,7 +223,7 @@ message StateProofResponse {
      * Represented as a value from `StateProofResponseCode` indicating
      * the outcome of the request.
      */
-    StateProofResponseCode status = 1;
+    Code status = 1;
 
     /**
      * The state proof details.

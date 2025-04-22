@@ -75,7 +75,7 @@ message BlockResponse {
     /**
      * An enumeration indicating the status of this request.
      */
-    enum BlockResponseCode {
+    enum Code {
         /**
          * An "unset value" flag, this value SHALL NOT be used.<br/>
          * This status indicates the server software failed to set a status,
@@ -139,7 +139,7 @@ message BlockResponse {
      * The reported status SHALL reflect the success of the request, or
      * a detailed reason the request failed.
      */
-    BlockResponseCode status = 1;
+    Code status = 1;
 
     /**
      * The requested block.

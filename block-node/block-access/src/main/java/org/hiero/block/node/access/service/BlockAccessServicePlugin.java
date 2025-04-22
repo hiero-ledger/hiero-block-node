@@ -17,7 +17,7 @@ import java.util.Arrays;
 import java.util.List;
 import org.hiero.block.api.BlockRequest;
 import org.hiero.block.api.BlockResponse;
-import org.hiero.block.api.BlockResponse.BlockResponseCode;
+import org.hiero.block.api.BlockResponse.Code;
 import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.BlockNodePlugin;
 import org.hiero.block.node.spi.ServiceBuilder;
@@ -59,13 +59,13 @@ public class BlockAccessServicePlugin implements BlockNodePlugin, ServiceInterfa
                         "Both block_number and retrieve_latest set. Using retrieve_latest instead of block_number: {0}",
                         request.blockNumber());
                 responseCounterNotFound.increment();
-                return new BlockResponse(BlockResponseCode.READ_BLOCK_NOT_FOUND, null);
+                return new BlockResponse(Code.READ_BLOCK_NOT_FOUND, null);
             }
             // when block_number is -1 and retrieve_latest is false, return an NOT_FOUND error
             if (request.blockNumber() == -1 && !request.retrieveLatest()) {
                 LOGGER.log(INFO, "Block number is -1 and retrieve_latest is false");
                 responseCounterNotFound.increment();
-                return new BlockResponse(BlockResponseCode.READ_BLOCK_NOT_FOUND, null);
+                return new BlockResponse(Code.READ_BLOCK_NOT_FOUND, null);
             }
 
             long blockNumberToRetrieve;
@@ -76,7 +76,7 @@ public class BlockAccessServicePlugin implements BlockNodePlugin, ServiceInterfa
                 if (blockNumberToRetrieve < 0) {
                     LOGGER.log(INFO, "Latest block number not available");
                     responseCounterNotAvailable.increment();
-                    return new BlockResponse(BlockResponseCode.READ_BLOCK_NOT_AVAILABLE, null);
+                    return new BlockResponse(Code.READ_BLOCK_NOT_AVAILABLE, null);
                 }
             } else {
                 blockNumberToRetrieve = request.blockNumber();
@@ -93,18 +93,18 @@ public class BlockAccessServicePlugin implements BlockNodePlugin, ServiceInterfa
                         lowestBlockNumber,
                         highestBlockNumber);
                 responseCounterNotAvailable.increment();
-                return new BlockResponse(BlockResponseCode.READ_BLOCK_NOT_AVAILABLE, null);
+                return new BlockResponse(Code.READ_BLOCK_NOT_AVAILABLE, null);
             }
 
             // Retrieve the block
             Block block = blockProvider.block(blockNumberToRetrieve).block();
             responseCounterSuccess.increment();
-            return new BlockResponse(BlockResponseCode.READ_BLOCK_SUCCESS, block);
+            return new BlockResponse(Code.READ_BLOCK_SUCCESS, block);
 
         } catch (RuntimeException e) {
             LOGGER.log(ERROR, "Failed to retrieve block number: {0}", request.blockNumber());
             responseCounterNotFound.increment();
-            return new BlockResponse(BlockResponseCode.READ_BLOCK_NOT_FOUND, null);
+            return new BlockResponse(Code.READ_BLOCK_NOT_FOUND, null);
         }
     }
 
