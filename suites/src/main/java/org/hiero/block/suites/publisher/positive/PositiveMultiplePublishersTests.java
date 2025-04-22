@@ -17,6 +17,7 @@ import org.hiero.block.api.protoc.BlockResponse;
 import org.hiero.block.api.protoc.BlockResponse.Code;
 import org.hiero.block.simulator.BlockStreamSimulatorApp;
 import org.hiero.block.suites.BaseSuite;
+import org.hiero.block.suites.utils.BlockAccessUtils;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -153,8 +154,8 @@ public class PositiveMultiplePublishersTests extends BaseSuite {
         simulators.add(futureSimulatorThread);
 
         // ===== Assert that we are persisting only the current blocks =================================
-        final BlockResponse currentBlockResponse = getLatestBlock(false);
-        final BlockResponse futureBlockResponse = getBlock(1000, false);
+        final SingleBlockResponse currentBlockResponse = BlockAccessUtils.getLatestBlock(blockAccessStub, false);
+        final SingleBlockResponse futureBlockResponse = BlockAccessUtils.getSingleBlock(blockAccessStub, 1000, false);
 
         assertNotNull(currentBlockResponse);
         assertNotNull(futureBlockResponse);
@@ -186,8 +187,10 @@ public class PositiveMultiplePublishersTests extends BaseSuite {
                 firstSimulator.getStreamStatus().publishedBlocks() - 1; // we subtract one since we started on 0
         firstSimulatorThread.cancel(true);
 
-        final BlockResponse latestPublishedBlockBefore = getBlock(firstSimulatorLatestPublishedBlockNumber, false);
-        final BlockResponse nextPublishedBlockBefore = getBlock(firstSimulatorLatestPublishedBlockNumber + 1, false);
+        final SingleBlockResponse latestPublishedBlockBefore =
+                BlockAccessUtils.getSingleBlock(blockAccessStub, firstSimulatorLatestPublishedBlockNumber, false);
+        final SingleBlockResponse nextPublishedBlockBefore =
+                BlockAccessUtils.getSingleBlock(blockAccessStub, firstSimulatorLatestPublishedBlockNumber + 1, false);
 
         assertNotNull(firstSimulatorLatestStatus);
         assertTrue(firstSimulatorLatestStatus.contains(Long.toString(firstSimulatorLatestPublishedBlockNumber)));
@@ -214,7 +217,7 @@ public class PositiveMultiplePublishersTests extends BaseSuite {
                 .getLast();
         secondSimulatorThread.cancel(true);
 
-        final BlockResponse latestPublishedBlockAfter = getLatestBlock(false);
+        final SingleBlockResponse latestPublishedBlockAfter = BlockAccessUtils.getLatestBlock(blockAccessStub, false);
 
         assertNotNull(secondSimulatorLatestStatus);
         assertNotNull(latestPublishedBlockAfter);

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.suites;
 
+import com.hedera.hapi.block.protoc.BlockAccessServiceGrpc;
 import com.swirlds.config.api.Configuration;
 import com.swirlds.config.api.ConfigurationBuilder;
 import com.swirlds.config.extensions.sources.ClasspathFileConfigSource;
@@ -149,53 +150,6 @@ public abstract class BaseSuite {
                 .build();
 
         return BlockAccessServiceGrpc.newBlockingStub(channel);
-    }
-
-    /**
-     * Creates a BlockRequest to retrieve a specific block.
-     *
-     * @param blockNumber The block number to retrieve
-     * @param latest Whether to retrieve the latest block
-     * @return A BlockRequest object
-     */
-    protected BlockRequest createBlockRequest(long blockNumber, boolean latest) {
-        return BlockRequest.newBuilder()
-                .setBlockNumber(blockNumber)
-                .setRetrieveLatest(latest)
-                .setAllowUnverified(true)
-                .build();
-    }
-
-    /**
-     * Retrieves a single block using the Block Node API.
-     *
-     * @param blockNumber The block number to retrieve
-     * @param allowUnverified A flag to indicate that the requested block may be sent without
-     *   verifying its `BlockProof`
-     * @return The BlockResponse from the API
-     */
-    protected BlockResponse getBlock(final long blockNumber, final boolean allowUnverified) {
-        BlockRequest request = BlockRequest.newBuilder()
-                .setBlockNumber(blockNumber)
-                .setAllowUnverified(allowUnverified)
-                .build();
-        return blockAccessStub.getBlock(request);
-    }
-
-    /**
-     * Retrieves a single block using the Block Node API.
-     *
-     * @param allowUnverified A flag to indicate that the requested block may be sent without
-     * verifying its `BlockProof`
-     * @return The BlockResponse from the API
-     */
-    protected BlockResponse getLatestBlock(final boolean allowUnverified) {
-        BlockRequest request = BlockRequest.newBuilder()
-                .setBlockNumber(-1)
-                .setRetrieveLatest(true)
-                .setAllowUnverified(allowUnverified)
-                .build();
-        return blockAccessStub.getBlock(request);
     }
 
     /**

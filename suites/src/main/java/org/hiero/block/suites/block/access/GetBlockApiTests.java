@@ -13,6 +13,7 @@ import org.hiero.block.api.protoc.BlockResponse;
 import org.hiero.block.api.protoc.BlockResponse.Code;
 import org.hiero.block.simulator.BlockStreamSimulatorApp;
 import org.hiero.block.suites.BaseSuite;
+import org.hiero.block.suites.utils.BlockAccessUtils;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -62,7 +63,7 @@ public class GetBlockApiTests extends BaseSuite {
     void requestExistingBlockUsingBlockAPI() {
         // Request block number 1 (which should have been published by the simulator)
         final long blockNumber = 1;
-        final BlockResponse response = getBlock(blockNumber, false);
+        final SingleBlockResponse response = BlockAccessUtils.getSingleBlock(blockAccessStub, blockNumber, false);
 
         // Verify the response
         assertNotNull(response, "Response should not be null");
@@ -81,7 +82,7 @@ public class GetBlockApiTests extends BaseSuite {
     void requestNonExistingBlockUsingBlockAPI() {
         // Request a non-existing block number
         final long blockNumber = 1000;
-        final BlockResponse response = getBlock(blockNumber, false);
+        final SingleBlockResponse response = BlockAccessUtils.getSingleBlock(blockAccessStub, blockNumber, false);
 
         // Verify the response
         assertNotNull(response, "Response should not be null");
@@ -98,7 +99,7 @@ public class GetBlockApiTests extends BaseSuite {
     @DisplayName("Get a Single Block using API - Request Latest Block")
     void requestLatestBlockUsingBlockAPI() {
         // Request the latest block
-        final BlockResponse response = getLatestBlock(false);
+        final SingleBlockResponse response = BlockAccessUtils.getLatestBlock(blockAccessStub, false);
 
         // Verify the response
         assertNotNull(response, "Response should not be null");
@@ -119,8 +120,8 @@ public class GetBlockApiTests extends BaseSuite {
     void requestLatestBlockAndSpecificBlockUsingBlockAPI() {
         // Request the latest block and a specific block number
         final long blockNumber = 1;
-        final BlockRequest request = createBlockRequest(blockNumber, true);
-        final BlockResponse response = blockAccessStub.getBlock(request);
+        final SingleBlockRequest request = BlockAccessUtils.createSingleBlockRequest(blockNumber, true);
+        final SingleBlockResponse response = blockAccessStub.singleBlock(request);
 
         // Verify the response
         assertNotNull(response, "Response should not be null");
@@ -136,8 +137,8 @@ public class GetBlockApiTests extends BaseSuite {
             "Get a Single Block using API - block_number to -1 and retrieve_latest to false - should return NOT_FOUND")
     void requestWithoutBlockNumberAndRetrieveLatestFalse() {
         // Request the latest block and a specific block number
-        final BlockRequest request = createBlockRequest(-1, false);
-        final BlockResponse response = blockAccessStub.getBlock(request);
+        final SingleBlockRequest request = BlockAccessUtils.createSingleBlockRequest(-1, false);
+        final SingleBlockResponse response = blockAccessStub.singleBlock(request);
 
         // Verify the response
         assertNotNull(response, "Response should not be null");
