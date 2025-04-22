@@ -59,7 +59,7 @@ dependencies.constraints {
     api("io.grpc:protoc-gen-grpc-java:1.72.0")
 
     // command line tool
-    api("info.picocli:picocli:4.7.6") { because("info.picocli") }
+    api("info.picocli:picocli:4.7.7") { because("info.picocli") }
 
     // needed for dagger
     api("com.google.dagger:dagger:$daggerVersion") { because("dagger") }
