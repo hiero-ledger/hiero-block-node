@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-package org.hiero.block.node.archive;
+package org.hiero.block.node.base.tar;
 
 import java.nio.charset.StandardCharsets;
 import java.text.DecimalFormat;
@@ -16,7 +16,7 @@ import org.hiero.block.node.spi.historicalblocks.BlockAccessor.Format;
  * from BlockAccessor as needed. This allows a stream of blocks to be converted to tar format without needing to load
  * them all into ram. Each of the blocks is stored in a Zstd compressed protobuf format.
  */
-public class TaredBlockIterator implements Iterator<byte[]> {
+public final class TaredBlockIterator implements Iterator<byte[]> {
     /** The format for block numbers in file names */
     private static final NumberFormat BLOCK_NUMBER_FORMAT = new DecimalFormat("0000000000000000000");
     /** The chunk size for tar files = 8KB */

@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
-package org.hiero.block.node.archive;
+package org.hiero.block.node.archive.s3;
 
 import static org.hiero.block.node.app.fixtures.blocks.SimpleTestBlockItemBuilder.createNumberOfVerySimpleBlocksUnparsed;
-import static org.hiero.block.node.archive.ArchivePlugin.LATEST_ARCHIVED_BLOCK_FILE;
+import static org.hiero.block.node.archive.s3.S3ArchivePlugin.LATEST_ARCHIVED_BLOCK_FILE;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -40,10 +40,10 @@ import org.junit.jupiter.api.io.TempDir;
 import org.testcontainers.containers.GenericContainer;
 
 /**
- * Unit tests for the {@link ArchivePlugin} class.
+ * Unit tests for the {@link S3ArchivePlugin} class.
  */
 @SuppressWarnings("SameParameterValue")
-class ArchivePluginTest extends PluginTestBase<ArchivePlugin> {
+class S3ArchivePluginTest extends PluginTestBase<S3ArchivePlugin> {
     private static final Instant START_TIME =
             ZonedDateTime.of(2025, 1, 1, 0, 0, 0, 0, ZoneOffset.UTC).toInstant();
     private static final String BUCKET_NAME = "test-bucket";
@@ -54,7 +54,7 @@ class ArchivePluginTest extends PluginTestBase<ArchivePlugin> {
     private final MinioClient minioClient;
 
     @SuppressWarnings("resource")
-    public ArchivePluginTest() throws Exception {
+    public S3ArchivePluginTest() throws Exception {
         // Start MinIO container
         GenericContainer<?> minioContainer = new GenericContainer<>("minio/minio:latest")
                 .withCommand("server /data")
@@ -72,7 +72,7 @@ class ArchivePluginTest extends PluginTestBase<ArchivePlugin> {
         minioClient.makeBucket(MakeBucketArgs.builder().bucket(BUCKET_NAME).build());
         // Initialize the plugin and set any required configuration
         start(
-                new ArchivePlugin(),
+                new S3ArchivePlugin(),
                 new SimpleInMemoryHistoricalBlockFacility(),
                 Map.of(
                         "archive.blocksPerFile", "10", // make it easy to test

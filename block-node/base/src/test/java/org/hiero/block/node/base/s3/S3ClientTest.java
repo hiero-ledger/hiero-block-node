@@ -3,6 +3,7 @@ package org.hiero.block.node.base.s3;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import io.minio.GetObjectArgs;
@@ -201,7 +202,7 @@ public class S3ClientTest {
     void testFetchNonExistentObject() throws Exception {
         try (S3Client s3Client =
                 new S3Client(REGION_NAME, endpoint, BUCKET_NAME, MINIO_ROOT_USER, MINIO_ROOT_PASSWORD)) {
-            assertTrue(s3Client.downloadTextFile("non-existent-object.txt") == null);
+            assertNull(s3Client.downloadTextFile("non-existent-object.txt"));
         }
     }
 }

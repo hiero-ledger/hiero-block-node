@@ -3,8 +3,10 @@ module org.hiero.block.node.base {
     exports org.hiero.block.node.base;
     exports org.hiero.block.node.base.ranges;
     exports org.hiero.block.node.base.s3;
+    exports org.hiero.block.node.base.tar;
 
     requires transitive org.hiero.block.node.spi;
+    requires com.hedera.pbj.runtime;
     requires com.github.luben.zstd_jni;
     requires java.net.http;
     requires java.xml;

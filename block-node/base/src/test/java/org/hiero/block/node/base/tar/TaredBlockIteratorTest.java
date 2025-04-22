@@ -1,17 +1,22 @@
 // SPDX-License-Identifier: Apache-2.0
-package org.hiero.block.node.archive;
+package org.hiero.block.node.base.tar;
 
+import static org.hiero.block.node.app.fixtures.blocks.SimpleTestBlockItemBuilder.createNumberOfLargeBlocks;
 import static org.hiero.block.node.app.fixtures.blocks.SimpleTestBlockItemBuilder.createNumberOfVerySimpleBlockAccessors;
+import static org.junit.Assert.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.fail;
 
 import com.github.luben.zstd.Zstd;
 import com.hedera.hapi.block.stream.Block;
+import com.hedera.hapi.block.stream.BlockItem;
 import com.hedera.pbj.runtime.ParseException;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.NoSuchElementException;
+import java.util.stream.LongStream;
 import java.util.stream.Stream;
 import org.hiero.block.node.spi.historicalblocks.BlockAccessor;
 import org.hiero.block.node.spi.historicalblocks.BlockAccessor.Format;
@@ -38,6 +43,47 @@ public class TaredBlockIteratorTest {
                 byte[] bytesChunk = taredBlockIterator.next();
                 outputStream.write(bytesChunk);
             }
+            // check that an extra call to next() throws an exception
+            assertThrows(NoSuchElementException.class, taredBlockIterator::next);
+        } catch (IOException e) {
+            throw new RuntimeException("Failed to write tar file", e);
+        }
+        // check the contents of the tar file
+        checkBlockTarFileContents(tempDir, tarFile, blockAccessors);
+    }
+
+    @Test
+    @DisplayName("Test writing a tar file with huge block and extracting it, and checking the contents")
+    public void testWritingTarLargeBlocks(@TempDir Path tempDir) throws IOException, InterruptedException {
+        BlockAccessor[] blockAccessors = LongStream.range(0, 10)
+                .mapToObj(bn -> {
+                    BlockItem[] blockItems = createNumberOfLargeBlocks(bn, bn);
+                    Block block = new Block(java.util.Arrays.asList(blockItems));
+                    return new BlockAccessor() {
+                        @Override
+                        public long blockNumber() {
+                            return bn;
+                        }
+
+                        @Override
+                        public Block block() {
+                            return block;
+                        }
+                    };
+                })
+                .toArray(BlockAccessor[]::new);
+
+        TaredBlockIterator taredBlockIterator =
+                new TaredBlockIterator(Format.ZSTD_PROTOBUF, new Arrays.Iterator<>(blockAccessors));
+        // write to temp file
+        Path tarFile = tempDir.resolve("test.tar");
+        try (var outputStream = Files.newOutputStream(tarFile)) {
+            while (taredBlockIterator.hasNext()) {
+                byte[] bytesChunk = taredBlockIterator.next();
+                outputStream.write(bytesChunk);
+            }
+            // check that an extra call to next() throws an exception
+            assertThrows(NoSuchElementException.class, taredBlockIterator::next);
         } catch (IOException e) {
             throw new RuntimeException("Failed to write tar file", e);
         }

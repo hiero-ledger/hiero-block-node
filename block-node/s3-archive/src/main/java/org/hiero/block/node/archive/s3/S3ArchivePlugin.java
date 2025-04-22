@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-package org.hiero.block.node.archive;
+package org.hiero.block.node.archive.s3;
 
 import static org.hiero.block.node.base.BlockFile.blockNumberFormated;
 
@@ -22,6 +22,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.LongStream;
 import org.hiero.block.node.base.s3.S3Client;
+import org.hiero.block.node.base.tar.TaredBlockIterator;
 import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.BlockNodePlugin;
 import org.hiero.block.node.spi.ServiceBuilder;
@@ -37,7 +38,7 @@ import org.hiero.hapi.block.node.BlockUnparsed;
  * watch persisted block notifications for when the next batch of blocks can be archived. It will then fetch those
  * blocks from persistence plugins and upload to the archive.
  */
-public class ArchivePlugin implements BlockNodePlugin, BlockNotificationHandler {
+public class S3ArchivePlugin implements BlockNodePlugin, BlockNotificationHandler {
     /** The storage class used for uploading the lastest block file */
     public static final String LATEST_FILE_STORAGE_CLASS = "STANDARD";
     /** The logger for this class. */
@@ -51,7 +52,7 @@ public class ArchivePlugin implements BlockNodePlugin, BlockNotificationHandler 
     /** The block node context, for access to core facilities. */
     private BlockNodeContext context;
     /** The configuration for the archive plugin. */
-    private ArchiveConfig archiveConfig;
+    private S3ArchiveConfig archiveConfig;
 
     private final AtomicBoolean enabled = new AtomicBoolean(false);
     /** A single thread executor service for the archive plugin, background jobs. */
@@ -74,7 +75,7 @@ public class ArchivePlugin implements BlockNodePlugin, BlockNotificationHandler 
     @NonNull
     @Override
     public List<Class<? extends Record>> configDataTypes() {
-        return List.of(ArchiveConfig.class);
+        return List.of(S3ArchiveConfig.class);
     }
 
     /**
@@ -83,7 +84,7 @@ public class ArchivePlugin implements BlockNodePlugin, BlockNotificationHandler 
     @Override
     public void init(BlockNodeContext context, ServiceBuilder serviceBuilder) {
         this.context = context;
-        archiveConfig = context.configuration().getConfigData(ArchiveConfig.class);
+        archiveConfig = context.configuration().getConfigData(S3ArchiveConfig.class);
         // check if enabled by the "endpointUrl" property being non-empty in config
         if (archiveConfig.endpointUrl() == null || archiveConfig.endpointUrl().isEmpty()) {
             LOGGER.log(System.Logger.Level.INFO, "Archive plugin is disabled. No endpoint URL provided.");
