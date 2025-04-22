@@ -194,39 +194,39 @@ message StateProof {
     bytes block_signature = 4;
 }
 
-message StateProofResponseCode {
-    /**
-     * The response code is unspecified.
-     */
-    STATE_PROOF_UNKNOWN = 0;
-
-    /**
-     * The state proof was successfully retrieved.
-     */
-    STATE_PROOF_SUCCESS = 1;
-
-    /**
-     * The specified state key was not found.
-     */
-    STATE_PROOF_KEY_NOT_FOUND = 2;
-
-    /**
-     * The state proof is not available for the specified block.
-     */
-    STATE_PROOF_NOT_AVAILABLE = 3;
-
-    /**
-     * The specified block was not found.
-     */
-    STATE_PROOF_BLOCK_NOT_FOUND = 4;
-
-    /**
-     * The state proof is not available for the specified block.
-     */
-    STATE_PROOF_BLOCK_NOT_AVAILABLE = 5;
-}
-
 message StateProofResponse {
+    enum StateProofResponseCode {
+        /**
+         * The response code is unspecified.
+         */
+        STATE_PROOF_UNKNOWN = 0;
+
+        /**
+         * The state proof was successfully retrieved.
+         */
+        STATE_PROOF_SUCCESS = 1;
+
+        /**
+         * The specified state key was not found.
+         */
+        STATE_PROOF_KEY_NOT_FOUND = 2;
+
+        /**
+         * The state proof is not available for the specified block.
+         */
+        STATE_PROOF_NOT_AVAILABLE = 3;
+
+        /**
+         * The specified block was not found.
+         */
+        STATE_PROOF_BLOCK_NOT_FOUND = 4;
+
+        /**
+         * The state proof is not available for the specified block.
+         */
+        STATE_PROOF_BLOCK_NOT_AVAILABLE = 5;
+    }
+
     /**
      * The status of the state proof request.
      * <p>
