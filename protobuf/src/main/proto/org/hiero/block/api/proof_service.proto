@@ -151,28 +151,119 @@ message BlockContentsProofResponse {
     BlockContentsProof block_content_proof = 2;
 }
 
-message StateProofRequest {}
+message StateProofRequest {
+    /**
+     * The block number at which the proof is requested.
+     * <p>
+     * This field identifies the specific block that should contain the target state.
+     */
+    uint64 block_number = 1;
 
-message StateProofResponse {}
+    /**
+     * The key for the state item to be proved.
+     * <p>
+     * This field holds the identifier of the state item that is subject to verification.
+     */
+    bytes state_key = 2;
+}
+
+message StateProof {
+    /**
+     * The block number at which the proof is requested.
+     */
+    uint64 block_number = 1;
+
+    /**
+     * The value of the state item proved.
+     */
+    bytes value = 2;
+
+    /**
+     * A list of sibling hashes forming the Merkle proof.
+     * <p>
+     * These hashes are used to reconstruct the Merkle root, ensuring the state item
+     * is included in the corresponding Merkle tree.
+     */
+    repeated com.hedera.hapi.block.stream.MerkleSiblingHash sibling_hashes = 3;
+
+    /**
+     * The digital signature over the state proof data.
+     * <p>
+     * This signature confirms the integrity and origin of the state proof.
+     */
+    bytes block_signature = 4;
+}
+
+message StateProofResponseCode {
+    /**
+     * The response code is unspecified.
+     */
+    STATE_PROOF_UNKNOWN = 0;
+
+    /**
+     * The state proof was successfully retrieved.
+     */
+    STATE_PROOF_SUCCESS = 1;
+
+    /**
+     * The specified state key was not found.
+     */
+    STATE_PROOF_KEY_NOT_FOUND = 2;
+
+    /**
+     * The state proof is not available for the specified block.
+     */
+    STATE_PROOF_NOT_AVAILABLE = 3;
+
+    /**
+     * The specified block was not found.
+     */
+    STATE_PROOF_BLOCK_NOT_FOUND = 4;
+
+    /**
+     * The state proof is not available for the specified block.
+     */
+    STATE_PROOF_BLOCK_NOT_AVAILABLE = 5;
+}
+
+message StateProofResponse {
+    /**
+     * The status of the state proof request.
+     * <p>
+     * Represented as a value from `StateProofResponseCode` indicating
+     * the outcome of the request.
+     */
+    StateProofResponseCode status = 1;
+
+    /**
+     * The state proof details.
+     * <p>
+     * If the request is successful, this field contains the state item, its
+     * Merkle sibling hashes, and the digital signature.
+     */
+    StateProof state_proof = 2;
+}
 
 /**
  * Remote procedure calls (RPCs) for the Block Node block contents proof
- *  and state proof query services.
+ * and state proof query services.
  */
 service ProofService {
     /**
-     * Request a block contents proof for a given block from the block node.     * <p>
+     * Request a block contents proof for a given block from the block node.
+     * <p>
      * The client MUST provide a `BlockContentProofRequest`, and the service
      * SHALL return a `BlockContentProofResponse` containing the proof details and
      * status.
      */
-    rpc blockContents(BlockContentsProofRequest) returns (BlockContentsProofResponse);
+    rpc getBlockContentsProof(BlockContentsProofRequest) returns (BlockContentsProofResponse);
 
     /**
-     * Request a state proof for a given state item and block from the block node.     * <p>
+     * Request a state proof for a given state item and block from the block node.
+     * <p>
      * The client MUST provide a `StateProofRequest`, and the service
      * SHALL return a `StateProofResponse` containing the proof details and
      * status.
      */
-    rpc state(StateProofRequest) returns (StateProofResponse);
+    rpc getStateProof(StateProofRequest) returns (StateProofResponse);
 }
