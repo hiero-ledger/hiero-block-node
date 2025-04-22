@@ -12,7 +12,6 @@ import com.hedera.pbj.runtime.ParseException;
 import com.hedera.pbj.runtime.grpc.Pipeline;
 import com.swirlds.metrics.api.Counter;
 import edu.umd.cs.findbugs.annotations.NonNull;
-import java.io.UncheckedIOException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.SortedSet;
@@ -309,7 +308,7 @@ public final class BlockStreamProducerSession implements Pipeline<List<BlockItem
 
         try {
             responsePipeline.onNext(response);
-        } catch (UncheckedIOException e) {
+        } catch (RuntimeException e) {
             LOGGER.log(
                     WARNING,
                     "Failed to send response to {0}. Disconnecting this session. Error: {1}",
