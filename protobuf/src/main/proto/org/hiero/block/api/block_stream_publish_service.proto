@@ -363,7 +363,7 @@ enum PublishStreamResponseCode {
 }
 
 /**
- * Remote procedure calls (RPCs) for the Block-Node stream publishing services.
+ * Remote procedure calls (RPCs) for the Block-Node block stream publishing services.
  */
 service BlockStreamPublishService {
     /**

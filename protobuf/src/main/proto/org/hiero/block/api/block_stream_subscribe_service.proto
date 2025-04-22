@@ -174,7 +174,7 @@ message SubscribeStreamResponse {
 }
 
 /**
- * Remote procedure calls (RPCs) for the Block Node stream services.
+ * Remote procedure calls (RPCs) for the Block Node block stream subscribing services.
  */
 service BlockStreamSubscribeService {
     /**

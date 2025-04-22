@@ -155,7 +155,7 @@ message BlockResponse {
 }
 
 /**
- * Remote procedure calls (RPCs) for the Block Node stream services.
+ * Remote procedure calls (RPCs) for the Block Node block services.
  */
 service BlockAccessService {
     /**
