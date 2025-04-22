@@ -16,7 +16,7 @@ import com.hedera.pbj.runtime.io.buffer.Bytes;
 import java.io.IOException;
 import java.nio.file.FileSystem;
 import java.util.List;
-import org.hiero.block.api.BlockUnparsed;
+import org.hiero.block.internal.BlockUnparsed;
 import org.hiero.block.node.app.HistoricalBlockFacilityImpl;
 import org.hiero.block.node.app.fixtures.plugintest.PluginTestBase;
 import org.hiero.block.node.base.CompressionType;

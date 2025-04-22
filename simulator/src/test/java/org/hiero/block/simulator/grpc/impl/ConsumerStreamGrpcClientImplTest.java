@@ -20,7 +20,7 @@ import org.hiero.block.api.protoc.BlockItemSet;
 import org.hiero.block.api.protoc.BlockStreamSubscribeServiceGrpc;
 import org.hiero.block.api.protoc.SubscribeStreamRequest;
 import org.hiero.block.api.protoc.SubscribeStreamResponse;
-import org.hiero.block.api.protoc.SubscribeStreamResponseCode;
+import org.hiero.block.api.protoc.SubscribeStreamResponse.SubscribeStreamResponseCode;
 import org.hiero.block.simulator.TestUtils;
 import org.hiero.block.simulator.config.data.BlockStreamConfig;
 import org.hiero.block.simulator.config.data.ConsumerConfig;

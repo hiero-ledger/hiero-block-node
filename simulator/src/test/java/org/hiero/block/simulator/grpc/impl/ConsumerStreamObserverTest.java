@@ -18,7 +18,7 @@ import java.util.ArrayDeque;
 import java.util.concurrent.CountDownLatch;
 import org.hiero.block.api.protoc.BlockItemSet;
 import org.hiero.block.api.protoc.SubscribeStreamResponse;
-import org.hiero.block.api.protoc.SubscribeStreamResponseCode;
+import org.hiero.block.api.protoc.SubscribeStreamResponse.SubscribeStreamResponseCode;
 import org.hiero.block.simulator.TestUtils;
 import org.hiero.block.simulator.metrics.MetricsService;
 import org.hiero.block.simulator.metrics.MetricsServiceImpl;

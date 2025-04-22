@@ -9,7 +9,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import com.hedera.hapi.block.stream.protoc.BlockItem;
 import com.hederahashgraph.api.proto.java.SemanticVersion;
 import com.hederahashgraph.api.proto.java.Timestamp;
-import org.hiero.block.api.BlockItemUnparsed;
+import org.hiero.block.internal.BlockItemUnparsed;
 import org.hiero.block.simulator.exception.BlockSimulatorParsingException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;

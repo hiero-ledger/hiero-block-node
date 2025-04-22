@@ -14,7 +14,7 @@ import com.hedera.pbj.runtime.io.buffer.Bytes;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
-import org.hiero.block.api.BlockItemUnparsed;
+import org.hiero.block.internal.BlockItemUnparsed;
 import org.hiero.block.node.spi.blockmessaging.BlockItems;
 
 /**

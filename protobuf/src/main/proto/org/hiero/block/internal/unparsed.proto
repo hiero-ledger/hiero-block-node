@@ -4,8 +4,7 @@ syntax = "proto3";
 package org.hiero.block.internal;
 
 option java_package = "org.hiero.block.internal.protoc";
-// pbj.java_package is set to api and not internal as a workaround to avoid import confusion on pbj generator
-// <<<pbj.java_package = "org.hiero.block.api">>> This comment is special code for setting PBJ Compiler java package
+// <<<pbj.java_package = "org.hiero.block.internal">>> This comment is special code for setting PBJ Compiler java package
 option java_multiple_files = true;
 
 import "org/hiero/block/api/block_access_service.proto";
@@ -22,7 +21,7 @@ message SubscribeStreamResponseUnparsed {
          * <p>
          * The block node server SHALL end the stream following this message.
          */
-        org.hiero.block.api.SubscribeStreamResponseCode status = 1;
+        org.hiero.block.api.SubscribeStreamResponse.SubscribeStreamResponseCode status = 1;
 
         /**
          * A stream response item containing one or more `BlockItem`s.

@@ -7,8 +7,8 @@ import com.hedera.pbj.runtime.io.buffer.Bytes;
 import com.hederahashgraph.api.proto.java.SemanticVersion;
 import com.hederahashgraph.api.proto.java.Timestamp;
 import java.util.Random;
-import org.hiero.block.api.BlockItemUnparsed;
 import org.hiero.block.common.utils.Preconditions;
+import org.hiero.block.internal.BlockItemUnparsed;
 import org.hiero.block.simulator.exception.BlockSimulatorParsingException;
 
 /**

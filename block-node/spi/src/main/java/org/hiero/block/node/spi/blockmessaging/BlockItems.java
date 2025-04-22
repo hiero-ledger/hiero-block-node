@@ -5,7 +5,7 @@ import static org.hiero.block.node.spi.BlockNodePlugin.UNKNOWN_BLOCK_NUMBER;
 
 import java.util.List;
 import java.util.Objects;
-import org.hiero.block.api.BlockItemUnparsed;
+import org.hiero.block.internal.BlockItemUnparsed;
 import org.hiero.block.node.spi.BlockNodePlugin;
 
 /**

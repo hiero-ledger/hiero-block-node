@@ -15,7 +15,7 @@ import java.util.List;
 import java.util.concurrent.ConcurrentSkipListSet;
 import java.util.concurrent.atomic.AtomicLong;
 import org.hiero.block.api.SubscribeStreamRequest;
-import org.hiero.block.api.SubscribeStreamResponseUnparsed;
+import org.hiero.block.internal.SubscribeStreamResponseUnparsed;
 import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.BlockNodePlugin;
 import org.hiero.block.node.spi.ServiceBuilder;

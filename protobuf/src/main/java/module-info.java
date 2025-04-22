@@ -70,6 +70,8 @@ module org.hiero.block.protobuf {
             com.google.protobuf;
     exports org.hiero.block.api;
     exports org.hiero.block.api.protoc;
+    exports org.hiero.block.internal;
+    exports org.hiero.block.internal.protoc;
 
     requires transitive com.hedera.pbj.runtime;
     requires transitive com.google.common;

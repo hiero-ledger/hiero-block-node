@@ -22,8 +22,8 @@ import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Objects;
-import org.hiero.block.api.BlockUnparsed;
 import org.hiero.block.common.utils.Preconditions;
+import org.hiero.block.internal.BlockUnparsed;
 import org.hiero.block.node.base.CompressionType;
 import org.hiero.block.node.spi.historicalblocks.BlockAccessor;
 

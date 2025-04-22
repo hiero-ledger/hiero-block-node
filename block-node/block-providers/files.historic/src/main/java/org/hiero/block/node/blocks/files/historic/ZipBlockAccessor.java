@@ -16,7 +16,7 @@ import java.io.UncheckedIOException;
 import java.util.Objects;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipFile;
-import org.hiero.block.api.BlockUnparsed;
+import org.hiero.block.internal.BlockUnparsed;
 import org.hiero.block.node.base.CompressionType;
 import org.hiero.block.node.spi.historicalblocks.BlockAccessor;
 
