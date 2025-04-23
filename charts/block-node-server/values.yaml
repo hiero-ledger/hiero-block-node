@@ -158,6 +158,7 @@ kubepromstack:
   enabled: true
   prometheus:
     prometheusSpec:
+      retention: 90d
       storageSpec:
         volumeClaimTemplate:
           spec:
