@@ -2,29 +2,16 @@
 package org.hiero.block.suites;
 
 import com.hedera.hapi.block.protoc.BlockAccessServiceGrpc;
-import com.swirlds.config.api.Configuration;
-import com.swirlds.config.api.ConfigurationBuilder;
-import com.swirlds.config.extensions.sources.ClasspathFileConfigSource;
-import com.swirlds.config.extensions.sources.SimpleConfigSource;
-import com.swirlds.config.extensions.sources.SystemEnvironmentConfigSource;
-import com.swirlds.config.extensions.sources.SystemPropertiesConfigSource;
-import edu.umd.cs.findbugs.annotations.NonNull;
 import io.grpc.ManagedChannel;
 import io.grpc.ManagedChannelBuilder;
-import java.io.IOException;
-import java.nio.file.Path;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.List;
-import java.util.Map;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import org.hiero.block.api.protoc.BlockAccessServiceGrpc;
 import org.hiero.block.api.protoc.BlockRequest;
 import org.hiero.block.api.protoc.BlockResponse;
 import org.hiero.block.simulator.BlockStreamSimulatorApp;
-import org.hiero.block.simulator.BlockStreamSimulatorInjectionComponent;
-import org.hiero.block.simulator.DaggerBlockStreamSimulatorInjectionComponent;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.testcontainers.containers.GenericContainer;
@@ -166,55 +153,6 @@ public abstract class BaseSuite {
                 throw new RuntimeException(e);
             }
         });
-    }
-
-    /**
-     * Creates a new instance of the block stream simulator with custom configuration.
-     *
-     * @param customConfiguration the custom configuration which will be applied to simulator upon startup
-     * @return a new instance of the block stream simulator
-     * @throws IOException if an I/O error occurs
-     */
-    protected BlockStreamSimulatorApp createBlockSimulator(@NonNull final Map<String, String> customConfiguration)
-            throws IOException {
-        BlockStreamSimulatorInjectionComponent DIComponent = DaggerBlockStreamSimulatorInjectionComponent.factory()
-                .create(loadSimulatorConfiguration(customConfiguration));
-        return DIComponent.getBlockStreamSimulatorApp();
-    }
-
-    /**
-     * Creates a new instance of the block stream simulator with default configuration.
-     *
-     * @return a new instance of the block stream simulator
-     * @throws IOException if an I/O error occurs
-     */
-    protected BlockStreamSimulatorApp createBlockSimulator() throws IOException {
-        BlockStreamSimulatorInjectionComponent DIComponent = DaggerBlockStreamSimulatorInjectionComponent.factory()
-                .create(loadSimulatorConfiguration(Collections.emptyMap()));
-        return DIComponent.getBlockStreamSimulatorApp();
-    }
-
-    /**
-     * Builds the desired block simulator configuration
-     *
-     * @return block simulator configuration
-     * @throws IOException if an I/O error occurs
-     */
-    protected static Configuration loadSimulatorConfiguration(@NonNull final Map<String, String> customProperties)
-            throws IOException {
-        final ConfigurationBuilder configurationBuilder = ConfigurationBuilder.create()
-                .withSource(SystemEnvironmentConfigSource.getInstance())
-                .withSource(SystemPropertiesConfigSource.getInstance())
-                .withSource(new ClasspathFileConfigSource(Path.of("app.properties")))
-                .autoDiscoverExtensions();
-
-        for (Map.Entry<String, String> entry : customProperties.entrySet()) {
-            final String key = entry.getKey();
-            final String value = entry.getValue();
-            configurationBuilder.withSource(new SimpleConfigSource(key, value).withOrdinal(500));
-        }
-
-        return configurationBuilder.build();
     }
 
     /**
