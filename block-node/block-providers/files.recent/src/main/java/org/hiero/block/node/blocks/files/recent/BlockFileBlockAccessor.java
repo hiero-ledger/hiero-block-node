@@ -23,9 +23,9 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Objects;
 import org.hiero.block.common.utils.Preconditions;
+import org.hiero.block.internal.BlockUnparsed;
 import org.hiero.block.node.base.CompressionType;
 import org.hiero.block.node.spi.historicalblocks.BlockAccessor;
-import org.hiero.hapi.block.node.BlockUnparsed;
 
 /**
  * An implementation of the {@link BlockAccessor} interface that provides access to a block stored in a file with

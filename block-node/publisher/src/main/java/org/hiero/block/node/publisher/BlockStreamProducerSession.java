@@ -20,19 +20,19 @@ import java.util.TreeSet;
 import java.util.concurrent.Flow;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.Consumer;
+import org.hiero.block.api.PublishStreamResponse;
+import org.hiero.block.api.PublishStreamResponse.Acknowledgement;
+import org.hiero.block.api.PublishStreamResponse.BlockAcknowledgement;
+import org.hiero.block.api.PublishStreamResponse.EndOfStream;
+import org.hiero.block.api.PublishStreamResponse.ResendBlock;
+import org.hiero.block.api.PublishStreamResponse.ResponseOneOfType;
+import org.hiero.block.api.PublishStreamResponse.SkipBlock;
+import org.hiero.block.api.PublishStreamResponseCode;
+import org.hiero.block.internal.BlockItemUnparsed;
 import org.hiero.block.node.publisher.UpdateCallback.UpdateType;
 import org.hiero.block.node.spi.BlockNodePlugin;
 import org.hiero.block.node.spi.blockmessaging.BlockItems;
 import org.hiero.block.node.spi.blockmessaging.PersistedNotification;
-import org.hiero.hapi.block.node.BlockItemUnparsed;
-import org.hiero.hapi.block.node.PublishStreamResponse;
-import org.hiero.hapi.block.node.PublishStreamResponse.Acknowledgement;
-import org.hiero.hapi.block.node.PublishStreamResponse.BlockAcknowledgement;
-import org.hiero.hapi.block.node.PublishStreamResponse.EndOfStream;
-import org.hiero.hapi.block.node.PublishStreamResponse.ResendBlock;
-import org.hiero.hapi.block.node.PublishStreamResponse.ResponseOneOfType;
-import org.hiero.hapi.block.node.PublishStreamResponse.SkipBlock;
-import org.hiero.hapi.block.node.PublishStreamResponseCode;
 
 /**
  * BlockStreamProducerSession is a session for a block stream producer. It handles the incoming block stream and sends

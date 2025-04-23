@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.node.publisher;
 
+import static org.hiero.block.api.PublishStreamResponse.ResponseOneOfType.ACKNOWLEDGEMENT;
 import static org.hiero.block.node.app.fixtures.TestUtils.enableDebugLogging;
 import static org.hiero.block.node.app.fixtures.blocks.BlockItemUtils.toBlockItemJson;
 import static org.hiero.block.node.app.fixtures.blocks.BlockItemUtils.toBlockItemsUnparsed;
@@ -10,7 +11,6 @@ import static org.hiero.block.node.app.fixtures.blocks.SimpleTestBlockItemBuilde
 import static org.hiero.block.node.app.fixtures.blocks.SimpleTestBlockItemBuilder.sampleRoundHeader;
 import static org.hiero.block.node.publisher.PublisherServicePlugin.BlockStreamPublisherServiceMethod.publishBlockStream;
 import static org.hiero.block.node.spi.BlockNodePlugin.UNKNOWN_BLOCK_NUMBER;
-import static org.hiero.hapi.block.node.PublishStreamResponse.ResponseOneOfType.ACKNOWLEDGEMENT;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 
@@ -20,18 +20,18 @@ import com.hedera.pbj.runtime.ParseException;
 import com.hedera.pbj.runtime.grpc.ServiceInterface.Method;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import java.util.List;
+import org.hiero.block.api.BlockItemSet;
+import org.hiero.block.api.PublishStreamRequest;
+import org.hiero.block.api.PublishStreamRequest.RequestOneOfType;
+import org.hiero.block.api.PublishStreamResponse;
+import org.hiero.block.api.PublishStreamResponse.Acknowledgement;
+import org.hiero.block.api.PublishStreamResponse.BlockAcknowledgement;
+import org.hiero.block.api.PublishStreamResponseCode;
+import org.hiero.block.internal.BlockUnparsed;
 import org.hiero.block.node.app.fixtures.plugintest.GrpcPluginTestBase;
 import org.hiero.block.node.app.fixtures.plugintest.NoBlocksHistoricalBlockFacility;
 import org.hiero.block.node.spi.blockmessaging.PersistedNotification;
 import org.hiero.block.node.spi.blockmessaging.VerificationNotification;
-import org.hiero.hapi.block.node.BlockItemSet;
-import org.hiero.hapi.block.node.BlockUnparsed;
-import org.hiero.hapi.block.node.PublishStreamRequest;
-import org.hiero.hapi.block.node.PublishStreamRequest.RequestOneOfType;
-import org.hiero.hapi.block.node.PublishStreamResponse;
-import org.hiero.hapi.block.node.PublishStreamResponse.Acknowledgement;
-import org.hiero.hapi.block.node.PublishStreamResponse.BlockAcknowledgement;
-import org.hiero.hapi.block.node.PublishStreamResponseCode;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 

@@ -10,7 +10,7 @@ javaModules {
         module("suites")
         module("simulator")
         module("common")
-        module("stream")
+        module("protobuf")
     }
     directory("block-node") {
         group = "org.hiero.block"

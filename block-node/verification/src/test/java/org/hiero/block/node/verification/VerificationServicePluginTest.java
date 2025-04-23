@@ -14,14 +14,14 @@ import com.hedera.pbj.runtime.OneOf;
 import com.hedera.pbj.runtime.ParseException;
 import java.io.IOException;
 import java.util.List;
+import org.hiero.block.internal.BlockItemUnparsed;
+import org.hiero.block.internal.BlockItemUnparsed.ItemOneOfType;
 import org.hiero.block.node.app.fixtures.blocks.BlockUtils;
 import org.hiero.block.node.app.fixtures.plugintest.NoBlocksHistoricalBlockFacility;
 import org.hiero.block.node.app.fixtures.plugintest.PluginTestBase;
 import org.hiero.block.node.app.fixtures.plugintest.TestHealthFacility;
 import org.hiero.block.node.spi.blockmessaging.BlockItems;
 import org.hiero.block.node.spi.blockmessaging.VerificationNotification;
-import org.hiero.hapi.block.node.BlockItemUnparsed;
-import org.hiero.hapi.block.node.BlockItemUnparsed.ItemOneOfType;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 

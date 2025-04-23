@@ -14,11 +14,12 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.concurrent.ConcurrentSkipListSet;
 import java.util.concurrent.atomic.AtomicLong;
+import org.hiero.block.api.SubscribeStreamRequest;
+import org.hiero.block.api.protoc.BlockStreamSubscribeServiceGrpc;
+import org.hiero.block.internal.SubscribeStreamResponseUnparsed;
 import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.BlockNodePlugin;
 import org.hiero.block.node.spi.ServiceBuilder;
-import org.hiero.hapi.block.node.SubscribeStreamRequest;
-import org.hiero.hapi.block.node.SubscribeStreamResponseUnparsed;
 
 /** Provides implementation for the health endpoints of the server. */
 public class SubscriberServicePlugin implements BlockNodePlugin, ServiceInterface {
@@ -92,7 +93,8 @@ public class SubscriberServicePlugin implements BlockNodePlugin, ServiceInterfac
      */
     @NonNull
     public String serviceName() {
-        return "BlockStreamService";
+        String[] parts = fullName().split("\\.");
+        return parts[parts.length - 1];
     }
 
     /**
@@ -100,7 +102,7 @@ public class SubscriberServicePlugin implements BlockNodePlugin, ServiceInterfac
      */
     @NonNull
     public String fullName() {
-        return "com.hedera.hapi.block." + serviceName();
+        return BlockStreamSubscribeServiceGrpc.SERVICE_NAME;
     }
 
     /**

@@ -23,6 +23,10 @@ import java.util.Optional;
 import java.util.OptionalLong;
 import java.util.Set;
 import java.util.concurrent.locks.ReentrantLock;
+import org.hiero.block.api.PublishStreamResponse;
+import org.hiero.block.api.protoc.BlockStreamPublishServiceGrpc;
+import org.hiero.block.internal.BlockItemUnparsed;
+import org.hiero.block.internal.PublishStreamRequestUnparsed;
 import org.hiero.block.node.publisher.PublisherConfig.PublisherType;
 import org.hiero.block.node.publisher.UpdateCallback.UpdateType;
 import org.hiero.block.node.spi.BlockNodeContext;
@@ -32,9 +36,6 @@ import org.hiero.block.node.spi.blockmessaging.BlockItems;
 import org.hiero.block.node.spi.blockmessaging.BlockNotificationHandler;
 import org.hiero.block.node.spi.blockmessaging.PersistedNotification;
 import org.hiero.block.node.spi.blockmessaging.VerificationNotification;
-import org.hiero.hapi.block.node.BlockItemUnparsed;
-import org.hiero.hapi.block.node.PublishStreamRequestUnparsed;
-import org.hiero.hapi.block.node.PublishStreamResponse;
 
 /**
  * Provides implementation for the block stream publisher endpoints of the server. These handle incoming push block
@@ -482,7 +483,8 @@ public final class PublisherServicePlugin implements BlockNodePlugin, ServiceInt
      */
     @NonNull
     public String serviceName() {
-        return "BlockStreamService";
+        String[] parts = fullName().split("\\.");
+        return parts[parts.length - 1];
     }
 
     /**
@@ -490,7 +492,7 @@ public final class PublisherServicePlugin implements BlockNodePlugin, ServiceInt
      */
     @NonNull
     public String fullName() {
-        return "com.hedera.hapi.block." + serviceName();
+        return BlockStreamPublishServiceGrpc.SERVICE_NAME;
     }
 
     /**

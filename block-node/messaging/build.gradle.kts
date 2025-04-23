@@ -15,7 +15,7 @@ mainModuleInfo {
 
 testModuleInfo {
     requires("com.hedera.pbj.runtime")
-    requires("org.hiero.block.stream")
+    requires("org.hiero.block.protobuf")
     requires("org.junit.jupiter.api")
     requires("org.junit.jupiter.params")
     requires("com.swirlds.metrics.api")

@@ -8,11 +8,6 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.when;
 
-import com.hedera.hapi.block.protoc.BlockItemSet;
-import com.hedera.hapi.block.protoc.BlockStreamServiceGrpc;
-import com.hedera.hapi.block.protoc.SubscribeStreamRequest;
-import com.hedera.hapi.block.protoc.SubscribeStreamResponse;
-import com.hedera.hapi.block.protoc.SubscribeStreamResponseCode;
 import com.hedera.hapi.block.stream.output.protoc.BlockHeader;
 import com.hedera.hapi.block.stream.protoc.BlockItem;
 import com.hedera.hapi.block.stream.protoc.BlockProof;
@@ -21,6 +16,11 @@ import io.grpc.Server;
 import io.grpc.ServerBuilder;
 import io.grpc.stub.StreamObserver;
 import java.io.IOException;
+import org.hiero.block.api.protoc.BlockItemSet;
+import org.hiero.block.api.protoc.BlockStreamSubscribeServiceGrpc;
+import org.hiero.block.api.protoc.SubscribeStreamRequest;
+import org.hiero.block.api.protoc.SubscribeStreamResponse;
+import org.hiero.block.api.protoc.SubscribeStreamResponse.Code;
 import org.hiero.block.simulator.TestUtils;
 import org.hiero.block.simulator.config.data.BlockStreamConfig;
 import org.hiero.block.simulator.config.data.ConsumerConfig;
@@ -52,7 +52,7 @@ public class ConsumerStreamGrpcClientImplTest {
         MockitoAnnotations.openMocks(this);
         final int serverPort = findFreePort();
         server = ServerBuilder.forPort(serverPort)
-                .addService(new BlockStreamServiceGrpc.BlockStreamServiceImplBase() {
+                .addService(new BlockStreamSubscribeServiceGrpc.BlockStreamSubscribeServiceImplBase() {
                     @Override
                     public void subscribeBlockStream(
                             SubscribeStreamRequest request, StreamObserver<SubscribeStreamResponse> responseObserver) {
@@ -85,7 +85,7 @@ public class ConsumerStreamGrpcClientImplTest {
 
                         // Send success status code at the end
                         responseObserver.onNext(SubscribeStreamResponse.newBuilder()
-                                .setStatus(SubscribeStreamResponseCode.READ_STREAM_SUCCESS)
+                                .setStatus(Code.READ_STREAM_SUCCESS)
                                 .build());
                         responseObserver.onCompleted();
                     }
@@ -128,7 +128,7 @@ public class ConsumerStreamGrpcClientImplTest {
         // We check if the final status matches what we have send from the server.
         final String lastStatus =
                 consumerStreamGrpcClientImpl.getLastKnownStatuses().getLast();
-        assertTrue(lastStatus.contains("status: %s".formatted(SubscribeStreamResponseCode.READ_STREAM_SUCCESS.name())));
+        assertTrue(lastStatus.contains("status: %s".formatted(Code.READ_STREAM_SUCCESS.name())));
 
         assertEquals(endBlock, consumerStreamGrpcClientImpl.getConsumedBlocks());
     }

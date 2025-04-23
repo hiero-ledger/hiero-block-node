@@ -6,8 +6,8 @@ import com.hedera.pbj.runtime.ParseException;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import java.io.IOException;
 import java.util.zip.GZIPInputStream;
+import org.hiero.block.internal.BlockUnparsed;
 import org.hiero.block.node.app.fixtures.TestUtils;
-import org.hiero.hapi.block.node.BlockUnparsed;
 
 /*
  * Utility class for getting test blocks.

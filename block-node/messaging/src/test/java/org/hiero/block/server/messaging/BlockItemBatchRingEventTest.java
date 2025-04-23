@@ -8,10 +8,10 @@ import com.hedera.pbj.runtime.OneOf;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import java.util.List;
 import java.util.stream.Collectors;
+import org.hiero.block.internal.BlockItemUnparsed;
+import org.hiero.block.internal.BlockItemUnparsed.ItemOneOfType;
 import org.hiero.block.node.messaging.BlockItemBatchRingEvent;
 import org.hiero.block.node.spi.blockmessaging.BlockItems;
-import org.hiero.hapi.block.node.BlockItemUnparsed;
-import org.hiero.hapi.block.node.BlockItemUnparsed.ItemOneOfType;
 import org.junit.jupiter.api.Test;
 
 /**

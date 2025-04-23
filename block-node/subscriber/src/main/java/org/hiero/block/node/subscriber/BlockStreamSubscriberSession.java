@@ -14,16 +14,16 @@ import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.locks.LockSupport;
 import java.util.function.Consumer;
+import org.hiero.block.api.SubscribeStreamRequest;
+import org.hiero.block.api.SubscribeStreamResponse.Code;
+import org.hiero.block.internal.BlockItemSetUnparsed;
+import org.hiero.block.internal.BlockUnparsed;
+import org.hiero.block.internal.SubscribeStreamResponseUnparsed;
+import org.hiero.block.internal.SubscribeStreamResponseUnparsed.ResponseOneOfType;
 import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.blockmessaging.BlockItems;
 import org.hiero.block.node.spi.blockmessaging.NoBackPressureBlockItemHandler;
 import org.hiero.block.node.spi.historicalblocks.BlockAccessor;
-import org.hiero.hapi.block.node.BlockItemSetUnparsed;
-import org.hiero.hapi.block.node.BlockUnparsed;
-import org.hiero.hapi.block.node.SubscribeStreamRequest;
-import org.hiero.hapi.block.node.SubscribeStreamResponseCode;
-import org.hiero.hapi.block.node.SubscribeStreamResponseUnparsed;
-import org.hiero.hapi.block.node.SubscribeStreamResponseUnparsed.ResponseOneOfType;
 
 /**
  * This class is used to represent a session for a single BlockStream subscriber that has connected to the block node.
@@ -118,20 +118,12 @@ public class BlockStreamSubscriberSession implements NoBackPressureBlockItemHand
         final long latestBlockNumber =
                 context.historicalBlockProvider().availableBlocks().max();
         // we have just received a new subscribe request, now we need to work out if we can service it
-        if (!request.allowUnverified()) {
-            // ----------> VALIDATED STREAM <----------
-            LOGGER.log(Level.DEBUG, "Client {0} requested a validated stream but this is not supported", clientId);
-            // send response to client
-            responsePipeline.onNext(SubscribeStreamResponseUnparsed.newBuilder()
-                    .status(SubscribeStreamResponseCode.READ_STREAM_NOT_AVAILABLE)
-                    .build());
-            close();
-        } else if (request.startBlockNumber() < UNKNOWN_BLOCK_NUMBER) {
+        if (request.startBlockNumber() < UNKNOWN_BLOCK_NUMBER) {
             // ----------> NEGATIVE START AND NOT UNKNOWN_BLOCK_NUMBER <----------
             LOGGER.log(Level.DEBUG, "Client {0} requested negative block {1}", clientId, request.startBlockNumber());
             // send invalid start block number response
             responsePipeline.onNext(SubscribeStreamResponseUnparsed.newBuilder()
-                    .status(SubscribeStreamResponseCode.READ_STREAM_INVALID_START_BLOCK_NUMBER)
+                    .status(Code.READ_STREAM_INVALID_START_BLOCK_NUMBER)
                     .build());
             close();
         } else if (request.endBlockNumber() < UNKNOWN_BLOCK_NUMBER) {
@@ -139,7 +131,7 @@ public class BlockStreamSubscriberSession implements NoBackPressureBlockItemHand
             LOGGER.log(Level.DEBUG, "Client {0} requested negative end block {1}", clientId, request.endBlockNumber());
             // send invalid end block number response
             responsePipeline.onNext(SubscribeStreamResponseUnparsed.newBuilder()
-                    .status(SubscribeStreamResponseCode.READ_STREAM_INVALID_END_BLOCK_NUMBER)
+                    .status(Code.READ_STREAM_INVALID_END_BLOCK_NUMBER)
                     .build());
             close();
         } else if (request.endBlockNumber() >= 0 && startBlockNumber > endBlockNumber) {
@@ -152,7 +144,7 @@ public class BlockStreamSubscriberSession implements NoBackPressureBlockItemHand
                     request.startBlockNumber());
             // send invalid end block number response
             responsePipeline.onNext(SubscribeStreamResponseUnparsed.newBuilder()
-                    .status(SubscribeStreamResponseCode.READ_STREAM_INVALID_END_BLOCK_NUMBER)
+                    .status(Code.READ_STREAM_INVALID_END_BLOCK_NUMBER)
                     .build());
             close();
         } else if (startBlockNumber != UNKNOWN_BLOCK_NUMBER
@@ -167,7 +159,7 @@ public class BlockStreamSubscriberSession implements NoBackPressureBlockItemHand
                     context.historicalBlockProvider().availableBlocks().max());
             // send invalid start block number response
             responsePipeline.onNext(SubscribeStreamResponseUnparsed.newBuilder()
-                    .status(SubscribeStreamResponseCode.READ_STREAM_INVALID_START_BLOCK_NUMBER)
+                    .status(Code.READ_STREAM_INVALID_START_BLOCK_NUMBER)
                     .build());
             close();
         } else {
@@ -265,7 +257,7 @@ public class BlockStreamSubscriberSession implements NoBackPressureBlockItemHand
                 LOGGER.log(Level.TRACE, "Client {0} has reached end block number {1}", clientId, endBlockNumber);
                 // send end of stream response
                 responsePipeline.onNext(SubscribeStreamResponseUnparsed.newBuilder()
-                        .status(SubscribeStreamResponseCode.READ_STREAM_SUCCESS)
+                        .status(Code.READ_STREAM_SUCCESS)
                         .build());
                 close();
                 return;
@@ -369,7 +361,7 @@ public class BlockStreamSubscriberSession implements NoBackPressureBlockItemHand
                                 latestLiveStreamBlock.get(),
                                 startBlockNumber);
                         responsePipeline.onNext(SubscribeStreamResponseUnparsed.newBuilder()
-                                .status(SubscribeStreamResponseCode.READ_STREAM_INVALID_START_BLOCK_NUMBER)
+                                .status(Code.READ_STREAM_INVALID_START_BLOCK_NUMBER)
                                 .build());
                         close();
                     } else if (latestLiveStreamBlock.get() == startBlockNumber) {

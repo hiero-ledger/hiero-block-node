@@ -18,6 +18,7 @@ import org.hiero.block.common.hasher.Hashes;
 import org.hiero.block.common.hasher.HashingUtilities;
 import org.hiero.block.common.hasher.NaiveStreamingTreeHasher;
 import org.hiero.block.common.hasher.StreamingTreeHasher;
+import org.hiero.block.internal.BlockItemUnparsed;
 import org.hiero.block.simulator.config.data.BlockGeneratorConfig;
 import org.hiero.block.simulator.config.types.GenerationMode;
 import org.hiero.block.simulator.exception.BlockSimulatorParsingException;
@@ -28,7 +29,6 @@ import org.hiero.block.simulator.generator.itemhandler.EventTransactionHandler;
 import org.hiero.block.simulator.generator.itemhandler.ItemHandler;
 import org.hiero.block.simulator.generator.itemhandler.TransactionResultHandler;
 import org.hiero.block.simulator.startup.SimulatorStartupData;
-import org.hiero.hapi.block.node.BlockItemUnparsed;
 
 /**
  * Implementation of BlockStreamManager that crafts blocks from scratch rather than reading from an existing stream.

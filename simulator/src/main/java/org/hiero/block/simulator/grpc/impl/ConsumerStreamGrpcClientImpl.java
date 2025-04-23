@@ -4,9 +4,6 @@ package org.hiero.block.simulator.grpc.impl;
 import static java.util.Objects.requireNonNull;
 import static org.hiero.block.simulator.metrics.SimulatorMetricTypes.Counter.LiveBlocksConsumed;
 
-import com.hedera.hapi.block.protoc.BlockStreamServiceGrpc;
-import com.hedera.hapi.block.protoc.SubscribeStreamRequest;
-import com.hedera.hapi.block.protoc.SubscribeStreamResponse;
 import edu.umd.cs.findbugs.annotations.NonNull;
 import io.grpc.ManagedChannel;
 import io.grpc.ManagedChannelBuilder;
@@ -16,6 +13,9 @@ import java.util.Deque;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import javax.inject.Inject;
+import org.hiero.block.api.protoc.BlockStreamSubscribeServiceGrpc;
+import org.hiero.block.api.protoc.SubscribeStreamRequest;
+import org.hiero.block.api.protoc.SubscribeStreamResponse;
 import org.hiero.block.common.utils.Preconditions;
 import org.hiero.block.simulator.config.data.BlockStreamConfig;
 import org.hiero.block.simulator.config.data.ConsumerConfig;
@@ -38,7 +38,7 @@ public class ConsumerStreamGrpcClientImpl implements ConsumerStreamGrpcClient {
 
     // gRPC components
     private ManagedChannel channel;
-    private BlockStreamServiceGrpc.BlockStreamServiceStub stub;
+    private BlockStreamSubscribeServiceGrpc.BlockStreamSubscribeServiceStub stub;
     private StreamObserver<SubscribeStreamResponse> consumerStreamObserver;
 
     // State
@@ -72,7 +72,7 @@ public class ConsumerStreamGrpcClientImpl implements ConsumerStreamGrpcClient {
         channel = ManagedChannelBuilder.forAddress(grpcConfig.serverAddress(), grpcConfig.port())
                 .usePlaintext()
                 .build();
-        stub = BlockStreamServiceGrpc.newStub(channel);
+        stub = BlockStreamSubscribeServiceGrpc.newStub(channel);
         lastKnownStatuses.clear();
         streamLatch = new CountDownLatch(1);
     }
@@ -89,7 +89,6 @@ public class ConsumerStreamGrpcClientImpl implements ConsumerStreamGrpcClient {
         SubscribeStreamRequest request = SubscribeStreamRequest.newBuilder()
                 .setStartBlockNumber(startBlock)
                 .setEndBlockNumber(endBlock)
-                .setAllowUnverified(true)
                 .build();
         stub.subscribeBlockStream(request, consumerStreamObserver);
 
@@ -104,7 +103,6 @@ public class ConsumerStreamGrpcClientImpl implements ConsumerStreamGrpcClient {
         SubscribeStreamRequest request = SubscribeStreamRequest.newBuilder()
                 .setStartBlockNumber(consumerConfig.startBlockNumber())
                 .setEndBlockNumber(consumerConfig.endBlockNumber())
-                .setAllowUnverified(true)
                 .build();
         stub.subscribeBlockStream(request, consumerStreamObserver);
 

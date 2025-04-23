@@ -6,8 +6,6 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import com.hedera.hapi.block.protoc.SingleBlockResponse;
-import com.hedera.hapi.block.protoc.SingleBlockResponseCode;
 import edu.umd.cs.findbugs.annotations.NonNull;
 import java.io.IOException;
 import java.util.ArrayList;
@@ -15,6 +13,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.Future;
+import org.hiero.block.api.protoc.BlockResponse;
+import org.hiero.block.api.protoc.BlockResponse.Code;
 import org.hiero.block.simulator.BlockStreamSimulatorApp;
 import org.hiero.block.suites.BaseSuite;
 import org.junit.jupiter.api.AfterEach;
@@ -153,13 +153,13 @@ public class PositiveMultiplePublishersTests extends BaseSuite {
         simulators.add(futureSimulatorThread);
 
         // ===== Assert that we are persisting only the current blocks =================================
-        final SingleBlockResponse currentBlockResponse = getLatestBlock(false);
-        final SingleBlockResponse futureBlockResponse = getSingleBlock(1000, false);
+        final BlockResponse currentBlockResponse = getLatestBlock(false);
+        final BlockResponse futureBlockResponse = getBlock(1000, false);
 
         assertNotNull(currentBlockResponse);
         assertNotNull(futureBlockResponse);
-        assertEquals(SingleBlockResponseCode.READ_BLOCK_SUCCESS, currentBlockResponse.getStatus());
-        assertEquals(SingleBlockResponseCode.READ_BLOCK_NOT_AVAILABLE, futureBlockResponse.getStatus());
+        assertEquals(Code.READ_BLOCK_SUCCESS, currentBlockResponse.getStatus());
+        assertEquals(Code.READ_BLOCK_NOT_AVAILABLE, futureBlockResponse.getStatus());
         assertTrue(currentBlockResponse.getBlock().getItemsList().getFirst().hasBlockHeader());
     }
 
@@ -186,10 +186,8 @@ public class PositiveMultiplePublishersTests extends BaseSuite {
                 firstSimulator.getStreamStatus().publishedBlocks() - 1; // we subtract one since we started on 0
         firstSimulatorThread.cancel(true);
 
-        final SingleBlockResponse latestPublishedBlockBefore =
-                getSingleBlock(firstSimulatorLatestPublishedBlockNumber, false);
-        final SingleBlockResponse nextPublishedBlockBefore =
-                getSingleBlock(firstSimulatorLatestPublishedBlockNumber + 1, false);
+        final BlockResponse latestPublishedBlockBefore = getBlock(firstSimulatorLatestPublishedBlockNumber, false);
+        final BlockResponse nextPublishedBlockBefore = getBlock(firstSimulatorLatestPublishedBlockNumber + 1, false);
 
         assertNotNull(firstSimulatorLatestStatus);
         assertTrue(firstSimulatorLatestStatus.contains(Long.toString(firstSimulatorLatestPublishedBlockNumber)));
@@ -201,7 +199,7 @@ public class PositiveMultiplePublishersTests extends BaseSuite {
                         .getFirst()
                         .getBlockHeader()
                         .getNumber());
-        assertEquals(SingleBlockResponseCode.READ_BLOCK_NOT_AVAILABLE, nextPublishedBlockBefore.getStatus());
+        assertEquals(Code.READ_BLOCK_NOT_AVAILABLE, nextPublishedBlockBefore.getStatus());
 
         // ===== Prepare and Start second simulator and make sure it's streaming =====================
         final Map<String, String> secondSimulatorConfiguration =
@@ -216,7 +214,7 @@ public class PositiveMultiplePublishersTests extends BaseSuite {
                 .getLast();
         secondSimulatorThread.cancel(true);
 
-        final SingleBlockResponse latestPublishedBlockAfter = getLatestBlock(false);
+        final BlockResponse latestPublishedBlockAfter = getLatestBlock(false);
 
         assertNotNull(secondSimulatorLatestStatus);
         assertNotNull(latestPublishedBlockAfter);

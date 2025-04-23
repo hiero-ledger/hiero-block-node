@@ -18,15 +18,15 @@ import com.hedera.pbj.runtime.io.buffer.Bytes;
 import java.util.Arrays;
 import java.util.List;
 import org.assertj.core.api.SoftAssertions;
+import org.hiero.block.api.SubscribeStreamRequest;
+import org.hiero.block.api.SubscribeStreamResponse;
+import org.hiero.block.api.SubscribeStreamResponse.Code;
+import org.hiero.block.api.SubscribeStreamResponse.ResponseOneOfType;
+import org.hiero.block.internal.BlockItemUnparsed;
 import org.hiero.block.node.app.fixtures.plugintest.GrpcPluginTestBase;
 import org.hiero.block.node.app.fixtures.plugintest.SimpleInMemoryHistoricalBlockFacility;
 import org.hiero.block.node.spi.blockmessaging.BlockItems;
 import org.hiero.block.node.spi.blockmessaging.NoBackPressureBlockItemHandler;
-import org.hiero.hapi.block.node.BlockItemUnparsed;
-import org.hiero.hapi.block.node.SubscribeStreamRequest;
-import org.hiero.hapi.block.node.SubscribeStreamResponse;
-import org.hiero.hapi.block.node.SubscribeStreamResponse.ResponseOneOfType;
-import org.hiero.hapi.block.node.SubscribeStreamResponseCode;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Disabled;
@@ -90,7 +90,6 @@ public class SubscriberTest extends GrpcPluginTestBase<SubscriberServicePlugin> 
     void testSubscribeAnyToMaxBlocksUnknown() throws ParseException {
         // first we need to create and send a SubscribeStreamRequest
         final SubscribeStreamRequest subscribeStreamRequest = SubscribeStreamRequest.newBuilder()
-                .allowUnverified(true)
                 .startBlockNumber(UNKNOWN_BLOCK_NUMBER)
                 .endBlockNumber(UNKNOWN_BLOCK_NUMBER)
                 .build();
@@ -116,7 +115,6 @@ public class SubscriberTest extends GrpcPluginTestBase<SubscriberServicePlugin> 
     void testSubscribeAnyToMaxBlocksZero() throws ParseException {
         // first we need to create and send a SubscribeStreamRequest
         final SubscribeStreamRequest subscribeStreamRequest = SubscribeStreamRequest.newBuilder()
-                .allowUnverified(true)
                 .startBlockNumber(UNKNOWN_BLOCK_NUMBER)
                 .endBlockNumber(0)
                 .build();
@@ -142,7 +140,6 @@ public class SubscriberTest extends GrpcPluginTestBase<SubscriberServicePlugin> 
     void testSubscribeAnyToMaxBlocksMax() throws ParseException {
         // first we need to create and send a SubscribeStreamRequest
         final SubscribeStreamRequest subscribeStreamRequest = SubscribeStreamRequest.newBuilder()
-                .allowUnverified(true)
                 .startBlockNumber(UNKNOWN_BLOCK_NUMBER)
                 .endBlockNumber(Long.MAX_VALUE)
                 .build();
@@ -158,7 +155,6 @@ public class SubscriberTest extends GrpcPluginTestBase<SubscriberServicePlugin> 
     void testSubscriberBlockZero() throws ParseException {
         // first we need to create and send a SubscribeStreamRequest
         final SubscribeStreamRequest subscribeStreamRequest = SubscribeStreamRequest.newBuilder()
-                .allowUnverified(true)
                 .startBlockNumber(0)
                 .endBlockNumber(UNKNOWN_BLOCK_NUMBER)
                 .build();
@@ -172,7 +168,6 @@ public class SubscriberTest extends GrpcPluginTestBase<SubscriberServicePlugin> 
     void testSubscriberBlockZeroTwoChunks() throws ParseException {
         // first we need to create and send a SubscribeStreamRequest
         final SubscribeStreamRequest subscribeStreamRequest = SubscribeStreamRequest.newBuilder()
-                .allowUnverified(true)
                 .startBlockNumber(0)
                 .endBlockNumber(UNKNOWN_BLOCK_NUMBER)
                 .build();
@@ -189,7 +184,6 @@ public class SubscriberTest extends GrpcPluginTestBase<SubscriberServicePlugin> 
         sendBatches(createNumberOfSimpleBlockBatches(0, 10));
         // first we need to create and send a SubscribeStreamRequest
         final SubscribeStreamRequest subscribeStreamRequest = SubscribeStreamRequest.newBuilder()
-                .allowUnverified(true)
                 .startBlockNumber(10)
                 .endBlockNumber(UNKNOWN_BLOCK_NUMBER)
                 .build();
@@ -216,7 +210,6 @@ public class SubscriberTest extends GrpcPluginTestBase<SubscriberServicePlugin> 
         sendBatches(createNumberOfSimpleBlockBatches(0, 10));
         // first we need to create and send a SubscribeStreamRequest
         final SubscribeStreamRequest subscribeStreamRequest = SubscribeStreamRequest.newBuilder()
-                .allowUnverified(true)
                 .startBlockNumber(15)
                 .endBlockNumber(UNKNOWN_BLOCK_NUMBER)
                 .build();
@@ -235,7 +228,6 @@ public class SubscriberTest extends GrpcPluginTestBase<SubscriberServicePlugin> 
     void testSubscribeFromZeroSlowClient() throws ParseException {
         // first we need to create and send a SubscribeStreamRequest
         final SubscribeStreamRequest subscribeStreamRequest = SubscribeStreamRequest.newBuilder()
-                .allowUnverified(true)
                 .startBlockNumber(0)
                 .endBlockNumber(UNKNOWN_BLOCK_NUMBER)
                 .build();
@@ -252,7 +244,6 @@ public class SubscriberTest extends GrpcPluginTestBase<SubscriberServicePlugin> 
         sendBatches(createNumberOfSimpleBlockBatches(0, 10));
         // first we need to create and send a SubscribeStreamRequest
         final SubscribeStreamRequest subscribeStreamRequest = SubscribeStreamRequest.newBuilder()
-                .allowUnverified(true)
                 .startBlockNumber(1000)
                 .endBlockNumber(UNKNOWN_BLOCK_NUMBER)
                 .build();
@@ -260,7 +251,7 @@ public class SubscriberTest extends GrpcPluginTestBase<SubscriberServicePlugin> 
         // check we did not get a bad response
         SubscribeStreamResponse response = parseResponse(fromPluginBytes.getFirst());
         assertEquals(ResponseOneOfType.STATUS, response.response().kind());
-        assertEquals(SubscribeStreamResponseCode.READ_STREAM_INVALID_START_BLOCK_NUMBER, response.status());
+        assertEquals(Code.READ_STREAM_INVALID_START_BLOCK_NUMBER, response.status());
     }
 
     @Test
@@ -269,7 +260,6 @@ public class SubscriberTest extends GrpcPluginTestBase<SubscriberServicePlugin> 
         sendBatches(createNumberOfSimpleBlockBatches(0, 10));
         // first we need to create and send a SubscribeStreamRequest
         final SubscribeStreamRequest subscribeStreamRequest = SubscribeStreamRequest.newBuilder()
-                .allowUnverified(true)
                 .startBlockNumber(UNKNOWN_BLOCK_NUMBER)
                 .endBlockNumber(UNKNOWN_BLOCK_NUMBER - 1)
                 .build();
@@ -280,7 +270,7 @@ public class SubscriberTest extends GrpcPluginTestBase<SubscriberServicePlugin> 
                 .isGreaterThan(0);
         SubscribeStreamResponse response = parseResponse(fromPluginBytes.getFirst());
         assertEquals(ResponseOneOfType.STATUS, response.response().kind());
-        assertEquals(SubscribeStreamResponseCode.READ_STREAM_INVALID_END_BLOCK_NUMBER, response.status());
+        assertEquals(Code.READ_STREAM_INVALID_END_BLOCK_NUMBER, response.status());
     }
 
     @Test
@@ -289,7 +279,6 @@ public class SubscriberTest extends GrpcPluginTestBase<SubscriberServicePlugin> 
         sendBatches(createNumberOfSimpleBlockBatches(0, 10));
         // first we need to create and send a SubscribeStreamRequest
         final SubscribeStreamRequest subscribeStreamRequest = SubscribeStreamRequest.newBuilder()
-                .allowUnverified(true)
                 .startBlockNumber(10)
                 .endBlockNumber(5)
                 .build();
@@ -299,7 +288,7 @@ public class SubscriberTest extends GrpcPluginTestBase<SubscriberServicePlugin> 
         assertThat(fromPluginBytes.size()).isGreaterThan(0);
         SubscribeStreamResponse response = parseResponse(fromPluginBytes.getFirst());
         assertEquals(ResponseOneOfType.STATUS, response.response().kind());
-        assertEquals(SubscribeStreamResponseCode.READ_STREAM_INVALID_END_BLOCK_NUMBER, response.status());
+        assertEquals(Code.READ_STREAM_INVALID_END_BLOCK_NUMBER, response.status());
     }
 
     // ==== Testing Utility Methods ====================================================================================

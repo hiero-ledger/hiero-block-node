@@ -9,9 +9,6 @@ import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 
-import com.hedera.hapi.block.protoc.BlockItemSet;
-import com.hedera.hapi.block.protoc.SubscribeStreamResponse;
-import com.hedera.hapi.block.protoc.SubscribeStreamResponseCode;
 import com.hedera.hapi.block.stream.output.protoc.BlockHeader;
 import com.hedera.hapi.block.stream.protoc.BlockItem;
 import com.hedera.hapi.block.stream.protoc.BlockProof;
@@ -19,6 +16,9 @@ import com.swirlds.config.api.Configuration;
 import java.io.IOException;
 import java.util.ArrayDeque;
 import java.util.concurrent.CountDownLatch;
+import org.hiero.block.api.protoc.BlockItemSet;
+import org.hiero.block.api.protoc.SubscribeStreamResponse;
+import org.hiero.block.api.protoc.SubscribeStreamResponse.Code;
 import org.hiero.block.simulator.TestUtils;
 import org.hiero.block.simulator.metrics.MetricsService;
 import org.hiero.block.simulator.metrics.MetricsServiceImpl;
@@ -63,7 +63,7 @@ class ConsumerStreamObserverTest {
     @Test
     void testOnNextWithStatusResponse() {
         SubscribeStreamResponse response = SubscribeStreamResponse.newBuilder()
-                .setStatus(SubscribeStreamResponseCode.READ_STREAM_SUCCESS)
+                .setStatus(Code.READ_STREAM_SUCCESS)
                 .build();
 
         observer.onNext(response);

@@ -1,7 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-module org.hiero.block.stream {
-    exports com.hedera.hapi.block;
-    exports com.hedera.hapi.block.protoc;
+module org.hiero.block.protobuf {
     exports com.hedera.hapi.block.stream.protoc;
     exports com.hedera.hapi.block.stream.input.protoc;
     exports com.hedera.hapi.block.stream.output.protoc;
@@ -70,7 +68,10 @@ module org.hiero.block.stream {
     exports com.hedera.hapi.block.stream.schema;
     exports com.hedera.hapi.platform.state.legacy to
             com.google.protobuf;
-    exports org.hiero.hapi.block.node;
+    exports org.hiero.block.api;
+    exports org.hiero.block.api.protoc;
+    exports org.hiero.block.internal;
+    exports org.hiero.block.internal.protoc;
 
     requires transitive com.hedera.pbj.runtime;
     requires transitive com.google.common;
