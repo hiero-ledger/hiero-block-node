@@ -18,6 +18,7 @@ import java.util.List;
 import org.hiero.block.api.BlockRequest;
 import org.hiero.block.api.BlockResponse;
 import org.hiero.block.api.BlockResponse.Code;
+import org.hiero.block.api.protoc.BlockAccessServiceGrpc;
 import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.BlockNodePlugin;
 import org.hiero.block.node.spi.ServiceBuilder;
@@ -152,7 +153,8 @@ public class BlockAccessServicePlugin implements BlockNodePlugin, ServiceInterfa
     @NonNull
     @Override
     public String serviceName() {
-        return "BlockAccessService";
+        String[] parts = fullName().split("\\.");
+        return parts[parts.length - 1];
     }
 
     /**
@@ -161,7 +163,7 @@ public class BlockAccessServicePlugin implements BlockNodePlugin, ServiceInterfa
     @NonNull
     @Override
     public String fullName() {
-        return "com.hedera.hapi.block." + serviceName();
+        return BlockAccessServiceGrpc.SERVICE_NAME;
     }
 
     /**

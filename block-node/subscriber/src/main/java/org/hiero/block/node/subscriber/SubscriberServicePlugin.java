@@ -15,6 +15,7 @@ import java.util.List;
 import java.util.concurrent.ConcurrentSkipListSet;
 import java.util.concurrent.atomic.AtomicLong;
 import org.hiero.block.api.SubscribeStreamRequest;
+import org.hiero.block.api.protoc.BlockStreamSubscribeServiceGrpc;
 import org.hiero.block.internal.SubscribeStreamResponseUnparsed;
 import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.BlockNodePlugin;
@@ -92,7 +93,8 @@ public class SubscriberServicePlugin implements BlockNodePlugin, ServiceInterfac
      */
     @NonNull
     public String serviceName() {
-        return "BlockStreamService";
+        String[] parts = fullName().split("\\.");
+        return parts[parts.length - 1];
     }
 
     /**
@@ -100,7 +102,7 @@ public class SubscriberServicePlugin implements BlockNodePlugin, ServiceInterfac
      */
     @NonNull
     public String fullName() {
-        return "com.hedera.hapi.block." + serviceName();
+        return BlockStreamSubscribeServiceGrpc.SERVICE_NAME;
     }
 
     /**

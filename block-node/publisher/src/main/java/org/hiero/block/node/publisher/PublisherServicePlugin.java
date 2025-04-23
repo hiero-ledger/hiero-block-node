@@ -24,6 +24,7 @@ import java.util.OptionalLong;
 import java.util.Set;
 import java.util.concurrent.locks.ReentrantLock;
 import org.hiero.block.api.PublishStreamResponse;
+import org.hiero.block.api.protoc.BlockStreamPublishServiceGrpc;
 import org.hiero.block.internal.BlockItemUnparsed;
 import org.hiero.block.internal.PublishStreamRequestUnparsed;
 import org.hiero.block.node.publisher.PublisherConfig.PublisherType;
@@ -482,7 +483,8 @@ public final class PublisherServicePlugin implements BlockNodePlugin, ServiceInt
      */
     @NonNull
     public String serviceName() {
-        return "BlockStreamService";
+        String[] parts = fullName().split("\\.");
+        return parts[parts.length - 1];
     }
 
     /**
@@ -490,7 +492,7 @@ public final class PublisherServicePlugin implements BlockNodePlugin, ServiceInt
      */
     @NonNull
     public String fullName() {
-        return "com.hedera.hapi.block." + serviceName();
+        return BlockStreamPublishServiceGrpc.SERVICE_NAME;
     }
 
     /**
