@@ -41,15 +41,15 @@ message BlockContentsProofRequest {
          * The hash of the block item.
          * <p>
          * Use this field when the block item is identified by its hash. And there
-         * is only one block item with the hash withing the block.
+         * is only one block item with the hash within the block.
          */
         bytes block_item_hash = 3;
 
         /**
          * The index of the block item within the block.
          * <p>
-         * This alternative identifier specifies the position of the block item.
-         * In case of multiple block items with the same hash, this field must be used.
+         * This alternative identifier specifies the position of the block item within the block within the block.
+         * This field must be used in case of multiple block items with the same hash within the block.
          */
         uint32 block_item_index = 4;
     }

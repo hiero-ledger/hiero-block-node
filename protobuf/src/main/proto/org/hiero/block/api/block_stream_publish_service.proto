@@ -146,8 +146,7 @@ message PublishStreamResponse {
     }
 
     /**
-     * A response to acknowledge receipt and verification of a single item
-     * or full block.
+     * A response to acknowledge receipt and verification of a full block.
      */
     message Acknowledgement {
         /**
@@ -169,9 +168,12 @@ message PublishStreamResponse {
      */
     message BlockAcknowledgement {
         /**
-         * A block number number of the acknowledged block.
+         * The number of the last completed and _verified_ block.
          * <p>
-         * A Publisher SHOULD verify that this value matches the block sent.
+         * A Publisher SHOULD consider all pending blocks with block number
+         * less than or equal to this value to be acknowledged.<br/>
+         * The next block sent by the Publisher SHOULD have a block number
+         * one greater than this value.
          */
         uint64 block_number = 1;
 

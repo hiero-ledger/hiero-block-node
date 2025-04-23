@@ -89,7 +89,6 @@ public class ConsumerStreamGrpcClientImpl implements ConsumerStreamGrpcClient {
         SubscribeStreamRequest request = SubscribeStreamRequest.newBuilder()
                 .setStartBlockNumber(startBlock)
                 .setEndBlockNumber(endBlock)
-                .setAllowUnverified(true)
                 .build();
         stub.subscribeBlockStream(request, consumerStreamObserver);
 
@@ -104,7 +103,6 @@ public class ConsumerStreamGrpcClientImpl implements ConsumerStreamGrpcClient {
         SubscribeStreamRequest request = SubscribeStreamRequest.newBuilder()
                 .setStartBlockNumber(consumerConfig.startBlockNumber())
                 .setEndBlockNumber(consumerConfig.endBlockNumber())
-                .setAllowUnverified(true)
                 .build();
         stub.subscribeBlockStream(request, consumerStreamObserver);
 

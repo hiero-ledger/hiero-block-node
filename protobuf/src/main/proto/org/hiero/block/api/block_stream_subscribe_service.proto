@@ -57,23 +57,6 @@ message SubscribeStreamRequest {
      * </ul>
      */
     uint64 end_block_number = 2;
-
-    /**
-     * A flag to indicate that the requested block(s) may be sent before
-     * verifying each block's `BlockProof`.<br/>
-     * This might be set by a client that expects to perform its own
-     * verification and wishes lower latency or, potentially, lower cost.
-     * <p>
-     * If this value is set, then the responding Block Node MAY respond with
-     * blocks that have not (yet) completed block proof verification.<br/>
-     * If this is _not set_ then the Block Node MUST respond with only
-     * fully verified and validated block(s).<br/>
-     * If this is _set_, then a Block Node MAY stream items from
-     * blocks that have not yet been verified or do not yet have
-     * a block proof available.<br/>
-     * The default value is _not set_.
-     */
-    bool allow_unverified = 3;
 }
 
 /**

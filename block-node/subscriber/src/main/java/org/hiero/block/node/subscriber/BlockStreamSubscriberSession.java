@@ -118,15 +118,7 @@ public class BlockStreamSubscriberSession implements NoBackPressureBlockItemHand
         final long latestBlockNumber =
                 context.historicalBlockProvider().availableBlocks().max();
         // we have just received a new subscribe request, now we need to work out if we can service it
-        if (!request.allowUnverified()) {
-            // ----------> VALIDATED STREAM <----------
-            LOGGER.log(Level.DEBUG, "Client {0} requested a validated stream but this is not supported", clientId);
-            // send response to client
-            responsePipeline.onNext(SubscribeStreamResponseUnparsed.newBuilder()
-                    .status(Code.READ_STREAM_NOT_AVAILABLE)
-                    .build());
-            close();
-        } else if (request.startBlockNumber() < UNKNOWN_BLOCK_NUMBER) {
+        if (request.startBlockNumber() < UNKNOWN_BLOCK_NUMBER) {
             // ----------> NEGATIVE START AND NOT UNKNOWN_BLOCK_NUMBER <----------
             LOGGER.log(Level.DEBUG, "Client {0} requested negative block {1}", clientId, request.startBlockNumber());
             // send invalid start block number response
