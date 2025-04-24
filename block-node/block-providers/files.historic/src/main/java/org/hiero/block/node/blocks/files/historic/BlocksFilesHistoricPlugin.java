@@ -220,26 +220,29 @@ public final class BlocksFilesHistoricPlugin implements BlockProviderPlugin, Blo
                     batchFirstBlockNumber,
                     batchLastBlockNumber);
             zipBlockArchive.writeNewZipFile(batchFirstBlockNumber);
-            // update the first and last block numbers
-            availableBlocks.add(batchFirstBlockNumber, batchLastBlockNumber);
-            // log done
-            LOGGER.log(
-                    System.Logger.Level.INFO,
-                    "Moved batch of blocks[%d -> %d] to zip file",
-                    batchFirstBlockNumber,
-                    batchLastBlockNumber);
-            // now all the blocks are in the zip file and accessible, send notification
-            context.blockMessaging()
-                    .sendBlockPersisted(
-                            new PersistedNotification(batchFirstBlockNumber, batchLastBlockNumber, defaultPriority()));
-            // remove the batch of blocks from in progress ranges
-            inProgressZipRanges.remove(batchRange);
-        } catch (final Exception e) {
+        } catch (final IOException e) {
             LOGGER.log(
                     System.Logger.Level.ERROR,
                     "Failed to move batch of blocks[" + batchFirstBlockNumber + " -> " + batchLastBlockNumber
                             + "] to zip file",
                     e);
+            return;
         }
+        // if we have reached here, then the batch of blocks has been zipped,
+        // now we need to make some updates
+        // update the first and last block numbers
+        availableBlocks.add(batchFirstBlockNumber, batchLastBlockNumber);
+        // log done
+        LOGGER.log(
+                System.Logger.Level.INFO,
+                "Moved batch of blocks[%d -> %d] to zip file",
+                batchFirstBlockNumber,
+                batchLastBlockNumber);
+        // now all the blocks are in the zip file and accessible, send notification
+        context.blockMessaging()
+                .sendBlockPersisted(
+                        new PersistedNotification(batchFirstBlockNumber, batchLastBlockNumber, defaultPriority()));
+        // remove the batch of blocks from in progress ranges
+        inProgressZipRanges.remove(batchRange);
     }
 }
