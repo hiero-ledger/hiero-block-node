@@ -100,7 +100,7 @@ class BlocksFilesHistoricPluginTest {
                 final BlockItemUnparsed[] block = SimpleTestBlockItemBuilder.createSimpleBlockUnparsedWithNumber(i);
                 testHistoricalBlockFacility.handleBlockItemsReceived(new BlockItems(List.of(block), i));
             }
-            // assert that none of the first 10 blocks exist yet
+            // assert that none of the first 10 blocks are zipped yet
             for (int i = 0; i < 10; i++) {
                 assertThat(BlockPath.computeExistingBlockPath(testConfig, i)).isNull();
             }
@@ -108,7 +108,7 @@ class BlocksFilesHistoricPluginTest {
             blockMessaging.sendBlockPersisted(new PersistedNotification(0, 9, toTest.defaultPriority() + 1));
             // execute serially to ensure all tasks are completed
             pluginExecutor.executeSerially();
-            // assert that the first 10 blocks exist now
+            // assert that the first 10 blocks are zipped now
             for (int i = 0; i < 10; i++) {
                 assertThat(BlockPath.computeExistingBlockPath(testConfig, i)).isNotNull();
             }
@@ -136,7 +136,7 @@ class BlocksFilesHistoricPluginTest {
                 testHistoricalBlockFacility.handleBlockItemsReceived(new BlockItems(List.of(block), i));
                 expectedBlocks.add(new BlockUnparsed(List.of(block)));
             }
-            // assert that none of the first 10 blocks exist yet
+            // assert that none of the first 10 blocks are zipped yet
             for (int i = 0; i < 10; i++) {
                 assertThat(BlockPath.computeExistingBlockPath(testConfig, i)).isNull();
             }
@@ -156,6 +156,64 @@ class BlocksFilesHistoricPluginTest {
                     final BlockUnparsed actual = BlockUnparsed.PROTOBUF.parse(Bytes.wrap(zipEntryBytes));
                     assertThat(actual).isEqualTo(expectedBlocks.get(i));
                 }
+            }
+        }
+
+        /**
+         * This test aims to verify that the plugin can handle a simple range of
+         * blocks that have been persisted and a notification is sent to the
+         * messaging facility. The block provider that has persisted the blocks
+         * must have a higher priority than the plugin we are testing. We expect
+         * that the plugin we test will create a zip file with all the blocks in
+         * the notification range (we set the range to 0-4 which does not fit the
+         * config of 10 blocks per zip), i.e. this is the happy path test.
+         * This test will assert the behavior of the plugin when we send
+         * multiple notifications, mimicking the scenario where the provider
+         * will receive and make available some of the blocks in the range
+         * we expect and at a later time it will make available more blocks in
+         * the range we expect. The plugin under test should be sure that the
+         * range it is following is covered before it will zip the blocks.
+         */
+        @Test
+        @DisplayName("Test happy path zip range successful archival on multiple notifications")
+        void testZipRangeWaitForEnoughAvailable() throws IOException {
+            // generate first 5 blocks from numbers 0-4 and add them to the
+            // test historical block facility
+            for (int i = 0; i < 5; i++) {
+                final BlockItemUnparsed[] block = SimpleTestBlockItemBuilder.createSimpleBlockUnparsedWithNumber(i);
+                testHistoricalBlockFacility.handleBlockItemsReceived(new BlockItems(List.of(block), i));
+            }
+            // assert that none of the first 5 blocks are zipped yet
+            for (int i = 0; i < 5; i++) {
+                assertThat(BlockPath.computeExistingBlockPath(testConfig, i)).isNull();
+            }
+            // send a block persisted notification for the range we just created
+            blockMessaging.sendBlockPersisted(new PersistedNotification(0, 4, toTest.defaultPriority() + 1));
+            // assert that no task has been submitted to the pool because we have
+            // not yet reached the desired amount of blocks we want to archive
+            final boolean anyTaskSubmitted = pluginExecutor.wasAnyTaskSubmitted();
+            assertThat(anyTaskSubmitted).isFalse();
+            // assert that the first 5 blocks do not exist
+            for (int i = 0; i < 5; i++) {
+                assertThat(BlockPath.computeExistingBlockPath(testConfig, i)).isNull();
+            }
+            // generate the next 5 blocks from numbers 5-9 and add them to the
+            // test historical block facility
+            for (int i = 5; i < 10; i++) {
+                final BlockItemUnparsed[] block = SimpleTestBlockItemBuilder.createSimpleBlockUnparsedWithNumber(i);
+                testHistoricalBlockFacility.handleBlockItemsReceived(new BlockItems(List.of(block), i));
+            }
+            // assert that none of the first 10 blocks are zipped yet
+            for (int i = 0; i < 10; i++) {
+                assertThat(BlockPath.computeExistingBlockPath(testConfig, i)).isNull();
+            }
+            // send a block persisted notification for the range we just created
+            blockMessaging.sendBlockPersisted(new PersistedNotification(5, 9, toTest.defaultPriority() + 1));
+            // execute serially to ensure all tasks are completed
+            pluginExecutor.executeSerially();
+            // assert that the first 10 blocks are zipped now
+            for (int i = 0; i < 10; i++) {
+                assertThat(BlockPath.computeExistingBlockPath(testConfig, i)).isNotNull();
             }
         }
     }

@@ -20,8 +20,10 @@ import java.util.concurrent.TimeUnit;
  * will ensure that all tasks will complete before doing any asserts
  */
 public class BlockingSerialExecutor extends ThreadPoolExecutor {
-    /** The work queue that will be used to hold the tasks */
+    /** The work queue that will be used to hold the tasks. */
     private final BlockingQueue<Runnable> workQueue;
+    /** Counter to indicate total submitted tasks. */
+    private int tasksSubmitted;
 
     /**
      * Constructor.
@@ -47,6 +49,7 @@ public class BlockingSerialExecutor extends ThreadPoolExecutor {
     @SuppressWarnings("all")
     public void execute(@NonNull final Runnable command) {
         workQueue.offer(command);
+        tasksSubmitted++;
     }
 
     /**
@@ -67,6 +70,24 @@ public class BlockingSerialExecutor extends ThreadPoolExecutor {
                 workQueue.poll().run();
             }
         }
+    }
+
+    /**
+     * This method indicates if any task was ever submitted to this executor.
+     * This is useful during tests in order to assert that the pool was
+     * essentially not interacted with. An example would be if we have a test
+     * where we want to assert that some production logic will never submit a
+     * task to the executor given some condition, then we can use this method
+     * to assert that. This method does not reflect the current state of the
+     * queue, meaning the queue might be empty due to a call to the
+     * {@link #executeSerially()} method, but this method will still return
+     * true if any task was submitted before that.
+     *
+     * @return boolean value, true if any task was ever submitted, false
+     * otherwise
+     */
+    public boolean wasAnyTaskSubmitted() {
+        return tasksSubmitted > 0;
     }
 
     @Override
