@@ -90,7 +90,7 @@ blockNode:
       subPath: "archive-data"
       # If create is true, the following values are used to create the PVC
       # should match PERSISTENCE_STORAGE_ARCHIVE_ROOT_PATH, leave as is for default.
-      mountPath: "/opt/hashgraph/blocknode/data/archive"
+      mountPath: "/opt/hashgraph/blocknode/data/historic"
       size: 800Gi
       # Optionally add a storage class name if needed
       # storageClass: "your-storage-class"
@@ -158,6 +158,7 @@ kubepromstack:
   enabled: true
   prometheus:
     prometheusSpec:
+      retention: 90d
       storageSpec:
         volumeClaimTemplate:
           spec:
