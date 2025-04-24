@@ -21,6 +21,7 @@ import java.util.concurrent.Future;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.LongStream;
+import org.hiero.block.internal.BlockUnparsed;
 import org.hiero.block.node.base.s3.S3Client;
 import org.hiero.block.node.base.tar.TaredBlockIterator;
 import org.hiero.block.node.spi.BlockNodeContext;
@@ -29,7 +30,6 @@ import org.hiero.block.node.spi.ServiceBuilder;
 import org.hiero.block.node.spi.blockmessaging.BlockNotificationHandler;
 import org.hiero.block.node.spi.blockmessaging.PersistedNotification;
 import org.hiero.block.node.spi.historicalblocks.BlockAccessor.Format;
-import org.hiero.hapi.block.node.BlockUnparsed;
 
 /**
  * This a block node plugin that stores verified blocks in a cloud archive for disaster recovery and backup. It will

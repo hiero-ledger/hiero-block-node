@@ -22,9 +22,9 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Random;
 import java.util.stream.LongStream;
+import org.hiero.block.internal.BlockItemUnparsed;
 import org.hiero.block.node.spi.blockmessaging.BlockItems;
 import org.hiero.block.node.spi.historicalblocks.BlockAccessor;
-import org.hiero.block.internal.BlockItemUnparsed;
 
 /**
  * A utility class to create sample BlockItem objects for testing purposes.
