@@ -6,8 +6,10 @@ import static org.assertj.core.api.Assertions.assertThat;
 import com.hedera.pbj.runtime.ParseException;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import java.io.IOException;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.LinkedBlockingQueue;
@@ -23,6 +25,7 @@ import org.hiero.block.node.base.CompressionType;
 import org.hiero.block.node.spi.blockmessaging.BlockItems;
 import org.hiero.block.node.spi.blockmessaging.PersistedNotification;
 import org.hiero.block.node.spi.historicalblocks.BlockAccessor;
+import org.hiero.block.node.spi.historicalblocks.BlockRangeSet;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -93,7 +96,7 @@ class BlocksFilesHistoricPluginTest {
          * of 10 blocks per zip), i.e. this is the happy path test.
          */
         @Test
-        @DisplayName("Test happy path zip range successful archival")
+        @DisplayName("Test happy path zip successful archival")
         void testZipRangeHappyPathArchival() throws IOException {
             // generate first 10 blocks from numbers 0-9 and add them to the
             // test historical block facility
@@ -127,7 +130,7 @@ class BlocksFilesHistoricPluginTest {
          * all blocks to be archived.
          */
         @Test
-        @DisplayName("Test happy path zip range successful archival")
+        @DisplayName("Test happy path zip successful archival two full consecutive batches")
         void testZipRangeHappyPathArchivalTwoFullBatches() throws IOException {
             // generate first 20 blocks from numbers 0-19 and add them to the
             // test historical block facility
@@ -161,7 +164,7 @@ class BlocksFilesHistoricPluginTest {
          * all blocks to be archived.
          */
         @Test
-        @DisplayName("Test happy path zip range successful archival")
+        @DisplayName("Test happy path zip successful archival batch and a half")
         void testZipRangeHappyPathArchivalBatchAndAHalf() throws IOException {
             // generate first 15 blocks from numbers 0-14 and add them to the
             // test historical block facility
@@ -199,7 +202,7 @@ class BlocksFilesHistoricPluginTest {
          * archival.
          */
         @Test
-        @DisplayName("Test happy path zip range archive contents")
+        @DisplayName("Test happy path zip archive contents")
         void testZipRangeHappyPathArchiveContents() throws IOException, ParseException {
             // generate first 10 blocks from numbers 0-9 and add them to the
             // test historical block facility
@@ -248,7 +251,7 @@ class BlocksFilesHistoricPluginTest {
          * range it is following is covered before it will zip the blocks.
          */
         @Test
-        @DisplayName("Test happy path zip range successful archival on multiple notifications")
+        @DisplayName("Test happy path zip successful archival on multiple notifications")
         void testZipRangeWaitForEnoughAvailable() throws IOException {
             // generate first 5 blocks from numbers 0-4 and add them to the
             // test historical block facility
@@ -352,8 +355,12 @@ class BlocksFilesHistoricPluginTest {
             }
         }
 
+        /**
+         * This test aims to verify that a block accessor will be available for
+         * the blocks that have been zipped after they have been zipped.
+         */
         @Test
-        @DisplayName("Test happy path zip range block accessor")
+        @DisplayName("Test happy path zip block accessor")
         void testZipRangeBlockAccessor() {
             // generate first 10 blocks from numbers 0-9 and add them to the
             // test historical block facility
@@ -375,9 +382,14 @@ class BlocksFilesHistoricPluginTest {
             }
         }
 
+        /**
+         * This test aims to verify that available block accessors will contain
+         * the correct contents (or will rather be able to supply the correct
+         * contents) after the blocks have been zipped.
+         */
         @Test
-        @DisplayName("Test happy path zip range block accessor contents")
-        void testZipRangeBlockAccessorContents() throws IOException, ParseException {
+        @DisplayName("Test happy path zip block accessor contents")
+        void testZipRangeBlockAccessorContents() {
             // generate first 10 blocks from numbers 0-9 and add them to the
             // test historical block facility
             final List<BlockUnparsed> expectedBlocks = new ArrayList<>();
@@ -400,6 +412,206 @@ class BlocksFilesHistoricPluginTest {
                 final BlockUnparsed actual = blockAccessor.blockUnparsed();
                 assertThat(actual).isEqualTo(expectedBlocks.get(i));
             }
+        }
+
+        /**
+         * This test aims to verify that the plugin will proceed to send a
+         * {@link PersistedNotification} with the correct range of blocks
+         * after a successful archival.
+         */
+        @Test
+        @DisplayName("Test happy path zip successful notification sent")
+        void testZipRangeHappyPathNotificationSent() throws IOException {
+            // generate first 10 blocks from numbers 0-9 and add them to the
+            // test historical block facility
+            for (int i = 0; i < 10; i++) {
+                final BlockItemUnparsed[] block = SimpleTestBlockItemBuilder.createSimpleBlockUnparsedWithNumber(i);
+                testHistoricalBlockFacility.handleBlockItemsReceived(new BlockItems(List.of(block), i));
+            }
+            // assert that none of the first 10 blocks are zipped yet
+            for (int i = 0; i < 10; i++) {
+                assertThat(BlockPath.computeExistingBlockPath(testConfig, i)).isNull();
+            }
+            // send a block persisted notification for the range we just created
+            blockMessaging.sendBlockPersisted(new PersistedNotification(0, 9, toTest.defaultPriority() + 1));
+            // execute serially to ensure all tasks are completed
+            pluginExecutor.executeSerially();
+            // assert that a persistence notification was sent, we expect 2
+            // notifications total, one in the beginning of this test and one
+            // sent by the plugin itself
+            final List<PersistedNotification> sentPersistedNotifications =
+                    blockMessaging.getSentPersistedNotifications();
+            assertThat(sentPersistedNotifications)
+                    .isNotEmpty()
+                    .hasSize(2)
+                    .element(1)
+                    .returns(0L, PersistedNotification::startBlockNumber)
+                    .returns(9L, PersistedNotification::endBlockNumber)
+                    .returns(toTest.defaultPriority(), PersistedNotification::blockProviderPriority);
+        }
+
+        /**
+         * This test aims to verify that the plugin will properly update it's
+         * available blocks list after a successful archival.
+         */
+        @Test
+        @DisplayName("Test happy path zip blocks in range")
+        void testZipRangeHappyPathBlocksInRange() throws IOException {
+            // generate first 10 blocks from numbers 0-9 and add them to the
+            // test historical block facility
+            for (int i = 0; i < 10; i++) {
+                final BlockItemUnparsed[] block = SimpleTestBlockItemBuilder.createSimpleBlockUnparsedWithNumber(i);
+                testHistoricalBlockFacility.handleBlockItemsReceived(new BlockItems(List.of(block), i));
+            }
+            // assert that none of the first 10 blocks appear in the available range
+            for (int i = 0; i < 10; i++) {
+                assertThat(toTest.availableBlocks().contains(i)).isFalse();
+            }
+            // send a block persisted notification for the range we just created
+            blockMessaging.sendBlockPersisted(new PersistedNotification(0, 9, toTest.defaultPriority() + 1));
+            // execute serially to ensure all tasks are completed
+            pluginExecutor.executeSerially();
+            // assert that the first 10 blocks now appear in the available range
+            final BlockRangeSet availableBlocks = toTest.availableBlocks();
+            for (int i = 0; i < 10; i++) {
+                final int blockNumber = i;
+                assertThat(availableBlocks).returns(true, set -> set.contains(blockNumber));
+            }
+            assertThat(availableBlocks).returns(0L, BlockRangeSet::min).returns(9L, BlockRangeSet::max);
+        }
+
+        /**
+         * This test aims to verify that the plugin will not write data if
+         * an exception occurs just before actually writing anything.
+         */
+        @Test
+        @DisplayName("Test exception during move no data written")
+        void testExceptionDuringMoveNoDataWritten() throws IOException {
+            // generate first 10 blocks from numbers 0-9 and add them to the
+            // test historical block facility
+            for (int i = 0; i < 10; i++) {
+                final BlockItemUnparsed[] block = SimpleTestBlockItemBuilder.createSimpleBlockUnparsedWithNumber(i);
+                testHistoricalBlockFacility.handleBlockItemsReceived(new BlockItems(List.of(block), i));
+            }
+            // assert that none of the first 10 blocks are zipped yet
+            for (int i = 0; i < 10; i++) {
+                assertThat(BlockPath.computeExistingBlockPath(testConfig, i)).isNull();
+            }
+            // send a block persisted notification for the range we just created
+            blockMessaging.sendBlockPersisted(new PersistedNotification(0, 9, toTest.defaultPriority() + 1));
+            // calculate the target zip path that we expect the plugin to create
+            final Path targetZipPath = BlockPath.computeBlockPath(testConfig, 0).zipFilePath();
+            Files.createDirectories(targetZipPath.getParent());
+            // create the file with no permissions to simulate a failure later on
+            Files.createFile(targetZipPath);
+            Files.setPosixFilePermissions(targetZipPath, Collections.emptySet());
+            // execute serially to ensure all tasks are completed
+            pluginExecutor.executeSerially();
+            // assert that the first 10 blocks are not zipped, but revert proper
+            // perms so we can assert the file is deleted
+            assertThat(targetZipPath).isEmptyFile();
+        }
+
+        /**
+         * This test aims to verify that the plugin will not return any block
+         * accessors for any blocks in the batch that failed exceptionally.
+         */
+        @Test
+        @DisplayName("Test exception during move no accessors available")
+        void testExceptionDuringMoveNoAccessorsAvailable() throws IOException {
+            // generate first 10 blocks from numbers 0-9 and add them to the
+            // test historical block facility
+            for (int i = 0; i < 10; i++) {
+                final BlockItemUnparsed[] block = SimpleTestBlockItemBuilder.createSimpleBlockUnparsedWithNumber(i);
+                testHistoricalBlockFacility.handleBlockItemsReceived(new BlockItems(List.of(block), i));
+            }
+            // assert that none of the first 10 blocks are zipped yet
+            for (int i = 0; i < 10; i++) {
+                assertThat(BlockPath.computeExistingBlockPath(testConfig, i)).isNull();
+            }
+            // send a block persisted notification for the range we just created
+            blockMessaging.sendBlockPersisted(new PersistedNotification(0, 9, toTest.defaultPriority() + 1));
+            // calculate the target zip path that we expect the plugin to create
+            final Path targetZipPath = BlockPath.computeBlockPath(testConfig, 0).zipFilePath();
+            Files.createDirectories(targetZipPath.getParent());
+            // create the file with no permissions to simulate a failure later on
+            Files.createFile(targetZipPath);
+            Files.setPosixFilePermissions(targetZipPath, Collections.emptySet());
+            // execute serially to ensure all tasks are completed
+            pluginExecutor.executeSerially();
+            // assert that no accessor will be returned for the blocks
+            for (int i = 0; i < 10; i++) {
+                assertThat(toTest.block(i)).isNull();
+            }
+        }
+
+        /**
+         * This test aims to verify that the plugin will not update the range of
+         * available blocks with any block numbers of the blocks in the batch
+         * that failed exceptionally.
+         */
+        @Test
+        @DisplayName("Test exception during move no available blocks in range")
+        void testExceptionDuringMoveNoAvailableBlocksInRange() throws IOException {
+            // generate first 10 blocks from numbers 0-9 and add them to the
+            // test historical block facility
+            for (int i = 0; i < 10; i++) {
+                final BlockItemUnparsed[] block = SimpleTestBlockItemBuilder.createSimpleBlockUnparsedWithNumber(i);
+                testHistoricalBlockFacility.handleBlockItemsReceived(new BlockItems(List.of(block), i));
+            }
+            // assert that none of the first 10 blocks are zipped yet
+            for (int i = 0; i < 10; i++) {
+                assertThat(BlockPath.computeExistingBlockPath(testConfig, i)).isNull();
+            }
+            // send a block persisted notification for the range we just created
+            blockMessaging.sendBlockPersisted(new PersistedNotification(0, 9, toTest.defaultPriority() + 1));
+            // calculate the target zip path that we expect the plugin to create
+            final Path targetZipPath = BlockPath.computeBlockPath(testConfig, 0).zipFilePath();
+            Files.createDirectories(targetZipPath.getParent());
+            // create the file with no permissions to simulate a failure later on
+            Files.createFile(targetZipPath);
+            Files.setPosixFilePermissions(targetZipPath, Collections.emptySet());
+            // execute serially to ensure all tasks are completed
+            pluginExecutor.executeSerially();
+            // asser that available blocks do not contain any of the blocks
+            for (int i = 0; i < 10; i++) {
+                assertThat(toTest.availableBlocks().contains(i)).isFalse();
+            }
+        }
+
+        /**
+         * This test aims to verify that the plugin will not send any
+         * {@link PersistedNotification} for a zip that failed exceptionally.
+         */
+        @Test
+        @DisplayName("Test exception during move no persistence notification sent")
+        void testExceptionDuringMoveNoPersistenceNotificationSent() throws IOException {
+            // generate first 10 blocks from numbers 0-9 and add them to the
+            // test historical block facility
+            for (int i = 0; i < 10; i++) {
+                final BlockItemUnparsed[] block = SimpleTestBlockItemBuilder.createSimpleBlockUnparsedWithNumber(i);
+                testHistoricalBlockFacility.handleBlockItemsReceived(new BlockItems(List.of(block), i));
+            }
+            // assert that none of the first 10 blocks are zipped yet
+            for (int i = 0; i < 10; i++) {
+                assertThat(BlockPath.computeExistingBlockPath(testConfig, i)).isNull();
+            }
+            // send a block persisted notification for the range we just created
+            blockMessaging.sendBlockPersisted(new PersistedNotification(0, 9, toTest.defaultPriority() + 1));
+            // calculate the target zip path that we expect the plugin to create
+            final Path targetZipPath = BlockPath.computeBlockPath(testConfig, 0).zipFilePath();
+            Files.createDirectories(targetZipPath.getParent());
+            // create the file with no permissions to simulate a failure later on
+            Files.createFile(targetZipPath);
+            Files.setPosixFilePermissions(targetZipPath, Collections.emptySet());
+            // execute serially to ensure all tasks are completed
+            pluginExecutor.executeSerially();
+            // assert that no notification was sent to the block messaging,
+            // we expect only one notification to have been sent, the one we
+            // initially sent in the beginning of the test
+            final int totalSentNotifications =
+                    blockMessaging.getSentPersistedNotifications().size();
+            assertThat(totalSentNotifications).isEqualTo(1);
         }
     }
 }
