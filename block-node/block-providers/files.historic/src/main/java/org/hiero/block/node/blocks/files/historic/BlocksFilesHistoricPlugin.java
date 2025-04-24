@@ -153,7 +153,8 @@ public final class BlocksFilesHistoricPlugin implements BlockProviderPlugin, Blo
         } // todo this is not enough of an assertion that the blocks will be coming from the right place
         //     as notifications are async and things can happen, when we get the accessors later, we should
         //     be able to get accessors only from places that have higher priority than us. We should probably
-        //     have that as a feature in the block accessor api.
+        //     have that as a feature in the block accessor api. (meaning we should be able to query the
+        //     historical block facility for blocks that are coming from higher priority plugins)
     }
 
     // ==== Private Methods ============================================================================================
