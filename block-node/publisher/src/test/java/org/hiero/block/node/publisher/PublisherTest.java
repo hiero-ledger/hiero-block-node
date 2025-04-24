@@ -42,7 +42,7 @@ import org.junit.jupiter.api.Test;
 public class PublisherTest extends GrpcPluginTestBase<PublisherServicePlugin> {
 
     public PublisherTest() {
-        super(new PublisherServicePlugin(), publishBlockStream, new NoBlocksHistoricalBlockFacility());
+        start(new PublisherServicePlugin(), publishBlockStream, new NoBlocksHistoricalBlockFacility());
     }
 
     @Test

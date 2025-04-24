@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 plugins { id("org.hiero.gradle.module.library") }
 
-description = "Hiero Block Node - Archive Plugin"
+description = "Hiero Block Node - S3 Archive Plugin"
 
 // Remove the following line to enable all 'javac' lint checks that we have turned on by default
 // and then fix the reported issues.
@@ -14,4 +14,10 @@ mainModuleInfo {
     runtimeOnly("com.hedera.pbj.grpc.helidon.config")
 }
 
-testModuleInfo {}
+testModuleInfo {
+    requires("org.junit.jupiter.api")
+    requires("org.hiero.block.node.app.test.fixtures")
+    requires("testcontainers.junit.jupiter")
+    requires("org.testcontainers")
+    requires("io.minio")
+}

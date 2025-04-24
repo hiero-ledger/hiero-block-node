@@ -31,7 +31,7 @@ import org.junit.jupiter.api.Test;
 class VerificationServicePluginTest extends PluginTestBase<VerificationServicePlugin> {
 
     public VerificationServicePluginTest() {
-        super(new VerificationServicePlugin(), new NoBlocksHistoricalBlockFacility());
+        start(new VerificationServicePlugin(), new NoBlocksHistoricalBlockFacility());
     }
 
     @Test

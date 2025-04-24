@@ -46,7 +46,7 @@ public class SubscriberTest extends GrpcPluginTestBase<SubscriberServicePlugin> 
      * Constructor that creates new subscriber plugin and in-memory block facility.
      */
     public SubscriberTest() {
-        super(new SubscriberServicePlugin(), subscribeBlockStream, new SimpleInMemoryHistoricalBlockFacility());
+        start(new SubscriberServicePlugin(), subscribeBlockStream, new SimpleInMemoryHistoricalBlockFacility());
         activePlugin = plugin; // the base class variable name is a bit too generic...
         // We need the test value, not just the generic interface.
         // This would be MUCH cleaner with Java 23 (we could assign the attribute _then_ call super)

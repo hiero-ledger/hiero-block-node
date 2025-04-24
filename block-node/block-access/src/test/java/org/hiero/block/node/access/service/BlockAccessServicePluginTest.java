@@ -27,7 +27,8 @@ import org.junit.jupiter.api.Test;
 public class BlockAccessServicePluginTest extends GrpcPluginTestBase<BlockAccessServicePlugin> {
 
     public BlockAccessServicePluginTest() {
-        super(new BlockAccessServicePlugin(), getBlock, new SimpleInMemoryHistoricalBlockFacility());
+        super();
+        start(new BlockAccessServicePlugin(), getBlock, new SimpleInMemoryHistoricalBlockFacility());
     }
 
     /**

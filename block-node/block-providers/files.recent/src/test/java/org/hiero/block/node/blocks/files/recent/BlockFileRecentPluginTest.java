@@ -60,7 +60,7 @@ class BlockFileRecentPluginTest {
          * Test Constructor.
          */
         PluginTest() {
-            super(blocksFilesRecentPlugin, historicalBlockFacility);
+            start(blocksFilesRecentPlugin, historicalBlockFacility);
         }
 
         /**

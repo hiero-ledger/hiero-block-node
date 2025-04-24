@@ -11,8 +11,11 @@ import java.util.List;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
+import org.hiero.block.node.spi.BlockNodeContext;
+import org.hiero.block.node.spi.ServiceBuilder;
 import org.hiero.block.node.spi.blockmessaging.BlockItemHandler;
 import org.hiero.block.node.spi.blockmessaging.BlockItems;
+import org.hiero.block.node.spi.blockmessaging.PersistedNotification;
 import org.hiero.block.node.spi.historicalblocks.BlockAccessor;
 import org.hiero.block.node.spi.historicalblocks.BlockRangeSet;
 import org.hiero.block.node.spi.historicalblocks.HistoricalBlockFacility;
@@ -27,6 +30,12 @@ public class SimpleInMemoryHistoricalBlockFacility implements HistoricalBlockFac
     private final AtomicLong currentBlockNumber = new AtomicLong(UNKNOWN_BLOCK_NUMBER);
     private final List<BlockItems> partialBlock = new ArrayList<>();
     private final AtomicBoolean delayResponses = new AtomicBoolean(false);
+    private BlockNodeContext blockNodeContext;
+
+    @Override
+    public void init(BlockNodeContext context, ServiceBuilder serviceBuilder) {
+        this.blockNodeContext = context;
+    }
 
     /**
      * {@inheritDoc}
@@ -42,15 +51,19 @@ public class SimpleInMemoryHistoricalBlockFacility implements HistoricalBlockFac
         }
         partialBlock.add(blockItems);
         if (blockItems.isEndOfBlock()) {
+            final long blockNumber = currentBlockNumber.getAndSet(UNKNOWN_BLOCK_NUMBER);
             List<BlockItem> bi = new ArrayList<>();
             for (BlockItems items : partialBlock) {
                 bi.addAll(toBlockItems(items.blockItems()));
             }
             Block block = new Block(bi);
-            blockStorage.put(currentBlockNumber.get(), block);
-            availableBlocks.add(currentBlockNumber.get());
-            currentBlockNumber.set(UNKNOWN_BLOCK_NUMBER);
+            blockStorage.put(blockNumber, block);
+            availableBlocks.add(blockNumber);
             partialBlock.clear();
+            // send block persisted message
+            blockNodeContext
+                    .blockMessaging()
+                    .sendBlockPersisted(new PersistedNotification(blockNumber, blockNumber, 2000));
         }
     }
 
@@ -58,10 +71,22 @@ public class SimpleInMemoryHistoricalBlockFacility implements HistoricalBlockFac
      * {@inheritDoc}
      */
     @Override
-    public BlockAccessor block(long blockNumber) {
-        Block block = blockStorage.get(blockNumber);
+    public BlockAccessor block(final long blockNumber) {
+        final Block block = blockStorage.get(blockNumber);
         while (delayResponses.get()) parkNanos(500_000L);
-        return block == null ? null : () -> block;
+        return block == null
+                ? null
+                : new BlockAccessor() {
+                    @Override
+                    public long blockNumber() {
+                        return blockNumber;
+                    }
+
+                    @Override
+                    public Block block() {
+                        return block;
+                    }
+                };
     }
 
     public void setDelayResponses() {
