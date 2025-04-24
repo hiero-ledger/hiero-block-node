@@ -83,7 +83,7 @@ class BlocksFilesHistoricPluginTest {
          * Construct plugin base.
          */
         PluginTests() {
-            super(toTest, testHistoricalBlockFacility);
+            start(toTest, testHistoricalBlockFacility);
         }
 
         /**
@@ -102,7 +102,7 @@ class BlocksFilesHistoricPluginTest {
             // test historical block facility
             for (int i = 0; i < 10; i++) {
                 final BlockItemUnparsed[] block = SimpleTestBlockItemBuilder.createSimpleBlockUnparsedWithNumber(i);
-                testHistoricalBlockFacility.handleBlockItemsReceived(new BlockItems(List.of(block), i));
+                testHistoricalBlockFacility.handleBlockItemsReceived(new BlockItems(List.of(block), i), false);
             }
             // assert that none of the first 10 blocks are zipped yet
             for (int i = 0; i < 10; i++) {
@@ -136,7 +136,7 @@ class BlocksFilesHistoricPluginTest {
             // test historical block facility
             for (int i = 0; i < 20; i++) {
                 final BlockItemUnparsed[] block = SimpleTestBlockItemBuilder.createSimpleBlockUnparsedWithNumber(i);
-                testHistoricalBlockFacility.handleBlockItemsReceived(new BlockItems(List.of(block), i));
+                testHistoricalBlockFacility.handleBlockItemsReceived(new BlockItems(List.of(block), i), false);
             }
             // assert that none of the first 20 blocks are zipped yet
             for (int i = 0; i < 20; i++) {
@@ -170,7 +170,7 @@ class BlocksFilesHistoricPluginTest {
             // test historical block facility
             for (int i = 0; i < 14; i++) {
                 final BlockItemUnparsed[] block = SimpleTestBlockItemBuilder.createSimpleBlockUnparsedWithNumber(i);
-                testHistoricalBlockFacility.handleBlockItemsReceived(new BlockItems(List.of(block), i));
+                testHistoricalBlockFacility.handleBlockItemsReceived(new BlockItems(List.of(block), i), false);
             }
             // assert that none of the first 20 blocks are zipped yet
             for (int i = 0; i < 14; i++) {
@@ -209,7 +209,7 @@ class BlocksFilesHistoricPluginTest {
             final List<BlockUnparsed> expectedBlocks = new ArrayList<>();
             for (int i = 0; i < 10; i++) {
                 final BlockItemUnparsed[] block = SimpleTestBlockItemBuilder.createSimpleBlockUnparsedWithNumber(i);
-                testHistoricalBlockFacility.handleBlockItemsReceived(new BlockItems(List.of(block), i));
+                testHistoricalBlockFacility.handleBlockItemsReceived(new BlockItems(List.of(block), i), false);
                 expectedBlocks.add(new BlockUnparsed(List.of(block)));
             }
             // assert that none of the first 10 blocks are zipped yet
@@ -257,7 +257,7 @@ class BlocksFilesHistoricPluginTest {
             // test historical block facility
             for (int i = 0; i < 5; i++) {
                 final BlockItemUnparsed[] block = SimpleTestBlockItemBuilder.createSimpleBlockUnparsedWithNumber(i);
-                testHistoricalBlockFacility.handleBlockItemsReceived(new BlockItems(List.of(block), i));
+                testHistoricalBlockFacility.handleBlockItemsReceived(new BlockItems(List.of(block), i), false);
             }
             // assert that none of the first 5 blocks are zipped yet
             for (int i = 0; i < 5; i++) {
@@ -277,7 +277,7 @@ class BlocksFilesHistoricPluginTest {
             // test historical block facility
             for (int i = 5; i < 10; i++) {
                 final BlockItemUnparsed[] block = SimpleTestBlockItemBuilder.createSimpleBlockUnparsedWithNumber(i);
-                testHistoricalBlockFacility.handleBlockItemsReceived(new BlockItems(List.of(block), i));
+                testHistoricalBlockFacility.handleBlockItemsReceived(new BlockItems(List.of(block), i), false);
             }
             // assert that none of the first 10 blocks are zipped yet
             for (int i = 0; i < 10; i++) {
@@ -307,7 +307,7 @@ class BlocksFilesHistoricPluginTest {
             // test historical block facility
             for (int i = 0; i < 10; i++) {
                 final BlockItemUnparsed[] block = SimpleTestBlockItemBuilder.createSimpleBlockUnparsedWithNumber(i);
-                testHistoricalBlockFacility.handleBlockItemsReceived(new BlockItems(List.of(block), i));
+                testHistoricalBlockFacility.handleBlockItemsReceived(new BlockItems(List.of(block), i), false);
             }
             // assert that none of the first 10 blocks are zipped yet
             for (int i = 0; i < 10; i++) {
@@ -338,7 +338,7 @@ class BlocksFilesHistoricPluginTest {
             // test historical block facility
             for (int i = 0; i < 10; i++) {
                 final BlockItemUnparsed[] block = SimpleTestBlockItemBuilder.createSimpleBlockUnparsedWithNumber(i);
-                testHistoricalBlockFacility.handleBlockItemsReceived(new BlockItems(List.of(block), i));
+                testHistoricalBlockFacility.handleBlockItemsReceived(new BlockItems(List.of(block), i), false);
             }
             // assert that none of the first 10 blocks are zipped yet
             for (int i = 0; i < 10; i++) {
@@ -366,7 +366,7 @@ class BlocksFilesHistoricPluginTest {
             // test historical block facility
             for (int i = 0; i < 10; i++) {
                 final BlockItemUnparsed[] block = SimpleTestBlockItemBuilder.createSimpleBlockUnparsedWithNumber(i);
-                testHistoricalBlockFacility.handleBlockItemsReceived(new BlockItems(List.of(block), i));
+                testHistoricalBlockFacility.handleBlockItemsReceived(new BlockItems(List.of(block), i), false);
             }
             // assert that none of the first 10 blocks have accessors yet
             for (int i = 0; i < 10; i++) {
@@ -395,7 +395,7 @@ class BlocksFilesHistoricPluginTest {
             final List<BlockUnparsed> expectedBlocks = new ArrayList<>();
             for (int i = 0; i < 10; i++) {
                 final BlockItemUnparsed[] block = SimpleTestBlockItemBuilder.createSimpleBlockUnparsedWithNumber(i);
-                testHistoricalBlockFacility.handleBlockItemsReceived(new BlockItems(List.of(block), i));
+                testHistoricalBlockFacility.handleBlockItemsReceived(new BlockItems(List.of(block), i), false);
                 expectedBlocks.add(new BlockUnparsed(List.of(block)));
             }
             // assert that none of the first 10 blocks have accessors yet
@@ -426,7 +426,7 @@ class BlocksFilesHistoricPluginTest {
             // test historical block facility
             for (int i = 0; i < 10; i++) {
                 final BlockItemUnparsed[] block = SimpleTestBlockItemBuilder.createSimpleBlockUnparsedWithNumber(i);
-                testHistoricalBlockFacility.handleBlockItemsReceived(new BlockItems(List.of(block), i));
+                testHistoricalBlockFacility.handleBlockItemsReceived(new BlockItems(List.of(block), i), false);
             }
             // assert that none of the first 10 blocks are zipped yet
             for (int i = 0; i < 10; i++) {
@@ -461,7 +461,7 @@ class BlocksFilesHistoricPluginTest {
             // test historical block facility
             for (int i = 0; i < 10; i++) {
                 final BlockItemUnparsed[] block = SimpleTestBlockItemBuilder.createSimpleBlockUnparsedWithNumber(i);
-                testHistoricalBlockFacility.handleBlockItemsReceived(new BlockItems(List.of(block), i));
+                testHistoricalBlockFacility.handleBlockItemsReceived(new BlockItems(List.of(block), i), false);
             }
             // assert that none of the first 10 blocks appear in the available range
             for (int i = 0; i < 10; i++) {
@@ -491,7 +491,7 @@ class BlocksFilesHistoricPluginTest {
             // test historical block facility
             for (int i = 0; i < 10; i++) {
                 final BlockItemUnparsed[] block = SimpleTestBlockItemBuilder.createSimpleBlockUnparsedWithNumber(i);
-                testHistoricalBlockFacility.handleBlockItemsReceived(new BlockItems(List.of(block), i));
+                testHistoricalBlockFacility.handleBlockItemsReceived(new BlockItems(List.of(block), i), false);
             }
             // assert that none of the first 10 blocks are zipped yet
             for (int i = 0; i < 10; i++) {
@@ -523,7 +523,7 @@ class BlocksFilesHistoricPluginTest {
             // test historical block facility
             for (int i = 0; i < 10; i++) {
                 final BlockItemUnparsed[] block = SimpleTestBlockItemBuilder.createSimpleBlockUnparsedWithNumber(i);
-                testHistoricalBlockFacility.handleBlockItemsReceived(new BlockItems(List.of(block), i));
+                testHistoricalBlockFacility.handleBlockItemsReceived(new BlockItems(List.of(block), i), false);
             }
             // assert that none of the first 10 blocks are zipped yet
             for (int i = 0; i < 10; i++) {
@@ -557,7 +557,7 @@ class BlocksFilesHistoricPluginTest {
             // test historical block facility
             for (int i = 0; i < 10; i++) {
                 final BlockItemUnparsed[] block = SimpleTestBlockItemBuilder.createSimpleBlockUnparsedWithNumber(i);
-                testHistoricalBlockFacility.handleBlockItemsReceived(new BlockItems(List.of(block), i));
+                testHistoricalBlockFacility.handleBlockItemsReceived(new BlockItems(List.of(block), i), false);
             }
             // assert that none of the first 10 blocks are zipped yet
             for (int i = 0; i < 10; i++) {
@@ -590,7 +590,7 @@ class BlocksFilesHistoricPluginTest {
             // test historical block facility
             for (int i = 0; i < 10; i++) {
                 final BlockItemUnparsed[] block = SimpleTestBlockItemBuilder.createSimpleBlockUnparsedWithNumber(i);
-                testHistoricalBlockFacility.handleBlockItemsReceived(new BlockItems(List.of(block), i));
+                testHistoricalBlockFacility.handleBlockItemsReceived(new BlockItems(List.of(block), i), false);
             }
             // assert that none of the first 10 blocks are zipped yet
             for (int i = 0; i < 10; i++) {
@@ -625,7 +625,7 @@ class BlocksFilesHistoricPluginTest {
             // test historical block facility
             for (int i = 0; i < 10; i++) {
                 final BlockItemUnparsed[] block = SimpleTestBlockItemBuilder.createSimpleBlockUnparsedWithNumber(i);
-                testHistoricalBlockFacility.handleBlockItemsReceived(new BlockItems(List.of(block), i));
+                testHistoricalBlockFacility.handleBlockItemsReceived(new BlockItems(List.of(block), i), false);
             }
             // assert that none of the first 10 blocks are zipped yet
             for (int i = 0; i < 10; i++) {

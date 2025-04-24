@@ -43,11 +43,16 @@ public class SimpleInMemoryHistoricalBlockFacility implements HistoricalBlockFac
      */
     @Override
     public void handleBlockItemsReceived(BlockItems blockItems) {
+        handleBlockItemsReceived(blockItems, true);
+    }
+
+    public void handleBlockItemsReceived(BlockItems blockItems, final boolean sendNotification) {
         if (!disablePlugin.get()) {
             if (blockItems.isStartOfNewBlock()) {
                 if (!partialBlock.isEmpty()) {
                     throw new RuntimeException(
-                            "Something went wrong, partitionedBlock is not empty. So we never got a end block for current block");
+                            "Something went wrong, partitionedBlock is not empty. So we never got a end "
+                                    + "block for current block");
                 }
                 currentBlockNumber.set(blockItems.newBlockNumber());
             }
@@ -63,9 +68,11 @@ public class SimpleInMemoryHistoricalBlockFacility implements HistoricalBlockFac
                 availableBlocks.add(blockNumber);
                 partialBlock.clear();
                 // send block persisted message
-                blockNodeContext
-                        .blockMessaging()
-                        .sendBlockPersisted(new PersistedNotification(blockNumber, blockNumber, 2000));
+                if (sendNotification) {
+                    blockNodeContext
+                            .blockMessaging()
+                            .sendBlockPersisted(new PersistedNotification(blockNumber, blockNumber, 2000));
+                }
             }
         }
     }
