@@ -150,7 +150,10 @@ public final class BlocksFilesHistoricPlugin implements BlockProviderPlugin, Blo
     public void handlePersisted(PersistedNotification notification) {
         if (notification.blockProviderPriority() > defaultPriority()) {
             attemptZipping();
-        }
+        } // todo this is not enough of an assertion that the blocks will be coming from the right place
+        //     as notifications are async and things can happen, when we get the accessors later, we should
+        //     be able to get accessors only from places that have higher priority than us. We should probably
+        //     have that as a feature in the block accessor api.
     }
 
     // ==== Private Methods ============================================================================================
