@@ -613,5 +613,35 @@ class BlocksFilesHistoricPluginTest {
                     blockMessaging.getSentPersistedNotifications().size();
             assertThat(totalSentNotifications).isEqualTo(1);
         }
+
+        /**
+         * This test aims to verify that the plugin will correctly zip the blocks
+         * that are available at the time of startup.
+         */
+        @Test
+        @DisplayName("Test happy path zip successful archival from start()")
+        void testZipRangeHappyPathArchivalDuringStartup() throws IOException {
+            // generate first 10 blocks from numbers 0-9 and add them to the
+            // test historical block facility
+            for (int i = 0; i < 10; i++) {
+                final BlockItemUnparsed[] block = SimpleTestBlockItemBuilder.createSimpleBlockUnparsedWithNumber(i);
+                testHistoricalBlockFacility.handleBlockItemsReceived(new BlockItems(List.of(block), i));
+            }
+            // assert that none of the first 10 blocks are zipped yet
+            for (int i = 0; i < 10; i++) {
+                assertThat(BlockPath.computeExistingBlockPath(testConfig, i)).isNull();
+            }
+            // assert that no task was ever submitted to the pool until now
+            assertThat(pluginExecutor.wasAnyTaskSubmitted()).isFalse();
+            // call the start method, we expect that it will queue a new task
+            // that we can execute
+            toTest.start();
+            // execute serially to ensure all tasks are completed
+            pluginExecutor.executeSerially();
+            // assert that the first 10 blocks are zipped now
+            for (int i = 0; i < 10; i++) {
+                assertThat(BlockPath.computeExistingBlockPath(testConfig, i)).isNotNull();
+            }
+        }
     }
 }

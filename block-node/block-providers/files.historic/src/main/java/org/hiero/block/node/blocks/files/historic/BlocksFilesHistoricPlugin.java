@@ -107,21 +107,7 @@ public final class BlocksFilesHistoricPlugin implements BlockProviderPlugin, Blo
      */
     @Override
     public void start() {
-        // determine if there are any batches of blocks that need to be moved to zip files
-        // get the largest stored block number
-        long largestStoredBlockNumber =
-                context.historicalBlockProvider().availableBlocks().max();
-        if (largestStoredBlockNumber > availableBlocks.max()) {
-            // complete if there are any blocks that need to be moved to zip files
-            long startBlockNumber = availableBlocks.max() + 1;
-            while ((startBlockNumber + numberOfBlocksPerZipFile) < largestStoredBlockNumber) {
-                // move the batch of blocks to a zip file
-                startMovingBatchOfBlocksToZipFile(
-                        new LongRange(startBlockNumber, startBlockNumber + numberOfBlocksPerZipFile));
-                // move to next batch
-                startBlockNumber += numberOfBlocksPerZipFile;
-            }
-        }
+        attemptZipping();
     }
 
     /**
@@ -163,24 +149,30 @@ public final class BlocksFilesHistoricPlugin implements BlockProviderPlugin, Blo
     @Override
     public void handlePersisted(PersistedNotification notification) {
         if (notification.blockProviderPriority() > defaultPriority()) {
-            // compute the min and max block in next batch to zip
-            long minBlockNumber = availableBlocks().max() + 1;
-            long maxBlockNumber = minBlockNumber + numberOfBlocksPerZipFile - 1;
-            // check all those blocks are available
-            while (context.historicalBlockProvider().availableBlocks().max() >= maxBlockNumber) {
-                if (context.historicalBlockProvider().availableBlocks().contains(minBlockNumber, maxBlockNumber)) {
-                    final LongRange batchRange = new LongRange(minBlockNumber, maxBlockNumber);
-                    // move the batch of blocks to a zip file
-                    startMovingBatchOfBlocksToZipFile(batchRange);
-                }
-                // try the next batch just in case there is more than one that became available
-                minBlockNumber += numberOfBlocksPerZipFile;
-                maxBlockNumber += numberOfBlocksPerZipFile;
-            }
+            attemptZipping();
         }
     }
 
     // ==== Private Methods ============================================================================================
+    private void attemptZipping() {
+        // compute the min and max block in next batch to zip
+        long minBlockNumber = availableBlocks().max() + 1;
+        long maxBlockNumber = minBlockNumber + numberOfBlocksPerZipFile - 1;
+        // check all those blocks are available
+        final BlockRangeSet historicalAvailable =
+                context.historicalBlockProvider().availableBlocks();
+        // while we can zip blocks, we must keep zipping
+        while (historicalAvailable.max() >= maxBlockNumber) {
+            if (historicalAvailable.contains(minBlockNumber, maxBlockNumber)) {
+                final LongRange batchRange = new LongRange(minBlockNumber, maxBlockNumber);
+                // move the batch of blocks to a zip file
+                startMovingBatchOfBlocksToZipFile(batchRange);
+            }
+            // try the next batch just in case there is more than one that became available
+            minBlockNumber += numberOfBlocksPerZipFile;
+            maxBlockNumber += numberOfBlocksPerZipFile;
+        }
+    }
 
     /**
      * Start moving a batch of blocks to a zip file in background as long as batch is not already in progress or queued
