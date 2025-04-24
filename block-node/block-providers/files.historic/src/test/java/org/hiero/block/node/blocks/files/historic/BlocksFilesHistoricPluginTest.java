@@ -3,11 +3,16 @@ package org.hiero.block.node.blocks.files.historic;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.hedera.pbj.runtime.ParseException;
+import com.hedera.pbj.runtime.io.buffer.Bytes;
 import java.io.IOException;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.LinkedBlockingQueue;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipFile;
 import org.hiero.block.node.app.fixtures.async.BlockingSerialExecutor;
 import org.hiero.block.node.app.fixtures.blocks.SimpleTestBlockItemBuilder;
 import org.hiero.block.node.app.fixtures.plugintest.PluginTestBase;
@@ -16,6 +21,7 @@ import org.hiero.block.node.base.CompressionType;
 import org.hiero.block.node.spi.blockmessaging.BlockItems;
 import org.hiero.block.node.spi.blockmessaging.PersistedNotification;
 import org.hiero.hapi.block.node.BlockItemUnparsed;
+import org.hiero.hapi.block.node.BlockUnparsed;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -105,6 +111,51 @@ class BlocksFilesHistoricPluginTest {
             // assert that the first 10 blocks exist now
             for (int i = 0; i < 10; i++) {
                 assertThat(BlockPath.computeExistingBlockPath(testConfig, i)).isNotNull();
+            }
+        }
+
+        /**
+         * This test aims to verify that the plugin can handle a simple range of
+         * blocks that have been persisted and a notification is sent to the
+         * messaging facility. The block provider that has persisted the blocks
+         * must have a higher priority than the plugin we are testing. We expect
+         * that the plugin we test will create a zip file with all the blocks in
+         * the notification range (we set the range to 0-9 which fits the config
+         * of 10 blocks per zip), i.e. this is the happy path test. We assert
+         * here the contents of each entry produce the same blocks as before
+         * archival.
+         */
+        @Test
+        @DisplayName("Test happy path zip range archive contents")
+        void testZipRangeHappyPathArchiveContents() throws IOException, ParseException {
+            // generate first 10 blocks from numbers 0-9 and add them to the
+            // test historical block facility
+            final List<BlockUnparsed> expectedBlocks = new ArrayList<>();
+            for (int i = 0; i < 10; i++) {
+                final BlockItemUnparsed[] block = SimpleTestBlockItemBuilder.createSimpleBlockUnparsedWithNumber(i);
+                testHistoricalBlockFacility.handleBlockItemsReceived(new BlockItems(List.of(block), i));
+                expectedBlocks.add(new BlockUnparsed(List.of(block)));
+            }
+            // assert that none of the first 10 blocks exist yet
+            for (int i = 0; i < 10; i++) {
+                assertThat(BlockPath.computeExistingBlockPath(testConfig, i)).isNull();
+            }
+            // send a block persisted notification for the range we just created
+            blockMessaging.sendBlockPersisted(new PersistedNotification(0, 9, toTest.defaultPriority() + 1));
+            // execute serially to ensure all tasks are completed
+            pluginExecutor.executeSerially();
+            // assert the contents of the zip file
+            for (int i = 0; i < 10; i++) {
+                final BlockPath blockPath = BlockPath.computeExistingBlockPath(testConfig, i);
+                try (final ZipFile zipFile = new ZipFile(blockPath.zipFilePath().toFile())) {
+                    // assert that the zip file contains the block file
+                    final ZipEntry zipEntry = zipFile.getEntry(blockPath.blockFileName());
+                    assertThat(zipEntry).isNotNull();
+                    final byte[] zipEntryBytes =
+                            zipFile.getInputStream(zipEntry).readAllBytes();
+                    final BlockUnparsed actual = BlockUnparsed.PROTOBUF.parse(Bytes.wrap(zipEntryBytes));
+                    assertThat(actual).isEqualTo(expectedBlocks.get(i));
+                }
             }
         }
     }
