@@ -216,5 +216,67 @@ class BlocksFilesHistoricPluginTest {
                 assertThat(BlockPath.computeExistingBlockPath(testConfig, i)).isNotNull();
             }
         }
+
+        /**
+         * This test aims to verify that the plugin will not zip anything when
+         * a notification that covers the range of persisted blocks is sent
+         * from a provider that has a lower priority than the plugin we are
+         * testing. We expect that the plugin we test will not create a zip in
+         * those cases.
+         */
+        @Test
+        @DisplayName("Test no zip will be created when notification is from lower priority provider")
+        void testNoZipForLowerPriorityNotifications() throws IOException {
+            // generate first 10 blocks from numbers 0-9 and add them to the
+            // test historical block facility
+            for (int i = 0; i < 10; i++) {
+                final BlockItemUnparsed[] block = SimpleTestBlockItemBuilder.createSimpleBlockUnparsedWithNumber(i);
+                testHistoricalBlockFacility.handleBlockItemsReceived(new BlockItems(List.of(block), i));
+            }
+            // assert that none of the first 10 blocks are zipped yet
+            for (int i = 0; i < 10; i++) {
+                assertThat(BlockPath.computeExistingBlockPath(testConfig, i)).isNull();
+            }
+            // send a block persisted notification for the range we just created
+            blockMessaging.sendBlockPersisted(new PersistedNotification(0, 9, toTest.defaultPriority() - 1));
+            // assert that no zipping task was submitted
+            final boolean anyTaskSubmitted = pluginExecutor.wasAnyTaskSubmitted();
+            assertThat(anyTaskSubmitted).isFalse();
+            // assert that the first 10 blocks are not zipped
+            for (int i = 0; i < 10; i++) {
+                assertThat(BlockPath.computeExistingBlockPath(testConfig, i)).isNull();
+            }
+        }
+
+        /**
+         * This test aims to verify that the plugin will not zip anything when
+         * a notification that covers the range of persisted blocks is sent
+         * from a provider that has the same priority as the plugin we are
+         * testing. We expect that the plugin we test will not create a zip in
+         * those cases.
+         */
+        @Test
+        @DisplayName("Test no zip will be created when notification is from same priority provider")
+        void testNoZipForSamePriorityNotifications() throws IOException {
+            // generate first 10 blocks from numbers 0-9 and add them to the
+            // test historical block facility
+            for (int i = 0; i < 10; i++) {
+                final BlockItemUnparsed[] block = SimpleTestBlockItemBuilder.createSimpleBlockUnparsedWithNumber(i);
+                testHistoricalBlockFacility.handleBlockItemsReceived(new BlockItems(List.of(block), i));
+            }
+            // assert that none of the first 10 blocks are zipped yet
+            for (int i = 0; i < 10; i++) {
+                assertThat(BlockPath.computeExistingBlockPath(testConfig, i)).isNull();
+            }
+            // send a block persisted notification for the range we just created
+            blockMessaging.sendBlockPersisted(new PersistedNotification(0, 9, toTest.defaultPriority()));
+            // assert that no zipping task was submitted
+            final boolean anyTaskSubmitted = pluginExecutor.wasAnyTaskSubmitted();
+            assertThat(anyTaskSubmitted).isFalse();
+            // assert that the first 10 blocks are not zipped
+            for (int i = 0; i < 10; i++) {
+                assertThat(BlockPath.computeExistingBlockPath(testConfig, i)).isNull();
+            }
+        }
     }
 }
