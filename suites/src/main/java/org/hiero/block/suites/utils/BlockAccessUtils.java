@@ -3,10 +3,10 @@ package org.hiero.block.suites.utils;
 
 import static java.util.Objects.requireNonNull;
 
-import com.hedera.hapi.block.protoc.BlockAccessServiceGrpc;
-import com.hedera.hapi.block.protoc.SingleBlockRequest;
-import com.hedera.hapi.block.protoc.SingleBlockResponse;
 import edu.umd.cs.findbugs.annotations.NonNull;
+import org.hiero.block.api.protoc.BlockAccessServiceGrpc;
+import org.hiero.block.api.protoc.BlockRequest;
+import org.hiero.block.api.protoc.BlockResponse;
 
 /**
  * Utility class for block access operations.
@@ -25,8 +25,8 @@ public final class BlockAccessUtils {
      * @param latest Whether to retrieve the latest block
      * @return A SingleBlockRequest object
      */
-    public static SingleBlockRequest createSingleBlockRequest(long blockNumber, boolean latest) {
-        return SingleBlockRequest.newBuilder()
+    public static BlockRequest createSingleBlockRequest(long blockNumber, boolean latest) {
+        return BlockRequest.newBuilder()
                 .setBlockNumber(blockNumber)
                 .setRetrieveLatest(latest)
                 .setAllowUnverified(true)
@@ -41,17 +41,17 @@ public final class BlockAccessUtils {
      *   verifying its `BlockProof`
      * @return The SingleBlockResponse from the API
      */
-    public static SingleBlockResponse getSingleBlock(
+    public static BlockResponse getSingleBlock(
             @NonNull final BlockAccessServiceGrpc.BlockAccessServiceBlockingStub blockAccessStub,
             final long blockNumber,
             final boolean allowUnverified) {
         requireNonNull(blockAccessStub);
 
-        SingleBlockRequest request = SingleBlockRequest.newBuilder()
+        BlockRequest request = BlockRequest.newBuilder()
                 .setBlockNumber(blockNumber)
                 .setAllowUnverified(allowUnverified)
                 .build();
-        return blockAccessStub.singleBlock(request);
+        return blockAccessStub.getBlock(request);
     }
 
     /**
@@ -61,16 +61,16 @@ public final class BlockAccessUtils {
      * verifying its `BlockProof`
      * @return The SingleBlockResponse from the API
      */
-    public static SingleBlockResponse getLatestBlock(
+    public static BlockResponse getLatestBlock(
             @NonNull final BlockAccessServiceGrpc.BlockAccessServiceBlockingStub blockAccessStub,
             final boolean allowUnverified) {
         requireNonNull(blockAccessStub);
 
-        SingleBlockRequest request = SingleBlockRequest.newBuilder()
+        BlockRequest request = BlockRequest.newBuilder()
                 .setBlockNumber(-1)
                 .setRetrieveLatest(true)
                 .setAllowUnverified(allowUnverified)
                 .build();
-        return blockAccessStub.singleBlock(request);
+        return blockAccessStub.getBlock(request);
     }
 }

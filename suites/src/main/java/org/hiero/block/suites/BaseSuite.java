@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.suites;
 
-import com.hedera.hapi.block.protoc.BlockAccessServiceGrpc;
 import io.grpc.ManagedChannel;
 import io.grpc.ManagedChannelBuilder;
 import java.util.ArrayList;
@@ -9,8 +8,6 @@ import java.util.List;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import org.hiero.block.api.protoc.BlockAccessServiceGrpc;
-import org.hiero.block.api.protoc.BlockRequest;
-import org.hiero.block.api.protoc.BlockResponse;
 import org.hiero.block.simulator.BlockStreamSimulatorApp;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
