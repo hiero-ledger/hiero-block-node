@@ -6,6 +6,7 @@ import java.io.IOException;
 import java.lang.System.Logger.Level;
 import java.nio.file.Files;
 import java.util.List;
+import java.util.Objects;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -23,11 +24,11 @@ import org.hiero.block.node.spi.historicalblocks.LongRange;
  * This plugin provides a block provider that stores historical blocks in file. It is designed to store them in the
  * most compressed optimal way possible. It is designed to be used with the
  */
-public class BlocksFilesHistoricPlugin implements BlockProviderPlugin, BlockNotificationHandler {
+public final class BlocksFilesHistoricPlugin implements BlockProviderPlugin, BlockNotificationHandler {
     /** The logger for this class. */
     private final System.Logger LOGGER = System.getLogger(getClass().getName());
     /** The executor service for moving blocks to zip files in a background thread. */
-    private final ExecutorService zipMoveExecutorService = Executors.newSingleThreadExecutor();
+    private final ExecutorService zipMoveExecutorService;
     /** The block node context. */
     private BlockNodeContext context;
     /** The zip block archive. */
@@ -38,6 +39,22 @@ public class BlocksFilesHistoricPlugin implements BlockProviderPlugin, BlockNoti
     private final ConcurrentLongRangeSet availableBlocks = new ConcurrentLongRangeSet();
     /** List of all zip ranges that are in progress, so we do not start a duplicate job. */
     private final CopyOnWriteArrayList<LongRange> inProgressZipRanges = new CopyOnWriteArrayList<>();
+    /** Config used internally. Should come from the context, this is temporary until we have some needed logic. */
+    private FilesHistoricConfig config;
+
+    /** Constructor, used for normal plugin loading */
+    public BlocksFilesHistoricPlugin() {
+        this.zipMoveExecutorService = Executors.newSingleThreadExecutor();
+    }
+
+    /** Constructor, used only for testing temporarily while we wait for
+     * extended functionality to support overriding config converters
+     * PR #18617 in hiero-consensus-node.
+     */
+    BlocksFilesHistoricPlugin(final FilesHistoricConfig config, final ExecutorService zipMoveExecutorService) {
+        this.config = Objects.requireNonNull(config);
+        this.zipMoveExecutorService = Objects.requireNonNull(zipMoveExecutorService);
+    }
 
     // ==== BlockProviderPlugin Methods ================================================================================
 
@@ -56,20 +73,33 @@ public class BlocksFilesHistoricPlugin implements BlockProviderPlugin, BlockNoti
     @Override
     public void init(BlockNodeContext context, ServiceBuilder serviceBuilder) {
         this.context = context;
-        final FilesHistoricConfig config = context.configuration().getConfigData(FilesHistoricConfig.class);
+        final FilesHistoricConfig localConfig =
+                this.config == null ? context.configuration().getConfigData(FilesHistoricConfig.class) : this.config;
         // create plugin data root directory if it does not exist
         try {
-            Files.createDirectories(config.rootPath());
+            Files.createDirectories(localConfig.rootPath());
         } catch (IOException e) {
             LOGGER.log(Level.ERROR, "Could not create root directory", e);
             context.serverHealth().shutdown(name(), "Could not create root directory");
         }
         // register to listen to block notifications
         context.blockMessaging().registerBlockNotificationHandler(this, false, "Blocks Files Historic");
-        numberOfBlocksPerZipFile = (int) Math.pow(10, config.powersOfTenPerZipFileContents());
-        zipBlockArchive = new ZipBlockArchive(context, config);
+        numberOfBlocksPerZipFile = (int) Math.pow(10, localConfig.powersOfTenPerZipFileContents());
+        zipBlockArchive = new ZipBlockArchive(context, localConfig);
         // get the first and last block numbers from the zipBlockArchive
-        availableBlocks.add(zipBlockArchive.minStoredBlockNumber(), zipBlockArchive.maxStoredBlockNumber());
+        final long firstZippedBlock = zipBlockArchive.minStoredBlockNumber();
+        final long latestZippedBlock = zipBlockArchive.maxStoredBlockNumber();
+        if (latestZippedBlock > firstZippedBlock) {
+            // we never expect to enter here, if we do, we have an issue that
+            // needs to be investigated
+            throw new IllegalStateException(
+                    "Latest zipped block number [%d] cannot be greater than the first zipped block number [%d]"
+                            .formatted(latestZippedBlock, firstZippedBlock));
+        }
+        if (firstZippedBlock >= 0) {
+            // add the blocks to the available blocks only if the range is a valid one (positive)
+            availableBlocks.add(firstZippedBlock, latestZippedBlock);
+        }
     }
 
     /**
@@ -204,7 +234,7 @@ public class BlocksFilesHistoricPlugin implements BlockProviderPlugin, BlockNoti
                             new PersistedNotification(batchFirstBlockNumber, batchLastBlockNumber, defaultPriority()));
             // remove the batch of blocks from in progress ranges
             inProgressZipRanges.remove(batchRange);
-        } catch (Exception e) {
+        } catch (final Exception e) {
             LOGGER.log(
                     System.Logger.Level.ERROR,
                     "Failed to move batch of blocks[" + batchFirstBlockNumber + " -> " + batchLastBlockNumber
