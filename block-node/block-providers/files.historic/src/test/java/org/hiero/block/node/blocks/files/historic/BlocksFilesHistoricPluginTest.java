@@ -22,6 +22,7 @@ import org.hiero.block.node.app.fixtures.plugintest.SimpleInMemoryHistoricalBloc
 import org.hiero.block.node.base.CompressionType;
 import org.hiero.block.node.spi.blockmessaging.BlockItems;
 import org.hiero.block.node.spi.blockmessaging.PersistedNotification;
+import org.hiero.block.node.spi.historicalblocks.BlockAccessor;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -348,6 +349,56 @@ class BlocksFilesHistoricPluginTest {
             // assert that the first 10 blocks are not zipped
             for (int i = 0; i < 10; i++) {
                 assertThat(BlockPath.computeExistingBlockPath(testConfig, i)).isNull();
+            }
+        }
+
+        @Test
+        @DisplayName("Test happy path zip range block accessor")
+        void testZipRangeBlockAccessor() {
+            // generate first 10 blocks from numbers 0-9 and add them to the
+            // test historical block facility
+            for (int i = 0; i < 10; i++) {
+                final BlockItemUnparsed[] block = SimpleTestBlockItemBuilder.createSimpleBlockUnparsedWithNumber(i);
+                testHistoricalBlockFacility.handleBlockItemsReceived(new BlockItems(List.of(block), i));
+            }
+            // assert that none of the first 10 blocks have accessors yet
+            for (int i = 0; i < 10; i++) {
+                assertThat(toTest.block(i)).isNull();
+            }
+            // send a block persisted notification for the range we just created
+            blockMessaging.sendBlockPersisted(new PersistedNotification(0, 9, toTest.defaultPriority() + 1));
+            // execute serially to ensure all tasks are completed
+            pluginExecutor.executeSerially();
+            // assert that the first 10 blocks will have an accessor
+            for (int i = 0; i < 10; i++) {
+                assertThat(toTest.block(i)).isNotNull();
+            }
+        }
+
+        @Test
+        @DisplayName("Test happy path zip range block accessor contents")
+        void testZipRangeBlockAccessorContents() throws IOException, ParseException {
+            // generate first 10 blocks from numbers 0-9 and add them to the
+            // test historical block facility
+            final List<BlockUnparsed> expectedBlocks = new ArrayList<>();
+            for (int i = 0; i < 10; i++) {
+                final BlockItemUnparsed[] block = SimpleTestBlockItemBuilder.createSimpleBlockUnparsedWithNumber(i);
+                testHistoricalBlockFacility.handleBlockItemsReceived(new BlockItems(List.of(block), i));
+                expectedBlocks.add(new BlockUnparsed(List.of(block)));
+            }
+            // assert that none of the first 10 blocks have accessors yet
+            for (int i = 0; i < 10; i++) {
+                assertThat(toTest.block(i)).isNull();
+            }
+            // send a block persisted notification for the range we just created
+            blockMessaging.sendBlockPersisted(new PersistedNotification(0, 9, toTest.defaultPriority() + 1));
+            // execute serially to ensure all tasks are completed
+            pluginExecutor.executeSerially();
+            // assert the contents of the now available block accessors
+            for (int i = 0; i < 10; i++) {
+                final BlockAccessor blockAccessor = toTest.block(i);
+                final BlockUnparsed actual = blockAccessor.blockUnparsed();
+                assertThat(actual).isEqualTo(expectedBlocks.get(i));
             }
         }
     }
