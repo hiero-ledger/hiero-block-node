@@ -120,6 +120,40 @@ class BlocksFilesHistoricPluginTest {
          * messaging facility. The block provider that has persisted the blocks
          * must have a higher priority than the plugin we are testing. We expect
          * that the plugin we test will create a zip file with all the blocks in
+         * the notification range (we set the range to 0-19 which fits the config
+         * of 10 blocks per zip), i.e. this is the happy path test for two full
+         * consecutive batches to be archived in a single notification. We expect
+         * all blocks to be archived.
+         */
+        @Test
+        @DisplayName("Test happy path zip range successful archival")
+        void testZipRangeHappyPathArchivalTwoFullBatches() throws IOException {
+            // generate first 20 blocks from numbers 0-9 and add them to the
+            // test historical block facility
+            for (int i = 0; i < 20; i++) {
+                final BlockItemUnparsed[] block = SimpleTestBlockItemBuilder.createSimpleBlockUnparsedWithNumber(i);
+                testHistoricalBlockFacility.handleBlockItemsReceived(new BlockItems(List.of(block), i));
+            }
+            // assert that none of the first 20 blocks are zipped yet
+            for (int i = 0; i < 20; i++) {
+                assertThat(BlockPath.computeExistingBlockPath(testConfig, i)).isNull();
+            }
+            // send a block persisted notification for the range we just created
+            blockMessaging.sendBlockPersisted(new PersistedNotification(0, 9, toTest.defaultPriority() + 1));
+            // execute serially to ensure all tasks are completed
+            pluginExecutor.executeSerially();
+            // assert that the first 20 blocks are zipped now
+            for (int i = 0; i < 20; i++) {
+                assertThat(BlockPath.computeExistingBlockPath(testConfig, i)).isNotNull();
+            }
+        }
+
+        /**
+         * This test aims to verify that the plugin can handle a simple range of
+         * blocks that have been persisted and a notification is sent to the
+         * messaging facility. The block provider that has persisted the blocks
+         * must have a higher priority than the plugin we are testing. We expect
+         * that the plugin we test will create a zip file with all the blocks in
          * the notification range (we set the range to 0-9 which fits the config
          * of 10 blocks per zip), i.e. this is the happy path test. We assert
          * here the contents of each entry produce the same blocks as before
