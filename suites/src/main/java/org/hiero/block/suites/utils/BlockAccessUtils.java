@@ -25,7 +25,7 @@ public final class BlockAccessUtils {
      * @param latest Whether to retrieve the latest block
      * @return A SingleBlockRequest object
      */
-    public static BlockRequest createSingleBlockRequest(long blockNumber, boolean latest) {
+    public static BlockRequest createGetBlockRequest(long blockNumber, boolean latest) {
         return BlockRequest.newBuilder()
                 .setBlockNumber(blockNumber)
                 .setRetrieveLatest(latest)
@@ -41,7 +41,7 @@ public final class BlockAccessUtils {
      *   verifying its `BlockProof`
      * @return The SingleBlockResponse from the API
      */
-    public static BlockResponse getSingleBlock(
+    public static BlockResponse getBlock(
             @NonNull final BlockAccessServiceGrpc.BlockAccessServiceBlockingStub blockAccessStub,
             final long blockNumber,
             final boolean allowUnverified) {

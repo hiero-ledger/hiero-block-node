@@ -2,7 +2,7 @@
 package org.hiero.block.suites.publisher.positive;
 
 import static org.hiero.block.suites.utils.BlockAccessUtils.getLatestBlock;
-import static org.hiero.block.suites.utils.BlockAccessUtils.getSingleBlock;
+import static org.hiero.block.suites.utils.BlockAccessUtils.getBlock;
 import static org.hiero.block.suites.utils.BlockSimulatorUtils.createBlockSimulator;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -157,7 +157,7 @@ public class PositiveMultiplePublishersTests extends BaseSuite {
 
         // ===== Assert that we are persisting only the current blocks =================================
         final BlockResponse currentBlockResponse = getLatestBlock(blockAccessStub, false);
-        final BlockResponse futureBlockResponse = getSingleBlock(blockAccessStub, 1000, false);
+        final BlockResponse futureBlockResponse = getBlock(blockAccessStub, 1000, false);
 
         assertNotNull(currentBlockResponse);
         assertNotNull(futureBlockResponse);
@@ -190,9 +190,9 @@ public class PositiveMultiplePublishersTests extends BaseSuite {
         firstSimulatorThread.cancel(true);
 
         final BlockResponse latestPublishedBlockBefore =
-                getSingleBlock(blockAccessStub, firstSimulatorLatestPublishedBlockNumber, false);
+                getBlock(blockAccessStub, firstSimulatorLatestPublishedBlockNumber, false);
         final BlockResponse nextPublishedBlockBefore =
-                getSingleBlock(blockAccessStub, firstSimulatorLatestPublishedBlockNumber + 1, false);
+                getBlock(blockAccessStub, firstSimulatorLatestPublishedBlockNumber + 1, false);
 
         assertNotNull(firstSimulatorLatestStatus);
         assertTrue(firstSimulatorLatestStatus.contains(Long.toString(firstSimulatorLatestPublishedBlockNumber)));

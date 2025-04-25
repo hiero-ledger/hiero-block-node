@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.suites.block.access;
 
-import static org.hiero.block.suites.utils.BlockAccessUtils.createSingleBlockRequest;
+import static org.hiero.block.suites.utils.BlockAccessUtils.createGetBlockRequest;
 import static org.hiero.block.suites.utils.BlockAccessUtils.getLatestBlock;
-import static org.hiero.block.suites.utils.BlockAccessUtils.getSingleBlock;
+import static org.hiero.block.suites.utils.BlockAccessUtils.getBlock;
 import static org.hiero.block.suites.utils.BlockSimulatorUtils.createBlockSimulator;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -66,7 +66,7 @@ public class GetBlockApiTests extends BaseSuite {
     void requestExistingBlockUsingBlockAPI() {
         // Request block number 1 (which should have been published by the simulator)
         final long blockNumber = 1;
-        final BlockResponse response = getSingleBlock(blockAccessStub, blockNumber, false);
+        final BlockResponse response = getBlock(blockAccessStub, blockNumber, false);
 
         // Verify the response
         assertNotNull(response, "Response should not be null");
@@ -85,7 +85,7 @@ public class GetBlockApiTests extends BaseSuite {
     void requestNonExistingBlockUsingBlockAPI() {
         // Request a non-existing block number
         final long blockNumber = 1000;
-        final BlockResponse response = getSingleBlock(blockAccessStub, blockNumber, false);
+        final BlockResponse response = getBlock(blockAccessStub, blockNumber, false);
 
         // Verify the response
         assertNotNull(response, "Response should not be null");
@@ -123,7 +123,7 @@ public class GetBlockApiTests extends BaseSuite {
     void requestLatestBlockAndSpecificBlockUsingBlockAPI() {
         // Request the latest block and a specific block number
         final long blockNumber = 1;
-        final BlockRequest request = createSingleBlockRequest(blockNumber, true);
+        final BlockRequest request = createGetBlockRequest(blockNumber, true);
         final BlockResponse response = blockAccessStub.getBlock(request);
 
         // Verify the response
@@ -140,7 +140,7 @@ public class GetBlockApiTests extends BaseSuite {
             "Get a Single Block using API - block_number to -1 and retrieve_latest to false - should return NOT_FOUND")
     void requestWithoutBlockNumberAndRetrieveLatestFalse() {
         // Request the latest block and a specific block number
-        final BlockRequest request = createSingleBlockRequest(-1, false);
+        final BlockRequest request = createGetBlockRequest(-1, false);
         final BlockResponse response = blockAccessStub.getBlock(request);
 
         // Verify the response
