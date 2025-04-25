@@ -2,8 +2,8 @@
 package org.hiero.block.suites.block.access;
 
 import static org.hiero.block.suites.utils.BlockAccessUtils.createGetBlockRequest;
-import static org.hiero.block.suites.utils.BlockAccessUtils.getLatestBlock;
 import static org.hiero.block.suites.utils.BlockAccessUtils.getBlock;
+import static org.hiero.block.suites.utils.BlockAccessUtils.getLatestBlock;
 import static org.hiero.block.suites.utils.BlockSimulatorUtils.createBlockSimulator;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
