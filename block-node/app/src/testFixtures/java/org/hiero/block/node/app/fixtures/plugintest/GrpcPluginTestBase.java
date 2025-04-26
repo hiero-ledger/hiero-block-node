@@ -60,7 +60,6 @@ public abstract class GrpcPluginTestBase<P extends BlockNodePlugin> extends Plug
             @Override
             public void onNext(Bytes item) throws RuntimeException {
                 fromPluginBytes.add(item);
-                LOGGER.log(TRACE, "onNext: %d".formatted(fromPluginBytes.size()));
             }
 
             @Override
