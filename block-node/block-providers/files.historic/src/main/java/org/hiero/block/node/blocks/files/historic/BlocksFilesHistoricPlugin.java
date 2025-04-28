@@ -39,20 +39,17 @@ public final class BlocksFilesHistoricPlugin implements BlockProviderPlugin, Blo
     private final ConcurrentLongRangeSet availableBlocks = new ConcurrentLongRangeSet();
     /** List of all zip ranges that are in progress, so we do not start a duplicate job. */
     private final CopyOnWriteArrayList<LongRange> inProgressZipRanges = new CopyOnWriteArrayList<>();
-    /** Config used internally. Should come from the context, this is temporary until we have some needed logic. */
-    private FilesHistoricConfig config;
 
     /** Constructor, used for normal plugin loading */
     public BlocksFilesHistoricPlugin() {
         this.zipMoveExecutorService = Executors.newSingleThreadExecutor();
     }
 
-    /** Constructor, used only for testing temporarily while we wait for
-     * extended functionality to support overriding config converters
-     * PR #18617 in hiero-consensus-node.
+    /**
+     * Constructor, used only for testing temporarily, need to introduce the
+     * executor factory method in the test context to remove this.
      */
-    BlocksFilesHistoricPlugin(final FilesHistoricConfig config, final ExecutorService zipMoveExecutorService) {
-        this.config = Objects.requireNonNull(config);
+    BlocksFilesHistoricPlugin(final ExecutorService zipMoveExecutorService) {
         this.zipMoveExecutorService = Objects.requireNonNull(zipMoveExecutorService);
     }
 
@@ -73,19 +70,18 @@ public final class BlocksFilesHistoricPlugin implements BlockProviderPlugin, Blo
     @Override
     public void init(final BlockNodeContext context, final ServiceBuilder serviceBuilder) {
         this.context = Objects.requireNonNull(context);
-        final FilesHistoricConfig localConfig =
-                this.config == null ? context.configuration().getConfigData(FilesHistoricConfig.class) : this.config;
+        final FilesHistoricConfig config = context.configuration().getConfigData(FilesHistoricConfig.class);
         // create plugin data root directory if it does not exist
         try {
-            Files.createDirectories(localConfig.rootPath());
+            Files.createDirectories(config.rootPath());
         } catch (IOException e) {
             LOGGER.log(Level.ERROR, "Could not create root directory", e);
             context.serverHealth().shutdown(name(), "Could not create root directory");
         }
         // register to listen to block notifications
         context.blockMessaging().registerBlockNotificationHandler(this, false, "Blocks Files Historic");
-        numberOfBlocksPerZipFile = (int) Math.pow(10, localConfig.powersOfTenPerZipFileContents());
-        zipBlockArchive = new ZipBlockArchive(context, localConfig);
+        numberOfBlocksPerZipFile = (int) Math.pow(10, config.powersOfTenPerZipFileContents());
+        zipBlockArchive = new ZipBlockArchive(context, config);
         // get the first and last block numbers from the zipBlockArchive
         final long firstZippedBlock = zipBlockArchive.minStoredBlockNumber();
         final long latestZippedBlock = zipBlockArchive.maxStoredBlockNumber();

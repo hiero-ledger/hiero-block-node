@@ -15,6 +15,8 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
+import java.util.Map.Entry;
 import java.util.Objects;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.zip.ZipEntry;
@@ -70,7 +72,7 @@ class BlocksFilesHistoricPluginTest {
         // also we will not use compression, and we will use the jUnit temp dir
         testConfig = new FilesHistoricConfig(tempDir, CompressionType.NONE, 1);
         // build the plugin using the test environment
-        toTest = new BlocksFilesHistoricPlugin(testConfig, pluginExecutor);
+        toTest = new BlocksFilesHistoricPlugin(pluginExecutor);
         // initialize an in memory historical block facility to use for testing
         testHistoricalBlockFacility = new SimpleInMemoryHistoricalBlockFacility();
     }
@@ -148,7 +150,21 @@ class BlocksFilesHistoricPluginTest {
          * Construct plugin base.
          */
         PluginTests() {
-            start(toTest, testHistoricalBlockFacility);
+            // match overrides to the test config
+            final Map<String, String> configOverrides = getConfigOverrides();
+            // initialize and start the test plugin using the config overrides
+            start(toTest, testHistoricalBlockFacility, configOverrides);
+        }
+
+        private Map<String, String> getConfigOverrides() {
+            final Entry<String, String> rootPath =
+                    Map.entry("files.historic.rootPath", testConfig.rootPath().toString());
+            final Entry<String, String> compression = Map.entry(
+                    "files.historic.compression", testConfig.compression().name());
+            final Entry<String, String> powersOfTenPerZipFileContents = Map.entry(
+                    "files.historic.powersOfTenPerZipFileContents",
+                    String.valueOf(testConfig.powersOfTenPerZipFileContents()));
+            return Map.ofEntries(rootPath, compression, powersOfTenPerZipFileContents);
         }
 
         /**
