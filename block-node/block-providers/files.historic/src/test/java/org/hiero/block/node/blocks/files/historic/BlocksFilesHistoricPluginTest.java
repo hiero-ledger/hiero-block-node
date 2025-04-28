@@ -2,9 +2,13 @@
 package org.hiero.block.node.blocks.files.historic;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatNoException;
+import static org.assertj.core.api.Assertions.assertThatNullPointerException;
 
 import com.hedera.pbj.runtime.ParseException;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
+import com.swirlds.config.api.Configuration;
+import com.swirlds.config.api.ConfigurationBuilder;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -19,13 +23,19 @@ import org.hiero.block.internal.BlockItemUnparsed;
 import org.hiero.block.internal.BlockUnparsed;
 import org.hiero.block.node.app.fixtures.async.BlockingSerialExecutor;
 import org.hiero.block.node.app.fixtures.blocks.SimpleTestBlockItemBuilder;
+import org.hiero.block.node.app.fixtures.plugintest.NoOpServiceBuilder;
 import org.hiero.block.node.app.fixtures.plugintest.PluginTestBase;
 import org.hiero.block.node.app.fixtures.plugintest.SimpleInMemoryHistoricalBlockFacility;
+import org.hiero.block.node.app.fixtures.plugintest.TestBlockMessagingFacility;
+import org.hiero.block.node.app.fixtures.plugintest.TestHealthFacility;
 import org.hiero.block.node.base.CompressionType;
+import org.hiero.block.node.spi.BlockNodeContext;
+import org.hiero.block.node.spi.ServiceBuilder;
 import org.hiero.block.node.spi.blockmessaging.BlockItems;
 import org.hiero.block.node.spi.blockmessaging.PersistedNotification;
 import org.hiero.block.node.spi.historicalblocks.BlockAccessor;
 import org.hiero.block.node.spi.historicalblocks.BlockRangeSet;
+import org.hiero.block.node.spi.historicalblocks.HistoricalBlockFacility;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -71,6 +81,61 @@ class BlocksFilesHistoricPluginTest {
     @AfterEach
     void tearDown() {
         pluginExecutor.shutdownNow();
+    }
+
+    /**
+     * Constructor and Init tests.
+     */
+    @Nested
+    @DisplayName("Constructor & Init Tests")
+    final class ConstructorAndInitTests {
+        /**
+         * This test aims to verify that the no args constructor of
+         * {@link BlocksFilesHistoricPlugin} does not throw any exceptions.
+         */
+        @Test
+        @DisplayName("Test no args constructor does not throw any exceptions")
+        void testNoArgsConstructor() {
+            assertThatNoException().isThrownBy(BlocksFilesHistoricPlugin::new);
+        }
+
+        /**
+         * This test aims to verify that the
+         * {@link BlocksFilesHistoricPlugin#init(BlockNodeContext, ServiceBuilder)}
+         * method throws a {@link NullPointerException} if the context is null.
+         */
+        @Test
+        @DisplayName("Test init throws null pointer when supplied with null context")
+        void testInitNullContext() {
+            final BlocksFilesHistoricPlugin toTest = new BlocksFilesHistoricPlugin();
+            assertThatNullPointerException().isThrownBy(() -> toTest.init(null, new NoOpServiceBuilder()));
+        }
+
+        /**
+         * This test aims to verify that the
+         * {@link BlocksFilesHistoricPlugin#init(BlockNodeContext, ServiceBuilder)}
+         * method throws a {@link NullPointerException} if the context is null.
+         */
+        @Test
+        @DisplayName("Test init does not throw when ServiceBuilder is null (currently unused)")
+        void testInitNullServiceBuilder(@TempDir final Path tempDir) {
+            // setup a local valid context
+            final Configuration configuration = ConfigurationBuilder.create()
+                    .withConfigDataType(FilesHistoricConfig.class)
+                    .withValue("files.historic.rootPath", tempDir.toString())
+                    .build();
+            final HistoricalBlockFacility historicalBlockProvider = new SimpleInMemoryHistoricalBlockFacility();
+            final BlockNodeContext testContext = new BlockNodeContext(
+                    configuration,
+                    null,
+                    new TestHealthFacility(),
+                    new TestBlockMessagingFacility(),
+                    historicalBlockProvider,
+                    null);
+            // call
+            final BlocksFilesHistoricPlugin toTest = new BlocksFilesHistoricPlugin();
+            assertThatNoException().isThrownBy(() -> toTest.init(testContext, null));
+        }
     }
 
     /**

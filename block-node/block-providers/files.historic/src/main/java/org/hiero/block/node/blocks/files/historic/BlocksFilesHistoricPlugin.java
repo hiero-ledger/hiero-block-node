@@ -71,8 +71,8 @@ public final class BlocksFilesHistoricPlugin implements BlockProviderPlugin, Blo
      * {@inheritDoc}
      */
     @Override
-    public void init(BlockNodeContext context, ServiceBuilder serviceBuilder) {
-        this.context = context;
+    public void init(final BlockNodeContext context, final ServiceBuilder serviceBuilder) {
+        this.context = Objects.requireNonNull(context);
         final FilesHistoricConfig localConfig =
                 this.config == null ? context.configuration().getConfigData(FilesHistoricConfig.class) : this.config;
         // create plugin data root directory if it does not exist
