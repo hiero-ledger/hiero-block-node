@@ -26,7 +26,7 @@ class SimulatorConfigurationLoggerTest {
         final SimulatorConfigurationLogger configurationLogging = new SimulatorConfigurationLogger(configuration);
         final Map<String, Object> config = configurationLogging.collectConfig(configuration);
         assertNotNull(config);
-        assertEquals(39, config.size());
+        assertEquals(43, config.size());
         for (final Map.Entry<String, Object> entry : config.entrySet()) {
             String value = entry.getValue().toString();
             if (value.contains("*")) {
@@ -42,7 +42,7 @@ class SimulatorConfigurationLoggerTest {
         final SimulatorConfigurationLogger configurationLogging = new SimulatorConfigurationLogger(configuration);
         final Map<String, Object> config = configurationLogging.collectConfig(configuration);
         assertNotNull(config);
-        assertEquals(41, config.size());
+        assertEquals(45, config.size());
         assertEquals("*****", config.get("test.secret").toString());
         assertEquals("", config.get("test.emptySecret").toString());
     }

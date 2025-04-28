@@ -81,7 +81,7 @@ public class PublisherClientModeHandlerTest {
 
         verify(publishStreamGrpcClient).streamBlock(block1);
         verify(publishStreamGrpcClient).streamBlock(block2);
-        verifyNoMoreInteractions(publishStreamGrpcClient);
+        verify(publishStreamGrpcClient).shutdown();
         verify(blockStreamManager, times(3)).getNextBlock();
     }
 
@@ -175,7 +175,7 @@ public class PublisherClientModeHandlerTest {
 
         verify(publishStreamGrpcClient).streamBlock(block1);
         verify(publishStreamGrpcClient).streamBlock(block2);
-        verifyNoMoreInteractions(publishStreamGrpcClient);
+        verify(publishStreamGrpcClient).shutdown();
         verify(blockStreamManager, times(3)).getNextBlock();
     }
 
@@ -220,7 +220,7 @@ public class PublisherClientModeHandlerTest {
         verify(publishStreamGrpcClient).streamBlock(block1);
         verify(publishStreamGrpcClient).streamBlock(block2);
         verify(publishStreamGrpcClient).streamBlock(block3);
-        verifyNoMoreInteractions(publishStreamGrpcClient);
+        verify(publishStreamGrpcClient).shutdown();
         verify(blockStreamManager, times(3)).getNextBlock();
     }
 
@@ -251,7 +251,7 @@ public class PublisherClientModeHandlerTest {
 
         verify(publishStreamGrpcClient, never()).streamBlock(any(Block.class));
         verify(blockStreamManager).getNextBlock();
-        verifyNoMoreInteractions(publishStreamGrpcClient);
+        verify(publishStreamGrpcClient).shutdown();
         verifyNoMoreInteractions(blockStreamManager);
     }
 
@@ -278,7 +278,7 @@ public class PublisherClientModeHandlerTest {
 
         verify(publishStreamGrpcClient).streamBlock(block1);
         verify(publishStreamGrpcClient).streamBlock(block2);
-        verifyNoMoreInteractions(publishStreamGrpcClient);
+        verify(publishStreamGrpcClient).shutdown();
         verify(blockStreamManager, times(2)).getNextBlock();
     }
 
@@ -312,7 +312,7 @@ public class PublisherClientModeHandlerTest {
 
         verify(publishStreamGrpcClient).streamBlock(block1);
         verify(publishStreamGrpcClient).streamBlock(block2);
-        verifyNoMoreInteractions(publishStreamGrpcClient);
+        verify(publishStreamGrpcClient).shutdown();
         verify(blockStreamManager, times(2)).getNextBlock();
     }
 }
