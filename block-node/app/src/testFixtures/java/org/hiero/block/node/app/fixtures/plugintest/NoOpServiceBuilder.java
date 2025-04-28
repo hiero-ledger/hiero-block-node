@@ -12,11 +12,19 @@ import org.hiero.block.node.spi.ServiceBuilder;
  * that we do not want to act upon.
  */
 public final class NoOpServiceBuilder implements ServiceBuilder {
-    /** No-op implementation, does nothing. */
+    /**
+     * No-op implementation, does nothing.
+     */
     @Override
-    public void registerHttpService(final String path, final HttpService... service) {}
+    public void registerHttpService(final String path, final HttpService... service) {
+        // No-op implementation, does nothing.
+    }
 
-    /** No-op implementation, does nothing. */
+    /**
+     * No-op implementation, does nothing.
+     */
     @Override
-    public void registerGrpcService(@NonNull final ServiceInterface service) {}
+    public void registerGrpcService(@NonNull final ServiceInterface service) {
+        // No-op implementation, does nothing.
+    }
 }
