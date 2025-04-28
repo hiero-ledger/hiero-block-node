@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.node.stream.subscriber;
 
+import static java.util.Objects.requireNonNull;
 import static java.util.concurrent.locks.LockSupport.parkNanos;
 import static org.hiero.block.node.spi.BlockNodePlugin.METRICS_CATEGORY;
 import static org.hiero.block.node.spi.BlockNodePlugin.UNKNOWN_BLOCK_NUMBER;
@@ -11,10 +12,10 @@ import com.hedera.pbj.runtime.ParseException;
 import com.hedera.pbj.runtime.grpc.Pipeline;
 import com.swirlds.metrics.api.Counter;
 import com.swirlds.metrics.api.Counter.Config;
+import edu.umd.cs.findbugs.annotations.NonNull;
 import java.lang.System.Logger;
 import java.lang.System.Logger.Level;
 import java.util.List;
-import java.util.Objects;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.Callable;
@@ -111,18 +112,20 @@ public class BlockStreamSubscriberSession implements Callable<BlockStreamSubscri
      * @param context The context for the block node
      */
     public BlockStreamSubscriberSession(
-            long clientId,
-            SubscribeStreamRequest request,
-            Pipeline<? super SubscribeStreamResponseUnparsed> responsePipeline,
-            BlockNodeContext context,
-            final CountDownLatch sessionReadyLatch) {
+            final long clientId,
+            @NonNull final SubscribeStreamRequest request,
+            @NonNull final Pipeline<? super SubscribeStreamResponseUnparsed> responsePipeline,
+            @NonNull final BlockNodeContext context,
+            @NonNull final CountDownLatch sessionReadyLatch) {
+        requireNonNull(request);
+
         LOGGER.log(Level.TRACE, request.toString());
         this.clientId = clientId;
         this.startBlockNumber = request.startBlockNumber();
         this.endBlockNumber = request.endBlockNumber();
-        this.responsePipeline = Objects.requireNonNull(responsePipeline);
-        this.context = Objects.requireNonNull(context);
-        this.sessionReadyLatch = Objects.requireNonNull(sessionReadyLatch);
+        this.responsePipeline = requireNonNull(responsePipeline);
+        this.context = requireNonNull(context);
+        this.sessionReadyLatch = requireNonNull(sessionReadyLatch);
         latestLiveStreamBlock = new AtomicLong(UNKNOWN_BLOCK_NUMBER - 1);
         pluginConfiguration = context.configuration().getConfigData(SubscriberConfig.class);
         // Next block to send depends on what was requested and what is available.
@@ -193,7 +196,8 @@ public class BlockStreamSubscriberSession implements Callable<BlockStreamSubscri
             // We need to send historical blocks.
             // We will only send one block at a time to keep things "smooth".
             // Start by getting a block accessor for the next block to send from the historical provider.
-            BlockAccessor nextBlockAccessor = context.historicalBlockProvider().block(nextBlockToSend);
+            final BlockAccessor nextBlockAccessor =
+                    context.historicalBlockProvider().block(nextBlockToSend);
             if (nextBlockAccessor != null) {
                 // We have a block to send, so send it.
                 sendOneBlockItemSet(nextBlockAccessor.blockUnparsed());
@@ -495,9 +499,8 @@ public class BlockStreamSubscriberSession implements Callable<BlockStreamSubscri
 
     private void sendOneBlockItemSet(final BlockUnparsed nextBlock) throws ParseException {
         LOGGER.log(Level.TRACE, "Sending full block {0} to {1}", nextBlockToSend, handlerName);
-        BlockHeader header =
+        final BlockHeader header =
                 BlockHeader.PROTOBUF.parse(nextBlock.blockItems().getFirst().blockHeader());
-        BlockItems blockBatch = new BlockItems(nextBlock.blockItems(), header.number());
         if (header.number() == nextBlockToSend) {
             sendOneBlockItemSet(nextBlock.blockItems());
         } else {
@@ -541,11 +544,11 @@ public class BlockStreamSubscriberSession implements Callable<BlockStreamSubscri
         private final String clientId;
 
         private LiveBlockHandler(
-                final BlockingQueue<BlockItems> liveBlockQueue,
-                final AtomicLong latestLiveStreamBlock,
+                @NonNull final BlockingQueue<BlockItems> liveBlockQueue,
+                @NonNull final AtomicLong latestLiveStreamBlock,
                 final String clientId) {
-            this.liveBlockQueue = liveBlockQueue;
-            this.latestLiveStreamBlock = latestLiveStreamBlock;
+            this.liveBlockQueue = requireNonNull(liveBlockQueue);
+            this.latestLiveStreamBlock = requireNonNull(latestLiveStreamBlock);
             this.clientId = clientId;
         }
 
@@ -557,7 +560,7 @@ public class BlockStreamSubscriberSession implements Callable<BlockStreamSubscri
         }
 
         @Override
-        public void handleBlockItemsReceived(final BlockItems blockItems) {
+        public void handleBlockItemsReceived(@NonNull final BlockItems blockItems) {
             if (blockItems.newBlockNumber() > latestLiveStreamBlock.get()) {
                 latestLiveStreamBlock.set(blockItems.newBlockNumber());
                 LOGGER.log(Level.TRACE, "Updated latest block to {0}.", latestLiveStreamBlock);
