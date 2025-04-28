@@ -10,12 +10,12 @@ dependencies { api(platform("com.google.cloud:libraries-bom:26.59.0")) }
 
 dependencies.constraints {
     val daggerVersion = "2.56.1"
-    val grpcIoVersion = "1.71.0"
+    val grpcIoVersion = "1.72.0"
     val helidonVersion = "4.1.6"
     // When Upgrading pbjVersion, also need to update pbjCompiler version on stream/build.gradle.kts
-    val pbjVersion = "0.11.0"
+    val pbjVersion = "0.11.2"
     val protobufVersion = "4.30.2"
-    val swirldsVersion = "0.61.2"
+    val swirldsVersion = "0.61.3"
     val mockitoVersion = "5.17.0"
     val testContainersVersion = "1.20.6"
 
@@ -56,10 +56,10 @@ dependencies.constraints {
     api("io.grpc:grpc-stub:$grpcIoVersion") { because("io.grpc.stub") }
     api("io.grpc:grpc-protobuf:$grpcIoVersion") { because("io.grpc.protobuf") }
     api("io.grpc:grpc-netty:$grpcIoVersion") { because("io.grpc.netty") }
-    api("io.grpc:protoc-gen-grpc-java:1.71.0")
+    api("io.grpc:protoc-gen-grpc-java:1.72.0")
 
     // command line tool
-    api("info.picocli:picocli:4.7.6") { because("info.picocli") }
+    api("info.picocli:picocli:4.7.7") { because("info.picocli") }
 
     // needed for dagger
     api("com.google.dagger:dagger:$daggerVersion") { because("dagger") }
@@ -69,7 +69,7 @@ dependencies.constraints {
     api("com.github.docker-java:docker-java-api:3.5.0") { because("com.github.dockerjava.api") }
     api("io.github.cdimascio:dotenv-java:3.2.0") { because("io.github.cdimascio.dotenv.java") }
     api("org.assertj:assertj-core:3.27.3") { because("org.assertj.core") }
-    api("org.junit.jupiter:junit-jupiter-api:5.11.4") { because("org.junit.jupiter.api") }
+    api("org.junit.jupiter:junit-jupiter-api:5.12.2") { because("org.junit.jupiter.api") }
     api("org.mockito:mockito-core:${mockitoVersion}") { because("org.mockito") }
     api("org.mockito:mockito-junit-jupiter:${mockitoVersion}") {
         because("org.mockito.junit.jupiter")
@@ -80,8 +80,10 @@ dependencies.constraints {
     api("org.testcontainers:testcontainers:${testContainersVersion}") {
         because("org.testcontainers")
     }
-
     api("com.google.auto.service:auto-service:1.1.1") {
         because("com.google.auto.service.processor")
     }
+    api("com.google.jimfs:jimfs:1.3.0") { because("com.google.common.jimfs") }
+    api("io.minio:minio:8.5.17") { because("io.minio") }
+    api("com.squareup.okio:okio-jvm:3.11.0") { because("okio") } // required by minio
 }

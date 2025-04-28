@@ -8,18 +8,19 @@ description = "Hiero Block Node Base"
 tasks.withType<JavaCompile>().configureEach { options.compilerArgs.add("-Xlint:-exports") }
 
 mainModuleInfo {
-    annotationProcessor("dagger.compiler")
-    annotationProcessor("com.google.auto.service.processor")
     runtimeOnly("com.swirlds.config.impl")
     runtimeOnly("io.helidon.logging.jul")
     runtimeOnly("com.hedera.pbj.grpc.helidon.config")
 }
 
 testModuleInfo {
-    annotationProcessor("dagger.compiler")
     requires("org.junit.jupiter.api")
     requires("org.junit.jupiter.params")
-    requires("org.mockito")
-    requires("org.mockito.junit.jupiter")
+    requires("org.hiero.block.node.app.test.fixtures")
     requires("org.assertj.core")
+    requires("org.mockito")
+    requires("org.testcontainers")
+    requires("io.minio")
+    requires("junit")
+    requires("org.hiero.block.protobuf")
 }

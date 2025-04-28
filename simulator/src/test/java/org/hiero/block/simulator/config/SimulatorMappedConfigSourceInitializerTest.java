@@ -66,6 +66,7 @@ class SimulatorMappedConfigSourceInitializerTest {
         new ConfigMapping("generator.fileExtension", "GENERATOR_FILE_EXTENSION"),
         new ConfigMapping("generator.startBlockNumber", "GENERATOR_START_BLOCK_NUMBER"),
         new ConfigMapping("generator.endBlockNumber", "GENERATOR_END_BLOCK_NUMBER"),
+        new ConfigMapping("generator.invalidBlockHash", "GENERATOR_INVALID_BLOCK_HASH"),
 
         // Prometheus configuration (externally managed, but we need this mapping)
         new ConfigMapping("prometheus.endpointEnabled", "PROMETHEUS_ENDPOINT_ENABLED"),
@@ -77,7 +78,13 @@ class SimulatorMappedConfigSourceInitializerTest {
                 "simulator.startup.data.latestAckBlockNumberPath",
                 "SIMULATOR_STARTUP_DATA_LATEST_ACK_BLOCK_NUMBER_PATH"),
         new ConfigMapping(
-                "simulator.startup.data.latestAckBlockHashPath", "SIMULATOR_STARTUP_DATA_LATEST_ACK_BLOCK_HASH_PATH")
+                "simulator.startup.data.latestAckBlockHashPath", "SIMULATOR_STARTUP_DATA_LATEST_ACK_BLOCK_HASH_PATH"),
+
+        // Block stream configuration
+        new ConfigMapping("unorderedStream.enabled", "UNORDERED_STREAM_ENABLED"),
+        new ConfigMapping("unorderedStream.availableBlocks", "UNORDERED_STREAM_AVAILABLE_BLOCKS"),
+        new ConfigMapping("unorderedStream.sequenceScrambleLevel", "UNORDERED_STREAM_SEQUENCE_SCRAMBLE_LEVEL"),
+        new ConfigMapping("unorderedStream.fixedStreamingSequence", "UNORDERED_STREAM_FIXED_STREAMING_SEQUENCE")
     };
 
     /**

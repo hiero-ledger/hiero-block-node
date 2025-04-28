@@ -3,7 +3,6 @@ package org.hiero.block.simulator.startup.impl;
 
 import static java.lang.System.Logger.Level.DEBUG;
 
-import com.hedera.hapi.block.protoc.PublishStreamResponseCode;
 import edu.umd.cs.findbugs.annotations.NonNull;
 import java.io.IOException;
 import java.io.UncheckedIOException;
@@ -99,22 +98,20 @@ public final class SimulatorStartupDataImpl implements SimulatorStartupData {
     }
 
     @Override
+    public boolean isEnabled() {
+        return enabled;
+    }
+
+    @Override
     public void updateLatestAckBlockStartupData(
-            final long blockNumber,
-            final byte[] blockHash,
-            final boolean alreadyExists,
-            @NonNull final PublishStreamResponseCode responseCode)
-            throws IOException {
-        if (enabled) {
+            final long blockNumber, final byte[] blockHash, final boolean alreadyExists) throws IOException {
+        if (enabled && !alreadyExists) {
             // @todo(904) we need the correct response code, currently it seems that
             //   the response code is not being set correctly? The if check should
             //   be different and based on the response code, only saving
-            if (PublishStreamResponseCode.STREAM_ITEMS_UNKNOWN == responseCode && !alreadyExists) {
-                Files.write(
-                        latestAckBlockNumberPath, String.valueOf(blockNumber).getBytes());
-                Files.write(latestAckBlockHashPath, blockHash);
-                LOGGER.log(DEBUG, "Updated startup data for latest ack block with number: {0}", blockNumber);
-            }
+            Files.write(latestAckBlockNumberPath, String.valueOf(blockNumber).getBytes());
+            Files.write(latestAckBlockHashPath, blockHash);
+            LOGGER.log(DEBUG, "Updated startup data for latest ack block with number: {0}", blockNumber);
         }
     }
 }

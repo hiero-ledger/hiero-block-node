@@ -1,26 +1,16 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.suites;
 
-import com.swirlds.config.api.Configuration;
-import com.swirlds.config.api.ConfigurationBuilder;
-import com.swirlds.config.extensions.sources.ClasspathFileConfigSource;
-import com.swirlds.config.extensions.sources.SimpleConfigSource;
-import com.swirlds.config.extensions.sources.SystemEnvironmentConfigSource;
-import com.swirlds.config.extensions.sources.SystemPropertiesConfigSource;
-import edu.umd.cs.findbugs.annotations.NonNull;
-import io.github.cdimascio.dotenv.Dotenv;
-import java.io.IOException;
-import java.nio.file.Path;
+import io.grpc.ManagedChannel;
+import io.grpc.ManagedChannelBuilder;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.List;
-import java.util.Map;
 import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import org.hiero.block.api.protoc.BlockAccessServiceGrpc;
 import org.hiero.block.simulator.BlockStreamSimulatorApp;
-import org.hiero.block.simulator.BlockStreamSimulatorInjectionComponent;
-import org.hiero.block.simulator.DaggerBlockStreamSimulatorInjectionComponent;
-import org.junit.jupiter.api.AfterAll;
-import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.containers.wait.strategy.Wait;
 import org.testcontainers.utility.DockerImageName;
@@ -36,29 +26,26 @@ import org.testcontainers.utility.DockerImageName;
  *   <li>Stopping the container after tests have been executed.
  * </ul>
  *
- * <p>The Block Node Application version is retrieved dynamically from an environment file (.env).
+ * <p>The Block Node Application version is retrieved from the system property 'block.node.version'.
  */
 public abstract class BaseSuite {
-    /**
-     * Dotenv instance to load the environment variables from the .env file that
-     * is inside the build root of the :server.
-     */
-    // @todo(#343) - do not use build/environment related files from other
-    // projects directly like that, the SERVER_DOTENV should be constructed
-    // in another way
-    protected static final Dotenv SERVER_DOTENV = Dotenv.configure()
-            .directory("../block-node/server/build/docker")
-            .filename(".env")
-            .load();
-
     /** Container running the Block Node Application */
     protected static GenericContainer<?> blockNodeContainer;
 
     /** Port that is used by the Block Node Application */
     protected static int blockNodePort;
 
+    /** Port that is used by the Block Node Application for metrics */
+    protected static int blockNodeMetricsPort;
+
     /** Executor service for managing threads */
     protected static ErrorLoggingExecutor executorService;
+
+    /** gRPC channel for connecting to Block Node */
+    protected static ManagedChannel channel;
+
+    /** gRPC client stub for BlockAccessService */
+    protected static BlockAccessServiceGrpc.BlockAccessServiceBlockingStub blockAccessStub;
 
     /**
      * Default constructor for the BaseSuite class.
@@ -71,31 +58,35 @@ public abstract class BaseSuite {
     }
 
     /**
-     * Setup method to be executed before all tests.
+     * Setup method to be executed before each test.
      *
      * <p>This method initializes the Block Node server container using Testcontainers.
      */
-    @BeforeAll
-    public static void setup() {
+    @BeforeEach
+    public void setup() {
         blockNodeContainer = createContainer();
         blockNodeContainer.start();
         executorService = new ErrorLoggingExecutor();
+        blockAccessStub = initializeBlockAccessGrpcClient();
     }
 
     /**
-     * Teardown method to be executed after all tests.
+     * Teardown method to be executed after each test.
      *
      * <p>This method stops the Block Node server container if it is running. It ensures that
      * resources are cleaned up after the test suite execution is complete.
      */
-    @AfterAll
-    public static void teardown() {
+    @AfterEach
+    public void teardown() throws InterruptedException {
         if (blockNodeContainer != null) {
             blockNodeContainer.stop();
             blockNodeContainer.close();
         }
         if (executorService != null) {
             executorService.shutdownNow();
+        }
+        if (channel != null) {
+            channel.shutdown().awaitTermination(5, TimeUnit.SECONDS);
         }
     }
 
@@ -118,8 +109,10 @@ public abstract class BaseSuite {
     protected static GenericContainer<?> createContainer() {
         String blockNodeVersion = BaseSuite.getBlockNodeVersion();
         blockNodePort = 8080;
+        blockNodeMetricsPort = 9999;
         List<String> portBindings = new ArrayList<>();
         portBindings.add(String.format("%d:%2d", blockNodePort, blockNodePort));
+        portBindings.add(String.format("%d:%2d", blockNodeMetricsPort, blockNodeMetricsPort));
         blockNodeContainer = new GenericContainer<>(DockerImageName.parse("block-node-server:" + blockNodeVersion))
                 .withExposedPorts(blockNodePort)
                 .withEnv("VERSION", blockNodeVersion)
@@ -127,6 +120,20 @@ public abstract class BaseSuite {
                 .waitingFor(Wait.forHealthcheck());
         blockNodeContainer.setPortBindings(portBindings);
         return blockNodeContainer;
+    }
+
+    /**
+     * Initializes the gRPC client for connecting to the Block Node with BlockAccessStub for requesting single blocks.
+     */
+    protected static BlockAccessServiceGrpc.BlockAccessServiceBlockingStub initializeBlockAccessGrpcClient() {
+        String host = blockNodeContainer.getHost();
+        int port = blockNodePort;
+
+        channel = ManagedChannelBuilder.forAddress(host, port)
+                .usePlaintext() // For testing only
+                .build();
+
+        return BlockAccessServiceGrpc.newBlockingStub(channel);
     }
 
     /**
@@ -146,60 +153,16 @@ public abstract class BaseSuite {
     }
 
     /**
-     * Creates a new instance of the block stream simulator with custom configuration.
-     *
-     * @param customConfiguration the custom configuration which will be applied to simulator upon startup
-     * @return a new instance of the block stream simulator
-     * @throws IOException if an I/O error occurs
-     */
-    protected BlockStreamSimulatorApp createBlockSimulator(@NonNull final Map<String, String> customConfiguration)
-            throws IOException {
-        BlockStreamSimulatorInjectionComponent DIComponent = DaggerBlockStreamSimulatorInjectionComponent.factory()
-                .create(loadSimulatorConfiguration(customConfiguration));
-        return DIComponent.getBlockStreamSimulatorApp();
-    }
-
-    /**
-     * Creates a new instance of the block stream simulator with default configuration.
-     *
-     * @return a new instance of the block stream simulator
-     * @throws IOException if an I/O error occurs
-     */
-    protected BlockStreamSimulatorApp createBlockSimulator() throws IOException {
-        BlockStreamSimulatorInjectionComponent DIComponent = DaggerBlockStreamSimulatorInjectionComponent.factory()
-                .create(loadSimulatorConfiguration(Collections.emptyMap()));
-        return DIComponent.getBlockStreamSimulatorApp();
-    }
-
-    /**
-     * Builds the desired block simulator configuration
-     *
-     * @return block simulator configuration
-     * @throws IOException if an I/O error occurs
-     */
-    protected static Configuration loadSimulatorConfiguration(@NonNull final Map<String, String> customProperties)
-            throws IOException {
-        final ConfigurationBuilder configurationBuilder = ConfigurationBuilder.create()
-                .withSource(SystemEnvironmentConfigSource.getInstance())
-                .withSource(SystemPropertiesConfigSource.getInstance())
-                .withSource(new ClasspathFileConfigSource(Path.of("app.properties")))
-                .autoDiscoverExtensions();
-
-        for (Map.Entry<String, String> entry : customProperties.entrySet()) {
-            final String key = entry.getKey();
-            final String value = entry.getValue();
-            configurationBuilder.withSource(new SimpleConfigSource(key, value).withOrdinal(500));
-        }
-
-        return configurationBuilder.build();
-    }
-
-    /**
-     * Retrieves the Block Node server version from the .env file.
+     * Retrieves the Block Node server version from the system property.
      *
      * @return the version of the Block Node server as a string
      */
     private static String getBlockNodeVersion() {
-        return SERVER_DOTENV.get("VERSION");
+        String version = System.getProperty("block.node.version");
+        if (version == null) {
+            throw new IllegalStateException(
+                    "block.node.version system property is not set. This should be set by Gradle.");
+        }
+        return version;
     }
 }

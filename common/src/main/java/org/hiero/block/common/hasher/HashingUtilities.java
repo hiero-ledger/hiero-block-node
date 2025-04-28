@@ -1,15 +1,16 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.common.hasher;
 
-import com.hedera.hapi.block.BlockItemUnparsed;
 import com.hedera.hapi.block.stream.BlockProof;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
+import com.swirlds.common.crypto.DigestType;
 import edu.umd.cs.findbugs.annotations.NonNull;
 import java.nio.ByteBuffer;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.List;
 import java.util.Objects;
+import org.hiero.block.internal.BlockItemUnparsed;
 
 /**
  * Provides common utility methods for hashing and combining hashes.
@@ -39,7 +40,13 @@ public final class HashingUtilities {
      * @return the SHA-384 hash of the given bytes
      */
     public static Bytes noThrowSha384HashOf(@NonNull final Bytes bytes) {
-        return Bytes.wrap(noThrowSha384HashOf(bytes.toByteArray()));
+        try {
+            final var digest = MessageDigest.getInstance(DigestType.SHA_384.algorithmName());
+            bytes.writeTo(digest);
+            return Bytes.wrap(digest.digest());
+        } catch (final NoSuchAlgorithmException fatal) {
+            throw new IllegalStateException(fatal);
+        }
     }
 
     /**
@@ -75,7 +82,14 @@ public final class HashingUtilities {
      * @return the combined hash
      */
     public static Bytes combine(@NonNull final Bytes leftHash, @NonNull final Bytes rightHash) {
-        return Bytes.wrap(combine(leftHash.toByteArray(), rightHash.toByteArray()));
+        try {
+            final var digest = MessageDigest.getInstance(DigestType.SHA_384.algorithmName());
+            leftHash.writeTo(digest);
+            rightHash.writeTo(digest);
+            return Bytes.wrap(digest.digest());
+        } catch (final NoSuchAlgorithmException fatal) {
+            throw new IllegalStateException(fatal);
+        }
     }
 
     /**

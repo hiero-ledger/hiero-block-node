@@ -4,13 +4,14 @@ package org.hiero.block.server.messaging;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 
-import com.hedera.hapi.block.BlockItemUnparsed;
-import com.hedera.hapi.block.BlockItemUnparsed.ItemOneOfType;
 import com.hedera.pbj.runtime.OneOf;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import java.util.List;
 import java.util.stream.Collectors;
-import org.hiero.block.server.messaging.impl.BlockItemBatchRingEvent;
+import org.hiero.block.internal.BlockItemUnparsed;
+import org.hiero.block.internal.BlockItemUnparsed.ItemOneOfType;
+import org.hiero.block.node.messaging.BlockItemBatchRingEvent;
+import org.hiero.block.node.spi.blockmessaging.BlockItems;
 import org.junit.jupiter.api.Test;
 
 /**
@@ -35,15 +36,17 @@ public class BlockItemBatchRingEventTest {
         BlockItemUnparsed item1 = new BlockItemUnparsed(new OneOf<>(ItemOneOfType.BLOCK_HEADER, Bytes.wrap("fake")));
         BlockItemUnparsed item2 = new BlockItemUnparsed(new OneOf<>(ItemOneOfType.BLOCK_PROOF, Bytes.wrap("fake")));
         List<BlockItemUnparsed> items = List.of(item1, item2);
+        final BlockItems blockItems = new BlockItems(items, 0);
         // set the items
-        event.set(items);
+        event.set(blockItems);
         // verify that the get method returns the same notification
-        assertEquals(items, event.get(), "The set and get methods should return the same BlockNotification instance");
+        assertEquals(
+                blockItems, event.get(), "The set and get methods should return the same BlockNotification instance");
         // verify that the toString method returns a non-empty string
         assertEquals(
-                "BlockItemBatchRingEvent{"
+                "BlockItemBatchRingEvent{BlockItems[blockItems=["
                         + items.stream().map(BlockItemUnparsed::toString).collect(Collectors.joining(", "))
-                        + '}',
+                        + "], newBlockNumber=0]}",
                 event.toString(),
                 "The toString method should return a non-empty string");
     }

@@ -10,7 +10,7 @@ This document will outline the structure and content of Block Node documentation
 
 ## Projects
 
-- [Hiero Block Node](server/README.md): Provides an introduction to Hiero Block Node, its purpose and how it can be used.
+- [Hiero Block Node](block-node/README.md): Provides an introduction to Hiero Block Node, its purpose and how it can be used.
 - [Simulator](simulator/README.md): Offers instructions on how the Simulator can be utilized.
 - [Tools](tools/README.md): Provides information on the command line tools available.
 

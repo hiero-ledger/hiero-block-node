@@ -6,6 +6,7 @@ import dagger.Provides;
 import edu.umd.cs.findbugs.annotations.NonNull;
 import javax.inject.Singleton;
 import org.hiero.block.simulator.config.data.BlockGeneratorConfig;
+import org.hiero.block.simulator.config.data.UnorderedStreamConfig;
 import org.hiero.block.simulator.config.types.GenerationMode;
 import org.hiero.block.simulator.startup.SimulatorStartupData;
 
@@ -16,7 +17,6 @@ public interface GeneratorInjectionModule {
     /**
      * Provides the block stream manager based on the configuration settings.
      * For DIR generation mode:
-     * - BlockAsDirBlockStreamManager if explicitly configured
      * - BlockAsFileLargeDataSets if explicitly configured
      * - BlockAsFileBlockStreamManager as default
      * For CRAFT generation mode:
@@ -30,19 +30,18 @@ public interface GeneratorInjectionModule {
     @Provides
     static BlockStreamManager providesBlockStreamManager(
             @NonNull final BlockGeneratorConfig generatorConfig,
-            @NonNull final SimulatorStartupData simulatorStartupData) {
+            @NonNull final SimulatorStartupData simulatorStartupData,
+            @NonNull final UnorderedStreamConfig unorderedStreamConfig) {
         final String managerImpl = generatorConfig.managerImplementation();
         final GenerationMode generationMode = generatorConfig.generationMode();
         return switch (generationMode) {
             case DIR -> {
-                if ("BlockAsDirBlockStreamManager".equalsIgnoreCase(managerImpl)) {
-                    yield new BlockAsDirBlockStreamManager(generatorConfig);
-                } else if ("BlockAsFileLargeDataSets".equalsIgnoreCase(managerImpl)) {
+                if ("BlockAsFileLargeDataSets".equalsIgnoreCase(managerImpl)) {
                     yield new BlockAsFileLargeDataSets(generatorConfig);
                 }
                 yield new BlockAsFileBlockStreamManager(generatorConfig);
             }
-            case CRAFT -> new CraftBlockStreamManager(generatorConfig, simulatorStartupData);
+            case CRAFT -> new CraftBlockStreamManager(generatorConfig, simulatorStartupData, unorderedStreamConfig);
         };
     }
 }

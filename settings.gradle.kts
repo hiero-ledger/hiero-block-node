@@ -10,19 +10,23 @@ javaModules {
         module("suites")
         module("simulator")
         module("common")
-        module("stream")
+        module("protobuf")
     }
     directory("block-node") {
         group = "org.hiero.block"
-        module("server") { artifact = "block-node-server" }
+        module("app") { artifact = "block-node-app" }
+        module("archive") { artifact = "block-node-archive" }
         module("base") { artifact = "block-node-base" }
-        // module("persistence") { artifact = "service-persistence" }
-        // module("persistence-api") { artifact = "service-persistence-api" }
-        // module("verification") { artifact = "service-verification" }
-        // module("verification-api") { artifact = "service-verification-api" }
+        module("plugins") { artifact = "block-node-plugins" }
+        module("health") { artifact = "block-node-health" }
         module("messaging") { artifact = "facility-messaging" }
-        // module("configuration") { artifact = "facility-configuration" }
-        // module("registrar") { artifact = "facility-registrar" }
-        // module("facilities-api") { artifact = "facilities-api" }
+        module("publisher") { artifact = "block-node-publisher" }
+        // module("subscriber") { artifact = "block-node-subscriber" }
+        module("stream-subscriber") { artifact = "block-node-stream-subscriber" }
+        module("verification") { artifact = "block-node-verification" }
+        module("block-providers/cloud.historic") { artifact = "block-node-blocks-cloud-historic" }
+        module("block-providers/files.historic") { artifact = "block-node-blocks-file-historic" }
+        module("block-providers/files.recent") { artifact = "block-node-blocks-file-recent" }
+        module("block-access") { artifact = "block-access-service" }
     }
 }

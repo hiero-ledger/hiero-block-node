@@ -6,7 +6,6 @@ import static org.assertj.core.api.Assertions.assertThatExceptionOfType;
 import static org.assertj.core.api.Assertions.assertThatIllegalStateException;
 import static org.assertj.core.api.Assertions.from;
 
-import com.hedera.hapi.block.protoc.PublishStreamResponseCode;
 import com.swirlds.config.api.Configuration;
 import com.swirlds.config.api.ConfigurationBuilder;
 import java.io.IOException;
@@ -200,7 +199,7 @@ class SimulatorStartupDataImplTest {
 
     /**
      * This test aims to verify that the
-     * {@link SimulatorStartupDataImpl#updateLatestAckBlockStartupData(long, byte[], boolean, PublishStreamResponseCode)}
+     * {@link SimulatorStartupDataImpl#updateLatestAckBlockStartupData(long, byte[], boolean)}
      * will correctly not update the startup data if the functionality is disabled.
      */
     @Test
@@ -208,16 +207,16 @@ class SimulatorStartupDataImplTest {
         assertThat(latestAckBlockHashPath).doesNotExist();
         assertThat(latestAckBlockNumberPath).doesNotExist();
         final SimulatorStartupDataImpl toTest = newInstanceToTest(false);
+        assertThat(toTest.isEnabled()).isFalse();
         // @todo(904) we need the correct response code
-        toTest.updateLatestAckBlockStartupData(
-                1L, validSimulatedBlockHash, false, PublishStreamResponseCode.STREAM_ITEMS_UNKNOWN);
+        toTest.updateLatestAckBlockStartupData(1L, validSimulatedBlockHash, false);
         assertThat(latestAckBlockHashPath).doesNotExist();
         assertThat(latestAckBlockNumberPath).doesNotExist();
     }
 
     /**
      * This test aims to verify that the
-     * {@link SimulatorStartupDataImpl#updateLatestAckBlockStartupData(long, byte[], boolean, PublishStreamResponseCode)}
+     * {@link SimulatorStartupDataImpl#updateLatestAckBlockStartupData(long, byte[], boolean)}
      * will correctly update the startup data if the functionality is enabled.
      */
     @Test
@@ -225,6 +224,7 @@ class SimulatorStartupDataImplTest {
         assertThat(latestAckBlockHashPath).doesNotExist();
         assertThat(latestAckBlockNumberPath).doesNotExist();
         final SimulatorStartupDataImpl toTest = newInstanceToTest(true);
+        assertThat(toTest.isEnabled()).isTrue();
         assertThat(latestAckBlockNumberPath)
                 .exists()
                 .isRegularFile()
@@ -238,8 +238,7 @@ class SimulatorStartupDataImplTest {
                 .isWritable()
                 .isEmptyFile();
         // @todo(904) we need the correct response code
-        toTest.updateLatestAckBlockStartupData(
-                1L, validSimulatedBlockHash, false, PublishStreamResponseCode.STREAM_ITEMS_UNKNOWN);
+        toTest.updateLatestAckBlockStartupData(1L, validSimulatedBlockHash, false);
         assertThat(latestAckBlockNumberPath)
                 .exists()
                 .isRegularFile()

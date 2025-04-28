@@ -14,12 +14,12 @@ Implementation of the Hiero Block Node, which is responsible for consuming the b
 
 ## Project Links
 
-[![Build Application](https://github.com/hashgraph/hedera-block-node/actions/workflows/build-application.yaml/badge.svg?branch=main)](https://github.com/hashgraph/hedera-block-node/actions/workflows/build-application.yaml)
-[![E2E Test Suites](https://github.com/hashgraph/hedera-block-node/actions/workflows/e2e-tests.yaml/badge.svg?branch=main)](https://github.com/hashgraph/hedera-block-node/actions/workflows/e2e-tests.yaml)
-[![codecov](https://codecov.io/github/hashgraph/hedera-block-node/graph/badge.svg?token=OF6T6E8V7U)](https://codecov.io/github/hashgraph/hedera-block-node)
+[![Build Application](https://github.com/hiero-ledger/hiero-block-node/actions/workflows/build-application.yaml/badge.svg?branch=main)](https://github.com/hiero-ledger/hiero-block-node/actions/workflows/build-application.yaml)
+[![E2E Test Suites](https://github.com/hiero-ledger/hiero-block-node/actions/workflows/e2e-tests.yaml/badge.svg?branch=main)](https://github.com/hiero-ledger/hiero-block-node/actions/workflows/e2e-tests.yaml)
+[![codecov](https://codecov.io/github/hiero-ledger/hiero-block-node/graph/badge.svg?token=OF6T6E8V7U)](https://codecov.io/github/hiero-ledger/hiero-block-node)
 
-[![Latest Version](https://img.shields.io/github/v/tag/hashgraph/hedera-block-node?sort=semver&label=version)](README.md)
-[![Made With](https://img.shields.io/badge/made_with-java-blue)](https://github.com/hashgraph/hedera-block-node/)
+[![Latest Version](https://img.shields.io/github/v/tag/hiero-ledger/hiero-block-node?sort=semver&label=version)](README.md)
+[![Made With](https://img.shields.io/badge/made_with-java-blue)](https://github.com/hiero-ledger/hiero-block-node/)
 [![Development Branch](https://img.shields.io/badge/docs-quickstart-green.svg)](docs/overview.md)
 [![License](https://img.shields.io/badge/license-apache2-blue.svg)](LICENSE)
 
@@ -32,7 +32,7 @@ Implementation of the Hiero Block Node, which is responsible for consuming the b
 
 ## Overview of child modules
 
-- [`server`](docs/server/README.md): implementation of the Block Node, which contains the main application and all the necessary code to run the Block Node.
+- [`block-node`](docs/block-node/README.md): implementation of the Block Node.
 - [`simulator`](docs/simulator/README.md): A simulator for the Block Node, which can be used to test the Block Node in a local environment.
 - `common`: Module responsible for holding common literals, utilities and types used by the other modules.
 - `suites`: A set of e2e tests that can be used to verify the correctness of the Block Node.

@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.simulator.generator.itemhandler;
 
-import com.hedera.hapi.block.BlockItemUnparsed;
 import com.hedera.hapi.block.stream.protoc.BlockItem;
+import org.hiero.block.internal.BlockItemUnparsed;
 import org.hiero.block.simulator.exception.BlockSimulatorParsingException;
 
 /**

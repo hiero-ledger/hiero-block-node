@@ -87,8 +87,6 @@ spec:
           - name: live-storage
             mountPath: {{ .Values.blockNode.persistence.live.mountPath }}
             subPath: {{ .Values.blockNode.persistence.live.subPath }}
-          - name: unverified-ephemeral-storage
-            mountPath: {{ .Values.blockNode.persistence.unverified.mountPath }}
         {{- with  .Values.resources }}
         resources:
           requests:
