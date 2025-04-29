@@ -6,6 +6,7 @@ import java.io.IOException;
 import java.lang.System.Logger.Level;
 import java.nio.file.Files;
 import java.util.List;
+import java.util.Objects;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -23,11 +24,11 @@ import org.hiero.block.node.spi.historicalblocks.LongRange;
  * This plugin provides a block provider that stores historical blocks in file. It is designed to store them in the
  * most compressed optimal way possible. It is designed to be used with the
  */
-public class BlocksFilesHistoricPlugin implements BlockProviderPlugin, BlockNotificationHandler {
+public final class BlocksFilesHistoricPlugin implements BlockProviderPlugin, BlockNotificationHandler {
     /** The logger for this class. */
     private final System.Logger LOGGER = System.getLogger(getClass().getName());
     /** The executor service for moving blocks to zip files in a background thread. */
-    private final ExecutorService zipMoveExecutorService = Executors.newSingleThreadExecutor();
+    private final ExecutorService zipMoveExecutorService;
     /** The block node context. */
     private BlockNodeContext context;
     /** The zip block archive. */
@@ -38,6 +39,19 @@ public class BlocksFilesHistoricPlugin implements BlockProviderPlugin, BlockNoti
     private final ConcurrentLongRangeSet availableBlocks = new ConcurrentLongRangeSet();
     /** List of all zip ranges that are in progress, so we do not start a duplicate job. */
     private final CopyOnWriteArrayList<LongRange> inProgressZipRanges = new CopyOnWriteArrayList<>();
+
+    /** Constructor, used for normal plugin loading */
+    public BlocksFilesHistoricPlugin() {
+        this.zipMoveExecutorService = Executors.newSingleThreadExecutor();
+    }
+
+    /**
+     * Constructor, used only for testing temporarily, need to introduce the
+     * executor factory method in the test context to remove this.
+     */
+    BlocksFilesHistoricPlugin(final ExecutorService zipMoveExecutorService) {
+        this.zipMoveExecutorService = Objects.requireNonNull(zipMoveExecutorService);
+    }
 
     // ==== BlockProviderPlugin Methods ================================================================================
 
@@ -54,8 +68,8 @@ public class BlocksFilesHistoricPlugin implements BlockProviderPlugin, BlockNoti
      * {@inheritDoc}
      */
     @Override
-    public void init(BlockNodeContext context, ServiceBuilder serviceBuilder) {
-        this.context = context;
+    public void init(final BlockNodeContext context, final ServiceBuilder serviceBuilder) {
+        this.context = Objects.requireNonNull(context);
         final FilesHistoricConfig config = context.configuration().getConfigData(FilesHistoricConfig.class);
         // create plugin data root directory if it does not exist
         try {
@@ -69,7 +83,19 @@ public class BlocksFilesHistoricPlugin implements BlockProviderPlugin, BlockNoti
         numberOfBlocksPerZipFile = (int) Math.pow(10, config.powersOfTenPerZipFileContents());
         zipBlockArchive = new ZipBlockArchive(context, config);
         // get the first and last block numbers from the zipBlockArchive
-        availableBlocks.add(zipBlockArchive.minStoredBlockNumber(), zipBlockArchive.maxStoredBlockNumber());
+        final long firstZippedBlock = zipBlockArchive.minStoredBlockNumber();
+        final long latestZippedBlock = zipBlockArchive.maxStoredBlockNumber();
+        if (latestZippedBlock > firstZippedBlock) {
+            // we never expect to enter here, if we do, we have an issue that
+            // needs to be investigated
+            throw new IllegalStateException(
+                    "Latest zipped block number [%d] cannot be greater than the first zipped block number [%d]"
+                            .formatted(latestZippedBlock, firstZippedBlock));
+        }
+        if (firstZippedBlock >= 0) {
+            // add the blocks to the available blocks only if the range is a valid one (positive)
+            availableBlocks.add(firstZippedBlock, latestZippedBlock);
+        }
     }
 
     /**
@@ -77,21 +103,7 @@ public class BlocksFilesHistoricPlugin implements BlockProviderPlugin, BlockNoti
      */
     @Override
     public void start() {
-        // determine if there are any batches of blocks that need to be moved to zip files
-        // get the largest stored block number
-        long largestStoredBlockNumber =
-                context.historicalBlockProvider().availableBlocks().max();
-        if (largestStoredBlockNumber > availableBlocks.max()) {
-            // complete if there are any blocks that need to be moved to zip files
-            long startBlockNumber = availableBlocks.max() + 1;
-            while ((startBlockNumber + numberOfBlocksPerZipFile) < largestStoredBlockNumber) {
-                // move the batch of blocks to a zip file
-                startMovingBatchOfBlocksToZipFile(
-                        new LongRange(startBlockNumber, startBlockNumber + numberOfBlocksPerZipFile));
-                // move to next batch
-                startBlockNumber += numberOfBlocksPerZipFile;
-            }
-        }
+        attemptZipping();
     }
 
     /**
@@ -133,24 +145,34 @@ public class BlocksFilesHistoricPlugin implements BlockProviderPlugin, BlockNoti
     @Override
     public void handlePersisted(PersistedNotification notification) {
         if (notification.blockProviderPriority() > defaultPriority()) {
-            // compute the min and max block in next batch to zip
-            long minBlockNumber = availableBlocks().max() + 1;
-            long maxBlockNumber = minBlockNumber + numberOfBlocksPerZipFile - 1;
-            // check all those blocks are available
-            while (context.historicalBlockProvider().availableBlocks().max() >= maxBlockNumber) {
-                if (context.historicalBlockProvider().availableBlocks().contains(minBlockNumber, maxBlockNumber)) {
-                    final LongRange batchRange = new LongRange(minBlockNumber, maxBlockNumber);
-                    // move the batch of blocks to a zip file
-                    startMovingBatchOfBlocksToZipFile(batchRange);
-                }
-                // try the next batch just in case there is more than one that became available
-                minBlockNumber += numberOfBlocksPerZipFile;
-                maxBlockNumber += numberOfBlocksPerZipFile;
-            }
-        }
+            attemptZipping();
+        } // todo this is not enough of an assertion that the blocks will be coming from the right place
+        //     as notifications are async and things can happen, when we get the accessors later, we should
+        //     be able to get accessors only from places that have higher priority than us. We should probably
+        //     have that as a feature in the block accessor api. (meaning we should be able to query the
+        //     historical block facility for blocks that are coming from higher priority plugins)
     }
 
     // ==== Private Methods ============================================================================================
+    private void attemptZipping() {
+        // compute the min and max block in next batch to zip
+        long minBlockNumber = availableBlocks().max() + 1;
+        long maxBlockNumber = minBlockNumber + numberOfBlocksPerZipFile - 1;
+        // check all those blocks are available
+        final BlockRangeSet historicalAvailable =
+                context.historicalBlockProvider().availableBlocks();
+        // while we can zip blocks, we must keep zipping
+        while (historicalAvailable.max() >= maxBlockNumber) {
+            if (historicalAvailable.contains(minBlockNumber, maxBlockNumber)) {
+                final LongRange batchRange = new LongRange(minBlockNumber, maxBlockNumber);
+                // move the batch of blocks to a zip file
+                startMovingBatchOfBlocksToZipFile(batchRange);
+            }
+            // try the next batch just in case there is more than one that became available
+            minBlockNumber += numberOfBlocksPerZipFile;
+            maxBlockNumber += numberOfBlocksPerZipFile;
+        }
+    }
 
     /**
      * Start moving a batch of blocks to a zip file in background as long as batch is not already in progress or queued
@@ -190,26 +212,29 @@ public class BlocksFilesHistoricPlugin implements BlockProviderPlugin, BlockNoti
                     batchFirstBlockNumber,
                     batchLastBlockNumber);
             zipBlockArchive.writeNewZipFile(batchFirstBlockNumber);
-            // update the first and last block numbers
-            availableBlocks.add(batchFirstBlockNumber, batchLastBlockNumber);
-            // log done
-            LOGGER.log(
-                    System.Logger.Level.INFO,
-                    "Moved batch of blocks[%d -> %d] to zip file",
-                    batchFirstBlockNumber,
-                    batchLastBlockNumber);
-            // now all the blocks are in the zip file and accessible, send notification
-            context.blockMessaging()
-                    .sendBlockPersisted(
-                            new PersistedNotification(batchFirstBlockNumber, batchLastBlockNumber, defaultPriority()));
-            // remove the batch of blocks from in progress ranges
-            inProgressZipRanges.remove(batchRange);
-        } catch (Exception e) {
+        } catch (final IOException e) {
             LOGGER.log(
                     System.Logger.Level.ERROR,
                     "Failed to move batch of blocks[" + batchFirstBlockNumber + " -> " + batchLastBlockNumber
                             + "] to zip file",
                     e);
+            return;
         }
+        // if we have reached here, then the batch of blocks has been zipped,
+        // now we need to make some updates
+        // update the first and last block numbers
+        availableBlocks.add(batchFirstBlockNumber, batchLastBlockNumber);
+        // log done
+        LOGGER.log(
+                System.Logger.Level.INFO,
+                "Moved batch of blocks[%d -> %d] to zip file",
+                batchFirstBlockNumber,
+                batchLastBlockNumber);
+        // now all the blocks are in the zip file and accessible, send notification
+        context.blockMessaging()
+                .sendBlockPersisted(
+                        new PersistedNotification(batchFirstBlockNumber, batchLastBlockNumber, defaultPriority()));
+        // remove the batch of blocks from in progress ranges
+        inProgressZipRanges.remove(batchRange);
     }
 }
