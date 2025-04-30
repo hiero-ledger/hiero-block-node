@@ -72,15 +72,6 @@ tasks.register<JavaExec>("runConsumer") {
     environment("PROMETHEUS_ENDPOINT_PORT_NUMBER", "9997")
 }
 
-tasks.register<Sync>("untarTestBlockStream") {
-    description = "Untar the test block stream data"
-
-    from(tarTree(resources.gzip(file("src/main/resources/block-0.0.3.tar.gz"))))
-    into(layout.buildDirectory.dir("extracted-resources"))
-}
-
-sourceSets.main { resources.srcDir(tasks.named("untarTestBlockStream")) }
-
 // Vals
 val dockerProjectRootDirectory: Directory = layout.projectDirectory.dir("docker")
 var resourcesProjectRootDirectory: Directory = layout.projectDirectory.dir("src/main/resources")

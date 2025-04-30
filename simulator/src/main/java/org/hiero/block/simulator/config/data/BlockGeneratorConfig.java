@@ -6,7 +6,7 @@ import com.swirlds.config.api.ConfigProperty;
 import com.swirlds.config.api.validation.annotation.Min;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.Paths;
+import org.hiero.block.common.utils.StringUtilities;
 import org.hiero.block.simulator.config.logging.Loggable;
 import org.hiero.block.simulator.config.types.GenerationMode;
 
@@ -44,23 +44,27 @@ public record BlockGeneratorConfig(
      * @throws IllegalArgumentException if the folder root path is not absolute or the folder does not exist
      */
     public BlockGeneratorConfig {
-        // Verify folderRootPath property
-        Path path = Path.of(folderRootPath);
+        // Default generation mode is CRAFT.
+        // If set to DIR, block files must be located in a directory on the file system.
+        // Set location at app.properties
+        if (generationMode == GenerationMode.DIR) {
+            // Verify folderRootPath property
+            // Check if not empty
+            if (StringUtilities.isBlank(folderRootPath)) {
+                throw new IllegalArgumentException("Root path is not provided");
+            }
+            Path path = Path.of(folderRootPath);
+            // Check if absolute
+            if (!path.isAbsolute()) {
+                throw new IllegalArgumentException(folderRootPath + " Root path must be absolute");
+            }
+            // Check if the folder exists
+            if (Files.notExists(path)) {
+                throw new IllegalArgumentException("Folder does not exist: " + path);
+            }
 
-        // If folderRootPath is empty, set it to the default data directory
-        if (folderRootPath.isEmpty()) {
-            path = Paths.get("").toAbsolutePath().resolve("build/resources/main//block-0.0.3");
+            folderRootPath = path.toString();
         }
-        // Check if absolute
-        if (!path.isAbsolute()) {
-            throw new IllegalArgumentException(folderRootPath + " Root path must be absolute");
-        }
-        // Check if the folder exists
-        if (Files.notExists(path) && generationMode == GenerationMode.DIR) {
-            throw new IllegalArgumentException("Folder does not exist: " + path);
-        }
-
-        folderRootPath = path.toString();
 
         if (endBlockNumber > -1 && endBlockNumber < startBlockNumber) {
             throw new IllegalArgumentException("endBlockNumber must be greater than or equal to startBlockNumber");

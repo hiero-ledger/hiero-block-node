@@ -11,6 +11,7 @@ import edu.umd.cs.findbugs.annotations.NonNull;
 import java.io.IOException;
 import java.net.ServerSocket;
 import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.Map;
 
 public class TestUtils {
@@ -47,5 +48,9 @@ public class TestUtils {
         try (ServerSocket socket = new ServerSocket(0)) {
             return socket.getLocalPort();
         }
+    }
+
+    public static String getAbsoluteFolder(@NonNull String relativePath) {
+        return Paths.get(relativePath).toAbsolutePath().toString();
     }
 }
