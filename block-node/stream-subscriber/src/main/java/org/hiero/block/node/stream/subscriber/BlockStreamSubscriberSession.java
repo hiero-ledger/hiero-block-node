@@ -177,6 +177,7 @@ public class BlockStreamSubscriberSession implements Callable<BlockStreamSubscri
                     // then process live blocks, if available.
                     sendLiveBlocksIfAvailable();
                 }
+                close(SubscribeStreamResponse.Code.READ_STREAM_SUCCESS); // Need an "INCOMPLETE" code...
             }
         } catch (RuntimeException | ParseException | InterruptedException e) {
             sessionFailedCause = e;
@@ -535,7 +536,7 @@ public class BlockStreamSubscriberSession implements Callable<BlockStreamSubscri
     //       This means we must not modify any state in the session object directly.
     //       Instead we must use a transfer queue to pass the block items to the session
     //       and possibly set an atomic flag if we are "too far behind".
-    private static class LiveBlockHandler implements NoBackPressureBlockItemHandler {
+    static class LiveBlockHandler implements NoBackPressureBlockItemHandler {
         /** The logger for this class. */
         private final Logger LOGGER = System.getLogger(getClass().getName());
 
