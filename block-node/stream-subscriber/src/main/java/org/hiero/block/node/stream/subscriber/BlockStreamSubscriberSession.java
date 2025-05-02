@@ -177,7 +177,10 @@ public class BlockStreamSubscriberSession implements Callable<BlockStreamSubscri
                     // then process live blocks, if available.
                     sendLiveBlocksIfAvailable();
                 }
-                close(SubscribeStreamResponse.Code.READ_STREAM_SUCCESS); // Need an "INCOMPLETE" code...
+                if (!interruptedStream.get()) {
+                    // We've sent all request blocks. Therefore, we close, according to the protocol.
+                    close(SubscribeStreamResponse.Code.READ_STREAM_SUCCESS);
+                }
             }
         } catch (RuntimeException | ParseException | InterruptedException e) {
             sessionFailedCause = e;
@@ -256,6 +259,9 @@ public class BlockStreamSubscriberSession implements Callable<BlockStreamSubscri
     }
 
     private boolean allRequestedBlocksSent() {
+        if (endBlockNumber == 0L) { // We are requesting block indefinitely.
+            return false;
+        }
         return endBlockNumber != UNKNOWN_BLOCK_NUMBER && nextBlockToSend > endBlockNumber;
     }
 
