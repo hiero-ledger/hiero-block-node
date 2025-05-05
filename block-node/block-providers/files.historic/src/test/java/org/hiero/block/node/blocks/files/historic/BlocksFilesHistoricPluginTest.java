@@ -24,6 +24,7 @@ import java.util.zip.ZipFile;
 import org.hiero.block.internal.BlockItemUnparsed;
 import org.hiero.block.internal.BlockUnparsed;
 import org.hiero.block.node.app.fixtures.async.BlockingSerialExecutor;
+import org.hiero.block.node.app.fixtures.async.TestThreadPoolManager;
 import org.hiero.block.node.app.fixtures.blocks.SimpleTestBlockItemBuilder;
 import org.hiero.block.node.app.fixtures.plugintest.NoOpServiceBuilder;
 import org.hiero.block.node.app.fixtures.plugintest.PluginTestBase;
@@ -38,7 +39,6 @@ import org.hiero.block.node.spi.blockmessaging.PersistedNotification;
 import org.hiero.block.node.spi.historicalblocks.BlockAccessor;
 import org.hiero.block.node.spi.historicalblocks.BlockRangeSet;
 import org.hiero.block.node.spi.historicalblocks.HistoricalBlockFacility;
-import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
@@ -51,8 +51,6 @@ import org.junit.jupiter.api.io.TempDir;
 class BlocksFilesHistoricPluginTest {
     /** The test block messaging facility to use for testing. */
     private final SimpleInMemoryHistoricalBlockFacility testHistoricalBlockFacility;
-    /** The test block serial executor service to use for the plugin. */
-    private final BlockingSerialExecutor pluginExecutor;
     /** The test config to use for the plugin. */
     private final FilesHistoricConfig testConfig;
     /** The instance under test. */
@@ -63,26 +61,15 @@ class BlocksFilesHistoricPluginTest {
      */
     BlocksFilesHistoricPluginTest(@TempDir final Path tempDir) {
         Objects.requireNonNull(tempDir);
-        // create a blocking serial executor to run the plugin tasks that use
-        // an executor service internally
-        pluginExecutor = new BlockingSerialExecutor(new LinkedBlockingQueue<>());
         // generate test config, for the purposes of this test, we will always
         // use 10 blocks per zip, assuming that the first zip file will contain
         // for example blocks 0-9, the second zip file will contain blocks 10-19
         // also we will not use compression, and we will use the jUnit temp dir
         testConfig = new FilesHistoricConfig(tempDir, CompressionType.NONE, 1);
         // build the plugin using the test environment
-        toTest = new BlocksFilesHistoricPlugin(pluginExecutor);
+        toTest = new BlocksFilesHistoricPlugin();
         // initialize an in memory historical block facility to use for testing
         testHistoricalBlockFacility = new SimpleInMemoryHistoricalBlockFacility();
-    }
-
-    /**
-     * Teardown logic to run after each test.
-     */
-    @AfterEach
-    void tearDown() {
-        pluginExecutor.shutdownNow();
     }
 
     /**
@@ -133,7 +120,8 @@ class BlocksFilesHistoricPluginTest {
                     new TestHealthFacility(),
                     new TestBlockMessagingFacility(),
                     historicalBlockProvider,
-                    null);
+                    null,
+                    new TestThreadPoolManager<>(new BlockingSerialExecutor(new LinkedBlockingQueue<>())));
             // call
             final BlocksFilesHistoricPlugin toTest = new BlocksFilesHistoricPlugin();
             assertThatNoException().isThrownBy(() -> toTest.init(testContext, null));
@@ -146,12 +134,16 @@ class BlocksFilesHistoricPluginTest {
     @Nested
     @DisplayName("Plugin Tests")
     final class PluginTests extends PluginTestBase<BlocksFilesHistoricPlugin> {
+        /** The test block serial executor service to use for the plugin. */
+        private final BlockingSerialExecutor pluginExecutor;
+
         /**
          * Construct plugin base.
          */
         PluginTests() {
             // match overrides to the test config
             final Map<String, String> configOverrides = getConfigOverrides();
+            pluginExecutor = testThreadPoolManager.executor();
             // initialize and start the test plugin using the config overrides
             start(toTest, testHistoricalBlockFacility, configOverrides);
         }
@@ -537,7 +529,7 @@ class BlocksFilesHistoricPluginTest {
          */
         @Test
         @DisplayName("Test happy path zip blocks in range")
-        void testZipRangeHappyPathBlocksInRange() throws IOException {
+        void testZipRangeHappyPathBlocksInRange() {
             // generate first 10 blocks from numbers 0-9 and add them to the
             // test historical block facility
             for (int i = 0; i < 10; i++) {

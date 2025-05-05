@@ -10,6 +10,9 @@ import edu.umd.cs.findbugs.annotations.NonNull;
 import io.helidon.webserver.http.HttpService;
 import java.util.Collections;
 import java.util.Map;
+import java.util.concurrent.LinkedBlockingQueue;
+import org.hiero.block.node.app.fixtures.async.BlockingSerialExecutor;
+import org.hiero.block.node.app.fixtures.async.TestThreadPoolManager;
 import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.BlockNodePlugin;
 import org.hiero.block.node.spi.ServiceBuilder;
@@ -46,6 +49,9 @@ public abstract class PluginTestBase<P extends BlockNodePlugin> {
     protected BlockNodeContext blockNodeContext;
     /** The test block messaging facility, for mocking out the messaging service. */
     protected TestBlockMessagingFacility blockMessaging = new TestBlockMessagingFacility();
+    /** The test thread pool manager */
+    protected TestThreadPoolManager<BlockingSerialExecutor> testThreadPoolManager =
+            new TestThreadPoolManager<>(new BlockingSerialExecutor(new LinkedBlockingQueue<>()));
     /** The plugin to be tested */
     protected P plugin;
 
@@ -92,7 +98,8 @@ public abstract class PluginTestBase<P extends BlockNodePlugin> {
                 healthFacility,
                 blockMessaging,
                 historicalBlockFacility,
-                new ServiceLoaderFunction());
+                new ServiceLoaderFunction(),
+                testThreadPoolManager);
         // if the subclass implements ServiceBuilder, use it otherwise create a mock
         ServiceBuilder mockServiceBuilder = (this instanceof ServiceBuilder)
                 ? (ServiceBuilder) this
@@ -125,10 +132,11 @@ public abstract class PluginTestBase<P extends BlockNodePlugin> {
     }
 
     /**
-     * Tears down the test fixture by stopping the metrics provider.
+     * Teardown after each.
      */
     @AfterEach
     public void tearDown() {
         metricsProvider.stop();
+        testThreadPoolManager.executor().shutdownNow();
     }
 }
