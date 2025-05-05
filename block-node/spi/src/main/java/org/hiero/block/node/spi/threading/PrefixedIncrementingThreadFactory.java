@@ -44,7 +44,8 @@ public final class PrefixedIncrementingThreadFactory implements ThreadFactory {
      *
      * @param prefix the prefix to use for the thread name, must not be blank
      * @param uncaughtExceptionHandler the uncaught exception handler to use for
-     * the threads, this is optional and is nullable
+     * the threads, this handler is shared, so it should be thread safe, it is
+     * also optional and is nullable
      */
     public PrefixedIncrementingThreadFactory(
             @NonNull final String prefix, @Nullable final Thread.UncaughtExceptionHandler uncaughtExceptionHandler) {
