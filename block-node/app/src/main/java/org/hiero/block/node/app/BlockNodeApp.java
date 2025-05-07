@@ -56,8 +56,6 @@ public class BlockNodeApp implements HealthFacility {
     final List<BlockNodePlugin> loadedPlugins = new ArrayList<>();
     /** The metrics provider. Package so accessible for testing. */
     final DefaultMetricsProvider metricsProvider;
-    /** The thread pool manager. Package so accessible for testing. */
-    private final ThreadPoolManager threadPoolManager;
 
     /**
      * Constructor for the BlockNodeApp class. This constructor initializes the server configuration,
@@ -133,7 +131,7 @@ public class BlockNodeApp implements HealthFacility {
         metricsProvider = new DefaultMetricsProvider(configuration);
         final Metrics metrics = metricsProvider.createGlobalMetrics();
         // ==== THREAD POOL MANAGER ====================================================================================
-        this.threadPoolManager = new DefaultThreadPoolManager();
+        final ThreadPoolManager threadPoolManager = new DefaultThreadPoolManager();
         // ==== CONTEXT ================================================================================================
         blockNodeContext = new BlockNodeContext(
                 configuration,
