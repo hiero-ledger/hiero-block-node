@@ -19,7 +19,7 @@ Maintainers are assigned the following scopes in this repository:
 |      | Nana-EC           |       |      |            |       | Hashgraph           |
 |      | AlfredoG87        |       |      |            |       | Hashgraph           |
 |      | jasperpotts       |       |      |            |       | Hashgraph           |
-|      | mattp-swirldslabs |       |      |            |       | Hashgraph           |
+|      | mattp-swirldslabs |       |      |            |       |                     |
 
 ## Emeritus Maintainers
 
