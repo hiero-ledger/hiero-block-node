@@ -18,22 +18,21 @@ public interface ThreadPoolManager {
     /**
      * Factory method. Creates a new single thread {@link ExecutorService}.
      *
-     * @param threadNamePrefix the prefix, must not be blank
+     * @param threadName the thread's name, must not be blank
      * @return a new single thread executor service
      */
     @NonNull
-    ExecutorService createSingleThreadExecutor(@NonNull final String threadNamePrefix);
+    ExecutorService createSingleThreadExecutor(@NonNull final String threadName);
 
     /**
      * Factory method. Creates a new single thread {@link ExecutorService} using
      * the specified (nullable) {@link Thread.UncaughtExceptionHandler}.
      *
-     * @param threadNamePrefix the prefix, must not be blank
+     * @param threadName the thread's name, must not be blank
      * @param uncaughtExceptionHandler the uncaught exception handler, nullable
      * @return a new single thread executor service
      */
     @NonNull
     ExecutorService createSingleThreadExecutor(
-            @NonNull final String threadNamePrefix,
-            @Nullable final Thread.UncaughtExceptionHandler uncaughtExceptionHandler);
+            @NonNull final String threadName, @Nullable final Thread.UncaughtExceptionHandler uncaughtExceptionHandler);
 }

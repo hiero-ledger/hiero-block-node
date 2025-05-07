@@ -27,8 +27,8 @@ public record TestThreadPoolManager<T extends ExecutorService>(@NonNull T execut
      */
     @NonNull
     @Override
-    public ExecutorService createSingleThreadExecutor(@NonNull final String threadNamePrefix) {
-        return createSingleThreadExecutor(threadNamePrefix, null);
+    public ExecutorService createSingleThreadExecutor(@NonNull final String threadName) {
+        return createSingleThreadExecutor(threadName, null);
     }
 
     /**
@@ -40,7 +40,7 @@ public record TestThreadPoolManager<T extends ExecutorService>(@NonNull T execut
     @NonNull
     @Override
     public ExecutorService createSingleThreadExecutor(
-            @NonNull final String threadNamePrefix,
+            @NonNull final String threadName,
             @Nullable final Thread.UncaughtExceptionHandler uncaughtExceptionHandler) {
         return executor;
     }

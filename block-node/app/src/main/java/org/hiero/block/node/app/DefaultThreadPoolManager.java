@@ -18,8 +18,8 @@ public final class DefaultThreadPoolManager implements ThreadPoolManager {
      */
     @NonNull
     @Override
-    public ExecutorService createSingleThreadExecutor(@NonNull final String threadNamePrefix) {
-        return createSingleThreadExecutor(threadNamePrefix, null);
+    public ExecutorService createSingleThreadExecutor(@NonNull final String threadName) {
+        return createSingleThreadExecutor(threadName, null);
     }
 
     /**
@@ -28,10 +28,10 @@ public final class DefaultThreadPoolManager implements ThreadPoolManager {
     @NonNull
     @Override
     public ExecutorService createSingleThreadExecutor(
-            @NonNull final String threadNamePrefix,
+            @NonNull final String threadName,
             @Nullable final Thread.UncaughtExceptionHandler uncaughtExceptionHandler) {
-        Preconditions.requireNotBlank(threadNamePrefix);
-        final OfPlatform factoryBuilder = Thread.ofPlatform().name(threadNamePrefix, 0L);
+        Preconditions.requireNotBlank(threadName);
+        final OfPlatform factoryBuilder = Thread.ofPlatform().name(threadName);
         if (uncaughtExceptionHandler != null) {
             factoryBuilder.uncaughtExceptionHandler(uncaughtExceptionHandler);
         }
