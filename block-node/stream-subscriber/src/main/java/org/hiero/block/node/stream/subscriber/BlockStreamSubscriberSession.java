@@ -117,9 +117,6 @@ public class BlockStreamSubscriberSession implements Callable<BlockStreamSubscri
             @NonNull final Pipeline<? super SubscribeStreamResponseUnparsed> responsePipeline,
             @NonNull final BlockNodeContext context,
             @NonNull final CountDownLatch sessionReadyLatch) {
-        requireNonNull(request);
-
-        LOGGER.log(Level.TRACE, request.toString());
         this.clientId = clientId;
         this.startBlockNumber = request.startBlockNumber();
         this.endBlockNumber = request.endBlockNumber();
@@ -177,14 +174,13 @@ public class BlockStreamSubscriberSession implements Callable<BlockStreamSubscri
                     // then process live blocks, if available.
                     sendLiveBlocksIfAvailable();
                 }
-                if (!interruptedStream.get()) {
+                if (allRequestedBlocksSent()) {
                     // We've sent all request blocks. Therefore, we close, according to the protocol.
                     close(SubscribeStreamResponse.Code.READ_STREAM_SUCCESS);
                 }
             }
         } catch (RuntimeException | ParseException | InterruptedException e) {
             sessionFailedCause = e;
-            interruptedStream.set(true);
             close(SubscribeStreamResponse.Code.READ_STREAM_SUCCESS); // Need an "INCOMPLETE" code...
         }
         // Need to record a metric here with client ID tag, so we can record
@@ -210,7 +206,7 @@ public class BlockStreamSubscriberSession implements Callable<BlockStreamSubscri
             } else {
                 // Only give up if this is an historical block, otherwise just
                 // go back up and see if live has the block.
-                if (!(nextBlockToSend < 0 || nextBlockToSend >= getLatestKnownBlock())) {
+                if (!(nextBlockToSend < 0 || nextBlockToSend >= getLatestHistoricalBlock())) {
                     // We cannot get the block needed, something has failed.
                     // close the stream with an "unavailable" response.
                     final String message = "Unable to read historical block {0}.";
@@ -236,7 +232,7 @@ public class BlockStreamSubscriberSession implements Callable<BlockStreamSubscri
      */
     private boolean isHistoryPermitted() {
         return !(interruptedStream.get()
-                || latestLiveStreamBlock.get() < nextBlockToSend
+                || (latestLiveStreamBlock.get() < nextBlockToSend && latestLiveStreamBlock.get() >= 0)
                 || allRequestedBlocksSent()
                 || nextBatchIsLive());
     }
@@ -259,9 +255,6 @@ public class BlockStreamSubscriberSession implements Callable<BlockStreamSubscri
     }
 
     private boolean allRequestedBlocksSent() {
-        if (endBlockNumber == 0L) { // We are requesting block indefinitely.
-            return false;
-        }
         return endBlockNumber != UNKNOWN_BLOCK_NUMBER && nextBlockToSend > endBlockNumber;
     }
 
@@ -282,21 +275,31 @@ public class BlockStreamSubscriberSession implements Callable<BlockStreamSubscri
         // If we run out, get ahead of live, or have to send historical blocks,
         // then we'll also break out of the loop and return to the caller.
         while (!liveBlockQueue.isEmpty()) {
-            // take the block item from the queue and process it
-            final BlockItems blockItems = liveBlockQueue.poll();
-            // Live _might_ be behind the next expected block (particularly if
-            // the requested start block is in the future), skip this block, in that case.
-            if (blockItems.isStartOfNewBlock() && blockItems.newBlockNumber() != nextBlockToSend) {
+            // Peek at the block item from the queue and _possibly_ process it
+            BlockItems blockItems = liveBlockQueue.peek();
+            // Live _might_ be ahead or behind the next expected block (particularly if
+            // the requested start block is in the future), don't send this block, in that case.
+            // If behind, remove that item from the queue; if ahead leave it in the queue.
+            if (blockItems.isStartOfNewBlock() && blockItems.newBlockNumber() < nextBlockToSend) {
                 LOGGER.log(Level.TRACE, "Skipping block {0} for client {1}", blockItems.newBlockNumber(), clientId);
                 skipCurrentBlockInQueue(blockItems);
-            } else {
+            } else if (blockItems.newBlockNumber() == nextBlockToSend) {
+                blockItems = liveBlockQueue.poll();
                 if (blockItems != null) {
                     sendOneBlockItemSet(blockItems);
+                    if (blockItems.isEndOfBlock()) {
+                        nextBlockToSend++;
+                        trimBlockItemQueue(nextBlockToSend);
+                    }
                 }
-                if (blockItems.isEndOfBlock()) {
-                    nextBlockToSend++;
-                    trimBlockItemQueue(nextBlockToSend);
-                }
+            } else if (blockItems.isStartOfNewBlock() && blockItems.newBlockNumber() > nextBlockToSend) {
+                // This block is _future_, so we need to wait, and try to get the next block from history
+                // first, then come back to this block.
+                LOGGER.log(Level.TRACE, "Retaining future block {0} for client {1}", blockItems.newBlockNumber(), clientId);
+            } else {
+                // This is a past or future _partial_ block, so we need to trim the queue.
+                liveBlockQueue.poll(); // discard _this batch only_.
+                trimBlockItemQueue(nextBlockToSend);
             }
             // Note: We depend here on the rule that there are no gaps between blocks.
             //       The header for block N immediately follows the proof for block N-1.
@@ -349,20 +352,26 @@ public class BlockStreamSubscriberSession implements Callable<BlockStreamSubscri
     /**
      * Remove the remainder of a block from the queue.
      * <p>
-     * This method assumes that a possible header batch has already been removed
-     * from the queue (and is provided). The provided item is checked, and if it
-     * is a header block, the remainder of that block, up to the next header
-     * batch (which might be the next item) is removed from the queue.<br/>
-     * Note, the item provided and the next item are not removed from the queue,
-     * so it is important to only call this method after polling and item, and
-     * when this method returns, the next item in the queue will be the start of
-     * a new block (or else the queue will be empty).
+     * This method assumes that a possible header batch has already been viewed
+     * but not removed from the queue (and is provided). The provided item is
+     * checked, and if it is a header block, it is removed and then the
+     * remainder of that block, up to the next header batch (which might be the
+     * next item) is removed from the queue.<br/>
+     * Note, the item provided _may be_ removed from the queue (even if it's not
+     * a block header), so it is important to only call this method after
+     * peeking at the item without removing it, and when this method returns,
+     * the next item in the queue will be the start of a new block (or else
+     * the queue will be empty).
      */
     private void skipCurrentBlockInQueue(BlockItems queueHead) {
-        // The "head" entry is already removed, remove the rest of its block if it's a block header.
-        if (queueHead != null && queueHead.isStartOfNewBlock()) {
-            queueHead = liveBlockQueue.peek();
+        // The "head" entry is _not_ already removed, remove it, and the rest of
+        // its block. This also handles a partial block at the head of the queue
+        // when we cannot process that block (e.g. it's in the future or past from
+        // the block we currently need to send).
+        if (queueHead != null) {
+            liveBlockQueue.poll(); // remove the "head" entry
             // Now remove "head" entries until the _next_ item is a block header
+            queueHead = liveBlockQueue.peek(); // peek at the next item.
             while (queueHead != null && !(queueHead.isStartOfNewBlock())) {
                 liveBlockQueue.poll();
                 queueHead = liveBlockQueue.peek();
@@ -476,11 +485,6 @@ public class BlockStreamSubscriberSession implements Callable<BlockStreamSubscri
         return nextBlockToSend;
     }
 
-    // Visible for testing.
-    LiveBlockHandler getLiveBlockHandler() {
-        return liveBlockHandler;
-    }
-
     /**
      * Close this session. This will unregister us from the block messaging system and cancel the subscription.
      */
@@ -491,11 +495,13 @@ public class BlockStreamSubscriberSession implements Callable<BlockStreamSubscri
             sessionReadyLatch.countDown();
             LOGGER.log(Level.DEBUG, "Session ready latch was not counted down on close, releasing now");
         }
-        // unregister us from the block messaging system, if we are not registered then this is noop
-        context.blockMessaging().unregisterBlockItemHandler(liveBlockHandler);
-        final Builder response = SubscribeStreamResponseUnparsed.newBuilder().status(endStreamResponseCode);
-        responsePipeline.onNext(response.build());
-        responsePipeline.onComplete();
+        if(!interruptedStream.get()) {
+            // unregister us from the block messaging system, if we are not registered then this is noop
+            context.blockMessaging().unregisterBlockItemHandler(liveBlockHandler);
+            final Builder response = SubscribeStreamResponseUnparsed.newBuilder().status(endStreamResponseCode);
+            responsePipeline.onNext(response.build());
+            responsePipeline.onComplete();
+        }
         if (subscription != null) {
             subscription.cancel();
             subscription = null;
@@ -542,7 +548,7 @@ public class BlockStreamSubscriberSession implements Callable<BlockStreamSubscri
     //       This means we must not modify any state in the session object directly.
     //       Instead we must use a transfer queue to pass the block items to the session
     //       and possibly set an atomic flag if we are "too far behind".
-    static class LiveBlockHandler implements NoBackPressureBlockItemHandler {
+    private static class LiveBlockHandler implements NoBackPressureBlockItemHandler {
         /** The logger for this class. */
         private final Logger LOGGER = System.getLogger(getClass().getName());
 

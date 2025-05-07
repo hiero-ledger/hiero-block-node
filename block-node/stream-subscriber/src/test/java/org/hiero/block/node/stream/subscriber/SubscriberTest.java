@@ -225,7 +225,7 @@ public class SubscriberTest extends GrpcPluginTestBase<SubscriberServicePlugin> 
         activePlugin.stop(); // request the plugin to end all client streams.
     }
 
-    @Disabled("Disabled until issue with it is resolved. Works when run standalone")
+    @Disabled("Disabled until issue with it is resolved. Works _sometimes_ when run standalone")
     @Test
     void testSubscriberBlockStreamInMiddleWithHistory() throws ParseException {
         // send first 10 items

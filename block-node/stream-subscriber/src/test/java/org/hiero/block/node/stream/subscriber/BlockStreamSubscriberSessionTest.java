@@ -1,32 +1,33 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.node.stream.subscriber;
 
-import static org.hiero.block.node.app.fixtures.blocks.BlockItemUtils.toBlockItemUnparsed;
-import static org.hiero.block.node.app.fixtures.blocks.SimpleTestBlockItemBuilder.sampleBlockHeader;
-import static org.hiero.block.node.app.fixtures.blocks.SimpleTestBlockItemBuilder.sampleBlockProof;
-import static org.hiero.block.node.app.fixtures.blocks.SimpleTestBlockItemBuilder.sampleRoundHeader;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyLong;
-import static org.mockito.Mockito.*;
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.hiero.block.node.app.fixtures.blocks.SimpleTestBlockItemBuilder.createNumberOfSimpleBlockBatches;
 
+import com.hedera.pbj.runtime.ParseException;
 import com.hedera.pbj.runtime.grpc.Pipeline;
 import com.swirlds.config.api.Configuration;
 import com.swirlds.config.api.ConfigurationBuilder;
 import com.swirlds.metrics.api.Metrics;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.concurrent.Flow;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import org.hiero.block.api.SubscribeStreamRequest;
 import org.hiero.block.api.SubscribeStreamResponse;
-import org.hiero.block.internal.BlockItemSetUnparsed;
-import org.hiero.block.internal.BlockItemUnparsed;
-import org.hiero.block.internal.BlockUnparsed;
 import org.hiero.block.internal.SubscribeStreamResponseUnparsed;
+import org.hiero.block.node.app.fixtures.plugintest.SimpleInMemoryHistoricalBlockFacility;
+import org.hiero.block.node.app.fixtures.plugintest.TestBlockMessagingFacility;
 import org.hiero.block.node.spi.BlockNodeContext;
+import org.hiero.block.node.spi.blockmessaging.BlockItemHandler;
 import org.hiero.block.node.spi.blockmessaging.BlockItems;
 import org.hiero.block.node.spi.blockmessaging.BlockMessagingFacility;
-import org.hiero.block.node.spi.historicalblocks.BlockAccessor;
-import org.hiero.block.node.spi.historicalblocks.BlockRangeSet;
 import org.hiero.block.node.spi.historicalblocks.HistoricalBlockFacility;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -34,7 +35,6 @@ import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
-import org.mockito.exceptions.verification.TooFewActualInvocations;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 /**
@@ -44,24 +44,19 @@ import org.mockito.junit.jupiter.MockitoExtension;
  */
 @ExtendWith(MockitoExtension.class)
 class BlockStreamSubscriberSessionTest {
+    private static final int RESPONSE_WAIT_LIMIT = 1000;
+    private final HistoricalBlockFacility historicalBlockFacility = new SimpleInMemoryHistoricalBlockFacility();
+    private final BlockMessagingFacility blockMessagingFacility = new TestBlockMessagingFacility();
+    private final BlockItemHandler providerHandler = (BlockItemHandler)historicalBlockFacility;
 
-    @Mock
     private BlockNodeContext context;
-
-    @Mock
-    private Metrics metrics;
-
-    @Mock
-    private HistoricalBlockFacility historicalBlockFacility;
-
-    @Mock
-    private BlockMessagingFacility blockMessagingFacility;
-
-    private Pipeline<? super SubscribeStreamResponseUnparsed> responsePipeline;
-
+    private ResponsePipeline responsePipeline;
     private BlockStreamSubscriberSession session;
     private CountDownLatch sessionReadyLatch;
     private static final long CLIENT_ID = 0L;
+
+    @Mock
+    private Metrics metrics; // If we can use a "real" metrics, or a fixture, instead of this Mock, we should.
 
     @BeforeEach
     void setUp() {
@@ -69,10 +64,11 @@ class BlockStreamSubscriberSessionTest {
         final Configuration configuration = ConfigurationBuilder.create()
                 .withConfigDataType(SubscriberConfig.class)
                 .build();
-        responsePipeline = spy(new ResponsePipeline());
-
-        when(context.configuration()).thenReturn(configuration);
-        when(context.metrics()).thenReturn(metrics);
+        responsePipeline = new ResponsePipeline();
+        context = new BlockNodeContext(configuration, metrics, null,
+                blockMessagingFacility, historicalBlockFacility, null);
+        historicalBlockFacility.init(context, null);
+        blockMessagingFacility.init(context, null); // Probably not needed, but that can change.
     }
 
     /**
@@ -92,64 +88,41 @@ class BlockStreamSubscriberSessionTest {
          */
         @Test
         @DisplayName("Should successfully stream both historical and live blocks in sequence")
-        void shouldStreamHistoricalAndLiveBlocksSuccessfully() throws InterruptedException {
+        void shouldStreamHistoricalAndLiveBlocksSuccessfully()
+                throws InterruptedException, ExecutionException, TimeoutException {
             // Setup test parameters
-            final long MIN_AVAILABLE_BLOCK = 0L;
-            final long MAX_AVAILABLE_BLOCK = 10L;
-            final long START_BLOCK = 0L;
-            final long END_BLOCK = 20L;
+            final int MIN_AVAILABLE_BLOCK = 0;
+            final int MAX_AVAILABLE_BLOCK = 10;
+            final int START_BLOCK = 0;
+            final int END_BLOCK = 19;
 
-            // Initialize session and setup mocks
+            // Initialize session
             final SubscribeStreamRequest subscribeStreamRequest = createRequest(START_BLOCK, END_BLOCK);
+            setupHistoricalBlockProvider(MIN_AVAILABLE_BLOCK, MAX_AVAILABLE_BLOCK + 1);
             session = new BlockStreamSubscriberSession(
                     CLIENT_ID, subscribeStreamRequest, responsePipeline, context, sessionReadyLatch);
-            setupHistoricalBlockProvider(MIN_AVAILABLE_BLOCK, MAX_AVAILABLE_BLOCK);
 
-            // Setup historical blocks
-            final BlockStreamSubscriberSession.LiveBlockHandler liveBlockHandler = session.getLiveBlockHandler();
-            for (long i = MIN_AVAILABLE_BLOCK; i < MAX_AVAILABLE_BLOCK; i++) {
-                BlockItems blockItems = createSampleBlockItems(i);
-                liveBlockHandler.handleBlockItemsReceived(blockItems);
+            try (final ExecutorService sessionExecutor = Executors.newVirtualThreadPerTaskExecutor()) {
+                Future<BlockStreamSubscriberSession> sessionFuture = sessionExecutor.submit(session);
+                sessionReadyLatch.await();
+                // Phase 1: Historical Block Streaming
+                final int expectedResponseCount = END_BLOCK - START_BLOCK;
 
-                final BlockAccessor blockAccessor = mock(BlockAccessor.class);
-                final BlockUnparsed blockUnparsed = BlockUnparsed.newBuilder()
-                        .blockItems(blockItems.blockItems())
-                        .build();
-
-                lenient().when(blockAccessor.blockUnparsed()).thenReturn(blockUnparsed);
-                lenient().when(context.historicalBlockProvider().block(i)).thenReturn(blockAccessor);
-            }
-
-            // Start session in separate thread
-            Thread sessionThread = new Thread(session::call);
-            sessionThread.start();
-
-            // Phase 1: Historical Block Streaming
-            boolean historicalProvided = false;
-            while (!historicalProvided) {
-                try {
-                    verify(responsePipeline, atLeast((int) MAX_AVAILABLE_BLOCK))
-                            .onNext(any(SubscribeStreamResponseUnparsed.class));
-                    historicalProvided = true;
-                } catch (TooFewActualInvocations e) {
-                    Thread.sleep(100);
+                // Phase 2: Live Block Streaming
+                BlockItems[] liveBatches = createNumberOfSimpleBlockBatches(MAX_AVAILABLE_BLOCK, END_BLOCK + 1);
+                for (BlockItems next : liveBatches) {
+                    blockMessagingFacility.sendBlockItems(next);
                 }
-            }
-
-            // Phase 2: Live Block Streaming
-            for (long i = MAX_AVAILABLE_BLOCK; i <= END_BLOCK; i++) {
-                BlockItems blockItems = createSampleBlockItems(i);
-                liveBlockHandler.handleBlockItemsReceived(blockItems);
-
-                final SubscribeStreamResponseUnparsed.Builder response = SubscribeStreamResponseUnparsed.newBuilder()
-                        .blockItems(BlockItemSetUnparsed.newBuilder().blockItems(blockItems.blockItems()));
-                Thread.sleep(100);
-                verify(responsePipeline, times(1)).onNext(response.build());
+                // Wait for everything to complete.
+                // Note, don't try to wait before this; there are no execution guarantees until
+                // `get` is called; before that the thread may not run or may be parked indefinitely.
+                sessionFuture.get(1L, TimeUnit.SECONDS); // The timeout doesn't work, for some reason, but it's here because we don't have a better alternative.
             }
 
             // Verify final pipeline state
-            verify(responsePipeline, times(1)).onComplete();
-            verify(responsePipeline, never()).onError(any(Throwable.class));
+            assertThat(responsePipeline.getReceivedResponses()).hasSize(21);
+            assertThat(responsePipeline.getCompletionCount()).isEqualTo(1);
+            assertThat(responsePipeline.getPipelineErrors()).isEmpty();
         }
 
         /**
@@ -160,201 +133,41 @@ class BlockStreamSubscriberSessionTest {
         @DisplayName("Should successfully stream historical blocks")
         void shouldStreamHistoricalBlocksSuccessfully() {
             // Setup test parameters
-            final long MIN_AVAILABLE_BLOCK = 0L;
-            final long MAX_AVAILABLE_BLOCK = 20L;
+            final int MIN_AVAILABLE_BLOCK = 0;
+            final int MAX_AVAILABLE_BLOCK = 20;
             final long START_BLOCK = 1L;
             final long END_BLOCK = 10L;
 
-            // Initialize session and setup mocks
+            // Initialize session
             final SubscribeStreamRequest subscribeStreamRequest = createRequest(START_BLOCK, END_BLOCK);
             session = new BlockStreamSubscriberSession(
                     CLIENT_ID, subscribeStreamRequest, responsePipeline, context, sessionReadyLatch);
             setupHistoricalBlockProvider(MIN_AVAILABLE_BLOCK, MAX_AVAILABLE_BLOCK);
-
-            // Setup historical blocks
-            final BlockStreamSubscriberSession.LiveBlockHandler liveBlockHandler = session.getLiveBlockHandler();
-            for (int i = (int) MIN_AVAILABLE_BLOCK; i < MAX_AVAILABLE_BLOCK; i++) {
-                BlockItems blockItems = createSampleBlockItems(i);
-                liveBlockHandler.handleBlockItemsReceived(blockItems);
-
-                final BlockAccessor blockAccessor = mock(BlockAccessor.class);
-                final BlockUnparsed blockUnparsed = BlockUnparsed.newBuilder()
-                        .blockItems(blockItems.blockItems())
-                        .build();
-
-                lenient().when(blockAccessor.blockUnparsed()).thenReturn(blockUnparsed);
-                lenient().when(context.historicalBlockProvider().block(i)).thenReturn(blockAccessor);
-            }
-
             // Execute session
             session.call();
 
             // Verify pipeline interactions
-            verify(responsePipeline, times(11)).onNext(any(SubscribeStreamResponseUnparsed.class));
-            verify(responsePipeline, times(1)).onComplete();
-            verify(responsePipeline, never()).onError(any(Throwable.class));
-
-            // Verify historical block provider interactions
-            verify(context.historicalBlockProvider(), times(10)).block(anyLong());
+            assertThat(responsePipeline.getReceivedResponses()).hasSize(11);
+            assertThat(responsePipeline.getCompletionCount()).isEqualTo(1);
+            assertThat(responsePipeline.getPipelineErrors()).isEmpty();
         }
     }
 
     /**
-     * Tests related to input validation and error handling in the BlockStreamSubscriberSession.
-     * This class verifies that the session properly handles invalid input parameters.
-     */
-    @Nested
-    @DisplayName("Input Validation Tests")
-    class ValidationTests {
-
-        /**
-         * Tests the handling of a start block number that is neither available in history
-         * nor in the live stream range.
-         */
-        @Test
-        @DisplayName("Should reject request with start block outside available range")
-        void shouldRejectRequestWithInvalidStartBlockRange() {
-            // Setup test parameters
-            final long MIN_AVAILABLE_BLOCK = 0L;
-            final long MAX_AVAILABLE_BLOCK = 20L;
-            final long START_BLOCK = 100000L;
-            final long END_BLOCK = 200000L;
-
-            // Initialize session and setup mocks
-            final SubscribeStreamRequest subscribeStreamRequest = createRequest(START_BLOCK, END_BLOCK);
-            setupHistoricalBlockProvider(MIN_AVAILABLE_BLOCK, MAX_AVAILABLE_BLOCK);
-            session = new BlockStreamSubscriberSession(
-                    CLIENT_ID, subscribeStreamRequest, responsePipeline, context, sessionReadyLatch);
-
-            // Execute session
-            session.call();
-
-            // Verify error response
-            final SubscribeStreamResponseUnparsed.Builder response = SubscribeStreamResponseUnparsed.newBuilder()
-                    .status(SubscribeStreamResponse.Code.READ_STREAM_INVALID_START_BLOCK_NUMBER);
-
-            verify(responsePipeline, times(1)).onNext(response.build());
-            verify(responsePipeline, times(1)).onComplete();
-            verify(responsePipeline, never()).onError(any(Throwable.class));
-        }
-
-        /**
-         * Tests the handling of a negative start block number.
-         */
-        @Test
-        @DisplayName("Should reject request with negative start block number")
-        void shouldRejectRequestWithNegativeStartBlock() {
-            // Setup test parameters
-            final long MIN_AVAILABLE_BLOCK = 0L;
-            final long MAX_AVAILABLE_BLOCK = 20L;
-            final long START_BLOCK = -2L;
-            final long END_BLOCK = 10L;
-
-            // Initialize session and setup mocks
-            final SubscribeStreamRequest subscribeStreamRequest = createRequest(START_BLOCK, END_BLOCK);
-            setupHistoricalBlockProvider(MIN_AVAILABLE_BLOCK, MAX_AVAILABLE_BLOCK);
-            session = new BlockStreamSubscriberSession(
-                    CLIENT_ID, subscribeStreamRequest, responsePipeline, context, sessionReadyLatch);
-
-            // Execute session
-            session.call();
-
-            // Verify error response
-            final SubscribeStreamResponseUnparsed.Builder response = SubscribeStreamResponseUnparsed.newBuilder()
-                    .status(SubscribeStreamResponse.Code.READ_STREAM_INVALID_START_BLOCK_NUMBER);
-
-            verify(responsePipeline, times(1)).onNext(response.build());
-            verify(responsePipeline, times(1)).onComplete();
-            verify(responsePipeline, never()).onError(any(Throwable.class));
-        }
-
-        /**
-         * Tests the handling of a negative end block number.
-         */
-        @Test
-        @DisplayName("Should reject request with negative end block number")
-        void shouldRejectRequestWithNegativeEndBlock() {
-            // Setup test parameters
-            final long MIN_AVAILABLE_BLOCK = 0L;
-            final long MAX_AVAILABLE_BLOCK = 20L;
-            final long START_BLOCK = -1L;
-            final long END_BLOCK = -2L;
-
-            // Initialize session and setup mocks
-            final SubscribeStreamRequest subscribeStreamRequest = createRequest(START_BLOCK, END_BLOCK);
-            setupHistoricalBlockProvider(MIN_AVAILABLE_BLOCK, MAX_AVAILABLE_BLOCK);
-            session = new BlockStreamSubscriberSession(
-                    CLIENT_ID, subscribeStreamRequest, responsePipeline, context, sessionReadyLatch);
-
-            // Execute session
-            session.call();
-
-            // Verify error response
-            final SubscribeStreamResponseUnparsed.Builder response = SubscribeStreamResponseUnparsed.newBuilder()
-                    .status(SubscribeStreamResponse.Code.READ_STREAM_INVALID_END_BLOCK_NUMBER);
-
-            verify(responsePipeline, times(1)).onNext(response.build());
-            verify(responsePipeline, times(1)).onComplete();
-            verify(responsePipeline, never()).onError(any(Throwable.class));
-        }
-
-        /**
-         * Tests the handling of an end block number that is less than the start block number.
-         */
-        @Test
-        @DisplayName("Should reject request with end block less than start block")
-        void shouldRejectRequestWithEndBlockLessThanStartBlock() {
-            // Setup test parameters
-            final long MIN_AVAILABLE_BLOCK = 0L;
-            final long MAX_AVAILABLE_BLOCK = 20L;
-            final long START_BLOCK = 10L;
-            final long END_BLOCK = 0L;
-
-            // Initialize session and setup mocks
-            final SubscribeStreamRequest subscribeStreamRequest = createRequest(START_BLOCK, END_BLOCK);
-            setupHistoricalBlockProvider(MIN_AVAILABLE_BLOCK, MAX_AVAILABLE_BLOCK);
-            session = new BlockStreamSubscriberSession(
-                    CLIENT_ID, subscribeStreamRequest, responsePipeline, context, sessionReadyLatch);
-
-            // Execute session
-            session.call();
-
-            // Verify error response
-            final SubscribeStreamResponseUnparsed.Builder response = SubscribeStreamResponseUnparsed.newBuilder()
-                    .status(SubscribeStreamResponse.Code.READ_STREAM_INVALID_END_BLOCK_NUMBER);
-
-            verify(responsePipeline, times(1)).onNext(response.build());
-            verify(responsePipeline, times(1)).onComplete();
-            verify(responsePipeline, never()).onError(any(Throwable.class));
-        }
-    }
-
-    /**
-     * Creates a sample block items set for testing.
-     *
-     * @param blockNumber the block number to create items for
-     * @return a BlockItems object containing sample block items
-     */
-    private BlockItems createSampleBlockItems(long blockNumber) {
-        BlockItemUnparsed blockHeader = toBlockItemUnparsed(sampleBlockHeader(blockNumber));
-        BlockItemUnparsed roundHeader = toBlockItemUnparsed(sampleRoundHeader(blockNumber));
-        BlockItemUnparsed blockProof = toBlockItemUnparsed(sampleBlockProof(blockNumber));
-        return new BlockItems(List.of(blockHeader, roundHeader, blockProof), blockNumber);
-    }
-
-    /**
-     * Sets up the historical block provider mock with the specified block range.
+     * Sets up the historical block provider with the specified block range.
      *
      * @param minBlock the minimum available block number
      * @param maxBlock the maximum available block number
      */
-    private void setupHistoricalBlockProvider(long minBlock, long maxBlock) {
-        final BlockRangeSet availableBlocks = mock(BlockRangeSet.class);
-        when(availableBlocks.min()).thenReturn(minBlock);
-        when(availableBlocks.max()).thenReturn(maxBlock);
-        when(context.historicalBlockProvider()).thenReturn(historicalBlockFacility);
-        when(context.blockMessaging()).thenReturn(blockMessagingFacility);
-        when(context.historicalBlockProvider().availableBlocks()).thenReturn(availableBlocks);
+    private void setupHistoricalBlockProvider(int minBlock, int maxBlock) {
+        if(maxBlock < minBlock || maxBlock - minBlock > 100_000L) {
+            throw new IllegalArgumentException("Invalid block range");
+        }
+        // "publish" blocks from min to max so the historical provider has them.
+        final BlockItems[] batchesToLoad = createNumberOfSimpleBlockBatches(minBlock, maxBlock);
+        for (BlockItems next : batchesToLoad) {
+            providerHandler.handleBlockItemsReceived(next);
+        }
     }
 
     /**
@@ -374,25 +187,50 @@ class BlockStreamSubscriberSessionTest {
     /**
      * A simple implementation of Pipeline for testing purposes.
      */
-    private class ResponsePipeline implements Pipeline<SubscribeStreamResponseUnparsed> {
+    private static class ResponsePipeline implements Pipeline<SubscribeStreamResponseUnparsed> {
+        /** The GRPC bytes received from the plugin. */
+        private final List<SubscribeStreamResponse> receivedResponses = new ArrayList<>();
+        private final List<Throwable> pipelineErrors = new ArrayList<>();
+        private int completionCount = 0;
+
+        public List<SubscribeStreamResponse> getReceivedResponses() {
+            return receivedResponses;
+        }
+
+        public List<Throwable> getPipelineErrors() {
+            return pipelineErrors;
+        }
+
+        public int getCompletionCount() {
+            return completionCount;
+        }
 
         @Override
         public void clientEndStreamReceived() {
-            Pipeline.super.clientEndStreamReceived();
         }
 
         @Override
         public void onSubscribe(Flow.Subscription subscription) {}
 
         @Override
-        public void onNext(SubscribeStreamResponseUnparsed item) throws RuntimeException {
-            Pipeline.super.onNext(item);
+        public void onNext(SubscribeStreamResponseUnparsed item) {
+            try {
+                var binary = SubscribeStreamResponseUnparsed.PROTOBUF.toBytes(item);
+                var response = SubscribeStreamResponse.PROTOBUF.parse(binary);
+                receivedResponses.add(response);
+            } catch (ParseException e) {
+                throw new RuntimeException("Failed to parse SubscribeStreamResponse", e);
+            }
         }
 
         @Override
-        public void onError(Throwable throwable) {}
+        public void onError(Throwable throwable) {
+            pipelineErrors.add(throwable);
+        }
 
         @Override
-        public void onComplete() {}
+        public void onComplete() {
+            completionCount++;
+        }
     }
 }
