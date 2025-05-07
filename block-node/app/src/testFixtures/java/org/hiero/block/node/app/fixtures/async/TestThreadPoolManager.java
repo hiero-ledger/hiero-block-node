@@ -8,9 +8,10 @@ import java.util.concurrent.ExecutorService;
 import org.hiero.block.node.spi.threading.ThreadPoolManager;
 
 /**
- * A very simplified version of the {@link ThreadPoolManager} that is used only for testing. This class will return the
- * same executor service that was passed to it in the constructor. This is useful for testing purposes where we want to
- * control the executor service that is used in the tests.
+ * A very simplified version of the {@link ThreadPoolManager} that is used only
+ * for testing. This class will return the same executor service that was passed
+ * to it in the constructor. This is useful for testing purposes where we want
+ * to control the executor service that is used in the tests.
  *
  * @param <T> the type of executor service
  */

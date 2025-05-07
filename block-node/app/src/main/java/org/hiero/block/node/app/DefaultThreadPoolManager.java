@@ -12,7 +12,11 @@ import java.util.concurrent.TimeUnit;
 import org.hiero.block.common.utils.Preconditions;
 import org.hiero.block.node.spi.threading.ThreadPoolManager;
 
-public final class DefaultThreadPoolManager implements ThreadPoolManager {
+/**
+ * The default implementation of the {@link ThreadPoolManager} interface. This
+ * implementation is used systemwide to manage the thread pools.
+ */
+final class DefaultThreadPoolManager implements ThreadPoolManager {
     /**
      * {@inheritDoc}
      */

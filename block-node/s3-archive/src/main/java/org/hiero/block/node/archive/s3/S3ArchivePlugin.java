@@ -13,7 +13,6 @@ import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.Iterator;
 import java.util.List;
-import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.ExecutorService;
@@ -79,7 +78,7 @@ public class S3ArchivePlugin implements BlockNodePlugin, BlockNotificationHandle
      */
     @Override
     public void init(BlockNodeContext context, ServiceBuilder serviceBuilder) {
-        this.context = Objects.requireNonNull(context);
+        this.context = context;
         this.archiveConfig = context.configuration().getConfigData(S3ArchiveConfig.class);
         // check if enabled by the "endpointUrl" property being non-empty in config
         if (StringUtilities.isBlank(archiveConfig.endpointUrl())) {
