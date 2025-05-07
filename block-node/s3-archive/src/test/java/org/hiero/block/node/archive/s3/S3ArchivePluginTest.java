@@ -26,10 +26,10 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.concurrent.CompletableFuture;
 import java.util.stream.Collectors;
 import java.util.stream.StreamSupport;
 import org.hiero.block.internal.BlockItemUnparsed;
+import org.hiero.block.node.app.fixtures.async.BlockingSerialExecutor;
 import org.hiero.block.node.app.fixtures.plugintest.PluginTestBase;
 import org.hiero.block.node.app.fixtures.plugintest.SimpleInMemoryHistoricalBlockFacility;
 import org.hiero.block.node.spi.blockmessaging.BlockItems;
@@ -52,6 +52,7 @@ class S3ArchivePluginTest extends PluginTestBase<S3ArchivePlugin> {
     private static final String MINIO_ROOT_PASSWORD = "minioadmin";
     public static final Duration ONE_DAY = Duration.of(1, ChronoUnit.DAYS);
     private final MinioClient minioClient;
+    private final BlockingSerialExecutor pluginExecutor;
 
     @SuppressWarnings("resource")
     public S3ArchivePluginTest() throws Exception {
@@ -80,6 +81,7 @@ class S3ArchivePluginTest extends PluginTestBase<S3ArchivePlugin> {
                         "archive.bucketName", BUCKET_NAME,
                         "archive.accessKey", MINIO_ROOT_USER,
                         "archive.secretKey", MINIO_ROOT_PASSWORD));
+        pluginExecutor = testThreadPoolManager.executor();
     }
 
     @Test
@@ -87,9 +89,8 @@ class S3ArchivePluginTest extends PluginTestBase<S3ArchivePlugin> {
     void startWithSingleBatch(@TempDir Path tempDir) throws Exception {
         // create 10 sample blocks, this should trigger the plugin to archive them
         sendBlocks(START_TIME, 0, 9);
-        // wait for the plugin to finish archiving
-        CompletableFuture.allOf(plugin.pendingUploads.toArray(new CompletableFuture[0]))
-                .join();
+        // execute archive task
+        pluginExecutor.executeSerially();
         // read the lastest block file and check its content
         assertEquals("9", getLastArchivedBlockFile());
         // check that the plugin has archived the blocks
@@ -150,9 +151,8 @@ class S3ArchivePluginTest extends PluginTestBase<S3ArchivePlugin> {
     void doTenBatches() {
         // create 10 sample blocks, this should trigger the plugin to archive them
         sendBlocks(START_TIME, 0, 99);
-        // wait for the plugin to finish archiving
-        CompletableFuture.allOf(plugin.pendingUploads.toArray(new CompletableFuture[0]))
-                .join();
+        // execute archive task
+        pluginExecutor.executeSerially();
         // read the lastest block file and check its content
         assertEquals("99", getLastArchivedBlockFile());
         // check that the plugin has archived the blocks

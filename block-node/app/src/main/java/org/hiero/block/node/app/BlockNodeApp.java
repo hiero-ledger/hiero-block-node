@@ -32,6 +32,7 @@ import org.hiero.block.node.spi.ServiceLoaderFunction;
 import org.hiero.block.node.spi.blockmessaging.BlockMessagingFacility;
 import org.hiero.block.node.spi.health.HealthFacility;
 import org.hiero.block.node.spi.historicalblocks.LongRange;
+import org.hiero.block.node.spi.threading.ThreadPoolManager;
 
 /** Main class for the block node server */
 public class BlockNodeApp implements HealthFacility {
@@ -129,9 +130,17 @@ public class BlockNodeApp implements HealthFacility {
         // ==== METRICS ================================================================================================
         metricsProvider = new DefaultMetricsProvider(configuration);
         final Metrics metrics = metricsProvider.createGlobalMetrics();
+        // ==== THREAD POOL MANAGER ====================================================================================
+        final ThreadPoolManager threadPoolManager = new DefaultThreadPoolManager();
         // ==== CONTEXT ================================================================================================
         blockNodeContext = new BlockNodeContext(
-                configuration, metrics, this, blockMessagingService, historicalBlockFacility, serviceLoader);
+                configuration,
+                metrics,
+                this,
+                blockMessagingService,
+                historicalBlockFacility,
+                serviceLoader,
+                threadPoolManager);
         // ==== CREATE ROUTING BUILDERS ================================================================================
         // Create HTTP & GRPC routing builders
         final ServiceBuilderImpl serviceBuilder = new ServiceBuilderImpl();

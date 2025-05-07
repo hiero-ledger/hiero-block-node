@@ -4,6 +4,7 @@ module org.hiero.block.node.spi {
     exports org.hiero.block.node.spi.blockmessaging;
     exports org.hiero.block.node.spi.historicalblocks;
     exports org.hiero.block.node.spi.health;
+    exports org.hiero.block.node.spi.threading;
 
     uses org.hiero.block.node.spi.blockmessaging.BlockMessagingFacility;
     uses org.hiero.block.node.spi.historicalblocks.BlockProviderPlugin;

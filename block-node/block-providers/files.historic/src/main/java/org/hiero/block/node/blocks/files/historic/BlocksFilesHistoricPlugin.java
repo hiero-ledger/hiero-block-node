@@ -9,7 +9,6 @@ import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 import org.hiero.block.node.base.ranges.ConcurrentLongRangeSet;
 import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.ServiceBuilder;
@@ -28,7 +27,7 @@ public final class BlocksFilesHistoricPlugin implements BlockProviderPlugin, Blo
     /** The logger for this class. */
     private final System.Logger LOGGER = System.getLogger(getClass().getName());
     /** The executor service for moving blocks to zip files in a background thread. */
-    private final ExecutorService zipMoveExecutorService;
+    private ExecutorService zipMoveExecutorService;
     /** The block node context. */
     private BlockNodeContext context;
     /** The zip block archive. */
@@ -39,19 +38,6 @@ public final class BlocksFilesHistoricPlugin implements BlockProviderPlugin, Blo
     private final ConcurrentLongRangeSet availableBlocks = new ConcurrentLongRangeSet();
     /** List of all zip ranges that are in progress, so we do not start a duplicate job. */
     private final CopyOnWriteArrayList<LongRange> inProgressZipRanges = new CopyOnWriteArrayList<>();
-
-    /** Constructor, used for normal plugin loading */
-    public BlocksFilesHistoricPlugin() {
-        this.zipMoveExecutorService = Executors.newSingleThreadExecutor();
-    }
-
-    /**
-     * Constructor, used only for testing temporarily, need to introduce the
-     * executor factory method in the test context to remove this.
-     */
-    BlocksFilesHistoricPlugin(final ExecutorService zipMoveExecutorService) {
-        this.zipMoveExecutorService = Objects.requireNonNull(zipMoveExecutorService);
-    }
 
     // ==== BlockProviderPlugin Methods ================================================================================
 
@@ -81,6 +67,8 @@ public final class BlocksFilesHistoricPlugin implements BlockProviderPlugin, Blo
         // register to listen to block notifications
         context.blockMessaging().registerBlockNotificationHandler(this, false, "Blocks Files Historic");
         numberOfBlocksPerZipFile = (int) Math.pow(10, config.powersOfTenPerZipFileContents());
+        // create the executor service for moving blocks to zip files
+        zipMoveExecutorService = context.threadPoolManager().createSingleThreadExecutor("FilesHistoricZipMove");
         zipBlockArchive = new ZipBlockArchive(context, config);
         // get the first and last block numbers from the zipBlockArchive
         final long firstZippedBlock = zipBlockArchive.minStoredBlockNumber();

@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 module org.hiero.block.node.app.test.fixtures {
+    exports org.hiero.block.node.app.fixtures.async;
     exports org.hiero.block.node.app.fixtures.blocks;
     exports org.hiero.block.node.app.fixtures.plugintest;
 

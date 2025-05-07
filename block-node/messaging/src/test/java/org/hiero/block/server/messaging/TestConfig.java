@@ -25,5 +25,5 @@ public class TestConfig {
      * needed by messaging facility so far.
      */
     public static final BlockNodeContext BLOCK_NODE_CONTEXT =
-            new BlockNodeContext(getConfig(), null, null, null, null, null);
+            new BlockNodeContext(getConfig(), null, null, null, null, null, null);
 }

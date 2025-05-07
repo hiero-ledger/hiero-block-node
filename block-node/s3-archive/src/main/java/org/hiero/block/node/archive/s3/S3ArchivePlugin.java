@@ -16,11 +16,11 @@ import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.LongStream;
+import org.hiero.block.common.utils.StringUtilities;
 import org.hiero.block.internal.BlockUnparsed;
 import org.hiero.block.node.base.s3.S3Client;
 import org.hiero.block.node.base.tar.TaredBlockIterator;
@@ -53,15 +53,10 @@ public class S3ArchivePlugin implements BlockNodePlugin, BlockNotificationHandle
     private BlockNodeContext context;
     /** The configuration for the archive plugin. */
     private S3ArchiveConfig archiveConfig;
-
+    /** Plugin enabled flag. */
     private final AtomicBoolean enabled = new AtomicBoolean(false);
     /** A single thread executor service for the archive plugin, background jobs. */
-    private final ExecutorService executorService = Executors.newSingleThreadExecutor(task -> {
-        final var thread = new Thread(task, "ArchivePlugin");
-        thread.setUncaughtExceptionHandler(
-                (t, e) -> LOGGER.log(System.Logger.Level.ERROR, "Uncaught exception in thread: " + t.getName(), e));
-        return thread;
-    });
+    private ExecutorService executorService;
     /** list of pending uploads. This is used to cancel uploads if the plugin is stopped and for testing. */
     final CopyOnWriteArrayList<CompletableFuture<Void>> pendingUploads = new CopyOnWriteArrayList<>();
     /** The latest block number that has been archived. If there are no archived blocks then is UNKNOWN_BLOCK_NUMBER */
@@ -84,20 +79,24 @@ public class S3ArchivePlugin implements BlockNodePlugin, BlockNotificationHandle
     @Override
     public void init(BlockNodeContext context, ServiceBuilder serviceBuilder) {
         this.context = context;
-        archiveConfig = context.configuration().getConfigData(S3ArchiveConfig.class);
+        this.archiveConfig = context.configuration().getConfigData(S3ArchiveConfig.class);
         // check if enabled by the "endpointUrl" property being non-empty in config
-        if (archiveConfig.endpointUrl() == null || archiveConfig.endpointUrl().isEmpty()) {
-            LOGGER.log(System.Logger.Level.INFO, "Archive plugin is disabled. No endpoint URL provided.");
+        if (StringUtilities.isBlank(archiveConfig.endpointUrl())) {
+            LOGGER.log(System.Logger.Level.INFO, "S3 Archive plugin is disabled. No endpoint URL provided.");
             return;
-        } else if (archiveConfig.accessKey() == null
-                || archiveConfig.accessKey().isEmpty()) {
-            LOGGER.log(System.Logger.Level.INFO, "Archive plugin is disabled. No access key provided.");
+        } else if (StringUtilities.isBlank(archiveConfig.accessKey())) {
+            LOGGER.log(System.Logger.Level.INFO, "S3 Archive plugin is disabled. No access key provided.");
             return;
-        } else if (archiveConfig.secretKey() == null
-                || archiveConfig.secretKey().isEmpty()) {
-            LOGGER.log(System.Logger.Level.INFO, "Archive plugin is disabled. No secret key provided.");
+        } else if (StringUtilities.isBlank(archiveConfig.secretKey())) {
+            LOGGER.log(System.Logger.Level.INFO, "S3 Archive plugin is disabled. No secret key provided.");
             return;
         }
+        // set up the executor service
+        this.executorService = context.threadPoolManager()
+                .createSingleThreadExecutor(
+                        "S3ArchiveRunner",
+                        (t, e) -> LOGGER.log(
+                                System.Logger.Level.ERROR, "Uncaught exception in thread: " + t.getName(), e));
         // plugin is enabled
         enabled.set(true);
         // register
