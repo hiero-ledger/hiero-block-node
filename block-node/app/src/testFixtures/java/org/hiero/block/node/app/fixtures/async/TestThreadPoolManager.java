@@ -2,11 +2,9 @@
 package org.hiero.block.node.app.fixtures.async;
 
 import edu.umd.cs.findbugs.annotations.NonNull;
+import edu.umd.cs.findbugs.annotations.Nullable;
 import java.util.Objects;
-import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.ExecutorService;
-import java.util.concurrent.ThreadFactory;
-import java.util.concurrent.TimeUnit;
 import org.hiero.block.node.spi.threading.ThreadPoolManager;
 
 /**
@@ -22,19 +20,28 @@ public record TestThreadPoolManager<T extends ExecutorService>(@NonNull T execut
     }
 
     /**
-     * Test implementation, always returns the same executor service that was passed to the constructor of this class.
+     * Test implementation, always returns the same executor service that was
+     * passed to the constructor of this class.
      *
      * @return the executor service that was passed to the constructor
      */
     @NonNull
     @Override
-    public ExecutorService createExecutorService(
-            final int corePoolSize,
-            final int maxPoolSize,
-            final long keepAliveTime,
-            @NonNull final TimeUnit timeUnit,
-            @NonNull final BlockingQueue<Runnable> workQueue,
-            @NonNull final ThreadFactory threadFactory) {
+    public ExecutorService createSingleThreadExecutor(@NonNull final String threadNamePrefix) {
+        return createSingleThreadExecutor(threadNamePrefix, null);
+    }
+
+    /**
+     * Test implementation, always returns the same executor service that was
+     * passed to the constructor of this class.
+     *
+     * @return the executor service that was passed to the constructor
+     */
+    @NonNull
+    @Override
+    public ExecutorService createSingleThreadExecutor(
+            @NonNull final String threadNamePrefix,
+            @Nullable final Thread.UncaughtExceptionHandler uncaughtExceptionHandler) {
         return executor;
     }
 }

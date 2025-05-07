@@ -9,8 +9,6 @@ import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.ExecutorService;
-import java.util.concurrent.LinkedBlockingQueue;
-import java.util.concurrent.TimeUnit;
 import org.hiero.block.node.base.ranges.ConcurrentLongRangeSet;
 import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.ServiceBuilder;
@@ -20,7 +18,6 @@ import org.hiero.block.node.spi.historicalblocks.BlockAccessor;
 import org.hiero.block.node.spi.historicalblocks.BlockProviderPlugin;
 import org.hiero.block.node.spi.historicalblocks.BlockRangeSet;
 import org.hiero.block.node.spi.historicalblocks.LongRange;
-import org.hiero.block.node.spi.threading.PrefixedIncrementingThreadFactory;
 
 /**
  * This plugin provides a block provider that stores historical blocks in file. It is designed to store them in the
@@ -71,14 +68,7 @@ public final class BlocksFilesHistoricPlugin implements BlockProviderPlugin, Blo
         context.blockMessaging().registerBlockNotificationHandler(this, false, "Blocks Files Historic");
         numberOfBlocksPerZipFile = (int) Math.pow(10, config.powersOfTenPerZipFileContents());
         // create the executor service for moving blocks to zip files
-        zipMoveExecutorService = context.threadPoolManager()
-                .createExecutorService(
-                        1,
-                        1,
-                        0L,
-                        TimeUnit.MILLISECONDS,
-                        new LinkedBlockingQueue<>(),
-                        new PrefixedIncrementingThreadFactory("FilesHistoricZipMove"));
+        zipMoveExecutorService = context.threadPoolManager().createSingleThreadExecutor("FilesHistoricZipMove");
         zipBlockArchive = new ZipBlockArchive(context, config);
         // get the first and last block numbers from the zipBlockArchive
         final long firstZippedBlock = zipBlockArchive.minStoredBlockNumber();
