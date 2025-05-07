@@ -47,7 +47,7 @@ class BlockStreamSubscriberSessionTest {
     private static final int RESPONSE_WAIT_LIMIT = 1000;
     private final HistoricalBlockFacility historicalBlockFacility = new SimpleInMemoryHistoricalBlockFacility();
     private final BlockMessagingFacility blockMessagingFacility = new TestBlockMessagingFacility();
-    private final BlockItemHandler providerHandler = (BlockItemHandler)historicalBlockFacility;
+    private final BlockItemHandler providerHandler = (BlockItemHandler) historicalBlockFacility;
 
     private BlockNodeContext context;
     private ResponsePipeline responsePipeline;
@@ -65,8 +65,8 @@ class BlockStreamSubscriberSessionTest {
                 .withConfigDataType(SubscriberConfig.class)
                 .build();
         responsePipeline = new ResponsePipeline();
-        context = new BlockNodeContext(configuration, metrics, null,
-                blockMessagingFacility, historicalBlockFacility, null);
+        context = new BlockNodeContext(
+                configuration, metrics, null, blockMessagingFacility, historicalBlockFacility, null);
         historicalBlockFacility.init(context, null);
         blockMessagingFacility.init(context, null); // Probably not needed, but that can change.
     }
@@ -116,7 +116,10 @@ class BlockStreamSubscriberSessionTest {
                 // Wait for everything to complete.
                 // Note, don't try to wait before this; there are no execution guarantees until
                 // `get` is called; before that the thread may not run or may be parked indefinitely.
-                sessionFuture.get(1L, TimeUnit.SECONDS); // The timeout doesn't work, for some reason, but it's here because we don't have a better alternative.
+                sessionFuture.get(
+                        1L,
+                        TimeUnit.SECONDS); // The timeout doesn't work, for some reason, but it's here because we don't
+                // have a better alternative.
             }
 
             // Verify final pipeline state
@@ -160,7 +163,7 @@ class BlockStreamSubscriberSessionTest {
      * @param maxBlock the maximum available block number
      */
     private void setupHistoricalBlockProvider(int minBlock, int maxBlock) {
-        if(maxBlock < minBlock || maxBlock - minBlock > 100_000L) {
+        if (maxBlock < minBlock || maxBlock - minBlock > 100_000L) {
             throw new IllegalArgumentException("Invalid block range");
         }
         // "publish" blocks from min to max so the historical provider has them.
@@ -190,6 +193,7 @@ class BlockStreamSubscriberSessionTest {
     private static class ResponsePipeline implements Pipeline<SubscribeStreamResponseUnparsed> {
         /** The GRPC bytes received from the plugin. */
         private final List<SubscribeStreamResponse> receivedResponses = new ArrayList<>();
+
         private final List<Throwable> pipelineErrors = new ArrayList<>();
         private int completionCount = 0;
 
@@ -206,8 +210,7 @@ class BlockStreamSubscriberSessionTest {
         }
 
         @Override
-        public void clientEndStreamReceived() {
-        }
+        public void clientEndStreamReceived() {}
 
         @Override
         public void onSubscribe(Flow.Subscription subscription) {}

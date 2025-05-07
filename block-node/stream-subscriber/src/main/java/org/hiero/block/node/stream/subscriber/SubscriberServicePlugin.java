@@ -37,15 +37,6 @@ import org.hiero.block.node.spi.ServiceBuilder;
  * Provides implementation for the block stream subscriber endpoints of the server. These handle incoming requests for block
  * stream from consumers.
  *
- * <p>This plugin is responsible for:
- * <ul>
- *   <li>Managing subscriber sessions for clients requesting block streams</li>
- *   <li>Handling both live-streaming and historical block data requests</li>
- *   <li>Implementing the gRPC service interface for block stream subscriptions</li>
- *   <li>Coordinating between multiple publishers when they connect to the block node</li>
- *   <li>Maintaining metrics about active subscribers and stream health</li>
- * </ul>
- *
  * <p>The plugin registers itself with the service builder during initialization and manages
  * the lifecycle of subscriber connections.
  */
@@ -56,11 +47,11 @@ public class SubscriberServicePlugin implements BlockNodePlugin, ServiceInterfac
     private final Logger LOGGER = System.getLogger(getClass().getName());
     /** Metric for the number of subscribers receiving block items. */
     private final List<SubscribeBlockStreamHandler> clientHandlers = new LinkedList<>();
-    /** The block node context */
+    /** The block node context, used to provide access to facilities */
     private BlockNodeContext context;
-    /** The subscriber plugin configuration */
+    /** The subscriber plugin configuration object created and managed by Hiero Configuration library, containing information specific to this plugin */
     private SubscriberConfig pluginConfiguration;
-    /** The client handler for client subscriptions*/
+    /** A handler for client requests */
     private SubscribeBlockStreamHandler clientHandler;
 
     /*==================== BlockNodePlugin Methods ====================*/
@@ -70,7 +61,6 @@ public class SubscriberServicePlugin implements BlockNodePlugin, ServiceInterfac
      */
     @Override
     public void init(@NonNull final BlockNodeContext context, @NonNull final ServiceBuilder serviceBuilder) {
-        requireNonNull(serviceBuilder);
         this.context = requireNonNull(context);
         pluginConfiguration = context.configuration().getConfigData(SubscriberConfig.class);
         // register us as a service
@@ -177,15 +167,7 @@ public class SubscriberServicePlugin implements BlockNodePlugin, ServiceInterfac
     }
 
     /**
-     * Handler for block stream subscription requests from clients.
-     * Responsible for:
-     * <ul>
-     *   <li>Managing client sessions for block stream subscribers</li>
-     *   <li>Processing subscription requests and streaming block data to clients</li>
-     *   <li>Tracking active subscriber sessions and their lifecycle</li>
-     *   <li>Handling graceful termination of subscriber connections</li>
-     *   <li>Reporting metrics about active subscribers</li>
-     * </ul>
+     * Handler for block stream subscription requests from clients. Handles creation of session, assigning a clientId and managing futures.
      */
     static class SubscribeBlockStreamHandler
             implements ServerStreamingMethod<SubscribeStreamRequest, SubscribeStreamResponseUnparsed> {
@@ -194,9 +176,9 @@ public class SubscriberServicePlugin implements BlockNodePlugin, ServiceInterfac
         private final AtomicLong sessionCount = new AtomicLong(0L);
         /** The next client id to use when a new client session is created */
         private final AtomicLong nextClientId = new AtomicLong(0);
-        /** The block node context */
+        /** A context that applies to the pipeline this handler supports. */
         private final BlockNodeContext context;
-        /** The subscriber plugin responsible for handling incoming requests*/
+        /** A plugin instance that created and "owns" this Handler. */
         private final SubscriberServicePlugin plugin;
         /** Set of open client sessions */
         private final Map<Long, BlockStreamSubscriberSession> openSessions;

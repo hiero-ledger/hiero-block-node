@@ -162,7 +162,6 @@ public class BlockStreamSubscriberSession implements Callable<BlockStreamSubscri
             if (validateRequest(
                     oldestBlockNumber, latestBlockNumber, startBlockNumber, endBlockNumber, clientId, LOGGER)) {
                 // register us to listen to block items from the block messaging system
-                LOGGER.log(Level.TRACE, "Registering a block subscriber handler for " + handlerName);
                 context.blockMessaging().registerNoBackpressureBlockItemHandler(liveBlockHandler, false, handlerName);
                 sessionReadyLatch.countDown();
                 // Send blocks forever if requested, otherwise send until we reach the requested end block
@@ -295,7 +294,11 @@ public class BlockStreamSubscriberSession implements Callable<BlockStreamSubscri
             } else if (blockItems.isStartOfNewBlock() && blockItems.newBlockNumber() > nextBlockToSend) {
                 // This block is _future_, so we need to wait, and try to get the next block from history
                 // first, then come back to this block.
-                LOGGER.log(Level.TRACE, "Retaining future block {0} for client {1}", blockItems.newBlockNumber(), clientId);
+                LOGGER.log(
+                        Level.TRACE,
+                        "Retaining future block {0} for client {1}",
+                        blockItems.newBlockNumber(),
+                        clientId);
             } else {
                 // This is a past or future _partial_ block, so we need to trim the queue.
                 liveBlockQueue.poll(); // discard _this batch only_.
@@ -495,10 +498,11 @@ public class BlockStreamSubscriberSession implements Callable<BlockStreamSubscri
             sessionReadyLatch.countDown();
             LOGGER.log(Level.DEBUG, "Session ready latch was not counted down on close, releasing now");
         }
-        if(!interruptedStream.get()) {
+        if (!interruptedStream.get()) {
             // unregister us from the block messaging system, if we are not registered then this is noop
             context.blockMessaging().unregisterBlockItemHandler(liveBlockHandler);
-            final Builder response = SubscribeStreamResponseUnparsed.newBuilder().status(endStreamResponseCode);
+            final Builder response =
+                    SubscribeStreamResponseUnparsed.newBuilder().status(endStreamResponseCode);
             responsePipeline.onNext(response.build());
             responsePipeline.onComplete();
         }
@@ -511,7 +515,6 @@ public class BlockStreamSubscriberSession implements Callable<BlockStreamSubscri
     }
 
     private void sendOneBlockItemSet(final BlockUnparsed nextBlock) throws ParseException {
-        LOGGER.log(Level.TRACE, "Sending full block {0} to {1}", nextBlockToSend, handlerName);
         final BlockHeader header =
                 BlockHeader.PROTOBUF.parse(nextBlock.blockItems().getFirst().blockHeader());
         if (header.number() == nextBlockToSend) {
@@ -576,7 +579,6 @@ public class BlockStreamSubscriberSession implements Callable<BlockStreamSubscri
         public void handleBlockItemsReceived(@NonNull final BlockItems blockItems) {
             if (blockItems.newBlockNumber() > latestLiveStreamBlock.get()) {
                 latestLiveStreamBlock.set(blockItems.newBlockNumber());
-                LOGGER.log(Level.TRACE, "Updated latest block to {0}.", latestLiveStreamBlock);
             }
             // Blocking so that the client thread has a chance to pull items
             // off the head when it's full.
