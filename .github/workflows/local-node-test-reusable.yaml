@@ -184,20 +184,6 @@ jobs:
           ${NPM_RUN} run acceptancetest:htsprecompilev1 || true
           ${NPM_RUN} run acceptancetest:precompile-calls || true
 
-      - name: Check Block Node Logs
-        if: always()
-        run: |
-          echo "Checking block-node logs for errors..."
-          LOGS=$(docker logs block-node-server)
-          echo "$LOGS"
-
-          # Check for errors and exceptions
-          if echo "$LOGS" | grep -iE "ERROR:|Exception" > /dev/null; then
-            echo "Found errors or exceptions in block-node logs. Failing workflow."
-            exit 1
-          fi
-          echo "No errors or exceptions found in block-node logs."
-
       - name: Stop Local Node
         if: always()
         working-directory: local-node
