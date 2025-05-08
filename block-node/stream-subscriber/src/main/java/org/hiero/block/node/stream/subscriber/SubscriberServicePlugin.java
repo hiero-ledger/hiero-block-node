@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.node.stream.subscriber;
 
+import static java.util.Objects.requireNonNull;
+
 import com.hedera.pbj.runtime.grpc.GrpcException;
 import com.hedera.pbj.runtime.grpc.Pipeline;
 import com.hedera.pbj.runtime.grpc.Pipelines;
@@ -31,7 +33,13 @@ import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.BlockNodePlugin;
 import org.hiero.block.node.spi.ServiceBuilder;
 
-/** Provides implementation for the health endpoints of the server. */
+/**
+ * Provides implementation for the block stream subscriber endpoints of the server. These handle incoming requests for block
+ * stream from consumers.
+ *
+ * <p>The plugin registers itself with the service builder during initialization and manages
+ * the lifecycle of subscriber connections.
+ */
 public class SubscriberServicePlugin implements BlockNodePlugin, ServiceInterface {
     /** The service name for this service, which must match the gRPC service name */
     private static final String SERVICE_NAME = parseGrpcName();
@@ -39,10 +47,11 @@ public class SubscriberServicePlugin implements BlockNodePlugin, ServiceInterfac
     private final Logger LOGGER = System.getLogger(getClass().getName());
     /** Metric for the number of subscribers receiving block items. */
     private final List<SubscribeBlockStreamHandler> clientHandlers = new LinkedList<>();
-    /** The block node context */
+    /** The block node context, used to provide access to facilities */
     private BlockNodeContext context;
-
+    /** The subscriber plugin configuration object created and managed by Hiero Configuration library, containing information specific to this plugin */
     private SubscriberConfig pluginConfiguration;
+    /** A handler for client requests */
     private SubscribeBlockStreamHandler clientHandler;
 
     /*==================== BlockNodePlugin Methods ====================*/
@@ -51,8 +60,8 @@ public class SubscriberServicePlugin implements BlockNodePlugin, ServiceInterfac
      * {@inheritDoc}
      */
     @Override
-    public void init(BlockNodeContext context, ServiceBuilder serviceBuilder) {
-        this.context = context;
+    public void init(@NonNull final BlockNodeContext context, @NonNull final ServiceBuilder serviceBuilder) {
+        this.context = requireNonNull(context);
         pluginConfiguration = context.configuration().getConfigData(SubscriberConfig.class);
         // register us as a service
         serviceBuilder.registerGrpcService(this);
@@ -105,7 +114,7 @@ public class SubscriberServicePlugin implements BlockNodePlugin, ServiceInterfac
      * <br/>This is called once and stored statically.
      */
     private static String parseGrpcName() {
-        String[] parts = BlockStreamSubscribeServiceGrpc.SERVICE_NAME.split("\\.");
+        final String[] parts = BlockStreamSubscribeServiceGrpc.SERVICE_NAME.split("\\.");
         return parts[parts.length - 1];
     }
 
@@ -157,15 +166,19 @@ public class SubscriberServicePlugin implements BlockNodePlugin, ServiceInterfac
         return clientHandler.getOpenSessions();
     }
 
+    /**
+     * Handler for block stream subscription requests from clients. Handles creation of session, assigning a clientId and managing futures.
+     */
     static class SubscribeBlockStreamHandler
             implements ServerStreamingMethod<SubscribeStreamRequest, SubscribeStreamResponseUnparsed> {
         private final Logger LOGGER = System.getLogger(getClass().getName());
         /** Count of active sessions, because LongGauge doesn't support increment/decrement */
-        private AtomicLong sessionCount = new AtomicLong(0L);
+        private final AtomicLong sessionCount = new AtomicLong(0L);
         /** The next client id to use when a new client session is created */
         private final AtomicLong nextClientId = new AtomicLong(0);
-
+        /** A context that applies to the pipeline this handler supports. */
         private final BlockNodeContext context;
+        /** A plugin instance that created and "owns" this Handler. */
         private final SubscriberServicePlugin plugin;
         /** Set of open client sessions */
         private final Map<Long, BlockStreamSubscriberSession> openSessions;
@@ -173,9 +186,10 @@ public class SubscriberServicePlugin implements BlockNodePlugin, ServiceInterfac
         private final LongGauge numberOfSubscribers;
         private final ExecutorCompletionService<BlockStreamSubscriberSession> streamSessions;
 
-        private SubscribeBlockStreamHandler(final BlockNodeContext context, final SubscriberServicePlugin plugin) {
-            this.context = context;
-            this.plugin = plugin;
+        private SubscribeBlockStreamHandler(
+                @NonNull final BlockNodeContext context, @NonNull final SubscriberServicePlugin plugin) {
+            this.context = requireNonNull(context);
+            this.plugin = requireNonNull(plugin);
             this.openSessions = new ConcurrentSkipListMap<>();
             streamSessions = new ExecutorCompletionService<>(Executors.newVirtualThreadPerTaskExecutor());
             // create the metrics
@@ -234,7 +248,7 @@ public class SubscriberServicePlugin implements BlockNodePlugin, ServiceInterfac
                 long clientId = completedSession.clientId();
                 // Remove the completed session from open sessions.
                 openSessions.remove(clientId);
-                Exception failureCause = completedSession.getSessionFailedCause();
+                final Exception failureCause = completedSession.getSessionFailedCause();
                 if (failureCause != null) {
                     // If the session failed, log the failure.
                     // Subscribers can reconnect or retry, so this is only an informational log.
