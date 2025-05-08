@@ -66,7 +66,7 @@ class BlockStreamSubscriberSessionTest {
                 .build();
         responsePipeline = new ResponsePipeline();
         context = new BlockNodeContext(
-                configuration, metrics, null, blockMessagingFacility, historicalBlockFacility, null);
+                configuration, metrics, null, blockMessagingFacility, historicalBlockFacility, null, null);
         historicalBlockFacility.init(context, null);
         blockMessagingFacility.init(context, null); // Probably not needed, but that can change.
     }
