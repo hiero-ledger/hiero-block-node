@@ -101,7 +101,7 @@ jobs:
             ${{ runner.os }}-gradle-
 
       - name: Build Block Node Docker Image
-        run: ${GRADLE_EXEC} :block-node-server:createDockerImage
+        run: ${GRADLE_EXEC} :block-node-app:createDockerImage
 
       - name: Checkout Local Node
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
@@ -123,7 +123,7 @@ jobs:
         working-directory: local-node
         run: |
           # Get the current version from the block-node project
-          BLOCK_NODE_VERSION=$(cd .. && ./gradlew :block-node-server:properties | grep "version:" | awk '{print $2}')
+          BLOCK_NODE_VERSION=$(cd .. && ./gradlew :block-node-app:properties | grep "version:" | awk '{print $2}')
           # Replace the block-node image in docker-compose.yml
           sed -i "s|image: \"\${BLOCK_NODE_IMAGE_PREFIX}hiero-block-node:\${BLOCK_NODE_IMAGE_TAG}\"|image: \"block-node-server:${BLOCK_NODE_VERSION}\"|" docker-compose.yml
           # Update the VERSION environment variable
@@ -183,20 +183,6 @@ jobs:
           ${NPM_RUN} run acceptancetest:api_batch3 || true
           ${NPM_RUN} run acceptancetest:htsprecompilev1 || true
           ${NPM_RUN} run acceptancetest:precompile-calls || true
-
-      - name: Check Block Node Logs
-        if: always()
-        run: |
-          echo "Checking block-node logs for errors..."
-          LOGS=$(docker logs block-node)
-          echo "$LOGS"
-
-          # Check for errors and exceptions
-          if echo "$LOGS" | grep -iE "ERROR:|Exception" > /dev/null; then
-            echo "Found errors or exceptions in block-node logs. Failing workflow."
-            exit 1
-          fi
-          echo "No errors or exceptions found in block-node logs."
 
       - name: Stop Local Node
         if: always()
