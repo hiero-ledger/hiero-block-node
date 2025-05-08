@@ -101,7 +101,7 @@ jobs:
             ${{ runner.os }}-gradle-
 
       - name: Build Block Node Docker Image
-        run: ${GRADLE_EXEC} :block-node-server:createDockerImage
+        run: ${GRADLE_EXEC} :block-node-app:createDockerImage
 
       - name: Checkout Local Node
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
@@ -123,9 +123,9 @@ jobs:
         working-directory: local-node
         run: |
           # Get the current version from the block-node project
-          BLOCK_NODE_VERSION=$(cd .. && ./gradlew :block-node-server:properties | grep "version:" | awk '{print $2}')
+          BLOCK_NODE_VERSION=$(cd .. && ./gradlew :block-node-app:properties | grep "version:" | awk '{print $2}')
           # Replace the block-node image in docker-compose.yml
-          sed -i "s|image: \"\${BLOCK_NODE_IMAGE_PREFIX}hiero-block-node:\${BLOCK_NODE_IMAGE_TAG}\"|image: \"block-node-server:${BLOCK_NODE_VERSION}\"|" docker-compose.yml
+          sed -i "s|image: \"\${BLOCK_NODE_IMAGE_PREFIX}hiero-block-node:\${BLOCK_NODE_IMAGE_TAG}\"|image: \"block-node-app:${BLOCK_NODE_VERSION}\"|" docker-compose.yml
           # Update the VERSION environment variable
           sed -i "s|VERSION: \${BLOCK_NODE_IMAGE_TAG}|VERSION: ${BLOCK_NODE_VERSION}|" docker-compose.yml
 
