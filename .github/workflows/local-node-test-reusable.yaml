@@ -125,7 +125,7 @@ jobs:
           # Get the current version from the block-node project
           BLOCK_NODE_VERSION=$(cd .. && ./gradlew :block-node-app:properties | grep "version:" | awk '{print $2}')
           # Replace the block-node image in docker-compose.yml
-          sed -i "s|image: \"\${BLOCK_NODE_IMAGE_PREFIX}hiero-block-node:\${BLOCK_NODE_IMAGE_TAG}\"|image: \"block-node-app:${BLOCK_NODE_VERSION}\"|" docker-compose.yml
+          sed -i "s|image: \"\${BLOCK_NODE_IMAGE_PREFIX}hiero-block-node:\${BLOCK_NODE_IMAGE_TAG}\"|image: \"block-node-server:${BLOCK_NODE_VERSION}\"|" docker-compose.yml
           # Update the VERSION environment variable
           sed -i "s|VERSION: \${BLOCK_NODE_IMAGE_TAG}|VERSION: ${BLOCK_NODE_VERSION}|" docker-compose.yml
 
@@ -188,7 +188,7 @@ jobs:
         if: always()
         run: |
           echo "Checking block-node logs for errors..."
-          LOGS=$(docker logs block-node)
+          LOGS=$(docker logs block-node-server)
           echo "$LOGS"
 
           # Check for errors and exceptions
