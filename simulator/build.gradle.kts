@@ -31,6 +31,18 @@ testModuleInfo {
     runtimeOnly("com.google.protobuf")
 }
 
+tasks.test {
+    // for SimulatorMappedConfigSourceInitializerTest.extractConfigMappings()
+    jvmArgumentProviders.add(
+        CommandLineArgumentProvider {
+            listOf(
+                "--add-opens",
+                "com.swirlds.config.extensions/com.swirlds.config.extensions.sources=org.hiero.block.simulator",
+            )
+        }
+    )
+}
+
 // Task to run simulator in Publisher mode
 tasks.register<JavaExec>("runPublisherClient") {
     description = "Run the simulator in Publisher Client mode"

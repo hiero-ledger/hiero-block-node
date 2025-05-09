@@ -22,7 +22,6 @@ mainModuleInfo {
 tasks.register<Test>("runSuites") {
     description = "Runs E2E Test Suites"
     group = "suites"
-    modularity.inferModulePath = false
 
     // @todo(#343) - :server:createProductionDotEnv should disappear
     // @todo(#813) All of the docker processing belongs here, not in block-node-app.

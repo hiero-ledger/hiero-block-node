@@ -12,7 +12,6 @@ description = "Hiero Block Node Server App"
 tasks.withType<JavaCompile>().configureEach { options.compilerArgs.add("-Xlint:-exports") }
 
 tasks.withType<JavaExec>().configureEach {
-    modularity.inferModulePath = true
     val serverDataDir = layout.buildDirectory.get().dir("block-node-storage")
     environment("FILES_HISTORIC_ROOT_PATH", "${serverDataDir}/files-historic")
     environment("FILES_RECENT_LIVE_ROOT_PATH", "${serverDataDir}/files-live")
@@ -23,7 +22,6 @@ tasks.register<JavaExec>("runWithCleanStorage") {
     description = "Run the block node, deleting storage first"
     group = "application"
 
-    modularity.inferModulePath = true
     mainClass = application.mainClass
     mainModule = application.mainModule
     classpath = sourceSets["main"].runtimeClasspath
@@ -53,7 +51,7 @@ mainModuleInfo {
     // List of all "plugin modules" we need at runtime.
     // In the future, we may get Gradle to automatically infer this block
     //   https://github.com/gradlex-org/java-module-dependencies/issues/174
-    runtimeOnly("org.hiero.block.node.archive")
+    runtimeOnly("org.hiero.block.node.archive.s3cloud")
     runtimeOnly("org.hiero.block.node.messaging")
     runtimeOnly("org.hiero.block.node.health")
     runtimeOnly("org.hiero.block.node.publisher")
@@ -66,6 +64,7 @@ mainModuleInfo {
 }
 
 testModuleInfo {
+    requires("org.hiero.block.node.app.test.fixtures")
     requires("org.junit.jupiter.api")
     requires("org.junit.jupiter.params")
     requires("org.mockito")
