@@ -18,7 +18,12 @@ dependencies.constraints {
     val protobufVersion = "4.30.2"
     val swirldsVersion = "0.61.3"
     val mockitoVersion = "5.17.0"
+<<<<<<< HEAD
     val testContainersVersion = "1.21.0"
+=======
+    val testContainersVersion = "1.20.6"
+    val hieroConsensusVersion = "0.62.1"
+>>>>>>> 11063963 (Gradle proto dismantaling and grouping exploration)
 
     api("com.github.luben:zstd-jni:1.5.7-3") { because("com.github.luben.zstd_jni") }
     api("com.github.spotbugs:spotbugs-annotations:4.9.3") {
@@ -87,4 +92,7 @@ dependencies.constraints {
     api("com.google.jimfs:jimfs:1.3.0") { because("com.google.common.jimfs") }
     api("io.minio:minio:8.5.17") { because("io.minio") }
     api("com.squareup.okio:okio-jvm:3.11.0") { because("okio") } // required by minio
+    api("com.hedera.hashgraph:hedera-protobuf-java-api:${hieroConsensusVersion}") {
+        because("com.hedera.hashgraph")
+    }
 }

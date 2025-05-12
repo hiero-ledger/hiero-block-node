@@ -9,6 +9,8 @@ plugins {
     id("com.hedera.pbj.pbj-compiler") version "0.11.3"
 }
 
+dependencies { api("com.hedera.hashgraph:hedera-protobuf-java-api:0.62.1") }
+
 description = "Hiero Block Node Protobuf API"
 
 // Remove the following line to enable all 'javac' lint checks that we have turned on by default
@@ -33,7 +35,31 @@ val cloneHederaProtobufs =
         // remove the block_service.proto file pulled from hedera-protobufs in favour of local
         // version
         doLast { localCloneDirectory.file("block/block_service.proto").get().asFile.delete() }
+//        dependsOn(unpackConsensusNodeProtoJar)
     }
+
+val unpackConsensusNodeProtoJar: TaskProvider<Copy> =
+    tasks.register<Copy>("unpackConsensusNodeProtoJar") {
+        description = "Copies the protobuf files from the hedera-protobuf-java-api jar to the build root directory"
+        group = "protobuf"
+
+        val protoJar = configurations.runtimeClasspath.get().single { it.name.contains("hedera-protobuf-java-api") }
+        from(zipTree(protoJar))
+//        into(layout.buildDirectory.dir("consensus-node-protobuf"))
+        into(layout.buildDirectory.dir("resources/main"))
+//        into(layout.projectDirectory.dir("src/main/proto/com/hedera/hapi"))
+    }
+
+val copyBlockApiProto: TaskProvider<Copy> =
+    tasks.register<Copy>("copyBlockApiProto") {
+        description = "Copies the protobuf files from block api to the extracted directory"
+        group = "protobuf"
+
+        from(layout.projectDirectory.dir("src/main/proto/org/hiero/block/api"))
+//        into(layout.buildDirectory.dir("extracted-include-protos/main/block-node-api"))
+        into(layout.buildDirectory.dir("resources/main"))
+
+}
 
 sourceSets {
     main {
@@ -42,14 +68,28 @@ sourceSets {
             srcDir(cloneHederaProtobufs.flatMap { it.localCloneDirectory.dir("block") })
             srcDir(cloneHederaProtobufs.flatMap { it.localCloneDirectory.dir("platform") })
             srcDir(cloneHederaProtobufs.flatMap { it.localCloneDirectory.dir("streams") })
+//            srcDir("${layout.buildDirectory}/consensus-node-protobufe/block")
+//            srcDir("${layout.buildDirectory}/resources/main")
         }
         proto {
             srcDir(cloneHederaProtobufs.flatMap { it.localCloneDirectory.dir("services") })
             srcDir(cloneHederaProtobufs.flatMap { it.localCloneDirectory.dir("block") })
             srcDir(cloneHederaProtobufs.flatMap { it.localCloneDirectory.dir("platform") })
             srcDir(cloneHederaProtobufs.flatMap { it.localCloneDirectory.dir("streams") })
+//            srcDir("src/main/proto")
+//            srcDir("${layout.buildDirectory}/consensus-node-protobuf/block")
+//            srcDir("${layout.buildDirectory}/resources/main")
         }
     }
+}
+
+tasks.named("compileJava") {
+    dependsOn(unpackConsensusNodeProtoJar)
+    dependsOn(copyBlockApiProto)
+}
+
+tasks.named("copyBlockApiProto") {
+    mustRunAfter(tasks.generateProto)
 }
 
 tasks.test {
