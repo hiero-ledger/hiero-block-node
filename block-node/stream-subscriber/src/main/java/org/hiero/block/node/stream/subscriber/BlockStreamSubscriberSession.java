@@ -3,15 +3,12 @@ package org.hiero.block.node.stream.subscriber;
 
 import static java.util.Objects.requireNonNull;
 import static java.util.concurrent.locks.LockSupport.parkNanos;
-import static org.hiero.block.node.spi.BlockNodePlugin.METRICS_CATEGORY;
 import static org.hiero.block.node.spi.BlockNodePlugin.UNKNOWN_BLOCK_NUMBER;
 
 import com.hedera.hapi.block.stream.output.BlockHeader;
 import com.hedera.pbj.runtime.OneOf;
 import com.hedera.pbj.runtime.ParseException;
 import com.hedera.pbj.runtime.grpc.Pipeline;
-import com.swirlds.metrics.api.Counter;
-import com.swirlds.metrics.api.Counter.Config;
 import edu.umd.cs.findbugs.annotations.NonNull;
 import java.lang.System.Logger;
 import java.lang.System.Logger.Level;
@@ -73,10 +70,6 @@ public class BlockStreamSubscriberSession implements Callable<BlockStreamSubscri
     private final BlockNodeContext context;
     /** The configuration for the "owning" plugin */
     private final SubscriberConfig pluginConfiguration;
-    /** The number of historic to live stream transitions metric */
-    private final Counter historicToLiveStreamTransitions;
-    /** The number of live to historic stream transitions metric */
-    private final Counter liveToHistoricStreamTransitions;
     /** The name of this handler, used in toString and for testing */
     private final String handlerName;
     /** A blocking queue to send blocks from the live handler to the session. */
@@ -128,14 +121,6 @@ public class BlockStreamSubscriberSession implements Callable<BlockStreamSubscri
         // Next block to send depends on what was requested and what is available.
         nextBlockToSend = startBlockNumber < 0 ? getLatestKnownBlock() : startBlockNumber;
         handlerName = "Live stream client " + clientId;
-        // create metrics
-        // Note: These two may, or may not, be useful...
-        historicToLiveStreamTransitions = context.metrics()
-                .getOrCreate(new Config(METRICS_CATEGORY, "historicToLiveStreamTransitions")
-                        .withDescription("Historic to Live Stream Transitions"));
-        liveToHistoricStreamTransitions = context.metrics()
-                .getOrCreate(new Config(METRICS_CATEGORY, "liveToHistoricStreamTransitions")
-                        .withDescription("Live to Historic Stream Transitions"));
         liveBlockQueue = new ArrayBlockingQueue<>(pluginConfiguration.liveQueueSize());
         liveBlockHandler = new LiveBlockHandler(liveBlockQueue, latestLiveStreamBlock, handlerName);
     }
@@ -191,7 +176,6 @@ public class BlockStreamSubscriberSession implements Callable<BlockStreamSubscri
         // Don't send anything from history if this stream is interrupted, has sent
         // every requested block, or we can send the next block from "live".
         while (isHistoryPermitted()) {
-            LOGGER.log(Level.TRACE, "Sending historical block {0} to {1}", nextBlockToSend, handlerName);
             // We need to send historical blocks.
             // We will only send one block at a time to keep things "smooth".
             // Start by getting a block accessor for the next block to send from the historical provider.
@@ -216,7 +200,6 @@ public class BlockStreamSubscriberSession implements Callable<BlockStreamSubscri
                 }
                 break;
             }
-            LOGGER.log(Level.TRACE, "Done sending historical block to {1}, {0} up next.", nextBlockToSend, handlerName);
         }
     }
 
@@ -529,12 +512,6 @@ public class BlockStreamSubscriberSession implements Callable<BlockStreamSubscri
     }
 
     private void sendOneBlockItemSet(final BlockItems nextBatch) {
-        LOGGER.log(
-                Level.TRACE,
-                "Sending next batch of {0} items for block {1} to client {2}",
-                nextBatch.blockItems().size(),
-                nextBatch.newBlockNumber(),
-                handlerName);
         sendOneBlockItemSet(nextBatch.blockItems());
     }
 
@@ -542,7 +519,6 @@ public class BlockStreamSubscriberSession implements Callable<BlockStreamSubscri
         final BlockItemSetUnparsed dataToSend = new BlockItemSetUnparsed(blockItems);
         final OneOf<ResponseOneOfType> responseOneOf = new OneOf<>(ResponseOneOfType.BLOCK_ITEMS, dataToSend);
         responsePipeline.onNext(new SubscribeStreamResponseUnparsed(responseOneOf));
-        LOGGER.log(Level.TRACE, "Sent block items for block {0} to {1}.", nextBlockToSend, handlerName);
     }
 
     // ==== Block Item Handler Class ===========================================

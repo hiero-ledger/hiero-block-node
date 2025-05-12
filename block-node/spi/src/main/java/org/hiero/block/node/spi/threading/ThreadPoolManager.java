@@ -16,6 +16,27 @@ import java.util.concurrent.ExecutorService;
  */
 public interface ThreadPoolManager {
     /**
+     * Factory method. Creates a new virtual thread-per-task {@link ExecutorService}.
+     *
+     * @param threadName the thread name prefix, must not be blank
+     * @return a new virtual thread-per-task executor service
+     */
+    @NonNull
+    ExecutorService getVirtualThreadExecutor(@NonNull final String threadName);
+
+    /**
+     * Factory method. Creates a new virtual thread-per-task {@link ExecutorService} using
+     * the specified (nullable) {@link Thread.UncaughtExceptionHandler}.
+     *
+     * @param threadName the thread name prefix, must not be blank
+     * @param uncaughtExceptionHandler the uncaught exception handler, nullable
+     * @return a new virtual thread-per-task executor service
+     */
+    @NonNull
+    ExecutorService getVirtualThreadExecutor(
+            @NonNull final String threadName, @Nullable final Thread.UncaughtExceptionHandler uncaughtExceptionHandler);
+
+    /**
      * Factory method. Creates a new single thread {@link ExecutorService}.
      *
      * @param threadName the thread's name, must not be blank

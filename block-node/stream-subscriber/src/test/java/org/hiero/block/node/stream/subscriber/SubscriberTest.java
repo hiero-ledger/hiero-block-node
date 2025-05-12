@@ -16,14 +16,17 @@ import com.hedera.pbj.runtime.ParseException;
 import com.hedera.pbj.runtime.grpc.ServiceInterface.Method;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import java.util.List;
+import java.util.concurrent.Executors;
 import org.assertj.core.api.SoftAssertions;
 import org.hiero.block.api.SubscribeStreamRequest;
 import org.hiero.block.api.SubscribeStreamResponse;
 import org.hiero.block.api.SubscribeStreamResponse.ResponseOneOfType;
 import org.hiero.block.internal.BlockItemUnparsed;
+import org.hiero.block.node.app.fixtures.async.TestThreadPoolManager;
 import org.hiero.block.node.app.fixtures.plugintest.GrpcPluginTestBase;
 import org.hiero.block.node.app.fixtures.plugintest.SimpleInMemoryHistoricalBlockFacility;
 import org.hiero.block.node.spi.blockmessaging.BlockItems;
+import org.hiero.block.node.spi.threading.ThreadPoolManager;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
@@ -45,7 +48,8 @@ public class SubscriberTest extends GrpcPluginTestBase<SubscriberServicePlugin> 
     public SubscriberTest() {
         historicalFacility = new SimpleInMemoryHistoricalBlockFacility();
         activePlugin = new SubscriberServicePlugin();
-        start(activePlugin, subscribeBlockStream, historicalFacility);
+        ThreadPoolManager virtualTaskThreads = new TestThreadPoolManager<>(Executors.newVirtualThreadPerTaskExecutor());
+        start(activePlugin, subscribeBlockStream, historicalFacility, virtualTaskThreads, null);
     }
 
     /**
@@ -225,12 +229,10 @@ public class SubscriberTest extends GrpcPluginTestBase<SubscriberServicePlugin> 
         activePlugin.stop(); // request the plugin to end all client streams.
     }
 
-    @Disabled("Disabled until issue with it is resolved. Works _sometimes_ when run standalone")
     @Test
     void testSubscriberBlockStreamInMiddleWithHistory() throws ParseException {
         // send first 10 items
         sendBatches(createNumberOfSimpleBlockBatches(0, 10), false, 0);
-        System.out.print("\n\n\n============================================================\n\n\n");
         // first we need to create and send a SubscribeStreamRequest
         final SubscribeStreamRequest subscribeStreamRequest = SubscribeStreamRequest.newBuilder()
                 .startBlockNumber(5)
@@ -239,13 +241,9 @@ public class SubscriberTest extends GrpcPluginTestBase<SubscriberServicePlugin> 
         toPluginPipe.onNext(SubscribeStreamRequest.PROTOBUF.toBytes(subscribeStreamRequest));
         // Need to wait for the handler to be registered...
         awaitSession();
-        System.out.print("\n\n\n============================================================\n\n\n");
-        sendBatchesWithoutChecks(createNumberOfSimpleBlockBatches(10, 11), 6);
-        // check we can send some block items and they are received
-        sendBatchesWithoutChecks(createNumberOfSimpleBlockBatches(11, 20), 8);
-        System.out.print("\n\n\n============================================================\n\n\n");
-        compareBatchesToResponses(createNumberOfSimpleBlockBatches(5, 20), 0, fromPluginBytes);
+        sendBatches(createNumberOfSimpleBlockBatches(10, 20), true, 6);
         activePlugin.stop(); // request the plugin to end all client streams.
+        compareBatchesToResponses(createNumberOfSimpleBlockBatches(5, 20), 0, fromPluginBytes);
     }
 
     @Test
@@ -420,9 +418,10 @@ public class SubscriberTest extends GrpcPluginTestBase<SubscriberServicePlugin> 
             final BlockItems[] batches, final int offset, final List<Bytes> responseBytes) {
         final int responseCount = responseBytes.size() - offset;
         SoftAssertions.assertSoftly(softly -> {
+            // Note that we allow extra responses mostly so that we accommodate a close/complete message.
             softly.assertThat(responseCount)
-                    .as("Expected %d responses, but got %d.".formatted(batches.length, responseCount))
-                    .isEqualTo(batches.length);
+                    .as("Expected at least %d responses, but got %d.".formatted(batches.length, responseCount))
+                    .isGreaterThanOrEqualTo(batches.length);
             for (int i = 0; i < batches.length && i < responseCount; i++) {
                 SubscribeStreamResponse response = parseResponse(responseBytes.get(i + offset));
                 softly.assertThat(response.response().kind())
@@ -431,11 +430,11 @@ public class SubscriberTest extends GrpcPluginTestBase<SubscriberServicePlugin> 
                 BlockItems next = batches[i];
                 final List<BlockItem> returned = response.blockItems().blockItems();
                 final List<BlockItemUnparsed> sent = next.blockItems();
-                for (int u = 0; u < sent.size(); u++) {
-                    final BlockItem expectedItem = toBlockItem(sent.get(u));
-                    final BlockItem actualItem = returned.get(u);
+                for (int j = 0; j < sent.size(); j++) {
+                    final BlockItem expectedItem = toBlockItem(sent.get(j));
+                    final BlockItem actualItem = returned.get(j);
                     softly.assertThat(actualItem)
-                            .as("Failed to match batch %d, block %d, Item %d.".formatted(i, next.newBlockNumber(), u))
+                            .as("Failed to match batch %d, block %d, Item %d.".formatted(i, next.newBlockNumber(), j))
                             .isEqualTo(expectedItem);
                 }
             }
