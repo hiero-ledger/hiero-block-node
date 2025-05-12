@@ -8,8 +8,8 @@ import com.swirlds.config.api.ConfigurationBuilder;
 import com.swirlds.metrics.api.Metrics;
 import edu.umd.cs.findbugs.annotations.NonNull;
 import io.helidon.webserver.http.HttpService;
-import java.util.Collections;
 import java.util.Map;
+import java.util.Map.Entry;
 import java.util.concurrent.LinkedBlockingQueue;
 import org.hiero.block.node.app.fixtures.async.BlockingSerialExecutor;
 import org.hiero.block.node.app.fixtures.async.TestThreadPoolManager;
@@ -21,6 +21,7 @@ import org.hiero.block.node.spi.blockmessaging.BlockItemHandler;
 import org.hiero.block.node.spi.blockmessaging.BlockNotificationHandler;
 import org.hiero.block.node.spi.health.HealthFacility;
 import org.hiero.block.node.spi.historicalblocks.HistoricalBlockFacility;
+import org.hiero.block.node.spi.threading.ThreadPoolManager;
 import org.junit.jupiter.api.AfterEach;
 
 /**
@@ -56,13 +57,41 @@ public abstract class PluginTestBase<P extends BlockNodePlugin> {
     protected P plugin;
 
     /**
-     * Start the test fixture with the given plugin and historical block facility.
+     * Start the test fixture.<br/>
+     * This overload uses the default configuration and the default
+     * test thread pool manager.
      *
      * @param plugin the plugin to be tested
      * @param historicalBlockFacility the historical block facility to be used
      */
     public void start(P plugin, HistoricalBlockFacility historicalBlockFacility) {
-        start(plugin, historicalBlockFacility, Collections.emptyMap());
+        start(plugin, historicalBlockFacility, testThreadPoolManager, null);
+    }
+
+    /**
+     * Start the test fixture.<br/>
+     * This overload uses the default configuration, but allows for a custom
+     * thread pool manager to be passed in.
+     *
+     * @param plugin the plugin to be tested
+     * @param historicalBlockFacility the historical block facility to be used
+     * @param testThreadManager the thread pool manager to be used
+     */
+    public void start(P plugin, HistoricalBlockFacility historicalBlockFacility, ThreadPoolManager testThreadManager) {
+        start(plugin, historicalBlockFacility, testThreadManager, null);
+    }
+
+    /**
+     * Start the test fixture.<br/>
+     * This overload uses the default test thread pool manager, but allows for
+     * custom configuration overrides.
+     *
+     * @param plugin the plugin to be tested
+     * @param historicalBlockFacility the historical block facility to be used
+     * @param configOverrides a map of configuration overrides to be applied to loaded configuration
+     */
+    public void start(P plugin, HistoricalBlockFacility historicalBlockFacility, Map<String, String> configOverrides) {
+        start(plugin, historicalBlockFacility, testThreadPoolManager, configOverrides);
     }
 
     /**
@@ -70,9 +99,14 @@ public abstract class PluginTestBase<P extends BlockNodePlugin> {
      *
      * @param plugin the plugin to be tested
      * @param historicalBlockFacility the historical block facility to be used
+     * @param testThreadManager the thread pool manager to be used
      * @param configOverrides a map of configuration overrides to be applied to loaded configuration
      */
-    public void start(P plugin, HistoricalBlockFacility historicalBlockFacility, Map<String, String> configOverrides) {
+    public void start(
+            P plugin,
+            HistoricalBlockFacility historicalBlockFacility,
+            ThreadPoolManager testThreadManager,
+            Map<String, String> configOverrides) {
         this.plugin = plugin;
         org.hiero.block.node.app.fixtures.logging.CleanColorfulFormatter.makeLoggingColorful();
         // Build the configuration
@@ -81,8 +115,10 @@ public abstract class PluginTestBase<P extends BlockNodePlugin> {
                 .withConfigDataType(com.swirlds.common.metrics.config.MetricsConfig.class)
                 .withConfigDataTypes(plugin.configDataTypes().toArray(new Class[0]))
                 .withConfigDataType(com.swirlds.common.metrics.platform.prometheus.PrometheusConfig.class);
-        for (var override : configOverrides.entrySet()) {
-            configurationBuilder = configurationBuilder.withValue(override.getKey(), override.getValue());
+        if (configOverrides != null) {
+            for (Entry<String, String> override : configOverrides.entrySet()) {
+                configurationBuilder = configurationBuilder.withValue(override.getKey(), override.getValue());
+            }
         }
         final Configuration configuration = configurationBuilder.build();
         // create metrics provider
@@ -99,7 +135,7 @@ public abstract class PluginTestBase<P extends BlockNodePlugin> {
                 blockMessaging,
                 historicalBlockFacility,
                 new ServiceLoaderFunction(),
-                testThreadPoolManager);
+                testThreadManager);
         // if the subclass implements ServiceBuilder, use it otherwise create a mock
         ServiceBuilder mockServiceBuilder = (this instanceof ServiceBuilder)
                 ? (ServiceBuilder) this
@@ -137,6 +173,6 @@ public abstract class PluginTestBase<P extends BlockNodePlugin> {
     @AfterEach
     public void tearDown() {
         metricsProvider.stop();
-        testThreadPoolManager.executor().shutdownNow();
+        testThreadPoolManager.shutdownNow();
     }
 }

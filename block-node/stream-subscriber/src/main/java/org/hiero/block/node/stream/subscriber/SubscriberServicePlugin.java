@@ -22,7 +22,7 @@ import java.util.concurrent.ConcurrentSkipListMap;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorCompletionService;
-import java.util.concurrent.Executors;
+import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Future;
 import java.util.concurrent.atomic.AtomicLong;
 import org.hiero.block.api.SubscribeStreamRequest;
@@ -184,6 +184,7 @@ public class SubscriberServicePlugin implements BlockNodePlugin, ServiceInterfac
         private final Map<Long, BlockStreamSubscriberSession> openSessions;
 
         private final LongGauge numberOfSubscribers;
+        private final ExecutorService virtualThreadExecutor;
         private final ExecutorCompletionService<BlockStreamSubscriberSession> streamSessions;
 
         private SubscribeBlockStreamHandler(
@@ -191,7 +192,8 @@ public class SubscriberServicePlugin implements BlockNodePlugin, ServiceInterfac
             this.context = requireNonNull(context);
             this.plugin = requireNonNull(plugin);
             this.openSessions = new ConcurrentSkipListMap<>();
-            streamSessions = new ExecutorCompletionService<>(Executors.newVirtualThreadPerTaskExecutor());
+            virtualThreadExecutor = context.threadPoolManager().getVirtualThreadExecutor(null);
+            streamSessions = new ExecutorCompletionService<>(virtualThreadExecutor);
             // create the metrics
             numberOfSubscribers = context.metrics()
                     .getOrCreate(new LongGauge.Config(METRICS_CATEGORY, "subscribers")
@@ -199,6 +201,8 @@ public class SubscriberServicePlugin implements BlockNodePlugin, ServiceInterfac
         }
 
         private void stop() {
+            // Stop allowing new connection threads.
+            virtualThreadExecutor.shutdown();
             // Close all connections and notify the clients.
             for (final BlockStreamSubscriberSession session : openSessions.values()) {
                 session.close(SubscribeStreamResponse.Code.READ_STREAM_SUCCESS);
@@ -229,8 +233,9 @@ public class SubscriberServicePlugin implements BlockNodePlugin, ServiceInterfac
             final BlockStreamSubscriberSession blockStreamSession =
                     new BlockStreamSubscriberSession(clientId, request, responsePipeline, context, sessionReadyLatch);
             streamSessions.submit(blockStreamSession);
-            // add the session to the set of open sessions
+            // Wait for the session to start
             sessionReadyLatch.await();
+            // add the session to the set of open sessions
             openSessions.put(clientId, blockStreamSession);
             numberOfSubscribers.set(sessionCount.incrementAndGet());
             Future<BlockStreamSubscriberSession> completedSessionFuture;

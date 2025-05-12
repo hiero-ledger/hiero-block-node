@@ -12,11 +12,13 @@ import edu.umd.cs.findbugs.annotations.NonNull;
 import io.helidon.webserver.http.HttpService;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.Flow.Subscription;
 import org.hiero.block.node.spi.BlockNodePlugin;
 import org.hiero.block.node.spi.ServiceBuilder;
 import org.hiero.block.node.spi.historicalblocks.HistoricalBlockFacility;
+import org.hiero.block.node.spi.threading.ThreadPoolManager;
 
 /**
  * Base class for testing GRPC block node plugins.
@@ -49,7 +51,16 @@ public abstract class GrpcPluginTestBase<P extends BlockNodePlugin> extends Plug
      * @param historicalBlockFacility the historical block facility to be used
      */
     public void start(P plugin, Method method, HistoricalBlockFacility historicalBlockFacility) {
-        super.start(plugin, historicalBlockFacility);
+        start(plugin, method, historicalBlockFacility, null, null);
+    }
+
+    public void start(
+            P plugin,
+            Method method,
+            HistoricalBlockFacility historicalBlockFacility,
+            ThreadPoolManager testThreadManager,
+            Map<String, String> configOverrides) {
+        super.start(plugin, historicalBlockFacility, testThreadManager, configOverrides);
         // setup to receive bytes from the plugin
         fromPluginPipe = new Pipeline<>() {
             @Override

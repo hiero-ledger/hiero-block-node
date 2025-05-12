@@ -191,7 +191,6 @@ public class BlockStreamSubscriberSession implements Callable<BlockStreamSubscri
         // Don't send anything from history if this stream is interrupted, has sent
         // every requested block, or we can send the next block from "live".
         while (isHistoryPermitted()) {
-            LOGGER.log(Level.TRACE, "Sending historical block {0} to {1}", nextBlockToSend, handlerName);
             // We need to send historical blocks.
             // We will only send one block at a time to keep things "smooth".
             // Start by getting a block accessor for the next block to send from the historical provider.
@@ -216,7 +215,6 @@ public class BlockStreamSubscriberSession implements Callable<BlockStreamSubscri
                 }
                 break;
             }
-            LOGGER.log(Level.TRACE, "Done sending historical block to {1}, {0} up next.", nextBlockToSend, handlerName);
         }
     }
 
@@ -529,12 +527,6 @@ public class BlockStreamSubscriberSession implements Callable<BlockStreamSubscri
     }
 
     private void sendOneBlockItemSet(final BlockItems nextBatch) {
-        LOGGER.log(
-                Level.TRACE,
-                "Sending next batch of {0} items for block {1} to client {2}",
-                nextBatch.blockItems().size(),
-                nextBatch.newBlockNumber(),
-                handlerName);
         sendOneBlockItemSet(nextBatch.blockItems());
     }
 
@@ -542,7 +534,6 @@ public class BlockStreamSubscriberSession implements Callable<BlockStreamSubscri
         final BlockItemSetUnparsed dataToSend = new BlockItemSetUnparsed(blockItems);
         final OneOf<ResponseOneOfType> responseOneOf = new OneOf<>(ResponseOneOfType.BLOCK_ITEMS, dataToSend);
         responsePipeline.onNext(new SubscribeStreamResponseUnparsed(responseOneOf));
-        LOGGER.log(Level.TRACE, "Sent block items for block {0} to {1}.", nextBlockToSend, handlerName);
     }
 
     // ==== Block Item Handler Class ===========================================
