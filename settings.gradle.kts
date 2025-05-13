@@ -10,7 +10,7 @@ javaModules {
         module("suites")
         module("simulator")
         module("common")
-        module("protobuf")  { artifact = "block-node-protobuf" }
+        module("protobuf") { artifact = "block-node-protobuf" }
     }
     directory("block-node") {
         group = "org.hiero.block"

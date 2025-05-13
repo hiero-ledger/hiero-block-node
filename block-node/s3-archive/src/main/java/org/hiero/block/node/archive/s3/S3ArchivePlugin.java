@@ -253,13 +253,13 @@ public class S3ArchivePlugin implements BlockNodePlugin, BlockNotificationHandle
                 throw new IllegalStateException("Block header is null");
             }
             final BlockHeader header = BlockHeader.PROTOBUF.parse(headerBytes);
-            if (header.firstTransactionConsensusTime() == null) {
+            if (header.blockTimestamp() == null) {
                 throw new IllegalStateException("Block header firstTransactionConsensusTime is null");
             }
             firstBlockConsensusTime = ZonedDateTime.ofInstant(
                     Instant.ofEpochSecond(
-                            header.firstTransactionConsensusTime().seconds(),
-                            header.firstTransactionConsensusTime().nanos()),
+                            header.blockTimestamp().seconds(),
+                            header.blockTimestamp().nanos()),
                     ZoneOffset.UTC);
         } catch (ParseException e) {
             throw new IllegalStateException("Failed to parse Block Header from first block", e);
