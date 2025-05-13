@@ -29,18 +29,38 @@ public class ServerStatusServicePlugin implements BlockNodePlugin, ServiceInterf
     private final System.Logger LOGGER = System.getLogger(getClass().getName());
     /** The block provider */
     private HistoricalBlockFacility blockProvider;
+    /** The block node context, used to provide access to facilities */
+    private BlockNodeContext context;
     /** Counter for the number of requests */
     private Counter requestCounter;
-    /** Counter for the number of responses Success */
-    private Counter responseCounterSuccess;
-    /** Counter for the number of responses Failed */
-    private Counter responseCounterFailed;
 
+    /**
+     * Handle a request for server status
+     *
+     * @param request the request containing the available blocks, state snapshot status and software version
+     * @return the response containing the block or an error status
+     */
     private ServerStatusResponse handleServiceStatusRequest(@NonNull final ServerStatusRequest request) {
-        LOGGER.log(DEBUG, "Received ServerStatusRequest: {0}", request);
+        LOGGER.log(DEBUG, "Handling ServerStatusRequest");
         requestCounter.increment();
 
-        return new ServerStatusResponse(UNKNOWN_BLOCK_NUMBER, UNKNOWN_BLOCK_NUMBER, false, null);
+        final ServerStatusResponse.Builder serverStatusResponse = ServerStatusResponse.newBuilder();
+        final long firstAvailableBlock = blockProvider.availableBlocks().min();
+        final long lastAvailableBlock = blockProvider.availableBlocks().max();
+
+        // TODO(#579) Should get from state config or status, which would be provided by the context from responsible
+        // facility
+        boolean onlyLatestState = false;
+
+        // TODO(#1139) Should get construct a block node version object from application config, which would be provided
+        // by
+        // the context from responsible facility
+
+        return serverStatusResponse
+                .firstAvailableBlock(firstAvailableBlock)
+                .lastAvailableBlock(lastAvailableBlock)
+                .onlyLatestState(onlyLatestState)
+                .build();
     }
 
     // ==== BlockNodePlugin Methods ====================================================================================
@@ -52,6 +72,7 @@ public class ServerStatusServicePlugin implements BlockNodePlugin, ServiceInterf
     @Override
     public void init(@NonNull final BlockNodeContext context, @NonNull final ServiceBuilder serviceBuilder) {
         requireNonNull(serviceBuilder);
+        this.context = requireNonNull(context);
         this.blockProvider = requireNonNull(context.historicalBlockProvider());
 
         // Create the metrics
