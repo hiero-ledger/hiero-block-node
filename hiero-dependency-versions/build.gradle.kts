@@ -18,12 +18,8 @@ dependencies.constraints {
     val protobufVersion = "4.30.2"
     val swirldsVersion = "0.61.3"
     val mockitoVersion = "5.17.0"
-<<<<<<< HEAD
     val testContainersVersion = "1.21.0"
-=======
-    val testContainersVersion = "1.20.6"
     val hieroConsensusVersion = "0.62.1"
->>>>>>> 11063963 (Gradle proto dismantaling and grouping exploration)
 
     api("com.github.luben:zstd-jni:1.5.7-3") { because("com.github.luben.zstd_jni") }
     api("com.github.spotbugs:spotbugs-annotations:4.9.3") {
