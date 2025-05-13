@@ -9,7 +9,7 @@ plugins {
     id("com.hedera.pbj.pbj-compiler") version "0.11.3"
 }
 
-dependencies { api("com.hedera.hashgraph:hedera-protobuf-java-api:0.62.1") }
+dependencies { api("com.hedera.hashgraph:hedera-protobuf-java-api") }
 
 description = "Hiero Block Node Protobuf API"
 
@@ -22,7 +22,7 @@ tasks.withType<JavaCompile>().configureEach {
 val extractProtoFromConsensusNodeProtoJar: TaskProvider<Copy> =
     tasks.register<Copy>("extractProtoFromConsensusNodeProtoJar") {
         description =
-            "Copies the protobuf files from the hedera-protobuf-java-api jar to the build root directory 2"
+            "Copies the blocks streams related protobuf files from the hedera-protobuf-java-api jar to the build root directory"
         group = "protobuf"
 
         val protoJar =
@@ -36,16 +36,17 @@ val extractProtoFromConsensusNodeProtoJar: TaskProvider<Copy> =
             "services/**/*.proto",
             "streams/**/*.proto",
         )
-        into(layout.buildDirectory.dir("block-streams-protobuf"))
+        into(layout.buildDirectory.dir("block-node-protobuf"))
     }
 
 val exportBlockNodeApiProto: TaskProvider<Copy> =
     tasks.register<Copy>("exportBlockNodeApiProto") {
-        description = "Copies the protobuf files from block api to the extracted directory"
+        description =
+            "Copies the protobuf files from block api to a combined CN & BN block-streams related protobuf directory"
         group = "protobuf"
 
         from(layout.projectDirectory.dir("src/main/proto/org/hiero/block/api"))
-        into(layout.buildDirectory.dir("block-streams-protobuf"))
+        into(layout.buildDirectory.dir("block-node-protobuf"))
         mustRunAfter(tasks.generateProto)
     }
 
