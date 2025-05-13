@@ -23,5 +23,3 @@ mainModuleInfo {
     runtimeOnly("com.swirlds.config.impl")
     runtimeOnly("io.grpc.netty")
 }
-
-testModuleInfo { requiresStatic("com.github.spotbugs.annotations") }
