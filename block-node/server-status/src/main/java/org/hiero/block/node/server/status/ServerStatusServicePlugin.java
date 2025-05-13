@@ -48,11 +48,12 @@ public class ServerStatusServicePlugin implements BlockNodePlugin, ServiceInterf
         final long firstAvailableBlock = blockProvider.availableBlocks().min();
         final long lastAvailableBlock = blockProvider.availableBlocks().max();
 
-        // TODO() Should get from state config or status, which would be provided by the context from responsible
+        // TODO(#579) Should get from state config or status, which would be provided by the context from responsible
         // facility
         boolean onlyLatestState = false;
 
-        // TODO() Should get construct a block node version object from application config, which would be provided by
+        // TODO(#1139) Should get construct a block node version object from application config, which would be provided
+        // by
         // the context from responsible facility
 
         return serverStatusResponse
