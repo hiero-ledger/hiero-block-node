@@ -73,11 +73,13 @@ public final class BlocksFilesHistoricPlugin implements BlockProviderPlugin, Blo
         // get the first and last block numbers from the zipBlockArchive
         final long firstZippedBlock = zipBlockArchive.minStoredBlockNumber();
         final long latestZippedBlock = zipBlockArchive.maxStoredBlockNumber();
-        if (latestZippedBlock > firstZippedBlock) {
+        if (firstZippedBlock > latestZippedBlock) {
             // we never expect to enter here, if we do, we have an issue that
             // needs to be investigated
+            // the first zipped block number must always be less than or equal
+            // to the latest zipped block number
             throw new IllegalStateException(
-                    "Latest zipped block number [%d] cannot be greater than the first zipped block number [%d]"
+                    "First zipped block number [%d] cannot be greater than the latest zipped block number [%d]"
                             .formatted(latestZippedBlock, firstZippedBlock));
         }
         if (firstZippedBlock >= 0) {
