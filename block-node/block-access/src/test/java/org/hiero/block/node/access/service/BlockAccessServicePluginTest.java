@@ -100,11 +100,8 @@ public class BlockAccessServicePluginTest extends GrpcPluginTestBase<BlockAccess
     @Test
     @DisplayName("Request Latest Block")
     void testRequestLatestBlock() throws ParseException {
-        final BlockRequest request = BlockRequest.newBuilder()
-                .blockNumber(-1)
-                .allowUnverified(true)
-                .retrieveLatest(true)
-                .build();
+        final BlockRequest request =
+                BlockRequest.newBuilder().retrieveLatest(true).build();
         toPluginPipe.onNext(BlockRequest.PROTOBUF.toBytes(request));
         // Check we get a response
         assertEquals(1, fromPluginBytes.size());
@@ -117,30 +114,27 @@ public class BlockAccessServicePluginTest extends GrpcPluginTestBase<BlockAccess
     }
 
     @Test
-    @DisplayName("Request Latest and a specific Block different from latest, should fail with READ_BLOCK_NOT_FOUND")
+    @DisplayName("block_number is 0 and retrieve_latest is false - should return Block 0")
+    void testBlockNumberIsMinusOneAndRetrieveLatestIsFalse() throws ParseException {
+        final BlockRequest request = BlockRequest.newBuilder().build();
+        toPluginPipe.onNext(BlockRequest.PROTOBUF.toBytes(request));
+        // Check we get a response
+        assertEquals(1, fromPluginBytes.size());
+        // parse the response
+        BlockResponse response = BlockResponse.PROTOBUF.parse(fromPluginBytes.get(0));
+        // check that the status is Success and the block returned is 0
+        assertEquals(Code.READ_BLOCK_SUCCESS, response.status());
+        assertEquals(0, response.block().items().getFirst().blockHeader().number());
+    }
+
+    @Test
+    @DisplayName("Request Latest and any Block, should fail with READ_BLOCK_NOT_FOUND")
     void testRequestLatestBlockDifferent() throws ParseException {
         final long blockNumber = 1;
         final BlockRequest request = BlockRequest.newBuilder()
                 .blockNumber(blockNumber)
                 .allowUnverified(true)
                 .retrieveLatest(true)
-                .build();
-        toPluginPipe.onNext(BlockRequest.PROTOBUF.toBytes(request));
-        // Check we get a response
-        assertEquals(1, fromPluginBytes.size());
-        // parse the response
-        BlockResponse response = BlockResponse.PROTOBUF.parse(fromPluginBytes.get(0));
-        // check that the status is success
-        assertEquals(Code.READ_BLOCK_NOT_FOUND, response.status());
-    }
-
-    @Test
-    @DisplayName("block_number is -1 and retrieve_latest is false - should return READ_BLOCK_NOT_FOUND")
-    void testBlockNumberIsMinusOneAndRetrieveLatestIsFalse() throws ParseException {
-        final BlockRequest request = BlockRequest.newBuilder()
-                .blockNumber(-1)
-                .allowUnverified(true)
-                .retrieveLatest(false)
                 .build();
         toPluginPipe.onNext(BlockRequest.PROTOBUF.toBytes(request));
         // Check we get a response

@@ -137,18 +137,21 @@ public class GetBlockApiTests extends BaseSuite {
 
     @Test
     @DisplayName(
-            "Get a Single Block using API - block_number to -1 and retrieve_latest to false - should return NOT_FOUND")
+            "Get a Single Block using API - block_number to 0 and retrieve_latest to false - should return Block 0")
     void requestWithoutBlockNumberAndRetrieveLatestFalse() {
         // Request the latest block and a specific block number
-        final BlockRequest request = createGetBlockRequest(-1, false);
+        final BlockRequest request = createGetBlockRequest(0, false);
         final BlockResponse response = blockAccessStub.getBlock(request);
 
         // Verify the response
         assertNotNull(response, "Response should not be null");
-        assertEquals(
-                Code.READ_BLOCK_NOT_FOUND, response.getStatus(), "Block retrieval should fail for non-existing block");
+        assertEquals(Code.READ_BLOCK_SUCCESS, response.getStatus(), "Block retrieval should be successful");
 
-        // Verify that the block is null
-        assertFalse(response.hasBlock(), "Response should not contain a block");
+        // Verify the block content
+        assertTrue(response.hasBlock(), "Response should contain a block");
+        assertEquals(
+                0,
+                response.getBlock().getItemsList().getFirst().getBlockHeader().getNumber(),
+                "Block number should match the requested block number");
     }
 }

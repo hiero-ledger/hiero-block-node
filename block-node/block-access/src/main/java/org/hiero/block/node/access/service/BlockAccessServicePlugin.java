@@ -54,8 +54,9 @@ public class BlockAccessServicePlugin implements BlockNodePlugin, ServiceInterfa
         requestCounter.increment();
 
         try {
-            // Log in case both block_number and retrieve_latest are set, this should not happen
-            if (request.retrieveLatest() && request.blockNumber() != -1) {
+            // Log and return an error if both block_number and retrieve_latest are set.
+            // blockNumber is considered set if it is different from 0 (default)
+            if (request.retrieveLatest() && request.blockNumber() != 0) {
                 LOGGER.log(
                         INFO,
                         "Both block_number and retrieve_latest set. Using retrieve_latest instead of block_number: {0}",
@@ -63,15 +64,7 @@ public class BlockAccessServicePlugin implements BlockNodePlugin, ServiceInterfa
                 responseCounterNotFound.increment();
                 return new BlockResponse(Code.READ_BLOCK_NOT_FOUND, null);
             }
-            // when block_number is -1 and retrieve_latest is false, return an NOT_FOUND error
-            if (request.blockNumber() == -1 && !request.retrieveLatest()) {
-                LOGGER.log(INFO, "Block number is -1 and retrieve_latest is false");
-                responseCounterNotFound.increment();
-                return new BlockResponse(Code.READ_BLOCK_NOT_FOUND, null);
-            }
-
             long blockNumberToRetrieve;
-
             // if retrieveLatest is set, get the latest block number
             if (request.retrieveLatest()) {
                 blockNumberToRetrieve = blockProvider.availableBlocks().max();

@@ -67,7 +67,7 @@ public final class BlockAccessUtils {
         requireNonNull(blockAccessStub);
 
         BlockRequest request = BlockRequest.newBuilder()
-                .setBlockNumber(-1)
+                .setBlockNumber(0)
                 .setRetrieveLatest(true)
                 .setAllowUnverified(allowUnverified)
                 .build();
