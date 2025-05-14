@@ -63,6 +63,10 @@ stream and retry (either to another Block Node, or after a short delay).
 
 ## Base Protocol
 
+This protocol describes the basic interactions when a single Publisher is
+communicating with a single Block Node. A subsequent section will describe
+the interactions when multiple Publishers are communicating with a single Block
+Node.
 * Publisher, on connect, sends a block header, this contains a block number.
   * If this is the next block, no problem, start streaming.
   * If this is less than last known verified block, respond with
@@ -110,7 +114,6 @@ stream and retry (either to another Block Node, or after a short delay).
   * Each Publisher connect will send a block header, repeat above process until
     the Block Node gets a matched block number or Publisher can finish
     catching up that Block Node.
-* >
   >
   > Note, a Block Node can (re)enter "catch up" _any_ time that Block Node gets
   > the next block from Publisher with a block number that is not what the Block
@@ -131,18 +134,19 @@ sequenceDiagram
     alt N == last known verified block number + 1
         BlockNode-->>Publisher: Accept and start streaming
     else N < last known verified block number
-        BlockNode-->>Publisher: Respond with "DuplicateBlock" (includes last known block L)
-        Publisher-->>BlockNode: Send new block header from block L+1 or send EndOfStream and retry
+        BlockNode-->>Publisher: Respond with "DuplicateBlock" (includes last available block L)
+        Publisher-->>BlockNode: Send new block header from block L+1 or send EndStream and retry
         Note over Publisher: Reconnect to consensus network, if needed
     else N > last known verified block number + 1
         BlockNode-->>Publisher: Respond with "Behind" (includes last known block L)
-        Publisher-->>BlockNode: Send from block L+1 or send EndOfStream and retry with exponential backoff
-        Note over Publisher: Includes earliest known block with EndOfStream
+        Publisher-->>BlockNode: Send from block L+1 or send EndStream and retry with exponential backoff
+        Note over Publisher: Includes earliest and latest available blocks with EndStream
         Note over BlockNode: Needs to catch up from another Block Node
 
     Note over Publisher,BlockNode: During this "catch up" Publisher will continue to occasionally<br/>connect and send a block header with the latest block number N
+    loop until latest available block number matches next publisher block number
         par
-            BlockNode->>AnotherBlockNode: Query "status" API for last available block
+            BlockNode->>AnotherBlockNode: query status API for latest available block.
             Note over BlockNode: Attempting to catch up
         and
             alt Last available block ≥ N
@@ -152,22 +156,85 @@ sequenceDiagram
                 BlockNode->>AnotherBlockNode: Request stream from L+1 onward or find another Block Node
             end
         end
-    end
+    end 
+end
 
-    Note over Publisher,BlockNode: Repeat process until block number matches
+```
+
+## Multiple Publisher Extension
+
+This extension adds to the base protocol to describe how the Publisher and
+Block node will interact when there are multiple Publishers connected to a
+single Block Node.
+
+Nothing in this extension changes the base protocol. In particular the
+verification and acknowledgement processes are unchanged.
+
+The core element of multiple-publisher support is that only one Publisher
+should send the full block content for a given block, but this should also
+be the "fastest" Publisher for each block. The Block Node will accept the first
+Block Header received for each block, and ask all the other publishers to not
+send the remainder of the block; resuming with the next block.
+![Conceptual Diagram](../../assets/Multi-Publisher-Diagram.svg)
+If any situation arises where the received block data is incomplete, not valid,
+or becomes slow or delayed, the Block Node will ask all publishers to resend
+that block and again select the "fastest", with the exception that the previous
+"winner" cannot be selected for the failed block. This ensures that a publisher
+that is "unhealthy" will not be reselected for the same failed block.
+
+* Publisher, on connect, sends a block header, this contains a block number.
+  * If this publisher is the _first_ to send that block header, then processing
+    continues as in the base protocol.
+  * If this publisher is _not_ the first to send that block header, then
+    the Block Node will reply with "SkipBlock".
+    * The Publisher will not send the remainder of that block, but will resume
+      sending data with the next Block Header.
+    * The Publisher _must_ still expect acknowledgement for the "skipped" block
+      and _must not_ remove that block from cache until it is acknowledged.
+    * A Publisher _may_ receive a "ResendBlock" response from the Block Node
+      if the Publisher must resend the "skipped" block. The Published should
+      then resume sending data from the "skipped" block Header.
+      * Note, it is entirely possible to receive another "SkipBlock" after
+        receiving a "ResendBlock" response, and should be handled as above.
+        This is possible because a Block Node will send the "ResendBlock" to
+        all Publishers at the same time, and another Publisher may still
+        "win the race" to send the full block.
+
+### Multiple Publisher Extension Diagram
+
+```mermaid
+sequenceDiagram
+    participant Publisher
+    participant BlockNode
+
+    loop as long as Publisher remains connected
+      Publisher->>BlockNode: Connect and send block header with block number N
+      Note over BlockNode: Block Node checks block number N
+      alt Block N is not currently streaming from another `Publisher`<br/>and N == most recent streaming block + 1
+          BlockNode-->>Publisher: Accept and start streaming
+      else Block N is currently streaming from another `Publisher`
+          BlockNode-->>Publisher: Respond with "SkipBlock"
+          Publisher-->>BlockNode: Send new block header from block N+1 as soon as it's available.
+          Note over Publisher: Resume stream with the next block
+      else N > most recent streaming block + 1
+          BlockNode-->>Publisher: Respond with "Out of Order" (includes last known block L)
+          Publisher-->>BlockNode: Send from block L+1 or send EndStream and retry with exponential backoff
+          Note over Publisher: Includes earliest and latest available blocks with EndStream
+      end
+    end
 ```
 
 ## Error Handling
 
 * If Publisher detects an error at any time
-  * Next BlockItem will be an `EndStream` item with an appropriate error code.
+  * Next message will be an `EndStream` item with an appropriate error code.
   * Block Node will drop any in-progress unproven block from that Publisher,
     and, if no remaining active incoming streams, notify all Subscribers with
     an `EndStream` item specifying "source error".
   * Block Node will continue streaming from other incoming stream sources, if
     any, or await a restarted stream if no other incoming stream sources.
 * If a Block Node detects an error at any time
-  * Block Node will send an `EndStream` response to all incoming streams, with
+  * Block Node will send an `EndOfStream` response to all incoming streams, with
     appropriate status code.
     * Publisher, on receiving the end stream, will retry publishing the
       stream; and will use exponential backoff if the Block Node failure
@@ -201,7 +268,7 @@ sequenceDiagram
             Publisher-->>BlockNode: Publisher initiates a new stream after handling the error
         end
     else BlockNode detects an error
-        BlockNode-->>Publisher: Send EndStream response with error code
+        BlockNode-->>Publisher: Send EndOfStream response with error code
         Publisher-->>BlockNode: Retry publishing with exponential backoff
         Note over Publisher: May connect to alternate Block Node
         BlockNode-->>Subscriber: Send EndStream with error code
