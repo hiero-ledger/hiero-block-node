@@ -21,7 +21,6 @@ javaModules {
         module("health") { artifact = "block-node-health" }
         module("messaging") { artifact = "facility-messaging" }
         module("publisher") { artifact = "block-node-publisher" }
-        // module("subscriber") { artifact = "block-node-subscriber" }
         module("stream-subscriber") { artifact = "block-node-stream-subscriber" }
         module("verification") { artifact = "block-node-verification" }
         module("block-providers/cloud.historic") { artifact = "block-node-blocks-cloud-historic" }

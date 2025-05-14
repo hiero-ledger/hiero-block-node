@@ -15,14 +15,13 @@ import java.lang.System.Logger;
 import java.lang.System.Logger.Level;
 import java.util.Arrays;
 import java.util.Collections;
-import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentSkipListMap;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorCompletionService;
-import java.util.concurrent.Executors;
+import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Future;
 import java.util.concurrent.atomic.AtomicLong;
 import org.hiero.block.api.SubscribeStreamRequest;
@@ -45,12 +44,8 @@ public class SubscriberServicePlugin implements BlockNodePlugin, ServiceInterfac
     private static final String SERVICE_NAME = parseGrpcName();
     /** The logger for this class. */
     private final Logger LOGGER = System.getLogger(getClass().getName());
-    /** Metric for the number of subscribers receiving block items. */
-    private final List<SubscribeBlockStreamHandler> clientHandlers = new LinkedList<>();
     /** The block node context, used to provide access to facilities */
     private BlockNodeContext context;
-    /** The subscriber plugin configuration object created and managed by Hiero Configuration library, containing information specific to this plugin */
-    private SubscriberConfig pluginConfiguration;
     /** A handler for client requests */
     private SubscribeBlockStreamHandler clientHandler;
 
@@ -62,7 +57,6 @@ public class SubscriberServicePlugin implements BlockNodePlugin, ServiceInterfac
     @Override
     public void init(@NonNull final BlockNodeContext context, @NonNull final ServiceBuilder serviceBuilder) {
         this.context = requireNonNull(context);
-        pluginConfiguration = context.configuration().getConfigData(SubscriberConfig.class);
         // register us as a service
         serviceBuilder.registerGrpcService(this);
     }
@@ -149,7 +143,6 @@ public class SubscriberServicePlugin implements BlockNodePlugin, ServiceInterfac
         final SubscriberServiceMethod subscriberServiceMethod = (SubscriberServiceMethod) method;
         return switch (subscriberServiceMethod) {
             case subscribeBlockStream:
-                clientHandlers.add(clientHandler);
                 // subscribeBlockStream is server streaming end point so the client sends a single request and the
                 // server sends many responses
                 yield Pipelines.<SubscribeStreamRequest, SubscribeStreamResponseUnparsed>serverStreaming()
@@ -184,6 +177,7 @@ public class SubscriberServicePlugin implements BlockNodePlugin, ServiceInterfac
         private final Map<Long, BlockStreamSubscriberSession> openSessions;
 
         private final LongGauge numberOfSubscribers;
+        private final ExecutorService virtualThreadExecutor;
         private final ExecutorCompletionService<BlockStreamSubscriberSession> streamSessions;
 
         private SubscribeBlockStreamHandler(
@@ -191,7 +185,8 @@ public class SubscriberServicePlugin implements BlockNodePlugin, ServiceInterfac
             this.context = requireNonNull(context);
             this.plugin = requireNonNull(plugin);
             this.openSessions = new ConcurrentSkipListMap<>();
-            streamSessions = new ExecutorCompletionService<>(Executors.newVirtualThreadPerTaskExecutor());
+            virtualThreadExecutor = context.threadPoolManager().getVirtualThreadExecutor(null);
+            streamSessions = new ExecutorCompletionService<>(virtualThreadExecutor);
             // create the metrics
             numberOfSubscribers = context.metrics()
                     .getOrCreate(new LongGauge.Config(METRICS_CATEGORY, "subscribers")
@@ -199,6 +194,8 @@ public class SubscriberServicePlugin implements BlockNodePlugin, ServiceInterfac
         }
 
         private void stop() {
+            // Stop allowing new connection threads.
+            virtualThreadExecutor.shutdown();
             // Close all connections and notify the clients.
             for (final BlockStreamSubscriberSession session : openSessions.values()) {
                 session.close(SubscribeStreamResponse.Code.READ_STREAM_SUCCESS);
@@ -229,8 +226,9 @@ public class SubscriberServicePlugin implements BlockNodePlugin, ServiceInterfac
             final BlockStreamSubscriberSession blockStreamSession =
                     new BlockStreamSubscriberSession(clientId, request, responsePipeline, context, sessionReadyLatch);
             streamSessions.submit(blockStreamSession);
-            // add the session to the set of open sessions
+            // Wait for the session to start
             sessionReadyLatch.await();
+            // add the session to the set of open sessions
             openSessions.put(clientId, blockStreamSession);
             numberOfSubscribers.set(sessionCount.incrementAndGet());
             Future<BlockStreamSubscriberSession> completedSessionFuture;

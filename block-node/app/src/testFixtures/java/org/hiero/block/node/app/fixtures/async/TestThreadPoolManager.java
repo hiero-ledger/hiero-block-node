@@ -3,6 +3,7 @@ package org.hiero.block.node.app.fixtures.async;
 
 import edu.umd.cs.findbugs.annotations.NonNull;
 import edu.umd.cs.findbugs.annotations.Nullable;
+import java.lang.Thread.UncaughtExceptionHandler;
 import java.util.Objects;
 import java.util.concurrent.ExecutorService;
 import org.hiero.block.node.spi.threading.ThreadPoolManager;
@@ -15,9 +16,24 @@ import org.hiero.block.node.spi.threading.ThreadPoolManager;
  *
  * @param <T> the type of executor service
  */
-public record TestThreadPoolManager<T extends ExecutorService>(@NonNull T executor) implements ThreadPoolManager {
-    public TestThreadPoolManager {
-        Objects.requireNonNull(executor);
+public class TestThreadPoolManager<T extends ExecutorService> implements ThreadPoolManager {
+    private final T executor;
+
+    public TestThreadPoolManager(@NonNull T executor) {
+        this.executor = Objects.requireNonNull(executor);
+    }
+
+    @NonNull
+    @Override
+    public T getVirtualThreadExecutor(@NonNull final String threadName) {
+        return executor;
+    }
+
+    @NonNull
+    @Override
+    public T getVirtualThreadExecutor(
+            @NonNull final String threadName, @Nullable final UncaughtExceptionHandler uncaughtExceptionHandler) {
+        return executor;
     }
 
     /**
@@ -28,8 +44,8 @@ public record TestThreadPoolManager<T extends ExecutorService>(@NonNull T execut
      */
     @NonNull
     @Override
-    public ExecutorService createSingleThreadExecutor(@NonNull final String threadName) {
-        return createSingleThreadExecutor(threadName, null);
+    public T createSingleThreadExecutor(@NonNull final String threadName) {
+        return executor;
     }
 
     /**
@@ -40,9 +56,18 @@ public record TestThreadPoolManager<T extends ExecutorService>(@NonNull T execut
      */
     @NonNull
     @Override
-    public ExecutorService createSingleThreadExecutor(
+    public T createSingleThreadExecutor(
             @NonNull final String threadName,
             @Nullable final Thread.UncaughtExceptionHandler uncaughtExceptionHandler) {
         return executor;
+    }
+
+    @NonNull
+    public final T executor() {
+        return executor;
+    }
+
+    public void shutdownNow() {
+        executor.shutdownNow();
     }
 }
