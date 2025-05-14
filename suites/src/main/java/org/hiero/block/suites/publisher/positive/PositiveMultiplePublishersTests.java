@@ -156,13 +156,13 @@ public class PositiveMultiplePublishersTests extends BaseSuite {
         simulators.add(futureSimulatorThread);
 
         // ===== Assert that we are persisting only the current blocks =================================
-        final BlockResponse currentBlockResponse = getLatestBlock(blockAccessStub, false);
-        final BlockResponse futureBlockResponse = getBlock(blockAccessStub, 1000, false);
+        final BlockResponse currentBlockResponse = getLatestBlock(blockAccessStub);
+        final BlockResponse futureBlockResponse = getBlock(blockAccessStub, 1000);
 
         assertNotNull(currentBlockResponse);
         assertNotNull(futureBlockResponse);
-        assertEquals(Code.READ_BLOCK_SUCCESS, currentBlockResponse.getStatus());
-        assertEquals(Code.READ_BLOCK_NOT_AVAILABLE, futureBlockResponse.getStatus());
+        assertEquals(Code.SUCCESS, currentBlockResponse.getStatus());
+        assertEquals(Code.NOT_AVAILABLE, futureBlockResponse.getStatus());
         assertTrue(currentBlockResponse.getBlock().getItemsList().getFirst().hasBlockHeader());
     }
 
@@ -190,9 +190,9 @@ public class PositiveMultiplePublishersTests extends BaseSuite {
         firstSimulatorThread.cancel(true);
 
         final BlockResponse latestPublishedBlockBefore =
-                getBlock(blockAccessStub, firstSimulatorLatestPublishedBlockNumber, false);
+                getBlock(blockAccessStub, firstSimulatorLatestPublishedBlockNumber);
         final BlockResponse nextPublishedBlockBefore =
-                getBlock(blockAccessStub, firstSimulatorLatestPublishedBlockNumber + 1, false);
+                getBlock(blockAccessStub, firstSimulatorLatestPublishedBlockNumber + 1);
 
         assertNotNull(firstSimulatorLatestStatus);
         assertTrue(firstSimulatorLatestStatus.contains(Long.toString(firstSimulatorLatestPublishedBlockNumber)));
@@ -204,7 +204,7 @@ public class PositiveMultiplePublishersTests extends BaseSuite {
                         .getFirst()
                         .getBlockHeader()
                         .getNumber());
-        assertEquals(Code.READ_BLOCK_NOT_AVAILABLE, nextPublishedBlockBefore.getStatus());
+        assertEquals(Code.NOT_AVAILABLE, nextPublishedBlockBefore.getStatus());
 
         // ===== Prepare and Start second simulator and make sure it's streaming =====================
         final Map<String, String> secondSimulatorConfiguration =
@@ -219,7 +219,7 @@ public class PositiveMultiplePublishersTests extends BaseSuite {
                 .getLast();
         secondSimulatorThread.cancel(true);
 
-        final BlockResponse latestPublishedBlockAfter = getLatestBlock(blockAccessStub, false);
+        final BlockResponse latestPublishedBlockAfter = getLatestBlock(blockAccessStub);
 
         assertNotNull(secondSimulatorLatestStatus);
         assertNotNull(latestPublishedBlockAfter);
