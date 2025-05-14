@@ -8,6 +8,7 @@ import java.util.List;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import org.hiero.block.api.protoc.BlockAccessServiceGrpc;
+import org.hiero.block.api.protoc.BlockNodeServiceGrpc;
 import org.hiero.block.simulator.BlockStreamSimulatorApp;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -47,6 +48,9 @@ public abstract class BaseSuite {
     /** gRPC client stub for BlockAccessService */
     protected static BlockAccessServiceGrpc.BlockAccessServiceBlockingStub blockAccessStub;
 
+    /** gRPC client stub for BlockNodeService */
+    protected static BlockNodeServiceGrpc.BlockNodeServiceBlockingStub blockServiceStub;
+
     /**
      * Default constructor for the BaseSuite class.
      *
@@ -68,6 +72,7 @@ public abstract class BaseSuite {
         blockNodeContainer.start();
         executorService = new ErrorLoggingExecutor();
         blockAccessStub = initializeBlockAccessGrpcClient();
+        blockServiceStub = initializeBlockNodeServiceGrpcClient();
     }
 
     /**
@@ -134,6 +139,13 @@ public abstract class BaseSuite {
                 .build();
 
         return BlockAccessServiceGrpc.newBlockingStub(channel);
+    }
+
+    protected static BlockNodeServiceGrpc.BlockNodeServiceBlockingStub initializeBlockNodeServiceGrpcClient() {
+        final String host = blockNodeContainer.getHost();
+        final int port = blockNodePort;
+        channel = ManagedChannelBuilder.forAddress(host, port).usePlaintext().build();
+        return BlockNodeServiceGrpc.newBlockingStub(channel);
     }
 
     /**
