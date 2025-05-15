@@ -19,7 +19,6 @@ dependencies.constraints {
     val swirldsVersion = "0.61.3"
     val mockitoVersion = "5.17.0"
     val testContainersVersion = "1.21.0"
-    val hieroConsensusVersion = "0.62.1"
 
     api("com.github.luben:zstd-jni:1.5.7-3") { because("com.github.luben.zstd_jni") }
     api("com.github.spotbugs:spotbugs-annotations:4.9.3") {
@@ -34,9 +33,6 @@ dependencies.constraints {
         because("com.google.protobuf.util")
     }
     api("com.google.protobuf:protoc:$protobufVersion") { because("google.proto") }
-    api("com.hedera.hashgraph:hedera-protobuf-java-api:${hieroConsensusVersion}") {
-        because("hedera-protobuf-java-api")
-    }
     api("com.hedera.pbj:pbj-grpc-helidon:${pbjVersion}") { because("com.hedera.pbj.grpc.helidon") }
     api("com.hedera.pbj:pbj-grpc-helidon-config:${pbjVersion}") {
         because("com.hedera.pbj.grpc.helidon.config")
