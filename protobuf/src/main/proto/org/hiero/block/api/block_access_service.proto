@@ -13,50 +13,29 @@ import "stream/block.proto";
  * A request to read a single block.
  *
  * A client system SHALL send this message to request a single block,
- * including the block state proof.<br/>
- * A client MAY request that the block be sent without verification.
- * A compliant Block Node MAY respond to requests that allow unverified
- * responses by returning the full requested block before verifying
- * the included block proof.<br/>
- * A compliant Block Node MAY support _only_ requests that allow unverified
- * blocks, but MUST clearly document that limitation, and MUST respond to
- * a request that does not allow unverified blocks with the
- * `ALLOW_UNVERIFIED_REQUIRED` response code.
+ * including the block state proof.
  */
 message BlockRequest {
-    /**
-     * The block number of a block to retrieve.
-     * <p>
-     * The requested block MUST exist on the block node.<br/>
-     * This value MUST NOT be set if `retrieve_latest` is set `true`.<br/>
-     * This value MUST be set to a valid block number if `retrieve_latest` is
-     * unset or is set `false`.
-     */
-    uint64 block_number = 1;
+    oneof block_specifier {
+        /**
+         * The block number of a block to retrieve.
+         * <p>
+         * The requested block MUST exist on the block node.<br/>
+         * A request MAY specify `uint64_max` to signal that the last possible
+         * block should be returned (which is subtly different from setting
+         * `retrieve_latest` instead of setting a `block_number`, though the
+         * result will always be the same, in most implementations).
+         */
+        uint64 block_number = 1;
 
-    /**
-     * A flag to indicate that the requested block may be sent without
-     * verifying its `BlockProof`.<br/>
-     * This might be set by a client that expects to perform its own
-     * verification and wishes lower latency or, potentially, lower cost.
-     * <p>
-     * If this value is set, then the responding Block Node MAY respond with a
-     * block that has not completed verification of its `BlockProof`.<br/>
-     * If this is _not_ set then the Block Node MUST respond with either a
-     * fully verified and validated block, or `VERIFIED_BLOCK_UNAVAILABLE` if
-     * the requested block is not yet verified.<br/>
-     * The default value is _not set_.
-     */
-    bool allow_unverified = 2;
-
-    /**
-     * A flag to request the latest available block.
-     * <p>
-     * This value MAY be set `true` to request the last block available.<br/>
-     * If this value is set to `true` then `block_number` MUST NOT be set and
-     * SHALL be ignored.
-     */
-    bool retrieve_latest = 3;
+        /**
+         * A flag to request the latest available block.
+         * <p>
+         * This value SHOULD be set `true`, instead of setting `block_number`
+         * if the intent is to request the latest block available.
+         */
+        bool retrieve_latest = 2;
+    }
 }
 
 /**
@@ -81,21 +60,22 @@ message BlockResponse {
          * This status indicates the server software failed to set a status,
          * and SHALL be considered a software defect.
          */
-        READ_BLOCK_UNKNOWN = 0;
-
-        /**
-         * The requesting client account lacks sufficient HBAR to pay the
-         * service fee for this request.<br/>
-         * The client MAY retry the request, but MUST increase the client
-         * account balance with this block node server before doing so.
-         */
-        READ_BLOCK_INSUFFICIENT_BALANCE = 1;
+        UNKNOWN = 0;
 
         /**
          * The request succeeded.<br/>
          * The requested block SHALL be returned in the `block` field.
          */
-        READ_BLOCK_SUCCESS = 2;
+        SUCCESS = 1;
+
+        /**
+         * The request cannot be fulfilled.<br/>
+         * The client sent a malformed or structurally incorrect request.
+         * <p>
+         * The client MAY retry the request after correcting the form and
+         * structure.
+         */
+        INVALID_REQUEST = 2;
 
         /**
          * The requested block was not found.<br/>
@@ -104,33 +84,14 @@ message BlockResponse {
          * The client MAY retry the request; if this result is repeated the
          * request SHOULD be directed to a different block node server.
          */
-        READ_BLOCK_NOT_FOUND = 3;
+        NOT_FOUND = 3;
 
         /**
          * The requested block is not available on this block node server.<br/>
          * The client SHOULD send a `serverStatus` request to determine the
          * lowest and highest block numbers available at this block node server.
          */
-        READ_BLOCK_NOT_AVAILABLE = 4;
-
-        /**
-         * The request for a verified block cannot be fulfilled.<br/>
-         * The client requested a verified block from a block node that does not
-         * offer verified blocks.
-         * <p>
-         * The client MAY retry the request with the `allow_unverified` flag set.
-         */
-        ALLOW_UNVERIFIED_REQUIRED = 5;
-
-        /**
-         * The request for a verified block cannot be fulfilled.<br/>
-         * The client requested a verified block from a block node but the
-         * requested block is not yet verified.
-         * <p>
-         * The client MAY retry the request after a short delay
-         * (typically 2 seconds or more).
-         */
-        VERIFIED_BLOCK_UNAVAILABLE = 6;
+        NOT_AVAILABLE = 4;
     }
 
     /**
