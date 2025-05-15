@@ -17,135 +17,94 @@ tasks.withType<JavaCompile>().configureEach {
     options.compilerArgs.add("-Xlint:-exports,-deprecation,-removal,-dep-ann")
 }
 
-val cloneCNRepo =
-    tasks.register<Exec>("cloneCNRepo") {
-        workingDir = layout.buildDirectory.asFile.get()
-        commandLine("git", "clone", "https://github.com/hiero-ledger/hiero-consensus-node.git")
-        workingDir = workingDir.resolve("hiero-consensus-node")
-        commandLine("cd", "hiero-consensus-node")
-        commandLine("git", "checkout", "efb0134e921b32ed6302da9c93874d65492e876f")
+val exportBlockNodeProto: TaskProvider<Copy> =
+    tasks.register<Copy>("exportBlockNodeProto") {
+        description =
+            "Copies the protobuf files from block api to a combined CN & BN block-streams related protobuf directory"
+        group = "protobuf"
+
+        from(layout.projectDirectory.dir("src/main/proto/org/hiero/block/api"))
+        into(layout.buildDirectory.dir("block-node-protobuf"))
+        dependsOn(exportConsensusNodeBlockProto)
+        dependsOn(exportConsensusNodePlatformProto)
+        dependsOn(exportConsensusNodeServicesProto)
+        dependsOn(exportConsensusNodeStreamsProto)
+    }
+
+val exportConsensusNodeBlockProto =
+    tasks.register<Copy>("exportConsensusNodeBlockProto") {
+        description =
+            "Copies the protobuf files from block api to a combined CN & BN block-streams related protobuf directory"
+        group = "protobuf"
+
+        from(layout.buildDirectory.dir("hedera-protobufs/block"))
+        into(layout.buildDirectory.dir("block-node-protobuf/block"))
+    }
+
+val exportConsensusNodePlatformProto =
+    tasks.register<Copy>("exportConsensusNodePlatformProto") {
+        description =
+            "Copies the CN platorm protobuf files to a combined CN & BN block-streams related protobuf directory"
+        group = "protobuf"
+
+        from(layout.buildDirectory.dir("hedera-protobufs/platform"))
+        into(layout.buildDirectory.dir("block-node-protobuf/platform"))
+    }
+
+val exportConsensusNodeServicesProto =
+    tasks.register<Copy>("exportConsensusNodeServicesProto") {
+        description =
+            "Copies the CN services protobuf files to a combined CN & BN block-streams related protobuf directory"
+        group = "protobuf"
+
+        from(layout.buildDirectory.dir("hedera-protobufs/services"))
+        into(layout.buildDirectory.dir("block-node-protobuf/services"))
+    }
+
+val exportConsensusNodeStreamsProto =
+    tasks.register<Copy>("exportConsensusNodeStreamsProto") {
+        description =
+            "Copies the CN streams protobuf files to a combined CN & BN block-streams related protobuf directory"
+        group = "protobuf"
+
+        from(layout.buildDirectory.dir("hedera-protobufs/streams"))
+        into(layout.buildDirectory.dir("block-node-protobuf/streams"))
     }
 
 // Add downloaded HAPI repo protobuf files into build directory and add to sources to build them
 val cloneHederaProtobufs =
     tasks.register<GitClone>("cloneHederaProtobufs") {
-        url = "https://github.com/hiero-ledger/hiero-consensus-node.git"
+        url = "https://github.com/hashgraph/hedera-protobufs.git"
         localCloneDirectory = layout.buildDirectory.dir("hedera-protobufs")
 
-        // tag version or specific commit hash, current versions is v0.62.2
-        // tag = "efb0134e921b32ed6302da9c93874d65492e876f"
+        // uncomment below to use a specific tag
+        // tag = "v0.53.0" or a specific commit like "0047255"
+        tag = "c71e879a03f713961f52fb774e706e38c5e9d48a"
 
         // uncomment below to use a specific branch
-        branch = "main"
+        // branch = "main"
 
-        //        delete(
-        //            fileTree(localCloneDirectory).matching {
-        //                exclude(
-        //                    "hapi/hedera-protobuf-java-api/src/main/proto/block/**.proto",
-        //                    "hapi/hedera-protobuf-java-api/src/main/proto/platform/**.proto",
-        //                    "hapi/hedera-protobuf-java-api/src/main/proto/services/**.proto",
-        //                    "hapi/hedera-protobuf-java-api/src/main/proto/streams/**.proto",
-        //                )
-        //            }
-        //        )
+        // remove the block_service.proto file pulled from hedera-protobufs in favour of local
+        // version
+        doLast { localCloneDirectory.file("block/block_service.proto").get().asFile.delete() }
     }
-
-// val exportProto = {
-//    tasks.register<Copy>("exportBlockNodeApiProto") {
-//        description =
-//            "Copies the protobuf files from block api to a combined CN & BN block-streams related
-// protobuf directory"
-//        group = "protobuf"
-//
-//        from(layout.projectDirectory.dir("src/main/proto/org/hiero/block/api"))
-//        into(layout.buildDirectory.dir("block-node-protobuf"))
-//        mustRunAfter(tasks.generateProto)
-//    }
-//
-//    tasks.register<Copy>("exportConsensusNodeBlockProto") {
-//        description =
-//            "Copies the protobuf files from block api to a combined CN & BN block-streams related
-// protobuf directory"
-//        group = "protobuf"
-//
-//        from(layout.projectDirectory.dir("build/hedera-protobufs/block"))
-//        into(layout.buildDirectory.dir("block-node-protobuf/block"))
-//        mustRunAfter(tasks.generateProto)
-//    }
-//
-//    tasks.register<Copy>("exportConsensusNodePlatformProto") {
-//        description =
-//            "Copies the protobuf files from block api to a combined CN & BN block-streams related
-// protobuf directory"
-//        group = "protobuf"
-//
-//        from(layout.projectDirectory.dir("build/hedera-protobufs/platform"))
-//        into(layout.buildDirectory.dir("block-node-protobuf/platform"))
-//        mustRunAfter(tasks.generateProto)
-//    }
-//
-//    tasks.register<Copy>("exportConsensusNodeServicesProto") {
-//        description =
-//            "Copies the protobuf files from block api to a combined CN & BN block-streams related
-// protobuf directory"
-//        group = "protobuf"
-//
-//        from(layout.projectDirectory.dir("build/hedera-protobufs/services"))
-//        into(layout.buildDirectory.dir("block-node-protobuf/services"))
-//        mustRunAfter(tasks.generateProto)
-//    }
-//
-//    tasks.register<Copy>("exportConsensusNodeStreamsProto") {
-//        description =
-//            "Copies the protobuf files from block api to a combined CN & BN block-streams related
-// protobuf directory"
-//        group = "protobuf"
-//
-//        from(layout.projectDirectory.dir("build/hedera-protobufs/streams"))
-//        into(layout.buildDirectory.dir("block-node-protobuf/streams"))
-//        mustRunAfter(tasks.generateProto)
-//    }
-// }
-//
-// val exportBlockNodeApiProto: TaskProvider<Copy> =
-//    tasks.register<Copy>("exportBlockNodeApiProto") {
-//        description =
-//            "Copies the protobuf files from block api to a combined CN & BN block-streams related
-// protobuf directory"
-//        group = "protobuf"
-//
-//        from(layout.projectDirectory.dir("src/main/proto/org/hiero/block/api"))
-//        into(layout.buildDirectory.dir("block-node-protobuf"))
-//        include("block/**.proto")
-//        include("platform/**.proto")
-//        include("services/**.proto")
-//        include("streams/**.proto")
-//        mustRunAfter(tasks.generateProto)
-//    }
 
 sourceSets {
     main {
-        pbj { srcDir(cloneHederaProtobufs.map { it.localCloneDirectory }) }
-        proto { srcDir(cloneHederaProtobufs.map { it.localCloneDirectory }) }
+        pbj {
+            srcDir(cloneHederaProtobufs.flatMap { it.localCloneDirectory.dir("services") })
+            srcDir(cloneHederaProtobufs.flatMap { it.localCloneDirectory.dir("block") })
+            srcDir(cloneHederaProtobufs.flatMap { it.localCloneDirectory.dir("platform") })
+            srcDir(cloneHederaProtobufs.flatMap { it.localCloneDirectory.dir("streams") })
+        }
+        proto {
+            srcDir(cloneHederaProtobufs.flatMap { it.localCloneDirectory.dir("services") })
+            srcDir(cloneHederaProtobufs.flatMap { it.localCloneDirectory.dir("block") })
+            srcDir(cloneHederaProtobufs.flatMap { it.localCloneDirectory.dir("platform") })
+            srcDir(cloneHederaProtobufs.flatMap { it.localCloneDirectory.dir("streams") })
+        }
     }
 }
-
-// sourceSets {
-//    main {
-//        pbj {
-//            srcDir(cloneHederaProtobufs.flatMap { it.localCloneDirectory.dir("services") })
-//            srcDir(cloneHederaProtobufs.flatMap { it.localCloneDirectory.dir("block") })
-//            srcDir(cloneHederaProtobufs.flatMap { it.localCloneDirectory.dir("platform") })
-//            srcDir(cloneHederaProtobufs.flatMap { it.localCloneDirectory.dir("streams") })
-//        }
-//        proto {
-//            srcDir(cloneHederaProtobufs.flatMap { it.localCloneDirectory.dir("services") })
-//            srcDir(cloneHederaProtobufs.flatMap { it.localCloneDirectory.dir("block") })
-//            srcDir(cloneHederaProtobufs.flatMap { it.localCloneDirectory.dir("platform") })
-//            srcDir(cloneHederaProtobufs.flatMap { it.localCloneDirectory.dir("streams") })
-//        }
-//    }
-// }
 
 tasks.test {
     // we can exclude the standard protobuf generated tests as we don't need to test them again here
