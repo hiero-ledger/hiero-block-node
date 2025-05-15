@@ -96,7 +96,7 @@ public final class PublisherServicePlugin implements BlockNodePlugin, ServiceInt
     /** The current ACKED block number */
     private long latestAckedBlockNumber = UNKNOWN_BLOCK_NUMBER;
     /** The current chosen primary consensus node session, or null if there is no primary */
-    private BlockStreamProducerSession currentPrimarySession = null;
+    private BlockStreamProducerSession currentPrimarySession;
     /** The next session id to use when a new session is created */
     private long nextSessionId = 0;
 
