@@ -85,7 +85,7 @@ jobs:
         run: ${GRADLE_EXEC} :block-node-protobuf:extractProtoFromConsensusNodeProtoJar
 
       - name: Export BN proto
-        run: ${GRADLE_EXEC} :block-node-protobuf:exportBlockNodeApiProto
+        run: ${GRADLE_EXEC} :block-node-protobuf:exportBlockNodeProto
 
       - name: Produce artifact
         run: tar -czf block-node-protobuf-${{ env.VERSION }}.tgz -C ${{ github.workspace }}/block-node-protobuf/build/block-node-protobuf .

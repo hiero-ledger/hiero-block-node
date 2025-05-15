@@ -37,7 +37,11 @@ val exportConsensusNodeBlockProto =
             "Copies the protobuf files from block api to a combined CN & BN block-streams related protobuf directory"
         group = "protobuf"
 
-        from(layout.buildDirectory.dir("hedera-protobufs/block"))
+        from(
+            layout.buildDirectory.dir(
+                "hiero-consensus-node/hapi/hedera-protobuf-java-api/src/main/proto/block"
+            )
+        )
         into(layout.buildDirectory.dir("block-node-protobuf/block"))
     }
 
@@ -47,7 +51,11 @@ val exportConsensusNodePlatformProto =
             "Copies the CN platorm protobuf files to a combined CN & BN block-streams related protobuf directory"
         group = "protobuf"
 
-        from(layout.buildDirectory.dir("hedera-protobufs/platform"))
+        from(
+            layout.buildDirectory.dir(
+                "hiero-consensus-node/hapi/hedera-protobuf-java-api/src/main/proto/platform"
+            )
+        )
         into(layout.buildDirectory.dir("block-node-protobuf/platform"))
     }
 
@@ -57,7 +65,11 @@ val exportConsensusNodeServicesProto =
             "Copies the CN services protobuf files to a combined CN & BN block-streams related protobuf directory"
         group = "protobuf"
 
-        from(layout.buildDirectory.dir("hedera-protobufs/services"))
+        from(
+            layout.buildDirectory.dir(
+                "hiero-consensus-node/hapi/hedera-protobuf-java-api/src/main/proto/services"
+            )
+        )
         into(layout.buildDirectory.dir("block-node-protobuf/services"))
     }
 
@@ -67,41 +79,69 @@ val exportConsensusNodeStreamsProto =
             "Copies the CN streams protobuf files to a combined CN & BN block-streams related protobuf directory"
         group = "protobuf"
 
-        from(layout.buildDirectory.dir("hedera-protobufs/streams"))
+        from(
+            layout.buildDirectory.dir(
+                "hiero-consensus-node/hapi/hedera-protobuf-java-api/src/main/proto/streams"
+            )
+        )
         into(layout.buildDirectory.dir("block-node-protobuf/streams"))
     }
 
 // Add downloaded HAPI repo protobuf files into build directory and add to sources to build them
 val cloneHederaProtobufs =
     tasks.register<GitClone>("cloneHederaProtobufs") {
-        url = "https://github.com/hashgraph/hedera-protobufs.git"
-        localCloneDirectory = layout.buildDirectory.dir("hedera-protobufs")
+        url = "https://github.com/hiero-ledger/hiero-consensus-node.git"
+        localCloneDirectory = layout.buildDirectory.dir("hiero-consensus-node")
 
         // uncomment below to use a specific tag
         // tag = "v0.53.0" or a specific commit like "0047255"
-        tag = "c71e879a03f713961f52fb774e706e38c5e9d48a"
+        tag = "efb0134e921b32ed6302da9c93874d65492e876f"
 
         // uncomment below to use a specific branch
         // branch = "main"
 
         // remove the block_service.proto file pulled from hedera-protobufs in favour of local
         // version
-        doLast { localCloneDirectory.file("block/block_service.proto").get().asFile.delete() }
+        doLast {
+            localCloneDirectory
+                .file("hapi/hedera-protobuf-java-api/src/main/proto/block/block_service.proto")
+                .get()
+                .asFile
+                .delete()
+        }
+        doLast {
+            localCloneDirectory
+                .file(
+                    "hapi/hedera-protobuf-java-api/src/main/proto/mirror/mirror_network_service.proto"
+                )
+                .get()
+                .asFile
+                .delete()
+        }
+        doLast {
+            localCloneDirectory
+                .file("hapi/hedera-protobuf-java-api/src/main/proto/sdk/transaction_list.proto")
+                .get()
+                .asFile
+                .delete()
+        }
     }
 
 sourceSets {
     main {
         pbj {
-            srcDir(cloneHederaProtobufs.flatMap { it.localCloneDirectory.dir("services") })
-            srcDir(cloneHederaProtobufs.flatMap { it.localCloneDirectory.dir("block") })
-            srcDir(cloneHederaProtobufs.flatMap { it.localCloneDirectory.dir("platform") })
-            srcDir(cloneHederaProtobufs.flatMap { it.localCloneDirectory.dir("streams") })
+            srcDir(
+                cloneHederaProtobufs.map {
+                    it.localCloneDirectory.dir("hapi/hedera-protobuf-java-api/src/main/proto")
+                }
+            )
         }
         proto {
-            srcDir(cloneHederaProtobufs.flatMap { it.localCloneDirectory.dir("services") })
-            srcDir(cloneHederaProtobufs.flatMap { it.localCloneDirectory.dir("block") })
-            srcDir(cloneHederaProtobufs.flatMap { it.localCloneDirectory.dir("platform") })
-            srcDir(cloneHederaProtobufs.flatMap { it.localCloneDirectory.dir("streams") })
+            srcDir(
+                cloneHederaProtobufs.map {
+                    it.localCloneDirectory.dir("hapi/hedera-protobuf-java-api/src/main/proto")
+                }
+            )
         }
     }
 }
