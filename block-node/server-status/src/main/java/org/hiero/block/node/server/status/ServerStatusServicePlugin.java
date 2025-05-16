@@ -41,7 +41,6 @@ public class ServerStatusServicePlugin implements BlockNodePlugin, ServiceInterf
      * @return the response containing the block or an error status
      */
     private ServerStatusResponse handleServiceStatusRequest(@NonNull final ServerStatusRequest request) {
-        LOGGER.log(DEBUG, "Handling ServerStatusRequest");
         requestCounter.increment();
 
         final ServerStatusResponse.Builder serverStatusResponse = ServerStatusResponse.newBuilder();
