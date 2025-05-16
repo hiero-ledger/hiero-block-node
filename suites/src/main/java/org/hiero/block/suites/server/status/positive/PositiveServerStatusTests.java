@@ -36,7 +36,7 @@ public class PositiveServerStatusTests extends BaseSuite {
                     Thread.sleep(100);
                 }
             } catch (InterruptedException e) {
-                // Do nothing, this is not mandatory, we try to shut down cleaner and graceful
+                Thread.currentThread().interrupt();
             }
         });
         simulators.forEach(simulator -> simulator.cancel(true));
@@ -50,8 +50,8 @@ public class PositiveServerStatusTests extends BaseSuite {
         final ServerStatusResponse serverStatusBefore = requestServerStatus(blockServiceStub);
 
         assertNotNull(serverStatusBefore);
-        assertEquals(0L, serverStatusBefore.getFirstAvailableBlock());
-        assertEquals(0L, serverStatusBefore.getLastAvailableBlock());
+        assertEquals(-1L, serverStatusBefore.getFirstAvailableBlock());
+        assertEquals(-1L, serverStatusBefore.getLastAvailableBlock());
 
         final BlockStreamSimulatorApp publisherSimulator = createBlockSimulator();
         simulatorAppsRef.add(publisherSimulator);

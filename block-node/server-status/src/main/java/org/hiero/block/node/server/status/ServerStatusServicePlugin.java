@@ -1,21 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.node.server.status;
 
-import static java.lang.System.Logger.Level.DEBUG;
 import static java.util.Objects.requireNonNull;
 
-import com.hedera.pbj.runtime.grpc.GrpcException;
-import com.hedera.pbj.runtime.grpc.Pipeline;
-import com.hedera.pbj.runtime.grpc.Pipelines;
-import com.hedera.pbj.runtime.grpc.ServiceInterface;
-import com.hedera.pbj.runtime.io.buffer.Bytes;
 import com.swirlds.metrics.api.Counter;
 import edu.umd.cs.findbugs.annotations.NonNull;
-import java.util.Arrays;
-import java.util.List;
+import org.hiero.block.api.BlockNodeServiceInterface;
 import org.hiero.block.api.ServerStatusRequest;
 import org.hiero.block.api.ServerStatusResponse;
-import org.hiero.block.api.protoc.BlockNodeServiceGrpc;
 import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.BlockNodePlugin;
 import org.hiero.block.node.spi.ServiceBuilder;
@@ -24,7 +16,7 @@ import org.hiero.block.node.spi.historicalblocks.HistoricalBlockFacility;
 /**
  * Plugin that implements the BlockNodeService and provides the 'serverStatus' RPC.
  */
-public class ServerStatusServicePlugin implements BlockNodePlugin, ServiceInterface {
+public class ServerStatusServicePlugin implements BlockNodePlugin, BlockNodeServiceInterface {
     /** The logger for this class. */
     private final System.Logger LOGGER = System.getLogger(getClass().getName());
     /** The block provider */
@@ -40,8 +32,7 @@ public class ServerStatusServicePlugin implements BlockNodePlugin, ServiceInterf
      * @param request the request containing the available blocks, state snapshot status and software version
      * @return the response containing the block or an error status
      */
-    private ServerStatusResponse handleServiceStatusRequest(@NonNull final ServerStatusRequest request) {
-        LOGGER.log(DEBUG, "Handling ServerStatusRequest");
+    public ServerStatusResponse serverStatus(@NonNull final ServerStatusRequest request) {
         requestCounter.increment();
 
         final ServerStatusResponse.Builder serverStatusResponse = ServerStatusResponse.newBuilder();
@@ -82,65 +73,5 @@ public class ServerStatusServicePlugin implements BlockNodePlugin, ServiceInterf
 
         // Register this service
         serviceBuilder.registerGrpcService(this);
-    }
-    // ==== ServiceInterface Methods ===================================================================================
-    /**
-     * BlockNodeService methods define the gRPC methods available on the BlockNodeService.
-     */
-    enum BlockNodeServiceMethod implements Method {
-        /**
-         * The serverStatus method retrieves the status of this Block Node.
-         */
-        serverStatus
-    }
-
-    /**
-     * {@inheritDoc}
-     */
-    @NonNull
-    @Override
-    public String serviceName() {
-        String[] parts = fullName().split("\\.");
-        return parts[parts.length - 1];
-    }
-
-    /**
-     * {@inheritDoc}
-     */
-    @NonNull
-    @Override
-    public String fullName() {
-        return BlockNodeServiceGrpc.SERVICE_NAME;
-    }
-
-    /**
-     * {@inheritDoc}
-     */
-    @NonNull
-    @Override
-    public List<Method> methods() {
-        return Arrays.asList(BlockNodeServiceMethod.values());
-    }
-
-    /**
-     * {@inheritDoc}
-     *
-     * This is called each time a new request is received.
-     */
-    @NonNull
-    @Override
-    public Pipeline<? super Bytes> open(
-            @NonNull Method method, @NonNull RequestOptions requestOptions, @NonNull Pipeline<? super Bytes> pipeline)
-            throws GrpcException {
-        final BlockNodeServiceMethod blockNodeServiceMethod = (BlockNodeServiceMethod) method;
-        return switch (blockNodeServiceMethod) {
-            case serverStatus:
-                yield Pipelines.<ServerStatusRequest, ServerStatusResponse>unary()
-                        .mapRequest(ServerStatusRequest.PROTOBUF::parse)
-                        .method(this::handleServiceStatusRequest)
-                        .mapResponse(ServerStatusResponse.PROTOBUF::toBytes)
-                        .respondTo(pipeline)
-                        .build();
-        };
     }
 }

@@ -4,7 +4,6 @@ package org.hiero.block.node.server.status;
 import static org.hiero.block.node.app.fixtures.TestUtils.enableDebugLogging;
 import static org.hiero.block.node.app.fixtures.blocks.BlockItemUtils.toBlockItemsUnparsed;
 import static org.hiero.block.node.app.fixtures.blocks.SimpleTestBlockItemBuilder.createNumberOfVerySimpleBlocks;
-import static org.hiero.block.node.server.status.ServerStatusServicePlugin.BlockNodeServiceMethod.serverStatus;
 import static org.hiero.block.node.spi.BlockNodePlugin.UNKNOWN_BLOCK_NUMBER;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -29,10 +28,11 @@ import org.junit.jupiter.api.Test;
  * under different conditions.
  */
 public class ServerStatusServicePluginTest extends GrpcPluginTestBase<ServerStatusServicePlugin> {
+    private final ServerStatusServicePlugin plugin = new ServerStatusServicePlugin();
 
     public ServerStatusServicePluginTest() {
         super();
-        start(new ServerStatusServicePlugin(), serverStatus, new SimpleInMemoryHistoricalBlockFacility());
+        start(plugin, plugin.methods().getFirst(), new SimpleInMemoryHistoricalBlockFacility());
     }
 
     /**
@@ -54,7 +54,7 @@ public class ServerStatusServicePluginTest extends GrpcPluginTestBase<ServerStat
         List<ServiceInterface.Method> methods = serviceInterface.methods();
         assertNotNull(methods);
         assertEquals(1, methods.size());
-        assertEquals(serverStatus, methods.getFirst());
+        assertEquals(plugin.methods().getFirst(), methods.getFirst());
     }
 
     /**
@@ -66,7 +66,6 @@ public class ServerStatusServicePluginTest extends GrpcPluginTestBase<ServerStat
     @Test
     @DisplayName("Should return valid Server Status when no blocks available")
     void shouldReturnValidServerStatus() throws ParseException {
-        //        sendBlocks(5);
         final ServerStatusRequest request = ServerStatusRequest.newBuilder().build();
         toPluginPipe.onNext(ServerStatusRequest.PROTOBUF.toBytes(request));
         assertEquals(1, fromPluginBytes.size());
@@ -78,7 +77,7 @@ public class ServerStatusServicePluginTest extends GrpcPluginTestBase<ServerStat
         assertEquals(0, response.lastAvailableBlock());
         assertFalse(response.onlyLatestState());
 
-        // TODO() Remove when block node version information is implemented.
+        // TODO(#579) Remove when block node version information is implemented.
         assertFalse(response.hasVersionInformation());
     }
 
