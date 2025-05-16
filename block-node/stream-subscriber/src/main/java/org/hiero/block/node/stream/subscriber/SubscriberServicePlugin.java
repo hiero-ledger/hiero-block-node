@@ -7,13 +7,11 @@ import com.hedera.pbj.runtime.grpc.GrpcException;
 import com.hedera.pbj.runtime.grpc.Pipeline;
 import com.hedera.pbj.runtime.grpc.Pipelines;
 import com.hedera.pbj.runtime.grpc.Pipelines.ServerStreamingMethod;
-import com.hedera.pbj.runtime.grpc.ServiceInterface;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import com.swirlds.metrics.api.LongGauge;
 import edu.umd.cs.findbugs.annotations.NonNull;
 import java.lang.System.Logger;
 import java.lang.System.Logger.Level;
-import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
@@ -24,9 +22,9 @@ import java.util.concurrent.ExecutorCompletionService;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Future;
 import java.util.concurrent.atomic.AtomicLong;
+import org.hiero.block.api.BlockStreamSubscribeServiceInterface;
 import org.hiero.block.api.SubscribeStreamRequest;
 import org.hiero.block.api.SubscribeStreamResponse;
-import org.hiero.block.api.protoc.BlockStreamSubscribeServiceGrpc;
 import org.hiero.block.internal.SubscribeStreamResponseUnparsed;
 import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.BlockNodePlugin;
@@ -39,9 +37,7 @@ import org.hiero.block.node.spi.ServiceBuilder;
  * <p>The plugin registers itself with the service builder during initialization and manages
  * the lifecycle of subscriber connections.
  */
-public class SubscriberServicePlugin implements BlockNodePlugin, ServiceInterface {
-    /** The service name for this service, which must match the gRPC service name */
-    private static final String SERVICE_NAME = parseGrpcName();
+public class SubscriberServicePlugin implements BlockNodePlugin, BlockStreamSubscribeServiceInterface {
     /** The logger for this class. */
     private final Logger LOGGER = System.getLogger(getClass().getName());
     /** The block node context, used to provide access to facilities */
@@ -61,23 +57,10 @@ public class SubscriberServicePlugin implements BlockNodePlugin, ServiceInterfac
         serviceBuilder.registerGrpcService(this);
     }
 
-    /*==================== ServiceInterface Methods ====================*/
-
-    /**
-     * BlockStreamSubscriberService types define the gRPC methods available on the BlockStreamSubscriberService.
-     */
-    enum SubscriberServiceMethod implements Method {
-        /**
-         * The subscribeBlockStream method represents the server-streaming gRPC method
-         * consumers should use to subscribe to the BlockStream from the Block Node.
-         */
-        subscribeBlockStream
-    }
-
     @Override
     public void start() {
         // Create the client handler and wait for it to start and reach a ready state.
-        clientHandler = new SubscribeBlockStreamHandler(context, this);
+        clientHandler = new SubscribeBlockStreamHandler(context);
     }
 
     @Override
@@ -90,44 +73,11 @@ public class SubscriberServicePlugin implements BlockNodePlugin, ServiceInterfac
      */
     @Override
     @NonNull
-    public String serviceName() {
-        return SERVICE_NAME;
-    }
-
-    /**
-     * {@inheritDoc}
-     */
-    @Override
-    @NonNull
-    public String fullName() {
-        return BlockStreamSubscribeServiceGrpc.SERVICE_NAME;
-    }
-
-    /**
-     * Minimal method to parse the gRPC service name from the full name.
-     * <br/>This is called once and stored statically.
-     */
-    private static String parseGrpcName() {
-        final String[] parts = BlockStreamSubscribeServiceGrpc.SERVICE_NAME.split("\\.");
-        return parts[parts.length - 1];
-    }
-
-    /**
-     * {@inheritDoc}
-     */
-    @Override
-    @NonNull
-    public List<Method> methods() {
-        return Arrays.asList(SubscriberServiceMethod.values());
-    }
-
-    /**
-     * {@inheritDoc}
-     */
-    @Override
     public List<Class<? extends Record>> configDataTypes() {
         return List.of(SubscriberConfig.class);
     }
+
+    /*==================== BlockStreamSubscribeServiceInterface Methods ====================*/
 
     /**
      * {@inheritDoc}
@@ -140,19 +90,26 @@ public class SubscriberServicePlugin implements BlockNodePlugin, ServiceInterfac
             @NonNull Method method, @NonNull RequestOptions opts, @NonNull Pipeline<? super Bytes> responses)
             throws GrpcException {
         LOGGER.log(Level.DEBUG, "Real Plugin Open called");
-        final SubscriberServiceMethod subscriberServiceMethod = (SubscriberServiceMethod) method;
+        final BlockStreamSubscribeServiceMethod subscriberServiceMethod = (BlockStreamSubscribeServiceMethod) method;
         return switch (subscriberServiceMethod) {
-            case subscribeBlockStream:
-                // subscribeBlockStream is server streaming end point so the client sends a single request and the
-                // server sends many responses
-                yield Pipelines.<SubscribeStreamRequest, SubscribeStreamResponseUnparsed>serverStreaming()
-                        .mapRequest(SubscribeStreamRequest.PROTOBUF::parse)
-                        .method(clientHandler)
-                        .mapResponse(SubscribeStreamResponseUnparsed.PROTOBUF::toBytes)
-                        .respondTo(responses)
-                        .build();
+            case subscribeBlockStream ->
+            // subscribeBlockStream is server streaming end point, so the client sends a single request, and the
+            // server sends many responses
+            Pipelines.<SubscribeStreamRequest, SubscribeStreamResponseUnparsed>serverStreaming()
+                    .mapRequest(SubscribeStreamRequest.PROTOBUF::parse)
+                    .method(clientHandler)
+                    .mapResponse(SubscribeStreamResponseUnparsed.PROTOBUF::toBytes)
+                    .respondTo(responses)
+                    .build();
         };
     }
+
+    /**
+     * Does nothing but is required by the interface. We override the open method directly to handle requests.
+     */
+    @Override
+    public void subscribeBlockStream(
+            SubscribeStreamRequest request, Pipeline<? super SubscribeStreamResponse> replies) {}
 
     // Visible for Testing
     Map<Long, BlockStreamSubscriberSession> getOpenSessions() {
@@ -171,8 +128,6 @@ public class SubscriberServicePlugin implements BlockNodePlugin, ServiceInterfac
         private final AtomicLong nextClientId = new AtomicLong(0);
         /** A context that applies to the pipeline this handler supports. */
         private final BlockNodeContext context;
-        /** A plugin instance that created and "owns" this Handler. */
-        private final SubscriberServicePlugin plugin;
         /** Set of open client sessions */
         private final Map<Long, BlockStreamSubscriberSession> openSessions;
 
@@ -180,12 +135,10 @@ public class SubscriberServicePlugin implements BlockNodePlugin, ServiceInterfac
         private final ExecutorService virtualThreadExecutor;
         private final ExecutorCompletionService<BlockStreamSubscriberSession> streamSessions;
 
-        private SubscribeBlockStreamHandler(
-                @NonNull final BlockNodeContext context, @NonNull final SubscriberServicePlugin plugin) {
+        private SubscribeBlockStreamHandler(@NonNull final BlockNodeContext context) {
             this.context = requireNonNull(context);
-            this.plugin = requireNonNull(plugin);
             this.openSessions = new ConcurrentSkipListMap<>();
-            virtualThreadExecutor = context.threadPoolManager().getVirtualThreadExecutor(null);
+            virtualThreadExecutor = context.threadPoolManager().getVirtualThreadExecutor("SubscribeBlockStreamHandler");
             streamSessions = new ExecutorCompletionService<>(virtualThreadExecutor);
             // create the metrics
             numberOfSubscribers = context.metrics()

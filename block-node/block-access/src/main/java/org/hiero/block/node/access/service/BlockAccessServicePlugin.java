@@ -6,20 +6,12 @@ import static java.lang.System.Logger.Level.ERROR;
 import static java.lang.System.Logger.Level.INFO;
 
 import com.hedera.hapi.block.stream.Block;
-import com.hedera.pbj.runtime.grpc.GrpcException;
-import com.hedera.pbj.runtime.grpc.Pipeline;
-import com.hedera.pbj.runtime.grpc.Pipelines;
-import com.hedera.pbj.runtime.grpc.ServiceInterface;
-import com.hedera.pbj.runtime.io.buffer.Bytes;
 import com.swirlds.metrics.api.Counter;
-import edu.umd.cs.findbugs.annotations.NonNull;
-import java.util.Arrays;
-import java.util.List;
+import org.hiero.block.api.BlockAccessServiceInterface;
 import org.hiero.block.api.BlockRequest;
 import org.hiero.block.api.BlockResponse;
 import org.hiero.block.api.BlockResponse.Code;
 // PBJ doesn't generate GRPC stubs for some reason, also the proto file is broken when PBJ compiles it...
-import org.hiero.block.api.protoc.BlockAccessServiceGrpc;
 import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.BlockNodePlugin;
 import org.hiero.block.node.spi.ServiceBuilder;
@@ -28,7 +20,7 @@ import org.hiero.block.node.spi.historicalblocks.HistoricalBlockFacility;
 /**
  * Plugin that implements the BlockAccessService and provides the 'block' RPC.
  */
-public class BlockAccessServicePlugin implements BlockNodePlugin, ServiceInterface {
+public class BlockAccessServicePlugin implements BlockNodePlugin, BlockAccessServiceInterface {
 
     /** The logger for this class. */
     private final System.Logger LOGGER = System.getLogger(getClass().getName());
@@ -43,13 +35,15 @@ public class BlockAccessServicePlugin implements BlockNodePlugin, ServiceInterfa
     /** Counter for the number of responses not found */
     private Counter responseCounterNotFound;
 
+    // ==== BlockAccessServiceInterface Methods ========================================================================
+
     /**
      * Handle a request for a single block
      *
      * @param request the request containing the block number or latest flag
      * @return the response containing the block or an error status
      */
-    private BlockResponse handleBlockRequest(BlockRequest request) {
+    public BlockResponse getBlock(BlockRequest request) {
         LOGGER.log(DEBUG, "Received BlockRequest for block number: {0}", request.blockNumber());
         requestCounter.increment();
 
@@ -84,7 +78,7 @@ public class BlockAccessServicePlugin implements BlockNodePlugin, ServiceInterfa
                 blockNumberToRetrieve = request.blockNumber();
             }
 
-            // Check if block is within available range
+            // Check if block is within the available range
             if (!blockProvider.availableBlocks().contains(blockNumberToRetrieve)) {
                 long lowestBlockNumber = blockProvider.availableBlocks().min();
                 long highestBlockNumber = blockProvider.availableBlocks().max();
@@ -111,11 +105,18 @@ public class BlockAccessServicePlugin implements BlockNodePlugin, ServiceInterfa
     }
 
     // ==== BlockNodePlugin Methods ====================================================================================
+
+    /**
+     * {@inheritDoc}
+     */
     @Override
     public String name() {
         return "BlockAccessServicePlugin";
     }
 
+    /**
+     * {@inheritDoc}
+     */
     @Override
     public void init(BlockNodeContext context, ServiceBuilder serviceBuilder) {
         // Create the metrics
@@ -135,66 +136,5 @@ public class BlockAccessServicePlugin implements BlockNodePlugin, ServiceInterfa
         this.blockProvider = context.historicalBlockProvider();
         // Register this service
         serviceBuilder.registerGrpcService(this);
-    }
-
-    // ==== ServiceInterface Methods ===================================================================================
-    /**
-     * BlockAccessService methods define the gRPC methods available on the BlockAccessService.
-     */
-    enum BlockAccessServiceMethod implements Method {
-        /**
-         * The getBlock method retrieves a single block from the block node.
-         */
-        getBlock
-    }
-
-    /**
-     * {@inheritDoc}
-     */
-    @NonNull
-    @Override
-    public String serviceName() {
-        String[] parts = fullName().split("\\.");
-        return parts[parts.length - 1];
-    }
-
-    /**
-     * {@inheritDoc}
-     */
-    @NonNull
-    @Override
-    public String fullName() {
-        return BlockAccessServiceGrpc.SERVICE_NAME;
-    }
-
-    /**
-     * {@inheritDoc}
-     */
-    @NonNull
-    @Override
-    public List<Method> methods() {
-        return Arrays.asList(BlockAccessServiceMethod.values());
-    }
-
-    /**
-     * {@inheritDoc}
-     *
-     * This is called each time a new request is received.
-     */
-    @NonNull
-    @Override
-    public Pipeline<? super Bytes> open(
-            @NonNull Method method, @NonNull RequestOptions requestOptions, @NonNull Pipeline<? super Bytes> pipeline)
-            throws GrpcException {
-        final BlockAccessServiceMethod blockAccessServiceMethod = (BlockAccessServiceMethod) method;
-        return switch (blockAccessServiceMethod) {
-            case getBlock:
-                yield Pipelines.<BlockRequest, BlockResponse>unary()
-                        .mapRequest(BlockRequest.PROTOBUF::parse)
-                        .method(this::handleBlockRequest)
-                        .mapResponse(BlockResponse.PROTOBUF::toBytes)
-                        .respondTo(pipeline)
-                        .build();
-        };
     }
 }
