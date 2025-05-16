@@ -14,6 +14,9 @@ ARG SOURCE_DATE_EPOCH="0"
 FROM ubuntu:${UBUNTU_TAG} AS ubuntu-origin
 # Define Build Arguments
 ARG SOURCE_DATE_EPOCH
+ARG UID=2000
+ARG GID=2000
+ARG BN_WORKDIR="/opt/hiero/block-node"
 
 # Define Standard Environment Variables
 ENV DEBIAN_FRONTEND=noninteractive
@@ -64,14 +67,14 @@ RUN set -eux; \
     rm -f /tmp/openjdk.tar.gz /usr/local/java/lib/src.zip;
 
 
-RUN groupadd --gid 2000 hedera && \
-    useradd --no-user-group --create-home --uid 2000 --gid 2000 --shell /bin/bash hedera
+RUN groupadd --gid ${GID} hedera && \
+    useradd --no-user-group --create-home --uid ${UID} --gid ${GID} --shell /bin/bash hedera
 
 # Define version
 ARG VERSION
 
 # Set the working directory inside the container
-WORKDIR /app
+WORKDIR ${BN_WORKDIR}
 
 # Copy Distribution TAR file
 # Ignore Codacy, the `distributions` context is set on command line and
@@ -82,15 +85,15 @@ COPY --from=distributions block-node-app-${VERSION}.tar .
 RUN tar -xvf block-node-app-${VERSION}.tar
 
 # Create a log directory
-RUN mkdir -p /app/logs/config
+RUN mkdir -p ${BN_WORKDIR}/logs/config
 
 # Copy the logging properties file
-COPY logging.properties /app/logs/config/logging.properties
+COPY logging.properties ${BN_WORKDIR}/logs/config/logging.properties
 
 WORKDIR /
 
 # Ensure proper file permissions
-RUN chown -R 2000:2000 /app /opt
+RUN chown -R $UID:$GID ${BN_WORKDIR}
 
 ########################################
 ####    Deterministic Build Hack    ####
@@ -130,6 +133,7 @@ ENV DEBIAN_FRONTEND=noninteractive
 ENV JAVA_VERSION="jdk-21.0.7+6"
 ENV JAVA_HOME=/usr/local/java
 ENV PATH=${JAVA_HOME}/bin:${PATH}
+ENV BN_WORKDIR=/opt/hiero/block-node
 
 # Install Java
 COPY --from=java-builder ${JAVA_HOME}/ ${JAVA_HOME}/
@@ -138,12 +142,12 @@ COPY --from=java-builder ${JAVA_HOME}/ ${JAVA_HOME}/
 EXPOSE 8080/tcp
 
 USER hedera
-WORKDIR /app
+WORKDIR ${BN_WORKDIR}
 
 # HEALTHCHECK for liveness and readiness
 HEALTHCHECK --interval=30s --timeout=10s --start-period=3s --retries=3 \
   CMD curl -f http://localhost:8080/healthz/livez || exit 1 && \
       curl -f http://localhost:8080/healthz/readyz || exit 1
 
-# RUN the bin script for starting the server app
-ENTRYPOINT ["/bin/bash", "-c", "/app/block-node-app-${VERSION}/bin/block-node-app"]
+# RUN the bin script for starting the server
+ENTRYPOINT ["/bin/bash", "-c", "${BN_WORKDIR}/block-node-app-${VERSION}/bin/block-node-app"]
