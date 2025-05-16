@@ -8,12 +8,10 @@ import static java.lang.System.Logger.Level.WARNING;
 import com.hedera.pbj.runtime.grpc.GrpcException;
 import com.hedera.pbj.runtime.grpc.Pipeline;
 import com.hedera.pbj.runtime.grpc.Pipelines;
-import com.hedera.pbj.runtime.grpc.ServiceInterface;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import com.swirlds.metrics.api.Counter;
 import com.swirlds.metrics.api.LongGauge;
 import edu.umd.cs.findbugs.annotations.NonNull;
-import java.util.Arrays;
 import java.util.Comparator;
 import java.util.HashSet;
 import java.util.List;
@@ -23,8 +21,9 @@ import java.util.Optional;
 import java.util.OptionalLong;
 import java.util.Set;
 import java.util.concurrent.locks.ReentrantLock;
+import org.hiero.block.api.BlockStreamPublishServiceInterface;
+import org.hiero.block.api.PublishStreamRequest;
 import org.hiero.block.api.PublishStreamResponse;
-import org.hiero.block.api.protoc.BlockStreamPublishServiceGrpc;
 import org.hiero.block.internal.BlockItemUnparsed;
 import org.hiero.block.internal.PublishStreamRequestUnparsed;
 import org.hiero.block.node.publisher.PublisherConfig.PublisherType;
@@ -59,7 +58,8 @@ import org.hiero.block.node.spi.blockmessaging.VerificationNotification;
  * <p>
  * TODO Still lots to work out on tracking the various stages of blocks, latest in flight, etc.
  */
-public final class PublisherServicePlugin implements BlockNodePlugin, ServiceInterface, BlockNotificationHandler {
+public final class PublisherServicePlugin
+        implements BlockNodePlugin, BlockStreamPublishServiceInterface, BlockNotificationHandler {
     /** The logger for this class. */
     private final System.Logger LOGGER = System.getLogger(getClass().getName());
 
@@ -465,43 +465,8 @@ public final class PublisherServicePlugin implements BlockNodePlugin, ServiceInt
         }
     }
 
-    // ==== ServiceInterface Methods ===================================================================================
-
-    /**
-     * BlockStreamPublisherService types define the gRPC methods available on the BlockStreamPublisherService.
-     */
-    enum BlockStreamPublisherServiceMethod implements Method {
-        /**
-         * The publishBlockStream method represents the bidirectional gRPC streaming method
-         * Consensus Nodes should use to publish the BlockStream to the Block Node.
-         */
-        publishBlockStream
-    }
-
-    /**
-     * {@inheritDoc}
-     */
-    @NonNull
-    public String serviceName() {
-        String[] parts = fullName().split("\\.");
-        return parts[parts.length - 1];
-    }
-
-    /**
-     * {@inheritDoc}
-     */
-    @NonNull
-    public String fullName() {
-        return BlockStreamPublishServiceGrpc.SERVICE_NAME;
-    }
-
-    /**
-     * {@inheritDoc}
-     */
-    @NonNull
-    public List<Method> methods() {
-        return Arrays.asList(BlockStreamPublisherServiceMethod.values());
-    }
+    // ==== BlockStreamPublishServiceInterface Methods
+    // ===================================================================================
 
     /**
      * {@inheritDoc}
@@ -516,8 +481,8 @@ public final class PublisherServicePlugin implements BlockNodePlugin, ServiceInt
             throws GrpcException {
         stateLock.lock();
         try {
-            final BlockStreamPublisherServiceMethod blockStreamPublisherServiceMethod =
-                    (BlockStreamPublisherServiceMethod) method;
+            final BlockStreamPublishServiceMethod blockStreamPublisherServiceMethod =
+                    (BlockStreamPublishServiceMethod) method;
             return switch (blockStreamPublisherServiceMethod) {
                 case publishBlockStream:
                     final var pipe = Pipelines.<List<BlockItemUnparsed>, PublishStreamResponse>bidiStreaming()
@@ -554,5 +519,13 @@ public final class PublisherServicePlugin implements BlockNodePlugin, ServiceInt
         } finally {
             stateLock.unlock();
         }
+    }
+
+    /**
+     * Never used, but required by the interface. We override the open method to handle directly.
+     */
+    @Override
+    public Pipeline<? super PublishStreamRequest> publishBlockStream(Pipeline<? super PublishStreamResponse> replies) {
+        return null;
     }
 }

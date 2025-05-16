@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.node.access.service;
 
-import static org.hiero.block.node.access.service.BlockAccessServicePlugin.BlockAccessServiceMethod.getBlock;
 import static org.hiero.block.node.app.fixtures.TestUtils.enableDebugLogging;
 import static org.hiero.block.node.app.fixtures.blocks.BlockItemUtils.toBlockItemsUnparsed;
 import static org.hiero.block.node.app.fixtures.blocks.SimpleTestBlockItemBuilder.createNumberOfVerySimpleBlocks;
@@ -25,10 +24,11 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 public class BlockAccessServicePluginTest extends GrpcPluginTestBase<BlockAccessServicePlugin> {
+    private final BlockAccessServicePlugin plugin = new BlockAccessServicePlugin();
 
     public BlockAccessServicePluginTest() {
         super();
-        start(new BlockAccessServicePlugin(), getBlock, new SimpleInMemoryHistoricalBlockFacility());
+        start(plugin, plugin.methods().getFirst(), new SimpleInMemoryHistoricalBlockFacility());
     }
 
     /**
@@ -54,7 +54,7 @@ public class BlockAccessServicePluginTest extends GrpcPluginTestBase<BlockAccess
         List<ServiceInterface.Method> methods = serviceInterface.methods();
         assertNotNull(methods);
         assertEquals(1, methods.size());
-        assertEquals(getBlock, methods.getFirst());
+        assertEquals(plugin.methods().getFirst(), methods.getFirst());
     }
 
     @Test
