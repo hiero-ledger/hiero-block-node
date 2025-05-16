@@ -27,5 +27,6 @@ javaModules {
         module("block-providers/files.historic") { artifact = "block-node-blocks-file-historic" }
         module("block-providers/files.recent") { artifact = "block-node-blocks-file-recent" }
         module("block-access") { artifact = "block-access-service" }
+        module("server-status") { artifact = "block-node-server-status" }
     }
 }
