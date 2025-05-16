@@ -74,7 +74,7 @@ class PublishStreamServerObserverTest {
 
         // Verify the response contains correct block number
         PublishStreamResponse capturedResponse = responseCaptor.getValue();
-        assertEquals(123L, capturedResponse.getAcknowledgement().getBlockAck().getBlockNumber());
+        assertEquals(123L, capturedResponse.getAcknowledgement().getBlockNumber());
 
         // Verify status was stored
         assertEquals(1, lastKnownStatuses.size());

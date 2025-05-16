@@ -24,9 +24,8 @@ import org.hiero.block.api.BlockItemSet;
 import org.hiero.block.api.PublishStreamRequest;
 import org.hiero.block.api.PublishStreamRequest.RequestOneOfType;
 import org.hiero.block.api.PublishStreamResponse;
-import org.hiero.block.api.PublishStreamResponse.Acknowledgement;
 import org.hiero.block.api.PublishStreamResponse.BlockAcknowledgement;
-import org.hiero.block.api.PublishStreamResponseCode;
+import org.hiero.block.api.PublishStreamResponse.EndOfStream.Code;
 import org.hiero.block.internal.BlockUnparsed;
 import org.hiero.block.node.app.fixtures.plugintest.GrpcPluginTestBase;
 import org.hiero.block.node.app.fixtures.plugintest.NoBlocksHistoricalBlockFacility;
@@ -108,14 +107,14 @@ public class PublisherTest extends GrpcPluginTestBase<PublisherServicePlugin> {
         assertEquals(1, fromPluginBytes.size());
         PublishStreamResponse response = PublishStreamResponse.PROTOBUF.parse(fromPluginBytes.getFirst());
         assertEquals(ACKNOWLEDGEMENT, response.response().kind());
-        final Acknowledgement ack = response.response().as();
-        assertEquals(new BlockAcknowledgement(0, null, false), ack.blockAck());
+        final BlockAcknowledgement ack = response.response().as();
+        assertEquals(new BlockAcknowledgement(0, null, false), ack);
         // check second block
         blockMessaging.sendBlockPersisted(new PersistedNotification(1, 1, 1));
         PublishStreamResponse response1 = PublishStreamResponse.PROTOBUF.parse(fromPluginBytes.getLast());
         assertEquals(ACKNOWLEDGEMENT, response1.response().kind());
-        final Acknowledgement ack1 = response1.response().as();
-        assertEquals(new BlockAcknowledgement(1, null, false), ack1.blockAck());
+        final BlockAcknowledgement ack1 = response1.response().as();
+        assertEquals(new BlockAcknowledgement(1, null, false), ack1);
     }
 
     @Test
@@ -142,7 +141,7 @@ public class PublisherTest extends GrpcPluginTestBase<PublisherServicePlugin> {
         // last fromPluginBytes should be Duplicate
         PublishStreamResponse response = PublishStreamResponse.PROTOBUF.parse(fromPluginBytes.getLast());
         assertEquals(ACKNOWLEDGEMENT, response.response().kind());
-        BlockAcknowledgement ack = response.acknowledgement().blockAck();
+        BlockAcknowledgement ack = response.acknowledgement();
         BlockAcknowledgement expectedAck = new BlockAcknowledgement(0, null, true);
         assertEquals(expectedAck, ack, "Expected an ACK with flag of duplicate (blockAlreadyExists=true)");
     }
@@ -171,10 +170,8 @@ public class PublisherTest extends GrpcPluginTestBase<PublisherServicePlugin> {
         assertEquals(2, fromPluginBytes.size());
         PublishStreamResponse aheadResponse = PublishStreamResponse.PROTOBUF.parse(fromPluginBytes.getLast());
 
-        // verify we get an endOfStream with status code STREAM_ITEMS_BEHIND
-        assertEquals(
-                PublishStreamResponseCode.STREAM_ITEMS_BEHIND,
-                aheadResponse.endStream().status());
+        // verify we get an endOfStream with status code BEHIND
+        assertEquals(Code.BEHIND, aheadResponse.endStream().status());
         assertEquals(0, aheadResponse.endStream().blockNumber());
     }
 

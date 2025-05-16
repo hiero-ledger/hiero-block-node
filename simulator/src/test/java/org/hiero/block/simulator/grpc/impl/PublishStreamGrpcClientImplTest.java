@@ -25,7 +25,7 @@ import org.hiero.block.api.protoc.BlockItemSet;
 import org.hiero.block.api.protoc.BlockStreamPublishServiceGrpc;
 import org.hiero.block.api.protoc.PublishStreamRequest;
 import org.hiero.block.api.protoc.PublishStreamResponse;
-import org.hiero.block.api.protoc.PublishStreamResponseCode;
+import org.hiero.block.api.protoc.PublishStreamResponse.EndOfStream.Code;
 import org.hiero.block.simulator.TestUtils;
 import org.hiero.block.simulator.config.data.BlockStreamConfig;
 import org.hiero.block.simulator.config.data.GrpcConfig;
@@ -83,12 +83,9 @@ class PublishStreamGrpcClientImplTest {
                                     // Assume that the last BlockItem is a BlockProof
                                     if (item.hasBlockProof()) {
                                         // Send BlockAcknowledgement
-                                        PublishStreamResponse.Acknowledgement acknowledgement =
-                                                PublishStreamResponse.Acknowledgement.newBuilder()
-                                                        .setBlockAck(
-                                                                PublishStreamResponse.BlockAcknowledgement.newBuilder()
-                                                                        .setBlockNumber(lastBlockNumber)
-                                                                        .build())
+                                        PublishStreamResponse.BlockAcknowledgement acknowledgement =
+                                                PublishStreamResponse.BlockAcknowledgement.newBuilder()
+                                                        .setBlockNumber(lastBlockNumber)
                                                         .build();
                                         responseObserver.onNext(PublishStreamResponse.newBuilder()
                                                 .setAcknowledgement(acknowledgement)
@@ -106,7 +103,7 @@ class PublishStreamGrpcClientImplTest {
                             public void onCompleted() {
                                 PublishStreamResponse.EndOfStream endOfStream =
                                         PublishStreamResponse.EndOfStream.newBuilder()
-                                                .setStatus(PublishStreamResponseCode.STREAM_ITEMS_SUCCESS)
+                                                .setStatus(Code.SUCCESS)
                                                 .setBlockNumber(lastBlockNumber)
                                                 .build();
                                 responseObserver.onNext(PublishStreamResponse.newBuilder()

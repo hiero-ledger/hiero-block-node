@@ -15,7 +15,6 @@ import java.util.Deque;
 import java.util.List;
 import org.hiero.block.api.protoc.PublishStreamRequest;
 import org.hiero.block.api.protoc.PublishStreamResponse;
-import org.hiero.block.api.protoc.PublishStreamResponse.Acknowledgement;
 import org.hiero.block.api.protoc.PublishStreamResponse.BlockAcknowledgement;
 import org.hiero.block.simulator.metrics.MetricsService;
 
@@ -112,10 +111,10 @@ public class PublishStreamServerObserver implements StreamObserver<PublishStream
         final long blockNumber = blockProof.getBlock();
         final BlockAcknowledgement blockAcknowledgement =
                 BlockAcknowledgement.newBuilder().setBlockNumber(blockNumber).build();
-        final Acknowledgement ack =
-                Acknowledgement.newBuilder().setBlockAck(blockAcknowledgement).build();
         LOGGER.log(INFO, "Returning block acknowledgement for block number: %s".formatted(blockNumber));
 
-        return PublishStreamResponse.newBuilder().setAcknowledgement(ack).build();
+        return PublishStreamResponse.newBuilder()
+                .setAcknowledgement(blockAcknowledgement)
+                .build();
     }
 }
