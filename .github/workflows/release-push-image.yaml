@@ -102,7 +102,7 @@ jobs:
           echo "SOURCE_DATE_EPOCH=${SOURCE_DATE_EPOCH}" >> $GITHUB_ENV
 
       - name: Server - Build and push image
-        uses: docker/build-push-action@14487ce63c7a62a4a324b0bfb37086795e31c6c1 # v6.16.0
+        uses: docker/build-push-action@1dc73863535b631f98b2378be8619f83b136f4a0 # v6.17.0
         with:
           context: ./block-node/app/docker
           file: ./block-node/app/docker/Dockerfile
@@ -173,7 +173,7 @@ jobs:
           ${GRADLE_EXEC} :simulator:copyDependenciesFolders
 
       - name: Simulator - Build and push image
-        uses: docker/build-push-action@14487ce63c7a62a4a324b0bfb37086795e31c6c1 # v6.16.0
+        uses: docker/build-push-action@1dc73863535b631f98b2378be8619f83b136f4a0 # v6.17.0
         with:
           context: ./simulator/build/docker
           file: ./simulator/build/docker/Dockerfile
