@@ -6,6 +6,7 @@ import static java.util.Objects.requireNonNull;
 import edu.umd.cs.findbugs.annotations.NonNull;
 import org.hiero.block.api.protoc.BlockAccessServiceGrpc;
 import org.hiero.block.api.protoc.BlockRequest;
+import org.hiero.block.api.protoc.BlockRequest.Builder;
 import org.hiero.block.api.protoc.BlockResponse;
 
 /**
@@ -26,51 +27,39 @@ public final class BlockAccessUtils {
      * @return A SingleBlockRequest object
      */
     public static BlockRequest createGetBlockRequest(long blockNumber, boolean latest) {
-        return BlockRequest.newBuilder()
-                .setBlockNumber(blockNumber)
-                .setRetrieveLatest(latest)
-                .setAllowUnverified(true)
-                .build();
+        final Builder builder = BlockRequest.newBuilder().setBlockNumber(blockNumber);
+        if (latest) {
+            builder.setRetrieveLatest(true);
+        }
+        return builder.build();
     }
 
     /**
      * Retrieves a single block using the Block Node API.
      *
      * @param blockNumber The block number to retrieve
-     * @param allowUnverified A flag to indicate that the requested block may be sent without
-     *   verifying its `BlockProof`
      * @return The SingleBlockResponse from the API
      */
     public static BlockResponse getBlock(
             @NonNull final BlockAccessServiceGrpc.BlockAccessServiceBlockingStub blockAccessStub,
-            final long blockNumber,
-            final boolean allowUnverified) {
+            final long blockNumber) {
         requireNonNull(blockAccessStub);
 
-        BlockRequest request = BlockRequest.newBuilder()
-                .setBlockNumber(blockNumber)
-                .setAllowUnverified(allowUnverified)
-                .build();
+        BlockRequest request =
+                BlockRequest.newBuilder().setBlockNumber(blockNumber).build();
         return blockAccessStub.getBlock(request);
     }
 
     /**
      * Retrieves a single block using the Block Node API.
      *
-     * @param allowUnverified A flag to indicate that the requested block may be sent without
-     * verifying its `BlockProof`
      * @return The SingleBlockResponse from the API
      */
     public static BlockResponse getLatestBlock(
-            @NonNull final BlockAccessServiceGrpc.BlockAccessServiceBlockingStub blockAccessStub,
-            final boolean allowUnverified) {
+            @NonNull final BlockAccessServiceGrpc.BlockAccessServiceBlockingStub blockAccessStub) {
         requireNonNull(blockAccessStub);
 
-        BlockRequest request = BlockRequest.newBuilder()
-                .setBlockNumber(-1)
-                .setRetrieveLatest(true)
-                .setAllowUnverified(allowUnverified)
-                .build();
+        BlockRequest request = BlockRequest.newBuilder().setRetrieveLatest(true).build();
         return blockAccessStub.getBlock(request);
     }
 }
