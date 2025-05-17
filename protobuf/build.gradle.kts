@@ -60,7 +60,7 @@ sourceSets {
                 }
             )
             // exclude BN files at root level
-            exclude("*_service.proto")
+            exclude("*.proto")
         }
         proto {
             srcDir(
@@ -69,7 +69,7 @@ sourceSets {
                 }
             )
             // exclude BN files at root level
-            exclude("*_service.proto")
+            exclude("*.proto")
         }
     }
 }

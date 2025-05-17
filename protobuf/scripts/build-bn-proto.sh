@@ -4,13 +4,13 @@
 
 set -eo pipefail
 
-programname=$0
+script_name=$0
 function usage {
     echo ""
     echo "Retrieves CN protobuf and combines it along with local BN protobuf into a single artifact."
     echo "Script should be run from 'hiero-block-node/protobuf' directory"
     echo ""
-    echo "usage: $programname -t string -v string -o string "
+    echo "Usage: $script_name -t string -v string -o string "
     echo ""
     echo "  -t string   CN tag commit hash or branch value"
     echo "              (example: main or <commit_hash>)"
@@ -47,6 +47,7 @@ while getopts ":t:v:o:c:i:b:" opt; do
   esac
 done
 
+# verify presence of required params and set defaults for optionals
 if [[ -z $repository_tag ]]; then
     echo "Missing '-t' (repository_tag) parameter"
     usage
@@ -73,9 +74,8 @@ if [[ -z $bn_api_path ]]; then
     bn_api_path="src/main/proto/org/hiero/block/api"
 fi
 
-# Clone the repository
 echo "Running $0, working directory: $PWD"
-echo "repository_tag: $repository_tag, release_version: $release_version, output_dir: $output_dir, cleanup: $cleanup ..."
+echo "repository_tag: $repository_tag, release_version: $release_version, output_dir: $output_dir, cleanup: $cleanup, include_bn_api: $include_bn_api ..."
 
 # Clone repo if doesn't exist locally
 if [ ! -d "./hiero-consensus-node" ]; then
@@ -91,20 +91,21 @@ else
   echo "hiero-consensus-node repo already exists, skipping clone and checkout"
 fi
 
+# prepare output dir
 rm -rf $output_dir
 mkdir -p $output_dir
 
-# Copy CN 'block' protobuf files to the /block-node-protobuf directory, remove block_service.proto to avoid duplication
+# Copy CN 'block' protobuf files to the output_dir directory, remove block_service.proto to avoid conflicts
 cp -r ./hiero-consensus-node/hapi/hedera-protobuf-java-api/src/main/proto/block "$output_dir"
 rm -f ./block-node-protobuf/block/block_service.proto
 
-# Move CN 'platform' protobuf files to the /block-node-protobuf directory
+# Copy CN 'platform' protobuf files to the output_dir directory
 cp -r ./hiero-consensus-node/hapi/hedera-protobuf-java-api/src/main/proto/platform "$output_dir"
 
-# Move CN 'services' protobuf files to the /block-node-protobuf directory
+# Copy CN 'services' protobuf files to the output_dir directory
 cp -r ./hiero-consensus-node/hapi/hedera-protobuf-java-api/src/main/proto/services "$output_dir"
 
-# Move CN 'streams' protobuf files to the /block-node-protobuf directory
+# Copy CN 'streams' protobuf files to the output_dir directory
 cp -r ./hiero-consensus-node/hapi/hedera-protobuf-java-api/src/main/proto/streams "$output_dir"
 
 if $include_bn_api; then
@@ -114,7 +115,9 @@ if $include_bn_api; then
 fi
 
 if $include_bn_api; then
+  # create artifact file if BN APIs are included
   tar -czf "block-node-protobuf-$release_version.tgz" -C "./$output_dir" .
+  echo "CN + BN proto artifact 'block-node-protobuf-$release_version.tgz' successfully created."
 fi
 
 if $cleanup; then
@@ -127,9 +130,9 @@ fi
 
 
 if [ $? -eq 0 ]; then
-  echo "$output_dir archive successfully created."
+  echo "CN proto retrieval and $output_dir contents successfully created."
 else
-  echo "Error building archive."
+  echo "Error building joint protobuf files."
 fi
 
 exit 0
