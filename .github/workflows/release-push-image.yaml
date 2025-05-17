@@ -51,7 +51,7 @@ jobs:
       java-version: ${{ inputs.java-version || '21.0.6' }}
 
   package-block-node-protobuf:
-    timeout-minutes: 30
+    timeout-minutes: 5
     needs: [check-gradle]
     runs-on: hiero-block-node-linux-medium
 
