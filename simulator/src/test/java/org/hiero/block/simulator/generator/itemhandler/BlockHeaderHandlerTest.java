@@ -33,7 +33,7 @@ class BlockHeaderHandlerTest {
         BlockHeader header = item.getBlockHeader();
         assertEquals(BlockHashAlgorithm.SHA2_384, header.getHashAlgorithm());
         assertEquals(blockNumber, header.getNumber());
-        assertNotNull(header.getFirstTransactionConsensusTime());
+        assertNotNull(header.getBlockTimestamp());
         assertNotNull(header.getHapiProtoVersion());
         assertNotNull(header.getSoftwareVersion());
     }

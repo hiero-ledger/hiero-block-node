@@ -59,3 +59,7 @@ server/data/
 
 # manual test files
 server/src/test/resources/test_output/
+
+# protobuf artifcate related dirs
+protobuf/block-node-protobuf/
+protobuf/hiero-consensus-node/

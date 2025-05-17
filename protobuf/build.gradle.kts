@@ -1,6 +1,4 @@
 // SPDX-License-Identifier: Apache-2.0
-import org.hiero.gradle.tasks.GitClone
-
 plugins {
     id("org.hiero.gradle.module.library")
     id("org.hiero.gradle.feature.protobuf")
@@ -17,37 +15,61 @@ tasks.withType<JavaCompile>().configureEach {
     options.compilerArgs.add("-Xlint:-exports,-deprecation,-removal,-dep-ann")
 }
 
-// Add downloaded HAPI repo protobuf files into build directory and add to sources to build them
-val cloneHederaProtobufs =
-    tasks.register<GitClone>("cloneHederaProtobufs") {
-        url = "https://github.com/hashgraph/hedera-protobufs.git"
-        localCloneDirectory = layout.buildDirectory.dir("hedera-protobufs")
+val generateBlockNodeProtoArtifact: TaskProvider<Exec> =
+    tasks.register<Exec>("generateBlockNodeProtoArtifact") {
+        description =
+            "Retrieves CN protobuf and combines it along with local BN protobuf into a single artifact"
+        group = "protobuf"
 
-        // uncomment below to use a specific tag
-        // tag = "v0.53.0" or a specific commit like "0047255"
-        tag = "c71e879a03f713961f52fb774e706e38c5e9d48a"
+        workingDir(layout.projectDirectory)
+        val cnTagHash = "efb0134e921b32ed6302da9c93874d65492e876f" // v0.62.2
 
-        // uncomment below to use a specific branch
-        // branch = "main"
+        // run build-bn-proto.sh skipping inclusion of BN API as it messes up proto considerations
+        commandLine(
+            "sh",
+            "-c",
+            "${layout.projectDirectory}/scripts/build-bn-proto.sh -t $cnTagHash -v ${project.version} -o ${layout.projectDirectory}/block-node-protobuf -i false -b ${layout.projectDirectory}/src/main/proto/org/hiero/block/api",
+        )
+    }
 
-        // remove the block_service.proto file pulled from hedera-protobufs in favour of local
-        // version
-        doLast { localCloneDirectory.file("block/block_service.proto").get().asFile.delete() }
+val cleanUpAfterBlockNodeProtoArtifact: TaskProvider<Exec> =
+    tasks.register<Exec>("cleanUpAfterBlockNodeProtoArtifact") {
+        description = "Cleans up left over files from generateBlockNodeProtoArtifact task"
+        group = "protobuf"
+
+        workingDir(layout.projectDirectory)
+
+        // clean up intermediate files generated from build-bn-proto.sh run
+        commandLine(
+            "rm",
+            "-rf",
+            "${layout.projectDirectory}/block-node-protobuf",
+            "&&",
+            "rm",
+            "-rf",
+            "${layout.projectDirectory}/hiero-consensus-node",
+        )
     }
 
 sourceSets {
     main {
         pbj {
-            srcDir(cloneHederaProtobufs.flatMap { it.localCloneDirectory.dir("services") })
-            srcDir(cloneHederaProtobufs.flatMap { it.localCloneDirectory.dir("block") })
-            srcDir(cloneHederaProtobufs.flatMap { it.localCloneDirectory.dir("platform") })
-            srcDir(cloneHederaProtobufs.flatMap { it.localCloneDirectory.dir("streams") })
+            srcDir(
+                generateBlockNodeProtoArtifact.map {
+                    "${layout.projectDirectory}/block-node-protobuf"
+                }
+            )
+            // exclude BN files at root level
+            exclude("*.proto")
         }
         proto {
-            srcDir(cloneHederaProtobufs.flatMap { it.localCloneDirectory.dir("services") })
-            srcDir(cloneHederaProtobufs.flatMap { it.localCloneDirectory.dir("block") })
-            srcDir(cloneHederaProtobufs.flatMap { it.localCloneDirectory.dir("platform") })
-            srcDir(cloneHederaProtobufs.flatMap { it.localCloneDirectory.dir("streams") })
+            srcDir(
+                generateBlockNodeProtoArtifact.map {
+                    "${layout.projectDirectory}/block-node-protobuf"
+                }
+            )
+            // exclude BN files at root level
+            exclude("*.proto")
         }
     }
 }

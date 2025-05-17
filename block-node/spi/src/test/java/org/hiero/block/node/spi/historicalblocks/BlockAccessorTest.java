@@ -49,8 +49,11 @@ public class BlockAccessorTest {
                             890,
                             Bytes.wrap("previousBlockRootHash".getBytes()),
                             Bytes.wrap("startOfBlockStateRootHash".getBytes()),
-                            Bytes.wrap("signature".getBytes()),
-                            Collections.emptyList())))));
+                            Bytes.wrap("block_signature".getBytes()),
+                            Collections.emptyList(),
+                            new OneOf<>(
+                                    BlockProof.VerificationReferenceOneOfType.VERIFICATION_KEY,
+                                    Bytes.wrap("verificationKey".getBytes())))))));
     private static final Bytes SAMPLE_BLOCK_PROTOBUF_BYTES;
     private static final Bytes SAMPLE_BLOCK_ZSTD_PROTOBUF_BYTES;
     private static final Bytes SAMPLE_BLOCK_JSON_BYTES;
