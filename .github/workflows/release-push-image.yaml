@@ -66,29 +66,15 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Install JDK
-        uses: actions/setup-java@c5195efecf7bdfc987ee8bae7a71cb8b11521c00 # v4.7.1
-        with:
-          distribution: ${{ env.JAVA_DISTRIBUTION }}
-          java-version: ${{ env.JAVA_VERSION }}
-
-      - name: Build
-        run: ${GRADLE_EXEC} clean assemble
-
       - name: Extract version
         id: extract_version
         run: |
           VERSION=$(cat version.txt)
           echo "VERSION=${VERSION}" >> $GITHUB_ENV
 
-      - name: Extract CN proto from Jar
-        run: ${GRADLE_EXEC} :block-node-protobuf:extractProtoFromConsensusNodeProtoJar
-
-      - name: Export BN proto
-        run: ${GRADLE_EXEC} :block-node-protobuf:exportBlockNodeProto
-
       - name: Produce artifact
-        run: tar -czf block-node-protobuf-${{ env.VERSION }}.tgz -C ${{ github.workspace }}/block-node-protobuf/build/block-node-protobuf .
+        working-directory: protobuf
+        run: scripts/build-bn-proto.sh -t "efb0134e921b32ed6302da9c93874d65492e876f" -v ${{ env.VERSION }} -o "block-node-protobuf" # CN 0.62.2
 
       - name: Upload artifact
         if: ${{ env.INPUT_PUBLISH == 'true' }}

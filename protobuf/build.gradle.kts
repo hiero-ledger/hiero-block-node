@@ -23,10 +23,31 @@ val generateBlockNodeProtoArtifact: TaskProvider<Exec> =
 
         workingDir(layout.projectDirectory)
         val cnTagHash = "efb0134e921b32ed6302da9c93874d65492e876f" // v0.62.2
+
+        // run build-bn-proto.sh skipping inclusion of BN API as it messes up proto considerations
         commandLine(
             "sh",
             "-c",
-            "./scripts/build-bn-proto.sh -t $cnTagHash -v ${project.version} -o block-node-protobuf",
+            "${layout.projectDirectory}/scripts/build-bn-proto.sh -t $cnTagHash -v ${project.version} -o ${layout.projectDirectory}/block-node-protobuf -i false -b ${layout.projectDirectory}/src/main/proto/org/hiero/block/api",
+        )
+    }
+
+val cleanUpAfterBlockNodeProtoArtifact: TaskProvider<Exec> =
+    tasks.register<Exec>("cleanUpAfterBlockNodeProtoArtifact") {
+        description = "Cleans up left over files from generateBlockNodeProtoArtifact task"
+        group = "protobuf"
+
+        workingDir(layout.projectDirectory)
+
+        // clean up intermediate files generated from build-bn-proto.sh run
+        commandLine(
+            "rm",
+            "-rf",
+            "${layout.projectDirectory}/block-node-protobuf",
+            "&&",
+            "rm",
+            "-rf",
+            "${layout.projectDirectory}/hiero-consensus-node",
         )
     }
 
@@ -38,6 +59,8 @@ sourceSets {
                     "${layout.projectDirectory}/block-node-protobuf"
                 }
             )
+            // exclude BN files at root level
+            exclude("*_service.proto")
         }
         proto {
             srcDir(
@@ -45,6 +68,8 @@ sourceSets {
                     "${layout.projectDirectory}/block-node-protobuf"
                 }
             )
+            // exclude BN files at root level
+            exclude("*_service.proto")
         }
     }
 }
