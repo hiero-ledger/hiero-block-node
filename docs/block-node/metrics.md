@@ -26,25 +26,25 @@ Example `scrape_configs` snippet:
 **Plugin:** `app`
 Node‑level state and current block numbers.
 
-| Type  |             Name              |              Description              |
-|-------|-------------------------------|---------------------------------------|
-| Gauge | `app_historical_oldest_block` | Oldest block the BN currently stores  |
-| Gauge | `app_historical_newest_block` | Newest block the BN currently stores  |
-| Gauge | `app_state_status`            | 0=Starting, 1=Running, 2Shutting Down |
+| Type  |             Name              |              Description               |
+|-------|-------------------------------|----------------------------------------|
+| Gauge | `app_historical_oldest_block` | Oldest block the BN currently stores   |
+| Gauge | `app_historical_newest_block` | Newest block the BN currently stores   |
+| Gauge | `app_state_status`            | 0=Starting, 1=Running, 2=Shutting Down |
 
 ---
 
 ## Block Access
 
 **Plugin:** `block-access [block-access-service]`
-Observes the block access service that serves requests for single blocks.
+Observes the block access service that serves requests for blocks.
 
-|  Type   |                 Name                  |                 Description                 |
-|---------|---------------------------------------|---------------------------------------------|
-| Counter | `single-block-requests`               | Number of single block requests             |
-| Counter | `single-block-requests-success`       | Successful single block requests            |
-| Counter | `single-block-requests-not-available` | Requests for blocks that were not available |
-| Counter | `single-block-requests-not-found`     | Requests for blocks that were not found     |
+|  Type   |                Name                |                 Description                 |
+|---------|------------------------------------|---------------------------------------------|
+| Counter | `get-block-requests`               | Number of get block requests                |
+| Counter | `get-block-requests-success`       | Successful single block requests            |
+| Counter | `get-block-requests-not-available` | Requests for blocks that were not available |
+| Counter | `get-block-requests-not-found`     | Requests for blocks that were not found     |
 
 ---
 
@@ -78,6 +78,8 @@ Observes inbound streams from publishers.
 | Gauge   | `publisher_highest_block_number_inbound` | Newest inbound block number                         |
 | Gauge   | `publisher_open_connections`             | Connected publishers                                |
 | Counter | `publisher_blocks_ack_sent`              | Block‑ack messages sent                             |
+| Gauge   | `publisher_latest_block_number_ack_sent` | Latest Block Number Ack Sent from Publisher         |
+| Counter | `publisher_stream_errors`                | Publisher connection streams that end in an error   |
 
 ---
 
