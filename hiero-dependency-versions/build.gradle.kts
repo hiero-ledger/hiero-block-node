@@ -67,7 +67,7 @@ dependencies.constraints {
     api("com.google.dagger:dagger-compiler:$daggerVersion") { because("dagger.compiler") }
 
     // Testing only versions
-    api("com.github.docker-java:docker-java-api:3.5.0") { because("com.github.dockerjava.api") }
+    api("com.github.docker-java:docker-java-api:3.5.1") { because("com.github.dockerjava.api") }
     api("io.github.cdimascio:dotenv-java:3.2.0") { because("io.github.cdimascio.dotenv.java") }
     api("org.assertj:assertj-core:3.27.3") { because("org.assertj.core") }
     api("org.junit.jupiter:junit-jupiter-api:5.12.2") { because("org.junit.jupiter.api") }
