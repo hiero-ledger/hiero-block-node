@@ -357,7 +357,7 @@ public class S3Client implements AutoCloseable {
                 // Add the UploadId to the map under the corresponding Key
                 uploadIds.computeIfAbsent(key, k -> new ArrayList<>()).add(uploadId);
             }
-            return uploadIds;
+            return Collections.unmodifiableMap(uploadIds);
         }
     }
 
@@ -368,15 +368,18 @@ public class S3Client implements AutoCloseable {
      * @param uploadId the upload ID for the multipart upload, cannot be blank
      * @throws S3ResponseException if a non-204 response is received from S3
      */
-    void abortMultipartUpload(@NonNull final String key, @NonNull final String uploadId) throws S3ResponseException {
+    public void abortMultipartUpload(@NonNull final String key, @NonNull final String uploadId)
+            throws S3ResponseException {
         Preconditions.requireNotBlank(key);
         Preconditions.requireNotBlank(uploadId);
         // build the canonical query string
         final String canonicalQueryString = "uploadId=" + uploadId;
         // build the request URL
         final String url = endpoint + bucketName + "/" + key + "?" + canonicalQueryString;
+        // make the request
         final HttpResponse<InputStream> response =
                 request(url, DELETE, Collections.emptyMap(), null, BodyHandlers.ofInputStream());
+        // check status code
         final int statusCode = response.statusCode();
         if (statusCode != 204) {
             final Document body = parseDocument(response.body());
