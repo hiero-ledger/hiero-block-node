@@ -15,9 +15,7 @@ javaModules {
     directory("block-node") {
         group = "org.hiero.block"
         module("app") { artifact = "block-node-app" }
-        module("archive") { artifact = "block-node-archive" }
         module("base") { artifact = "block-node-base" }
-        module("plugins") { artifact = "block-node-plugins" }
         module("health") { artifact = "block-node-health" }
         module("messaging") { artifact = "facility-messaging" }
         module("publisher") { artifact = "block-node-publisher" }
@@ -27,5 +25,6 @@ javaModules {
         module("block-providers/files.historic") { artifact = "block-node-blocks-file-historic" }
         module("block-providers/files.recent") { artifact = "block-node-blocks-file-recent" }
         module("block-access") { artifact = "block-access-service" }
+        module("s3-archive") { artifact = "s3-archive" }
     }
 }

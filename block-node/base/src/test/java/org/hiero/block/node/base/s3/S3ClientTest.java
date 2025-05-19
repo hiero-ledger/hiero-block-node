@@ -2,9 +2,9 @@
 package org.hiero.block.node.base.s3;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
-import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import io.minio.GetObjectArgs;
 import io.minio.MakeBucketArgs;
@@ -179,7 +179,7 @@ public class S3ClientTest {
 
         try (S3Client s3Client =
                 new S3Client(REGION_NAME, endpoint, BUCKET_NAME, MINIO_ROOT_USER, MINIO_ROOT_PASSWORD)) {
-            assertTrue(s3Client.uploadTextFile(key, "STANDARD", text));
+            assertDoesNotThrow(() -> s3Client.uploadTextFile(key, "STANDARD", text));
             // check download with minio client
             assertEquals(
                     text,

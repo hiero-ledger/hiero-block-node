@@ -23,6 +23,7 @@ import java.util.stream.LongStream;
 import org.hiero.block.common.utils.StringUtilities;
 import org.hiero.block.internal.BlockUnparsed;
 import org.hiero.block.node.base.s3.S3Client;
+import org.hiero.block.node.base.s3.S3ResponseException;
 import org.hiero.block.node.base.tar.TaredBlockIterator;
 import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.BlockNodePlugin;
@@ -212,7 +213,14 @@ public class S3ArchivePlugin implements BlockNodePlugin, BlockNotificationHandle
                                     System.Logger.Level.INFO,
                                     "Uploaded archive block batch: " + nextBatchStartBlockNumber + "-"
                                             + nextBatchEndBlockNumber);
-                        } catch (Exception e) {
+                        } catch (final S3ResponseException e) {
+                            // todo we could retry here
+                            LOGGER.log(
+                                    System.Logger.Level.WARNING,
+                                    "Failed to upload archive block batch: " + e.getMessage(),
+                                    e);
+                            throw new RuntimeException(e);
+                        } catch (final Exception e) {
                             LOGGER.log(
                                     System.Logger.Level.ERROR,
                                     "Failed to upload archive block batch: " + e.getMessage(),
@@ -235,7 +243,7 @@ public class S3ArchivePlugin implements BlockNodePlugin, BlockNotificationHandle
      * @param endBlockNumber the last block number to upload, inclusive
      */
     private void uploadBlocksTar(S3Client s3Client, long startBlockNumber, long endBlockNumber)
-            throws IllegalStateException {
+            throws IllegalStateException, S3ResponseException {
         // The HTTP client needs an Iterable of byte arrays, so create one from the blocks
         final Iterator<byte[]> tarBlocks = new TaredBlockIterator(
                 Format.ZSTD_PROTOBUF,
