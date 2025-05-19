@@ -20,13 +20,12 @@ import java.util.concurrent.Flow;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.Consumer;
 import org.hiero.block.api.PublishStreamResponse;
-import org.hiero.block.api.PublishStreamResponse.Acknowledgement;
 import org.hiero.block.api.PublishStreamResponse.BlockAcknowledgement;
 import org.hiero.block.api.PublishStreamResponse.EndOfStream;
+import org.hiero.block.api.PublishStreamResponse.EndOfStream.Code;
 import org.hiero.block.api.PublishStreamResponse.ResendBlock;
 import org.hiero.block.api.PublishStreamResponse.ResponseOneOfType;
 import org.hiero.block.api.PublishStreamResponse.SkipBlock;
-import org.hiero.block.api.PublishStreamResponseCode;
 import org.hiero.block.internal.BlockItemUnparsed;
 import org.hiero.block.node.publisher.UpdateCallback.UpdateType;
 import org.hiero.block.node.spi.BlockNodePlugin;
@@ -201,9 +200,8 @@ public final class BlockStreamProducerSession implements Pipeline<List<BlockItem
         // sending a duplicate ack should also update the latestAck.
         latestAcknowledgedBlock = latestAckBlock;
         final BlockAcknowledgement ack = new BlockAcknowledgement(latestAckBlock, null, true);
-        final Acknowledgement acknowledgement = new Acknowledgement(ack);
         final PublishStreamResponse duplicateResponse =
-                new PublishStreamResponse(new OneOf<>(ResponseOneOfType.ACKNOWLEDGEMENT, acknowledgement));
+                new PublishStreamResponse(new OneOf<>(ResponseOneOfType.ACKNOWLEDGEMENT, ack));
         sendResponse(duplicateResponse);
     }
 
@@ -215,7 +213,7 @@ public final class BlockStreamProducerSession implements Pipeline<List<BlockItem
         currentBlockState = BlockState.WAITING_FOR_RESEND;
         newBlockItems.clear();
 
-        final EndOfStream endOfStream = new EndOfStream(PublishStreamResponseCode.STREAM_ITEMS_BEHIND, latestAckBlock);
+        final EndOfStream endOfStream = new EndOfStream(Code.BEHIND, latestAckBlock);
         final PublishStreamResponse response =
                 new PublishStreamResponse(new OneOf<>(ResponseOneOfType.END_STREAM, endOfStream));
         sendResponse(response);
@@ -247,9 +245,8 @@ public final class BlockStreamProducerSession implements Pipeline<List<BlockItem
             currentBlockState = BlockState.DISCONNECTED;
             // try to send a close response to the client
 
-            final PublishStreamResponse closeResponse = new PublishStreamResponse(new OneOf<>(
-                    ResponseOneOfType.END_STREAM,
-                    new EndOfStream(PublishStreamResponseCode.STREAM_ITEMS_SUCCESS, currentBlockNumber)));
+            final PublishStreamResponse closeResponse = new PublishStreamResponse(
+                    new OneOf<>(ResponseOneOfType.END_STREAM, new EndOfStream(Code.SUCCESS, currentBlockNumber)));
             sendResponse(closeResponse);
 
             if (subscription != null) {
@@ -286,8 +283,7 @@ public final class BlockStreamProducerSession implements Pipeline<List<BlockItem
                 latestAcknowledgedBlock = blockToSend;
                 // TODO BlockAcknowledgement block hash should be removed from spec as not needed
                 final PublishStreamResponse goodBlockResponse = new PublishStreamResponse(new OneOf<>(
-                        ResponseOneOfType.ACKNOWLEDGEMENT,
-                        new Acknowledgement(new BlockAcknowledgement(blockToSend, null, false))));
+                        ResponseOneOfType.ACKNOWLEDGEMENT, new BlockAcknowledgement(blockToSend, null, false)));
                 // send the acknowledgment to the client
                 sendResponse(goodBlockResponse);
                 blockToSend++;
