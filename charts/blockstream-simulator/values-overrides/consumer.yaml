@@ -1,5 +1,5 @@
 # 2 consumers
-replicas: 1
+replicas: 2
 
 simulator:
   config:
