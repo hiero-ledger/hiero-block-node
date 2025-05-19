@@ -14,7 +14,7 @@ dependencies.constraints {
     val helidonVersion = "4.2.2"
     // When Upgrading pbjVersion, also need to update pbjCompiler version on
     // protobuf/build.gradle.kts
-    val pbjVersion = "0.11.3"
+    val pbjVersion = "0.11.6"
     val protobufVersion = "4.30.2"
     val swirldsVersion = "0.61.3"
     val mockitoVersion = "5.17.0"
