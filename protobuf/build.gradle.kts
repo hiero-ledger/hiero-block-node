@@ -6,7 +6,7 @@ plugins {
     id("org.hiero.gradle.feature.protobuf")
     // When upgrading pbjVersion, also need to update pbjVersion on
     // hiero-dependency-versions/build.gradle.kts
-    id("com.hedera.pbj.pbj-compiler") version "0.11.3"
+    id("com.hedera.pbj.pbj-compiler") version "0.11.6"
 }
 
 description = "Hiero Block Node Protobuf API"
