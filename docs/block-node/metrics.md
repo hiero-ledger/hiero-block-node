@@ -80,6 +80,10 @@ Observes inbound streams from publishers.
 | Counter | `publisher_blocks_ack_sent`              | Block‑ack messages sent                             |
 | Gauge   | `publisher_latest_block_number_ack_sent` | Latest Block Number Ack Sent from Publisher         |
 | Counter | `publisher_stream_errors`                | Publisher connection streams that end in an error   |
+| Counter | `publisher_blocks_skips_sent`            | Block‑ack skips sent                                |
+| Counter | `publisher_blocks_resend_sent`           | Block Resend messages sent                          |
+| Counter | `publisher_blocks_endofstrem_sent`       | Block End-of-Stream messages sent                   |
+| Counter | `publisher_blocks_endofstrem_received`   | Block End-of-Stream messages received               |
 
 ---
 
@@ -88,13 +92,10 @@ Observes inbound streams from publishers.
 **Plugin:** `stream-subscriber` [block-node-stream-subscriber]`
 Observes outbound streams served to subscribers.
 
-|  Type   |              Name              |                          Description                           |
-|---------|--------------------------------|----------------------------------------------------------------|
-| Counter | `subscriber_historic_to_live`  | Historic‑to‑live stream transitions                            |
-| Counter | `subscriber_live_to_historic`  | Live‑to‑historic stream transitions                            |
-| Gauge   | `subscriber_open_connections`  | Connected subscribers                                          |
-| Gauge   | `subscriber_newest_block_sent` | Newest block number sent (lag indicator vs. publisher inbound) |
-| Counter | `subscriber_errors`            | Errors while streaming to subscribers                          |
+|  Type   |             Name              |              Description              |
+|---------|-------------------------------|---------------------------------------|
+| Gauge   | `subscriber_open_connections` | Connected subscribers                 |
+| Counter | `subscriber_errors`           | Errors while streaming to subscribers |
 
 ---
 
@@ -118,13 +119,13 @@ Measures block‑verification throughput and success rate.
 **Plugin:** `block-providers/files.recent [block-node-blocks-file-recent]`
 Activity and utilization of the recent on‑disk tier.
 
-|  Type   |                Name                |           Description           |
-|---------|------------------------------------|---------------------------------|
-| Counter | `files_recent_blocks_written`      | Blocks written to recent tier   |
-| Counter | `files_recent_blocks_read`         | Blocks read from recent tier    |
-| Counter | `files_recent_blocks_deleted`      | Blocks deleted from recent tier |
-| Gauge   | `files_recent_blocks_stored`       | Blocks stored in recent tier    |
-| Gauge   | `files_recent_total_bytes_storerd` | Bytes stored in recent tier     |
+|  Type   |               Name                |           Description           |
+|---------|-----------------------------------|---------------------------------|
+| Counter | `files_recent_blocks_written`     | Blocks written to recent tier   |
+| Counter | `files_recent_blocks_read`        | Blocks read from recent tier    |
+| Counter | `files_recent_blocks_deleted`     | Blocks deleted from recent tier |
+| Gauge   | `files_recent_blocks_stored`      | Blocks stored in recent tier    |
+| Gauge   | `files_recent_total_bytes_stored` | Bytes stored in recent tier     |
 
 ---
 
@@ -133,28 +134,12 @@ Activity and utilization of the recent on‑disk tier.
 **Plugin:** `block-providers/files.historic [block-node-blocks-file-historic`
 Activity and utilization of the historic on‑disk tier.
 
-|  Type   |                Name                 |            Description            |
-|---------|-------------------------------------|-----------------------------------|
-| Counter | `files_historic_blocks_written`     | Blocks written to historic tier   |
-| Counter | `files_historic_blocks_read`        | Blocks read from historic tier    |
-| Counter | `files_historic_blocks_deleted`     | Blocks deleted from historic tier |
-| Gauge   | `files_historic_blocks_stored`      | Blocks stored in historic tier    |
-| Gauge   | `files_historic_total_bytes_stored` | Bytes stored in historic tier     |
-
----
-
-## cloud.historic
-
-**Plugin:** `block-providers/cloud.historic [block-node-blocks-cloud-historic]`
-Activity and utilization of the cloud on‑disk tier.
-
-|  Type   |                Name                 |          Description           |
-|---------|-------------------------------------|--------------------------------|
-| Counter | `cloud_historic_blocks_written`     | Blocks written to cloud tier   |
-| Counter | `cloud_historic_blocks_read`        | Blocks read from cloud tier    |
-| Counter | `cloud_historic_blocks_deleted`     | Blocks deleted from cloud tier |
-| Gauge   | `cloud_historic_blocks_stored`      | Blocks stored in cloud tier    |
-| Gauge   | `cloud_historic_total_bytes_stored` | Bytes stored in cloud tier     |
+|  Type   |                Name                 |           Description           |
+|---------|-------------------------------------|---------------------------------|
+| Counter | `files_historic_blocks_written`     | Blocks written to historic tier |
+| Counter | `files_historic_blocks_read`        | Blocks read from historic tier  |
+| Gauge   | `files_historic_blocks_stored`      | Blocks stored in historic tier  |
+| Gauge   | `files_historic_total_bytes_stored` | Bytes stored in historic tier   |
 
 ---
 
@@ -163,10 +148,13 @@ Activity and utilization of the cloud on‑disk tier.
 **Plugin:** `s3-archive [hiero-block-node.s3-archive]`
 Tracks long‑term archival jobs that push blocks to S3.
 
-|  Type   |              Name               |              Description               |
-|---------|---------------------------------|----------------------------------------|
-| Counter | `s3_archive_blocks_written`     | Blocks archived to S3                  |
-| Gauge   | `s3_archive_latest_block`       | Latest block number archived           |
-| Counter | `s3_archive_tasks_failed_total` | Failed archival tasks                  |
-| Counter | `s3_archive_tasks_sucess_total` | Successful archival tasks              |
-| Gauge   | `s3_archive_total_bytes_stored` | Total bytes stored in S3 (cost metric) |
+|  Type   |              Name               |               Description               |
+|---------|---------------------------------|-----------------------------------------|
+| Counter | `s3_archive_blocks_written`     | Blocks archived to S3                   |
+| Gauge   | `s3_archive_latest_block`       | Latest block number archived            |
+| Counter | `s3_archive_tasks_failed_total` | Failed archival tasks                   |
+| Counter | `s3_archive_tasks_sucess_total` | Successful archival tasks               |
+| Gauge   | `s3_archive_total_bytes_stored` | Total bytes stored in S3 (cost metric)  |
+| Counter | `s3_archive_chunks_uploaded`    | Chunks uploaded to S3                   |
+| Gauge   | `s3_archive_chunks_opened`      | Open chucks currently                   |
+| Counter | `s3_archive_files_closed`       | Total number of files closed, finished. |
