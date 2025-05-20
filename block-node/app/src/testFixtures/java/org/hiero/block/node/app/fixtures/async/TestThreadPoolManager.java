@@ -23,20 +23,9 @@ public class TestThreadPoolManager<T extends ExecutorService> implements ThreadP
         this.executor = Objects.requireNonNull(executor);
     }
 
-    @NonNull
-    @Override
-    public T getVirtualThreadExecutor(@NonNull final String threadName) {
-        return executor;
-    }
-
-    @NonNull
-    @Override
-    public T getVirtualThreadExecutor(
-            @NonNull final String threadName, @Nullable final UncaughtExceptionHandler uncaughtExceptionHandler) {
-        return executor;
-    }
-
     /**
+     * {@inheritDoc}
+     * <p>
      * Test implementation, always returns the same executor service that was
      * passed to the constructor of this class.
      *
@@ -44,11 +33,14 @@ public class TestThreadPoolManager<T extends ExecutorService> implements ThreadP
      */
     @NonNull
     @Override
-    public T createSingleThreadExecutor(@NonNull final String threadName) {
+    public T getVirtualThreadExecutor(
+            @Nullable final String threadName, @Nullable final UncaughtExceptionHandler uncaughtExceptionHandler) {
         return executor;
     }
 
     /**
+     * {@inheritDoc}
+     * <p>
      * Test implementation, always returns the same executor service that was
      * passed to the constructor of this class.
      *
@@ -57,7 +49,7 @@ public class TestThreadPoolManager<T extends ExecutorService> implements ThreadP
     @NonNull
     @Override
     public T createSingleThreadExecutor(
-            @NonNull final String threadName,
+            @Nullable final String threadName,
             @Nullable final Thread.UncaughtExceptionHandler uncaughtExceptionHandler) {
         return executor;
     }

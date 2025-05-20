@@ -26,35 +26,21 @@ final class DefaultThreadPoolManager implements ThreadPoolManager {
 
     /**
      * {@inheritDoc}
-     *
-     * This implementation tries to returns the same static thread-per-task executor specialized to
-     * use virtual threads for every call. If threadName is not null, however,
-     * a unique executor is returned instead.
-     *
-     * The threadName parameter is ignored.
-     */
-    @NonNull
-    @Override
-    public ExecutorService getVirtualThreadExecutor(@Nullable final String threadName) {
-        return getVirtualThreadExecutor(threadName, null);
-    }
-
-    /**
-     * {@inheritDoc}
-     *
+     * <p>
      * This implementation caches executors based on the exception handler, and
      * tries to return the same thread-per-task executor specialized to use virtual
      * threads for each exception handler instance. If threadName is not null,
      * however, a unique executor service is returned.
      *
-     * If no exception handler is provided, this returns the same static executor as
-     * {@link #getVirtualThreadExecutor(String)}.
+     * If no exception handler or name is provided, this returns the same static
+     * executor as {@link #getVirtualThreadExecutor()}.
      */
     @NonNull
     @Override
     public ExecutorService getVirtualThreadExecutor(
             @Nullable final String threadName, @Nullable final UncaughtExceptionHandler uncaughtExceptionHandler) {
         if (threadName != null) {
+            Preconditions.requireNotBlank(threadName);
             return createVirtualThreadExecutor(threadName, uncaughtExceptionHandler);
         } else if (uncaughtExceptionHandler != null) {
             if (!VIRTUAL_THREAD_MAP.containsKey(uncaughtExceptionHandler)) {
@@ -95,20 +81,14 @@ final class DefaultThreadPoolManager implements ThreadPoolManager {
      */
     @NonNull
     @Override
-    public ExecutorService createSingleThreadExecutor(@NonNull final String threadName) {
-        return createSingleThreadExecutor(threadName, null);
-    }
-
-    /**
-     * {@inheritDoc}
-     */
-    @NonNull
-    @Override
     public ExecutorService createSingleThreadExecutor(
-            @NonNull final String threadName,
+            @Nullable final String threadName,
             @Nullable final Thread.UncaughtExceptionHandler uncaughtExceptionHandler) {
-        Preconditions.requireNotBlank(threadName);
-        final OfPlatform factoryBuilder = Thread.ofPlatform().name(threadName);
+        final OfPlatform factoryBuilder = Thread.ofPlatform();
+        if (threadName != null) {
+            Preconditions.requireNotBlank(threadName);
+            factoryBuilder.name(threadName);
+        }
         if (uncaughtExceptionHandler != null) {
             factoryBuilder.uncaughtExceptionHandler(uncaughtExceptionHandler);
         }
