@@ -9,7 +9,6 @@ import static org.hiero.block.node.app.fixtures.blocks.SimpleTestBlockItemBuilde
 import static org.hiero.block.node.app.fixtures.blocks.SimpleTestBlockItemBuilder.sampleBlockHeader;
 import static org.hiero.block.node.app.fixtures.blocks.SimpleTestBlockItemBuilder.sampleBlockProof;
 import static org.hiero.block.node.app.fixtures.blocks.SimpleTestBlockItemBuilder.sampleRoundHeader;
-import static org.hiero.block.node.publisher.PublisherServicePlugin.BlockStreamPublisherServiceMethod.publishBlockStream;
 import static org.hiero.block.node.spi.BlockNodePlugin.UNKNOWN_BLOCK_NUMBER;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
@@ -21,6 +20,7 @@ import com.hedera.pbj.runtime.grpc.ServiceInterface.Method;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import java.util.List;
 import org.hiero.block.api.BlockItemSet;
+import org.hiero.block.api.BlockStreamPublishServiceInterface.BlockStreamPublishServiceMethod;
 import org.hiero.block.api.PublishStreamRequest;
 import org.hiero.block.api.PublishStreamRequest.RequestOneOfType;
 import org.hiero.block.api.PublishStreamResponse;
@@ -41,7 +41,10 @@ import org.junit.jupiter.api.Test;
 public class PublisherTest extends GrpcPluginTestBase<PublisherServicePlugin> {
 
     public PublisherTest() {
-        start(new PublisherServicePlugin(), publishBlockStream, new NoBlocksHistoricalBlockFacility());
+        start(
+                new PublisherServicePlugin(),
+                BlockStreamPublishServiceMethod.publishBlockStream,
+                new NoBlocksHistoricalBlockFacility());
     }
 
     @Test
@@ -52,7 +55,7 @@ public class PublisherTest extends GrpcPluginTestBase<PublisherServicePlugin> {
         List<Method> methods = serviceInterface.methods();
         assertNotNull(methods);
         assertEquals(1, methods.size());
-        assertEquals(publishBlockStream, methods.getFirst());
+        assertEquals(BlockStreamPublishServiceMethod.publishBlockStream, methods.getFirst());
     }
 
     @Test

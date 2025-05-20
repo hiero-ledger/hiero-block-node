@@ -1,9 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
 module org.hiero.block.protobuf {
-    exports com.hedera.hapi.block.stream.protoc;
-    exports com.hedera.hapi.block.stream.input.protoc;
-    exports com.hedera.hapi.block.stream.output.protoc;
-    exports com.hedera.hapi.platform.event.legacy;
     exports com.hedera.hapi.block.stream;
     exports com.hedera.hapi.block.stream.input;
     exports com.hedera.hapi.block.stream.output;
@@ -60,18 +56,37 @@ module org.hiero.block.protobuf {
     exports com.hedera.hapi.node.state.primitives;
     exports com.hedera.hapi.node.state.throttles;
     exports com.hedera.hapi.node.state.congestion;
-    exports com.hedera.services.stream.proto;
-    exports com.hederahashgraph.api.proto.java;
-    exports com.hederahashgraph.service.proto.java;
     exports com.hedera.hapi.platform.state;
     exports com.hedera.hapi.node.state.roster;
     exports com.hedera.hapi.block.stream.schema;
+    exports org.hiero.block.api;
+    exports org.hiero.block.internal;
+
+    // only export protoc to simulator & suites till they are ported to PBJ
     exports com.hedera.hapi.platform.state.legacy to
             com.google.protobuf;
-    exports org.hiero.block.api;
-    exports org.hiero.block.api.protoc;
-    exports org.hiero.block.internal;
-    exports org.hiero.block.internal.protoc;
+    exports org.hiero.block.api.protoc to
+            org.hiero.block.simulator,
+            org.hiero.block.node.suites;
+    exports org.hiero.block.internal.protoc to
+            org.hiero.block.simulator;
+    exports com.hedera.services.stream.proto to
+            org.hiero.block.simulator;
+    exports com.hederahashgraph.api.proto.java to
+            org.hiero.block.simulator;
+    exports com.hederahashgraph.service.proto.java to
+            org.hiero.block.simulator;
+    exports com.hedera.hapi.block.stream.protoc to
+            org.hiero.block.simulator,
+            org.hiero.block.node.suites;
+    exports com.hedera.hapi.block.stream.input.protoc to
+            org.hiero.block.simulator,
+            org.hiero.block.node.suites;
+    exports com.hedera.hapi.block.stream.output.protoc to
+            org.hiero.block.simulator,
+            org.hiero.block.node.suites;
+    exports com.hedera.hapi.platform.event.legacy to
+            org.hiero.block.simulator;
 
     requires transitive com.hedera.pbj.runtime;
     requires transitive com.google.common;
