@@ -63,19 +63,14 @@ if [[ -z $output_dir ]]; then
     usage
     exit 1
 fi
-if [[ -z $cleanup ]]; then
-    cleanup=false
-fi
-if [[ -z $include_bn_api ]]; then
-    include_bn_api=true
-fi
-if [[ -z $bn_api_path ]]; then
-    echo "Set 'bn_api_path' default to 'src/main/proto/org/hiero/block/api'"
-    bn_api_path="src/main/proto/org/hiero/block/api"
-fi
+
+# handle defaults for optional fields
+cleanup="${cleanup:-false}"
+include_bn_api="${include_bn_api:-true}"
+bn_api_path="${bn_api_path:-src/main/proto/org/hiero/block/api}"
 
 echo "Running $0, working directory: $PWD"
-echo "repository_tag: $repository_tag, release_version: $release_version, output_dir: $output_dir, cleanup: $cleanup, include_bn_api: $include_bn_api ..."
+echo "repository_tag: $repository_tag, release_version: $release_version, output_dir: $output_dir, cleanup: $cleanup, include_bn_api: $include_bn_api, bn_api_path: $bn_api_path ..."
 
 # Clone repo if doesn't exist locally
 if [ ! -d "./hiero-consensus-node" ]; then

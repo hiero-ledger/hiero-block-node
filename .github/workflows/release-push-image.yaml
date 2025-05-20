@@ -77,7 +77,7 @@ jobs:
         run: scripts/build-bn-proto.sh -t "efb0134e921b32ed6302da9c93874d65492e876f" -v ${{ env.VERSION }} -o "block-node-protobuf" # CN 0.62.2
 
       - name: Upload artifact
-        if: ${{ env.INPUT_PUBLISH == 'true' }}
+        if: "${{ github.event_name != 'workflow_dispatch' || github.event.inputs.publish == 'true' }}"
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: block-node-protobuf-${{ env.VERSION }}.tgz
@@ -147,7 +147,7 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
           platforms: linux/amd64, linux/arm64
-          push: ${{ env.INPUT_PUBLISH == 'true' }}
+          push: "${{ github.event_name != 'workflow_dispatch' || github.event.inputs.publish == 'true' }}"
           tags: ${{ env.REGISTRY }}/${{ github.repository }}:${{ env.VERSION }}
           build-args: |
             VERSION=${{ env.VERSION }}
@@ -187,7 +187,7 @@ jobs:
           echo "VERSION=${VERSION}" >> $GITHUB_ENV
 
       - name: Publish protobuf jar to maven local repo
-        if: ${{ env.INPUT_PUBLISH == 'true' }}
+        if: "${{ github.event_name != 'workflow_dispatch' || github.event.inputs.publish == 'true' }}"
         run: ${GRADLE_EXEC} :block-node-protobuf:releaseMavenCentral -PpublishingPackageGroup=org.hiero.block --no-configuration-cache
 
   publish-simulator:
@@ -253,7 +253,7 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
           platforms: linux/amd64, linux/arm64
-          push: ${{ env.INPUT_PUBLISH == 'true' }}
+          push: "${{ github.event_name != 'workflow_dispatch' || github.event.inputs.publish == 'true' }}"
           tags: ${{ env.REGISTRY }}/${{ github.repository }}/simulator-image:${{ env.VERSION }}
           build-args: |
             VERSION=${{ env.VERSION }}
@@ -294,7 +294,7 @@ jobs:
           helm package charts/block-node-server
 
       - name: Push helm chart
-        if: ${{ env.INPUT_PUBLISH == 'true' }}
+        if: "${{ github.event_name != 'workflow_dispatch' || github.event.inputs.publish == 'true' }}"
         run: |
           helm push block-node-helm-chart-${{ env.VERSION }}.tgz oci://ghcr.io/hiero-ledger/hiero-block-node
 
@@ -334,6 +334,6 @@ jobs:
           helm package charts/blockstream-simulator
 
       - name: Simulator Chart - Push helm chart
-        if: ${{ env.INPUT_PUBLISH == 'true' }}
+        if: "${{ github.event_name != 'workflow_dispatch' || github.event.inputs.publish == 'true' }}"
         run: |
           helm push blockstream-simulator-chart-${{ env.VERSION }}.tgz oci://ghcr.io/hiero-ledger/hiero-block-node
