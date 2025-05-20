@@ -138,7 +138,7 @@ public class SubscriberServicePlugin implements BlockNodePlugin, BlockStreamSubs
         private SubscribeBlockStreamHandler(@NonNull final BlockNodeContext context) {
             this.context = requireNonNull(context);
             this.openSessions = new ConcurrentSkipListMap<>();
-            virtualThreadExecutor = context.threadPoolManager().getVirtualThreadExecutor("SubscribeBlockStreamHandler");
+            virtualThreadExecutor = context.threadPoolManager().getVirtualThreadExecutor(null);
             streamSessions = new ExecutorCompletionService<>(virtualThreadExecutor);
             // create the metrics
             numberOfSubscribers = context.metrics()

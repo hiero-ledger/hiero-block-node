@@ -11,7 +11,6 @@ import org.hiero.block.api.BlockAccessServiceInterface;
 import org.hiero.block.api.BlockRequest;
 import org.hiero.block.api.BlockResponse;
 import org.hiero.block.api.BlockResponse.Code;
-// PBJ doesn't generate GRPC stubs for some reason, also the proto file is broken when PBJ compiles it...
 import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.BlockNodePlugin;
 import org.hiero.block.node.spi.ServiceBuilder;
