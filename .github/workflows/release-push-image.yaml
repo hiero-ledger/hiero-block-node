@@ -16,6 +16,11 @@ on:
         description: "Release tag:"
         type: string
         required: false
+      publish:
+        description: "Publish to registries?"
+        type: boolean
+        required: false
+        default: true
 
 defaults:
   run:
@@ -44,6 +49,39 @@ jobs:
       ref: ${{ github.event.inputs.ref || '' }}
       java-distribution: ${{ inputs.java-distribution || 'temurin' }}
       java-version: ${{ inputs.java-version || '21.0.6' }}
+
+  package-block-node-protobuf:
+    timeout-minutes: 5
+    needs: [check-gradle]
+    runs-on: hiero-block-node-linux-medium
+
+    steps:
+      - name: Harden Runner
+        uses: step-security/harden-runner@0634a2670c59f64b4a01f0f96f84700a4088b9f0 # v2.12.0
+        with:
+          egress-policy: audit
+
+      - name: Checkout repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 0
+
+      - name: Extract version
+        id: extract_version
+        run: |
+          VERSION=$(cat version.txt)
+          echo "VERSION=${VERSION}" >> $GITHUB_ENV
+
+      - name: Produce artifact
+        working-directory: protobuf
+        run: scripts/build-bn-proto.sh -t "efb0134e921b32ed6302da9c93874d65492e876f" -v ${{ env.VERSION }} -o "block-node-protobuf" # CN 0.62.2
+
+      - name: Upload artifact
+        if: "${{ github.event_name != 'workflow_dispatch' || github.event.inputs.publish == 'true' }}"
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: block-node-protobuf-${{ env.VERSION }}.tgz
+          path: ./block-node-protobuf-${{ env.VERSION }}.tgz
 
   publish-block-node-app:
     timeout-minutes: 30
@@ -109,13 +147,48 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
           platforms: linux/amd64, linux/arm64
-          push: true
+          push: "${{ github.event_name != 'workflow_dispatch' || github.event.inputs.publish == 'true' }}"
           tags: ${{ env.REGISTRY }}/${{ github.repository }}:${{ env.VERSION }}
           build-args: |
             VERSION=${{ env.VERSION }}
             SOURCE_DATE_EPOCH=${{ env.SOURCE_DATE_EPOCH }}
           build-contexts: |
             distributions=./block-node/app/build/distributions
+
+  publish-protobuf-jar:
+    timeout-minutes: 30
+    needs: [check-gradle]
+    runs-on: hiero-block-node-linux-medium
+
+    steps:
+      - name: Harden Runner
+        uses: step-security/harden-runner@0634a2670c59f64b4a01f0f96f84700a4088b9f0 # v2.12.0
+        with:
+          egress-policy: audit
+
+      - name: Checkout repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 0
+
+      - name: Install JDK
+        uses: actions/setup-java@c5195efecf7bdfc987ee8bae7a71cb8b11521c00 # v4.7.1
+        with:
+          distribution: ${{ env.JAVA_DISTRIBUTION }}
+          java-version: ${{ env.JAVA_VERSION }}
+
+      - name: Build
+        run: ${GRADLE_EXEC} clean assemble
+
+      - name: Extract version
+        id: extract_version
+        run: |
+          VERSION=$(cat version.txt)
+          echo "VERSION=${VERSION}" >> $GITHUB_ENV
+
+      - name: Publish protobuf jar to maven local repo
+        if: "${{ github.event_name != 'workflow_dispatch' || github.event.inputs.publish == 'true' }}"
+        run: ${GRADLE_EXEC} :block-node-protobuf:releaseMavenCentral -PpublishingPackageGroup=org.hiero.block --no-configuration-cache
 
   publish-simulator:
     timeout-minutes: 30
@@ -180,7 +253,7 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
           platforms: linux/amd64, linux/arm64
-          push: true
+          push: "${{ github.event_name != 'workflow_dispatch' || github.event.inputs.publish == 'true' }}"
           tags: ${{ env.REGISTRY }}/${{ github.repository }}/simulator-image:${{ env.VERSION }}
           build-args: |
             VERSION=${{ env.VERSION }}
@@ -221,6 +294,7 @@ jobs:
           helm package charts/block-node-server
 
       - name: Push helm chart
+        if: "${{ github.event_name != 'workflow_dispatch' || github.event.inputs.publish == 'true' }}"
         run: |
           helm push block-node-helm-chart-${{ env.VERSION }}.tgz oci://ghcr.io/hiero-ledger/hiero-block-node
 
@@ -260,5 +334,6 @@ jobs:
           helm package charts/blockstream-simulator
 
       - name: Simulator Chart - Push helm chart
+        if: "${{ github.event_name != 'workflow_dispatch' || github.event.inputs.publish == 'true' }}"
         run: |
           helm push blockstream-simulator-chart-${{ env.VERSION }}.tgz oci://ghcr.io/hiero-ledger/hiero-block-node

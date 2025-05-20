@@ -65,8 +65,11 @@ public final class SimpleTestBlockItemBuilder {
                 blockNumber,
                 Bytes.wrap("previousBlockRootHash".getBytes()),
                 Bytes.wrap("startOfBlockStateRootHash".getBytes()),
-                Bytes.wrap("signature".getBytes()),
-                Collections.emptyList());
+                Bytes.wrap("block_signature".getBytes()),
+                Collections.emptyList(),
+                new OneOf<>(
+                        BlockProof.VerificationReferenceOneOfType.VERIFICATION_KEY,
+                        Bytes.wrap("verificationKey".getBytes())));
     }
 
     public static Bytes createBlockProofUnparsed(final long blockNumber) {
@@ -113,11 +116,11 @@ public final class SimpleTestBlockItemBuilder {
     }
 
     /**
-     * Create an EventHeader with a large 0.5MB signature data.
+     * Create an EventHeader with no parents and no signature middle bit.
      */
     public static BlockItem sampleLargeEventHeader() {
-        return new BlockItem(
-                new OneOf<>(ItemOneOfType.EVENT_HEADER, new EventHeader(EventCore.DEFAULT, RANDOM_HALF_MB)));
+        return new BlockItem(new OneOf<>(
+                ItemOneOfType.EVENT_HEADER, new EventHeader(EventCore.DEFAULT, Collections.emptyList(), false)));
     }
 
     public static BlockItemUnparsed sampleRoundHeaderUnparsed(final long roundNumber) {
