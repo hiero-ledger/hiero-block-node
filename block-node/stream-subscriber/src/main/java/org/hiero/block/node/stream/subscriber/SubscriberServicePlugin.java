@@ -109,7 +109,9 @@ public class SubscriberServicePlugin implements BlockNodePlugin, BlockStreamSubs
      */
     @Override
     public void subscribeBlockStream(
-            SubscribeStreamRequest request, Pipeline<? super SubscribeStreamResponse> replies) {}
+            SubscribeStreamRequest request, Pipeline<? super SubscribeStreamResponse> replies) {
+        // This method is not used as wr override the open method directly, but is required by the interface.
+    }
 
     // Visible for Testing
     Map<Long, BlockStreamSubscriberSession> getOpenSessions() {
