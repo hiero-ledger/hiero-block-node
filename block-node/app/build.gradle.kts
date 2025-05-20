@@ -59,7 +59,6 @@ mainModuleInfo {
     runtimeOnly("org.hiero.block.node.publisher")
     runtimeOnly("org.hiero.block.node.stream.subscriber")
     runtimeOnly("org.hiero.block.node.verification")
-    runtimeOnly("org.hiero.block.node.blocks.cloud.historic")
     runtimeOnly("org.hiero.block.node.blocks.files.historic")
     runtimeOnly("org.hiero.block.node.blocks.files.recent")
     runtimeOnly("org.hiero.block.node.access.service")
