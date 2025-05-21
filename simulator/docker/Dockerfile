@@ -5,6 +5,7 @@ ARG UNAME=hedera
 ARG UID=2000
 ARG GID=2000
 ARG BN_WORKDIR="/opt/hiero/block-node"
+ENV BN_WORKDIR=${BN_WORKDIR}
 RUN groupadd --gid $GID $UNAME
 RUN useradd --no-user-group --create-home --uid $UID --gid $GID --shell /bin/bash hedera
 WORKDIR ${BN_WORKDIR}
@@ -29,4 +30,4 @@ RUN SIMULATOR_DIR=$(ls -d simulator-*/) && \
     echo "#!/bin/bash\n${BN_WORKDIR}/${SIMULATOR_DIR}bin/simulator" > ${BN_WORKDIR}/start.sh && \
     chmod +x ${BN_WORKDIR}/start.sh
 
-ENTRYPOINT ["${BN_WORKDIR}/start.sh"]
+ENTRYPOINT ["sh","-c","${BN_WORKDIR}/start.sh"]

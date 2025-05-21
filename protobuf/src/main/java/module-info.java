@@ -97,4 +97,7 @@ module org.hiero.block.protobuf {
     requires org.antlr.antlr4.runtime;
     requires static com.github.spotbugs.annotations;
     requires static java.annotation;
+
+    opens org.hiero.block.api.protoc to
+            com.google.protobuf;
 }
