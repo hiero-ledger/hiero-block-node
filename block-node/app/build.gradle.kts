@@ -62,6 +62,7 @@ mainModuleInfo {
     runtimeOnly("org.hiero.block.node.blocks.files.historic")
     runtimeOnly("org.hiero.block.node.blocks.files.recent")
     runtimeOnly("org.hiero.block.node.access.service")
+    runtimeOnly("org.hiero.block.node.server.status")
 }
 
 testModuleInfo {

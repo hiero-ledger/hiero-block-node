@@ -23,6 +23,7 @@ javaModules {
         module("messaging") { artifact = "facility-messaging" }
         module("publisher") { artifact = "block-node-publisher" }
         module("s3-archive") { artifact = "block-node-s3-archive" }
+        module("server-status") { artifact = "block-node-server-status" }
         module("spi") { artifact = "block-node-spi-plugins" }
         module("stream-subscriber") { artifact = "block-node-stream-subscriber" }
         module("verification") { artifact = "block-node-verification" }
