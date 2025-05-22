@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-package org.hiero.block.node.publisher;
+package org.hiero.block.node.stream.publisher;
 
 import static java.lang.System.Logger.Level.DEBUG;
 import static java.lang.System.Logger.Level.INFO;
@@ -26,8 +26,6 @@ import org.hiero.block.api.PublishStreamRequest;
 import org.hiero.block.api.PublishStreamResponse;
 import org.hiero.block.internal.BlockItemUnparsed;
 import org.hiero.block.internal.PublishStreamRequestUnparsed;
-import org.hiero.block.node.publisher.PublisherConfig.PublisherType;
-import org.hiero.block.node.publisher.UpdateCallback.UpdateType;
 import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.BlockNodePlugin;
 import org.hiero.block.node.spi.ServiceBuilder;
@@ -35,6 +33,8 @@ import org.hiero.block.node.spi.blockmessaging.BlockItems;
 import org.hiero.block.node.spi.blockmessaging.BlockNotificationHandler;
 import org.hiero.block.node.spi.blockmessaging.PersistedNotification;
 import org.hiero.block.node.spi.blockmessaging.VerificationNotification;
+import org.hiero.block.node.stream.publisher.PublisherConfig.PublisherType;
+import org.hiero.block.node.stream.publisher.UpdateCallback.UpdateType;
 
 /**
  * Provides implementation for the block stream publisher endpoints of the server. These handle incoming push block

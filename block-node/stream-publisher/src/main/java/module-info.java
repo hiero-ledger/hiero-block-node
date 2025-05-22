@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
-import org.hiero.block.node.publisher.PublisherServicePlugin;
+import org.hiero.block.node.stream.publisher.PublisherServicePlugin;
 
 // SPDX-License-Identifier: Apache-2.0
-module org.hiero.block.node.publisher {
+module org.hiero.block.node.stream.publisher {
     uses com.swirlds.config.api.spi.ConfigurationBuilderFactory;
 
     // export configuration classes to the config module and app
-    exports org.hiero.block.node.publisher to
+    exports org.hiero.block.node.stream.publisher to
             com.swirlds.config.impl,
             com.swirlds.config.extensions,
             org.hiero.block.node.app;

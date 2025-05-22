@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-package org.hiero.block.node.publisher;
+package org.hiero.block.node.stream.publisher;
 
 import static java.lang.System.Logger.Level.DEBUG;
 import static java.lang.System.Logger.Level.WARNING;
@@ -27,10 +27,10 @@ import org.hiero.block.api.PublishStreamResponse.ResendBlock;
 import org.hiero.block.api.PublishStreamResponse.ResponseOneOfType;
 import org.hiero.block.api.PublishStreamResponse.SkipBlock;
 import org.hiero.block.internal.BlockItemUnparsed;
-import org.hiero.block.node.publisher.UpdateCallback.UpdateType;
 import org.hiero.block.node.spi.BlockNodePlugin;
 import org.hiero.block.node.spi.blockmessaging.BlockItems;
 import org.hiero.block.node.spi.blockmessaging.PersistedNotification;
+import org.hiero.block.node.stream.publisher.UpdateCallback.UpdateType;
 
 /**
  * BlockStreamProducerSession is a session for a block stream producer. It handles the incoming block stream and sends

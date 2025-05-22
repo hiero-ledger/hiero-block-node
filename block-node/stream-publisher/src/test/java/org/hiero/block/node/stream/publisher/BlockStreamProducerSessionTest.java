@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-package org.hiero.block.node.publisher;
+package org.hiero.block.node.stream.publisher;
 
 import static org.hiero.block.node.app.fixtures.blocks.BlockItemUtils.toBlockItemUnparsed;
 import static org.hiero.block.node.app.fixtures.blocks.SimpleTestBlockItemBuilder.sampleBlockHeader;
