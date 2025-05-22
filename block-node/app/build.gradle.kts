@@ -69,6 +69,8 @@ testModuleInfo {
     requires("org.junit.jupiter.params")
     requires("org.mockito")
     requires("org.assertj.core")
+
+    exportsTo("com.swirlds.config.impl")
 }
 
 // Vals
