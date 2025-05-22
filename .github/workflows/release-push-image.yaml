@@ -189,7 +189,10 @@ jobs:
 
       - name: Publish protobuf jar to maven local repo
         if: "${{ github.event_name != 'workflow_dispatch' || github.event.inputs.publish == 'true' }}"
-        run: ${GRADLE_EXEC} :block-node-protobuf:releaseMavenCentral -PpublishingPackageGroup=org.hiero.block --no-configuration-cache
+        env:
+          NEXUS_USERNAME: ${{ secrets.svcs-ossrh-username }}
+          NEXUS_PASSWORD: ${{ secrets.svcs-ossrh-password }}
+        run: ${GRADLE_EXEC} :block-node-protobuf:releaseMavenCentral -PpublishingPackageGroup=org.hiero.block -PpublishSigningEnabled=true --scan --no-configuration-cache
 
   publish-simulator:
     timeout-minutes: 30
