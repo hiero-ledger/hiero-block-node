@@ -6,12 +6,14 @@ import static java.lang.System.Logger.Level.INFO;
 import static org.hiero.block.common.constants.StringsConstants.APPLICATION_PROPERTIES;
 import static org.hiero.block.node.app.logging.CleanColorfulFormatter.GREY;
 import static org.hiero.block.node.app.logging.CleanColorfulFormatter.LIGHT_GREEN;
+import static org.hiero.block.node.spi.BlockNodePlugin.METRICS_CATEGORY;
 
 import com.hedera.pbj.grpc.helidon.config.PbjConfig;
 import com.swirlds.common.metrics.platform.DefaultMetricsProvider;
 import com.swirlds.config.api.Configuration;
 import com.swirlds.config.api.ConfigurationBuilder;
 import com.swirlds.config.extensions.sources.ClasspathFileConfigSource;
+import com.swirlds.metrics.api.LongGauge;
 import com.swirlds.metrics.api.Metrics;
 import io.helidon.webserver.ConnectionConfig;
 import io.helidon.webserver.WebServer;
@@ -56,6 +58,12 @@ public class BlockNodeApp implements HealthFacility {
     final List<BlockNodePlugin> loadedPlugins = new ArrayList<>();
     /** The metrics provider. Package so accessible for testing. */
     final DefaultMetricsProvider metricsProvider;
+    /** metric to report the BN App oldest available block **/
+    private LongGauge historicalOldestBlockGauge;
+    /** metric to report the BN App latest/newest available block **/
+    private LongGauge historicalLatestBlockGauge;
+    /** metric to report the BN App state (0) Starting, (1) Running and (2) Shutting_Down**/
+    private LongGauge appStateStatus;
 
     /**
      * Constructor for the BlockNodeApp class. This constructor initializes the server configuration,
@@ -168,6 +176,16 @@ public class BlockNodeApp implements HealthFacility {
                         .receiveBufferSize(serverConfig.socketSendBufferSizeBytes())
                         .build())
                 .build();
+
+        // Init the app metrics
+        historicalOldestBlockGauge =
+                metrics.getOrCreate(new LongGauge.Config(METRICS_CATEGORY, "app_historical_oldest_block")
+                        .withDescription("The oldest block the BN has access to"));
+        historicalLatestBlockGauge =
+                metrics.getOrCreate(new LongGauge.Config(METRICS_CATEGORY, "app_historical_newest_block")
+                        .withDescription("The newest block the BN has"));
+        appStateStatus = metrics.getOrCreate(new LongGauge.Config(METRICS_CATEGORY, "app_state_status")
+                .withDescription("The current state of the BlockNode App"));
     }
 
     /**
@@ -179,7 +197,7 @@ public class BlockNodeApp implements HealthFacility {
         // Start the web server
         webServer.start();
         // Start metrics
-        blockNodeContext.metrics().start();
+        metricsProvider.start();
         // Start all the facilities & plugins
         LOGGER.log(INFO, "Starting plugins:");
         for (BlockNodePlugin plugin : loadedPlugins) {
@@ -198,6 +216,23 @@ public class BlockNodeApp implements HealthFacility {
                         .streamRanges()
                         .map(LongRange::toString)
                         .collect(Collectors.joining(", ")));
+        // register the app metrics updater
+        blockNodeContext.metrics().addUpdater(this::updateAppMetrics);
+    }
+
+    /**
+     * Updates the gauge metrics with the latest block range values.
+     * This method is called periodically to update the metrics
+     * with the latest values.
+     */
+    private void updateAppMetrics() {
+        long minBlock = historicalBlockFacility.availableBlocks().min();
+        long maxBlock = historicalBlockFacility.availableBlocks().max();
+        long currentState = state.get().ordinal();
+
+        historicalOldestBlockGauge.set(minBlock);
+        historicalLatestBlockGauge.set(maxBlock);
+        appStateStatus.set(currentState);
     }
 
     /**
