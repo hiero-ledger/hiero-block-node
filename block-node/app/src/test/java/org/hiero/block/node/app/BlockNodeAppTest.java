@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.node.app;
 
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
-import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.Mockito.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.spy;
@@ -128,9 +128,8 @@ class BlockNodeAppTest {
 
     @Test
     @DisplayName("Test main method")
-    void testMain() {
-        // The main will try to start the app with default services loader but not find any messaging facility and hence
-        // throw an exception. This tests both the main method and the error handling for missing facility.
-        assertThrows(IllegalStateException.class, () -> BlockNodeApp.main(new String[] {}));
+    void testMain() throws IOException {
+        // Attempts to start the app with some test configuration (see app-test.properties)
+        assertDoesNotThrow(() -> BlockNodeApp.main(new String[] {}));
     }
 }
