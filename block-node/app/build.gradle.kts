@@ -56,7 +56,7 @@ mainModuleInfo {
     runtimeOnly("org.hiero.block.node.archive")
     runtimeOnly("org.hiero.block.node.messaging")
     runtimeOnly("org.hiero.block.node.health")
-    runtimeOnly("org.hiero.block.node.publisher")
+    runtimeOnly("org.hiero.block.node.stream.publisher")
     runtimeOnly("org.hiero.block.node.stream.subscriber")
     runtimeOnly("org.hiero.block.node.verification")
     runtimeOnly("org.hiero.block.node.blocks.files.historic")
