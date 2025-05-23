@@ -17,16 +17,20 @@ import java.util.logging.LogRecord;
  */
 @SuppressWarnings("unused")
 public class CleanColorfulFormatter extends Formatter {
-    public static final String RESET = "\u001B[0m";
-    public static final String RED = "\u001B[31m";
-    public static final String GREEN = "\u001B[32m";
-    public static final String LIGHT_GREEN = "\u001B[92m";
-    public static final String YELLOW = "\u001B[33m";
-    public static final String BLUE = "\u001B[34m";
-    public static final String MAGENTA = "\u001B[35m";
-    public static final String CYAN = "\u001B[36m";
-    public static final String GREY = "\u001B[37m";
-    public static final String WHITE = "\u001B[97m";
+    private static final boolean colorfulLogFormatterEnabled = LogManager.getLogManager()
+            .getProperty("java.util.logging.ConsoleHandler.formatter")
+            .contains(CleanColorfulFormatter.class.getName());
+
+    public static final String RESET = CleanColorfulFormatter.colorfulLogFormatterEnabled ? "\u001B[0m" : "";
+    public static final String RED = CleanColorfulFormatter.colorfulLogFormatterEnabled ? "\u001B[31m" : "";
+    public static final String GREEN = CleanColorfulFormatter.colorfulLogFormatterEnabled ? "\u001B[32m" : "";
+    public static final String LIGHT_GREEN = CleanColorfulFormatter.colorfulLogFormatterEnabled ? "\u001B[92m" : "";
+    public static final String YELLOW = CleanColorfulFormatter.colorfulLogFormatterEnabled ? "\u001B[33m" : "";
+    public static final String BLUE = CleanColorfulFormatter.colorfulLogFormatterEnabled ? "\u001B[34m" : "";
+    public static final String MAGENTA = CleanColorfulFormatter.colorfulLogFormatterEnabled ? "\u001B[35m" : "";
+    public static final String CYAN = CleanColorfulFormatter.colorfulLogFormatterEnabled ? "\u001B[36m" : "";
+    public static final String GREY = CleanColorfulFormatter.colorfulLogFormatterEnabled ? "\u001B[37m" : "";
+    public static final String WHITE = CleanColorfulFormatter.colorfulLogFormatterEnabled ? "\u001B[97m" : "";
     public static final String FORMAT_PROPERTY = "org.hiero.block.node.app.logging.CleanColorfulFormatter.format";
     public static final String DEFAULT_FORMAT_STRING = "%TF %<TT.%<TL%<Tz %4$-7s %2$-40s %5$s%6$s%n";
     /** The string format of the log message */
