@@ -9,6 +9,11 @@ public final class StringsConstants {
     public static final String APPLICATION_PROPERTIES = "app.properties";
 
     /**
+     * File name for application test properties (may override APPLICATION_PROPERTIES)
+     */
+    public static final String APPLICATION_TEST_PROPERTIES = "app-test.properties";
+
+    /**
      * File name for logging properties
      */
     public static final String LOGGING_PROPERTIES = "logging.properties";

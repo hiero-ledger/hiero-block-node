@@ -14,7 +14,8 @@ module org.hiero.block.node.app {
     // export configuration classes to the config module
     exports org.hiero.block.node.app to
             com.swirlds.config.impl,
-            com.swirlds.config.extensions;
+            com.swirlds.config.extensions,
+            org.hiero.block.node.blocks.files.recent; // accessed in tests
 
     requires com.hedera.pbj.grpc.helidon.config;
     requires com.hedera.pbj.grpc.helidon;
