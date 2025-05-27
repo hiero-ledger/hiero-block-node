@@ -10,6 +10,8 @@ import edu.umd.cs.findbugs.annotations.NonNull;
 import java.io.BufferedOutputStream;
 import java.io.IOException;
 import java.io.UncheckedIOException;
+import java.nio.file.FileSystem;
+import java.nio.file.FileSystems;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
@@ -18,9 +20,9 @@ import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.stream.IntStream;
+import java.util.stream.Stream;
 import java.util.zip.CRC32;
 import java.util.zip.ZipEntry;
-import java.util.zip.ZipFile;
 import java.util.zip.ZipOutputStream;
 import org.hiero.block.node.base.BlockFile;
 import org.hiero.block.node.spi.BlockNodeContext;
@@ -165,9 +167,9 @@ class ZipBlockArchive {
                                 return Long.parseLong(fileName.substring(0, fileName.indexOf('s')));
                             }));
                     if (zipFilePath.isPresent()) {
-                        try (var zipFile = new ZipFile(zipFilePath.get().toFile())) {
-                            return zipFile.stream()
-                                    .mapToLong(entry -> blockNumberFromFile(entry.getName()))
+                        try (final FileSystem zipFs = FileSystems.newFileSystem(zipFilePath.get());
+                                final Stream<Path> entries = Files.list(zipFs.getPath("/"))) {
+                            return entries.mapToLong(entry -> blockNumberFromFile(entry.getFileName()))
                                     .min()
                                     .orElse(-1);
                         }
@@ -217,9 +219,9 @@ class ZipBlockArchive {
                                 return Long.parseLong(fileName.substring(0, fileName.indexOf('s')));
                             }));
                     if (zipFilePath.isPresent()) {
-                        try (var zipFile = new ZipFile(zipFilePath.get().toFile())) {
-                            return zipFile.stream()
-                                    .mapToLong(entry -> blockNumberFromFile(entry.getName()))
+                        try (final FileSystem zipFs = FileSystems.newFileSystem(zipFilePath.get());
+                                final Stream<Path> entries = Files.list(zipFs.getPath("/"))) {
+                            return entries.mapToLong(entry -> blockNumberFromFile(entry.getFileName()))
                                     .max()
                                     .orElse(-1);
                         }

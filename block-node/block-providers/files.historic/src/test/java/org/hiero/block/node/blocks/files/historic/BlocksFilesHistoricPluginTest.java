@@ -10,6 +10,8 @@ import com.hedera.pbj.runtime.io.buffer.Bytes;
 import com.swirlds.config.api.Configuration;
 import com.swirlds.config.api.ConfigurationBuilder;
 import java.io.IOException;
+import java.nio.file.FileSystem;
+import java.nio.file.FileSystems;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -19,8 +21,6 @@ import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Objects;
 import java.util.concurrent.LinkedBlockingQueue;
-import java.util.zip.ZipEntry;
-import java.util.zip.ZipFile;
 import org.hiero.block.internal.BlockItemUnparsed;
 import org.hiero.block.internal.BlockUnparsed;
 import org.hiero.block.node.app.fixtures.async.BlockingSerialExecutor;
@@ -296,14 +296,16 @@ class BlocksFilesHistoricPluginTest {
             // assert the contents of the zip file
             for (int i = 0; i < 10; i++) {
                 final BlockPath blockPath = BlockPath.computeExistingBlockPath(testConfig, i);
-                try (final ZipFile zipFile = new ZipFile(blockPath.zipFilePath().toFile())) {
-                    // assert that the zip file contains the block file
-                    final ZipEntry zipEntry = zipFile.getEntry(blockPath.blockFileName());
-                    assertThat(zipEntry).isNotNull();
-                    final byte[] zipEntryBytes =
-                            zipFile.getInputStream(zipEntry).readAllBytes();
+                try (final FileSystem zipFs = FileSystems.newFileSystem(blockPath.zipFilePath())) {
+                    // assert that the zip entry exists
+                    final Path zipEntryPath = zipFs.getPath(blockPath.blockFileName());
+                    assertThat(zipEntryPath).exists().isRegularFile();
+                    final byte[] zipEntryBytes = Files.readAllBytes(zipEntryPath);
                     final BlockUnparsed actual = BlockUnparsed.PROTOBUF.parse(Bytes.wrap(zipEntryBytes));
                     assertThat(actual).isEqualTo(expectedBlocks.get(i));
+                    // assert that the block file exists
+                    assertThat(Files.exists(zipFs.getPath(blockPath.blockFileName())))
+                            .isTrue();
                 }
             }
         }
