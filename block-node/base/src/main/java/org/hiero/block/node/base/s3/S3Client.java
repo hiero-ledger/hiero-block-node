@@ -1,10 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.node.base.s3;
 
-import static org.hiero.block.common.utils.StringUtilities.EMPTY;
-
 import edu.umd.cs.findbugs.annotations.NonNull;
-import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.UncheckedIOException;
@@ -154,8 +151,11 @@ public class S3Client implements AutoCloseable {
      * Use {@link StringUtilities#EMPTY} for a wildcard prefix (list all).
      * @param maxResults The maximum number of results to return.
      * @return A list of object keys.
+     * @throws S3ResponseException if a non-200 response is received from S3
+     * @throws IOException if an error occurs while reading the response body
      */
-    public List<String> listObjects(@NonNull final String prefix, final int maxResults) throws S3ResponseException {
+    public List<String> listObjects(@NonNull final String prefix, final int maxResults)
+            throws S3ResponseException, IOException {
         Objects.requireNonNull(prefix);
         Preconditions.requireInRange(maxResults, 1, 1000);
         // build a canonical query string with the prefix and max results
@@ -168,26 +168,28 @@ public class S3Client implements AutoCloseable {
         // get status code
         final int statusCode = response.statusCode();
         // parse the response body as XML, we always expect a body here generally
-        final Document body = parseDocument(response.body());
-        if (statusCode != 200) {
-            final String formattedPrefix = StringUtilities.isBlank(prefix) ? "BLANK_PREFIX" : prefix;
-            final String message =
-                    "Unsuccessful listing of objects: prefix=%s, maxResults=%s".formatted(formattedPrefix, maxResults);
-            throw new S3ResponseException(statusCode, body, message);
-        } else {
-            // extract the object keys from the XML response
-            final List<String> keys = new ArrayList<>();
-            // Get all "Contents" elements
-            final NodeList contentsNodes = body.getElementsByTagName("Contents");
-            for (int i = 0; i < contentsNodes.getLength(); i++) {
-                final Element contentsElement = (Element) contentsNodes.item(i);
-                // Get the "Key" element inside each "Contents"
-                final NodeList keyNodes = contentsElement.getElementsByTagName("Key");
-                if (keyNodes.getLength() > 0) {
-                    keys.add(keyNodes.item(0).getTextContent());
+        try (final InputStream responseBody = response.body()) { // ensure body stream is always closed
+            if (statusCode != 200) {
+                final String formattedPrefix = StringUtilities.isBlank(prefix) ? "BLANK_PREFIX" : prefix;
+                final byte[] body = responseBody.readAllBytes();
+                final String message = "Unsuccessful listing of objects: prefix=%s, maxResults=%s"
+                        .formatted(formattedPrefix, maxResults);
+                throw new S3ResponseException(statusCode, body, message);
+            } else {
+                // extract the object keys from the XML response
+                final List<String> keys = new ArrayList<>();
+                // Get all "Contents" elements
+                final NodeList contentsNodes = parseDocument(responseBody).getElementsByTagName("Contents");
+                for (int i = 0; i < contentsNodes.getLength(); i++) {
+                    final Element contentsElement = (Element) contentsNodes.item(i);
+                    // Get the "Key" element inside each "Contents"
+                    final NodeList keyNodes = contentsElement.getElementsByTagName("Key");
+                    if (keyNodes.getLength() > 0) {
+                        keys.add(keyNodes.item(0).getTextContent());
+                    }
                 }
+                return keys;
             }
-            return keys;
         }
     }
 
@@ -197,10 +199,12 @@ public class S3Client implements AutoCloseable {
      * @param objectKey the key for the object in S3 (e.g., "myfolder/myfile.txt")
      * @param storageClass the storage class (e.g., "STANDARD", "REDUCED_REDUNDANCY")
      * @param content the content of the file as a string
+     * @throws S3ResponseException if a non-200 response is received from S3 during file upload
+     * @throws IOException if an error occurs while reading the response body in case of non 200 response
      */
     public void uploadTextFile(
             @NonNull final String objectKey, @NonNull final String storageClass, @NonNull final String content)
-            throws S3ResponseException {
+            throws S3ResponseException, IOException {
         Preconditions.requireNotBlank(objectKey);
         Preconditions.requireNotBlank(storageClass);
         Preconditions.requireNotBlank(content);
@@ -219,11 +223,15 @@ public class S3Client implements AutoCloseable {
                 request(url, PUT, headers, contentData, BodyHandlers.ofInputStream());
         // get anc check status code
         final int statusCode = response.statusCode();
-        if (statusCode != 200) {
-            throw new S3ResponseException(
-                    statusCode,
-                    parseDocument(response.body()), // we expect a body here if the upload fails
-                    "Failed to upload text file: key=%s".formatted(objectKey));
+        try (final InputStream responseBody = response.body()) { // ensure body stream is always closed
+            if (statusCode != 200) {
+                final byte[] body = responseBody.readAllBytes();
+                final String message = "Failed to upload text file: key=%s".formatted(objectKey);
+                throw new S3ResponseException(
+                        statusCode,
+                        body, // we expect a body here if the upload fails
+                        message);
+            }
         }
     }
 
@@ -232,28 +240,28 @@ public class S3Client implements AutoCloseable {
      *
      * @param key the key for the object in S3 (e.g., "myfolder/myfile.txt"), cannot be blank
      * @return the content of the file as a string, null if the file doesn't exist
+     * @throws S3ResponseException if a non-200 response is received from S3 during file download
+     * @throws IOException if an error occurs while reading the response body in case of non 200 response
      */
-    public String downloadTextFile(@NonNull final String key) throws S3ResponseException {
+    public String downloadTextFile(@NonNull final String key) throws S3ResponseException, IOException {
         Preconditions.requireNotBlank(key);
         // build the URL for the request
         final String url = endpoint + bucketName + "/" + urlEncode(key, true);
         // make the request
-        final HttpResponse<String> response =
-                request(url, GET, Collections.emptyMap(), null, BodyHandlers.ofString(StandardCharsets.UTF_8));
+        final HttpResponse<InputStream> response =
+                request(url, GET, Collections.emptyMap(), null, BodyHandlers.ofInputStream());
         // check status code and return value
         final int statusCode = response.statusCode();
-        final String rawBody = response.body();
-        if (statusCode == 404) {
-            // if not found, return null
-            return null;
-        } else if (statusCode != 200) {
-            final Document body = StringUtilities.isBlank(rawBody)
-                    ? null
-                    : parseDocument(new ByteArrayInputStream(rawBody.getBytes(StandardCharsets.UTF_8)));
-            final String message = "Failed to download text file: key=%s".formatted(key);
-            throw new S3ResponseException(statusCode, body, message);
-        } else {
-            return rawBody == null ? EMPTY : rawBody; // ensure empty returned so not confused with null (not found)
+        try (final InputStream responseBody = response.body()) { // ensure body stream is always closed
+            if (statusCode == 404) {
+                // if not found, return null
+                return null;
+            } else if (statusCode != 200) {
+                final String message = "Failed to download text file: key=%s".formatted(key);
+                throw new S3ResponseException(statusCode, responseBody.readAllBytes(), message);
+            } else {
+                return new String(responseBody.readAllBytes(), StandardCharsets.UTF_8);
+            }
         }
     }
 
@@ -265,13 +273,14 @@ public class S3Client implements AutoCloseable {
      * @param contentIterable an Iterable of byte arrays representing the file content, cannot be null
      * @param contentType the content type of the file (e.g., "text/plain"), cannot be blank
      * @throws S3ResponseException if a non-200 response is received from S3 during file upload
+     * @throws IOException if an error occurs while reading the response body in case of non 200 response
      */
     public void uploadFile(
             @NonNull final String objectKey,
             @NonNull final String storageClass,
             @NonNull final Iterator<byte[]> contentIterable,
             @NonNull final String contentType)
-            throws S3ResponseException {
+            throws S3ResponseException, IOException {
         // start the multipart upload
         final String uploadId = createMultipartUpload(objectKey, storageClass, contentType);
         // create a list to store the ETags of the uploaded parts
@@ -324,9 +333,10 @@ public class S3Client implements AutoCloseable {
      * the object key and the value is a list of upload IDs, or an empty map if
      * none are found.
      * @throws S3ResponseException if a non-200 response is received from S3
+     * @throws IOException if an error occurs while reading the response body
      */
     @NonNull
-    public Map<String, List<String>> listMultipartUploads() throws S3ResponseException {
+    public Map<String, List<String>> listMultipartUploads() throws S3ResponseException, IOException {
         // todo could add some query parameters to limit the number of results
         //   also, we could add query params for prefix or maybe key-marker (to search for a specific key)
         //   it depends on our needs as to how we will be cleaning up outstanding failed uploads (TBD)
@@ -339,25 +349,30 @@ public class S3Client implements AutoCloseable {
                 request(url, GET, Collections.emptyMap(), null, BodyHandlers.ofInputStream());
         // check status code
         final int statusCode = response.statusCode();
-        final Document responseBody = parseDocument(response.body());
-        if (statusCode != 200) {
-            final String message = "Failed to list multipart uploads";
-            throw new S3ResponseException(statusCode, responseBody, message);
-        } else {
-            // build a map of upload IDs
-            final Map<String, List<String>> uploadIds = new TreeMap<>();
-            final NodeList uploads = responseBody.getElementsByTagName("Upload");
-            final int length = uploads.getLength();
-            for (int i = 0; i < length; i++) {
-                final Element uploadElement = (Element) uploads.item(i);
-                final String key =
-                        uploadElement.getElementsByTagName("Key").item(0).getTextContent();
-                final String uploadId =
-                        uploadElement.getElementsByTagName("UploadId").item(0).getTextContent();
-                // Add the UploadId to the map under the corresponding Key
-                uploadIds.computeIfAbsent(key, k -> new ArrayList<>()).add(uploadId);
+        try (final InputStream responseBody = response.body()) { // ensure body stream is always closed
+            if (statusCode != 200) {
+                final byte[] body = responseBody.readAllBytes();
+                final String message = "Failed to list multipart uploads";
+                throw new S3ResponseException(statusCode, body, message);
+            } else {
+                // build a map of upload IDs
+                final Map<String, List<String>> uploadIds = new TreeMap<>();
+                final Document bodyAsDocument = parseDocument(responseBody);
+                final NodeList uploads = bodyAsDocument.getElementsByTagName("Upload");
+                final int length = uploads.getLength();
+                for (int i = 0; i < length; i++) {
+                    final Element uploadElement = (Element) uploads.item(i);
+                    final String key =
+                            uploadElement.getElementsByTagName("Key").item(0).getTextContent();
+                    final String uploadId = uploadElement
+                            .getElementsByTagName("UploadId")
+                            .item(0)
+                            .getTextContent();
+                    // Add the UploadId to the map under the corresponding Key
+                    uploadIds.computeIfAbsent(key, k -> new ArrayList<>()).add(uploadId);
+                }
+                return Collections.unmodifiableMap(uploadIds);
             }
-            return Collections.unmodifiableMap(uploadIds);
         }
     }
 
@@ -367,9 +382,10 @@ public class S3Client implements AutoCloseable {
      * @param key the object key, cannot be blank
      * @param uploadId the upload ID for the multipart upload, cannot be blank
      * @throws S3ResponseException if a non-204 response is received from S3
+     * @throws IOException if an error occurs while reading the response body in case of non-204 response
      */
     public void abortMultipartUpload(@NonNull final String key, @NonNull final String uploadId)
-            throws S3ResponseException {
+            throws S3ResponseException, IOException {
         Preconditions.requireNotBlank(key);
         Preconditions.requireNotBlank(uploadId);
         // build the canonical query string
@@ -381,10 +397,12 @@ public class S3Client implements AutoCloseable {
                 request(url, DELETE, Collections.emptyMap(), null, BodyHandlers.ofInputStream());
         // check status code
         final int statusCode = response.statusCode();
-        if (statusCode != 204) {
-            final Document body = parseDocument(response.body());
-            final String message = "Failed to abort multipart upload: key=%s, uploadId=%s".formatted(key, uploadId);
-            throw new S3ResponseException(statusCode, body, message);
+        try (final InputStream responseBody = response.body()) { // ensure body stream is always closed
+            if (statusCode != 204) {
+                final byte[] body = responseBody.readAllBytes();
+                final String message = "Failed to abort multipart upload: key=%s, uploadId=%s".formatted(key, uploadId);
+                throw new S3ResponseException(statusCode, body, message);
+            }
         }
     }
 
@@ -395,10 +413,12 @@ public class S3Client implements AutoCloseable {
      * @param storageClass The storage class (e.g. "STANDARD", "REDUCED_REDUNDANCY"), nullable
      * @param contentType The content type of the object, cannot be null
      * @return The upload ID for the multipart upload
+     * @throws S3ResponseException if a non-200 response is received from S3
+     * @throws IOException if an error occurs while reading the response body
      */
     String createMultipartUpload(
             @NonNull final String key, @NonNull final String storageClass, @NonNull final String contentType)
-            throws S3ResponseException {
+            throws S3ResponseException, IOException {
         // build the canonical query string
         final String canonicalQueryString = "uploads=";
         // build the request headers
@@ -413,12 +433,17 @@ public class S3Client implements AutoCloseable {
         final HttpResponse<InputStream> response = request(url, POST, headers, null, BodyHandlers.ofInputStream());
         // parse the response body as XML and check status
         final int statusCode = response.statusCode();
-        final Document responseBody = parseDocument(response.body());
-        if (statusCode != 200) {
-            final String message = "Failed to create multipart upload: key=%s".formatted(key);
-            throw new S3ResponseException(statusCode, responseBody, message);
-        } else {
-            return responseBody.getElementsByTagName("UploadId").item(0).getTextContent();
+        try (final InputStream responseBody = response.body()) { // ensure body stream is always closed
+            if (statusCode != 200) {
+                final byte[] body = responseBody.readAllBytes();
+                final String message = "Failed to create multipart upload: key=%s".formatted(key);
+                throw new S3ResponseException(statusCode, body, message);
+            } else {
+                return parseDocument(responseBody)
+                        .getElementsByTagName("UploadId")
+                        .item(0)
+                        .getTextContent();
+            }
         }
     }
 
@@ -430,13 +455,15 @@ public class S3Client implements AutoCloseable {
      * @param partNumber The part number (1-based)
      * @param partData The data for the part, cannot be null
      * @return The ETag of the uploaded part
+     * @throws S3ResponseException if a non-200 response is received from S3
+     * @throws IOException if an error occurs while reading the response body
      */
     String multipartUploadPart(
             @NonNull final String key,
             @NonNull final String uploadId,
             final int partNumber,
             @NonNull final byte[] partData)
-            throws S3ResponseException {
+            throws S3ResponseException, IOException {
         // build the canonical query string
         final String canonicalQueryString = "uploadId=" + uploadId + "&partNumber=" + partNumber;
         // build request headers
@@ -450,14 +477,16 @@ public class S3Client implements AutoCloseable {
         final HttpResponse<InputStream> response = request(url, PUT, headers, partData, BodyHandlers.ofInputStream());
         // check status code
         final int statusCode = response.statusCode();
-        if (statusCode != 200) {
-            // throw if request not successful
-            final Document body = parseDocument(response.body());
-            final String message = "Failed to upload multipart part: key=%s, uploadId=%s, partNumber=%d"
-                    .formatted(key, uploadId, partNumber);
-            throw new S3ResponseException(statusCode, body, message);
-        } else {
-            return response.headers().firstValue("ETag").orElse(null);
+        try (final InputStream responseBody = response.body()) { // ensure body stream is always closed
+            if (statusCode != 200) {
+                // throw if request not successful
+                final byte[] body = responseBody.readAllBytes();
+                final String message = "Failed to upload multipart part: key=%s, uploadId=%s, partNumber=%d"
+                        .formatted(key, uploadId, partNumber);
+                throw new S3ResponseException(statusCode, body, message);
+            } else {
+                return response.headers().firstValue("ETag").orElse(null);
+            }
         }
     }
 
@@ -467,10 +496,12 @@ public class S3Client implements AutoCloseable {
      * @param key The object key, cannot be blank
      * @param uploadId The upload ID for the multipart upload, cannot be blank
      * @param eTags The list of ETags for the uploaded parts, cannot be null
+     * @throws S3ResponseException if a non-200 response is received from S3
+     * @throws IOException if an error occurs while reading the response body in case of non 200 response
      */
     void completeMultipartUpload(
             @NonNull final String key, @NonNull final String uploadId, @NonNull final List<String> eTags)
-            throws S3ResponseException {
+            throws S3ResponseException, IOException {
         // build canonical query string
         final String canonicalQueryString = "uploadId=" + uploadId;
         // build the headers for the request
@@ -495,11 +526,14 @@ public class S3Client implements AutoCloseable {
                 request(url, POST, headers, requestBody, BodyHandlers.ofInputStream());
         // check status code
         final int statusCode = response.statusCode();
-        if (statusCode != 200) {
-            // throw if request not successful
-            final Document body = parseDocument(response.body());
-            final String message = "Failed to complete multipart upload: key=%s, uploadId=%s".formatted(key, uploadId);
-            throw new S3ResponseException(statusCode, body, message);
+        try (final InputStream responseBody = response.body()) { // ensure body stream is always closed
+            if (statusCode != 200) {
+                // throw if request not successful
+                final byte[] body = responseBody.readAllBytes();
+                final String message =
+                        "Failed to complete multipart upload: key=%s, uploadId=%s".formatted(key, uploadId);
+                throw new S3ResponseException(statusCode, body, message);
+            }
         }
     }
 

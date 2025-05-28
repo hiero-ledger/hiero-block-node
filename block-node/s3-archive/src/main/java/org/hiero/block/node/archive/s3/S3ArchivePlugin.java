@@ -7,6 +7,7 @@ import com.hedera.hapi.block.stream.output.BlockHeader;
 import com.hedera.pbj.runtime.ParseException;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import edu.umd.cs.findbugs.annotations.NonNull;
+import java.io.IOException;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.time.ZonedDateTime;
@@ -243,7 +244,7 @@ public class S3ArchivePlugin implements BlockNodePlugin, BlockNotificationHandle
      * @param endBlockNumber the last block number to upload, inclusive
      */
     private void uploadBlocksTar(S3Client s3Client, long startBlockNumber, long endBlockNumber)
-            throws IllegalStateException, S3ResponseException {
+            throws IllegalStateException, S3ResponseException, IOException {
         // The HTTP client needs an Iterable of byte arrays, so create one from the blocks
         final Iterator<byte[]> tarBlocks = new TaredBlockIterator(
                 Format.ZSTD_PROTOBUF,
