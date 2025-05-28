@@ -262,7 +262,8 @@ public class BlockMessagingFacilityImpl implements BlockMessagingFacility {
             RingBuffer<BlockNotificationRingEvent> notificationRing = blockNotificationDisruptor.getRingBuffer();
             long notifCursor = notificationRing.getCursor();
             long notifMinSequence = notificationRing.getMinimumGatingSequence();
-            double percentUsed = ((double) (notifCursor - notifMinSequence) / (double) notificationRing.getBufferSize()) * 100.0;
+            double percentUsed =
+                    ((double) (notifCursor - notifMinSequence) / (double) notificationRing.getBufferSize()) * 100.0;
             notificationQueuePercentUsedGauge.set(Math.min(100.0, Math.max(0.0, percentUsed)));
         }
     }
