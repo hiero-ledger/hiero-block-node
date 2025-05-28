@@ -39,7 +39,7 @@ Node‑level state and current block numbers.
 **Plugin:** `block-access [block-access-service]`
 Observes the block access service that serves requests for blocks.
 
-|  Type   | Name                               |                 Description                 |
+|  Type   |                Name                |                 Description                 |
 |---------|------------------------------------|---------------------------------------------|
 | Counter | `get_block_requests`               | Number of get block requests                |
 | Counter | `get_block_requests_success`       | Successful single block requests            |
