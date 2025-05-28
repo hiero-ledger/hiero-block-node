@@ -9,6 +9,9 @@ import com.lmax.disruptor.SequenceBarrier;
 import com.lmax.disruptor.SleepingWaitStrategy;
 import com.lmax.disruptor.dsl.Disruptor;
 import com.lmax.disruptor.dsl.ProducerType;
+import com.swirlds.metrics.api.Counter;
+import com.swirlds.metrics.api.DoubleGauge;
+import com.swirlds.metrics.api.LongGauge;
 import edu.umd.cs.findbugs.annotations.NonNull;
 import java.lang.System.Logger.Level;
 import java.util.ArrayList;
@@ -34,6 +37,22 @@ public class BlockMessagingFacilityImpl implements BlockMessagingFacility {
 
     /** Logger for the messaging service. */
     private static final System.Logger LOGGER = System.getLogger(BlockMessagingFacilityImpl.class.getName());
+
+    // Metrics
+    /** Counter for incoming block items seen by the mediator */
+    private Counter blockItemsReceivedCounter;
+    /** Counter for notifications issued after verification */
+    private Counter blockVerificationNotificationsCounter;
+    /** Counter for notifications issued after persistence */
+    private Counter blockPersistedNotificationsCounter;
+    /** Gauge for active item listeners */
+    private LongGauge itemListenersGauge;
+    /** Gauge for active notification listeners */
+    private LongGauge notificationListenersGauge;
+    /** Gauge for percent of item queue utilised */
+    private DoubleGauge itemQueuePercentUsedGauge;
+    /** Gauge for percent of notification queue utilised */
+    private DoubleGauge notificationQueuePercentUsedGauge;
 
     /**
      * The thread factory used to create the virtual threads for the disruptor. Virtual threads are daemon threads by
@@ -176,6 +195,76 @@ public class BlockMessagingFacilityImpl implements BlockMessagingFacility {
         // Set the exception handler for the disruptors
         blockItemDisruptor.setDefaultExceptionHandler(BLOCK_ITEM_EXCEPTION_HANDLER);
         blockNotificationDisruptor.setDefaultExceptionHandler(BLOCK_NOTIFICATION_EXCEPTION_HANDLER);
+
+        // Initialize metrics
+        initMetrics(context);
+    }
+
+    /**
+     * Initialize metrics for the messaging facility.
+     *
+     * @param context the block node context
+     */
+    private void initMetrics(BlockNodeContext context) {
+        // Initialize counters
+        blockItemsReceivedCounter = context.metrics()
+                .getOrCreate(new Counter.Config(METRICS_CATEGORY, "messaging_block_items_received")
+                        .withDescription("Incoming block items seen by the mediator"));
+
+        blockVerificationNotificationsCounter = context.metrics()
+                .getOrCreate(new Counter.Config(METRICS_CATEGORY, "messaging_block_verification_notifications")
+                        .withDescription("Notifications issued after verification"));
+
+        blockPersistedNotificationsCounter = context.metrics()
+                .getOrCreate(new Counter.Config(METRICS_CATEGORY, "messaging_block_persisted_notifications")
+                        .withDescription("Notifications issued after persistence"));
+
+        // Initialize gauges
+        itemListenersGauge = context.metrics()
+                .getOrCreate(new LongGauge.Config(METRICS_CATEGORY, "messaging_no_of_item_listeners")
+                        .withDescription("Active item listeners"));
+
+        notificationListenersGauge = context.metrics()
+                .getOrCreate(new LongGauge.Config(METRICS_CATEGORY, "messaging_no_of_notification_listeners")
+                        .withDescription("Active notification listeners"));
+
+        itemQueuePercentUsedGauge = context.metrics()
+                .getOrCreate(new DoubleGauge.Config(METRICS_CATEGORY, "messaging_item_queue_percent_used")
+                        .withDescription("Percent of item queue utilised"));
+
+        notificationQueuePercentUsedGauge = context.metrics()
+                .getOrCreate(new DoubleGauge.Config(METRICS_CATEGORY, "messaging_notification_queue_percent_used")
+                        .withDescription("Percent of notification queue utilised"));
+
+        // Register metrics updater for gauges
+        context.metrics().addUpdater(this::updateMetrics);
+    }
+
+    /**
+     * Update gauge metrics with current values.
+     */
+    private void updateMetrics() {
+        // Update listener count gauges
+        itemListenersGauge.set(blockItemHandlerToThread.size());
+        notificationListenersGauge.set(blockNotificationHandlerToThread.size());
+
+        // Calculate and update item queue usage
+        if (blockItemDisruptor != null && blockItemDisruptor.hasStarted()) {
+            RingBuffer<BlockItemBatchRingEvent> itemRing = blockItemDisruptor.getRingBuffer();
+            long itemCursor = itemRing.getCursor();
+            long itemMinSequence = itemRing.getMinimumGatingSequence();
+            double percentUsed = ((double) (itemCursor - itemMinSequence) / (double) itemRing.getBufferSize()) * 100.0;
+            itemQueuePercentUsedGauge.set(Math.min(100.0, Math.max(0.0, percentUsed)));
+        }
+
+        // Calculate and update notification queue usage
+        if (blockNotificationDisruptor != null && blockNotificationDisruptor.hasStarted()) {
+            RingBuffer<BlockNotificationRingEvent> notificationRing = blockNotificationDisruptor.getRingBuffer();
+            long notifCursor = notificationRing.getCursor();
+            long notifMinSequence = notificationRing.getMinimumGatingSequence();
+            double percentUsed = ((double) (notifCursor - notifMinSequence) / (double) notificationRing.getBufferSize()) * 100.0;
+            notificationQueuePercentUsedGauge.set(Math.min(100.0, Math.max(0.0, percentUsed)));
+        }
     }
 
     /**
@@ -184,6 +273,7 @@ public class BlockMessagingFacilityImpl implements BlockMessagingFacility {
     @Override
     public void sendBlockItems(final BlockItems blockItems) {
         blockItemDisruptor.getRingBuffer().publishEvent((event, sequence) -> event.set(blockItems));
+        blockItemsReceivedCounter.increment();
     }
 
     /**
@@ -265,6 +355,7 @@ public class BlockMessagingFacilityImpl implements BlockMessagingFacility {
     @Override
     public void sendBlockVerification(VerificationNotification notification) {
         blockNotificationDisruptor.getRingBuffer().publishEvent((event, sequence) -> event.set(notification));
+        blockVerificationNotificationsCounter.increment();
     }
 
     /**
@@ -273,6 +364,7 @@ public class BlockMessagingFacilityImpl implements BlockMessagingFacility {
     @Override
     public void sendBlockPersisted(PersistedNotification notification) {
         blockNotificationDisruptor.getRingBuffer().publishEvent((event, sequence) -> event.set(notification));
+        blockPersistedNotificationsCounter.increment();
     }
 
     /**
