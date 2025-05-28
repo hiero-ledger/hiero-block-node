@@ -18,7 +18,7 @@
   "editable": true,
   "fiscalYearStartMonth": 0,
   "graphTooltip": 0,
-  "id": 8,
+  "id": 2,
   "links": [],
   "panels": [
     {
@@ -366,7 +366,10 @@
           "datasource": {
             "uid": "prometheus"
           },
+          "editorMode": "code",
           "expr": "hiero_block_node_app_historical_oldest_block",
+          "legendFormat": "Oldest Block Over Time",
+          "range": true,
           "refId": "A"
         }
       ],
@@ -511,7 +514,10 @@
           "datasource": {
             "uid": "prometheus"
           },
+          "editorMode": "code",
           "expr": "hiero_block_node_app_historical_newest_block",
+          "legendFormat": "Newest Block Over Time",
+          "range": true,
           "refId": "A"
         }
       ],
@@ -527,13 +533,13 @@
     "list": []
   },
   "time": {
-    "from": "now-5m",
+    "from": "now-1h",
     "to": "now"
   },
   "timepicker": {},
   "timezone": "browser",
   "title": "Block App Core",
   "uid": "block-app-core",
-  "version": 1,
+  "version": 2,
   "weekStart": ""
 }
