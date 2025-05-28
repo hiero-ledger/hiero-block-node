@@ -1,8 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.server.messaging;
 
+import com.swirlds.common.metrics.platform.DefaultMetricsProvider;
 import com.swirlds.config.api.Configuration;
 import com.swirlds.config.api.ConfigurationBuilder;
+import com.swirlds.metrics.api.Metrics;
 import org.hiero.block.node.messaging.MessagingConfig;
 import org.hiero.block.node.spi.BlockNodeContext;
 
@@ -25,5 +27,24 @@ public class TestConfig {
      * needed by messaging facility so far.
      */
     public static final BlockNodeContext BLOCK_NODE_CONTEXT =
-            new BlockNodeContext(getConfig(), null, null, null, null, null, null);
+            new BlockNodeContext(getConfig(), getMetrics(), null, null, null, null, null);
+
+    /**
+     * Helper method to get the metrics for the messaging service. For use in tests.
+     *
+     * @return the metrics for the messaging service
+     */
+    public static Metrics getMetrics() {
+        ConfigurationBuilder configurationBuilder = ConfigurationBuilder.create()
+                .withConfigDataType(com.swirlds.common.metrics.config.MetricsConfig.class)
+                .withConfigDataType(com.swirlds.common.metrics.platform.prometheus.PrometheusConfig.class);
+        final Configuration configuration = configurationBuilder.build();
+        // create metrics provider
+        final DefaultMetricsProvider metricsProvider;
+        metricsProvider = new DefaultMetricsProvider(configuration);
+        final Metrics metrics = metricsProvider.createGlobalMetrics();
+        metricsProvider.start();
+
+        return metrics;
+    }
 }
