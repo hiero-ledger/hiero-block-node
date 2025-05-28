@@ -6,11 +6,11 @@ import static org.hiero.block.node.base.BlockFile.blockNumberFormated;
 
 import edu.umd.cs.findbugs.annotations.NonNull;
 import java.io.IOException;
+import java.nio.file.FileSystem;
+import java.nio.file.FileSystems;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Objects;
-import java.util.zip.ZipEntry;
-import java.util.zip.ZipFile;
 import org.hiero.block.common.utils.Preconditions;
 import org.hiero.block.node.base.CompressionType;
 
@@ -91,10 +91,9 @@ record BlockPath(
         final BlockPath computed = computeBlockPath(config, blockNumber);
         // check if the zip file exists
         if (Files.exists(computed.zipFilePath)) {
-            try (final ZipFile zipFile = new ZipFile(computed.zipFilePath.toFile())) {
-                // check if the block file (entry) exists happy path
-                final ZipEntry entry = zipFile.getEntry(computed.blockFileName);
-                if (entry != null) {
+            try (final FileSystem zipFS = FileSystems.newFileSystem(computed.zipFilePath)) {
+                // check if the block file exists
+                if (Files.exists(zipFS.getPath(computed.blockFileName))) {
                     return computed;
                 } else {
                     // if happy path not found, check if persisted with another
@@ -109,8 +108,7 @@ record BlockPath(
                             // check if the block file exists
                             final String newFileName =
                                     computed.blockNumStr + BLOCK_FILE_EXTENSION + currentOpt.extension();
-                            final ZipEntry newEntry = zipFile.getEntry(newFileName);
-                            if (newEntry != null) {
+                            if (Files.exists(zipFS.getPath(newFileName))) {
                                 // if found, update and return
                                 return new BlockPath(
                                         computed.dirPath,
