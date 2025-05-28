@@ -109,16 +109,16 @@ public class BlockAccessServicePlugin implements BlockNodePlugin, BlockAccessSer
         // Create the metrics
         requestCounter = context.metrics()
                 .getOrCreate(new Counter.Config(METRICS_CATEGORY, "get_block_requests")
-                        .withDescription("Number of get block requests\n"));
+                        .withDescription("Number of get block requests"));
         responseCounterSuccess = context.metrics()
                 .getOrCreate(new Counter.Config(METRICS_CATEGORY, "get_block_requests_success")
-                        .withDescription("Successful single block requests\n"));
+                        .withDescription("Successful single block requests"));
         responseCounterNotAvailable = context.metrics()
                 .getOrCreate(new Counter.Config(METRICS_CATEGORY, "get_block_requests_not_available")
                         .withDescription("Requests for blocks that were not available"));
         responseCounterNotFound = context.metrics()
                 .getOrCreate(new Counter.Config(METRICS_CATEGORY, "get_block_requests_not_found")
-                        .withDescription("Requests for blocks that were not found\n"));
+                        .withDescription("Requests for blocks that were not found"));
         // Get the block provider
         this.blockProvider = context.historicalBlockProvider();
         // Register this service
