@@ -62,15 +62,6 @@ sourceSets {
             // exclude BN files at root level
             exclude("*.proto")
         }
-        proto {
-            srcDir(
-                generateBlockNodeProtoArtifact.map {
-                    "${layout.projectDirectory}/block-node-protobuf"
-                }
-            )
-            // exclude BN files at root level
-            exclude("*.proto")
-        }
     }
 }
 

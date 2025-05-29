@@ -1,13 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 module org.hiero.block.protobuf.protoc {
-    // only export protoc to simulator & suites till they are ported to PBJ
     exports com.hedera.hapi.platform.state.legacy to
             com.google.protobuf;
-    //    exports org.hiero.block.api.protoc to
-    //            org.hiero.block.simulator,
-    //            org.hiero.block.node.suites;
-    //    exports org.hiero.block.internal.protoc to
-    //            org.hiero.block.simulator;
     exports com.hedera.services.stream.proto to
             org.hiero.block.simulator;
     exports com.hederahashgraph.api.proto.java to
