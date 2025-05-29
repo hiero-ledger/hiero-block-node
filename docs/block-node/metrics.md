@@ -41,10 +41,10 @@ Observes the block access service that serves requests for blocks.
 
 |  Type   |                Name                |                 Description                 |
 |---------|------------------------------------|---------------------------------------------|
-| Counter | `get-block-requests`               | Number of get block requests                |
-| Counter | `get-block-requests-success`       | Successful single block requests            |
-| Counter | `get-block-requests-not-available` | Requests for blocks that were not available |
-| Counter | `get-block-requests-not-found`     | Requests for blocks that were not found     |
+| Counter | `get_block_requests`               | Number of get block requests                |
+| Counter | `get_block_requests_success`       | Successful single block requests            |
+| Counter | `get_block_requests_not_available` | Requests for blocks that were not available |
+| Counter | `get_block_requests_not_found`     | Requests for blocks that were not found     |
 
 ---
 
