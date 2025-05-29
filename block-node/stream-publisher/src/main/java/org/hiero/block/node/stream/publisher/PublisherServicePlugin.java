@@ -11,6 +11,7 @@ import com.hedera.pbj.runtime.grpc.Pipelines;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import com.swirlds.metrics.api.Counter;
 import com.swirlds.metrics.api.LongGauge;
+import com.swirlds.metrics.api.Metrics;
 import edu.umd.cs.findbugs.annotations.NonNull;
 import java.util.Comparator;
 import java.util.HashSet;
@@ -74,6 +75,8 @@ public final class PublisherServicePlugin
     private PublisherConfig publisherConfig;
     /** The timeout from config for receiving a block in nanos */
     private long timeOutNanos;
+
+    // Metrics fields
     /** The number of live block items received from a producer. */
     private Counter liveBlockItemsReceived;
     /** The number of live block items messaged to the messaging service. */
@@ -86,6 +89,20 @@ public final class PublisherServicePlugin
     private LongGauge highestIncomingBlockNumber;
     /** The number of producers publishing block items. */
     private LongGauge numberOfProducers;
+    /** The number of block-ack messages sent. */
+    private Counter blocksAckSent;
+    /** The latest block number for which an ack was sent. */
+    private LongGauge latestBlockNumberAckSent;
+    /** The number of stream errors. */
+    private Counter streamErrors;
+    /** The number of block-skip messages sent. */
+    private Counter blocksSkipsSent;
+    /** The number of block-resend messages sent. */
+    private Counter blocksResendSent;
+    /** The number of block end-of-stream messages sent. */
+    private Counter blocksEndOfStreamSent;
+    /** The number of block end-of-stream messages received. */
+    private Counter blocksEndOfStreamReceived;
 
     // state fields always updated under the state lock
 
@@ -322,6 +339,62 @@ public final class PublisherServicePlugin
         }
     }
 
+    /**
+     * Initialize all metrics for the publisher service plugin.
+     *
+     * @param metrics the metrics provider
+     */
+    private void initMetrics(Metrics metrics) {
+        // Initialize counters
+        liveBlockItemsReceived =
+                metrics.getOrCreate(new Counter.Config(METRICS_CATEGORY, "publisher_block_items_received")
+                        .withDescription("Live block items received (sum over all publishers)"));
+
+        liveBlockItemsMessaged =
+                metrics.getOrCreate(new Counter.Config(METRICS_CATEGORY, "publisher_block_items_messaged")
+                        .withDescription("Live block items messaged to the messaging service"));
+
+        blocksAckSent = metrics.getOrCreate(new Counter.Config(METRICS_CATEGORY, "publisher_blocks_ack_sent")
+                .withDescription("Block‑ack messages sent"));
+
+        streamErrors = metrics.getOrCreate(new Counter.Config(METRICS_CATEGORY, "publisher_stream_errors")
+                .withDescription("Publisher connection streams that end in an error"));
+
+        blocksSkipsSent = metrics.getOrCreate(new Counter.Config(METRICS_CATEGORY, "publisher_blocks_skips_sent")
+                .withDescription("Block‑ack skips sent"));
+
+        blocksResendSent = metrics.getOrCreate(new Counter.Config(METRICS_CATEGORY, "publisher_blocks_resend_sent")
+                .withDescription("Block Resend messages sent"));
+
+        blocksEndOfStreamSent =
+                metrics.getOrCreate(new Counter.Config(METRICS_CATEGORY, "publisher_blocks_endofstrem_sent")
+                        .withDescription("Block End-of-Stream messages sent"));
+
+        blocksEndOfStreamReceived =
+                metrics.getOrCreate(new Counter.Config(METRICS_CATEGORY, "publisher_blocks_endofstrem_received")
+                        .withDescription("Block End-of-Stream messages received"));
+
+        // Initialize gauges
+        lowestBlockNumberInbound =
+                metrics.getOrCreate(new LongGauge.Config(METRICS_CATEGORY, "publisher_lowest_block_number_inbound")
+                        .withDescription("Oldest inbound block number"));
+
+        currentBlockNumberInbound =
+                metrics.getOrCreate(new LongGauge.Config(METRICS_CATEGORY, "publisher_current_block_number_inbound")
+                        .withDescription("Current block number from primary publisher"));
+
+        highestIncomingBlockNumber =
+                metrics.getOrCreate(new LongGauge.Config(METRICS_CATEGORY, "publisher_highest_block_number_inbound")
+                        .withDescription("Newest inbound block number"));
+
+        numberOfProducers = metrics.getOrCreate(new LongGauge.Config(METRICS_CATEGORY, "publisher_open_connections")
+                .withDescription("Connected publishers"));
+
+        latestBlockNumberAckSent =
+                metrics.getOrCreate(new LongGauge.Config(METRICS_CATEGORY, "publisher_latest_block_number_ack_sent")
+                        .withDescription("Latest Block Number Ack Sent from Publisher"));
+    }
+
     // ==== BlockNodePlugin Methods ===================================================================================
 
     /**
@@ -349,25 +422,8 @@ public final class PublisherServicePlugin
         // get type of publisher to use and log it
         LOGGER.log(INFO, "Using publisher type: {0}", publisherConfig.type());
 
-        // create metrics
-        liveBlockItemsReceived = context.metrics()
-                .getOrCreate(new Counter.Config(METRICS_CATEGORY, "live_block_items_received")
-                        .withDescription("Live Block Items Received"));
-        liveBlockItemsMessaged = context.metrics()
-                .getOrCreate(new Counter.Config(METRICS_CATEGORY, "live_block_items_messaged")
-                        .withDescription("Live Block Items Messaged"));
-        lowestBlockNumberInbound = context.metrics()
-                .getOrCreate(new LongGauge.Config(METRICS_CATEGORY, "lowest_block_number_inbound")
-                        .withDescription("Lowest Block Number Inbound"));
-        currentBlockNumberInbound = context.metrics()
-                .getOrCreate(new LongGauge.Config(METRICS_CATEGORY, "current_block_number_inbound")
-                        .withDescription("Current Block Number Inbound"));
-        highestIncomingBlockNumber = context.metrics()
-                .getOrCreate(new LongGauge.Config(METRICS_CATEGORY, "highest_block_number_inbound")
-                        .withDescription("Highest Live Incoming Block Number"));
-        numberOfProducers = context.metrics()
-                .getOrCreate(new LongGauge.Config(METRICS_CATEGORY, "producers")
-                        .withDescription("No of Connected Producers"));
+        // Initialize metrics
+        initMetrics(context.metrics());
 
         // register us as a service
         serviceBuilder.registerGrpcService(this);
@@ -456,6 +512,7 @@ public final class PublisherServicePlugin
                     notification.startBlockNumber(),
                     notification.endBlockNumber());
             latestAckedBlockNumber = notification.endBlockNumber();
+            latestBlockNumberAckSent.set(latestAckedBlockNumber);
             // pass on the notification to all open sessions
             for (BlockStreamProducerSession session : openSessions) {
                 session.handlePersisted(notification);
@@ -498,7 +555,13 @@ public final class PublisherServicePlugin
                                         liveBlockItemsReceived,
                                         stateLock,
                                         this::sendBlockItemsToMessagingService,
-                                        latestAckedBlockNumber);
+                                        latestAckedBlockNumber,
+                                        blocksAckSent,
+                                        blocksSkipsSent,
+                                        blocksResendSent,
+                                        blocksEndOfStreamSent,
+                                        blocksEndOfStreamReceived,
+                                        streamErrors);
                                 // add the session to the set of open sessions
                                 openSessions.add(producerBlockItemObserver);
                                 numberOfProducers.set(openSessions.size());
