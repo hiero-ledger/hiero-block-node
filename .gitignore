@@ -63,3 +63,6 @@ server/src/test/resources/test_output/
 # protobuf artifcate related dirs
 protobuf/block-node-protobuf/
 protobuf/hiero-consensus-node/
+
+test-stack/protobuf-protoc/block-node-protobuf/
+test-stack/protobuf-protoc/hiero-consensus-node/

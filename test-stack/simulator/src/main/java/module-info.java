@@ -22,7 +22,7 @@ module org.hiero.block.simulator {
     requires com.swirlds.config.extensions;
     requires com.swirlds.metrics.api;
     requires org.hiero.block.common;
-    requires org.hiero.block.protobuf;
+    requires org.hiero.block.protobuf.protoc;
     requires com.google.protobuf;
     requires dagger;
     requires io.grpc.stub;

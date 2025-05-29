@@ -8,11 +8,15 @@ rootProject.name = "hiero-block-node"
 javaModules {
     directory(".") {
         group = "org.hiero.block"
+        module("common")
+        module("protobuf") { artifact = "block-node-protobuf" }
+    }
+    directory("test-stack") {
+        group = "org.hiero.block"
         module("tools") // no 'module-info' yet
         module("suites")
         module("simulator")
-        module("common")
-        module("protobuf") { artifact = "block-node-protobuf" }
+        module("protobuf-protoc")
     }
     directory("block-node") {
         group = "org.hiero.block"
