@@ -23,7 +23,7 @@ function usage {
     echo "  -i bool     Flag if BN API proto should be included, if false no artifact is created"
     echo "              (example: true, default is true)"
     echo "  -b string   BN API path"
-    echo "              (assumes wordkingDir is protobuf module, default is src/main/proto/org/hiero/block/api)"
+    echo "              (assumes wordkingDir is protobuf module, default is src/main/proto/)"
     echo ""
 }
 
@@ -67,7 +67,7 @@ fi
 # handle defaults for optional fields
 cleanup="${cleanup:-false}"
 include_bn_api="${include_bn_api:-true}"
-bn_api_path="${bn_api_path:-src/main/proto/org/hiero/block/api}"
+bn_api_path="${bn_api_path:-src/main/proto/}"
 
 echo "Running $0, working directory: $PWD"
 echo "repository_tag: $repository_tag, release_version: $release_version, output_dir: $output_dir, cleanup: $cleanup, include_bn_api: $include_bn_api, bn_api_path: $bn_api_path ..."
@@ -104,14 +104,8 @@ cp -r ./hiero-consensus-node/hapi/hedera-protobuf-java-api/src/main/proto/servic
 cp -r ./hiero-consensus-node/hapi/hedera-protobuf-java-api/src/main/proto/streams "$output_dir"
 
 if $include_bn_api; then
-  # Copy BN repo protobuf files to the new directory
-  echo "Copy BN API proto src:'$bn_api_path' to target:'$output_dir' directory"
-  cp -r $bn_api_path/* "$output_dir/"
-fi
-
-if $include_bn_api; then
   # create artifact file if BN APIs are included
-  tar -czf "block-node-protobuf-$release_version.tgz" -C "./$output_dir" .
+  tar -czf "block-node-protobuf-$release_version.tgz" -C "$output_dir" . -C ${bn_api_path} ./block-node
   echo "CN + BN proto artifact 'block-node-protobuf-$release_version.tgz' successfully created."
 fi
 
@@ -120,9 +114,8 @@ if $cleanup; then
   rm -rf ./hiero-consensus-node
 
   echo "Cleaning up intermediate "$output_dir" directory"
-  rm -rf "./$output_dir"
+  rm -rf "$output_dir"
 fi
-
 
 if [ $? -eq 0 ]; then
   echo "CN proto retrieval and $output_dir contents successfully created."
