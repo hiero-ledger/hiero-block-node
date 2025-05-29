@@ -2,12 +2,9 @@
 plugins {
     id("org.hiero.gradle.module.library")
     id("org.hiero.gradle.feature.protobuf")
-    // When upgrading pbjVersion, also need to update pbjVersion on
-    // hiero-dependency-versions/build.gradle.kts
-    id("com.hedera.pbj.pbj-compiler") version "0.11.6"
 }
 
-description = "Hiero Block Node Protobuf API"
+description = "Hiero Block Node Protobuf Protoc API"
 
 // Remove the following line to enable all 'javac' lint checks that we have turned on by default
 // and then fix the reported issues.
@@ -19,7 +16,7 @@ val generateBlockNodeProtoArtifact: TaskProvider<Exec> =
     tasks.register<Exec>("generateBlockNodeProtoArtifact") {
         description =
             "Retrieves CN protobuf and combines it along with local BN protobuf into a single artifact"
-        group = "protobuf"
+        group = "protobuf-protoc"
 
         workingDir(layout.projectDirectory)
         val cnTagHash = "efb0134e921b32ed6302da9c93874d65492e876f" // v0.62.2
@@ -28,14 +25,14 @@ val generateBlockNodeProtoArtifact: TaskProvider<Exec> =
         commandLine(
             "sh",
             "-c",
-            "${layout.projectDirectory}/scripts/build-bn-proto.sh -t $cnTagHash -v ${project.version} -o ${layout.projectDirectory}/block-node-protobuf -i false -b ${layout.projectDirectory}/src/main/proto/org/hiero/block/api",
+            "../../protobuf/scripts/build-bn-proto.sh -t $cnTagHash -v ${project.version} -o ${layout.projectDirectory}/block-node-protobuf -i false -b ../../protobuf/src/main/proto/org/hiero/block/api",
         )
     }
 
 val cleanUpAfterBlockNodeProtoArtifact: TaskProvider<Exec> =
     tasks.register<Exec>("cleanUpAfterBlockNodeProtoArtifact") {
         description = "Cleans up left over files from generateBlockNodeProtoArtifact task"
-        group = "protobuf"
+        group = "protobuf-protoc"
 
         workingDir(layout.projectDirectory)
 
@@ -53,7 +50,7 @@ val cleanUpAfterBlockNodeProtoArtifact: TaskProvider<Exec> =
 
 sourceSets {
     main {
-        pbj {
+        proto {
             srcDir(
                 generateBlockNodeProtoArtifact.map {
                     "${layout.projectDirectory}/block-node-protobuf"
@@ -63,18 +60,4 @@ sourceSets {
             exclude("*.proto")
         }
     }
-}
-
-tasks.test {
-    // we can exclude the standard protobuf generated tests as we don't need to test them again here
-    // this speeds up the block node project test run no end :-)
-    exclude("**com/hedera/**")
-}
-
-testModuleInfo {
-    // we depend on the protoc compiled hapi during test as we test our pbj generated code
-    // against it to make sure it is compatible
-    requires("com.google.protobuf.util")
-    requires("org.junit.jupiter.api")
-    requires("org.junit.jupiter.params")
 }
