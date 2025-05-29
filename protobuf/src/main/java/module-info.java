@@ -62,17 +62,7 @@ module org.hiero.block.protobuf {
     exports org.hiero.block.api;
     exports org.hiero.block.internal;
 
-    // only export protoc to simulator & suites till they are ported to PBJ
-    exports com.hedera.hapi.platform.state.legacy to
-            com.google.protobuf;
-
     requires transitive com.hedera.pbj.runtime;
-    requires transitive com.google.common;
-    requires transitive com.google.protobuf;
-    requires transitive io.grpc.stub;
-    requires transitive io.grpc;
-    requires io.grpc.protobuf;
-    requires org.antlr.antlr4.runtime;
     requires static com.github.spotbugs.annotations;
     requires static java.annotation;
 }

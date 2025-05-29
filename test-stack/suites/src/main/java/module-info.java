@@ -2,7 +2,7 @@
 open module org.hiero.block.node.suites {
     requires com.swirlds.config.api;
     requires com.swirlds.config.extensions;
-    requires org.hiero.block.protobuf;
+    requires org.hiero.block.protobuf.protoc;
     requires org.hiero.block.simulator;
     requires io.grpc;
     requires org.junit.jupiter.api;

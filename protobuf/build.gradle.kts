@@ -60,13 +60,6 @@ sourceSets {
                 }
             )
         }
-        proto {
-            srcDir(
-                generateBlockNodeProtoArtifact.map {
-                    "${layout.projectDirectory}/block-node-protobuf/"
-                }
-            )
-        }
     }
 }
 
