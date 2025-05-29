@@ -1,12 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.node.base.s3;
 
-import static org.junit.jupiter.api.Assertions.assertArrayEquals;
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 
 import io.minio.GetObjectArgs;
+import io.minio.ListObjectsArgs;
 import io.minio.MakeBucketArgs;
 import io.minio.MinioClient;
 import io.minio.PutObjectArgs;
@@ -64,125 +65,176 @@ public class S3ClientTest {
     }
 
     @Test
+    @DisplayName("Test listObjects() correctly returns existing objects in a bucket")
     void testList() throws Exception {
-        // Upload a file
-        String content = "Hello, MinIO!";
-        for (int i = 0; i < 5; i++) {
-            minioClient.putObject(PutObjectArgs.builder().bucket(BUCKET_NAME).object("block-" + i + ".txt").stream(
+        // Setup
+        final String content = "Hello, MinIO!";
+        final String keyPrefix = "block-";
+        final List<String> expected = List.of(
+                keyPrefix.concat("0.txt"),
+                keyPrefix.concat("1.txt"),
+                keyPrefix.concat("2.txt"),
+                keyPrefix.concat("3.txt"),
+                keyPrefix.concat("4.txt"));
+        // verify that the bucket is empty before the test
+        final boolean preCheck = minioClient
+                .listObjects(ListObjectsArgs.builder()
+                        .bucket(BUCKET_NAME)
+                        .prefix(keyPrefix)
+                        .maxKeys(100)
+                        .build())
+                .iterator()
+                .hasNext();
+        assertThat(preCheck).isFalse();
+        // upload objects to the bucket
+        for (final String object : expected) {
+            minioClient.putObject(PutObjectArgs.builder().bucket(BUCKET_NAME).object(object).stream(
                             new ByteArrayInputStream(content.getBytes(StandardCharsets.UTF_8)), content.length(), -1)
                     .build());
         }
-
-        try (S3Client s3Client =
-                new S3Client(REGION_NAME, endpoint, BUCKET_NAME, MINIO_ROOT_USER, MINIO_ROOT_PASSWORD)) {
-            final List<String> keys = s3Client.listObjects("", 100);
-            List<String> expectedKeys =
-                    List.of("block-0.txt", "block-1.txt", "block-2.txt", "block-3.txt", "block-4.txt");
-            assertEquals(
-                    expectedKeys,
-                    keys.stream().filter(name -> name.startsWith("block-")).toList(),
-                    "Downloaded content does not match expected content");
+        try (final S3Client s3Client = client()) {
+            // Call
+            final List<String> actual = s3Client.listObjects(keyPrefix, 100);
+            // Assert
+            assertThat(actual).containsExactlyInAnyOrderElementsOf(expected);
+            // Call filter by max results
+            final List<String> actualFilterMaxResults = s3Client.listObjects(keyPrefix, 2);
+            // Assert
+            assertThat(actualFilterMaxResults)
+                    .containsExactlyInAnyOrderElementsOf(List.of(expected.get(0), expected.get(1)));
         }
     }
 
+    /**
+     * This test aims to verify that the multipart upload functionality of the
+     * S3Client works correctly. We manually build 3 parts of a file and then
+     * proceed to upload them using the multipart upload API of the S3Client.
+     * Then we verify that the data exists in the bucket by downloading it
+     * via the MinIO client and checking that the content matches what we
+     * uploaded.
+     */
     @Test
     @DisplayName("Test multipart upload")
     void testMultipartUpload() throws Exception {
-        final String key = "foo.txt";
-        // create sample data
-        Random random = new Random(23131535653443L);
-        byte[] part1 = new byte[5 * 1024 * 1024];
-        byte[] part2 = new byte[5 * 1024 * 1024];
-        byte[] part3 = new byte[1024];
+        // Setup
+        final String key = "testMultipartUploadSuccess.txt";
+        // check that the object does not exist before the test
+        final boolean preCheck = minioClient
+                .listObjects(ListObjectsArgs.builder()
+                        .bucket(BUCKET_NAME)
+                        .prefix(key)
+                        .maxKeys(100)
+                        .build())
+                .iterator()
+                .hasNext();
+        assertThat(preCheck).isFalse();
+        final Random random = new Random(23131535653443L);
+        final byte[] part1 = new byte[5 * 1024 * 1024];
+        final byte[] part2 = new byte[5 * 1024 * 1024];
+        final byte[] part3 = new byte[1024];
         random.nextBytes(part1);
         random.nextBytes(part2);
         random.nextBytes(part3);
-
-        try (S3Client s3Client =
-                new S3Client(REGION_NAME, endpoint, BUCKET_NAME, MINIO_ROOT_USER, MINIO_ROOT_PASSWORD)) {
+        try (final S3Client s3Client = client()) {
+            // Call
             final String uploadId = s3Client.createMultipartUpload(key, "STANDARD", "plain/text");
-            List<String> eTags = new ArrayList<>();
+            final List<String> eTags = new ArrayList<>();
             eTags.add(s3Client.multipartUploadPart(key, uploadId, 1, part1));
             eTags.add(s3Client.multipartUploadPart(key, uploadId, 2, part2));
             eTags.add(s3Client.multipartUploadPart(key, uploadId, 3, part3));
             s3Client.completeMultipartUpload(key, uploadId, eTags);
         }
-
+        // Assert
         // download with a minio client
-        byte[] downloadedContent = minioClient
+        byte[] actual = minioClient
                 .getObject(
                         GetObjectArgs.builder().bucket(BUCKET_NAME).object(key).build())
                 .readAllBytes();
         // Verify the content
-        byte[] expectedContent = new byte[part1.length + part2.length + part3.length];
-        System.arraycopy(part1, 0, expectedContent, 0, part1.length);
-        System.arraycopy(part2, 0, expectedContent, part1.length, part2.length);
-        System.arraycopy(part3, 0, expectedContent, part1.length + part2.length, part3.length);
-        assertEquals(
-                expectedContent.length,
-                downloadedContent.length,
-                "Downloaded content length does not match expected content length");
-        assertArrayEquals(expectedContent, downloadedContent, "Downloaded content does not match expected content");
+        byte[] expected = new byte[part1.length + part2.length + part3.length];
+        System.arraycopy(part1, 0, expected, 0, part1.length);
+        System.arraycopy(part2, 0, expected, part1.length, part2.length);
+        System.arraycopy(part3, 0, expected, part1.length + part2.length, part3.length);
+        assertThat(actual).hasSameSizeAs(expected).isEqualTo(expected).containsExactly(expected);
     }
 
     @Test
     @DisplayName("Test upload of a large file")
     void testUploadFile() throws Exception {
+        // Setup
         final int testContentSize = 8 * 1024 * 1024 + 826;
-        final String key = "foo.txt";
+        final String key = "uploadOfLargeFileSuccessful.txt";
+        // check that the object does not exist before the test
+        final boolean preCheck = minioClient
+                .listObjects(ListObjectsArgs.builder()
+                        .bucket(BUCKET_NAME)
+                        .prefix(key)
+                        .maxKeys(100)
+                        .build())
+                .iterator()
+                .hasNext();
+        assertThat(preCheck).isFalse();
         // create sample string data
-        StringBuilder contentBuilder = new StringBuilder();
+        final StringBuilder contentBuilder = new StringBuilder();
         while (contentBuilder.length() < testContentSize) {
             contentBuilder.append("foo bar baz");
         }
         final String content = contentBuilder.toString();
-        byte[] contentBytes = content.getBytes(StandardCharsets.UTF_8);
+        byte[] expected = content.getBytes(StandardCharsets.UTF_8);
         // split content in random size parts
-        Random random = new Random(23131535653443L);
-        List<byte[]> parts = new ArrayList<>();
+        final Random random = new Random(23131535653443L);
+        final List<byte[]> parts = new ArrayList<>();
         int offset = 0;
-        while (offset < contentBytes.length) {
+        while (offset < expected.length) {
             int partSize = random.nextInt(1, 1024 * 1024);
-            if (offset + partSize > contentBytes.length) {
-                partSize = contentBytes.length - offset;
+            if (offset + partSize > expected.length) {
+                partSize = expected.length - offset;
             }
-            byte[] part = new byte[partSize];
-            System.arraycopy(contentBytes, offset, part, 0, partSize);
+            final byte[] part = new byte[partSize];
+            System.arraycopy(expected, offset, part, 0, partSize);
             parts.add(part);
             offset += partSize;
         }
         // upload parts
-        try (S3Client s3Client =
-                new S3Client(REGION_NAME, endpoint, BUCKET_NAME, MINIO_ROOT_USER, MINIO_ROOT_PASSWORD)) {
+        try (final S3Client s3Client = client()) {
             s3Client.uploadFile(key, "STANDARD", parts.iterator(), "plain/text");
         }
         // download with a minio client
-        byte[] downloadedContent = minioClient
+        final byte[] actual = minioClient
                 .getObject(
                         GetObjectArgs.builder().bucket(BUCKET_NAME).object(key).build())
                 .readAllBytes();
         // Verify the content
-        assertEquals(
-                contentBytes.length,
-                downloadedContent.length,
-                "Downloaded content length does not match expected content length");
-        assertEquals(content, new String(downloadedContent), "Downloaded content does not match expected content");
-        assertArrayEquals(
-                contentBytes, downloadedContent, "Downloaded content bytes does not match expected content bytes");
+        assertThat(actual)
+                .hasSameSizeAs(expected)
+                .isEqualTo(expected)
+                .containsExactly(expected)
+                .asString()
+                .isEqualTo(content);
     }
 
     @Test
     @DisplayName("Test upload and download of a text file")
     void testTextFileUploadAndDownload() throws Exception {
-        final String key = "test-text-file.txt";
-        final String text = "Hello, MinIO!";
-
-        try (S3Client s3Client =
-                new S3Client(REGION_NAME, endpoint, BUCKET_NAME, MINIO_ROOT_USER, MINIO_ROOT_PASSWORD)) {
-            assertDoesNotThrow(() -> s3Client.uploadTextFile(key, "STANDARD", text));
+        // Setup
+        final String key = "uploadSimpleTextFile.txt";
+        final String expected = "Hello, MinIO!";
+        // verify that the file does not exist in the bucket before the test
+        final boolean preCheck = minioClient
+                .listObjects(ListObjectsArgs.builder()
+                        .bucket(BUCKET_NAME)
+                        .prefix(key)
+                        .maxKeys(100)
+                        .build())
+                .iterator()
+                .hasNext();
+        assertThat(preCheck).isFalse();
+        try (final S3Client s3Client = client()) {
+            // upload text file via the client
+            assertDoesNotThrow(() -> s3Client.uploadTextFile(key, "STANDARD", expected));
             // check download with minio client
             assertEquals(
-                    text,
+                    expected,
                     new String(
                             minioClient
                                     .getObject(GetObjectArgs.builder()
@@ -193,16 +245,20 @@ public class S3ClientTest {
                             StandardCharsets.UTF_8),
                     "Downloaded content does not match expected content");
             // check download with s3 client
-            assertEquals(text, s3Client.downloadTextFile(key), "Downloaded content does not match expected content");
+            assertEquals(
+                    expected, s3Client.downloadTextFile(key), "Downloaded content does not match expected content");
         }
     }
 
     @Test
     @DisplayName("Test fetching a non-existent object")
     void testFetchNonExistentObject() throws Exception {
-        try (S3Client s3Client =
-                new S3Client(REGION_NAME, endpoint, BUCKET_NAME, MINIO_ROOT_USER, MINIO_ROOT_PASSWORD)) {
+        try (final S3Client s3Client = client()) {
             assertNull(s3Client.downloadTextFile("non-existent-object.txt"));
         }
+    }
+
+    private S3Client client() throws S3ClientInitializationException {
+        return new S3Client(REGION_NAME, endpoint, BUCKET_NAME, MINIO_ROOT_USER, MINIO_ROOT_PASSWORD);
     }
 }
