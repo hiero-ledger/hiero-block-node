@@ -14,8 +14,12 @@ import io.minio.PutObjectArgs;
 import java.io.ByteArrayInputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.Iterator;
 import java.util.List;
+import java.util.Map;
 import java.util.Random;
+import java.util.stream.Collectors;
+import org.assertj.core.api.InstanceOfAssertFactories;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.DisplayName;
@@ -64,6 +68,11 @@ public class S3ClientTest {
         }
     }
 
+    /**
+     * This test aims to verify that the
+     * {@link S3Client#listObjects(String, int)} method will correctly return
+     * existing objects in a bucket.
+     */
     @Test
     @DisplayName("Test listObjects() correctly returns existing objects in a bucket")
     void testList() throws Exception {
@@ -102,6 +111,22 @@ public class S3ClientTest {
             // Assert
             assertThat(actualFilterMaxResults)
                     .containsExactlyInAnyOrderElementsOf(List.of(expected.get(0), expected.get(1)));
+        }
+    }
+
+    /**
+     * This test aims to verify that the
+     * {@link S3Client#listObjects(String, int)} method will return an empty
+     * list when no objects are found.
+     */
+    @Test
+    @DisplayName("Test listObjects() returns empty  when no objects are found")
+    void testListNonExistentObjects() throws Exception {
+        try (final S3Client s3Client = client()) {
+            // Call
+            final List<String> actual = s3Client.listObjects("non-existent-prefix", 100);
+            // Assert
+            assertThat(actual).isNotNull().isEmpty();
         }
     }
 
@@ -158,6 +183,11 @@ public class S3ClientTest {
         assertThat(actual).hasSameSizeAs(expected).isEqualTo(expected).containsExactly(expected);
     }
 
+    /**
+     * This test aims to verify that the
+     * {@link S3Client#uploadFile(String, String, Iterator, String)} method
+     * will correctly upload a large file in parts to the S3 bucket.
+     */
     @Test
     @DisplayName("Test upload of a large file")
     void testUploadFile() throws Exception {
@@ -213,6 +243,12 @@ public class S3ClientTest {
                 .isEqualTo(content);
     }
 
+    /**
+     * This test aims to verify that the {@link S3Client#uploadTextFile(String, String, String)}
+     * method will correctly upload a simple text file to the S3 bucket and
+     * that the file can be downloaded via {@link S3Client#downloadTextFile(String)}
+     * successfully.
+     */
     @Test
     @DisplayName("Test upload and download of a text file")
     void testTextFileUploadAndDownload() throws Exception {
@@ -250,6 +286,174 @@ public class S3ClientTest {
         }
     }
 
+    /**
+     * This test aims to verify that the {@link S3Client#listMultipartUploads()} method
+     * will correctly return existing multipart uploads.
+     */
+    @Test
+    @DisplayName("Test listMultipartUpload() will correctly return existing multipart uploads")
+    void testListMultipartUploads() throws Exception {
+        // Setup
+        final String key = "testListMultipartUploads.txt";
+        try (final S3Client s3Client = client()) {
+            // verify that there are no multipart uploads before the test
+            // we need to filter the map by key because MinIO client is reused
+            final Map<String, List<String>> preChek = s3Client.listMultipartUploads().entrySet().stream()
+                    .filter(e -> e.getKey().equals(key))
+                    .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
+            assertThat(preChek).isEmpty();
+            // create a multipart upload
+            final String expected = s3Client.createMultipartUpload(key, "STANDARD", "plain/text");
+            // Assert
+            // we need to filter the map by key because MinIO client is reused
+            final Map<String, List<String>> actual = s3Client.listMultipartUploads().entrySet().stream()
+                    .filter(e -> e.getKey().equals(key))
+                    .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
+            assertThat(actual)
+                    .isNotEmpty()
+                    .hasSize(1)
+                    .containsKey(key)
+                    .extractingByKey(key)
+                    .asInstanceOf(InstanceOfAssertFactories.LIST)
+                    .isNotEmpty()
+                    .hasSize(1)
+                    .containsExactly(expected);
+        }
+    }
+
+    /**
+     * This test aims to verify that the {@link S3Client#listMultipartUploads()} method
+     * will correctly return existing multipart uploads for multiple keys and values.
+     */
+    @Test
+    @DisplayName("Test listMultipartUpload() will correctly return existing multipart uploads")
+    void testListMultipartUploadsMultiKeyValue() throws Exception {
+        // Setup
+        final String key1 = "testListMultipartUploads1.txt";
+        final String key2 = "testListMultipartUploads2.txt";
+        try (final S3Client s3Client = client()) {
+            // verify that there are no multipart uploads before the test
+            // we need to filter the map by key because MinIO client is reused
+            final Map<String, List<String>> preCheckList = s3Client.listMultipartUploads().entrySet().stream()
+                    .filter(e -> e.getKey().equals(key1) || e.getKey().equals(key2))
+                    .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
+            final boolean preCheck1 = preCheckList.containsKey(key1);
+            final boolean preCheck2 = preCheckList.containsKey(key2);
+            assertThat(preCheck1).isFalse().isEqualTo(preCheck2);
+            // create a multipart upload
+            final String key1expected1 = s3Client.createMultipartUpload(key1, "STANDARD", "plain/text");
+            final String key1expected2 = s3Client.createMultipartUpload(key1, "STANDARD", "plain/text");
+            final String key2expected1 = s3Client.createMultipartUpload(key2, "STANDARD", "plain/text");
+            final String key2expected2 = s3Client.createMultipartUpload(key2, "STANDARD", "plain/text");
+            // Assert
+            // we need to filter the map by key because MinIO client is reused
+            final Map<String, List<String>> actual = s3Client.listMultipartUploads().entrySet().stream()
+                    .filter(e -> e.getKey().equals(key1) || e.getKey().equals(key2))
+                    .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
+            assertThat(actual).isNotEmpty().hasSize(2).containsKeys(key1, key2);
+            assertThat(actual.get(key1)).isNotEmpty().hasSize(2).containsExactly(key1expected1, key1expected2);
+            assertThat(actual.get(key2)).isNotEmpty().hasSize(2).containsExactly(key2expected1, key2expected2);
+        }
+    }
+
+    /**
+     * This test aims to verify that the {@link S3Client#abortMultipartUpload(String, String)}
+     * method will correctly abort an existing multipart upload.
+     */
+    @Test
+    @DisplayName("Test abortMultipartUpload() will correctly abort an existing multipart upload")
+    void testAbortMultipartUpload() throws Exception {
+        // Setup
+        final String key = "testAbortMultipartUpload.txt";
+        try (final S3Client s3Client = client()) {
+            // verify that there are no multipart uploads before the test
+            // we need to filter the map by key because MinIO client is reused
+            final boolean preCheck = s3Client.listMultipartUploads().entrySet().stream()
+                    .anyMatch(e -> e.getKey().equals(key));
+            assertThat(preCheck).isFalse();
+            // create a multipart upload
+            final String uploadId = s3Client.createMultipartUpload(key, "STANDARD", "plain/text");
+            // Assert that the upload exists
+            // we need to filter the map by key because MinIO client is reused
+            final Map<String, List<String>> actualBeforeAbort = s3Client.listMultipartUploads().entrySet().stream()
+                    .filter(e -> e.getKey().equals(key))
+                    .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
+            assertThat(actualBeforeAbort)
+                    .isNotEmpty()
+                    .hasSize(1)
+                    .containsKey(key)
+                    .extractingByKey(key)
+                    .asInstanceOf(InstanceOfAssertFactories.LIST)
+                    .isNotEmpty()
+                    .hasSize(1)
+                    .containsExactly(uploadId);
+            // Abort the multipart upload
+            s3Client.abortMultipartUpload(key, uploadId);
+            // Assert that the upload is removed
+            // we need to filter the map by key because MinIO client is reused
+            final Map<String, List<String>> actualAfterAbort = s3Client.listMultipartUploads().entrySet().stream()
+                    .filter(e -> e.getKey().equals(key))
+                    .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
+            assertThat(actualAfterAbort).isEmpty();
+        }
+    }
+
+    /**
+     * This test aims to verify that the {@link S3Client#abortMultipartUpload(String, String)}
+     * method will correctly abort an existing multipart upload with multiple parts.
+     */
+    @Test
+    @DisplayName("Test abortMultipartUpload() will correctly abort an existing multipart upload with multiple parts")
+    void testAbortMultipartUploadMultiKeyValue() throws Exception {
+        // Setup
+        final String key1 = "testAbortMultipartUploads1.txt";
+        final String key2 = "testAbortMultipartUploads2.txt";
+        try (final S3Client s3Client = client()) {
+            // verify that there are no multipart uploads before the test
+            // we need to filter the map by key because MinIO client is reused
+            final Map<String, List<String>> listPreCheck = s3Client.listMultipartUploads().entrySet().stream()
+                    .filter(e -> e.getKey().equals(key1) || e.getKey().equals(key2))
+                    .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
+            final boolean preCheck1 = listPreCheck.containsKey(key1);
+            final boolean preCheck2 = listPreCheck.containsKey(key2);
+            assertThat(preCheck1).isFalse().isEqualTo(preCheck2);
+            // create a multipart upload
+            final String key1expected1 = s3Client.createMultipartUpload(key1, "STANDARD", "plain/text");
+            final String key1expected2 = s3Client.createMultipartUpload(key1, "STANDARD", "plain/text");
+            final String key2expected1 = s3Client.createMultipartUpload(key2, "STANDARD", "plain/text");
+            final String key2expected2 = s3Client.createMultipartUpload(key2, "STANDARD", "plain/text");
+            // Assert
+            // we need to filter the map by key because MinIO client is reused
+            final Map<String, List<String>> actualBeforeAbort = s3Client.listMultipartUploads().entrySet().stream()
+                    .filter(e -> e.getKey().equals(key1) || e.getKey().equals(key2))
+                    .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
+            assertThat(actualBeforeAbort).isNotEmpty().hasSize(2).containsKeys(key1, key2);
+            assertThat(actualBeforeAbort.get(key1))
+                    .isNotEmpty()
+                    .hasSize(2)
+                    .containsExactly(key1expected1, key1expected2);
+            assertThat(actualBeforeAbort.get(key2))
+                    .isNotEmpty()
+                    .hasSize(2)
+                    .containsExactly(key2expected1, key2expected2);
+
+            // Abort one multipart upload
+            s3Client.abortMultipartUpload(key1, key1expected1);
+            // Assert that the upload is removed
+            // we need to filter the map by key because MinIO client is reused
+            final Map<String, List<String>> actual = s3Client.listMultipartUploads().entrySet().stream()
+                    .filter(e -> e.getKey().equals(key1) || e.getKey().equals(key2))
+                    .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
+            assertThat(actual).isNotEmpty().hasSize(2).containsKeys(key1, key2);
+            assertThat(actual.get(key1)).isNotEmpty().hasSize(1).containsExactly(key1expected2);
+            assertThat(actual.get(key2)).isNotEmpty().hasSize(2).containsExactly(key2expected1, key2expected2);
+        }
+    }
+
+    /**
+     * This test aims to verify that the {@link S3Client#downloadTextFile(String)}
+     * method will return null when trying to download a non-existent object.
+     */
     @Test
     @DisplayName("Test fetching a non-existent object")
     void testFetchNonExistentObject() throws Exception {
@@ -258,6 +462,9 @@ public class S3ClientTest {
         }
     }
 
+    /**
+     * This method will create a new instance of the {@link S3Client} to test.
+     */
     private S3Client client() throws S3ClientInitializationException {
         return new S3Client(REGION_NAME, endpoint, BUCKET_NAME, MINIO_ROOT_USER, MINIO_ROOT_PASSWORD);
     }
