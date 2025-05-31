@@ -7,6 +7,7 @@ module org.hiero.block.node.base {
 
     requires transitive org.hiero.block.node.spi;
     requires com.hedera.pbj.runtime;
+    requires org.hiero.block.common;
     requires com.github.luben.zstd_jni;
     requires java.net.http;
     requires java.xml;
