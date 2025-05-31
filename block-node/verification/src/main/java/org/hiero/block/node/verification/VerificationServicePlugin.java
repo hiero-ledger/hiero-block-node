@@ -51,31 +51,46 @@ public class VerificationServicePlugin implements BlockNodePlugin, BlockItemHand
     }
 
     /**
+     * Initialize metrics for the verification plugin.
+     *
+     * @param context The block node context
+     */
+    private void initMetrics(BlockNodeContext context) {
+        final var metrics = context.metrics();
+
+        verificationBlocksReceived =
+                metrics.getOrCreate(new Counter.Config(METRICS_CATEGORY, "verification_blocks_received")
+                        .withDescription("Blocks received for verification"));
+
+        verificationBlocksVerified =
+                metrics.getOrCreate(new Counter.Config(METRICS_CATEGORY, "verification_blocks_verified")
+                        .withDescription("Blocks that passed verification"));
+
+        verificationBlocksFailed =
+                metrics.getOrCreate(new Counter.Config(METRICS_CATEGORY, "verification_blocks_failed")
+                        .withDescription("Blocks that failed verification"));
+
+        verificationBlocksError = metrics.getOrCreate(new Counter.Config(METRICS_CATEGORY, "verification_blocks_error")
+                .withDescription("Internal errors during verification"));
+
+        verificationBlockTime = metrics.getOrCreate(new Counter.Config(METRICS_CATEGORY, "verification_block_time")
+                .withDescription("Verification time per block (ms)"));
+    }
+
+    /**
      * {@inheritDoc}
      */
     @Override
     public void init(BlockNodeContext context, ServiceBuilder serviceBuilder) {
         this.context = context;
-        final var metrics = context.metrics();
         // TODO do we need this? It is not used anywhere, what am I missing?
         // I doubled checked, we don't need configuration atm, these configs were only necessary for ASYNC impl.
         // however we should have one for pubKey, not sure if we will be able to get the pubKey from state from the very
         // beginning.
         verificationConfig = context.configuration().getConfigData(VerificationConfig.class);
-        // create metrics for this plugin
-        verificationBlocksReceived =
-                metrics.getOrCreate(new Counter.Config(METRICS_CATEGORY, "verification_blocks_received")
-                        .withDescription("Blocks Received for Verification"));
-        verificationBlocksVerified =
-                metrics.getOrCreate(new Counter.Config(METRICS_CATEGORY, "verification_blocks_verified")
-                        .withDescription("Blocks Verified"));
-        verificationBlocksFailed =
-                metrics.getOrCreate(new Counter.Config(METRICS_CATEGORY, "verification_blocks_failed")
-                        .withDescription("Blocks Failed Verification"));
-        verificationBlocksError = metrics.getOrCreate(new Counter.Config(METRICS_CATEGORY, "verification_blocks_error")
-                .withDescription("Blocks Verification Error"));
-        verificationBlockTime = metrics.getOrCreate(new Counter.Config(METRICS_CATEGORY, "verification_block_time")
-                .withDescription("Block Verification Time"));
+
+        // initialize metrics
+        initMetrics(context);
     }
 
     /**
@@ -125,12 +140,11 @@ public class VerificationServicePlugin implements BlockNodePlugin, BlockItemHand
                 if (notification != null) {
                     if (notification.success()) {
                         verificationBlocksVerified.increment();
-                        verificationBlockTime.add(System.nanoTime() - blockWorkStartTime);
                     } else {
                         verificationBlocksFailed.increment();
-                        verificationBlockTime.add(System.nanoTime() - blockWorkStartTime);
                         LOGGER.log(WARNING, "Block verification failed for block number: {0}", currentBlockNumber);
                     }
+                    verificationBlockTime.add(System.nanoTime() - blockWorkStartTime);
                     context.blockMessaging().sendBlockVerification(notification);
                 }
             }
