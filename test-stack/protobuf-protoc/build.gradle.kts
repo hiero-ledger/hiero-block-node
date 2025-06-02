@@ -14,6 +14,9 @@ tasks.withType<JavaCompile>().configureEach {
 
 sourceSets.main { proto { srcDir(layout.projectDirectory.dir("../../protobuf/src/main/proto")) } }
 
+// jjohannes: The below is mostly copied from 'protobuf/build.gradle.kts'.
+// It is planned to reduce the duplication as part of
+// https://github.com/hiero-ledger/hiero-gradle-conventions/issues/185
 val generateBlockNodeProtoArtifact: TaskProvider<Exec> =
     tasks.register<Exec>("generateBlockNodeProtoArtifact") {
         description =
