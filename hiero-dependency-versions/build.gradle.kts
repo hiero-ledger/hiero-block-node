@@ -10,7 +10,7 @@ dependencies { api(platform("com.google.cloud:libraries-bom:26.61.0")) }
 
 dependencies.constraints {
     val daggerVersion = "2.56.2"
-    val grpcIoVersion = "1.72.0"
+    val grpcIoVersion = "1.73.0"
     val helidonVersion = "4.2.2"
     // When Upgrading pbjVersion, also need to update pbjCompiler version on
     // protobuf/build.gradle.kts
