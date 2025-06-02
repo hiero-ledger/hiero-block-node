@@ -11,7 +11,7 @@ description = "Hiero Block Stream Tools"
 application { mainClass = "org.hiero.block.tools.BlockStreamTool" }
 
 mainModuleInfo {
-    requires("org.hiero.block.protobuf")
+    requires("org.hiero.block.protobuf.pbj")
     requires("com.hedera.pbj.runtime")
     requires("com.github.luben.zstd_jni")
     requires("com.google.api.gax")
