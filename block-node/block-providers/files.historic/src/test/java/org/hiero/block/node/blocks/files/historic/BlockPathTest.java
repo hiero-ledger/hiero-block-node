@@ -25,7 +25,6 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
-import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.aggregator.ArgumentsAccessor;
 import org.junit.jupiter.params.provider.Arguments;
@@ -35,18 +34,18 @@ import org.junit.jupiter.params.provider.MethodSource;
  * Test for {@link BlockPath}.
  */
 class BlockPathTest {
-    private static final String ROOT_PATH = "/foo/bar";
     /** The testing in-memory file system. */
     private FileSystem jimfs;
     /** The temporary directory for the test. */
-    @TempDir
     private Path tempDir;
 
     /** Set up the test environment before each test. */
     @BeforeEach
-    void setup() {
+    void setup() throws IOException {
         // Initialize the in-memory file system
         jimfs = Jimfs.newFileSystem(Configuration.unix());
+        tempDir = jimfs.getPath("/blocks");
+        Files.createDirectories(tempDir);
     }
 
     /** Tear down the test environment after each test. */
@@ -228,11 +227,11 @@ class BlockPathTest {
                 final long blockNumber,
                 final CompressionType expectedCompressionType,
                 final int digitsPerZipFileContents) {
-            final Path expectedZipFilePath = jimfs.getPath(ROOT_PATH + expectedRelativeZipFilePathStr);
+            final Path expectedZipFilePath = jimfs.getPath(tempDir + expectedRelativeZipFilePathStr);
             final Path expectedDirPath = expectedZipFilePath.getParent();
             // create the config to use for the test, resolve paths with jimfs
-            final FilesHistoricConfig testConfig = new FilesHistoricConfig(
-                    jimfs.getPath(ROOT_PATH), expectedCompressionType, digitsPerZipFileContents);
+            final FilesHistoricConfig testConfig =
+                    new FilesHistoricConfig(tempDir, expectedCompressionType, digitsPerZipFileContents);
             final BlockPath actual = BlockPath.computeBlockPath(testConfig, blockNumber);
             assertThat(actual)
                     .isNotNull()

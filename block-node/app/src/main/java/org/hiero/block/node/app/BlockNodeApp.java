@@ -77,17 +77,23 @@ public class BlockNodeApp implements HealthFacility {
     BlockNodeApp(final ServiceLoaderFunction serviceLoader, final boolean shouldExitJvmOnShutdown) throws IOException {
         this.shouldExitJvmOnShutdown = shouldExitJvmOnShutdown;
         // ==== LOAD LOGGING CONFIG ====================================================================================
-        // load the logging configuration from the classpath and make it colorful
-        try (var loggingConfigIn = BlockNodeApp.class.getClassLoader().getResourceAsStream("logging.properties")) {
-            if (loggingConfigIn != null) {
-                LogManager.getLogManager().readConfiguration(loggingConfigIn);
-            } else {
-                LOGGER.log(INFO, "No logging configuration found");
+        final boolean externalLogging = System.getProperty("java.util.logging.config.file") != null;
+        if (externalLogging) {
+            LOGGER.log(INFO, "External logging configuration found");
+        } else {
+            // load the logging configuration from the classpath and make it colorful
+            try (var loggingConfigIn = BlockNodeApp.class.getClassLoader().getResourceAsStream("logging.properties")) {
+                if (loggingConfigIn != null) {
+                    LogManager.getLogManager().readConfiguration(loggingConfigIn);
+                } else {
+                    LOGGER.log(INFO, "No logging configuration found");
+                }
+            } catch (IOException e) {
+                LOGGER.log(INFO, "Failed to load logging configuration", e);
             }
-        } catch (IOException e) {
-            LOGGER.log(INFO, "Failed to load logging configuration", e);
+            CleanColorfulFormatter.makeLoggingColorful();
+            LOGGER.log(INFO, "Using default logging configuration");
         }
-        CleanColorfulFormatter.makeLoggingColorful();
         // tell helidon to use the same logging configuration
         System.setProperty("io.helidon.logging.config.disabled", "true");
         // ==== LOG HIERO MODULES ======================================================================================

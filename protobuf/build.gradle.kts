@@ -28,7 +28,7 @@ val generateBlockNodeProtoArtifact: TaskProvider<Exec> =
         commandLine(
             "sh",
             "-c",
-            "${layout.projectDirectory}/scripts/build-bn-proto.sh -t $cnTagHash -v ${project.version} -o ${layout.projectDirectory}/block-node-protobuf -i false -b ${layout.projectDirectory}/src/main/proto/org/hiero/block/api",
+            "${layout.projectDirectory}/scripts/build-bn-proto.sh -t $cnTagHash -v ${project.version} -o ${layout.projectDirectory}/block-node-protobuf -i true -b ${layout.projectDirectory}/src/main/proto/",
         )
     }
 
@@ -56,20 +56,16 @@ sourceSets {
         pbj {
             srcDir(
                 generateBlockNodeProtoArtifact.map {
-                    "${layout.projectDirectory}/block-node-protobuf"
+                    "${layout.projectDirectory}/block-node-protobuf/"
                 }
             )
-            // exclude BN files at root level
-            exclude("*.proto")
         }
         proto {
             srcDir(
                 generateBlockNodeProtoArtifact.map {
-                    "${layout.projectDirectory}/block-node-protobuf"
+                    "${layout.projectDirectory}/block-node-protobuf/"
                 }
             )
-            // exclude BN files at root level
-            exclude("*.proto")
         }
     }
 }

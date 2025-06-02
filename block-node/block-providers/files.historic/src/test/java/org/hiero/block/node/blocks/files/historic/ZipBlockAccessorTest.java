@@ -17,11 +17,11 @@ import com.swirlds.config.api.ConfigurationBuilder;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.nio.file.FileSystem;
+import java.nio.file.FileSystems;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.zip.ZipEntry;
-import java.util.zip.ZipFile;
 import java.util.zip.ZipOutputStream;
 import org.hiero.block.internal.BlockItemUnparsed;
 import org.hiero.block.internal.BlockUnparsed;
@@ -33,7 +33,6 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
 
@@ -46,16 +45,17 @@ class ZipBlockAccessorTest {
     private FileSystem jimfs;
     /** The configuration for the test. */
     private FilesHistoricConfig defaultConfig;
-
-    @TempDir
+    /** The temporary directory used for the test. */
     private Path tempDir;
 
     /** Set up the test environment before each test. */
     @BeforeEach
-    void setup() {
+    void setup() throws IOException {
         // Initialize the in-memory file system
         jimfs = Jimfs.newFileSystem(
                 Configuration.unix()); // Set the default configuration for the test, use jimfs for paths
+        tempDir = jimfs.getPath("/blocks");
+        Files.createDirectories(tempDir);
         defaultConfig =
                 createTestConfiguration(tempDir, getDefaultConfiguration().compression());
     }
@@ -589,11 +589,12 @@ class ZipBlockAccessorTest {
                 .isWritable()
                 .isNotEmptyFile()
                 .hasExtension("zip");
-        try (final ZipFile zipFile = new ZipFile(blockPath.zipFilePath().toFile())) {
-            assertThat(zipFile.size()).isEqualTo(1);
-            final ZipEntry entry = zipFile.getEntry(blockPath.blockFileName());
-            assertThat(entry).isNotNull();
-            final byte[] fromZipEntry = zipFile.getInputStream(entry).readAllBytes();
+        try (final FileSystem zipFs = FileSystems.newFileSystem(blockPath.zipFilePath())) {
+            final Path root = zipFs.getPath("/");
+            assertThat(root).isNotNull().exists().isDirectory().isReadable().isNotEmptyDirectory();
+            final Path entry = root.resolve((blockPath.blockFileName()));
+            assertThat(entry).isNotNull().exists().isRegularFile().isReadable();
+            final byte[] fromZipEntry = Files.readAllBytes(entry);
             assertThat(fromZipEntry).isEqualTo(bytesToWrite);
         }
         return new ZipBlockAccessor(blockPath);

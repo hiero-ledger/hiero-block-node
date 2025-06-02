@@ -23,10 +23,10 @@ javaModules {
         module("block-providers/files.recent") { artifact = "block-node-blocks-file-recent" }
         module("health") { artifact = "block-node-health" }
         module("messaging") { artifact = "facility-messaging" }
-        module("publisher") { artifact = "block-node-publisher" }
         module("s3-archive") { artifact = "block-node-s3-archive" }
         module("server-status") { artifact = "block-node-server-status" }
         module("spi") { artifact = "block-node-spi-plugins" }
+        module("stream-publisher") { artifact = "block-node-stream-publisher" }
         module("stream-subscriber") { artifact = "block-node-stream-subscriber" }
         module("verification") { artifact = "block-node-verification" }
     }

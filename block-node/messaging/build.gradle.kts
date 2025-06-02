@@ -19,5 +19,5 @@ testModuleInfo {
     requires("java.logging")
     requires("org.junit.jupiter.api")
     requires("org.junit.jupiter.params")
-    requires("com.swirlds.metrics.api")
+    requires("com.swirlds.common")
 }

@@ -6,6 +6,7 @@ import static org.assertj.core.api.Assertions.assertThatNoException;
 import static org.assertj.core.api.Assertions.assertThatNullPointerException;
 import static org.assertj.core.api.Assertions.from;
 
+import com.google.common.jimfs.Jimfs;
 import com.hedera.hapi.block.stream.Block;
 import com.hedera.hapi.block.stream.BlockItem;
 import com.hedera.pbj.runtime.ParseException;
@@ -14,15 +15,16 @@ import com.swirlds.config.api.Configuration;
 import com.swirlds.config.api.ConfigurationBuilder;
 import java.io.IOException;
 import java.io.InputStream;
+import java.nio.file.FileSystem;
+import java.nio.file.FileSystems;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
-import java.util.Enumeration;
 import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
+import java.util.stream.Stream;
 import java.util.zip.ZipEntry;
-import java.util.zip.ZipFile;
 import java.util.zip.ZipOutputStream;
 import org.hiero.block.internal.BlockItemUnparsed;
 import org.hiero.block.internal.BlockUnparsed;
@@ -36,11 +38,11 @@ import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.blockmessaging.BlockItems;
 import org.hiero.block.node.spi.historicalblocks.BlockAccessor;
 import org.hiero.block.node.spi.historicalblocks.BlockRangeSet;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.io.TempDir;
 
 /**
  * Test class for {@link ZipBlockArchive}.
@@ -53,9 +55,8 @@ class ZipBlockArchiveTest {
     private BlockNodeContext testContext;
     /** The default test {@link FilesHistoricConfig} used for testing. */
     private FilesHistoricConfig testConfig;
-    /** Temp dir used for testing as the File abstraction is not supported by jimfs */
-    @TempDir
-    private Path tempDir;
+    /** The in-memory filesystem used for testing. */
+    private FileSystem jimFs;
     /** The {@link ZipBlockArchive} instance to be tested. */
     private ZipBlockArchive toTest;
 
@@ -63,7 +64,7 @@ class ZipBlockArchiveTest {
      * Environment setup before each test.
      */
     @BeforeEach
-    void setup() {
+    void setup() throws IOException {
         final Configuration configuration = ConfigurationBuilder.create()
                 .withConfigDataType(FilesHistoricConfig.class)
                 .build();
@@ -73,7 +74,10 @@ class ZipBlockArchiveTest {
         // longer need this createTestConfiguration and the production logic
         // can also be simplified and to always get the configuration via the
         // block context
-        testConfig = createTestConfiguration(tempDir, 1);
+        jimFs = Jimfs.newFileSystem(com.google.common.jimfs.Configuration.unix());
+        final Path blocksRoot = jimFs.getPath("/blocks");
+        Files.createDirectories(blocksRoot);
+        testConfig = createTestConfiguration(blocksRoot, 1);
         historicalBlockProvider = new SimpleInMemoryHistoricalBlockFacility();
         testContext = new BlockNodeContext(
                 configuration,
@@ -85,6 +89,14 @@ class ZipBlockArchiveTest {
                 null);
         historicalBlockProvider.init(testContext, null);
         toTest = new ZipBlockArchive(testContext, testConfig);
+    }
+
+    @AfterEach
+    void tearDown() throws IOException {
+        // close the jimfs filesystem
+        if (jimFs != null) {
+            jimFs.close();
+        }
     }
 
     /**
@@ -417,12 +429,12 @@ class ZipBlockArchiveTest {
             toTest.writeNewZipFile(firstBlockNumber);
             // assert that each entry's contents matches what we initially intended
             // to write
-            try (final ZipFile zipFile = new ZipFile(expected.toFile())) {
-                final Enumeration<? extends ZipEntry> entries = zipFile.entries();
-                while (entries.hasMoreElements()) {
-                    final ZipEntry zipEntry = entries.nextElement();
-                    final BlockUnparsed expectedValue = first10BlocksWithExpectedEntryNames.get(zipEntry.getName());
-                    try (final InputStream in = zipFile.getInputStream(zipEntry)) {
+            try (final FileSystem zipFs = FileSystems.newFileSystem(expected);
+                    final Stream<Path> entries = Files.list(zipFs.getPath("/"))) {
+                for (final Path entry : entries.toList()) {
+                    final BlockUnparsed expectedValue = first10BlocksWithExpectedEntryNames.get(
+                            entry.getFileName().toString());
+                    try (final InputStream in = Files.newInputStream(entry)) {
                         final byte[] rawContents = in.readAllBytes();
                         final BlockUnparsed actualValue = BlockUnparsed.PROTOBUF.parse(Bytes.wrap(rawContents));
                         assertThat(actualValue).isEqualTo(expectedValue);
@@ -461,14 +473,13 @@ class ZipBlockArchiveTest {
             }
         } else {
             final Path tempZip = blockPath.zipFilePath().resolveSibling("temp.zip");
-            try (final ZipFile zipFile = new ZipFile(blockPath.zipFilePath().toFile());
+            try (final FileSystem zipFs = FileSystems.newFileSystem(blockPath.zipFilePath());
+                    final Stream<Path> entriesStream = Files.list(zipFs.getPath("/"));
                     final ZipOutputStream zipOut = new ZipOutputStream(Files.newOutputStream(tempZip))) {
                 // Copy existing entries
-                final Enumeration<? extends ZipEntry> entries = zipFile.entries();
-                while (entries.hasMoreElements()) {
-                    final ZipEntry entry = entries.nextElement();
-                    zipOut.putNextEntry(new ZipEntry(entry.getName()));
-                    try (final InputStream inputStream = zipFile.getInputStream(entry)) {
+                for (final Path entry : entriesStream.toList()) {
+                    zipOut.putNextEntry(new ZipEntry(entry.getFileName().toString()));
+                    try (final InputStream inputStream = Files.newInputStream(entry)) {
                         inputStream.transferTo(zipOut);
                     }
                     zipOut.closeEntry();
@@ -487,10 +498,10 @@ class ZipBlockArchiveTest {
                 .isWritable()
                 .isNotEmptyFile()
                 .hasExtension("zip");
-        try (final ZipFile zipFile = new ZipFile(blockPath.zipFilePath().toFile())) {
-            final ZipEntry entry = zipFile.getEntry(blockPath.blockFileName());
-            assertThat(entry).isNotNull();
-            final byte[] fromZipEntry = zipFile.getInputStream(entry).readAllBytes();
+        try (final FileSystem zipFs = FileSystems.newFileSystem(blockPath.zipFilePath())) {
+            final Path entry = zipFs.getPath(blockPath.blockFileName());
+            assertThat(entry).isNotNull().exists().isRegularFile().isReadable();
+            final byte[] fromZipEntry = Files.readAllBytes(entry);
             assertThat(fromZipEntry).isEqualTo(bytesToWrite);
         }
         return new ZipBlockAccessor(blockPath);
