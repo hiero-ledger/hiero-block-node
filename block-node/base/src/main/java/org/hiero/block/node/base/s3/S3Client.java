@@ -590,6 +590,7 @@ public class S3Client implements AutoCloseable {
             throw new UncheckedIOException(e);
         } catch (final InterruptedException | URISyntaxException e) {
             // todo what would be the correct handling for the InterruptedException?
+            Thread.currentThread().interrupt();
             throw new UncheckedIOException(new IOException(e));
         }
     }
