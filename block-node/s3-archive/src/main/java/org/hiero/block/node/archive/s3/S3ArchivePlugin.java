@@ -214,8 +214,9 @@ public class S3ArchivePlugin implements BlockNodePlugin, BlockNotificationHandle
                         } catch (final S3ResponseException e) {
                             // todo we could retry here
                             LOGGER.log(
-                                    System.Logger.Level.WARNING,
-                                    "Failed to upload archive block batch: " + e.getMessage(),
+                                    INFO,
+                                    "Failed to upload archive block batch due to an exceptional response: "
+                                            + e.getMessage(),
                                     e);
                             throw new RuntimeException(e);
                         } catch (final Exception e) {
