@@ -63,6 +63,7 @@ module org.hiero.block.protobuf {
     exports org.hiero.block.internal;
 
     requires transitive com.hedera.pbj.runtime;
+    requires org.antlr.antlr4.runtime;
     requires static com.github.spotbugs.annotations;
     requires static java.annotation;
 }
