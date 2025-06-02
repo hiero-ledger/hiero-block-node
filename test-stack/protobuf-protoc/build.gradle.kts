@@ -12,57 +12,19 @@ tasks.withType<JavaCompile>().configureEach {
     options.compilerArgs.add("-Xlint:-exports,-deprecation,-removal,-dep-ann")
 }
 
-sourceSets.main { proto { srcDir(layout.projectDirectory.dir("../../protobuf/src/main/proto")) } }
-
-// jjohannes: The below is mostly copied from 'protobuf/build.gradle.kts'.
-// It is planned to reduce the duplication as part of
-// https://github.com/hiero-ledger/hiero-gradle-conventions/issues/185
-val generateBlockNodeProtoArtifact: TaskProvider<Exec> =
-    tasks.register<Exec>("generateBlockNodeProtoArtifact") {
-        description =
-            "Retrieves CN protobuf and combines it along with local BN protobuf into a single artifact"
-        group = "protobuf-protoc"
-
-        workingDir(layout.projectDirectory)
-        val cnTagHash = "efb0134e921b32ed6302da9c93874d65492e876f" // v0.62.2
-
-        // run build-bn-proto.sh skipping inclusion of BN API as it messes up proto considerations
-        commandLine(
-            "sh",
-            "-c",
-            "../../protobuf/scripts/build-bn-proto.sh -t $cnTagHash -v ${project.version} -o ${layout.projectDirectory}/block-node-protobuf -i false -b ../../protobuf/src/main/proto/org/hiero/block/api",
-        )
-    }
-
-val cleanUpAfterBlockNodeProtoArtifact: TaskProvider<Exec> =
-    tasks.register<Exec>("cleanUpAfterBlockNodeProtoArtifact") {
-        description = "Cleans up left over files from generateBlockNodeProtoArtifact task"
-        group = "protobuf-protoc"
-
-        workingDir(layout.projectDirectory)
-
-        // clean up intermediate files generated from build-bn-proto.sh run
-        commandLine(
-            "rm",
-            "-rf",
-            "${layout.projectDirectory}/block-node-protobuf",
-            "&&",
-            "rm",
-            "-rf",
-            "${layout.projectDirectory}/hiero-consensus-node",
-        )
-    }
-
 sourceSets {
     main {
         proto {
-            srcDir(
-                generateBlockNodeProtoArtifact.map {
-                    "${layout.projectDirectory}/block-node-protobuf"
-                }
-            )
+            // use sources from 'protobuf' module
+            srcDir(layout.projectDirectory.dir("../../protobuf/src/main/proto"))
+            // use sources from CN repository cloned by 'protobuf' module (see task dependency)
+            srcDir(layout.projectDirectory.dir("../../protobuf/block-node-protobuf"))
             // exclude BN files at root level
             exclude("*.proto")
         }
     }
 }
+
+// jjohannes: remove cross-project task dependency once the following issue is addressed
+// https://github.com/hiero-ledger/hiero-gradle-conventions/issues/185
+tasks.generateProto { dependsOn(":block-node-protobuf:generateBlockNodeProtoArtifact") }
