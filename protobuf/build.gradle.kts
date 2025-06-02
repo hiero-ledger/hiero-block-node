@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 plugins {
     id("org.hiero.gradle.module.library")
-    id("org.hiero.gradle.feature.protobuf")
     // When upgrading pbjVersion, also need to update pbjVersion on
     // hiero-dependency-versions/build.gradle.kts
     id("com.hedera.pbj.pbj-compiler") version "0.11.6"
@@ -13,6 +12,14 @@ description = "Hiero Block Node Protobuf API"
 // and then fix the reported issues.
 tasks.withType<JavaCompile>().configureEach {
     options.compilerArgs.add("-Xlint:-exports,-deprecation,-removal,-dep-ann")
+}
+
+tasks.javadoc {
+    options {
+        this as StandardJavadocDocletOptions
+        // There are violations in the generated pbj code
+        addStringOption("Xdoclint:-reference,-html", "-quiet")
+    }
 }
 
 val generateBlockNodeProtoArtifact: TaskProvider<Exec> =
