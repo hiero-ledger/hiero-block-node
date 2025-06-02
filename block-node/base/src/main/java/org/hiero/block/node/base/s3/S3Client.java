@@ -685,17 +685,12 @@ public class S3Client implements AutoCloseable {
         // canonicalize the headers; we need the set of header names as well as the
         // names and values to go into the signature process
         final String canonicalizedHeaderNames = headers.keySet().stream()
-                // todo is this added filter needed?
-                .filter(entry -> !entry.toLowerCase(Locale.ENGLISH).equals("x-amz-content-sha256"))
                 .map(header -> header.toLowerCase(Locale.ENGLISH))
                 .sorted(String.CASE_INSENSITIVE_ORDER)
                 .collect(Collectors.joining(";"));
         // The canonical header requires value entries in sorted order, and multiple white spaces in the values should
         // be compressed to a single space.
         final String canonicalizedHeaders = headers.entrySet().stream()
-                        // todo is this added filter needed?
-                        .filter(entry ->
-                                !entry.getKey().toLowerCase(Locale.ENGLISH).equals("x-amz-content-sha256"))
                         .sorted(Entry.comparingByKey(String.CASE_INSENSITIVE_ORDER))
                         .map(entry -> entry.getKey().toLowerCase(Locale.ENGLISH).replaceAll("\\s+", " ") + ":"
                                 + entry.getValue().replaceAll("\\s+", " "))
