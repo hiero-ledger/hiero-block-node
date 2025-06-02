@@ -12,6 +12,8 @@ tasks.withType<JavaCompile>().configureEach {
     options.compilerArgs.add("-Xlint:-exports,-deprecation,-removal,-dep-ann")
 }
 
+sourceSets.main { proto { srcDir(layout.projectDirectory.dir("../../protobuf/src/main/proto")) } }
+
 val generateBlockNodeProtoArtifact: TaskProvider<Exec> =
     tasks.register<Exec>("generateBlockNodeProtoArtifact") {
         description =
