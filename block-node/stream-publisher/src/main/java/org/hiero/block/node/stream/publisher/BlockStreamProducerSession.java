@@ -70,7 +70,7 @@ public final class BlockStreamProducerSession implements Pipeline<List<BlockItem
     /** The metric for the number of block end-of-stream messages sent */
     private final Counter blocksEndOfStreamSent;
     /** The metric for the number of block end-of-stream messages received */
-    private final Counter blocksEndOfStreamReceived;
+    private final Counter blocksEndStreamReceived;
     /** The metric for the number of stream errors */
     private final Counter streamErrors;
     /** The subscription for the GRPC connection with client */
@@ -105,7 +105,7 @@ public final class BlockStreamProducerSession implements Pipeline<List<BlockItem
      * @param blocksSkipsSent the metric for the number of block-skip messages sent
      * @param blocksResendSent the metric for the number of block-resend messages sent
      * @param blocksEndOfStreamSent the metric for the number of block end-of-stream messages sent
-     * @param blocksEndOfStreamReceived the metric for the number of block end-of-stream messages received
+     * @param blocksEndStreamReceived the metric for the number of block end-of-stream messages received
      * @param streamErrors the metric for the number of stream errors
      */
     public BlockStreamProducerSession(
@@ -120,7 +120,7 @@ public final class BlockStreamProducerSession implements Pipeline<List<BlockItem
             @NonNull final Counter blocksSkipsSent,
             @NonNull final Counter blocksResendSent,
             @NonNull final Counter blocksEndOfStreamSent,
-            @NonNull final Counter blocksEndOfStreamReceived,
+            @NonNull final Counter blocksEndStreamReceived,
             @NonNull final Counter streamErrors) {
         this.sessionId = sessionId;
         this.onUpdate = requireNonNull(onUpdate);
@@ -132,7 +132,7 @@ public final class BlockStreamProducerSession implements Pipeline<List<BlockItem
         this.blocksSkipsSent = requireNonNull(blocksSkipsSent);
         this.blocksResendSent = requireNonNull(blocksResendSent);
         this.blocksEndOfStreamSent = requireNonNull(blocksEndOfStreamSent);
-        this.blocksEndOfStreamReceived = requireNonNull(blocksEndOfStreamReceived);
+        this.blocksEndStreamReceived = requireNonNull(blocksEndStreamReceived);
         this.streamErrors = requireNonNull(streamErrors);
         // log the creation of the session
         LOGGER.log(DEBUG, "Created new BlockStreamProducerSession");
@@ -481,7 +481,7 @@ public final class BlockStreamProducerSession implements Pipeline<List<BlockItem
         stateLock.lock();
         try {
             LOGGER.log(DEBUG, "BlockStreamProducerSession clientEndStreamReceived");
-            blocksEndOfStreamReceived.increment();
+            blocksEndStreamReceived.increment();
             close();
             // call the onUpdate method to notify the block messaging service that we have received data and updated our
             // state

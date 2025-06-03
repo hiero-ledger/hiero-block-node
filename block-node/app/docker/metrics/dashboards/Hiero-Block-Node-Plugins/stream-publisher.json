@@ -100,7 +100,7 @@
       "gridPos": { "h": 8, "w": 8, "x": 0, "y": 9 },
       "targets": [
         {
-          "expr": "rate(hiero_block_node_publisher_blocks_resend_sent_total[$__rate_interval])",
+          "expr": "rate(hiero_block_node_publisher_block_endofstream_sent_total[$__rate_interval])",
           "refId": "A"
         }
       ],
@@ -118,7 +118,7 @@
       "gridPos": { "h": 8, "w": 8, "x": 8, "y": 9 },
       "targets": [
         {
-          "expr": "rate(hiero_block_node_publisher_blocks_endofstrem_sent_total[$__rate_interval])",
+          "expr": "rate(hiero_block_node_publisher_block_endofstream_sent_total[$__rate_interval])",
           "refId": "A"
         }
       ],
@@ -136,7 +136,7 @@
       "gridPos": { "h": 8, "w": 8, "x": 16, "y": 9 },
       "targets": [
         {
-          "expr": "rate(hiero_block_node_publisher_blocks_endofstrem_received_total[$__rate_interval])",
+          "expr": "rate(hiero_block_node_publisher_block_endstream_received_total[$__rate_interval])",
           "refId": "A"
         }
       ],

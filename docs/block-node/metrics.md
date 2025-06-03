@@ -82,8 +82,8 @@ Observes inbound streams from publishers.
 | Counter | `publisher_stream_errors`                | Publisher connection streams that end in an error   |
 | Counter | `publisher_blocks_skips_sent`            | Block‑ack skips sent                                |
 | Counter | `publisher_blocks_resend_sent`           | Block Resend messages sent                          |
-| Counter | `publisher_blocks_endofstrem_sent`       | Block End-of-Stream messages sent                   |
-| Counter | `publisher_blocks_endofstrem_received`   | Block End-of-Stream messages received               |
+| Counter | `publisher_block_endofstream_sent`       | Block End-of-Stream messages sent                   |
+| Counter | `publisher_block_endstream_received`     | Block End-Stream messages received                  |
 
 ---
 
@@ -104,13 +104,13 @@ Observes outbound streams served to subscribers.
 **Plugin:** `verification [block-node-verification]`
 Measures block‑verification throughput and success rate.
 
-|  Type   |              Name              |             Description             |
-|---------|--------------------------------|-------------------------------------|
-| Counter | `verification_blocks_received` | Blocks received for verification    |
-| Counter | `verification_blocks_verified` | Blocks that passed verification     |
-| Counter | `verification_blocks_failed`   | Blocks that failed verification     |
-| Counter | `verification_blocks_error`    | Internal errors during verification |
-| Counter | `verification_block_time`      | Verification time per block (ms)    |
+|  Type   |              Name              |                 Description                  |
+|---------|--------------------------------|----------------------------------------------|
+| Counter | `verification_blocks_received` | Blocks received for verification             |
+| Counter | `verification_blocks_verified` | Blocks that passed verification              |
+| Counter | `verification_blocks_failed`   | Blocks that failed verification              |
+| Counter | `verification_blocks_error`    | Internal errors during verification          |
+| Counter | `verification_block_time`      | Verification time per block (ns=nanoseconds) |
 
 ---
 

@@ -367,12 +367,12 @@ public final class PublisherServicePlugin
                 .withDescription("Block Resend messages sent"));
 
         blocksEndOfStreamSent =
-                metrics.getOrCreate(new Counter.Config(METRICS_CATEGORY, "publisher_blocks_endofstrem_sent")
+                metrics.getOrCreate(new Counter.Config(METRICS_CATEGORY, "publisher_block_endofstream_sent")
                         .withDescription("Block End-of-Stream messages sent"));
 
         blocksEndOfStreamReceived =
-                metrics.getOrCreate(new Counter.Config(METRICS_CATEGORY, "publisher_blocks_endofstrem_received")
-                        .withDescription("Block End-of-Stream messages received"));
+                metrics.getOrCreate(new Counter.Config(METRICS_CATEGORY, "publisher_block_endstream_received")
+                        .withDescription("Block End-Stream messages received"));
 
         // Initialize gauges
         lowestBlockNumberInbound =
