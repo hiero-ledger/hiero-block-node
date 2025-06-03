@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.node.blocks.files.historic;
 
+import static java.lang.System.Logger.Level.ERROR;
+import static java.lang.System.Logger.Level.WARNING;
 import static org.hiero.block.node.base.BlockFile.blockNumberFromFile;
 import static org.hiero.block.node.blocks.files.historic.BlockPath.computeBlockPath;
 import static org.hiero.block.node.blocks.files.historic.BlockPath.computeExistingBlockPath;
@@ -186,7 +188,7 @@ class ZipBlockArchive {
                     }
                 }
             } catch (final Exception e) {
-                LOGGER.log(System.Logger.Level.ERROR, "Error reading directory: " + lowestPath, e);
+                LOGGER.log(ERROR, "Error reading directory: " + lowestPath, e);
                 context.serverHealth()
                         .shutdown(
                                 ZipBlockArchive.class.getName(),
@@ -238,7 +240,7 @@ class ZipBlockArchive {
                     }
                 }
             } catch (final Exception e) {
-                LOGGER.log(System.Logger.Level.ERROR, "Error reading directory: " + highestPath, e);
+                LOGGER.log(ERROR, "Error reading directory: " + highestPath, e);
                 context.serverHealth()
                         .shutdown(
                                 ZipBlockArchive.class.getName(),
@@ -263,14 +265,13 @@ class ZipBlockArchive {
                         try {
                             return Files.size(file);
                         } catch (IOException e) {
-                            LOGGER.log(System.Logger.Level.WARNING, "Failed to get size of file: " + file, e);
+                            LOGGER.log(WARNING, "Failed to get size of file: " + file, e);
                             return 0;
                         }
                     })
                     .sum();
         } catch (IOException e) {
-            LOGGER.log(
-                    System.Logger.Level.ERROR, "Error walking directory structure to calculate total bytes stored", e);
+            LOGGER.log(ERROR, "Error walking directory structure to calculate total bytes stored", e);
             return 0;
         }
     }
