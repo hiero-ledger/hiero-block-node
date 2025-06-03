@@ -61,6 +61,18 @@ public final class BlockStreamProducerSession implements Pipeline<List<BlockItem
     private final ReentrantLock stateLock;
     /** The callback for sending block items to the block messaging service */
     private final Consumer<BlockItems> sendToBlockMessaging;
+    /** The metric for the number of block-ack messages sent */
+    private final Counter blocksAckSent;
+    /** The metric for the number of block-skip messages sent */
+    private final Counter blocksSkipsSent;
+    /** The metric for the number of block-resend messages sent */
+    private final Counter blocksResendSent;
+    /** The metric for the number of block end-of-stream messages sent */
+    private final Counter blocksEndOfStreamSent;
+    /** The metric for the number of block end-of-stream messages received */
+    private final Counter blocksEndStreamReceived;
+    /** The metric for the number of stream errors */
+    private final Counter streamErrors;
     /** The subscription for the GRPC connection with client */
     private Flow.Subscription subscription;
     /** The current state of this session, i.e. state machine state */
@@ -89,6 +101,12 @@ public final class BlockStreamProducerSession implements Pipeline<List<BlockItem
      * @param stateLock the lock for accessing state
      * @param sendToBlockMessaging the callback for sending block items to the block messaging service
      * @param currentLatestAcknowledgedBlockNumber the current latest acknowledged block number
+     * @param blocksAckSent the metric for the number of block-ack messages sent
+     * @param blocksSkipsSent the metric for the number of block-skip messages sent
+     * @param blocksResendSent the metric for the number of block-resend messages sent
+     * @param blocksEndOfStreamSent the metric for the number of block end-of-stream messages sent
+     * @param blocksEndStreamReceived the metric for the number of block end-of-stream messages received
+     * @param streamErrors the metric for the number of stream errors
      */
     public BlockStreamProducerSession(
             final long sessionId,
@@ -97,13 +115,25 @@ public final class BlockStreamProducerSession implements Pipeline<List<BlockItem
             @NonNull final Counter liveBlockItemsReceived,
             @NonNull final ReentrantLock stateLock,
             @NonNull final Consumer<BlockItems> sendToBlockMessaging,
-            final long currentLatestAcknowledgedBlockNumber) {
+            final long currentLatestAcknowledgedBlockNumber,
+            @NonNull final Counter blocksAckSent,
+            @NonNull final Counter blocksSkipsSent,
+            @NonNull final Counter blocksResendSent,
+            @NonNull final Counter blocksEndOfStreamSent,
+            @NonNull final Counter blocksEndStreamReceived,
+            @NonNull final Counter streamErrors) {
         this.sessionId = sessionId;
         this.onUpdate = requireNonNull(onUpdate);
         this.responsePipeline = requireNonNull(responsePipeline);
         this.liveBlockItemsReceived = requireNonNull(liveBlockItemsReceived);
         this.stateLock = requireNonNull(stateLock);
         this.sendToBlockMessaging = requireNonNull(sendToBlockMessaging);
+        this.blocksAckSent = requireNonNull(blocksAckSent);
+        this.blocksSkipsSent = requireNonNull(blocksSkipsSent);
+        this.blocksResendSent = requireNonNull(blocksResendSent);
+        this.blocksEndOfStreamSent = requireNonNull(blocksEndOfStreamSent);
+        this.blocksEndStreamReceived = requireNonNull(blocksEndStreamReceived);
+        this.streamErrors = requireNonNull(streamErrors);
         // log the creation of the session
         LOGGER.log(DEBUG, "Created new BlockStreamProducerSession");
         latestAcknowledgedBlock = currentLatestAcknowledgedBlockNumber;
@@ -188,6 +218,7 @@ public final class BlockStreamProducerSession implements Pipeline<List<BlockItem
         final PublishStreamResponse skipBlockResponse =
                 new PublishStreamResponse(new OneOf<>(ResponseOneOfType.SKIP_BLOCK, new SkipBlock(currentBlockNumber)));
         sendResponse(skipBlockResponse);
+        blocksSkipsSent.increment();
     }
 
     /**
@@ -203,6 +234,7 @@ public final class BlockStreamProducerSession implements Pipeline<List<BlockItem
         final PublishStreamResponse duplicateResponse =
                 new PublishStreamResponse(new OneOf<>(ResponseOneOfType.ACKNOWLEDGEMENT, ack));
         sendResponse(duplicateResponse);
+        blocksAckSent.increment();
     }
 
     /**
@@ -217,6 +249,7 @@ public final class BlockStreamProducerSession implements Pipeline<List<BlockItem
         final PublishStreamResponse response =
                 new PublishStreamResponse(new OneOf<>(ResponseOneOfType.END_STREAM, endOfStream));
         sendResponse(response);
+        blocksEndOfStreamSent.increment();
     }
 
     /**
@@ -235,6 +268,7 @@ public final class BlockStreamProducerSession implements Pipeline<List<BlockItem
         final PublishStreamResponse resendBlockResponse =
                 new PublishStreamResponse(new OneOf<>(ResponseOneOfType.RESEND_BLOCK, new ResendBlock(blockNumber)));
         sendResponse(resendBlockResponse);
+        blocksResendSent.increment();
     }
 
     /**
@@ -248,6 +282,7 @@ public final class BlockStreamProducerSession implements Pipeline<List<BlockItem
             final PublishStreamResponse closeResponse = new PublishStreamResponse(
                     new OneOf<>(ResponseOneOfType.END_STREAM, new EndOfStream(Code.SUCCESS, currentBlockNumber)));
             sendResponse(closeResponse);
+            blocksEndOfStreamSent.increment();
 
             if (subscription != null) {
                 subscription.cancel();
@@ -286,6 +321,7 @@ public final class BlockStreamProducerSession implements Pipeline<List<BlockItem
                         ResponseOneOfType.ACKNOWLEDGEMENT, new BlockAcknowledgement(blockToSend, null, false)));
                 // send the acknowledgment to the client
                 sendResponse(goodBlockResponse);
+                blocksAckSent.increment();
                 blockToSend++;
             }
         } finally {
@@ -426,6 +462,7 @@ public final class BlockStreamProducerSession implements Pipeline<List<BlockItem
         stateLock.lock();
         try {
             LOGGER.log(DEBUG, "BlockStreamProducerSession error", throwable.getMessage());
+            streamErrors.increment();
             close();
             // call the onUpdate method to notify the block messaging service that we have received data and updated our
             // state
@@ -444,6 +481,7 @@ public final class BlockStreamProducerSession implements Pipeline<List<BlockItem
         stateLock.lock();
         try {
             LOGGER.log(DEBUG, "BlockStreamProducerSession clientEndStreamReceived");
+            blocksEndStreamReceived.increment();
             close();
             // call the onUpdate method to notify the block messaging service that we have received data and updated our
             // state
