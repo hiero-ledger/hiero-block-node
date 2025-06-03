@@ -63,7 +63,6 @@ mainModuleInfo {
     runtimeOnly("org.hiero.block.node.blocks.files.recent")
     runtimeOnly("org.hiero.block.node.access.service")
     runtimeOnly("org.hiero.block.node.server.status")
-    runtimeOnly("org.hiero.block.node.archive.s3cloud")
 }
 
 testModuleInfo {
