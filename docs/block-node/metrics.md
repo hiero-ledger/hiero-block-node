@@ -166,7 +166,6 @@ Tracks long‑term archival jobs that push blocks to S3.
 **Plugin:** `server-status [block-node-server-status]`
 Observes the server status API that provides information about the node.
 
-|  Type   | Name                      | Description                              |
-|---------|---------------------------|------------------------------------------|
-| Counter | `server_status_requests ` | Number of server status requests         |
-
+|  Type   |           Name            |           Description            |
+|---------|---------------------------|----------------------------------|
+| Counter | `server_status_requests ` | Number of server status requests |

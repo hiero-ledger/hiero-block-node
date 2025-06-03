@@ -263,15 +263,14 @@ class ZipBlockArchive {
                         try {
                             return Files.size(file);
                         } catch (IOException e) {
-                            LOGGER.log(System.Logger.Level.WARNING,
-                                "Failed to get size of file: " + file, e);
+                            LOGGER.log(System.Logger.Level.WARNING, "Failed to get size of file: " + file, e);
                             return 0;
                         }
                     })
                     .sum();
         } catch (IOException e) {
-            LOGGER.log(System.Logger.Level.ERROR,
-                "Error walking directory structure to calculate total bytes stored", e);
+            LOGGER.log(
+                    System.Logger.Level.ERROR, "Error walking directory structure to calculate total bytes stored", e);
             return 0;
         }
     }

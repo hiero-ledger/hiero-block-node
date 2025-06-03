@@ -131,8 +131,9 @@ public final class BlocksFilesHistoricPlugin implements BlockProviderPlugin, Blo
         blocksStoredGauge = metrics.getOrCreate(new LongGauge.Config(METRICS_CATEGORY, "files_historic_blocks_stored")
                 .withDescription("Blocks stored in historic tier"));
 
-        bytesStoredGauge = metrics.getOrCreate(new LongGauge.Config(METRICS_CATEGORY, "files_historic_total_bytes_stored")
-                .withDescription("Bytes stored in historic tier"));
+        bytesStoredGauge =
+                metrics.getOrCreate(new LongGauge.Config(METRICS_CATEGORY, "files_historic_total_bytes_stored")
+                        .withDescription("Bytes stored in historic tier"));
     }
 
     /**
