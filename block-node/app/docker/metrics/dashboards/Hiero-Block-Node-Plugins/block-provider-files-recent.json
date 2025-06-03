@@ -18,7 +18,7 @@
   "editable": true,
   "fiscalYearStartMonth": 0,
   "graphTooltip": 0,
-  "id": 9,
+  "id": 10,
   "links": [],
   "panels": [
     {
@@ -112,7 +112,10 @@
       "pluginVersion": "11.4.0",
       "targets": [
         {
+          "editorMode": "code",
           "expr": "rate(hiero_block_node_files_recent_blocks_written_total[$__rate_interval])",
+          "interval": "1m",
+          "range": true,
           "refId": "A"
         }
       ],
@@ -197,7 +200,10 @@
       "pluginVersion": "11.4.0",
       "targets": [
         {
+          "editorMode": "code",
           "expr": "rate(hiero_block_node_files_recent_blocks_read_total[$__rate_interval])",
+          "interval": "1m",
+          "range": true,
           "refId": "A"
         }
       ],
@@ -282,7 +288,10 @@
       "pluginVersion": "11.4.0",
       "targets": [
         {
+          "editorMode": "code",
           "expr": "rate(hiero_block_node_files_recent_blocks_deleted_total[$__rate_interval])",
+          "interval": "1m",
+          "range": true,
           "refId": "A"
         }
       ],
@@ -337,8 +346,11 @@
       "targets": [
         {
           "editorMode": "code",
+          "exemplar": false,
           "expr": "increase(hiero_block_node_files_recent_blocks_written_total[$__range])",
-          "range": true,
+          "instant": true,
+          "interval": "1m",
+          "range": false,
           "refId": "A"
         }
       ],
@@ -393,7 +405,12 @@
       "pluginVersion": "11.4.0",
       "targets": [
         {
+          "editorMode": "code",
+          "exemplar": false,
           "expr": "increase(hiero_block_node_files_recent_blocks_read_total[$__range])",
+          "instant": true,
+          "interval": "1m",
+          "range": false,
           "refId": "A"
         }
       ],
@@ -447,7 +464,11 @@
       "pluginVersion": "11.4.0",
       "targets": [
         {
+          "editorMode": "code",
+          "exemplar": false,
           "expr": "increase(hiero_block_node_files_recent_blocks_deleted_total[$__range])",
+          "instant": true,
+          "range": false,
           "refId": "A"
         }
       ],
@@ -514,7 +535,11 @@
       "pluginVersion": "11.4.0",
       "targets": [
         {
+          "editorMode": "code",
+          "exemplar": false,
           "expr": "hiero_block_node_files_recent_blocks_stored",
+          "instant": true,
+          "range": false,
           "refId": "A"
         }
       ],
@@ -599,7 +624,10 @@
       "pluginVersion": "11.4.0",
       "targets": [
         {
+          "editorMode": "code",
           "expr": "hiero_block_node_files_recent_blocks_stored",
+          "interval": "1m",
+          "range": true,
           "refId": "A"
         }
       ],
@@ -653,7 +681,11 @@
       "pluginVersion": "11.4.0",
       "targets": [
         {
+          "editorMode": "code",
+          "exemplar": false,
           "expr": "hiero_block_node_files_recent_total_bytes_stored",
+          "instant": true,
+          "range": false,
           "refId": "A"
         }
       ],
@@ -738,7 +770,10 @@
       "pluginVersion": "11.4.0",
       "targets": [
         {
-          "expr": "hiero_block_node_files_recent_total_bytes_stored",
+          "editorMode": "code",
+          "expr": "sum(increase(hiero_block_node_files_recent_total_bytes_stored[$__range]))",
+          "interval": "1m",
+          "range": true,
           "refId": "A"
         }
       ],
@@ -754,13 +789,13 @@
     "list": []
   },
   "time": {
-    "from": "now-3h",
+    "from": "now-1h",
     "to": "now"
   },
   "timepicker": {},
   "timezone": "browser",
   "title": "Block-Provider: Files Recent",
   "uid": "cens18daw2i2oa",
-  "version": 2,
+  "version": 3,
   "weekStart": ""
 }
