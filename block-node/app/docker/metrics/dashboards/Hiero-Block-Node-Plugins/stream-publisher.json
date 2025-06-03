@@ -131,7 +131,7 @@
     {
       "id": 7,
       "type": "timeseries",
-      "title": "End-of-Stream Received /s",
+      "title": "End-Stream Received /s",
       "datasource": { "uid": "prometheus" },
       "gridPos": { "h": 8, "w": 8, "x": 16, "y": 9 },
       "targets": [
