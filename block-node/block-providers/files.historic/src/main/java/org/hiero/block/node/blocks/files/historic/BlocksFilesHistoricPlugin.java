@@ -123,17 +123,17 @@ public final class BlocksFilesHistoricPlugin implements BlockProviderPlugin, Blo
      */
     private void initMetrics(Metrics metrics) {
         blocksWrittenCounter = metrics.getOrCreate(new Counter.Config(METRICS_CATEGORY, "files_historic_blocks_written")
-                .withDescription("Blocks written to historic tier"));
+                .withDescription("Blocks written to files.historic provider"));
 
         blocksReadCounter = metrics.getOrCreate(new Counter.Config(METRICS_CATEGORY, "files_historic_blocks_read")
-                .withDescription("Blocks read from historic tier"));
+                .withDescription("Blocks read from files.historic provider"));
 
         blocksStoredGauge = metrics.getOrCreate(new LongGauge.Config(METRICS_CATEGORY, "files_historic_blocks_stored")
-                .withDescription("Blocks stored in historic tier"));
+                .withDescription("Blocks stored in files.historic provider"));
 
         bytesStoredGauge =
                 metrics.getOrCreate(new LongGauge.Config(METRICS_CATEGORY, "files_historic_total_bytes_stored")
-                        .withDescription("Bytes stored in historic tier"));
+                        .withDescription("Bytes stored in files.historic provider"));
     }
 
     /**

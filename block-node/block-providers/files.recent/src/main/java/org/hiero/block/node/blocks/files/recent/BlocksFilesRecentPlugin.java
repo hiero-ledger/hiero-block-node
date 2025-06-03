@@ -154,23 +154,23 @@ public final class BlocksFilesRecentPlugin implements BlockProviderPlugin, Block
     }
 
     /**
-     * Initialize metrics for this plugin.
+     * Initialize metrics for this plugin. vb
      */
     private void initMetrics(Metrics metrics) {
         blocksWrittenCounter = metrics.getOrCreate(new Counter.Config(METRICS_CATEGORY, "files_recent_blocks_written")
-                .withDescription("Blocks written to recent tier"));
+                .withDescription("Blocks written to files.recent provider"));
 
         blocksReadCounter = metrics.getOrCreate(new Counter.Config(METRICS_CATEGORY, "files_recent_blocks_read")
-                .withDescription("Blocks read from recent tier"));
+                .withDescription("Blocks read from files.recent provider"));
 
         blocksDeletedCounter = metrics.getOrCreate(new Counter.Config(METRICS_CATEGORY, "files_recent_blocks_deleted")
-                .withDescription("Blocks deleted from recent tier"));
+                .withDescription("Blocks deleted from files.recent provider"));
 
         blocksStoredGauge = metrics.getOrCreate(new LongGauge.Config(METRICS_CATEGORY, "files_recent_blocks_stored")
-                .withDescription("Blocks stored in recent tier"));
+                .withDescription("Blocks stored in files.recent provider"));
 
         bytesStoredGauge = metrics.getOrCreate(new LongGauge.Config(METRICS_CATEGORY, "files_recent_total_bytes_stored")
-                .withDescription("Bytes stored in recent tier"));
+                .withDescription("Bytes stored in files.recent provider"));
     }
 
     /**
