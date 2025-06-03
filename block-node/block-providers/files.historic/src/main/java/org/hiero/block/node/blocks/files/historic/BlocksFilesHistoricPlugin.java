@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.node.blocks.files.historic;
 
+import com.swirlds.metrics.api.Counter;
+import com.swirlds.metrics.api.LongGauge;
+import com.swirlds.metrics.api.Metrics;
 import edu.umd.cs.findbugs.annotations.NonNull;
 import java.io.IOException;
 import java.lang.System.Logger.Level;
@@ -9,6 +12,7 @@ import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.ExecutorService;
+import java.util.concurrent.atomic.AtomicLong;
 import org.hiero.block.node.base.ranges.ConcurrentLongRangeSet;
 import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.ServiceBuilder;
@@ -38,6 +42,18 @@ public final class BlocksFilesHistoricPlugin implements BlockProviderPlugin, Blo
     private final ConcurrentLongRangeSet availableBlocks = new ConcurrentLongRangeSet();
     /** List of all zip ranges that are in progress, so we do not start a duplicate job. */
     private final CopyOnWriteArrayList<LongRange> inProgressZipRanges = new CopyOnWriteArrayList<>();
+    /** Running total of bytes stored in the historic tier */
+    private final AtomicLong totalBytesStored = new AtomicLong(0);
+
+    // Metrics
+    /** Counter for blocks written to the historic tier */
+    private Counter blocksWrittenCounter;
+    /** Counter for blocks read from the historic tier */
+    private Counter blocksReadCounter;
+    /** Gauge for the number of blocks stored in the historic tier */
+    private LongGauge blocksStoredGauge;
+    /** Gauge for the total bytes stored in the historic tier */
+    private LongGauge bytesStoredGauge;
 
     // ==== BlockProviderPlugin Methods ================================================================================
 
@@ -57,6 +73,10 @@ public final class BlocksFilesHistoricPlugin implements BlockProviderPlugin, Blo
     public void init(final BlockNodeContext context, final ServiceBuilder serviceBuilder) {
         this.context = Objects.requireNonNull(context);
         final FilesHistoricConfig config = context.configuration().getConfigData(FilesHistoricConfig.class);
+
+        // Initialize metrics
+        initMetrics(context.metrics());
+
         // create plugin data root directory if it does not exist
         try {
             Files.createDirectories(config.rootPath());
@@ -89,7 +109,41 @@ public final class BlocksFilesHistoricPlugin implements BlockProviderPlugin, Blo
         if (firstZippedBlock >= 0) {
             // add the blocks to the available blocks only if the range is a valid one (positive)
             availableBlocks.add(firstZippedBlock, latestZippedBlock);
+
+            // Initialize total bytes stored by querying the zip block archive
+            totalBytesStored.set(zipBlockArchive.calculateTotalStoredBytes());
         }
+
+        // Register gauge updater
+        context.metrics().addUpdater(this::updateGauges);
+    }
+
+    /**
+     * Initialize metrics for this plugin.
+     */
+    private void initMetrics(Metrics metrics) {
+        blocksWrittenCounter = metrics.getOrCreate(new Counter.Config(METRICS_CATEGORY, "files_historic_blocks_written")
+                .withDescription("Blocks written to historic tier"));
+
+        blocksReadCounter = metrics.getOrCreate(new Counter.Config(METRICS_CATEGORY, "files_historic_blocks_read")
+                .withDescription("Blocks read from historic tier"));
+
+        blocksStoredGauge = metrics.getOrCreate(new LongGauge.Config(METRICS_CATEGORY, "files_historic_blocks_stored")
+                .withDescription("Blocks stored in historic tier"));
+
+        bytesStoredGauge = metrics.getOrCreate(new LongGauge.Config(METRICS_CATEGORY, "files_historic_total_bytes_stored")
+                .withDescription("Bytes stored in historic tier"));
+    }
+
+    /**
+     * Update gauge metrics with current state.
+     */
+    private void updateGauges() {
+        // Update blocks stored gauge with the count of available blocks
+        blocksStoredGauge.set(availableBlocks.size());
+
+        // Use the running total instead of calculating it each time
+        bytesStoredGauge.set(totalBytesStored.get());
     }
 
     /**
@@ -117,6 +171,8 @@ public final class BlocksFilesHistoricPlugin implements BlockProviderPlugin, Blo
         if (blockNumber < availableBlocks.min() || blockNumber > availableBlocks.max()) {
             return null;
         }
+        // Increment the blocks read counter
+        blocksReadCounter.increment();
         return zipBlockArchive.blockAccessor(blockNumber);
     }
 
@@ -205,7 +261,15 @@ public final class BlocksFilesHistoricPlugin implements BlockProviderPlugin, Blo
                     "Moving batch of blocks[%d -> %d] to zip file",
                     batchFirstBlockNumber,
                     batchLastBlockNumber);
-            zipBlockArchive.writeNewZipFile(batchFirstBlockNumber);
+
+            // Write the zip file and get result with file size
+            ZipBlockArchive.ZipFileCreationResult result = zipBlockArchive.writeNewZipFile(batchFirstBlockNumber);
+            // Metrics updates
+            // Update total bytes stored with the new zip file size
+            totalBytesStored.addAndGet(result.zipFileSize());
+            // Increment the blocks written counter
+            long blockCount = batchLastBlockNumber - batchFirstBlockNumber + 1;
+            blocksWrittenCounter.add(blockCount);
         } catch (final IOException e) {
             LOGGER.log(
                     System.Logger.Level.ERROR,

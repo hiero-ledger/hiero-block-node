@@ -131,7 +131,7 @@ Activity and utilization of the recent on‑disk tier.
 
 ## files.historic
 
-**Plugin:** `block-providers/files.historic [block-node-blocks-file-historic`
+**Plugin:** `block-providers/files.historic [block-node-blocks-file-historic]`
 Activity and utilization of the historic on‑disk tier.
 
 |  Type   |                Name                 |           Description           |

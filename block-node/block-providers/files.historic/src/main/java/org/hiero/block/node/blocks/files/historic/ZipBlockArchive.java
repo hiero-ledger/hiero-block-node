@@ -49,6 +49,11 @@ class ZipBlockArchive {
     private final Format format;
 
     /**
+     * Record to hold the result of creating a zip file including the block accessors and file size.
+     */
+    record ZipFileCreationResult(List<BlockAccessor> blockAccessors, long zipFileSize) {}
+
+    /**
      * Constructor for ZipBlockArchive.
      *
      * @param context The block node context
@@ -69,9 +74,9 @@ class ZipBlockArchive {
      *
      * @param firstBlockNumber The first block number to write
      * @throws IOException If an error occurs writing the block
-     * @return A list of block accessors for the blocks written to the zip file, can be used to delete the blocks
+     * @return A record containing block accessors and the size of the zip file created
      */
-    List<BlockAccessor> writeNewZipFile(long firstBlockNumber) throws IOException {
+    ZipFileCreationResult writeNewZipFile(long firstBlockNumber) throws IOException {
         final long lastBlockNumber = firstBlockNumber + numberOfBlocksPerZipFile - 1;
         // compute block path
         final BlockPath firstBlockPath = computeBlockPath(config, firstBlockNumber);
@@ -116,10 +121,12 @@ class ZipBlockArchive {
                 zipOutputStream.closeEntry();
             }
         }
+        // Compute zip file size without scanning the entire filesystem
+        long zipFileSize = Files.size(firstBlockPath.zipFilePath());
         // return block accessors
         // todo should these accessors be returned? they were here because a delete
         //   was supposed to be called on them, but we have changed the approach
-        return blockAccessors;
+        return new ZipFileCreationResult(blockAccessors, zipFileSize);
     }
 
     /**
@@ -240,5 +247,32 @@ class ZipBlockArchive {
             }
         }
         return -1;
+    }
+
+    /**
+     * Calculates the total size of all stored zip files in the archive.
+     *
+     * @return The total bytes stored in all zip files
+     */
+    long calculateTotalStoredBytes() {
+        try (Stream<Path> pathStream = Files.walk(config.rootPath())) {
+            return pathStream
+                    .filter(Files::isRegularFile)
+                    .filter(path -> path.getFileName().toString().endsWith(".zip"))
+                    .mapToLong(file -> {
+                        try {
+                            return Files.size(file);
+                        } catch (IOException e) {
+                            LOGGER.log(System.Logger.Level.WARNING,
+                                "Failed to get size of file: " + file, e);
+                            return 0;
+                        }
+                    })
+                    .sum();
+        } catch (IOException e) {
+            LOGGER.log(System.Logger.Level.ERROR,
+                "Error walking directory structure to calculate total bytes stored", e);
+            return 0;
+        }
     }
 }
