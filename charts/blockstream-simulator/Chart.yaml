@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 apiVersion: v2
-appVersion: 0.12.0-rc1
+appVersion: 0.13.0-SNAPSHOT
 description: A Helm chart for Hiero Blockstream Simulator.
 home: https://github.com/hiero-ledger/hiero-block-node
 keywords:
@@ -17,4 +17,4 @@ maintainers:
 name: blockstream-simulator-chart
 sources:
   - https://github.com/hiero-ledger/hiero-block-node
-version: 0.12.0-rc1
+version: 0.13.0-SNAPSHOT
