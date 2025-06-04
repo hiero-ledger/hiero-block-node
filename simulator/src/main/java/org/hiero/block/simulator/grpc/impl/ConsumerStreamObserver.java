@@ -111,9 +111,7 @@ public class ConsumerStreamObserver implements StreamObserver<SubscribeStreamRes
         if (consumerConfig.slowDown()) {
             long currentBlockCount = blocksConsumed.get();
 
-            if (consumerConfig.slowDownAfterBlock() > 0 && currentBlockCount >= consumerConfig.slowDownAfterBlock()) {
-                slowDownProcessing("after block %d".formatted(currentBlockCount));
-            } else if (!consumerConfig.slowDownForBlockRange().isBlank()) {
+            if (!consumerConfig.slowDownForBlockRange().isBlank()) {
                 Set<Long> blockRangeSet = parseSlowDownForBlockRange(consumerConfig.slowDownForBlockRange());
                 if (blockRangeSet.contains(currentBlockCount)) {
                     slowDownProcessing("for block %d".formatted(currentBlockCount));
