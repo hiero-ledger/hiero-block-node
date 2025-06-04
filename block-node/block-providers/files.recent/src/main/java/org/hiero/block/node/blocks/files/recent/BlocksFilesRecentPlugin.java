@@ -6,6 +6,9 @@ import static java.lang.System.Logger.Level.WARNING;
 import static org.hiero.block.node.base.BlockFile.nestedDirectoriesAllBlockNumbers;
 
 import com.hedera.pbj.runtime.io.stream.WritableStreamingData;
+import com.swirlds.metrics.api.Counter;
+import com.swirlds.metrics.api.LongGauge;
+import com.swirlds.metrics.api.Metrics;
 import edu.umd.cs.findbugs.annotations.NonNull;
 import java.io.BufferedOutputStream;
 import java.io.IOException;
@@ -14,6 +17,7 @@ import java.lang.System.Logger.Level;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicLong;
 import org.hiero.block.internal.BlockUnparsed;
 import org.hiero.block.node.base.BlockFile;
 import org.hiero.block.node.base.ranges.ConcurrentLongRangeSet;
@@ -67,6 +71,20 @@ public final class BlocksFilesRecentPlugin implements BlockProviderPlugin, Block
     private BlockMessagingFacility blockMessaging;
     /** The set of available blocks. */
     private final ConcurrentLongRangeSet availableBlocks = new ConcurrentLongRangeSet();
+    /** Running total of bytes stored in the recent tier */
+    private final AtomicLong totalBytesStored = new AtomicLong(0);
+
+    // Metrics
+    /** Counter for blocks written to the recent tier */
+    private Counter blocksWrittenCounter;
+    /** Counter for blocks read from the recent tier */
+    private Counter blocksReadCounter;
+    /** Counter for blocks deleted from the recent tier */
+    private Counter blocksDeletedCounter;
+    /** Gauge for the number of blocks stored in the recent tier */
+    private LongGauge blocksStoredGauge;
+    /** Gauge for the total bytes stored in the recent tier */
+    private LongGauge bytesStoredGauge;
 
     /**
      * Default constructor for the plugin. This is used for normal service loading.
@@ -103,6 +121,8 @@ public final class BlocksFilesRecentPlugin implements BlockProviderPlugin, Block
             this.config = context.configuration().getConfigData(FilesRecentConfig.class);
         }
         this.blockMessaging = context.blockMessaging();
+        // Initialize metrics
+        initMetrics(context.metrics());
         // create plugin data root directory if it does not exist
         try {
             Files.createDirectories(config.liveRootPath());
@@ -115,7 +135,53 @@ public final class BlocksFilesRecentPlugin implements BlockProviderPlugin, Block
         // scan file system to find the oldest and newest blocks
         // TODO this can be way for efficient, very brute force at the moment
         nestedDirectoriesAllBlockNumbers(config.liveRootPath(), config.compression())
-                .forEach(availableBlocks::add);
+                .forEach(blockNumber -> {
+                    availableBlocks.add(blockNumber);
+                    // Initialize total bytes stored counter
+                    try {
+                        Path blockFilePath = BlockFile.nestedDirectoriesBlockFilePath(
+                                config.liveRootPath(), blockNumber, config.compression(), config.maxFilesPerDir());
+                        if (Files.exists(blockFilePath)) {
+                            totalBytesStored.addAndGet(Files.size(blockFilePath));
+                        }
+                    } catch (IOException e) {
+                        LOGGER.log(WARNING, "Failed to get size of block file for block " + blockNumber, e);
+                    }
+                });
+
+        // Register gauge updater
+        context.metrics().addUpdater(this::updateGauges);
+    }
+
+    /**
+     * Initialize metrics for this plugin. vb
+     */
+    private void initMetrics(Metrics metrics) {
+        blocksWrittenCounter = metrics.getOrCreate(new Counter.Config(METRICS_CATEGORY, "files_recent_blocks_written")
+                .withDescription("Blocks written to files.recent provider"));
+
+        blocksReadCounter = metrics.getOrCreate(new Counter.Config(METRICS_CATEGORY, "files_recent_blocks_read")
+                .withDescription("Blocks read from files.recent provider"));
+
+        blocksDeletedCounter = metrics.getOrCreate(new Counter.Config(METRICS_CATEGORY, "files_recent_blocks_deleted")
+                .withDescription("Blocks deleted from files.recent provider"));
+
+        blocksStoredGauge = metrics.getOrCreate(new LongGauge.Config(METRICS_CATEGORY, "files_recent_blocks_stored")
+                .withDescription("Blocks stored in files.recent provider"));
+
+        bytesStoredGauge = metrics.getOrCreate(new LongGauge.Config(METRICS_CATEGORY, "files_recent_total_bytes_stored")
+                .withDescription("Bytes stored in files.recent provider"));
+    }
+
+    /**
+     * Update gauge metrics with current state.
+     */
+    private void updateGauges() {
+        // Update blocks stored gauge with the count of available blocks
+        blocksStoredGauge.set(availableBlocks.size());
+
+        // Use the running total instead of calculating it each time
+        bytesStoredGauge.set(totalBytesStored.get());
     }
 
     /**
@@ -139,6 +205,7 @@ public final class BlocksFilesRecentPlugin implements BlockProviderPlugin, Block
                     config.liveRootPath(), blockNumber, config.compression(), config.maxFilesPerDir());
             if (Files.exists(verifiedBlockPath)) {
                 // we have the block so return it
+                blocksReadCounter.increment();
                 return new BlockFileBlockAccessor(verifiedBlockPath, config.compression(), blockNumber);
             } else {
                 LOGGER.log(
@@ -221,6 +288,10 @@ public final class BlocksFilesRecentPlugin implements BlockProviderPlugin, Block
                 config.compression().wrapStream(Files.newOutputStream(verifiedBlockPath)), 1024 * 1024))) {
             BlockUnparsed.PROTOBUF.write(block, streamingData);
             streamingData.flush();
+
+            // Add the size of the newly written file to our total bytes counter
+            totalBytesStored.addAndGet(Files.size(verifiedBlockPath));
+
             LOGGER.log(
                     Level.DEBUG,
                     "Wrote verified block: {0} to file: {1}",
@@ -228,8 +299,10 @@ public final class BlocksFilesRecentPlugin implements BlockProviderPlugin, Block
                     verifiedBlockPath.toAbsolutePath().toString());
             // update the oldest and newest verified block numbers
             availableBlocks.add(blockNumber);
-            // send block persisted notification
+            // Send block persisted notification
             blockMessaging.sendBlockPersisted(new PersistedNotification(blockNumber, blockNumber, defaultPriority()));
+            // Increment blocks written counter
+            blocksWrittenCounter.increment();
         } catch (final IOException e) {
             LOGGER.log(
                     System.Logger.Level.ERROR,
@@ -251,8 +324,17 @@ public final class BlocksFilesRecentPlugin implements BlockProviderPlugin, Block
         try {
             // log we are deleting the block file
             LOGGER.log(DEBUG, "Deleting block file: " + blockFilePath);
-            // delete the block file
-            Files.deleteIfExists(blockFilePath);
+
+            // Get file size before deleting to update total bytes stored
+            if (Files.exists(blockFilePath)) {
+                long fileSize = Files.size(blockFilePath);
+                // delete the block file and update counters
+                if (Files.deleteIfExists(blockFilePath)) {
+                    blocksDeletedCounter.increment();
+                    totalBytesStored.addAndGet(-fileSize);
+                }
+            }
+
             // clean up any empty parent directories up to the base directory
             Path parentDir = blockFilePath.getParent();
             while (parentDir != null && !parentDir.equals(config.liveRootPath())) {

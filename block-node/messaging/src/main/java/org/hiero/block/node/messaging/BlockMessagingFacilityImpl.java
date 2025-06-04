@@ -274,7 +274,7 @@ public class BlockMessagingFacilityImpl implements BlockMessagingFacility {
     @Override
     public void sendBlockItems(final BlockItems blockItems) {
         blockItemDisruptor.getRingBuffer().publishEvent((event, sequence) -> event.set(blockItems));
-        blockItemsReceivedCounter.increment();
+        blockItemsReceivedCounter.add(blockItems.blockItems().size());
     }
 
     /**

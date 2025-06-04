@@ -131,7 +131,7 @@ Activity and utilization of the recent on‑disk tier.
 
 ## files.historic
 
-**Plugin:** `block-providers/files.historic [block-node-blocks-file-historic`
+**Plugin:** `block-providers/files.historic [block-node-blocks-file-historic]`
 Activity and utilization of the historic on‑disk tier.
 
 |  Type   |                Name                 |           Description           |
@@ -158,3 +158,14 @@ Tracks long‑term archival jobs that push blocks to S3.
 | Counter | `s3_archive_chunks_uploaded`    | Chunks uploaded to S3                   |
 | Gauge   | `s3_archive_chunks_opened`      | Open chucks currently                   |
 | Counter | `s3_archive_files_closed`       | Total number of files closed, finished. |
+
+---
+
+## Server Status API
+
+**Plugin:** `server-status [block-node-server-status]`
+Observes the server status API that provides information about the node.
+
+|  Type   |           Name            |           Description            |
+|---------|---------------------------|----------------------------------|
+| Counter | `server_status_requests ` | Number of server status requests |
