@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.node.stream.subscriber;
 
+import static java.util.concurrent.TimeUnit.SECONDS;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hiero.block.node.app.fixtures.blocks.SimpleTestBlockItemBuilder.createNumberOfSimpleBlockBatches;
 
@@ -17,11 +18,11 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Flow;
 import java.util.concurrent.Future;
-import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import org.hiero.block.api.SubscribeStreamRequest;
 import org.hiero.block.api.SubscribeStreamResponse;
 import org.hiero.block.internal.SubscribeStreamResponseUnparsed;
+import org.hiero.block.internal.SubscribeStreamResponseUnparsed.ResponseOneOfType;
 import org.hiero.block.node.app.fixtures.plugintest.SimpleInMemoryHistoricalBlockFacility;
 import org.hiero.block.node.app.fixtures.plugintest.TestBlockMessagingFacility;
 import org.hiero.block.node.spi.BlockNodeContext;
@@ -33,6 +34,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.Timeout;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -78,7 +80,6 @@ class BlockStreamSubscriberSessionTest {
     @Nested
     @DisplayName("Streaming Functionality Tests")
     class StreamingTests {
-
         /**
          * Tests the complete flow of streaming both historical and live blocks.
          * Verifies that the session can handle:
@@ -87,6 +88,7 @@ class BlockStreamSubscriberSessionTest {
          * 3. Proper pipeline interactions
          */
         @Test
+        @Timeout(value = 10, unit = SECONDS)
         @DisplayName("Should successfully stream both historical and live blocks in sequence")
         void shouldStreamHistoricalAndLiveBlocksSuccessfully()
                 throws InterruptedException, ExecutionException, TimeoutException {
@@ -107,7 +109,6 @@ class BlockStreamSubscriberSessionTest {
                 sessionReadyLatch.await();
                 // Phase 1: Historical Block Streaming
                 final int expectedResponseCount = END_BLOCK - START_BLOCK;
-
                 // Phase 2: Live Block Streaming
                 BlockItems[] liveBatches = createNumberOfSimpleBlockBatches(MAX_AVAILABLE_BLOCK, END_BLOCK + 1);
                 for (BlockItems next : liveBatches) {
@@ -116,12 +117,8 @@ class BlockStreamSubscriberSessionTest {
                 // Wait for everything to complete.
                 // Note, don't try to wait before this; there are no execution guarantees until
                 // `get` is called; before that the thread may not run or may be parked indefinitely.
-                sessionFuture.get(
-                        1L,
-                        TimeUnit.SECONDS); // The timeout doesn't work, for some reason, but it's here because we don't
-                // have a better alternative.
+                sessionFuture.get();
             }
-
             // Verify final pipeline state
             assertThat(responsePipeline.getReceivedResponses()).hasSize(21);
             assertThat(responsePipeline.getCompletionCount()).isEqualTo(1);
@@ -133,6 +130,7 @@ class BlockStreamSubscriberSessionTest {
          * Verifies that the session can properly stream blocks from the historical provider.
          */
         @Test
+        @Timeout(value = 10, unit = SECONDS)
         @DisplayName("Should successfully stream historical blocks")
         void shouldStreamHistoricalBlocksSuccessfully() {
             // Setup test parameters
@@ -148,11 +146,86 @@ class BlockStreamSubscriberSessionTest {
             setupHistoricalBlockProvider(MIN_AVAILABLE_BLOCK, MAX_AVAILABLE_BLOCK);
             // Execute session
             session.call();
-
             // Verify pipeline interactions
             assertThat(responsePipeline.getReceivedResponses()).hasSize(11);
             assertThat(responsePipeline.getCompletionCount()).isEqualTo(1);
             assertThat(responsePipeline.getPipelineErrors()).isEmpty();
+        }
+    }
+
+    /**
+     * Tests related to streams ending for the BlockStreamSubscriberSession.
+     */
+    @Nested
+    @DisplayName("Stream End Tests")
+    class StreamEndTests {
+        /**
+         * Tests the complete flow of streaming both historical and live blocks.
+         * Verifies that the session can handle:
+         * 1. Historical block streaming
+         * 2. Transition to live block streaming
+         * 3. Proper pipeline interactions
+         */
+        @Test
+        @Timeout(value = 10, unit = SECONDS)
+        @DisplayName("Should complete a combined stream when the client exits")
+        void shouldCompleteWhenStreamClosed() throws InterruptedException, ExecutionException, TimeoutException {
+            // Setup test parameters
+            final int MIN_AVAILABLE_BLOCK = 0;
+            final int MAX_AVAILABLE_BLOCK = 10;
+            final int START_BLOCK = 0;
+            final int END_BLOCK = 19;
+            final ResponsePipeline disconnectedPipeline = new ResponsePipeline(true);
+
+            // Initialize session
+            final SubscribeStreamRequest subscribeStreamRequest = createRequest(START_BLOCK, END_BLOCK);
+            setupHistoricalBlockProvider(MIN_AVAILABLE_BLOCK, MAX_AVAILABLE_BLOCK + 1);
+            session = new BlockStreamSubscriberSession(
+                    CLIENT_ID, subscribeStreamRequest, disconnectedPipeline, context, sessionReadyLatch);
+            try (final ExecutorService sessionExecutor = Executors.newVirtualThreadPerTaskExecutor()) {
+                Future<BlockStreamSubscriberSession> sessionFuture = sessionExecutor.submit(session);
+                sessionReadyLatch.await();
+                BlockItems[] liveBatches = createNumberOfSimpleBlockBatches(MAX_AVAILABLE_BLOCK, END_BLOCK + 1);
+                for (BlockItems next : liveBatches) {
+                    blockMessagingFacility.sendBlockItems(next);
+                }
+                // Wait for everything to complete.
+                // Note, don't try to wait before this; there are no execution guarantees until
+                // `get` is called; before that the thread may not run or may be parked indefinitely.
+                sessionFuture.get();
+            }
+            // Verify final pipeline state
+            assertThat(disconnectedPipeline.getReceivedResponses()).hasSize(0);
+            assertThat(disconnectedPipeline.getCompletionCount()).isEqualTo(1);
+            assertThat(disconnectedPipeline.getPipelineErrors()).isEmpty();
+        }
+
+        /**
+         * Tests the historical block streaming functionality in isolation.
+         * Verifies that the session can properly stream blocks from the historical provider.
+         */
+        @Test
+        @Timeout(value = 10, unit = SECONDS)
+        @DisplayName("Should complete a stream of historical blocks when the client exits")
+        void shouldCompleteWhenStreamFails() {
+            // Setup test parameters
+            final int MIN_AVAILABLE_BLOCK = 0;
+            final int MAX_AVAILABLE_BLOCK = 20;
+            final long START_BLOCK = 1L;
+            final long END_BLOCK = 10L;
+            final ResponsePipeline disconnectedPipeline = new ResponsePipeline(true);
+
+            // Initialize session
+            final SubscribeStreamRequest subscribeStreamRequest = createRequest(START_BLOCK, END_BLOCK);
+            session = new BlockStreamSubscriberSession(
+                    CLIENT_ID, subscribeStreamRequest, disconnectedPipeline, context, sessionReadyLatch);
+            setupHistoricalBlockProvider(MIN_AVAILABLE_BLOCK, MAX_AVAILABLE_BLOCK);
+            // Execute session
+            session.call();
+            // Verify pipeline interactions
+            assertThat(disconnectedPipeline.getReceivedResponses()).hasSize(0);
+            assertThat(disconnectedPipeline.getCompletionCount()).isEqualTo(1);
+            assertThat(disconnectedPipeline.getPipelineErrors()).isEmpty();
         }
     }
 
@@ -195,7 +268,16 @@ class BlockStreamSubscriberSessionTest {
         private final List<SubscribeStreamResponse> receivedResponses = new ArrayList<>();
 
         private final List<Throwable> pipelineErrors = new ArrayList<>();
+        private final boolean throwOnNext;
         private int completionCount = 0;
+
+        public ResponsePipeline() {
+            this.throwOnNext = false;
+        }
+
+        public ResponsePipeline(final boolean throwOnNext) {
+            this.throwOnNext = throwOnNext;
+        }
 
         public List<SubscribeStreamResponse> getReceivedResponses() {
             return receivedResponses;
@@ -217,6 +299,9 @@ class BlockStreamSubscriberSessionTest {
 
         @Override
         public void onNext(SubscribeStreamResponseUnparsed item) {
+            if (throwOnNext && item.response().kind() != ResponseOneOfType.STATUS) {
+                throw new RuntimeException("Simulated \"closed\" stream.");
+            }
             try {
                 var binary = SubscribeStreamResponseUnparsed.PROTOBUF.toBytes(item);
                 var response = SubscribeStreamResponse.PROTOBUF.parse(binary);

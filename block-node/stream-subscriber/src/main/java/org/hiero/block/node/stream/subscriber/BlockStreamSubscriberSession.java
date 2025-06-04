@@ -17,7 +17,6 @@ import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.Flow.Subscription;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
@@ -78,8 +77,6 @@ public class BlockStreamSubscriberSession implements Callable<BlockStreamSubscri
     private final CountDownLatch sessionReadyLatch;
     /** A flag indicating if the session should be interrupted */
     private final AtomicBoolean interruptedStream = new AtomicBoolean(false);
-    /** The subscription for the GRPC connection with client */
-    private Subscription subscription;
     /** The current block being sent to the client */
     private long nextBlockToSend;
     /** The latest block received from the live stream. */
@@ -481,17 +478,20 @@ public class BlockStreamSubscriberSession implements Callable<BlockStreamSubscri
             sessionReadyLatch.countDown();
             LOGGER.log(Level.DEBUG, "Session ready latch was not counted down on close, releasing now");
         }
-        if (!interruptedStream.get()) {
-            // unregister us from the block messaging system, if we are not registered then this is noop
-            context.blockMessaging().unregisterBlockItemHandler(liveBlockHandler);
+        // unregister us from the block messaging system, if we are not registered then this is noop
+        context.blockMessaging().unregisterBlockItemHandler(liveBlockHandler);
+        // send an end stream response, if we have a code to set and are not interrupted.
+        if (!interruptedStream.get() && endStreamResponseCode != null) {
             final Builder response =
                     SubscribeStreamResponseUnparsed.newBuilder().status(endStreamResponseCode);
             responsePipeline.onNext(response.build());
-            responsePipeline.onComplete();
         }
-        if (subscription != null) {
-            subscription.cancel();
-            subscription = null;
+        try {
+            responsePipeline.onComplete();
+        } catch (RuntimeException e) {
+            // If the pipeline cannot be completed, log and suppress this exception.
+            final String message = "Suppressed client error when \"completing\" stream for client %d%n%s";
+            LOGGER.log(Level.DEBUG, message.formatted(clientId, e.getMessage()), e);
         }
         // Break out of the loop that sends blocks to the client, so the thread completes.
         interruptedStream.set(true);
@@ -518,7 +518,17 @@ public class BlockStreamSubscriberSession implements Callable<BlockStreamSubscri
     private void sendOneBlockItemSet(final List<BlockItemUnparsed> blockItems) {
         final BlockItemSetUnparsed dataToSend = new BlockItemSetUnparsed(blockItems);
         final OneOf<ResponseOneOfType> responseOneOf = new OneOf<>(ResponseOneOfType.BLOCK_ITEMS, dataToSend);
-        responsePipeline.onNext(new SubscribeStreamResponseUnparsed(responseOneOf));
+        try {
+            responsePipeline.onNext(new SubscribeStreamResponseUnparsed(responseOneOf));
+        } catch (RuntimeException e) {
+            // If the pipeline is in an error state; close this session.
+            // Unfortunately this is the "standard" way to end a stream, so log
+            // at debug rather than emitting noise in the logs.
+            final String message =
+                    "Client error sending block items for client %d: %s".formatted(clientId, e.getMessage());
+            LOGGER.log(Level.DEBUG, message, e);
+            close(null); // cannot send the end stream response, just close the stream.
+        }
     }
 
     // ==== Block Item Handler Class ===========================================
