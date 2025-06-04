@@ -74,7 +74,7 @@ jobs:
 
       - name: Produce artifact
         working-directory: protobuf
-        run: scripts/build-bn-proto.sh -t "efb0134e921b32ed6302da9c93874d65492e876f" -v ${{ env.VERSION }} -o "block-node-protobuf" -i true -b "./protobuf/src/main/proto/" # CN 0.62.2
+        run: scripts/build-bn-proto.sh -t "efb0134e921b32ed6302da9c93874d65492e876f" -v ${{ env.VERSION }} -o "block-node-protobuf" -i true -b "src/main/proto/" # CN 0.62.2
 
       - name: Upload artifact
         if: "${{ github.event_name != 'workflow_dispatch' || github.event.inputs.publish == 'true' }}"
