@@ -51,11 +51,6 @@ class ZipBlockArchive {
     private final Format format;
 
     /**
-     * Record to hold the result of creating a zip file including the block accessors and file size.
-     */
-    record ZipFileCreationResult(List<BlockAccessor> blockAccessors, long zipFileSize) {}
-
-    /**
      * Constructor for ZipBlockArchive.
      *
      * @param context The block node context
@@ -76,9 +71,9 @@ class ZipBlockArchive {
      *
      * @param firstBlockNumber The first block number to write
      * @throws IOException If an error occurs writing the block
-     * @return A record containing block accessors and the size of the zip file created
+     * @return The size of the zip file created, 0 if no blocks were written.
      */
-    ZipFileCreationResult writeNewZipFile(long firstBlockNumber) throws IOException {
+    long writeNewZipFile(long firstBlockNumber) throws IOException {
         final long lastBlockNumber = firstBlockNumber + numberOfBlocksPerZipFile - 1;
         // compute block path
         final BlockPath firstBlockPath = computeBlockPath(config, firstBlockNumber);
@@ -123,12 +118,9 @@ class ZipBlockArchive {
                 zipOutputStream.closeEntry();
             }
         }
-        // Compute zip file size without scanning the entire filesystem
-        long zipFileSize = Files.size(firstBlockPath.zipFilePath());
-        // return block accessors
-        // todo should these accessors be returned? they were here because a delete
-        //   was supposed to be called on them, but we have changed the approach
-        return new ZipFileCreationResult(blockAccessors, zipFileSize);
+        // return the size of the zip file created
+        // todo(1217): consider case when no zip is created and rerturn 0
+        return Files.size(firstBlockPath.zipFilePath());
     }
 
     /**
@@ -253,10 +245,17 @@ class ZipBlockArchive {
 
     /**
      * Calculates the total size of all stored zip files in the archive.
+     * <p>
+     * WARNING: This method walks through the directory structure starting from
+     * the root path and sums the sizes of all zip files found. this might become
+     * expensive if there are many zip large files, as will become overtime.
+     * This method should only be used at startup, and eventually should be
+     * replaced by a more efficient way to track the size of the zip files.
      *
      * @return The total bytes stored in all zip files
      */
     long calculateTotalStoredBytes() {
+        // todo(1249), optimizations or even making it non-blocking are needed here.
         try (Stream<Path> pathStream = Files.walk(config.rootPath())) {
             return pathStream
                     .filter(Files::isRegularFile)

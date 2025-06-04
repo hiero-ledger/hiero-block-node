@@ -264,10 +264,10 @@ public final class BlocksFilesHistoricPlugin implements BlockProviderPlugin, Blo
                     batchLastBlockNumber);
 
             // Write the zip file and get result with file size
-            ZipBlockArchive.ZipFileCreationResult result = zipBlockArchive.writeNewZipFile(batchFirstBlockNumber);
+            final long zipFileSize = zipBlockArchive.writeNewZipFile(batchFirstBlockNumber);
             // Metrics updates
             // Update total bytes stored with the new zip file size
-            totalBytesStored.addAndGet(result.zipFileSize());
+            totalBytesStored.addAndGet(zipFileSize);
             // Increment the blocks written counter
             long blockCount = batchLastBlockNumber - batchFirstBlockNumber + 1;
             blocksWrittenCounter.add(blockCount);
