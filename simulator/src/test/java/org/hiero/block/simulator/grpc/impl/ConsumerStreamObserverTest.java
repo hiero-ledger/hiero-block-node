@@ -16,12 +16,10 @@ import com.hedera.hapi.block.stream.protoc.BlockProof;
 import com.swirlds.config.api.Configuration;
 import java.io.IOException;
 import java.util.ArrayDeque;
-import java.util.Collections;
 import java.util.concurrent.CountDownLatch;
 import org.hiero.block.api.protoc.BlockItemSet;
 import org.hiero.block.api.protoc.SubscribeStreamResponse;
 import org.hiero.block.api.protoc.SubscribeStreamResponse.Code;
-import org.hiero.block.simulator.TestUtils;
 import org.hiero.block.simulator.config.data.ConsumerConfig;
 import org.hiero.block.simulator.metrics.MetricsService;
 import org.hiero.block.simulator.metrics.MetricsServiceImpl;
@@ -49,21 +47,24 @@ class ConsumerStreamObserverTest {
         streamLatch = mock(CountDownLatch.class);
         ArrayDeque<String> lastKnownStatuses = new ArrayDeque<>();
         lastKnownStatusesCapacity = 10;
-        observer =
-                new ConsumerStreamObserver(metricsService, streamLatch, lastKnownStatuses, lastKnownStatusesCapacity, consumerConfig);
+        observer = new ConsumerStreamObserver(
+                metricsService, streamLatch, lastKnownStatuses, lastKnownStatusesCapacity, consumerConfig);
     }
 
     @Test
     void testConstructorWithNullArguments() {
         assertThrows(
                 NullPointerException.class,
-                () -> new ConsumerStreamObserver(null, streamLatch, lastKnownStatuses, lastKnownStatusesCapacity, consumerConfig));
+                () -> new ConsumerStreamObserver(
+                        null, streamLatch, lastKnownStatuses, lastKnownStatusesCapacity, consumerConfig));
         assertThrows(
                 NullPointerException.class,
-                () -> new ConsumerStreamObserver(metricsService, null, lastKnownStatuses, lastKnownStatusesCapacity, consumerConfig));
+                () -> new ConsumerStreamObserver(
+                        metricsService, null, lastKnownStatuses, lastKnownStatusesCapacity, consumerConfig));
         assertThrows(
                 NullPointerException.class,
-                () -> new ConsumerStreamObserver(metricsService, streamLatch, null, lastKnownStatusesCapacity, consumerConfig));
+                () -> new ConsumerStreamObserver(
+                        metricsService, streamLatch, null, lastKnownStatusesCapacity, consumerConfig));
     }
 
     @Test
