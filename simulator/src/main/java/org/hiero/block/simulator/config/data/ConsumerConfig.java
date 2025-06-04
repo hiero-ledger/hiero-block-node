@@ -9,6 +9,6 @@ import org.hiero.block.simulator.config.logging.Loggable;
 public record ConsumerConfig(
         @Loggable @ConfigProperty(defaultValue = "-1") long startBlockNumber,
         @Loggable @ConfigProperty(defaultValue = "-1") long endBlockNumber,
-        @Loggable @ConfigProperty(defaultValue = "true") boolean slowDown,
+        @Loggable @ConfigProperty(defaultValue = "false") boolean slowDown,
         @Loggable @ConfigProperty(defaultValue = "2") long slowDownMilliseconds,
         @Loggable @ConfigProperty(defaultValue = "10-30") String slowDownForBlockRange) {}

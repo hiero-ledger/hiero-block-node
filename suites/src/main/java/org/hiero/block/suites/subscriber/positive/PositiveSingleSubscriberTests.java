@@ -145,6 +145,68 @@ public class PositiveSingleSubscriberTests extends BaseSuite {
         assertEquals(endBlock, consumerSimulator.getStreamStatus().consumedBlocks());
     }
 
+    @Test
+    @DisplayName("Should validate 2ms slowdown after each block in a range")
+    public void shouldValidateSlowdownAfterEachBlock() throws IOException, InterruptedException {
+        // ===== Prepare environment =================================================================
+        final long startBlock = 1L;
+        final long endBlock = 10L;
+        final long expectedSlowdownMillis = 2L;
+        final Map<String, String> consumerConfiguration = Map.of(
+                "blockStream.simulatorMode",
+                "CONSUMER",
+                "consumer.startBlockNumber",
+                String.valueOf(startBlock),
+                "consumer.endBlockNumber",
+                String.valueOf(endBlock),
+                "consumer.slowDownMilliseconds",
+                String.valueOf(expectedSlowdownMillis),
+                "consumer.slowDown",
+                "true",
+                "consumer.slowDownForBlockRange",
+                "1-10");
+        final BlockStreamSimulatorApp publisherSimulator = createBlockSimulator();
+        final BlockStreamSimulatorApp consumerSimulator = createBlockSimulator(consumerConfiguration);
+
+        simulatorAppsRef.add(publisherSimulator);
+        simulatorAppsRef.add(consumerSimulator);
+
+        // ===== Start publisher and make sure it's streaming =======================================
+        final Future<?> publisherSimulatorThread = startSimulatorInstance(publisherSimulator);
+        simulators.add(publisherSimulatorThread);
+
+        boolean publisherReachedEndBlock = false;
+        while (!publisherReachedEndBlock) {
+            if (publisherSimulator.getStreamStatus().publishedBlocks() > endBlock) {
+                publisherReachedEndBlock = true;
+            }
+        }
+
+        // ===== Start consumer and validate slowdown ===============================================
+        final Future<?> consumerSimulatorThread = startSimulatorInThread(consumerSimulator);
+        simulators.add(consumerSimulatorThread);
+
+        long previousBlockTime = System.currentTimeMillis();
+        boolean slowdownValidated = true;
+
+        for (long block = startBlock; block <= endBlock; block++) {
+            while (consumerSimulator.getStreamStatus().consumedBlocks() < block) {
+                Thread.sleep(1); // Wait for the block to be consumed
+            }
+            long currentBlockTime = System.currentTimeMillis();
+            long timeDifference = currentBlockTime - previousBlockTime;
+
+            if (timeDifference < expectedSlowdownMillis) {
+                slowdownValidated = false;
+                break;
+            }
+            previousBlockTime = currentBlockTime;
+        }
+
+        assertTrue(slowdownValidated, "The expected 2ms slowdown was not validated for all blocks.");
+        assertEquals(endBlock, consumerSimulator.getStreamStatus().consumedBlocks());
+    }
+
     /**
      * Starts a simulator in a thread and make sure that it's running and trying to publish blocks
      *
