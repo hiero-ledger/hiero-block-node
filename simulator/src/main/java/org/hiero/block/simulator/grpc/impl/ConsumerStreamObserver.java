@@ -7,15 +7,20 @@ import static java.lang.System.Logger.Level.WARNING;
 import static java.util.Objects.requireNonNull;
 import static org.hiero.block.simulator.metrics.SimulatorMetricTypes.Counter.LiveBlocksConsumed;
 
+import com.hedera.hapi.block.stream.BlockProof;
 import com.hedera.hapi.block.stream.protoc.BlockItem;
 import edu.umd.cs.findbugs.annotations.NonNull;
 import io.grpc.Status;
 import io.grpc.stub.StreamObserver;
 import java.util.Deque;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Objects;
+import java.util.Set;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.atomic.AtomicLong;
 import org.hiero.block.api.protoc.SubscribeStreamResponse;
+import org.hiero.block.simulator.config.data.ConsumerConfig;
 import org.hiero.block.simulator.metrics.MetricsService;
 
 /**
@@ -34,6 +39,8 @@ public class ConsumerStreamObserver implements StreamObserver<SubscribeStreamRes
     private final Deque<String> lastKnownStatuses;
     private final AtomicLong blocksConsumed = new AtomicLong(0);
 
+    private final ConsumerConfig consumerConfig;
+
     /**
      * Constructs a new ConsumerStreamObserver.
      *
@@ -47,11 +54,13 @@ public class ConsumerStreamObserver implements StreamObserver<SubscribeStreamRes
             @NonNull final MetricsService metricsService,
             @NonNull final CountDownLatch streamLatch,
             @NonNull final Deque<String> lastKnownStatuses,
-            final int lastKnownStatusesCapacity) {
+            final int lastKnownStatusesCapacity,
+            @NonNull final ConsumerConfig consumerConfig) {
         this.metricsService = requireNonNull(metricsService);
         this.streamLatch = requireNonNull(streamLatch);
         this.lastKnownStatuses = requireNonNull(lastKnownStatuses);
         this.lastKnownStatusesCapacity = lastKnownStatusesCapacity;
+        this.consumerConfig = requireNonNull(consumerConfig);
     }
 
     /**
@@ -99,6 +108,19 @@ public class ConsumerStreamObserver implements StreamObserver<SubscribeStreamRes
     }
 
     private void processBlockItems(List<BlockItem> blockItems) {
+        if (consumerConfig.slowDown()) {
+            long currentBlockCount = blocksConsumed.get();
+
+            if (consumerConfig.slowDownAfterBlock() > 0 && currentBlockCount >= consumerConfig.slowDownAfterBlock()) {
+                slowDownProcessing("after block %d".formatted(currentBlockCount));
+            } else if (!consumerConfig.slowDownForBlockRange().isBlank()) {
+                Set<Long> blockRangeSet = parseSlowDownForBlockRange(consumerConfig.slowDownForBlockRange());
+                if (blockRangeSet.contains(currentBlockCount)) {
+                    slowDownProcessing("for block %d".formatted(currentBlockCount));
+                }
+            }
+        }
+
         blockItems.stream().filter(BlockItem::hasBlockProof).forEach(blockItem -> {
             metricsService.get(LiveBlocksConsumed).increment();
 
@@ -121,5 +143,39 @@ public class ConsumerStreamObserver implements StreamObserver<SubscribeStreamRes
                 LOGGER.log(WARNING, "Block number mismatch: expected %d, received %d".formatted(count, blockNumber));
             }
         }
+    }
+
+    private void slowDownProcessing(String message) {
+        try {
+            LOGGER.log(INFO, "Slowing down processing " + message);
+            Thread.sleep(consumerConfig.slowDownMilliseconds());
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            LOGGER.log(ERROR, "Stream processing interrupted during slowdown", e);
+        }
+    }
+
+    public Set<Long> parseSlowDownForBlockRange(String slowDownForBlockRange) {
+        Set<Long> blockRangeSet = new HashSet<>();
+        if (slowDownForBlockRange == null || slowDownForBlockRange.isBlank()) {
+            return blockRangeSet;
+        }
+        String[] parts = slowDownForBlockRange.split("-");
+        if (parts.length != 2) {
+            throw new IllegalArgumentException("Invalid range format. Expected format: start-end (e.g., 1-3)");
+        }
+        try {
+            long start = Long.parseLong(parts[0].trim());
+            long end = Long.parseLong(parts[1].trim());
+            if (start > end) {
+                throw new IllegalArgumentException("Range start cannot be greater than range end.");
+            }
+            for (long i = start; i <= end; i++) {
+                blockRangeSet.add(i);
+            }
+        } catch (NumberFormatException e) {
+            throw new IllegalArgumentException("Range values must be valid numbers.", e);
+        }
+        return blockRangeSet;
     }
 }

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.simulator.grpc.impl;
 
+import static org.hiero.block.simulator.TestUtils.getTestConfiguration;
 import static org.hiero.block.simulator.TestUtils.getTestMetrics;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -15,16 +16,19 @@ import com.hedera.hapi.block.stream.protoc.BlockProof;
 import com.swirlds.config.api.Configuration;
 import java.io.IOException;
 import java.util.ArrayDeque;
+import java.util.Collections;
 import java.util.concurrent.CountDownLatch;
 import org.hiero.block.api.protoc.BlockItemSet;
 import org.hiero.block.api.protoc.SubscribeStreamResponse;
 import org.hiero.block.api.protoc.SubscribeStreamResponse.Code;
 import org.hiero.block.simulator.TestUtils;
+import org.hiero.block.simulator.config.data.ConsumerConfig;
 import org.hiero.block.simulator.metrics.MetricsService;
 import org.hiero.block.simulator.metrics.MetricsServiceImpl;
 import org.hiero.block.simulator.metrics.SimulatorMetricTypes.Counter;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.Mock;
 
 class ConsumerStreamObserverTest {
 
@@ -34,30 +38,32 @@ class ConsumerStreamObserverTest {
     private ConsumerStreamObserver observer;
     private int lastKnownStatusesCapacity;
 
+    @Mock
+    private ConsumerConfig consumerConfig;
+
     @BeforeEach
     void setUp() throws IOException {
-        Configuration config = TestUtils.getTestConfiguration();
+        Configuration config = getTestConfiguration();
 
         metricsService = spy(new MetricsServiceImpl(getTestMetrics(config)));
         streamLatch = mock(CountDownLatch.class);
         ArrayDeque<String> lastKnownStatuses = new ArrayDeque<>();
         lastKnownStatusesCapacity = 10;
-
         observer =
-                new ConsumerStreamObserver(metricsService, streamLatch, lastKnownStatuses, lastKnownStatusesCapacity);
+                new ConsumerStreamObserver(metricsService, streamLatch, lastKnownStatuses, lastKnownStatusesCapacity, consumerConfig);
     }
 
     @Test
     void testConstructorWithNullArguments() {
         assertThrows(
                 NullPointerException.class,
-                () -> new ConsumerStreamObserver(null, streamLatch, lastKnownStatuses, lastKnownStatusesCapacity));
+                () -> new ConsumerStreamObserver(null, streamLatch, lastKnownStatuses, lastKnownStatusesCapacity, consumerConfig));
         assertThrows(
                 NullPointerException.class,
-                () -> new ConsumerStreamObserver(metricsService, null, lastKnownStatuses, lastKnownStatusesCapacity));
+                () -> new ConsumerStreamObserver(metricsService, null, lastKnownStatuses, lastKnownStatusesCapacity, consumerConfig));
         assertThrows(
                 NullPointerException.class,
-                () -> new ConsumerStreamObserver(metricsService, streamLatch, null, lastKnownStatusesCapacity));
+                () -> new ConsumerStreamObserver(metricsService, streamLatch, null, lastKnownStatusesCapacity, consumerConfig));
     }
 
     @Test

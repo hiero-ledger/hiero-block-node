@@ -84,7 +84,7 @@ public class ConsumerStreamGrpcClientImpl implements ConsumerStreamGrpcClient {
         Preconditions.requireGreaterOrEqual(endBlock, startBlock);
 
         consumerStreamObserver =
-                new ConsumerStreamObserver(metricsService, streamLatch, lastKnownStatuses, lastKnownStatusesCapacity);
+                new ConsumerStreamObserver(metricsService, streamLatch, lastKnownStatuses, lastKnownStatusesCapacity, consumerConfig);
 
         SubscribeStreamRequest request = SubscribeStreamRequest.newBuilder()
                 .setStartBlockNumber(startBlock)
@@ -98,7 +98,7 @@ public class ConsumerStreamGrpcClientImpl implements ConsumerStreamGrpcClient {
     @Override
     public void requestBlocks() throws InterruptedException {
         consumerStreamObserver =
-                new ConsumerStreamObserver(metricsService, streamLatch, lastKnownStatuses, lastKnownStatusesCapacity);
+                new ConsumerStreamObserver(metricsService, streamLatch, lastKnownStatuses, lastKnownStatusesCapacity, consumerConfig);
 
         SubscribeStreamRequest request = SubscribeStreamRequest.newBuilder()
                 .setStartBlockNumber(consumerConfig.startBlockNumber())
