@@ -31,6 +31,7 @@ public final class SimulatorMappedConfigSourceInitializer {
             new ConfigMapping("consumer.startBlockNumber", "CONSUMER_START_BLOCK_NUMBER"),
             new ConfigMapping("consumer.endBlockNumber", "CONSUMER_END_BLOCK_NUMBER"),
             new ConfigMapping("consumer.slowDown", "CONSUMER_SLOWDOWN"),
+            new ConfigMapping("consumer.randomSlowDown", "CONSUMER_RANDOM_SLOWDOWN"),
             new ConfigMapping("consumer.slowDownMilliseconds", "CONSUMER_SLOWDOWN_MILLISECONDS"),
             new ConfigMapping("consumer.slowDownForBlockRange", "CONSUMER_SLOWDOWN_FOR_BLOCK_RANGE"),
 
