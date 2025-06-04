@@ -86,6 +86,7 @@ module org.hiero.block.protobuf {
             org.hiero.block.simulator,
             org.hiero.block.node.suites;
     exports com.hedera.hapi.platform.event.legacy to
+            com.google.protobuf,
             org.hiero.block.simulator;
 
     requires transitive com.hedera.pbj.runtime;
@@ -98,25 +99,31 @@ module org.hiero.block.protobuf {
     requires static com.github.spotbugs.annotations;
     requires static java.annotation;
 
-    // only open protoc to com.google.protobuf
-    opens com.hedera.hapi.platform.state.legacy to
-            com.google.protobuf;
+    // This should all go to testModuleInfo {} once protoc is no longer needed in production code
     opens org.hiero.block.api.protoc to
             com.google.protobuf;
     opens org.hiero.block.internal.protoc to
             com.google.protobuf;
     opens com.hedera.services.stream.proto to
             com.google.protobuf;
-    opens com.hederahashgraph.api.proto.java to
-            com.google.protobuf;
-    opens com.hederahashgraph.service.proto.java to
-            com.google.protobuf;
-    opens com.hedera.hapi.block.stream.protoc to
-            com.google.protobuf;
     opens com.hedera.hapi.block.stream.input.protoc to
             com.google.protobuf;
     opens com.hedera.hapi.block.stream.output.protoc to
             com.google.protobuf;
-    opens com.hedera.hapi.platform.event.legacy to
+    opens com.hedera.hapi.block.stream.protoc to
+            com.google.protobuf;
+    opens com.hedera.hapi.platform.state.legacy to
+            com.google.protobuf;
+    opens com.hedera.hapi.node.state.tss.legacy to
+            com.google.protobuf;
+    opens com.hedera.hapi.services.auxiliary.hints.legacy to
+            com.google.protobuf;
+    opens com.hedera.hapi.services.auxiliary.history.legacy to
+            com.google.protobuf;
+    opens com.hedera.hapi.services.auxiliary.tss.legacy to
+            com.google.protobuf;
+    opens com.hederahashgraph.api.proto.java to
+            com.google.protobuf;
+    opens com.hederahashgraph.service.proto.java to
             com.google.protobuf;
 }

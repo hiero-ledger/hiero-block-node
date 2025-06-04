@@ -6,7 +6,10 @@ plugins {
     id("org.hiero.gradle.check.spotless-kotlin")
 }
 
-dependencies { api(platform("com.google.cloud:libraries-bom:26.61.0")) }
+dependencies {
+    api(platform("io.netty:netty-bom:4.2.1.Final"))
+    api(platform("com.google.cloud:libraries-bom:26.61.0"))
+}
 
 dependencies.constraints {
     val daggerVersion = "2.56.2"
