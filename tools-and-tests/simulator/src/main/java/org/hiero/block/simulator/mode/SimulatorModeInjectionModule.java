@@ -33,8 +33,9 @@ public interface SimulatorModeInjectionModule {
         final BlockStreamConfig blockStreamConfig = configuration.getConfigData(BlockStreamConfig.class);
         final SimulatorMode simulatorMode = blockStreamConfig.simulatorMode();
         return switch (simulatorMode) {
-            case PUBLISHER_CLIENT -> new PublisherClientModeHandler(
-                    blockStreamConfig, publishStreamGrpcClient, blockStreamManager, metricsService);
+            case PUBLISHER_CLIENT ->
+                new PublisherClientModeHandler(
+                        blockStreamConfig, publishStreamGrpcClient, blockStreamManager, metricsService);
             case PUBLISHER_SERVER -> new PublisherServerModeHandler(publishStreamGrpcServer);
             case CONSUMER -> new ConsumerModeHandler(consumerStreamGrpcClient);
         };

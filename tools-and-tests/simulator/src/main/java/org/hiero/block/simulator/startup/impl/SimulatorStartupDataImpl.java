@@ -75,8 +75,9 @@ public final class SimulatorStartupDataImpl implements SimulatorStartupData {
                                     "Failed to initialize latest ack block hash from Simulator Startup Data");
                         }
                     }
-                    default -> throw new IllegalStateException(
-                            "Failed to initialize Simulator Startup Data, invalid number of startup data files!");
+                    default ->
+                        throw new IllegalStateException(
+                                "Failed to initialize Simulator Startup Data, invalid number of startup data files!");
                 }
             } catch (final IOException e) {
                 throw new UncheckedIOException(e);

@@ -70,8 +70,8 @@ public class ConsumerStreamObserver implements StreamObserver<SubscribeStreamRes
 
         switch (responseType) {
             case STATUS -> LOGGER.log(INFO, "Received Response: " + subscribeStreamResponse);
-            case BLOCK_ITEMS -> processBlockItems(
-                    subscribeStreamResponse.getBlockItems().getBlockItemsList());
+            case BLOCK_ITEMS ->
+                processBlockItems(subscribeStreamResponse.getBlockItems().getBlockItemsList());
             default -> throw new IllegalArgumentException("Unknown response type: " + responseType);
         }
     }

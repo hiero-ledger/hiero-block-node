@@ -79,8 +79,9 @@ public record RecordFileInfo(SemanticVersion hapiProtoVersion, Bytes blockHash, 
                             recordStreamFile.endObjectRunningHash().hash(),
                             recordFile);
                 }
-                default -> throw new UnsupportedOperationException(
-                        "Unsupported record format version: " + recordFormatVersion);
+                default ->
+                    throw new UnsupportedOperationException(
+                            "Unsupported record format version: " + recordFormatVersion);
             };
         } catch (Exception e) {
             throw new RuntimeException(e);
