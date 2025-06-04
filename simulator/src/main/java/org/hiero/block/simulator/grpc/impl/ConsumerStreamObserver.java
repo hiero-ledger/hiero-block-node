@@ -156,7 +156,19 @@ public class ConsumerStreamObserver implements StreamObserver<SubscribeStreamRes
         }
     }
 
-    public Set<Long> randomBlockRangeSet(long start, long end) {
+    private Set<Long> parseSlowDownForBlockRange(String slowDownForBlockRange) {
+        Set<Long> blockRangeSet = new HashSet<>();
+        List<Long> list = parseBlockRange(slowDownForBlockRange);
+        long start = list.get(0);
+        long end = list.get(1);
+
+        for (long i = start; i <= end; i++) {
+            blockRangeSet.add(i);
+        }
+        return blockRangeSet;
+    }
+
+    private Set<Long> randomBlockRangeSet(long start, long end) {
         Random random = new Random();
         long randomStart = random.nextLong((end - start + 1));
         long randomEnd = random.nextLong(end - start + 1);
@@ -175,7 +187,7 @@ public class ConsumerStreamObserver implements StreamObserver<SubscribeStreamRes
         return blockRangeSet;
     }
 
-    public List<Long> parseBlockRange(String slowDownForBlockRange) {
+    private List<Long> parseBlockRange(String slowDownForBlockRange) {
         List<Long> blockRangeList = new ArrayList<>();
         if (slowDownForBlockRange == null || slowDownForBlockRange.isBlank()) {
             return blockRangeList;
@@ -195,29 +207,5 @@ public class ConsumerStreamObserver implements StreamObserver<SubscribeStreamRes
         } catch (NumberFormatException e) {
             throw new IllegalArgumentException("Range values must be valid numbers.", e);
         }
-    }
-
-    public Set<Long> parseSlowDownForBlockRange(String slowDownForBlockRange) {
-        Set<Long> blockRangeSet = new HashSet<>();
-        if (slowDownForBlockRange == null || slowDownForBlockRange.isBlank()) {
-            return blockRangeSet;
-        }
-        String[] parts = slowDownForBlockRange.split("-");
-        if (parts.length != 2) {
-            throw new IllegalArgumentException("Invalid range format. Expected format: start-end (e.g., 1-3)");
-        }
-        try {
-            long start = Long.parseLong(parts[0].trim());
-            long end = Long.parseLong(parts[1].trim());
-            if (start > end) {
-                throw new IllegalArgumentException("Range start cannot be greater than range end.");
-            }
-            for (long i = start; i <= end; i++) {
-                blockRangeSet.add(i);
-            }
-        } catch (NumberFormatException e) {
-            throw new IllegalArgumentException("Range values must be valid numbers.", e);
-        }
-        return blockRangeSet;
     }
 }
