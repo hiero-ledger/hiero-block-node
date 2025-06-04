@@ -68,7 +68,7 @@ public class ServerStatusServicePlugin implements BlockNodePlugin, BlockNodeServ
 
         // Create the metrics
         requestCounter = context.metrics()
-                .getOrCreate(new Counter.Config(METRICS_CATEGORY, "server-status-requests")
+                .getOrCreate(new Counter.Config(METRICS_CATEGORY, "server_status_requests")
                         .withDescription("Number of server status requests"));
 
         // Register this service

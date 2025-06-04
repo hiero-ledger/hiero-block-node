@@ -100,7 +100,7 @@
       "gridPos": { "h": 8, "w": 8, "x": 0, "y": 9 },
       "targets": [
         {
-          "expr": "rate(hiero_block_node_publisher_block_endofstream_sent_total[$__rate_interval])",
+          "expr": "rate(hiero_block_node_publisher_blocks_resend_sent_total[$__rate_interval])",
           "refId": "A"
         }
       ],
