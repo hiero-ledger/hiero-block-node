@@ -83,6 +83,8 @@ class ZipBlockArchive {
                 // compute block filename
                 final String blockFileName = BlockFile.blockFileName(blockAccessor.blockNumber(), config.compression());
                 // get the bytes to write, we have to do this as we need to know the size
+                // it is here possible that the accessor will no longer be able to access the block
+                // because it is possible that the block has been deleted or has been moved
                 final Bytes bytes = blockAccessor.blockBytes(format);
                 // calculate CRC-32 checksum
                 final CRC32 crc = new CRC32();
@@ -98,6 +100,12 @@ class ZipBlockArchive {
                 // close zip entry
                 zipOutputStream.closeEntry();
             }
+        } catch (final UncheckedIOException e) {
+            // adding this because we are potentially throwing an unchecked
+            // io exception, if that is the case, we want to throw the cause
+            // which is expected, but if that is not the case, that may indicate
+            // we have an issue that we should look at
+            throw e.getCause();
         }
         // if we have reached here, this means that the zip file was created
         // successfully
