@@ -28,6 +28,18 @@ public class SimpleBlockRangeSet implements BlockRangeSet {
     }
 
     /**
+     * Add a range of block numbers to the set.
+     *
+     * @param start of the range to add (inclusive)
+     * @param end of the range to add (inclusive)
+     */
+    public void add(final long start, final long end) {
+        for (long i = start; i <= end; i++) {
+            blockNumbers.add(i);
+        }
+    }
+
+    /**
      * {@inheritDoc}
      */
     @Override

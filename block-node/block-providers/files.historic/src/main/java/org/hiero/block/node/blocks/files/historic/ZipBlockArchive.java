@@ -21,16 +21,15 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
-import java.util.stream.IntStream;
 import java.util.stream.Stream;
 import java.util.zip.CRC32;
+import java.util.zip.Deflater;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipOutputStream;
 import org.hiero.block.node.base.BlockFile;
 import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.historicalblocks.BlockAccessor;
 import org.hiero.block.node.spi.historicalblocks.BlockAccessor.Format;
-import org.hiero.block.node.spi.historicalblocks.HistoricalBlockFacility;
 
 /**
  * The ZipBlockArchive class provides methods for creating and managing zip files containing blocks.
@@ -43,24 +42,17 @@ class ZipBlockArchive {
     private final BlockNodeContext context;
     /** The configuration for the historic files. */
     private final FilesHistoricConfig config;
-    /** The historical block facility. */
-    private final HistoricalBlockFacility historicalBlockFacility;
-    /** The number of blocks per zip file. */
-    private final int numberOfBlocksPerZipFile;
     /** The format for the blocks. */
     private final Format format;
 
     /**
      * Constructor for ZipBlockArchive.
      *
-     * @param context The block node context
      * @param filesHistoricConfig Configuration to be used internally
      */
     ZipBlockArchive(@NonNull final BlockNodeContext context, @NonNull final FilesHistoricConfig filesHistoricConfig) {
         this.context = Objects.requireNonNull(context);
         this.config = Objects.requireNonNull(filesHistoricConfig);
-        this.historicalBlockFacility = Objects.requireNonNull(context.historicalBlockProvider());
-        numberOfBlocksPerZipFile = (int) Math.pow(10, this.config.powersOfTenPerZipFileContents());
         format = switch (this.config.compression()) {
             case ZSTD -> Format.ZSTD_PROTOBUF;
             case NONE -> Format.PROTOBUF;
@@ -68,44 +60,34 @@ class ZipBlockArchive {
     }
 
     /**
-     * Write a new zip file containing blocks, reads the batch of blocks from the HistoricalBlockFacility.
+     * Write a new zip file containing the input batch of blocks.
      *
-     * @param firstBlockNumber The first block number to write
+     * @return The size of the zip file created
      * @throws IOException If an error occurs writing the block
-     * @return The size of the zip file created, 0 if no blocks were written.
      */
-    long writeNewZipFile(long firstBlockNumber) throws IOException {
-        final long lastBlockNumber = firstBlockNumber + numberOfBlocksPerZipFile - 1;
-        // compute block path
-        final BlockPath firstBlockPath = computeBlockPath(config, firstBlockNumber);
+    long writeNewZipFile(List<BlockAccessor> batch) throws IOException {
+        // compute zip path
+        final BlockPath firstBlockPath =
+                computeBlockPath(config, batch.getFirst().blockNumber());
         // create directories
         Files.createDirectories(firstBlockPath.dirPath());
-        // create list for all block accessors, so we can delete files after we are done
-        final List<BlockAccessor> blockAccessors = IntStream.rangeClosed((int) firstBlockNumber, (int) lastBlockNumber)
-                .mapToObj(historicalBlockFacility::block)
-                .toList();
-        // create zip file path
-        try (ZipOutputStream zipOutputStream = new ZipOutputStream(new BufferedOutputStream(
-                Files.newOutputStream(
-                        firstBlockPath.zipFilePath(), StandardOpenOption.CREATE, StandardOpenOption.WRITE),
+        // create zip file
+        final Path zipFilePath = firstBlockPath.zipFilePath();
+        try (final ZipOutputStream zipOutputStream = new ZipOutputStream(new BufferedOutputStream(
+                Files.newOutputStream(zipFilePath, StandardOpenOption.CREATE, StandardOpenOption.WRITE),
                 1024 * 1204))) {
             // don't compress the zip file as files are already compressed
             zipOutputStream.setMethod(ZipOutputStream.STORED);
-            // todo should we not also set the level to Deflater.NO_COMPRESSION
-            for (long blockNumber = firstBlockNumber; blockNumber <= lastBlockNumber; blockNumber++) {
+            zipOutputStream.setLevel(Deflater.NO_COMPRESSION);
+            for (final BlockAccessor blockAccessor : batch) {
                 // compute block filename
-                // todo should we also not append the compression extension to the filename?
-                // todo I feel like the accessor should generally be getting us the block file name
-                //   what if the file is zstd compressed but the current runtime compression is none?
-                //   then the file name would be wrong? For now appending, maybe a slight cleanup is in order for this
-                //   logic.
-                final String blockFileName = BlockFile.blockFileName(blockNumber, config.compression());
-                // get block accessor
-                final BlockAccessor blockAccessor = blockAccessors.get((int) (blockNumber - firstBlockNumber));
+                final String blockFileName = BlockFile.blockFileName(blockAccessor.blockNumber(), config.compression());
                 // get the bytes to write, we have to do this as we need to know the size
+                // it is here possible that the accessor will no longer be able to access the block
+                // because it is possible that the block has been deleted or has been moved
                 final Bytes bytes = blockAccessor.blockBytes(format);
                 // calculate CRC-32 checksum
-                CRC32 crc = new CRC32();
+                final CRC32 crc = new CRC32();
                 crc.update(bytes.toByteArray());
                 // create zip entry
                 final ZipEntry zipEntry = new ZipEntry(blockFileName);
@@ -118,10 +100,17 @@ class ZipBlockArchive {
                 // close zip entry
                 zipOutputStream.closeEntry();
             }
+        } catch (final UncheckedIOException e) {
+            // adding this because we are potentially throwing an unchecked
+            // io exception, if that is the case, we want to throw the cause
+            // which is expected, but if that is not the case, that may indicate
+            // we have an issue that we should look at
+            throw e.getCause();
         }
+        // if we have reached here, this means that the zip file was created
+        // successfully
         // return the size of the zip file created
-        // todo(1217): consider case when no zip is created and rerturn 0
-        return Files.size(firstBlockPath.zipFilePath());
+        return Files.size(zipFilePath);
     }
 
     /**
