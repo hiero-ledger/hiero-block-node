@@ -62,8 +62,7 @@ class ZipBlockArchive {
         numberOfBlocksPerZipFile = (int) Math.pow(10, this.config.powersOfTenPerZipFileContents());
         format = switch (this.config.compression()) {
             case ZSTD -> Format.ZSTD_PROTOBUF;
-            case NONE -> Format.PROTOBUF;
-        };
+            case NONE -> Format.PROTOBUF;};
     }
 
     /**
