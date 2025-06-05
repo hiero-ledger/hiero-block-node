@@ -6,8 +6,10 @@ import static org.hiero.block.node.app.fixtures.blocks.BlockItemUtils.toBlockIte
 
 import com.hedera.hapi.block.stream.Block;
 import com.hedera.hapi.block.stream.BlockItem;
+import edu.umd.cs.findbugs.annotations.NonNull;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
@@ -31,6 +33,7 @@ public class SimpleInMemoryHistoricalBlockFacility implements HistoricalBlockFac
     private final List<BlockItems> partialBlock = new ArrayList<>();
     private final AtomicBoolean delayResponses = new AtomicBoolean(false);
     private final AtomicBoolean disablePlugin = new AtomicBoolean(false);
+    private SimpleBlockRangeSet availableBlocksOverride;
     private BlockNodeContext blockNodeContext;
 
     @Override
@@ -116,10 +119,39 @@ public class SimpleInMemoryHistoricalBlockFacility implements HistoricalBlockFac
     }
 
     /**
+     * Sets a temporary override for the available blocks. The idea here is to
+     * allow tests to set a specific set of available blocks which will be
+     * returned by the {@link #availableBlocks()} method until cleared.
+     * These temporary available blocks will not be updated if new blocks are
+     * added to the facility. Once cleared, the facility will return the
+     * original available blocks set, which are always updated. An example usage
+     * here would be to simulate a condition where a check for available blocks
+     * gives a specific set of blocks, but then later when we ask the facility
+     * to give us the available blocks, it will return what is in the original
+     * available blocks set. This simulates the condition where the check might
+     * become stale or outdated and what we get in terms of accessible blocks
+     * is what is currently available in the facility.
+     */
+    public void setTemporaryAvailableBlocks(@NonNull final SimpleBlockRangeSet availableBlocks) {
+        this.availableBlocksOverride = Objects.requireNonNull(availableBlocks);
+    }
+
+    /**
+     * Clears the temporary available blocks override set by the
+     * {@link #setTemporaryAvailableBlocks(SimpleBlockRangeSet)}
+     * @see #setTemporaryAvailableBlocks(SimpleBlockRangeSet) for details.
+     */
+    public void clearTemporaryAvailableBlocks() {
+        this.availableBlocksOverride = null;
+    }
+
+    /**
      * {@inheritDoc}
+     *
+     * <p>
      */
     @Override
     public BlockRangeSet availableBlocks() {
-        return availableBlocks;
+        return availableBlocksOverride == null ? availableBlocks : availableBlocksOverride;
     }
 }

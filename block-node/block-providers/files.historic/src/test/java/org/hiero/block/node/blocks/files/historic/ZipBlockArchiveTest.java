@@ -61,17 +61,16 @@ class ZipBlockArchiveTest {
         final Path blocksRoot = jimFs.getPath("/blocks");
         Files.createDirectories(blocksRoot);
         testConfig = createTestConfiguration(blocksRoot, 1);
-        testContext = new BlockNodeContext(
-                null,
-                null,
-                new TestHealthFacility(),
-                null, // new TestBlockMessagingFacility(),
-                null,
-                null,
-                null);
+        // we need this test context because we need the health facility to be
+        // available for the tests to run
+        testContext = new BlockNodeContext(null, null, new TestHealthFacility(), null, null, null, null);
+        // the instance under test
         toTest = new ZipBlockArchive(testContext, testConfig);
     }
 
+    /**
+     * Teardown after each test.
+     */
     @AfterEach
     void tearDown() throws IOException {
         // close the jimfs filesystem
@@ -417,54 +416,6 @@ class ZipBlockArchiveTest {
                     }
                 }
             }
-
-            //
-            //
-            //            final long firstBlockNumber = 0L;
-            //            // add first 20 blocks to the historical block facility
-            //            // we expect that the zip file will be created with the first 10 blocks
-            //            // because the test config is set to 10 blocks per zip file
-            //            // create the instance to test
-            //            for (int i = (int) firstBlockNumber; i < 20; i++) {
-            //                final List<BlockItemUnparsed> blockItems =
-            //                        List.of(SimpleTestBlockItemBuilder.createSimpleBlockUnparsedWithNumber(i));
-            //                if (i < 10) {
-            //
-            //                }
-            //                historicalBlockProvider.handleBlockItemsReceived(new BlockItems(blockItems, i));
-            //            }
-            //            // before test assert that all the blocks for numbers 0-19 are present in the block facility
-            //            assertThat(historicalBlockProvider.availableBlocks())
-            //                    .returns(0L, from(BlockRangeSet::min))
-            //                    .returns(19L, from(BlockRangeSet::max));
-            //            // assert no zip file is created yet, the zip file will be all the same
-            //            // for all the 10 zips, so we can rely on asserting based on computed path for the first block
-            //            // expected
-            //            final Path expected =
-            //                    BlockPath.computeBlockPath(testConfig, firstBlockNumber).zipFilePath();
-            //            assertThat(expected).doesNotExist();
-            //            // call
-            //            toTest.writeNewZipFile(firstBlockNumber);
-            //            // assert that each entry's contents matches what we initially intended
-            //            // to write
-            //            try (final FileSystem zipFs = FileSystems.newFileSystem(expected);
-            //                    final Stream<Path> entries = Files.list(zipFs.getPath("/"))) {
-            //                for (final Path entry : entries.toList()) {
-            //                    final BlockUnparsed expectedValue = first10BlocksWithExpectedEntryNames.get(
-            //                            entry.getFileName().toString());
-            //                    try (final InputStream in = Files.newInputStream(entry)) {
-            //                        final byte[] rawContents = in.readAllBytes();
-            //                        final BlockUnparsed actualValue =
-            // BlockUnparsed.PROTOBUF.parse(Bytes.wrap(rawContents));
-            //                        assertThat(actualValue).isEqualTo(expectedValue);
-            //                        final String actualHex =
-            //                                BlockUnparsed.PROTOBUF.toBytes(actualValue).toHex();
-            //                        final String expectedHex =
-            //                                BlockUnparsed.PROTOBUF.toBytes(expectedValue).toHex();
-            //                        assertThat(actualHex).isEqualTo(expectedHex);
-            //                    }
-            //                }
-            //            }
         }
     }
 
