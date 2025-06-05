@@ -1,9 +1,11 @@
 # SPDX-License-Identifier: Apache-2.0
 name: Block Node Bug Report
 description: Create a report to help us improve
+projects:
+  - "hiero-ledger/9"
 labels:
   - bug
-type: Bug
+type: "Bug"
 body:
   - type: markdown
     attributes:

@@ -37,11 +37,10 @@ message SubscribeStreamRequest {
 
     /**
      * A block number to end the stream.<br/>
-     * This is optional, and if not set (0), the stream will be "infinite".
      * <p>
-     * This field MAY be zero (`0`) to indicate the stream SHOULD continue
+     * This field MAY be `uint64_max` to indicate the stream SHOULD continue
      * indefinitely, streaming new blocks as each becomes available.<br/>
-     * If this value is greater than zero (`0`)
+     * If this value is greater than or equal to zero (`0`)
      * <ul>
      *   <li>This value SHALL be the number of the last block returned.</li>
      *   <li>This field MUST NOT be less than `start_block_number`.</li>
@@ -125,7 +124,7 @@ message SubscribeStreamResponse {
         /**
          * The requested end block number is not valid.<br/>
          * The end block number is greater than the highest current block
-         * number, less than `0`, or otherwise invalid.<br/>
+         * number, less than `start_block_number`, or otherwise invalid.<br/>
          * The client MAY retry this request, but MUST change the
          * `end_block_number` field to a valid end block.
          */
@@ -174,9 +173,9 @@ service BlockStreamSubscribeService {
      * The blocks shall be streamed in ascending order by `block_number`.<br/>
      * The block node SHALL end the stream when the last requested block,
      * if set, has been sent.<br/>
-     * A request with an end block of `0` SHALL be interpreted to indicate the
-     * stream has no end. The block node SHALL continue to stream new blocks
-     * as soon as each becomes available.<br/>
+     * A request with an end block of `uint64_max` SHALL be interpreted to
+     * indicate the stream has no end. The block node SHALL continue to stream
+     * new blocks as soon as each becomes available.<br/>
      * The block node SHALL end the stream with response code containing a
      * status of SUCCESS when the stream is complete.<br/>
      * The block node SHALL end the stream with a response code containing a
