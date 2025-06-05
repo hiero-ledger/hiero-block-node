@@ -530,6 +530,43 @@ class BlocksFilesHistoricPluginTest {
         }
 
         /**
+         * This test aims to verify that the plugin will not zip anything when
+         * an IOException occurs during the zipping process. This is when a task
+         * is successfully submitted to the executor, but the zipping itself
+         * fails.
+         */
+        @Test
+        @DisplayName("Test no zip when IOException occurs")
+        void testNoZipWhenIOException() throws IOException {
+            // generate first 10 blocks from numbers 0-9 and add them to the
+            // test historical block facility
+            for (int i = 0; i < 10; i++) {
+                final BlockItemUnparsed[] block = SimpleTestBlockItemBuilder.createSimpleBlockUnparsedWithNumber(i);
+                testHistoricalBlockFacility.handleBlockItemsReceived(new BlockItems(List.of(block), i), false);
+            }
+            // assert that none of the first 10 blocks are zipped yet
+            for (int i = 0; i < 10; i++) {
+                assertThat(BlockPath.computeExistingBlockPath(testConfig, i)).isNull();
+            }
+            // simulate an IOException by manipulating the target zip file path
+            // compute the path to the zip file that would be created
+            final Path targetZipFilePath =
+                    BlockPath.computeBlockPath(testConfig, 0).zipFilePath();
+            Files.createDirectories(targetZipFilePath.getParent());
+            Files.createFile(targetZipFilePath);
+            Files.setPosixFilePermissions(targetZipFilePath, Collections.emptySet()); // no permissions
+            // send a block persisted notification for the range we just created
+            blockMessaging.sendBlockPersisted(new PersistedNotification(0, 9, toTest.defaultPriority() + 1));
+            // execute serially to ensure all tasks are completed
+            pluginExecutor.executeSerially();
+            // assert that no blocks are zipped/available
+            for (int i = 0; i < 10; i++) {
+                assertThat(targetZipFilePath).isRegularFile().isEmptyFile();
+                assertThat(toTest.availableBlocks().contains(i)).isFalse();
+            }
+        }
+
+        /**
          * This test aims to verify that a block accessor will be available for
          * the blocks that have been zipped after they have been zipped.
          */
