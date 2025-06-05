@@ -30,6 +30,7 @@ import org.hiero.block.node.app.fixtures.async.TestThreadPoolManager;
 import org.hiero.block.node.app.fixtures.blocks.SimpleTestBlockItemBuilder;
 import org.hiero.block.node.app.fixtures.plugintest.NoOpServiceBuilder;
 import org.hiero.block.node.app.fixtures.plugintest.PluginTestBase;
+import org.hiero.block.node.app.fixtures.plugintest.SimpleBlockRangeSet;
 import org.hiero.block.node.app.fixtures.plugintest.SimpleInMemoryHistoricalBlockFacility;
 import org.hiero.block.node.app.fixtures.plugintest.TestBlockMessagingFacility;
 import org.hiero.block.node.app.fixtures.plugintest.TestHealthFacility;
@@ -430,6 +431,101 @@ class BlocksFilesHistoricPluginTest {
             // assert that the first 10 blocks are not zipped
             for (int i = 0; i < 10; i++) {
                 assertThat(BlockPath.computeExistingBlockPath(testConfig, i)).isNull();
+            }
+        }
+
+        /**
+         * This test aims to verify that the plugin will not zip anything when
+         * a gap in the current batch is detected. We expect that the plugin
+         * will not submit a zipping task because this is the happy path test
+         * where we will be able to catch the gap in the 'contains' precheck.
+         * Another scenario (not for this test) is when the precheck passes,
+         * but then the batching logic will not be able to collect everything.
+         * That would be expected to happen due to the async nature of the
+         * system as a whole.
+         */
+        @Test
+        @DisplayName("Test no zip will be created when a gap in the current batch is detected happy path")
+        void testNoZipForGapInCurrentBatchHappyPath() throws IOException {
+            // generate a gap
+            // generate first 3 blocks from numbers 0-2 and add them to the
+            // test historical block facility
+            for (int i = 0; i < 3; i++) {
+                final BlockItemUnparsed[] block = SimpleTestBlockItemBuilder.createSimpleBlockUnparsedWithNumber(i);
+                testHistoricalBlockFacility.handleBlockItemsReceived(new BlockItems(List.of(block), i), false);
+            }
+            // generate next blocks with a gap and make sure we reach the
+            // threshold and add them to the test historical block facility
+            // numbers 5-9
+            for (int i = 5; i < 10; i++) {
+                final BlockItemUnparsed[] block = SimpleTestBlockItemBuilder.createSimpleBlockUnparsedWithNumber(i);
+                testHistoricalBlockFacility.handleBlockItemsReceived(new BlockItems(List.of(block), i), false);
+            }
+            // we now have blocks 0-2 and 5-9, so we have a gap
+            // assert that none of the first 10 blocks are zipped yet
+            for (int i = 0; i < 10; i++) {
+                assertThat(BlockPath.computeExistingBlockPath(testConfig, i)).isNull();
+            }
+            // send a block persisted notification for the range we last created
+            blockMessaging.sendBlockPersisted(new PersistedNotification(5, 9, toTest.defaultPriority() + 1));
+            // assert that no zipping task was submitted
+            final boolean anyTaskSubmitted = pluginExecutor.wasAnyTaskSubmitted();
+            assertThat(anyTaskSubmitted).isFalse();
+            // assert that the first 10 blocks are not zipped
+            for (int i = 0; i < 10; i++) {
+                assertThat(BlockPath.computeExistingBlockPath(testConfig, i)).isNull();
+                assertThat(toTest.availableBlocks().contains(i)).isFalse();
+            }
+        }
+
+        /**
+         * This test aims to verify that the plugin will not zip anything when
+         * a gap in the current batch is detected. We expect that the plugin
+         * will submit a zipping task, because we here simulate that the
+         * availability precheck passes, but the batching logic is not able
+         * to collect everything due to the async nature of the system. Unlike
+         * the happy path test, this test will be able to catch the gap later.
+         */
+        @Test
+        @DisplayName(
+                "Test no zip will be created when a gap in the current batch is detected after successful precheck")
+        void testNoZipForGapInCurrentBatchSuccessfulPrecheck() throws IOException {
+            // generate a gap
+            // generate first 3 blocks from numbers 0-2 and add them to the
+            // test historical block facility
+            for (int i = 0; i < 3; i++) {
+                final BlockItemUnparsed[] block = SimpleTestBlockItemBuilder.createSimpleBlockUnparsedWithNumber(i);
+                testHistoricalBlockFacility.handleBlockItemsReceived(new BlockItems(List.of(block), i), false);
+            }
+            // generate next blocks with a gap and make sure we reach the
+            // threshold and add them to the test historical block facility
+            // numbers 5-9
+            for (int i = 5; i < 10; i++) {
+                final BlockItemUnparsed[] block = SimpleTestBlockItemBuilder.createSimpleBlockUnparsedWithNumber(i);
+                testHistoricalBlockFacility.handleBlockItemsReceived(new BlockItems(List.of(block), i), false);
+            }
+            // we now have blocks 0-2 and 5-9, so we have a gap
+            // assert that none of the first 10 blocks are zipped yet
+            for (int i = 0; i < 10; i++) {
+                assertThat(BlockPath.computeExistingBlockPath(testConfig, i)).isNull();
+            }
+            // set a temporary override for the available blocks to contain
+            // the first 10 blocks, this will simulate that the precheck passes
+            // but later on we will still be able to detect the gap
+            final SimpleBlockRangeSet temporaryAvailableBlocks = new SimpleBlockRangeSet();
+            temporaryAvailableBlocks.add(0, 10);
+            testHistoricalBlockFacility.setTemporaryAvailableBlocks(temporaryAvailableBlocks);
+            // send a block persisted notification for the range we last created
+            blockMessaging.sendBlockPersisted(new PersistedNotification(5, 9, toTest.defaultPriority() + 1));
+            // assert that no zipping task was submitted
+            final boolean anyTaskSubmitted = pluginExecutor.wasAnyTaskSubmitted();
+            assertThat(anyTaskSubmitted).isTrue();
+            // make sure the task is executed
+            pluginExecutor.executeSerially();
+            // assert that the first 10 blocks are not zipped
+            for (int i = 0; i < 10; i++) {
+                assertThat(BlockPath.computeExistingBlockPath(testConfig, i)).isNull();
+                assertThat(toTest.availableBlocks().contains(i)).isFalse();
             }
         }
 
