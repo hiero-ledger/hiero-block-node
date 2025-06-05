@@ -8,6 +8,7 @@ import com.hedera.pbj.runtime.grpc.Pipeline;
 import com.hedera.pbj.runtime.grpc.Pipelines;
 import com.hedera.pbj.runtime.grpc.Pipelines.ServerStreamingMethod;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
+import com.swirlds.metrics.api.Counter;
 import com.swirlds.metrics.api.LongGauge;
 import edu.umd.cs.findbugs.annotations.NonNull;
 import java.lang.System.Logger;
@@ -132,8 +133,12 @@ public class SubscriberServicePlugin implements BlockNodePlugin, BlockStreamSubs
         private final BlockNodeContext context;
         /** Set of open client sessions */
         private final Map<Long, BlockStreamSubscriberSession> openSessions;
-
+        // Metrics
+        /** Counter for errors while streaming to subscribers */
+        private final Counter subscriberErrorsCounter;
+        /** Gauge for number of subscribers */
         private final LongGauge numberOfSubscribers;
+
         private final ExecutorService virtualThreadExecutor;
         private final ExecutorCompletionService<BlockStreamSubscriberSession> streamSessions;
 
@@ -144,8 +149,11 @@ public class SubscriberServicePlugin implements BlockNodePlugin, BlockStreamSubs
             streamSessions = new ExecutorCompletionService<>(virtualThreadExecutor);
             // create the metrics
             numberOfSubscribers = context.metrics()
-                    .getOrCreate(new LongGauge.Config(METRICS_CATEGORY, "subscribers")
-                            .withDescription("Number of Connected Subscribers"));
+                    .getOrCreate(new LongGauge.Config(METRICS_CATEGORY, "subscriber_open_connections")
+                            .withDescription("Connected subscribers"));
+            subscriberErrorsCounter = context.metrics()
+                    .getOrCreate(new Counter.Config(METRICS_CATEGORY, "subscriber_errors")
+                            .withDescription("Errors while streaming to subscribers"));
         }
 
         private void stop() {
@@ -207,6 +215,7 @@ public class SubscriberServicePlugin implements BlockNodePlugin, BlockStreamSubs
                     // Subscribers can reconnect or retry, so this is only an informational log.
                     final String message = "Subscriber session %(,d failed due to {0}.".formatted(clientId);
                     LOGGER.log(Level.INFO, message, failureCause);
+                    subscriberErrorsCounter.increment();
                 } else {
                     // Otherwise, log that the session completed successfully.
                     LOGGER.log(Level.TRACE, "Subscriber session %(,d completed successfully.".formatted(clientId));
@@ -216,6 +225,7 @@ public class SubscriberServicePlugin implements BlockNodePlugin, BlockStreamSubs
                 // the session to fail, so the error is significant.
                 final String message = "Subscriber session failed due to unhandled %s:%n{0}.".formatted(e.getCause());
                 LOGGER.log(Level.ERROR, message, e);
+                subscriberErrorsCounter.increment();
             }
             // Decrement the session count and update the metric.
             numberOfSubscribers.set(sessionCount.decrementAndGet());

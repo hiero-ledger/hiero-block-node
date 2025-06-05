@@ -15,6 +15,7 @@ module org.hiero.block.node.blocks.files.historic {
     requires transitive org.hiero.block.node.base;
     requires transitive org.hiero.block.node.spi;
     requires com.hedera.pbj.runtime;
+    requires com.swirlds.metrics.api;
     requires org.hiero.block.common;
     requires org.hiero.block.protobuf;
     requires com.github.spotbugs.annotations;

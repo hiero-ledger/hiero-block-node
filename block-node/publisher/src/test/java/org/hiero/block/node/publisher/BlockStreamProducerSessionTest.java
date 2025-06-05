@@ -49,6 +49,24 @@ public class BlockStreamProducerSessionTest {
     @Mock
     private Counter liveBlockItemsReceived;
 
+    @Mock
+    private Counter blocksAckSent;
+
+    @Mock
+    private Counter blocksSkipsSent;
+
+    @Mock
+    private Counter blocksResendSent;
+
+    @Mock
+    private Counter blocksEndOfStreamSent;
+
+    @Mock
+    private Counter blocksEndOfStreamReceived;
+
+    @Mock
+    private Counter streamErrors;
+
     private BlockStreamProducerSession session;
 
     private PublishStreamResponse lastResponse;
@@ -68,7 +86,13 @@ public class BlockStreamProducerSessionTest {
                 liveBlockItemsReceived,
                 stateLock,
                 sendToBlockMessaging,
-                -1);
+                -1,
+                blocksAckSent,
+                blocksSkipsSent,
+                blocksResendSent,
+                blocksEndOfStreamSent,
+                blocksEndOfStreamReceived,
+                streamErrors);
     }
 
     /**
@@ -394,7 +418,13 @@ public class BlockStreamProducerSessionTest {
                 liveBlockItemsReceived,
                 new ReentrantLock(),
                 sendToBlockMessaging,
-                -1);
+                -1,
+                blocksAckSent,
+                blocksSkipsSent,
+                blocksResendSent,
+                blocksEndOfStreamSent,
+                blocksEndOfStreamReceived,
+                streamErrors);
 
         // Try to send a response that should trigger the exception
         failingSession.handlePersisted(new PersistedNotification(0L, 0L, 1));

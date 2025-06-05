@@ -2,3 +2,5 @@
 out
 /hedera-block-node/Chart.lock
 /hedera-block-node/charts/*
+*/charts/*.tgz
+*.lock

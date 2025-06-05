@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.node.access.service;
 
-import static java.lang.System.Logger.Level.DEBUG;
 import static java.lang.System.Logger.Level.ERROR;
+import static java.lang.System.Logger.Level.TRACE;
 import static java.lang.System.Logger.Level.WARNING;
 
 import com.hedera.hapi.block.stream.Block;
@@ -43,7 +43,7 @@ public class BlockAccessServicePlugin implements BlockNodePlugin, BlockAccessSer
      * @return the response containing the block or an error status
      */
     public BlockResponse getBlock(BlockRequest request) {
-        LOGGER.log(DEBUG, "Received BlockRequest for block number: {0}", request.blockNumber());
+        LOGGER.log(TRACE, "Received BlockRequest for block number: {0}", request.blockNumber());
         requestCounter.increment();
 
         try {
@@ -69,7 +69,7 @@ public class BlockAccessServicePlugin implements BlockNodePlugin, BlockAccessSer
                 long lowestBlockNumber = blockProvider.availableBlocks().min();
                 long highestBlockNumber = blockProvider.availableBlocks().max();
                 LOGGER.log(
-                        DEBUG,
+                        TRACE,
                         "Requested block {0} is outside available range [{1}, {2}]",
                         blockNumberToRetrieve,
                         lowestBlockNumber,
@@ -108,17 +108,17 @@ public class BlockAccessServicePlugin implements BlockNodePlugin, BlockAccessSer
     public void init(BlockNodeContext context, ServiceBuilder serviceBuilder) {
         // Create the metrics
         requestCounter = context.metrics()
-                .getOrCreate(new Counter.Config(METRICS_CATEGORY, "single-block-requests")
-                        .withDescription("Number of single block requests"));
+                .getOrCreate(new Counter.Config(METRICS_CATEGORY, "get_block_requests")
+                        .withDescription("Number of get block requests"));
         responseCounterSuccess = context.metrics()
-                .getOrCreate(new Counter.Config(METRICS_CATEGORY, "single-block-requests-success")
-                        .withDescription("Number of successful single block requests"));
+                .getOrCreate(new Counter.Config(METRICS_CATEGORY, "get_block_requests_success")
+                        .withDescription("Successful single block requests"));
         responseCounterNotAvailable = context.metrics()
-                .getOrCreate(new Counter.Config(METRICS_CATEGORY, "single-block-requests-not-available")
-                        .withDescription("Number of single block requests that responded not available"));
+                .getOrCreate(new Counter.Config(METRICS_CATEGORY, "get_block_requests_not_available")
+                        .withDescription("Requests for blocks that were not available"));
         responseCounterNotFound = context.metrics()
-                .getOrCreate(new Counter.Config(METRICS_CATEGORY, "single-block-requests-not-found")
-                        .withDescription("Number of single block requests that responded not found"));
+                .getOrCreate(new Counter.Config(METRICS_CATEGORY, "get_block_requests_not_found")
+                        .withDescription("Requests for blocks that were not found"));
         // Get the block provider
         this.blockProvider = context.historicalBlockProvider();
         // Register this service

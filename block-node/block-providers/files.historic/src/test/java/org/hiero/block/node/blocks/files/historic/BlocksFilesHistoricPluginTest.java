@@ -4,11 +4,13 @@ package org.hiero.block.node.blocks.files.historic;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatNoException;
 import static org.assertj.core.api.Assertions.assertThatNullPointerException;
+import static org.mockito.Mockito.mock;
 
 import com.hedera.pbj.runtime.ParseException;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import com.swirlds.config.api.Configuration;
 import com.swirlds.config.api.ConfigurationBuilder;
+import com.swirlds.metrics.api.Metrics;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -113,10 +115,11 @@ class BlocksFilesHistoricPluginTest {
                     .withConfigDataType(FilesHistoricConfig.class)
                     .withValue("files.historic.rootPath", tempDir.toString())
                     .build();
+            final Metrics metricsMock = mock(Metrics.class);
             final HistoricalBlockFacility historicalBlockProvider = new SimpleInMemoryHistoricalBlockFacility();
             final BlockNodeContext testContext = new BlockNodeContext(
                     configuration,
-                    null,
+                    metricsMock,
                     new TestHealthFacility(),
                     new TestBlockMessagingFacility(),
                     historicalBlockProvider,
