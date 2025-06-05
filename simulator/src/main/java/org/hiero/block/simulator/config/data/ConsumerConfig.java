@@ -12,4 +12,5 @@ public record ConsumerConfig(
         @Loggable @ConfigProperty(defaultValue = "false") boolean slowDown,
         @Loggable @ConfigProperty(defaultValue = "false") boolean randomSlowDown,
         @Loggable @ConfigProperty(defaultValue = "2") long slowDownMilliseconds,
+        @Loggable @ConfigProperty(defaultValue = "false") boolean randomBlocksToWaitBeforeSlowDown,
         @Loggable @ConfigProperty(defaultValue = "10-30") String slowDownForBlockRange) {}

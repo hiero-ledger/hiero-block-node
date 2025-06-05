@@ -11,7 +11,6 @@ import com.hedera.hapi.block.stream.protoc.BlockItem;
 import edu.umd.cs.findbugs.annotations.NonNull;
 import io.grpc.Status;
 import io.grpc.stub.StreamObserver;
-import java.util.ArrayList;
 import java.util.Deque;
 import java.util.HashSet;
 import java.util.List;
@@ -41,6 +40,7 @@ public class ConsumerStreamObserver implements StreamObserver<SubscribeStreamRes
 
     private final ConsumerConfig consumerConfig;
     private Set<Long> slowDownBlockRangeSet = new HashSet<>();
+    private long randomBlocksToWait = 0L;
 
     /**
      * Constructs a new ConsumerStreamObserver.
@@ -65,8 +65,13 @@ public class ConsumerStreamObserver implements StreamObserver<SubscribeStreamRes
         if (consumerConfig.slowDown()) {
             this.slowDownBlockRangeSet = parseSlowDownForBlockRange(consumerConfig.slowDownForBlockRange());
         } else if (consumerConfig.randomSlowDown()) {
-            List<Long> list = parseBlockRange(consumerConfig.slowDownForBlockRange());
-            this.slowDownBlockRangeSet = randomBlockRangeSet(list.get(0), list.get(1));
+            List<Long> blockRange = parseBlockRange(consumerConfig.slowDownForBlockRange());
+            this.slowDownBlockRangeSet = randomBlockRangeSet(blockRange.get(0), blockRange.get(1));
+        } else if (consumerConfig.randomBlocksToWaitBeforeSlowDown()) {
+            List<Long> blockRange = parseBlockRange(consumerConfig.slowDownForBlockRange());
+            this.slowDownBlockRangeSet = parseSlowDownForBlockRange(consumerConfig.slowDownForBlockRange());
+            this.randomBlocksToWait =
+                    new Random().nextLong(blockRange.get(1) - blockRange.get(0) + 1) + blockRange.get(0);
         }
     }
 
@@ -120,6 +125,11 @@ public class ConsumerStreamObserver implements StreamObserver<SubscribeStreamRes
             if (slowDownBlockRangeSet.contains(lastBlockConsumed)) {
                 slowDownProcessing("for block %d".formatted(lastBlockConsumed));
             }
+        } else if (consumerConfig.randomBlocksToWaitBeforeSlowDown()) {
+            if (slowDownBlockRangeSet.contains(lastBlockConsumed) && lastBlockConsumed >= randomBlocksToWait) {
+                slowDownProcessing(
+                        "for block %d after waiting %d blocks".formatted(lastBlockConsumed, randomBlocksToWait));
+            }
         }
 
         blockItems.stream().filter(BlockItem::hasBlockProof).forEach(blockItem -> {
@@ -146,7 +156,7 @@ public class ConsumerStreamObserver implements StreamObserver<SubscribeStreamRes
         }
     }
 
-    private void slowDownProcessing(String message) {
+    private void slowDownProcessing(final String message) {
         try {
             LOGGER.log(INFO, "Slowing down processing " + message);
             Thread.sleep(consumerConfig.slowDownMilliseconds());
@@ -156,49 +166,47 @@ public class ConsumerStreamObserver implements StreamObserver<SubscribeStreamRes
         }
     }
 
-    private Set<Long> parseSlowDownForBlockRange(String slowDownForBlockRange) {
-        Set<Long> blockRangeSet = new HashSet<>();
-        List<Long> list = parseBlockRange(slowDownForBlockRange);
-        long start = list.get(0);
-        long end = list.get(1);
+    private Set<Long> parseSlowDownForBlockRange(final String slowDownForBlockRange) {
+        final List<Long> list = parseBlockRange(slowDownForBlockRange);
+        final long start = list.get(0);
+        final long end = list.get(1);
 
+        Set<Long> blockRangeSet = new HashSet<>();
         for (long i = start; i <= end; i++) {
             blockRangeSet.add(i);
         }
         return blockRangeSet;
     }
 
-    private Set<Long> randomBlockRangeSet(long start, long end) {
-        Random random = new Random();
-        long randomStart = random.nextLong((end - start + 1));
-        long randomEnd = random.nextLong(end - start + 1);
+    private Set<Long> randomBlockRangeSet(final long startBlock, final long endBlock) {
+        final Random random = new Random();
+        long randomStart = random.nextLong((endBlock - startBlock + 1));
+        long randomEnd = random.nextLong(endBlock - startBlock + 1);
         if (randomStart > randomEnd) {
             long temp = randomStart;
             randomStart = randomEnd;
             randomEnd = temp;
         }
-
         System.out.println("Random block range: " + randomStart + "-" + randomEnd);
-        Set<Long> blockRangeSet = new HashSet<>();
 
+        Set<Long> blockRangeSet = new HashSet<>();
         for (long i = randomStart; i <= randomEnd; i++) {
             blockRangeSet.add(i);
         }
         return blockRangeSet;
     }
 
-    private List<Long> parseBlockRange(String slowDownForBlockRange) {
-        List<Long> blockRangeList = new ArrayList<>();
+    private List<Long> parseBlockRange(final String slowDownForBlockRange) {
         if (slowDownForBlockRange == null || slowDownForBlockRange.isBlank()) {
-            return blockRangeList;
+            return List.of();
         }
-        String[] parts = slowDownForBlockRange.split("-");
+        final String[] parts = slowDownForBlockRange.split("-");
         if (parts.length != 2) {
             throw new IllegalArgumentException("Invalid range format. Expected format: start-end (e.g., 1-3)");
         }
         try {
-            long start = Long.parseLong(parts[0].trim());
-            long end = Long.parseLong(parts[1].trim());
+            final long start = Long.parseLong(parts[0].trim());
+            final long end = Long.parseLong(parts[1].trim());
             if (start > end) {
                 throw new IllegalArgumentException("Range start cannot be greater than range end.");
             }
