@@ -3,19 +3,25 @@ import org.gradlex.javamodule.moduleinfo.ExtraJavaModuleInfoPluginExtension
 
 plugins { id("org.hiero.gradle.build") version "0.4.1" }
 
+val hieroGroup = "org.hiero.block"
+
 rootProject.name = "hiero-block-node"
 
 javaModules {
     directory(".") {
-        group = "org.hiero.block"
+        group = hieroGroup
+        module("common")
+        module("protobuf-sources") { artifact = "block-node-protobuf-sources" }
+    }
+    directory("tools-and-tests") {
+        group = hieroGroup
         module("tools") // no 'module-info' yet
         module("suites")
         module("simulator")
-        module("common")
-        module("protobuf") { artifact = "block-node-protobuf" }
+        module("protobuf-protoc")
     }
     directory("block-node") {
-        group = "org.hiero.block"
+        group = hieroGroup
         module("app") { artifact = "block-node-app" }
         module("base") { artifact = "block-node-base" }
         module("block-access") { artifact = "block-access-service" }
@@ -23,6 +29,7 @@ javaModules {
         module("block-providers/files.recent") { artifact = "block-node-blocks-file-recent" }
         module("health") { artifact = "block-node-health" }
         module("messaging") { artifact = "facility-messaging" }
+        module("protobuf-pbj") { artifact = "block-node-protobuf-pbj" }
         module("s3-archive") { artifact = "block-node-s3-archive" }
         module("server-status") { artifact = "block-node-server-status" }
         module("spi") { artifact = "block-node-spi-plugins" }
