@@ -62,9 +62,8 @@ class ConsumerStreamObserverTest {
 
     @Test
     void testOnNextWithStatusResponse() {
-        SubscribeStreamResponse response = SubscribeStreamResponse.newBuilder()
-                .setStatus(Code.READ_STREAM_SUCCESS)
-                .build();
+        SubscribeStreamResponse response =
+                SubscribeStreamResponse.newBuilder().setStatus(Code.SUCCESS).build();
 
         observer.onNext(response);
 

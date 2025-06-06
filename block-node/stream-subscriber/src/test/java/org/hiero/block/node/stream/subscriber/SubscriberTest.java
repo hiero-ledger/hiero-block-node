@@ -302,7 +302,7 @@ public class SubscriberTest extends GrpcPluginTestBase<SubscriberServicePlugin> 
         // check we did not get a bad response
         SubscribeStreamResponse response = parseResponse(fromPluginBytes.getFirst());
         assertEquals(ResponseOneOfType.STATUS, response.response().kind());
-        assertEquals(SubscribeStreamResponse.Code.READ_STREAM_INVALID_START_BLOCK_NUMBER, response.status());
+        assertEquals(SubscribeStreamResponse.Code.INVALID_START_BLOCK_NUMBER, response.status());
     }
 
     @Test
@@ -324,7 +324,7 @@ public class SubscriberTest extends GrpcPluginTestBase<SubscriberServicePlugin> 
                 .isGreaterThan(0);
         SubscribeStreamResponse response = parseResponse(fromPluginBytes.getFirst());
         assertEquals(ResponseOneOfType.STATUS, response.response().kind());
-        assertEquals(SubscribeStreamResponse.Code.READ_STREAM_INVALID_END_BLOCK_NUMBER, response.status());
+        assertEquals(SubscribeStreamResponse.Code.INVALID_END_BLOCK_NUMBER, response.status());
     }
 
     @Test
@@ -344,7 +344,7 @@ public class SubscriberTest extends GrpcPluginTestBase<SubscriberServicePlugin> 
         assertThat(fromPluginBytes.size()).isGreaterThan(0);
         SubscribeStreamResponse response = parseResponse(fromPluginBytes.getFirst());
         assertEquals(ResponseOneOfType.STATUS, response.response().kind());
-        assertEquals(SubscribeStreamResponse.Code.READ_STREAM_INVALID_END_BLOCK_NUMBER, response.status());
+        assertEquals(SubscribeStreamResponse.Code.INVALID_END_BLOCK_NUMBER, response.status());
     }
 
     // ==== Testing Utility Methods ====================================================================================

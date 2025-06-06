@@ -157,12 +157,12 @@ public class BlockStreamSubscriberSession implements Callable<BlockStreamSubscri
                 }
                 if (allRequestedBlocksSent()) {
                     // We've sent all request blocks. Therefore, we close, according to the protocol.
-                    close(SubscribeStreamResponse.Code.READ_STREAM_SUCCESS);
+                    close(SubscribeStreamResponse.Code.SUCCESS);
                 }
             }
         } catch (RuntimeException | ParseException | InterruptedException e) {
             sessionFailedCause = e;
-            close(SubscribeStreamResponse.Code.READ_STREAM_SUCCESS); // Need an "INCOMPLETE" code...
+            close(SubscribeStreamResponse.Code.SUCCESS); // Need an "INCOMPLETE" code...
         }
         // Need to record a metric here with client ID tag, so we can record
         // requested vs sent metrics.
@@ -191,7 +191,7 @@ public class BlockStreamSubscriberSession implements Callable<BlockStreamSubscri
                     // close the stream with an "unavailable" response.
                     final String message = "Unable to read historical block {0}.";
                     LOGGER.log(Level.INFO, message, nextBlockToSend);
-                    close(SubscribeStreamResponse.Code.READ_STREAM_NOT_AVAILABLE);
+                    close(SubscribeStreamResponse.Code.NOT_AVAILABLE);
                 } else {
                     awaitNewLiveEntries();
                 }
@@ -414,16 +414,16 @@ public class BlockStreamSubscriberSession implements Callable<BlockStreamSubscri
         boolean isValid = false;
         if (startBlock < UNKNOWN_BLOCK_NUMBER) {
             logger.log(Level.DEBUG, "Client {0} requested negative block {1}", clientId, startBlock);
-            close(SubscribeStreamResponse.Code.READ_STREAM_INVALID_START_BLOCK_NUMBER);
+            close(SubscribeStreamResponse.Code.INVALID_START_BLOCK_NUMBER);
         } else if (endBlock < UNKNOWN_BLOCK_NUMBER) {
             logger.log(Level.DEBUG, "Client {0} requested negative end block {1}", clientId, endBlock);
             // send invalid end block number response
-            close(SubscribeStreamResponse.Code.READ_STREAM_INVALID_END_BLOCK_NUMBER);
+            close(SubscribeStreamResponse.Code.INVALID_END_BLOCK_NUMBER);
         } else if (endBlock >= 0 && startBlock > endBlock) {
             final String message = "Client {0} requested end block {1} before start {2}";
             logger.log(Level.DEBUG, message, clientId, endBlock, startBlock);
             // send invalid end block number response
-            close(SubscribeStreamResponse.Code.READ_STREAM_INVALID_END_BLOCK_NUMBER);
+            close(SubscribeStreamResponse.Code.INVALID_END_BLOCK_NUMBER);
         } else {
             final long lastPermittedStart = latestBlock + pluginConfiguration.maximumFutureRequest();
             if (startBlock != UNKNOWN_BLOCK_NUMBER && (startBlock < oldestBlock || startBlock > lastPermittedStart)) {
@@ -433,7 +433,7 @@ public class BlockStreamSubscriberSession implements Callable<BlockStreamSubscri
                         "Client {0} requested start block {1} that is neither live nor historical. Newest historical block is {2}";
                 logger.log(Level.DEBUG, message, clientId, startBlock, latestBlock);
                 // send invalid start block number response
-                close(SubscribeStreamResponse.Code.READ_STREAM_INVALID_START_BLOCK_NUMBER);
+                close(SubscribeStreamResponse.Code.INVALID_START_BLOCK_NUMBER);
             } else {
                 if (startBlock == UNKNOWN_BLOCK_NUMBER || startBlock >= latestBlock) {
                     // Start at next live block or a future block within the "max live" range.
