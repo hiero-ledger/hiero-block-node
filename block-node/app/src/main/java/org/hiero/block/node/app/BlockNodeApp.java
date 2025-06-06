@@ -158,7 +158,8 @@ public class BlockNodeApp implements HealthFacility {
                 blockMessagingService,
                 historicalBlockFacility,
                 serviceLoader,
-                threadPoolManager);
+                threadPoolManager,
+                serverConfig.storageRetentionPolicyThreshold());
         // ==== CREATE ROUTING BUILDERS ================================================================================
         // Create HTTP & GRPC routing builders
         final ServiceBuilderImpl serviceBuilder = new ServiceBuilderImpl();

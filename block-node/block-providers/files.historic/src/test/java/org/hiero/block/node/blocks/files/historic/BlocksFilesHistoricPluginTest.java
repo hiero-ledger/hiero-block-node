@@ -124,7 +124,8 @@ class BlocksFilesHistoricPluginTest {
                     new TestBlockMessagingFacility(),
                     historicalBlockProvider,
                     null,
-                    new TestThreadPoolManager<>(new BlockingSerialExecutor(new LinkedBlockingQueue<>())));
+                    new TestThreadPoolManager<>(new BlockingSerialExecutor(new LinkedBlockingQueue<>())),
+                    -1L);
             // call
             final BlocksFilesHistoricPlugin toTest = new BlocksFilesHistoricPlugin();
             assertThatNoException().isThrownBy(() -> toTest.init(testContext, null));

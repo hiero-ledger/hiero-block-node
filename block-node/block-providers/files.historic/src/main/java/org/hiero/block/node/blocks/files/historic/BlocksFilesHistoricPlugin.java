@@ -44,6 +44,8 @@ public final class BlocksFilesHistoricPlugin implements BlockProviderPlugin, Blo
     private final CopyOnWriteArrayList<LongRange> inProgressZipRanges = new CopyOnWriteArrayList<>();
     /** Running total of bytes stored in the historic tier */
     private final AtomicLong totalBytesStored = new AtomicLong(0);
+    /** The Storage Retention Policy Threshold */
+    private long retentionPolicyThreshold;
 
     // Metrics
     /** Counter for blocks written to the historic tier */
@@ -73,10 +75,9 @@ public final class BlocksFilesHistoricPlugin implements BlockProviderPlugin, Blo
     public void init(final BlockNodeContext context, final ServiceBuilder serviceBuilder) {
         this.context = Objects.requireNonNull(context);
         final FilesHistoricConfig config = context.configuration().getConfigData(FilesHistoricConfig.class);
-
+        this.retentionPolicyThreshold = context.storageRetentionPolicyThreshold();
         // Initialize metrics
         initMetrics(context.metrics());
-
         // create plugin data root directory if it does not exist
         try {
             Files.createDirectories(config.rootPath());

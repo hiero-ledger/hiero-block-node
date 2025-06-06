@@ -73,7 +73,8 @@ public final class BlocksFilesRecentPlugin implements BlockProviderPlugin, Block
     private final ConcurrentLongRangeSet availableBlocks = new ConcurrentLongRangeSet();
     /** Running total of bytes stored in the recent tier */
     private final AtomicLong totalBytesStored = new AtomicLong(0);
-
+    /** The Storage Retention Policy Threshold */
+    private long retentionPolicyThreshold;
     // Metrics
     /** Counter for blocks written to the recent tier */
     private Counter blocksWrittenCounter;
@@ -120,6 +121,7 @@ public final class BlocksFilesRecentPlugin implements BlockProviderPlugin, Block
         if (this.config == null) {
             this.config = context.configuration().getConfigData(FilesRecentConfig.class);
         }
+        this.retentionPolicyThreshold = context.storageRetentionPolicyThreshold();
         this.blockMessaging = context.blockMessaging();
         // Initialize metrics
         initMetrics(context.metrics());
