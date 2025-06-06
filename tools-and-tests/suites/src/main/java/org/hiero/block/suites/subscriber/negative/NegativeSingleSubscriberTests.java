@@ -94,7 +94,7 @@ public class NegativeSingleSubscriberTests extends BaseSuite {
             }
         }
 
-        assertTrue(consumerStatus.contains("READ_STREAM_INVALID_END_BLOCK_NUMBER"));
+        assertTrue(consumerStatus.contains("INVALID_END_BLOCK_NUMBER"));
         assertEquals(0L, consumedBlocks);
     }
 
@@ -143,7 +143,7 @@ public class NegativeSingleSubscriberTests extends BaseSuite {
             }
         }
 
-        assertTrue(consumerStatus.contains("READ_STREAM_INVALID_START_BLOCK_NUMBER"));
+        assertTrue(consumerStatus.contains("INVALID_START_BLOCK_NUMBER"));
         assertEquals(0L, consumedBlocks);
     }
 
@@ -192,7 +192,7 @@ public class NegativeSingleSubscriberTests extends BaseSuite {
             }
         }
 
-        assertTrue(consumerStatus.contains("READ_STREAM_INVALID_END_BLOCK_NUMBER"));
+        assertTrue(consumerStatus.contains("INVALID_END_BLOCK_NUMBER"));
         assertEquals(0L, consumedBlocks);
     }
 
