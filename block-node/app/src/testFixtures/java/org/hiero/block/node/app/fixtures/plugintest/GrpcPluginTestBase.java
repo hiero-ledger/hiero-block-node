@@ -50,17 +50,19 @@ public abstract class GrpcPluginTestBase<P extends BlockNodePlugin> extends Plug
      * @param plugin the plugin to be tested
      * @param historicalBlockFacility the historical block facility to be used
      */
-    public void start(P plugin, Method method, HistoricalBlockFacility historicalBlockFacility) {
-        start(plugin, method, historicalBlockFacility, null, null);
+    public void start(final P plugin, final Method method, final HistoricalBlockFacility historicalBlockFacility) {
+        start(plugin, method, historicalBlockFacility, null, null, -1L);
     }
 
     public void start(
-            P plugin,
-            Method method,
-            HistoricalBlockFacility historicalBlockFacility,
-            ThreadPoolManager testThreadManager,
-            Map<String, String> configOverrides) {
-        super.start(plugin, historicalBlockFacility, testThreadManager, configOverrides);
+            final P plugin,
+            final Method method,
+            final HistoricalBlockFacility historicalBlockFacility,
+            final ThreadPoolManager testThreadManager,
+            final Map<String, String> configOverrides,
+            final long storageRetentionPolicyThreshold) {
+        super.start(
+                plugin, historicalBlockFacility, testThreadManager, configOverrides, storageRetentionPolicyThreshold);
         // setup to receive bytes from the plugin
         fromPluginPipe = new Pipeline<>() {
             @Override

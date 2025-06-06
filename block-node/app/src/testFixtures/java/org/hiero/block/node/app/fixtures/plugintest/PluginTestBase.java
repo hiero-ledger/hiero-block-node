@@ -64,8 +64,8 @@ public abstract class PluginTestBase<P extends BlockNodePlugin> {
      * @param plugin the plugin to be tested
      * @param historicalBlockFacility the historical block facility to be used
      */
-    public void start(P plugin, HistoricalBlockFacility historicalBlockFacility) {
-        start(plugin, historicalBlockFacility, testThreadPoolManager, null);
+    public void start(final P plugin, final HistoricalBlockFacility historicalBlockFacility) {
+        start(plugin, historicalBlockFacility, testThreadPoolManager, null, -1L);
     }
 
     /**
@@ -77,8 +77,11 @@ public abstract class PluginTestBase<P extends BlockNodePlugin> {
      * @param historicalBlockFacility the historical block facility to be used
      * @param testThreadManager the thread pool manager to be used
      */
-    public void start(P plugin, HistoricalBlockFacility historicalBlockFacility, ThreadPoolManager testThreadManager) {
-        start(plugin, historicalBlockFacility, testThreadManager, null);
+    public void start(
+            final P plugin,
+            final HistoricalBlockFacility historicalBlockFacility,
+            final ThreadPoolManager testThreadManager) {
+        start(plugin, historicalBlockFacility, testThreadManager, null, -1L);
     }
 
     /**
@@ -90,8 +93,11 @@ public abstract class PluginTestBase<P extends BlockNodePlugin> {
      * @param historicalBlockFacility the historical block facility to be used
      * @param configOverrides a map of configuration overrides to be applied to loaded configuration
      */
-    public void start(P plugin, HistoricalBlockFacility historicalBlockFacility, Map<String, String> configOverrides) {
-        start(plugin, historicalBlockFacility, testThreadPoolManager, configOverrides);
+    public void start(
+            final P plugin,
+            final HistoricalBlockFacility historicalBlockFacility,
+            final Map<String, String> configOverrides) {
+        start(plugin, historicalBlockFacility, testThreadPoolManager, configOverrides, -1L);
     }
 
     /**
@@ -101,12 +107,15 @@ public abstract class PluginTestBase<P extends BlockNodePlugin> {
      * @param historicalBlockFacility the historical block facility to be used
      * @param testThreadManager the thread pool manager to be used
      * @param configOverrides a map of configuration overrides to be applied to loaded configuration
+     * @param storageRetentionPolicyThreshold the threshold for the storage retention policy,
+     * -1 defaults to no retention policy (unlimited storage)
      */
     public void start(
-            P plugin,
-            HistoricalBlockFacility historicalBlockFacility,
-            ThreadPoolManager testThreadManager,
-            Map<String, String> configOverrides) {
+            final P plugin,
+            final HistoricalBlockFacility historicalBlockFacility,
+            final ThreadPoolManager testThreadManager,
+            final Map<String, String> configOverrides,
+            final long storageRetentionPolicyThreshold) {
         this.plugin = plugin;
         org.hiero.block.node.app.fixtures.logging.CleanColorfulFormatter.makeLoggingColorful();
         // Build the configuration
@@ -135,9 +144,10 @@ public abstract class PluginTestBase<P extends BlockNodePlugin> {
                 blockMessaging,
                 historicalBlockFacility,
                 new ServiceLoaderFunction(),
-                testThreadManager);
+                testThreadManager,
+                storageRetentionPolicyThreshold);
         // if the subclass implements ServiceBuilder, use it otherwise create a mock
-        ServiceBuilder mockServiceBuilder = (this instanceof ServiceBuilder)
+        final ServiceBuilder mockServiceBuilder = (this instanceof ServiceBuilder)
                 ? (ServiceBuilder) this
                 : new ServiceBuilder() {
                     @Override

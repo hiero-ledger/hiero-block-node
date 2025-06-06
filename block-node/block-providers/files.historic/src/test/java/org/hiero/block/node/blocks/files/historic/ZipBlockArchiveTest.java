@@ -86,7 +86,8 @@ class ZipBlockArchiveTest {
                 new TestBlockMessagingFacility(),
                 historicalBlockProvider,
                 null,
-                null);
+                null,
+                -1L);
         historicalBlockProvider.init(testContext, null);
         toTest = new ZipBlockArchive(testContext, testConfig);
     }

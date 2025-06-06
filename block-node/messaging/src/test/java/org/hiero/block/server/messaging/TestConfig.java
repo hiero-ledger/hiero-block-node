@@ -27,7 +27,7 @@ public class TestConfig {
      * needed by messaging facility so far.
      */
     public static final BlockNodeContext BLOCK_NODE_CONTEXT =
-            new BlockNodeContext(getConfig(), getMetrics(), null, null, null, null, null);
+            new BlockNodeContext(getConfig(), getMetrics(), null, null, null, null, null, -1L);
 
     /**
      * Helper method to get the metrics for the messaging service. For use in tests.

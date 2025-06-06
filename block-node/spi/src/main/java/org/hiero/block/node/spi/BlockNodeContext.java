@@ -29,6 +29,9 @@ import org.hiero.block.node.spi.threading.ThreadPoolManager;
  * @param blockMessaging the block messaging service of the block node
  * @param historicalBlockProvider the historical block provider of the block node
  * @param serviceLoader the service loader function to use to load services
+ * @param threadPoolManager the thread pool manager for the block node
+ * @param storageRetentionPolicyThreshold the threshold for the storage retention policy,
+ * -1 defaults to no retention policy (unlimited storage)
  */
 public record BlockNodeContext(
         Configuration configuration,
@@ -37,4 +40,5 @@ public record BlockNodeContext(
         BlockMessagingFacility blockMessaging,
         HistoricalBlockFacility historicalBlockProvider,
         ServiceLoaderFunction serviceLoader,
-        ThreadPoolManager threadPoolManager) {}
+        ThreadPoolManager threadPoolManager,
+        long storageRetentionPolicyThreshold) {}
