@@ -18,6 +18,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.stream.Stream;
 import org.hiero.block.internal.BlockUnparsed;
 import org.hiero.block.node.base.BlockFile;
 import org.hiero.block.node.base.ranges.ConcurrentLongRangeSet;
@@ -311,8 +312,8 @@ public final class BlocksFilesRecentPlugin implements BlockProviderPlugin, Block
     }
 
     /**
-     * Delete a block file from the live path. This is used when the block is no longer needed as it is stored by
-     * another plugin.
+     * Delete a block file from the live path. This is used when the block is no longer needed, determined by the
+     * retention policy threshold.
      */
     private void delete(long blockNumber) {
         // compute file path for the block
@@ -336,21 +337,28 @@ public final class BlocksFilesRecentPlugin implements BlockProviderPlugin, Block
             // clean up any empty parent directories up to the base directory
             Path parentDir = blockFilePath.getParent();
             while (parentDir != null && !parentDir.equals(config.liveRootPath())) {
-                try (var filesList = Files.list(parentDir)) {
+                try (final Stream<Path> filesList = Files.list(parentDir)) {
                     if (filesList.findAny().isPresent()) {
                         break;
                     }
-                } catch (IOException e) {
+                } catch (final IOException e) {
                     LOGGER.log(WARNING, "Failed to list files in directory: " + parentDir, e);
+                    break; // If we cannot list, we cannot assert an empty parent directory
                 }
                 // we did not find any files in the directory, so delete it
                 Files.deleteIfExists(parentDir);
                 // move up to the parent directory
                 parentDir = parentDir.getParent();
             }
-        } catch (IOException e) {
+        } catch (final IOException e) {
             LOGGER.log(WARNING, "Failed to delete block file: " + blockFilePath, e);
-            throw new RuntimeException(e);
+            throw new UncheckedIOException(e);
+            // @todo(1268) if we fail here, should we really throw or just log and continue?
+            //   a retry will essentially happen on the next persisted notification.
+            //   With the current implementation, this method remains problematic because
+            //   other IO happens asynchronously in the background (new persists) which can lead
+            //   to exceptions during the delete of the parent(s). Do we have a better approach to
+            //   clean up directories?
         }
     }
 }
