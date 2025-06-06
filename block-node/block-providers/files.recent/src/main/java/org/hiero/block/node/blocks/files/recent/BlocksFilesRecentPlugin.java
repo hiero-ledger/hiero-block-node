@@ -258,6 +258,16 @@ public final class BlocksFilesRecentPlugin implements BlockProviderPlugin, Block
             long excess = totalStored - retentionPolicyThreshold;
             availableBlocks.stream().sorted().limit(excess).forEach(this::delete);
         }
+        // @todo(1268) Not sure if we still would want to filter by notification provider priority.
+        //    In theory the new retention logic no longer supports that. We no longer delete the
+        //    range of the notification. More than that, if we have only this plugin that will fire
+        //    such notifications, effectively we will never cleanup. I think that should also be
+        //    changed. Another way to do this is to delete in the verification notification method.
+        //    In theory from there we get the new data and the idea of the policy is to be bound to
+        //    block count and delete only if new data arrives. Maybe we could drop the handle
+        //    persisted here all together? But we have to be careful because a big delete might
+        //    take a long while and we do not want to hang the notification thread too long cause
+        //    persistence relies on it (verification notification method). Am I missing something?
     }
 
     // ==== Action Methods =============================================================================================
