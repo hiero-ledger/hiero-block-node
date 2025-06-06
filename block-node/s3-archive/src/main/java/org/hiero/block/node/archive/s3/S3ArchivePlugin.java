@@ -1,12 +1,15 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.node.archive.s3;
 
+import static java.lang.System.Logger.Level.ERROR;
+import static java.lang.System.Logger.Level.INFO;
 import static org.hiero.block.node.base.BlockFile.blockNumberFormated;
 
 import com.hedera.hapi.block.stream.output.BlockHeader;
 import com.hedera.pbj.runtime.ParseException;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import edu.umd.cs.findbugs.annotations.NonNull;
+import java.io.IOException;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.time.ZonedDateTime;
@@ -23,12 +26,14 @@ import java.util.stream.LongStream;
 import org.hiero.block.common.utils.StringUtilities;
 import org.hiero.block.internal.BlockUnparsed;
 import org.hiero.block.node.base.s3.S3Client;
+import org.hiero.block.node.base.s3.S3ResponseException;
 import org.hiero.block.node.base.tar.TaredBlockIterator;
 import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.BlockNodePlugin;
 import org.hiero.block.node.spi.ServiceBuilder;
 import org.hiero.block.node.spi.blockmessaging.BlockNotificationHandler;
 import org.hiero.block.node.spi.blockmessaging.PersistedNotification;
+import org.hiero.block.node.spi.historicalblocks.BlockAccessor;
 import org.hiero.block.node.spi.historicalblocks.BlockAccessor.Format;
 
 /**
@@ -77,26 +82,25 @@ public class S3ArchivePlugin implements BlockNodePlugin, BlockNotificationHandle
      * {@inheritDoc}
      */
     @Override
-    public void init(BlockNodeContext context, ServiceBuilder serviceBuilder) {
+    public void init(final BlockNodeContext context, final ServiceBuilder serviceBuilder) {
         this.context = context;
         this.archiveConfig = context.configuration().getConfigData(S3ArchiveConfig.class);
         // check if enabled by the "endpointUrl" property being non-empty in config
         if (StringUtilities.isBlank(archiveConfig.endpointUrl())) {
-            LOGGER.log(System.Logger.Level.INFO, "S3 Archive plugin is disabled. No endpoint URL provided.");
+            LOGGER.log(INFO, "S3 Archive plugin is disabled. No endpoint URL provided.");
             return;
         } else if (StringUtilities.isBlank(archiveConfig.accessKey())) {
-            LOGGER.log(System.Logger.Level.INFO, "S3 Archive plugin is disabled. No access key provided.");
+            LOGGER.log(INFO, "S3 Archive plugin is disabled. No access key provided.");
             return;
         } else if (StringUtilities.isBlank(archiveConfig.secretKey())) {
-            LOGGER.log(System.Logger.Level.INFO, "S3 Archive plugin is disabled. No secret key provided.");
+            LOGGER.log(INFO, "S3 Archive plugin is disabled. No secret key provided.");
             return;
         }
         // set up the executor service
         this.executorService = context.threadPoolManager()
                 .createSingleThreadExecutor(
                         "S3ArchiveRunner",
-                        (t, e) -> LOGGER.log(
-                                System.Logger.Level.ERROR, "Uncaught exception in thread: " + t.getName(), e));
+                        (t, e) -> LOGGER.log(ERROR, "Uncaught exception in thread: " + t.getName(), e));
         // plugin is enabled
         enabled.set(true);
         // register
@@ -116,14 +120,13 @@ public class S3ArchivePlugin implements BlockNodePlugin, BlockNotificationHandle
                     archiveConfig.bucketName(),
                     archiveConfig.accessKey(),
                     archiveConfig.secretKey())) {
-                String lastArchivedBlockNumberString = s3Client.downloadTextFile(LATEST_ARCHIVED_BLOCK_FILE);
+                final String lastArchivedBlockNumberString = s3Client.downloadTextFile(LATEST_ARCHIVED_BLOCK_FILE);
                 if (lastArchivedBlockNumberString != null && !lastArchivedBlockNumberString.isEmpty()) {
                     lastArchivedBlockNumber.set(Long.parseLong(lastArchivedBlockNumberString));
                 }
-                LOGGER.log(System.Logger.Level.INFO, "Last archived block number: " + lastArchivedBlockNumber);
-            } catch (Exception e) {
-                LOGGER.log(
-                        System.Logger.Level.ERROR, "Failed to read latest archived block file: " + e.getMessage(), e);
+                LOGGER.log(INFO, "Last S3 archived block number: " + lastArchivedBlockNumber);
+            } catch (final Exception e) {
+                LOGGER.log(ERROR, "Failed to read latest archived block file: " + e.getMessage(), e);
                 throw new RuntimeException(e);
             }
         }
@@ -136,7 +139,7 @@ public class S3ArchivePlugin implements BlockNodePlugin, BlockNotificationHandle
     public void stop() {
         BlockNodePlugin.super.stop();
         // cancel all pending uploads
-        for (Future<?> future : pendingUploads) {
+        for (final Future<?> future : pendingUploads) {
             future.cancel(true);
         }
     }
@@ -147,25 +150,21 @@ public class S3ArchivePlugin implements BlockNodePlugin, BlockNotificationHandle
      * {@inheritDoc}
      */
     @Override
-    public void handlePersisted(PersistedNotification notification) {
-        // check if there is a new batch of blocks to archive
-        final long mostRecentPersistedBlockNumber = notification.endBlockNumber();
-        long mostRecentArchivedBlockNumber = lastArchivedBlockNumber.get();
-        // compute the next batch of blocks to archive
-        long nextBatchStartBlockNumber =
-                (mostRecentArchivedBlockNumber / archiveConfig.blocksPerFile()) * archiveConfig.blocksPerFile();
-        long nextBatchEndBlockNumber = nextBatchStartBlockNumber + archiveConfig.blocksPerFile() - 1;
-        // find if there is blocksPerFile blocks past the mostRecentArchivedBlockNumber staring from a multiple of
-        // blocksPerFile
-        while (nextBatchEndBlockNumber <= mostRecentPersistedBlockNumber) {
-            // we have a batch of blocks to archive, so schedule it on background thread
-            scheduleBatchArchiving(nextBatchStartBlockNumber, nextBatchEndBlockNumber);
-            // compute the next batch of blocks to archive
-            mostRecentArchivedBlockNumber = mostRecentArchivedBlockNumber + archiveConfig.blocksPerFile();
-            nextBatchStartBlockNumber =
-                    (mostRecentArchivedBlockNumber / archiveConfig.blocksPerFile()) * archiveConfig.blocksPerFile()
-                            + archiveConfig.blocksPerFile();
-            nextBatchEndBlockNumber = nextBatchStartBlockNumber + archiveConfig.blocksPerFile() - 1;
+    public void handlePersisted(final PersistedNotification notification) {
+        // get the latest persisted block number from the notification
+        final long latestPersisted = notification.endBlockNumber();
+        // compute what should be the start of the next batch to archive
+        long nextStart = lastArchivedBlockNumber.get() + 1;
+        // compute the end of the next batch to archive
+        long nextEnd = nextStart + archiveConfig.blocksPerFile() - 1;
+        // while the next batch end is less than or equal to the latest
+        // persisted block number, we can schedule a batch
+        while (nextEnd <= latestPersisted) {
+            // schedule the batch archiving
+            scheduleBatchArchiving(nextStart, nextEnd);
+            // move to the next batch and try again
+            nextStart = nextEnd + 1;
+            nextEnd = nextStart + archiveConfig.blocksPerFile() - 1;
         }
     }
 
@@ -189,7 +188,7 @@ public class S3ArchivePlugin implements BlockNodePlugin, BlockNotificationHandle
                     if (nextBatchStartBlockNumber > lastArchivedBlockNumber.get()) {
                         // log started
                         LOGGER.log(
-                                System.Logger.Level.INFO,
+                                INFO,
                                 "Uploading archive block batch: " + nextBatchStartBlockNumber + "-"
                                         + nextBatchEndBlockNumber);
                         try (final S3Client s3Client = new S3Client(
@@ -200,23 +199,28 @@ public class S3ArchivePlugin implements BlockNodePlugin, BlockNotificationHandle
                                 archiveConfig.secretKey())) {
                             // fetch the blocks from the persistence plugins and archive
                             uploadBlocksTar(s3Client, nextBatchStartBlockNumber, nextBatchEndBlockNumber);
-                            // update the last archived block number
-                            lastArchivedBlockNumber.set(nextBatchEndBlockNumber);
                             // write the latest archived block number to the archive
                             s3Client.uploadTextFile(
                                     LATEST_ARCHIVED_BLOCK_FILE,
                                     LATEST_FILE_STORAGE_CLASS,
                                     String.valueOf(nextBatchEndBlockNumber));
+                            // update the last archived block number
+                            lastArchivedBlockNumber.set(nextBatchEndBlockNumber);
                             // log completed
                             LOGGER.log(
-                                    System.Logger.Level.INFO,
+                                    INFO,
                                     "Uploaded archive block batch: " + nextBatchStartBlockNumber + "-"
                                             + nextBatchEndBlockNumber);
-                        } catch (Exception e) {
+                        } catch (final S3ResponseException e) {
+                            // todo we could retry here
                             LOGGER.log(
-                                    System.Logger.Level.ERROR,
-                                    "Failed to upload archive block batch: " + e.getMessage(),
+                                    INFO,
+                                    "Failed to upload archive block batch due to an exceptional response: "
+                                            + e.getMessage(),
                                     e);
+                            throw new RuntimeException(e);
+                        } catch (final Exception e) {
+                            LOGGER.log(ERROR, "Failed to upload archive block batch: " + e.getMessage(), e);
                             throw new RuntimeException(e);
                         }
                     }
@@ -234,17 +238,15 @@ public class S3ArchivePlugin implements BlockNodePlugin, BlockNotificationHandle
      * @param startBlockNumber the first block number to upload
      * @param endBlockNumber the last block number to upload, inclusive
      */
-    private void uploadBlocksTar(S3Client s3Client, long startBlockNumber, long endBlockNumber)
-            throws IllegalStateException {
+    private void uploadBlocksTar(final S3Client s3Client, final long startBlockNumber, final long endBlockNumber)
+            throws IllegalStateException, S3ResponseException, IOException {
         // The HTTP client needs an Iterable of byte arrays, so create one from the blocks
-        final Iterator<byte[]> tarBlocks = new TaredBlockIterator(
-                Format.ZSTD_PROTOBUF,
-                LongStream.range(startBlockNumber, endBlockNumber + 1)
-                        .mapToObj(
-                                blockNumber -> context.historicalBlockProvider().block(blockNumber))
-                        .iterator());
+        final Iterator<BlockAccessor> blocksIterator = LongStream.range(startBlockNumber, endBlockNumber + 1)
+                .mapToObj(blockNumber -> context.historicalBlockProvider().block(blockNumber))
+                .iterator();
+        final Iterator<byte[]> tarBlocks = new TaredBlockIterator(Format.ZSTD_PROTOBUF, blocksIterator);
         // fetch the first blocks consensus time so that we can place the file in a directory based on year and month
-        BlockUnparsed firstBlock =
+        final BlockUnparsed firstBlock =
                 context.historicalBlockProvider().block(startBlockNumber).blockUnparsed();
         final ZonedDateTime firstBlockConsensusTime;
         try {
@@ -261,7 +263,7 @@ public class S3ArchivePlugin implements BlockNodePlugin, BlockNotificationHandle
                             header.blockTimestamp().seconds(),
                             header.blockTimestamp().nanos()),
                     ZoneOffset.UTC);
-        } catch (ParseException e) {
+        } catch (final ParseException e) {
             throw new IllegalStateException("Failed to parse Block Header from first block", e);
         }
 

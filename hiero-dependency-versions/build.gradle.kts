@@ -6,7 +6,10 @@ plugins {
     id("org.hiero.gradle.check.spotless-kotlin")
 }
 
-dependencies { api(platform("com.google.cloud:libraries-bom:26.61.0")) }
+dependencies {
+    api(platform("io.netty:netty-bom:4.2.1.Final"))
+    api(platform("com.google.cloud:libraries-bom:26.61.0"))
+}
 
 dependencies.constraints {
     val daggerVersion = "2.56.2"
@@ -68,7 +71,6 @@ dependencies.constraints {
 
     // Testing only versions
     api("com.github.docker-java:docker-java-api:3.5.1") { because("com.github.dockerjava.api") }
-    api("io.github.cdimascio:dotenv-java:3.2.0") { because("io.github.cdimascio.dotenv.java") }
     api("org.assertj:assertj-core:3.27.3") { because("org.assertj.core") }
     api("org.junit.jupiter:junit-jupiter-api:5.12.2") { because("org.junit.jupiter.api") }
     api("org.mockito:mockito-core:${mockitoVersion}") { because("org.mockito") }

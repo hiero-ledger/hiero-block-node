@@ -4,6 +4,7 @@ package org.hiero.block.node.app;
 import static java.lang.System.Logger;
 import static java.lang.System.Logger.Level.INFO;
 import static org.hiero.block.common.constants.StringsConstants.APPLICATION_PROPERTIES;
+import static org.hiero.block.common.constants.StringsConstants.APPLICATION_TEST_PROPERTIES;
 import static org.hiero.block.node.app.logging.CleanColorfulFormatter.GREY;
 import static org.hiero.block.node.app.logging.CleanColorfulFormatter.LIGHT_GREEN;
 import static org.hiero.block.node.spi.BlockNodePlugin.METRICS_CATEGORY;
@@ -128,10 +129,13 @@ public class BlockNodeApp implements HealthFacility {
         allConfigDataTypes.add(ServerConfig.class);
         loadedPlugins.forEach(plugin -> allConfigDataTypes.addAll(plugin.configDataTypes()));
         // Init BlockNode Configuration
+        String appProperties = getClass().getClassLoader().getResource(APPLICATION_TEST_PROPERTIES) != null
+                ? APPLICATION_TEST_PROPERTIES
+                : APPLICATION_PROPERTIES;
         //noinspection unchecked
         final ConfigurationBuilder configurationBuilder = ConfigurationBuilder.create()
                 .withSource(new AutomaticEnvironmentVariableConfigSource(allConfigDataTypes, System::getenv))
-                .withSources(new ClasspathFileConfigSource(Path.of(APPLICATION_PROPERTIES)))
+                .withSources(new ClasspathFileConfigSource(Path.of(appProperties)))
                 .withConfigDataType(com.swirlds.common.metrics.config.MetricsConfig.class)
                 .withConfigDataType(com.swirlds.common.metrics.platform.prometheus.PrometheusConfig.class)
                 .withConfigDataTypes(allConfigDataTypes.toArray(new Class[0]));
