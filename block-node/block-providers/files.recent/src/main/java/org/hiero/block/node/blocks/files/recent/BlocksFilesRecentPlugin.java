@@ -253,14 +253,9 @@ public final class BlocksFilesRecentPlugin implements BlockProviderPlugin, Block
     @Override
     public void handlePersisted(PersistedNotification notification) {
         if (notification.blockProviderPriority() < defaultPriority()) {
-            // remove range from available blocks
-            availableBlocks.remove(notification.startBlockNumber(), notification.endBlockNumber());
-            // delete all files in range
-            for (long blockNumber = notification.startBlockNumber();
-                    blockNumber <= notification.endBlockNumber();
-                    blockNumber++) {
-                delete(blockNumber);
-            }
+            final long totalStored = availableBlocks.size();
+            long excess = totalStored - retentionPolicyThreshold;
+            availableBlocks.stream().sorted().limit(excess).forEach(this::delete);
         }
     }
 
@@ -332,6 +327,7 @@ public final class BlocksFilesRecentPlugin implements BlockProviderPlugin, Block
                 long fileSize = Files.size(blockFilePath);
                 // delete the block file and update counters
                 if (Files.deleteIfExists(blockFilePath)) {
+                    availableBlocks.remove(blockNumber);
                     blocksDeletedCounter.increment();
                     totalBytesStored.addAndGet(-fileSize);
                 }
