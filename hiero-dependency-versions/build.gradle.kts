@@ -21,7 +21,7 @@ dependencies.constraints {
     val protobufVersion = "4.31.0"
     val swirldsVersion = "0.61.3"
     val mockitoVersion = "5.18.0"
-    val testContainersVersion = "1.21.0"
+    val testContainersVersion = "1.21.1"
 
     api("com.github.luben:zstd-jni:1.5.7-3") { because("com.github.luben.zstd_jni") }
     api("com.github.spotbugs:spotbugs-annotations:4.9.3") {
