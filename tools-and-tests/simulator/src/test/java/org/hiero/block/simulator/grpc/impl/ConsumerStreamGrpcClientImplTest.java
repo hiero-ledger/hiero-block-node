@@ -85,7 +85,7 @@ public class ConsumerStreamGrpcClientImplTest {
 
                         // Send success status code at the end
                         responseObserver.onNext(SubscribeStreamResponse.newBuilder()
-                                .setStatus(Code.READ_STREAM_SUCCESS)
+                                .setStatus(Code.SUCCESS)
                                 .build());
                         responseObserver.onCompleted();
                     }
@@ -128,7 +128,7 @@ public class ConsumerStreamGrpcClientImplTest {
         // We check if the final status matches what we have send from the server.
         final String lastStatus =
                 consumerStreamGrpcClientImpl.getLastKnownStatuses().getLast();
-        assertTrue(lastStatus.contains("status: %s".formatted(Code.READ_STREAM_SUCCESS.name())));
+        assertTrue(lastStatus.contains("status: %s".formatted(Code.SUCCESS.name())));
 
         assertEquals(endBlock, consumerStreamGrpcClientImpl.getConsumedBlocks());
     }

@@ -73,10 +73,10 @@ message SubscribeStreamRequest {
  * The block node SHALL end the stream with a response code status of SUCCESS
  * when the stream is complete.<br/>
  * The block node SHALL end the stream with a response code status of
- * `READ_STREAM_INVALID_START_BLOCK_NUMBER` if the start block number is
+ * `INVALID_START_BLOCK_NUMBER` if the start block number is
  * greater than the end block number.<br/>
  * The block node SHALL end the stream with a response code status of
- * `READ_STREAM_INSUFFICIENT_BALANCE` if insufficient balance remains to
+ * `INSUFFICIENT_BALANCE` if insufficient balance remains to
  * complete the requested stream.
  * The block node SHALL make every reasonable effort to fulfill as much of the
  * request as available balance supports, in the event balance is not
@@ -95,15 +95,7 @@ message SubscribeStreamResponse {
          * This status indicates the server software failed to set a status,
          * and SHALL be considered a software defect.
          */
-        READ_STREAM_UNKNOWN = 0;
-
-        /**
-         * The requesting client account lacks sufficient HBAR to pay the
-         * service fee for this request.<br/>
-         * The client MAY retry the request, but MUST increase the client
-         * account balance with this block node server before doing so.
-         */
-        READ_STREAM_INSUFFICIENT_BALANCE = 1;
+        UNKNOWN = 0;
 
         /**
          * The request succeeded.
@@ -111,7 +103,7 @@ message SubscribeStreamResponse {
          * The requested block(s) SHALL precede the status response
          * with this value.
          */
-        READ_STREAM_SUCCESS = 2;
+        SUCCESS = 1;
 
         /**
          * The requested start block number is not valid.<br/>
@@ -120,7 +112,7 @@ message SubscribeStreamResponse {
          * The client MAY retry this request, but MUST change the
          * `start_block_number` field to a valid start block.
          */
-        READ_STREAM_INVALID_START_BLOCK_NUMBER = 3;
+        INVALID_START_BLOCK_NUMBER = 2;
 
         /**
          * The requested end block number is not valid.<br/>
@@ -129,13 +121,13 @@ message SubscribeStreamResponse {
          * The client MAY retry this request, but MUST change the
          * `end_block_number` field to a valid end block.
          */
-        READ_STREAM_INVALID_END_BLOCK_NUMBER = 4;
+        INVALID_END_BLOCK_NUMBER = 3;
 
         /**
          * The requested stream is not available.<br/>
          * The client MAY retry again later.
          */
-        READ_STREAM_NOT_AVAILABLE = 5;
+        NOT_AVAILABLE = 4;
     }
 
     oneof response {
@@ -180,10 +172,10 @@ service BlockStreamSubscribeService {
      * The block node SHALL end the stream with response code containing a
      * status of SUCCESS when the stream is complete.<br/>
      * The block node SHALL end the stream with a response code containing a
-     * status of `READ_STREAM_INVALID_START_BLOCK_NUMBER` if the start block
+     * status of `INVALID_START_BLOCK_NUMBER` if the start block
      * number is greater than the end block number.<br/>
      * The block node SHALL end the stream with a response code containing a
-     * status of `READ_STREAM_PAYMENT_INSUFFICIENT` if insufficient payment
+     * status of `PAYMENT_INSUFFICIENT` if insufficient payment
      * remains to complete the requested stream.<br/>
      * The block node SHALL make every reasonable effort to fulfill as much
      * of the request as possible in the event payment is not sufficient to
