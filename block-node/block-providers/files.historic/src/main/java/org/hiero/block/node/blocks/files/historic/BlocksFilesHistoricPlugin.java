@@ -228,7 +228,19 @@ public final class BlocksFilesHistoricPlugin implements BlockProviderPlugin, Blo
         // multiple batches of blocks available for zipping potentially, so we
         // need to queue them all up
         while (historicalAvailable.max() >= maxBlockNumber) {
-            if (historicalAvailable.contains(minBlockNumber, maxBlockNumber)) {
+            // since we know that we have a power of 10 number of blocks per zip file,
+            // we know our batch always starts with a number that is a multiple of
+            // numberOfBlocksPerZipFile, so we can check if the start is valid
+            // if the start is not valid, we will skip this batch and when we have
+            // enough blocks available, for the next one, we will start that and
+            // then the min will be updated, missed batches will be handled
+            // in another fashion
+            final boolean isValidStart = minBlockNumber % numberOfBlocksPerZipFile == 0;
+            // we can do a quick pre-check to see if the blocks are available
+            // this pre-check asserts the min and max are contained however,
+            // not the whole range, this will be asserted when we gather the batch
+            final boolean blocksAvailablePreCheck = historicalAvailable.contains(minBlockNumber, maxBlockNumber);
+            if (isValidStart && blocksAvailablePreCheck) {
                 final LongRange batchRange = new LongRange(minBlockNumber, maxBlockNumber);
                 // move the batch of blocks to a zip file
                 startMovingBatchOfBlocksToZipFile(batchRange);
