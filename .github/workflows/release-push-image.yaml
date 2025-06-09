@@ -50,7 +50,7 @@ jobs:
       java-distribution: ${{ inputs.java-distribution || 'temurin' }}
       java-version: ${{ inputs.java-version || '21.0.6' }}
 
-  package-block-node-protobuf:
+  package-protobuf-source:
     timeout-minutes: 5
     needs: [check-gradle]
     runs-on: hiero-block-node-linux-medium
@@ -73,7 +73,7 @@ jobs:
           echo "VERSION=${VERSION}" >> $GITHUB_ENV
 
       - name: Produce artifact
-        working-directory: protobuf
+        working-directory: protobuf-sources
         run: scripts/build-bn-proto.sh -t "efb0134e921b32ed6302da9c93874d65492e876f" -v ${{ env.VERSION }} -o "block-node-protobuf" -i true -b "../src/main/proto/" # CN 0.62.2
 
       - name: Upload artifact
@@ -81,10 +81,10 @@ jobs:
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: block-node-protobuf-${{ env.VERSION }}.tgz
-          path: ./protobuf/block-node-protobuf-${{ env.VERSION }}.tgz
+          path: ./protobuf-sources/block-node-protobuf-${{ env.VERSION }}.tgz
           if-no-files-found: error
 
-  publish-block-node-app:
+  publish-app:
     timeout-minutes: 30
     needs: [check-gradle]
     runs-on: hiero-block-node-linux-medium
@@ -215,7 +215,7 @@ jobs:
         env:
           NEXUS_USERNAME: ${{ secrets.SONATYPE_USERNAME }}
           NEXUS_PASSWORD: ${{ secrets.SONATYPE_PASSWORD }}
-        run: ${GRADLE_EXEC} :block-node-protobuf:releaseMavenCentral -PpublishingPackageGroup=org.hiero.block -PpublishSigningEnabled=true --scan --no-configuration-cache
+        run: ${GRADLE_EXEC} :block-node-protobuf-sources:releaseMavenCentral -PpublishingPackageGroup=org.hiero.block -PpublishSigningEnabled=true --scan --no-configuration-cache
 
   publish-simulator:
     timeout-minutes: 30
@@ -285,9 +285,9 @@ jobs:
           build-args: |
             VERSION=${{ env.VERSION }}
 
-  helm-chart-release-block-node-app:
+  helm-chart-release-app:
     timeout-minutes: 15
-    needs: publish-block-node-app
+    needs: publish-app
     runs-on: hiero-block-node-linux-medium
 
     steps:
