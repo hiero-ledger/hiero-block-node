@@ -12,6 +12,7 @@ description = "Hiero Block Node Server App"
 tasks.withType<JavaCompile>().configureEach { options.compilerArgs.add("-Xlint:-exports") }
 
 tasks.withType<JavaExec>().configureEach {
+    modularity.inferModulePath = true
     val serverDataDir = layout.buildDirectory.get().dir("block-node-storage")
     environment("FILES_HISTORIC_ROOT_PATH", "${serverDataDir}/files-historic")
     environment("FILES_RECENT_LIVE_ROOT_PATH", "${serverDataDir}/files-live")
@@ -19,6 +20,7 @@ tasks.withType<JavaExec>().configureEach {
 }
 
 tasks.register<JavaExec>("runWithCleanStorage") {
+    modularity.inferModulePath = true
     description = "Run the block node, deleting storage first"
     group = "application"
 
