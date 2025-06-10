@@ -51,7 +51,7 @@ implemented following this plan must assert all these assumptions.
 > all the digits of a `long` (max. 19 digits). We have three digits per node
 > or directory up to a max. depth of 16, and then we have the full
 > blockNumber (`long`) as the file name of any persisted block with all leading
-> zeros. So for example, if the block number is 1234567890123456789 and the root
+> zeros. So for example, if the blockNumber is 1234567890123456789 and the root
 > is `/blocks` then the path will be
 > `/blocks/123/456/789/012/345/6/1234567890123456789.blk.zstd`._
 >
