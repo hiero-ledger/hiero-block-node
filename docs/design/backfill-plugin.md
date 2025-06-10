@@ -58,6 +58,7 @@ A facility that provides access to historical blocks, this is available for all 
 There are two flows for backfilling, Autonomous and On-Demand.
 
 ### Autonomous Backfill
+
 The plugin will autonomously detect gaps in the block range and fetch missing blocks from a configured source.
 
 1. At start-up a loop is defined that runs every `backfill.scanInterval`
@@ -115,6 +116,7 @@ sequenceDiagram
 ```
 
 ### On-Demand Backfill
+
 The plugin can also be triggered on-demand to backfill missing blocks when the latest block known to the network is received.
 
 1. The plugin can also be triggered on-demand by sending a `NewestBlockKnownToNetwork` message to the `MessagingFacility`, usually this would be done by the `PublisherPlugin` or any other plugin that knows the latest block.
@@ -149,6 +151,7 @@ sequenceDiagram
 ```
 
 ### gRPC Client
+
 The gRPC client is used to connect to another Block Node to fetch the missing blocks. It will be configured with the `backfill_sources` parameter, which is a list of HOST:PORT pairs of the Block Nodes to connect to.
 - Fetching blocks will be done in batches, the size of which can be configured with the `backfill.fetchBatchSize` parameter.
 - For each BN configured, the client will perform an `BlockNodeService/serverStatus` call to check if the missing gap is available in the remote BN, if it is not available, it will skip that BN and continue with the next one.
@@ -177,19 +180,18 @@ flowchart TD
 
 ## Configuration
 
-| Configuration Property         | Description                                                                           | Default |
-|--------------------------------|---------------------------------------------------------------------------------------|---------|
-| `backfill.firstBlockAvailable` | The first block that this BN deploy wants to have available                           | 0       |
-| `backfill.lastBlockToStore`    | For some historical-purpose–specific BNs, there could be a maximum number of blocks   | -1      |
-| `backfill.blockNodeSources`    | Endpoint for another BN deployment, as a list of `HOST:PORT`                          | —       |
-| `backfill.scanIntervalSecs`    | Interval in seconds to scan for missing gaps (skips if the previous task is running)  | 60      |
-| `backfill.maxRetries`          | Maximum number of retries to fetch a missing block (with exponential back-off)        | 3       |
-| `backfill.fetchBatchSize`      | Number of blocks to fetch in a single gRPC call                                       | 100     |
-
+|     Configuration Property     |                                     Description                                      | Default |
+|--------------------------------|--------------------------------------------------------------------------------------|---------|
+| `backfill.firstBlockAvailable` | The first block that this BN deploy wants to have available                          | 0       |
+| `backfill.lastBlockToStore`    | For some historical-purpose–specific BNs, there could be a maximum number of blocks  | -1      |
+| `backfill.blockNodeSources`    | Endpoint for another BN deployment, as a list of `HOST:PORT`                         | —       |
+| `backfill.scanIntervalSecs`    | Interval in seconds to scan for missing gaps (skips if the previous task is running) | 60      |
+| `backfill.maxRetries`          | Maximum number of retries to fetch a missing block (with exponential back-off)       | 3       |
+| `backfill.fetchBatchSize`      | Number of blocks to fetch in a single gRPC call                                      | 100     |
 
 ## Metrics
 
-| Metric                    | Description                                                          | Type    |
+|          Metric           |                             Description                              |  Type   |
 |---------------------------|----------------------------------------------------------------------|---------|
 | `backfill_gaps_detected`  | Number of gaps detected during the backfill process.                 | Counter |
 | `backfill_blocks_fetched` | Number of blocks fetched during the backfill process.                | Counter |
@@ -197,7 +199,6 @@ flowchart TD
 | `backfill_fetch_errors`   | Number of errors encountered while fetching blocks.                  | Counter |
 | `backfill_status`         | Current status of the backfill process (e.g., idle, running, error). | Gauge   |
 | `backfill_queue_size`     | Current amount of blocks pending to be backfilled.                   | Gauge   |
-
 
 ## Exceptions
 
