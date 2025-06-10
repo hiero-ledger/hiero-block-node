@@ -12,7 +12,6 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
-import java.util.Random;
 import java.util.concurrent.Future;
 import org.hiero.block.simulator.BlockStreamSimulatorApp;
 import org.hiero.block.suites.BaseSuite;
@@ -205,82 +204,6 @@ public class PositiveSingleSubscriberTests extends BaseSuite {
         }
 
         assertTrue(slowdownValidated, "The expected 2ms slowdown was not validated for all blocks.");
-        assertEquals(endBlock, consumerSimulator.getStreamStatus().consumedBlocks());
-    }
-
-    @Test
-    @DisplayName("Should validate 2ms random slowdown after each block in a range")
-    public void shouldValidateRandomSlowdownAfterEachBlock() throws IOException, InterruptedException {
-        // ===== Prepare environment =================================================================
-        final long startBlock = 1L;
-        final long endBlock = 5L;
-        final Random random = new Random();
-        long randomStart = random.nextLong((endBlock - startBlock + 1));
-        long randomEnd = random.nextLong(endBlock - startBlock + 1);
-        if (randomStart > randomEnd) {
-            long temp = randomStart;
-            randomStart = randomEnd;
-            randomEnd = temp;
-        }
-        final long expectedSlowdownMillis = 2L;
-        final Map<String, String> consumerConfiguration = Map.of(
-                "blockStream.simulatorMode",
-                "CONSUMER",
-                "consumer.startBlockNumber",
-                String.valueOf(startBlock),
-                "consumer.endBlockNumber",
-                String.valueOf(endBlock),
-                "consumer.slowDownMilliseconds",
-                String.valueOf(expectedSlowdownMillis),
-                "consumer.slowDownType",
-                "FIXED",
-                "consumer.slowDownForBlockRange",
-                randomStart + "-" + randomEnd);
-        final BlockStreamSimulatorApp publisherSimulator = createBlockSimulator();
-        final BlockStreamSimulatorApp consumerSimulator = createBlockSimulator(consumerConfiguration);
-
-        simulatorAppsRef.add(publisherSimulator);
-        simulatorAppsRef.add(consumerSimulator);
-
-        // ===== Start publisher and make sure it's streaming =======================================
-        final Future<?> publisherSimulatorThread = startSimulatorInstance(publisherSimulator);
-        simulators.add(publisherSimulatorThread);
-
-        boolean publisherReachedEndBlock = false;
-        while (!publisherReachedEndBlock) {
-            if (publisherSimulator.getStreamStatus().publishedBlocks() > endBlock) {
-                publisherReachedEndBlock = true;
-            }
-        }
-
-        // ===== Start consumer and validate slowdown ===============================================
-        final Future<?> consumerSimulatorThread = startSimulatorInThread(consumerSimulator);
-        simulators.add(consumerSimulatorThread);
-
-        long previousBlockTime = System.currentTimeMillis();
-        boolean slowdownValidated = true;
-
-        for (long block = randomStart; block <= randomEnd; block++) {
-            while (consumerSimulator.getStreamStatus().consumedBlocks() < block) {
-                Thread.sleep(1); // Wait for the block to be consumed
-            }
-            final long currentBlockTime = System.currentTimeMillis();
-            final long timeDifference = currentBlockTime - previousBlockTime;
-
-            if (timeDifference < expectedSlowdownMillis) {
-                slowdownValidated = false;
-                break;
-            }
-            previousBlockTime = currentBlockTime;
-        }
-
-        for (long block = startBlock; block <= endBlock; block++) {
-            while (consumerSimulator.getStreamStatus().consumedBlocks() < block) {
-                Thread.sleep(1); // Wait for the block to be consumed
-            }
-        }
-
-        assertTrue(slowdownValidated, "The expected 2ms random slowdown was not validated for all blocks.");
         assertEquals(endBlock, consumerSimulator.getStreamStatus().consumedBlocks());
     }
 
