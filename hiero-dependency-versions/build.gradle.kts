@@ -18,7 +18,7 @@ dependencies.constraints {
     // When Upgrading pbjVersion, also need to update pbjCompiler version on
     // protobuf/build.gradle.kts
     val pbjVersion = "0.11.6"
-    val protobufVersion = "4.31.0"
+    val protobufVersion = "4.31.1"
     val swirldsVersion = "0.61.3"
     val mockitoVersion = "5.18.0"
     val testContainersVersion = "1.21.1"
