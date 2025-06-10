@@ -161,7 +161,7 @@ The gRPC client is used to connect to another Block Node to fetch the missing bl
 
 ```mermaid
 flowchart TD
-    A[Start gRPC fetch for gapRange]
+    A[Request Range of Blocks] --> B
     B[Iterate over backfill_sources]
     C{Call serverStatus on current BN}
     C -->|Error unreachable| E1[Log BN unreachable, continue]
