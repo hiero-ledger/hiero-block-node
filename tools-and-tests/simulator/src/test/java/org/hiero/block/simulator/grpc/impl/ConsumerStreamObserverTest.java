@@ -26,7 +26,6 @@ import org.hiero.block.simulator.metrics.MetricsServiceImpl;
 import org.hiero.block.simulator.metrics.SimulatorMetricTypes.Counter;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.mockito.Mock;
 
 class ConsumerStreamObserverTest {
 
@@ -35,8 +34,6 @@ class ConsumerStreamObserverTest {
     private ArrayDeque<String> lastKnownStatuses;
     private ConsumerStreamObserver observer;
     private int lastKnownStatusesCapacity;
-
-    @Mock
     private ConsumerConfig consumerConfig;
 
     @BeforeEach
@@ -47,6 +44,7 @@ class ConsumerStreamObserverTest {
         streamLatch = mock(CountDownLatch.class);
         ArrayDeque<String> lastKnownStatuses = new ArrayDeque<>();
         lastKnownStatusesCapacity = 10;
+        consumerConfig = config.getConfigData(ConsumerConfig.class);
         observer = new ConsumerStreamObserver(
                 metricsService, streamLatch, lastKnownStatuses, lastKnownStatusesCapacity, consumerConfig);
     }

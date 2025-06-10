@@ -198,7 +198,7 @@ public class NegativeSingleSubscriberTests extends BaseSuite {
     }
 
     @Test
-    @DisplayName("Should validate 2ms slowdown after each block in a range")
+    @DisplayName("Should fail 2ms slowdown validation after each block in a range")
     public void shouldFailSlowdownValidationAfterEachBlock() throws IOException, InterruptedException {
         // ===== Prepare environment =================================================================
         final long startBlock = 1L;
@@ -213,8 +213,8 @@ public class NegativeSingleSubscriberTests extends BaseSuite {
                 String.valueOf(endBlock),
                 "consumer.slowDownMilliseconds",
                 String.valueOf(expectedSlowdownMillis),
-                "consumer.slowDown",
-                "true",
+                "consumer.slowDownType",
+                "FIXED",
                 "consumer.slowDownForBlockRange",
                 "1-3");
         final BlockStreamSimulatorApp publisherSimulator = createBlockSimulator();

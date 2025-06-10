@@ -162,8 +162,8 @@ public class PositiveSingleSubscriberTests extends BaseSuite {
                 String.valueOf(endBlock),
                 "consumer.slowDownMilliseconds",
                 String.valueOf(expectedSlowdownMillis),
-                "consumer.slowDown",
-                "true",
+                "consumer.slowDownType",
+                "FIXED",
                 "consumer.slowDownForBlockRange",
                 "1-10");
         final BlockStreamSimulatorApp publisherSimulator = createBlockSimulator();
@@ -232,8 +232,8 @@ public class PositiveSingleSubscriberTests extends BaseSuite {
                 String.valueOf(endBlock),
                 "consumer.slowDownMilliseconds",
                 String.valueOf(expectedSlowdownMillis),
-                "consumer.slowDown",
-                "true",
+                "consumer.slowDownType",
+                "FIXED",
                 "consumer.slowDownForBlockRange",
                 randomStart + "-" + randomEnd);
         final BlockStreamSimulatorApp publisherSimulator = createBlockSimulator();
