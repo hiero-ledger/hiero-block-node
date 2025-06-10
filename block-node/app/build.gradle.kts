@@ -20,7 +20,6 @@ tasks.withType<JavaExec>().configureEach {
 }
 
 tasks.register<JavaExec>("runWithCleanStorage") {
-    modularity.inferModulePath = true
     description = "Run the block node, deleting storage first"
     group = "application"
 
