@@ -45,9 +45,6 @@ logic.
 > we need a reference point so an example could be shown):_
 > - `Files Recent Root`: `/blocks`
 >
-> _**NOTE**: assume that before each test no block files are present,
-> all distinct roots are empty unless specified otherwise._
->
 > _**NOTE**: the trie structure for `Files Recent Root` is resolving
 > all the digits of a `long` (max. 19 digits). We have three digits per node
 > or directory up to a max. depth of 16, and then we have the full
@@ -55,7 +52,20 @@ logic.
 > zeros. So for example, if the block number is 1234567890123456789 and the root
 > is `/blocks` then the path will be
 > `/blocks/123/456/789/012/345/6/1234567890123456789.blk.zstd`._
+>
+> _**NOTE**: assume that before each test the Block-Node under test is expecting
+> the next block to be received to be with number 0000000000001234567 which
+> resolves to `/blocks/000/000/000/000/123/4/0000000000001234567.blk.zstd`. This
+> is enough to illustrate the path resolution logic as well._
+>
+> _**NOTE**: assume that we have a working verification because the
+> `Files Recent Persistence` relies on blocks to be verified in order to execute
+> any logic._
+>
+> _**NOTE**: assume that the Block-Node under test is configured to have the
+> compression algorithm set to `Zstandard` so the file extension for a persisted
+> block will be `.blk.zstd`_
 
-|   Test Case ID | Test Name | Scenario Description | Requirement | Input | Output | Implemented (Y/N) |
-|---------------:|:----------|:---------------------|:------------|:------|:-------|:-----------------:|
-| E2ETC_FRP_0001 | `TBD`     | TBD                  | TBD         | TBD   | TBD    |         N         |
+|   Test Case ID | Test Name                                             | Scenario Description                                                                                                                                                                                                                                                                | Requirement                                                      | Input                                             | Output                                           | Implemented (Y/N) |
+|---------------:|:------------------------------------------------------|:------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|:-----------------------------------------------------------------|:--------------------------------------------------|:-------------------------------------------------|:-----------------:|
+| E2ETC_FRP_0001 | `Verify Acknowledgement After Successful Persistence` | `Files Recent Persistence` will persist a block after it has been verified. It will then publish a persistence notification to the internal messaging system. It is expected that the Block-Node will respond with an acknowledgement to the publisher's request in this situation. | A publisher that is able to stream to the Block-Node under test. | Block `0000000000001234567` is streamed as items. | An acknowledgement is returned to the publisher. |         N         |
