@@ -55,6 +55,11 @@ A facility that provides access to historical blocks, this is available for all 
 
 ## Design
 
+There are two flows for backfilling, Autonomous and On-Demand.
+
+### Autonomous Backfill
+The plugin will autonomously detect gaps in the block range and fetch missing blocks from a configured source.
+
 1. At start-up a loop is defined that runs every `backfill.scanInterval`
 2. At every interval the plugin detects missing gaps in the intended block range against the actual stored blocks using the `HistoricalBlockFacility`.
 3. If gaps are found, it initiates the backfill process.
@@ -109,36 +114,90 @@ sequenceDiagram
 
 ```
 
+### On-Demand Backfill
+The plugin can also be triggered on-demand to backfill missing blocks when the latest block known to the network is received.
+
+1. The plugin can also be triggered on-demand by sending a `NewestBlockKnownToNetwork` message to the `MessagingFacility`, usually this would be done by the `PublisherPlugin` or any other plugin that knows the latest block.
+2. BackfillPlugin will handle the `NewestBlockKnownToNetwork` message and will check if there are any gaps in the block range available in the local storage.
+3. If gaps are found, it will initiate the backfill process as described in the Autonomous Backfill section.
+4. The process will be the same as the Autonomous Backfill, but it will be triggered by the `NewestBlockKnownToNetwork` message instead of the periodic scan.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant PublisherPlugin
+    participant MessagingFacility
+    participant BackfillPlugin
+    participant HistoricalBlockFacility
+    participant GrpcClient
+
+    %% Trigger
+    PublisherPlugin->>MessagingFacility: NewestBlockKnownToNetwork(latestBlock)
+
+    %% Dispatch to backfill
+    MessagingFacility->>BackfillPlugin: NewestBlockKnownToNetwork(latestBlock)
+    BackfillPlugin->>HistoricalBlockFacility: detectMissingGaps(…, latestBlock)
+
+    alt Gaps found
+        BackfillPlugin->>GrpcClient: fetchMissingBlocks(gapRange, batchSize)
+        GrpcClient-->>BackfillPlugin: blocks[]
+        BackfillPlugin->>MessagingFacility: BackfilledBlockNotification(blocks)
+    else No gaps
+        BackfillPlugin-->>MessagingFacility: no gaps → no action
+    end
+
+```
+
+### gRPC Client
+The gRPC client is used to connect to another Block Node to fetch the missing blocks. It will be configured with the `backfill_sources` parameter, which is a list of HOST:PORT pairs of the Block Nodes to connect to.
+- Fetching blocks will be done in batches, the size of which can be configured with the `backfill.fetchBatchSize` parameter.
+- For each BN configured, the client will perform an `BlockNodeService/serverStatus` call to check if the missing gap is available in the remote BN, if it is not available, it will skip that BN and continue with the next one.
+- If the remote BN is not available, it will log an error and continue with the next one.
+- If the BN has the missing blocks, it will fetch them in batches using the `BlockStreamSubscribeService/subscribeBlockStream`
+- If none of the configured BNs have the missing blocks, it will log an error and continue with the next iteration after the configured interval.
+
+```mermaid
+flowchart TD
+    A[Start gRPC fetch for gapRange]
+    B[Iterate over backfill_sources]
+    C{Call serverStatus on current BN}
+    C -->|Error unreachable| E1[Log BN unreachable, continue]
+    C -->|Gap not available| E2[Log Gap not available, continue]
+    C -->|Gap available| D[Call subscribeBlockStream gapRange, batchSize]
+    D --> F[Return fetched blocks to BackfillPlugin]
+    F --> G[End successful fetch]
+    E1 --> B
+    E2 --> B
+    B --> H{All sources tried?}
+    H -->|No| C
+    H -->|Yes| E3[Log No configured BN had missing blocks]
+    E3 --> I[Exit, retry after scanInterval]
+
+```
+
 ## Configuration
 
-<dl>
-  <dt>first_block_available</dt>
-  <dd>The first block that this BN deploy wants to have available, default=0</dd>
-  <dt>last_block_to_store</dt>
-  <dd>for some historical purpose specific BNs, there could be a maximum amount of blocks</dd>
-  <dt>backfill_sources</dt>
-  <dd>Endpoint for another BN deployment in format, List of HOST:PORT</dd>
-    <dt>backfill.scanInterval</dt>
-    <dd>Interval in seconds to scan for missing gaps, default=60 (skip if previous task is already running)</dd>
-    <dt>backfill.maxRetries<dt>
-    <dd>Maximum number of retries to fetch a missing block, default=3 (with exponential back-off)</dd>
-    <dt>backfill.fetchBatchSize</dt>
-    <dd>Number of blocks to fetch in a single gRPC call, default=100</dd>
+| Configuration Property         | Description                                                                           | Default |
+|--------------------------------|---------------------------------------------------------------------------------------|---------|
+| `backfill.firstBlockAvailable` | The first block that this BN deploy wants to have available                           | 0       |
+| `backfill.lastBlockToStore`    | For some historical-purpose–specific BNs, there could be a maximum number of blocks   | -1      |
+| `backfill.blockNodeSources`    | Endpoint for another BN deployment, as a list of `HOST:PORT`                          | —       |
+| `backfill.scanIntervalSecs`    | Interval in seconds to scan for missing gaps (skips if the previous task is running)  | 60      |
+| `backfill.maxRetries`          | Maximum number of retries to fetch a missing block (with exponential back-off)        | 3       |
+| `backfill.fetchBatchSize`      | Number of blocks to fetch in a single gRPC call                                       | 100     |
 
-</dl>
 
 ## Metrics
 
-<dl>
-  <dt>backfill_gaps_detected</dt>
-  <dd>Counter for the number of gaps detected during the backfill process.</dd>
-  <dt>backfill_blocks_fetched</dt>
-  <dd>Counter for the number of blocks fetched during the backfill process.</dd>
-  <dt>backfill_blocks_stored</dt>
-  <dd>Counter for the number of blocks successfully stored in the local storage.</dd>
-  <dt>backfill_fetch_errors</dt>
-  <dd>Counter for the number of errors encountered while fetching blocks.</dd>
-</dl>
+| Metric                    | Description                                                          | Type    |
+|---------------------------|----------------------------------------------------------------------|---------|
+| `backfill_gaps_detected`  | Number of gaps detected during the backfill process.                 | Counter |
+| `backfill_blocks_fetched` | Number of blocks fetched during the backfill process.                | Counter |
+| `backfill_blocks_stored`  | Number of blocks successfully stored in the local storage.           | Counter |
+| `backfill_fetch_errors`   | Number of errors encountered while fetching blocks.                  | Counter |
+| `backfill_status`         | Current status of the backfill process (e.g., idle, running, error). | Gauge   |
+| `backfill_queue_size`     | Current amount of blocks pending to be backfilled.                   | Gauge   |
+
 
 ## Exceptions
 
