@@ -74,7 +74,7 @@ public final class BlockFile {
     /**
      * Generates a path to a compressed block file based on the given base path and block number. This is for a nested
      * directory structure where it splits the block number digits into chunks of the specified size
-     * {@code filesPerDir}. So for examole, if the block number is 1234567890123456789 and basePath is "foo" then
+     * {@code filesPerDir}. So for example, if the block number is 1234567890123456789 and basePath is "foo" then
      * the path will be "foo/123/456/789/012/345/6/1234567890123456789.blk.zstd".
      *
      * @param basePath the base path
