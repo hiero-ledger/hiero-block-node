@@ -3,11 +3,8 @@ plugins { id("org.hiero.gradle.module.library") }
 
 description = "Hiero Block Node Protobuf Sources"
 
-// Remove the following line to enable all 'javac' lint checks that we have turned on by default
-// and then fix the reported issues.
-tasks.withType<JavaCompile>().configureEach {
-    options.compilerArgs.add("-Xlint:-exports,-deprecation,-removal,-dep-ann")
-}
+// Add probuf source files as resources to have them packaged in Jar
+sourceSets.main { resources { srcDir(layout.projectDirectory.dir("src/main/proto")) } }
 
 // Skip javadoc generation for this module as it only contains protobuf sources
 tasks.javadoc { enabled = false }
