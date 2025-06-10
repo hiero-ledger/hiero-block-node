@@ -94,14 +94,14 @@ public class SubscriberServicePlugin implements BlockNodePlugin, BlockStreamSubs
         final BlockStreamSubscribeServiceMethod subscriberServiceMethod = (BlockStreamSubscribeServiceMethod) method;
         return switch (subscriberServiceMethod) {
             case subscribeBlockStream ->
-            // subscribeBlockStream is server streaming end point, so the client sends a single request, and the
-            // server sends many responses
-            Pipelines.<SubscribeStreamRequest, SubscribeStreamResponseUnparsed>serverStreaming()
-                    .mapRequest(SubscribeStreamRequest.PROTOBUF::parse)
-                    .method(clientHandler)
-                    .mapResponse(SubscribeStreamResponseUnparsed.PROTOBUF::toBytes)
-                    .respondTo(responses)
-                    .build();
+                // subscribeBlockStream is server streaming end point, so the client sends a single request, and the
+                // server sends many responses
+                Pipelines.<SubscribeStreamRequest, SubscribeStreamResponseUnparsed>serverStreaming()
+                        .mapRequest(SubscribeStreamRequest.PROTOBUF::parse)
+                        .method(clientHandler)
+                        .mapResponse(SubscribeStreamResponseUnparsed.PROTOBUF::toBytes)
+                        .respondTo(responses)
+                        .build();
         };
     }
 
@@ -161,7 +161,7 @@ public class SubscriberServicePlugin implements BlockNodePlugin, BlockStreamSubs
             virtualThreadExecutor.shutdown();
             // Close all connections and notify the clients.
             for (final BlockStreamSubscriberSession session : openSessions.values()) {
-                session.close(SubscribeStreamResponse.Code.READ_STREAM_SUCCESS);
+                session.close(SubscribeStreamResponse.Code.SUCCESS);
             }
             // Make sure all the threads complete.
             while (!openSessions.isEmpty()) {
