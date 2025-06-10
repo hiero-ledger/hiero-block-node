@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.simulator.grpc.impl;
 
+import static java.lang.System.Logger.Level.DEBUG;
 import static java.lang.System.Logger.Level.ERROR;
 import static java.lang.System.Logger.Level.INFO;
 import static java.lang.System.Logger.Level.WARNING;
@@ -12,14 +13,13 @@ import edu.umd.cs.findbugs.annotations.NonNull;
 import io.grpc.Status;
 import io.grpc.stub.StreamObserver;
 import java.util.Deque;
-import java.util.HashSet;
 import java.util.List;
-import java.util.Random;
 import java.util.Set;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.atomic.AtomicLong;
 import org.hiero.block.api.protoc.SubscribeStreamResponse;
 import org.hiero.block.simulator.config.data.ConsumerConfig;
+import org.hiero.block.simulator.config.types.SlowDownType;
 import org.hiero.block.simulator.metrics.MetricsService;
 
 /**
@@ -39,8 +39,7 @@ public class ConsumerStreamObserver implements StreamObserver<SubscribeStreamRes
     private final AtomicLong blocksConsumed = new AtomicLong(0);
 
     private final ConsumerConfig consumerConfig;
-    private Set<Long> slowDownBlockRangeSet = new HashSet<>();
-    private long randomBlocksToWait = 0L;
+    private final Set<Long> slowDownBlockRangeSet;
 
     /**
      * Constructs a new ConsumerStreamObserver.
@@ -61,18 +60,8 @@ public class ConsumerStreamObserver implements StreamObserver<SubscribeStreamRes
         this.streamLatch = requireNonNull(streamLatch);
         this.lastKnownStatuses = requireNonNull(lastKnownStatuses);
         this.lastKnownStatusesCapacity = lastKnownStatusesCapacity;
-        this.consumerConfig = requireNonNull(consumerConfig);
-        if (consumerConfig.slowDown()) {
-            this.slowDownBlockRangeSet = parseSlowDownForBlockRange(consumerConfig.slowDownForBlockRange());
-        } else if (consumerConfig.randomSlowDown()) {
-            List<Long> blockRange = parseBlockRange(consumerConfig.slowDownForBlockRange());
-            this.slowDownBlockRangeSet = randomBlockRangeSet(blockRange.get(0), blockRange.get(1));
-        } else if (consumerConfig.randomBlocksToWaitBeforeSlowDown()) {
-            List<Long> blockRange = parseBlockRange(consumerConfig.slowDownForBlockRange());
-            this.slowDownBlockRangeSet = parseSlowDownForBlockRange(consumerConfig.slowDownForBlockRange());
-            this.randomBlocksToWait =
-                    new Random().nextLong(blockRange.get(1) - blockRange.get(0) + 1) + blockRange.get(0);
-        }
+        this.consumerConfig = consumerConfig;
+        this.slowDownBlockRangeSet = consumerConfig.slowDownType().apply(consumerConfig);
     }
 
     /**
@@ -121,15 +110,8 @@ public class ConsumerStreamObserver implements StreamObserver<SubscribeStreamRes
 
     private void processBlockItems(List<BlockItem> blockItems) {
         long lastBlockConsumed = blocksConsumed.get();
-        if (consumerConfig.slowDown() || consumerConfig.randomSlowDown()) {
-            if (slowDownBlockRangeSet.contains(lastBlockConsumed)) {
-                slowDownProcessing("for block %d".formatted(lastBlockConsumed));
-            }
-        } else if (consumerConfig.randomBlocksToWaitBeforeSlowDown()) {
-            if (slowDownBlockRangeSet.contains(lastBlockConsumed) && lastBlockConsumed >= randomBlocksToWait) {
-                slowDownProcessing(
-                        "for block %d after waiting %d blocks".formatted(lastBlockConsumed, randomBlocksToWait));
-            }
+        if (consumerConfig.slowDownType() != SlowDownType.NONE && slowDownBlockRangeSet.contains(lastBlockConsumed)) {
+            slowDownProcessing("for block %d".formatted(lastBlockConsumed));
         }
 
         blockItems.stream().filter(BlockItem::hasBlockProof).forEach(blockItem -> {
@@ -158,62 +140,11 @@ public class ConsumerStreamObserver implements StreamObserver<SubscribeStreamRes
 
     private void slowDownProcessing(final String message) {
         try {
-            LOGGER.log(INFO, "Slowing down processing " + message);
+            LOGGER.log(DEBUG, "Slowing down processing " + message);
             Thread.sleep(consumerConfig.slowDownMilliseconds());
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             LOGGER.log(ERROR, "Stream processing interrupted during slowdown", e);
-        }
-    }
-
-    private Set<Long> parseSlowDownForBlockRange(final String slowDownForBlockRange) {
-        final List<Long> list = parseBlockRange(slowDownForBlockRange);
-        final long start = list.get(0);
-        final long end = list.get(1);
-
-        Set<Long> blockRangeSet = new HashSet<>();
-        for (long i = start; i <= end; i++) {
-            blockRangeSet.add(i);
-        }
-        return blockRangeSet;
-    }
-
-    private Set<Long> randomBlockRangeSet(final long startBlock, final long endBlock) {
-        final Random random = new Random();
-        long randomStart = random.nextLong((endBlock - startBlock + 1));
-        long randomEnd = random.nextLong(endBlock - startBlock + 1);
-        if (randomStart > randomEnd) {
-            long temp = randomStart;
-            randomStart = randomEnd;
-            randomEnd = temp;
-        }
-        System.out.println("Random block range: " + randomStart + "-" + randomEnd);
-
-        Set<Long> blockRangeSet = new HashSet<>();
-        for (long i = randomStart; i <= randomEnd; i++) {
-            blockRangeSet.add(i);
-        }
-        return blockRangeSet;
-    }
-
-    private List<Long> parseBlockRange(final String slowDownForBlockRange) {
-        if (slowDownForBlockRange == null || slowDownForBlockRange.isBlank()) {
-            return List.of();
-        }
-        final String[] parts = slowDownForBlockRange.split("-");
-        if (parts.length != 2) {
-            throw new IllegalArgumentException("Invalid range format. Expected format: start-end (e.g., 1-3)");
-        }
-        try {
-            final long start = Long.parseLong(parts[0].trim());
-            final long end = Long.parseLong(parts[1].trim());
-            if (start > end) {
-                throw new IllegalArgumentException("Range start cannot be greater than range end.");
-            }
-
-            return List.of(start, end);
-        } catch (NumberFormatException e) {
-            throw new IllegalArgumentException("Range values must be valid numbers.", e);
         }
     }
 }
