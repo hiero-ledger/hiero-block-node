@@ -273,7 +273,7 @@ class BlockStreamSimulatorTest {
         // simulate that the first block takes 15ms to stream, when the limit is 10, to
         // force to go
         // over WARN Path.
-        when(publishStreamGrpcClient.streamBlock(any()))
+        when(publishStreamGrpcClient.streamBlock(any(), any()))
                 .thenAnswer(invocation -> {
                     Thread.sleep(15);
                     return true;
