@@ -46,7 +46,7 @@ Refer to the [Configuration](../configuration.md) for configuration options.
 3. To build the Server docker image, do the following:
 
    ```bash
-   ./gradlew :block-node:app:createDockerImage
+   ./gradlew :block-node-app:createDockerImage
    ```
 
 ### Run the Server
@@ -54,7 +54,7 @@ Refer to the [Configuration](../configuration.md) for configuration options.
 1. To start the Server, do the following:
 
    ```bash
-   ./gradlew :block-node:app:startDockerContainer
+   ./gradlew :block-node-app:startDockerContainer
    ```
 
 ### Run the Server with Debug
@@ -62,7 +62,7 @@ Refer to the [Configuration](../configuration.md) for configuration options.
 1. To start the Server with debug enabled, do the following:
 
    ```bash
-   ./gradlew :block-node:app:startDockerDebugContainer
+   ./gradlew :block-node-app:startDockerDebugContainer
    ```
 2. Attach your remote jvm debugger to port 5005.
 
@@ -71,5 +71,5 @@ Refer to the [Configuration](../configuration.md) for configuration options.
 1. To stop the Server do the following:
 
    ```bash
-   ./gradlew :block-node:app:stopDockerContainer
+   ./gradlew :block-node-app:stopDockerContainer
    ```
