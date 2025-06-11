@@ -255,7 +255,7 @@ public class NegativeSingleSubscriberTests extends BaseSuite {
             previousBlockTime = currentBlockTime;
         }
 
-        assertFalse(slowdownValidated, "Not expected 2ms slowdown was validated for all blocks.");
+        assertFalse(slowdownValidated, "Not expected 3ms slowdown was validated for all blocks.");
     }
 
     /**

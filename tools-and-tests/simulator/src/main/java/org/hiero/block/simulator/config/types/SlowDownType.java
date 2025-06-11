@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.simulator.config.types;
 
+import static org.hiero.block.common.utils.StringUtilities.isBlank;
+
 import java.util.HashSet;
 import java.util.List;
 import java.util.Random;
@@ -10,41 +12,41 @@ import org.hiero.block.simulator.config.data.ConsumerConfig;
 public enum SlowDownType {
     NONE {
         @Override
-        public Set<Long> apply(ConsumerConfig consumerConfig) {
+        public Set<Long> apply(final ConsumerConfig consumerConfig) {
             return Set.of(); // No slowdown
         }
     },
     FIXED {
         @Override
-        public Set<Long> apply(ConsumerConfig consumerConfig) {
+        public Set<Long> apply(final ConsumerConfig consumerConfig) {
             return parseSlowDownForBlockRange(consumerConfig.slowDownForBlockRange());
         }
     },
     RANDOM {
         @Override
-        public Set<Long> apply(ConsumerConfig consumerConfig) {
+        public Set<Long> apply(final ConsumerConfig consumerConfig) {
             List<Long> blockRange = parseBlockRange(consumerConfig.slowDownForBlockRange());
-            return randomBlockRangeSet(blockRange.get(0), blockRange.get(1));
+            return randomBlockRangeSet(blockRange.getFirst(), blockRange.getLast());
         }
     },
     RANDOM_WITH_WAIT {
         @Override
-        public Set<Long> apply(ConsumerConfig consumerConfig) {
+        public Set<Long> apply(final ConsumerConfig consumerConfig) {
             List<Long> blockRange = parseBlockRange(consumerConfig.slowDownForBlockRange());
             long randomBlocksToWait =
-                    new Random().nextLong(blockRange.get(1) - blockRange.get(0) + 1) + blockRange.get(0);
+                    new Random().nextLong(blockRange.getLast() - blockRange.getFirst() + 1) + blockRange.getFirst();
             Set<Long> set = parseSlowDownForBlockRange(consumerConfig.slowDownForBlockRange());
             set.removeIf(value -> value < randomBlocksToWait);
             return parseSlowDownForBlockRange(consumerConfig.slowDownForBlockRange());
         }
     };
 
-    public abstract Set<Long> apply(ConsumerConfig consumerConfig);
+    public abstract Set<Long> apply(final ConsumerConfig consumerConfig);
 
-    private static Set<Long> parseSlowDownForBlockRange(String slowDownForBlockRange) {
+    private static Set<Long> parseSlowDownForBlockRange(final String slowDownForBlockRange) {
         final List<Long> list = parseBlockRange(slowDownForBlockRange);
-        final long start = list.get(0);
-        final long end = list.get(1);
+        final long start = list.getFirst();
+        final long end = list.getLast();
 
         Set<Long> blockRangeSet = new HashSet<>();
         for (long i = start; i <= end; i++) {
@@ -54,7 +56,7 @@ public enum SlowDownType {
     }
 
     private static List<Long> parseBlockRange(final String slowDownForBlockRange) {
-        if (slowDownForBlockRange == null || slowDownForBlockRange.isBlank()) {
+        if (isBlank(slowDownForBlockRange)) {
             return List.of();
         }
         final String[] parts = slowDownForBlockRange.split("-");
