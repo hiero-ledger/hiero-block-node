@@ -4,7 +4,6 @@ package org.hiero.block.node.app.fixtures.blocks;
 import com.hedera.hapi.block.stream.Block;
 import com.hedera.hapi.block.stream.BlockItem;
 import java.util.List;
-import java.util.Objects;
 import org.hiero.block.node.spi.historicalblocks.BlockAccessor;
 
 /**
@@ -39,8 +38,7 @@ public final class InMemoryBlockAccessor implements BlockAccessor {
         }
         // Create a Block from the provided block items
         block = Block.newBuilder().items(blockItems).build();
-        blockNumber =
-                Objects.requireNonNull(block.items().getFirst().blockHeader()).number();
+        blockNumber = block.items().getFirst().blockHeader().number();
     }
 
     /**

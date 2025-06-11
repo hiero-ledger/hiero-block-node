@@ -147,8 +147,14 @@ public class SimpleInMemoryHistoricalBlockFacility implements HistoricalBlockFac
 
     /**
      * {@inheritDoc}
-     *
      * <p>
+     * If a temporary override is set using
+     * {@link #setTemporaryAvailableBlocks(SimpleBlockRangeSet)}, then that
+     * override will be returned until cleared with
+     * {@link #clearTemporaryAvailableBlocks()}. Any updates to the available
+     * blocks in the facility will not affect the temporary override. They will
+     * be reflected however in the original available blocks set (accessible
+     * when there is no override).
      */
     @Override
     public BlockRangeSet availableBlocks() {

@@ -197,9 +197,9 @@ public final class BlocksFilesHistoricPlugin implements BlockProviderPlugin, Blo
      */
     @Override
     public void handlePersisted(PersistedNotification notification) {
-        // all operations here until we release the caller thread are queued up
+        // all operations are queued up here until we release the caller thread
         // by the block messaging facility, so we can safely perform
-        // calculations and decide if we will submit or not a task
+        // calculations and decide if we will submit a task or not
         if (notification.blockProviderPriority() > defaultPriority()) {
             attemptZipping();
         }
