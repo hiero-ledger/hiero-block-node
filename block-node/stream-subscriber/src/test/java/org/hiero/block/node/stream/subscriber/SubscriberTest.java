@@ -48,8 +48,9 @@ public class SubscriberTest extends GrpcPluginTestBase<SubscriberServicePlugin> 
     public SubscriberTest() {
         historicalFacility = new SimpleInMemoryHistoricalBlockFacility();
         activePlugin = new SubscriberServicePlugin();
-        ThreadPoolManager virtualTaskThreads = new TestThreadPoolManager<>(Executors.newVirtualThreadPerTaskExecutor());
-        start(activePlugin, subscribeBlockStream, historicalFacility, virtualTaskThreads, null);
+        final ThreadPoolManager virtualTaskThreads =
+                new TestThreadPoolManager<>(Executors.newVirtualThreadPerTaskExecutor());
+        start(activePlugin, subscribeBlockStream, historicalFacility, virtualTaskThreads, null, -1L);
     }
 
     /**
