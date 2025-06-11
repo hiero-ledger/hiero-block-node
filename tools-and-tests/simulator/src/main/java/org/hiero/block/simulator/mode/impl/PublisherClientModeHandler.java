@@ -120,6 +120,8 @@ public class PublisherClientModeHandler implements SimulatorModeHandler {
             Consumer<PublishStreamResponse> publishStreamResponseConsumer = publishStreamResponseAtomicReference::set;
 
             if (!publishStreamGrpcClient.streamBlock(nextBlock, publishStreamResponseConsumer)) {
+                // TODO: how we would simulate starting a new stream? Creating a new instance of publishStreamGrpcClient?
+                //  The same for blockStreamManager because we would want to start from before the failed block for example?
                 publishStreamGrpcClient.shutdown();
                 if (publishStreamResponseAtomicReference.get().getEndStream().getStatus().equals(Code.SUCCESS)) {
                     publishStreamGrpcClient.init();
