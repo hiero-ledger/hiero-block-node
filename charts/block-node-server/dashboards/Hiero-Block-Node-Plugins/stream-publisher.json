@@ -1,0 +1,274 @@
+{
+  "uid": "stream_publisher_plugin",
+  "title": "Stream Publisher Plugin",
+  "tags": ["hiero", "publisher"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 2,
+  "refresh": "30s",
+  "graphTooltip": 0,
+  "time": {
+    "from": "now-3h",
+    "to": "now"
+  },
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "name": "Annotations & Alerts",
+        "uid": "-- Grafana --",
+        "type": "dashboard",
+        "datasource": {
+          "type": "grafana",
+          "uid": "-- Grafana --"
+        },
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)"
+      }
+    ]
+  },
+  "templating": { "list": [] },
+  "links": [],
+  "panels": [
+    {
+      "id": 1,
+      "type": "row",
+      "title": "Traffic Rates",
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 }
+    },
+    {
+      "id": 2,
+      "type": "timeseries",
+      "title": "Block Items Received /s",
+      "datasource": { "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 1 },
+      "targets": [
+        {
+          "expr": "rate(hiero_block_node_publisher_block_items_received_total[$__rate_interval])",
+          "refId": "A"
+        }
+      ],
+      "options": { "showPoints": "auto" },
+      "fieldConfig": {
+        "defaults": { "unit": "ops", "decimals": 0 },
+        "overrides": []
+      }
+    },
+    {
+      "id": 3,
+      "type": "timeseries",
+      "title": "Blocks Ack Sent /s",
+      "datasource": { "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 1 },
+      "targets": [
+        {
+          "expr": "rate(hiero_block_node_publisher_blocks_ack_sent_total[$__rate_interval])",
+          "refId": "A"
+        }
+      ],
+      "options": { "showPoints": "auto" },
+      "fieldConfig": {
+        "defaults": { "unit": "ops", "decimals": 0 },
+        "overrides": []
+      }
+    },
+    {
+      "id": 4,
+      "type": "timeseries",
+      "title": "Blocks Skips Sent /s",
+      "datasource": { "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 1 },
+      "targets": [
+        {
+          "expr": "rate(hiero_block_node_publisher_blocks_skips_sent_total[$__rate_interval])",
+          "refId": "A"
+        }
+      ],
+      "options": { "showPoints": "auto" },
+      "fieldConfig": {
+        "defaults": { "unit": "ops", "decimals": 0 },
+        "overrides": []
+      }
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "Blocks Resend Sent /s",
+      "datasource": { "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 9 },
+      "targets": [
+        {
+          "expr": "rate(hiero_block_node_publisher_blocks_resend_sent_total[$__rate_interval])",
+          "refId": "A"
+        }
+      ],
+      "options": { "showPoints": "auto" },
+      "fieldConfig": {
+        "defaults": { "unit": "ops", "decimals": 0 },
+        "overrides": []
+      }
+    },
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "End-of-Stream Sent /s",
+      "datasource": { "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 9 },
+      "targets": [
+        {
+          "expr": "rate(hiero_block_node_publisher_block_endofstream_sent_total[$__rate_interval])",
+          "refId": "A"
+        }
+      ],
+      "options": { "showPoints": "auto" },
+      "fieldConfig": {
+        "defaults": { "unit": "ops", "decimals": 0 },
+        "overrides": []
+      }
+    },
+    {
+      "id": 7,
+      "type": "timeseries",
+      "title": "End-Stream Received /s",
+      "datasource": { "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 9 },
+      "targets": [
+        {
+          "expr": "rate(hiero_block_node_publisher_block_endstream_received_total[$__rate_interval])",
+          "refId": "A"
+        }
+      ],
+      "options": { "showPoints": "auto" },
+      "fieldConfig": {
+        "defaults": { "unit": "ops", "decimals": 0 },
+        "overrides": []
+      }
+    },
+    {
+      "id": 8,
+      "type": "row",
+      "title": "Block Numbers",
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 17 }
+    },
+    {
+      "id": 9,
+      "type": "stat",
+      "title": "Lowest Block # Inbound",
+      "datasource": { "uid": "prometheus" },
+      "gridPos": { "h": 6, "w": 6, "x": 0, "y": 18 },
+      "targets": [
+        { "expr": "hiero_block_node_publisher_lowest_block_number_inbound", "refId": "A" }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "none", "decimals": 0 },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"] },
+        "textMode": "auto",
+        "orientation": "vertical"
+      }
+    },
+    {
+      "id": 10,
+      "type": "stat",
+      "title": "Current Block # Inbound",
+      "datasource": { "uid": "prometheus" },
+      "gridPos": { "h": 6, "w": 6, "x": 6, "y": 18 },
+      "targets": [
+        { "expr": "hiero_block_node_publisher_current_block_number_inbound", "refId": "A" }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "none", "decimals": 0 },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"] },
+        "textMode": "auto",
+        "orientation": "vertical"
+      }
+    },
+    {
+      "id": 11,
+      "type": "stat",
+      "title": "Highest Block # Inbound",
+      "datasource": { "uid": "prometheus" },
+      "gridPos": { "h": 6, "w": 6, "x": 12, "y": 18 },
+      "targets": [
+        { "expr": "hiero_block_node_publisher_highest_block_number_inbound", "refId": "A" }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "none", "decimals": 0 },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"] },
+        "textMode": "auto",
+        "orientation": "vertical"
+      }
+    },
+    {
+      "id": 12,
+      "type": "stat",
+      "title": "Latest Block # Ack Sent",
+      "datasource": { "uid": "prometheus" },
+      "gridPos": { "h": 6, "w": 6, "x": 18, "y": 18 },
+      "targets": [
+        { "expr": "hiero_block_node_publisher_latest_block_number_ack_sent", "refId": "A" }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "none", "decimals": 0 },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"] },
+        "textMode": "auto",
+        "orientation": "vertical"
+      }
+    },
+    {
+      "id": 13,
+      "type": "row",
+      "title": "Connections & Errors",
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 24 }
+    },
+    {
+      "id": 14,
+      "type": "stat",
+      "title": "Open Connections",
+      "datasource": { "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 25 },
+      "targets": [
+        { "expr": "hiero_block_node_publisher_open_connections", "refId": "A" }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "none", "decimals": 0 },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"] },
+        "textMode": "auto",
+        "orientation": "vertical"
+      }
+    },
+    {
+      "id": 15,
+      "type": "timeseries",
+      "title": "Stream Errors /s",
+      "datasource": { "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 25 },
+      "targets": [
+        { "expr": "rate(hiero_block_node_publisher_stream_errors_total[$__rate_interval])", "refId": "A" }
+      ],
+      "options": { "showPoints": "auto" },
+      "fieldConfig": {
+        "defaults": { "unit": "ops", "decimals": 0 },
+        "overrides": []
+      }
+    }
+  ]
+}
