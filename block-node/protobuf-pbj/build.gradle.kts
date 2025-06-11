@@ -22,6 +22,17 @@ tasks.javadoc {
     }
 }
 
+// Let Gradle know that this is an 'alternative implementation' of com.hedera.node.hapi
+configurations.apiElements {
+    outgoing.capability("${project.group}:${project.name}:$version") // preserve default capability
+    outgoing.capability("com.hedera.hashgraph:hapi:$version") // original hapi capability
+}
+
+configurations.runtimeElements {
+    outgoing.capability("${project.group}:${project.name}:$version") // preserve default capability
+    outgoing.capability("com.hedera.hashgraph:hapi:$version") // original hapi capability
+}
+
 pbj { generateTestClasses = false }
 
 sourceSets {

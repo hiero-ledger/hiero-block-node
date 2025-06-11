@@ -13,10 +13,10 @@ module org.hiero.block.node.archive.s3cloud {
 
     requires transitive com.swirlds.config.api;
     requires transitive org.hiero.block.node.spi;
+    requires com.hedera.node.hapi;
     requires com.hedera.pbj.runtime;
     requires org.hiero.block.common;
     requires org.hiero.block.node.base;
-    requires org.hiero.block.protobuf.pbj;
     requires com.github.spotbugs.annotations;
     requires java.management;
     requires java.net.http;
