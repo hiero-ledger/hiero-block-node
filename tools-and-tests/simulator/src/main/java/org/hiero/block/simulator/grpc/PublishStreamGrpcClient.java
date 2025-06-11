@@ -21,7 +21,7 @@ public interface PublishStreamGrpcClient {
      * @param block the block to be streamed
      * @return true if the block is streamed successfully, false otherwise
      */
-    boolean streamBlock(Block block, Consumer<PublishStreamResponse> stringConsumer);
+    boolean streamBlock(Block block, Consumer<PublishStreamResponse> publishStreamResponseConsumer);
 
     /**
      * Sends a onCompleted message to the server and waits for a short period of time to ensure the message is sent.

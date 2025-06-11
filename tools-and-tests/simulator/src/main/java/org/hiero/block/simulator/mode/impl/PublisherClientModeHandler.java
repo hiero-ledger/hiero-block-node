@@ -173,8 +173,9 @@ public class PublisherClientModeHandler implements SimulatorModeHandler {
                 LOGGER.log(INFO, "Block Stream Simulator has reached the end of the block items");
                 break;
             }
+            // TODO: handle this case
             if (!publishStreamGrpcClient.streamBlock(block, null)) {
-                LOGGER.log(INFO, "Block Stream Simulator stopped streaming due to errors. CONSTASNSNSSA");
+                LOGGER.log(INFO, "Block Stream Simulator stopped streaming due to errors.");
                 break;
             }
 
