@@ -1,6 +1,7 @@
 # Hiero Block Node Metrics
 
 ## Table of Contents
+
 1. [Summary](#summary)
 2. [Purpose](#purpose)
 3. [Configuration](#configuration)
@@ -16,7 +17,6 @@
    8. [files.historic](#fileshistoric)
    9. [s3-archive](#s3-archive)
    10. [Server Status API](#server-status-api)
-
 
 ## Summary
 
@@ -42,7 +42,6 @@ Prefix: prometheus, ie. `prometheus.configKey`
 | enableEndpoint            | either `true` or `false`. Enables or disables the endpoint for metrics                |    true |
 | endpointPortNumber        | Port of the Prometheus endpoint                                                       |    9999 |
 | endpointMaxBacklogAllowed | The maximum number of incoming TCP connections which the system will queue internally |       1 |
-
 
 ## How to Access Metrics
 
