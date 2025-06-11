@@ -31,6 +31,10 @@ Basic Functionality Test 1
 
 <!-- The feature should perform its primary function without errors. -->
 
+#### Requirements
+
+<!-- What are the prerequisite requirements that will allow us to run the test? -->
+
 #### Input
 
 <!-- Valid input data. -->

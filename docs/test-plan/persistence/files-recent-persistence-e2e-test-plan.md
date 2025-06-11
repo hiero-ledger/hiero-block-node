@@ -71,13 +71,311 @@ implemented following this plan must assert all these assumptions.
 > compression algorithm set to `ZStandard` so the file extension for a persisted
 > block will be `.blk.zstd`_
 
-|   Test Case ID | Test Name                                                               | Scenario Description                                                                                                                                                                                                                                                                             | Requirement                                                                                                                                                                                                                           | Input                                                                                                                                                               | Output                                                                                                                                                                                                                                                                        | Implemented (Y/N) |
-|---------------:|:------------------------------------------------------------------------|:-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|:--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|:--------------------------------------------------------------------------------------------------------------------------------------------------------------------|:------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|:-----------------:|
-| E2ETC_FRP_0001 | `Verify Acknowledgement Returned After Successful Persistence`          | `Files Recent Persistence` will persist a block after it has been received and verified. It will then publish a persistence notification to the internal messaging system. It is expected that the Block-Node will respond with an acknowledgement to the publisher's request in this situation. | A publisher that is able to stream to the Block-Node under test.                                                                                                                                                                      | Valid block `0000000000001234567` is streamed as items.                                                                                                             | An acknowledgement is returned to the publisher.                                                                                                                                                                                                                              |         N         |
-| E2ETC_FRP_0002 | `Verify Persisted Block File Location`                                  | `Files Recent Persistence` will persist a block after it has been received and verified. It is expected that a regular file is written at the properly resolved location.                                                                                                                        | A publisher that is able to stream to the Block-Node under test.                                                                                                                                                                      | Valid block `0000000000001234567` is streamed as items.                                                                                                             | Regular Readable File: `/blocks/000/000/000/000/123/4/0000000000001234567.blk.zstd` exists.                                                                                                                                                                                   |         N         |
-| E2ETC_FRP_0003 | `Verify Persisted Block File Content`                                   | `Files Recent Persistence` will persist a block after it has been received and verified. It is expected that a regular file is written at the properly resolved location and the content of the file is the same as the original block streamed.                                                 | A publisher that is able to stream to the Block-Node under test.                                                                                                                                                                      | Valid block `0000000000001234567` is streamed as items.                                                                                                             | Regular Readable File: `/blocks/000/000/000/000/123/4/0000000000001234567.blk.zstd` has the same binary content as the binary data received as block items for the specified block.                                                                                           |         N         |
-| E2ETC_FRP_0004 | `Verify EndOfStream returned on IO Failure`                             | `Files Recent Persistence` will persist a block after it has been received and verified. It is expected that the Block-Node will return and EndOfStream with PERSISTENCE_FAILED if an IO failure occurs during write.                                                                            | A publisher that is able to stream to the Block-Node under test. A way to simulate an IO issue for the resolved block.                                                                                                                | Valid block `0000000000001234567` is streamed as items.                                                                                                             | An EndOfStream with PERSISTENCE_FAILED is returned to the publisher.                                                                                                                                                                                                          |         N         |
-| E2ETC_FRP_0005 | `Verify Persisted Block File Cleanup on IO Failure`                     | `Files Recent Persistence` will persist a block after it has been received and verified. It is expected that all data potentially written to the filesystem is cleaned if an IO failure occurs during write. No files or data related to the current block must be present after such failure.   | A publisher that is able to stream to the Block-Node under test. A way to simulate an IO issue for the resolved block.                                                                                                                | Valid block `0000000000001234567` is streamed as items.                                                                                                             | Regular Readable File: `/blocks/000/000/000/000/123/4/0000000000001234567.blk.zstd` does not exist. No data of the received block is present on the filesystem.                                                                                                               |         N         |
-| E2ETC_FRP_0006 | `Verify Persisted Block File Discoverable After Successful Persistence` | `Files Recent Persistence` will persist a block after it has been received and verified. It is expected that after the persistence of the given block is successful, the block will be accessible via the node's public API.                                                                     | A publisher that is able to stream to the Block-Node under test. A client that can call the public APIs to read the block (i.e. `getBlock`). Client receives not found if initially attempts to read the block under test (expected). | Valid block `0000000000001234567` is streamed as items.                                                                                                             | Client is able to use the node's public API to read the persisted block (i.e. `getBlock`).                                                                                                                                                                                    |         N         |
-| E2ETC_FRP_0007 | `Verify Persisted Block File can be Overwritten`                        | `Files Recent Persistence` will persist a block after it has been received and verified. It is expected that a regular file is written at the properly resolved location. It is expected that this file can be overwritten.                                                                      | A publisher that is able to stream to the Block-Node under test.                                                                                                                                                                      | Valid block `0000000000001234567` is streamed as items, waiting for Acknowledgement (ensure it is persisted). Then it is streamed again with different binary data. | Regular Readable File: `/blocks/000/000/000/000/123/4/0000000000001234567.blk.zstd` exists and it's binary content is the same as the second time it was streamed.                                                                                                            |         N         |
-| E2ETC_FRP_0008 | `Verify Persisted Block in Rapid Succession`                            | `Files Recent Persistence` will persist a block after it has been received and verified. It is expected that a regular file is written at the properly resolved location. It is expected that an Acknowledgement is returned to the publisher.                                                   | A publisher that is able to stream to the Block-Node under test.                                                                                                                                                                      | Valid blocks `0000000000001234000` to `0000000000001235000` are rapidly streamed as items.                                                                          | Regular Readable Files: `/blocks/000/000/000/000/123/4/0000000000001234000.blk.zstd` to `/blocks/000/000/000/000/123/5/0000000000001235000.blk.zstd` exist, have the same binary content as the original sent blocks, are discoverable and readable through public API calls. |         N         |
+|                      Test Case ID | Test Name                                                               | Implemented (Y/N) |
+|----------------------------------:|:------------------------------------------------------------------------|:-----------------:|
+| [E2ETC_FRP_0001](#E2ETC_FRP_0001) | `Verify Acknowledgement Returned After Successful Persistence`          |         N         |
+| [E2ETC_FRP_0002](#E2ETC_FRP_0002) | `Verify Persisted Block File Location`                                  |         N         |
+| [E2ETC_FRP_0003](#E2ETC_FRP_0003) | `Verify Persisted Block File Content`                                   |         N         |
+| [E2ETC_FRP_0004](#E2ETC_FRP_0004) | `Verify EndOfStream returned on IO Failure`                             |         N         |
+| [E2ETC_FRP_0005](#E2ETC_FRP_0005) | `Verify Persisted Block File Cleanup on IO Failure`                     |         N         |
+| [E2ETC_FRP_0006](#E2ETC_FRP_0006) | `Verify Persisted Block File Discoverable After Successful Persistence` |         N         |
+| [E2ETC_FRP_0007](#E2ETC_FRP_0007) | `Verify Persisted Block File can be Overwritten`                        |         N         |
+| [E2ETC_FRP_0008](#E2ETC_FRP_0008) | `Verify Persisted Block in Rapid Succession`                            |         N         |
+
+---
+
+### E2ETC_FRP_0001
+
+#### Test Name
+
+`Verify Acknowledgement Returned After Successful Persistence`
+
+#### Scenario Description
+
+`Files Recent Persistence` will persist a block after it has been received and
+verified. It will then publish a persistence notification to the internal
+messaging system.
+
+#### Expected Behaviour
+
+It is expected that the Block-Node will respond with an acknowledgement to the
+publisher's request in this situation.
+
+#### Requirements
+
+A publisher that is able to stream to the Block-Node under test.
+
+#### Input
+
+Valid block `0000000000001234567` is streamed as items.
+
+#### Output
+
+An acknowledgement is returned to the publisher.
+
+#### Other
+
+N/A
+
+---
+
+### E2ETC_FRP_0002
+
+#### Test Name
+
+`Verify Persisted Block File Location`
+
+#### Scenario Description
+
+`Files Recent Persistence` will persist a block after it has been received and
+verified.
+
+#### Expected Behaviour
+
+It is expected that a regular file is written at the properly resolved location.
+
+#### Requirements
+
+A publisher that is able to stream to the Block-Node under test.
+
+#### Input
+
+Valid block `0000000000001234567` is streamed as items.
+
+#### Output
+
+Regular Readable File:
+`/blocks/000/000/000/000/123/4/0000000000001234567.blk.zstd` exists.
+
+#### Other
+
+N/A
+
+---
+
+### E2ETC_FRP_0003
+
+#### Test Name
+
+`Verify Persisted Block File Content`
+
+#### Scenario Description
+
+`Files Recent Persistence` will persist a block after it has been received and
+verified.
+
+#### Expected Behaviour
+
+It is expected that a regular file is written at the properly resolved location
+and the content of the file is the same as the original block streamed.
+
+#### Requirements
+
+A publisher that is able to stream to the Block-Node under test.
+
+#### Input
+
+Valid block `0000000000001234567` is streamed as items.
+
+#### Output
+
+Regular Readable File:
+`/blocks/000/000/000/000/123/4/0000000000001234567.blk.zstd` has the same binary
+content as the binary data received as block items for the specified block.
+
+#### Other
+
+N/A
+
+---
+
+### E2ETC_FRP_0004
+
+#### Test Name
+
+`Verify EndOfStream returned on IO Failure`
+
+#### Scenario Description
+
+`Files Recent Persistence` will persist a block after it has been received and
+verified.
+
+#### Expected Behaviour
+
+It is expected that the Block-Node will return and EndOfStream with
+PERSISTENCE_FAILED if an IO failure occurs during write.
+
+#### Requirements
+
+A publisher that is able to stream to the Block-Node under test. A way to
+simulate an IO issue for the resolved block.
+
+#### Input
+
+Valid block `0000000000001234567` is streamed as items.
+
+#### Output
+
+An EndOfStream with PERSISTENCE_FAILED is returned to the publisher.
+
+#### Other
+
+N/A
+
+---
+
+### E2ETC_FRP_0005
+
+#### Test Name
+
+`Verify Persisted Block File Cleanup on IO Failure`
+
+#### Scenario Description
+
+`Files Recent Persistence` will persist a block after it has been received and
+verified.
+
+#### Expected Behaviour
+
+It is expected that all data potentially written to the filesystem is cleaned if
+an IO failure occurs during write. No files or data related to the current block
+must be present after such failure.
+
+#### Requirements
+
+A publisher that is able to stream to the Block-Node under test. A way to
+simulate an IO issue for the resolved block.
+
+#### Input
+
+Valid block `0000000000001234567` is streamed as items.
+
+#### Output
+
+Regular Readable File:
+`/blocks/000/000/000/000/123/4/0000000000001234567.blk.zstd` does not exist. No
+data of the received block is present on the filesystem.
+
+#### Other
+
+N/A
+
+---
+
+### E2ETC_FRP_0006
+
+#### Test Name
+
+`Verify Persisted Block File Discoverable After Successful Persistence`
+
+#### Scenario Description
+
+`Files Recent Persistence` will persist a block after it has been received and
+verified.
+
+#### Expected Behaviour
+
+It is expected that after the persistence of the given block is successful, the
+block will be accessible via the node's public API.
+
+#### Requirements
+
+A publisher that is able to stream to the Block-Node under test. A client that
+can call the public APIs to read the block (i.e. `getBlock`). Client receives
+not found if initially attempts to read the block under test (expected).
+
+#### Input
+
+Valid block `0000000000001234567` is streamed as items.
+
+#### Output
+
+Client is able to use the node's public API to read the persisted block
+(i.e. `getBlock`).
+
+#### Other
+
+N/A
+
+---
+
+### E2ETC_FRP_0007
+
+#### Test Name
+
+`Verify Persisted Block File can be Overwritten`
+
+#### Scenario Description
+
+`Files Recent Persistence` will persist a block after it has been received and
+verified.
+
+#### Expected Behaviour
+
+It is expected that a regular file is written at the properly resolved location.
+It is expected that this file can be overwritten.
+
+#### Requirements
+
+A publisher that is able to stream to the Block-Node under test. A client that
+can call the public APIs to read the block (i.e. `getBlock`). Client receives
+not found if initially attempts to read the block under test (expected).
+
+#### Input
+
+Valid block `0000000000001234567` is streamed as items, waiting for
+Acknowledgement (ensure it is persisted). Then it is streamed again with
+different binary data. The Block-Node under test must be able to accept the
+second stream and overwrite the existing file.
+
+#### Output
+
+Regular Readable File:
+`/blocks/000/000/000/000/123/4/0000000000001234567.blk.zstd` exists and it's
+binary content is the same as the second time it was streamed.
+
+#### Other
+
+N/A
+
+---
+
+### E2ETC_FRP_0008
+
+#### Test Name
+
+`Verify Persisted Block in Rapid Succession`
+
+#### Scenario Description
+
+`Files Recent Persistence` will persist a block after it has been received and
+verified.
+
+#### Expected Behaviour
+
+It is expected that a regular file is written at the properly resolved location
+for each block streamed. It is expected that an Acknowledgement is returned to
+the publisher for each block streamed when everything is successful.
+
+#### Requirements
+
+A publisher that is able to stream to the Block-Node under test.
+
+#### Input
+
+Valid blocks `0000000000001234000` to `0000000000001235000` are rapidly streamed
+as items.
+
+#### Output
+
+Regular Readable Files:
+`/blocks/000/000/000/000/123/4/0000000000001234000.blk.zstd` to
+`/blocks/000/000/000/000/123/5/0000000000001235000.blk.zstd` exist,
+have the same binary content as the original sent blocks, are discoverable and
+readable through public API calls.
+
+#### Other
+
+N/A
+
+---
