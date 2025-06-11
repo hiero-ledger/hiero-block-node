@@ -1,6 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.node.blocks.files.historic;
 
+import static java.lang.System.Logger.Level.DEBUG;
+import static java.lang.System.Logger.Level.ERROR;
+import static java.lang.System.Logger.Level.WARNING;
+
 import com.swirlds.metrics.api.Counter;
 import com.swirlds.metrics.api.LongGauge;
 import com.swirlds.metrics.api.Metrics;
@@ -83,7 +87,7 @@ public final class BlocksFilesHistoricPlugin implements BlockProviderPlugin, Blo
         try {
             Files.createDirectories(config.rootPath());
         } catch (IOException e) {
-            LOGGER.log(Level.ERROR, "Could not create root directory", e);
+            LOGGER.log(ERROR, "Could not create root directory", e);
             context.serverHealth().shutdown(name(), "Could not create root directory");
         }
         // register to listen to block notifications
@@ -262,7 +266,7 @@ public final class BlocksFilesHistoricPlugin implements BlockProviderPlugin, Blo
         if (inProgressZipRanges.contains(batchRange)) {
             // if the batch is in progress, we must not submit a task
             LOGGER.log(
-                    System.Logger.Level.DEBUG,
+                    DEBUG,
                     "Batch of blocks[{%1} -> {%2}] is already in progress",
                     batchRange.start(),
                     batchRange.end());
@@ -299,19 +303,15 @@ public final class BlocksFilesHistoricPlugin implements BlockProviderPlugin, Blo
             // if there are any gaps, then we cannot zip the batch
             if (batch.size() != numberOfBlocksPerZipFile) {
                 // we have a gap in the batch, so we cannot zip it
-                LOGGER.log(
-                        System.Logger.Level.DEBUG,
-                        "Batch of blocks[%d -> %d] has a gap, skipping zipping",
-                        batchFirstBlockNumber,
-                        batchLastBlockNumber);
+                final String message = "Batch of blocks [%d -> %d] has a gap, skipping zipping"
+                        .formatted(batchFirstBlockNumber, batchLastBlockNumber);
+                LOGGER.log(DEBUG, message);
             } else {
                 // move the batch of blocks to a zip file
                 try {
-                    LOGGER.log(
-                            System.Logger.Level.DEBUG,
-                            "Moving batch of blocks[%d -> %d] to zip file",
-                            batchFirstBlockNumber,
-                            batchLastBlockNumber);
+                    final String message = "Moving batch of blocks [%d -> %d] to zip file"
+                            .formatted(batchFirstBlockNumber, batchLastBlockNumber);
+                    LOGGER.log(DEBUG, message);
                     // Write the zip file and get result with file size
                     final long zipFileSize = zipBlockArchive.writeNewZipFile(batch);
                     // Metrics updates
@@ -320,11 +320,9 @@ public final class BlocksFilesHistoricPlugin implements BlockProviderPlugin, Blo
                     // Increment the blocks written counter
                     blocksWrittenCounter.add(numberOfBlocksPerZipFile);
                 } catch (final IOException e) {
-                    LOGGER.log(
-                            System.Logger.Level.ERROR,
-                            "Failed to move batch of blocks[" + batchFirstBlockNumber + " -> " + batchLastBlockNumber
-                                    + "] to zip file",
-                            e);
+                    final String message = "Failed to move batch of blocks [%d -> %d] to zip file"
+                            .formatted(batchFirstBlockNumber, batchLastBlockNumber);
+                    LOGGER.log(WARNING, message, e);
                     return;
                 }
                 // if we have reached here, then the batch of blocks has been zipped,
@@ -332,11 +330,9 @@ public final class BlocksFilesHistoricPlugin implements BlockProviderPlugin, Blo
                 // update the first and last block numbers
                 availableBlocks.add(batchFirstBlockNumber, batchLastBlockNumber);
                 // log done
-                LOGGER.log(
-                        Level.INFO,
-                        "Moved batch of blocks[%d -> %d] to zip file",
-                        batchFirstBlockNumber,
-                        batchLastBlockNumber);
+                final String message = "Successfully moved batch of blocks[%d -> %d] to zip file"
+                        .formatted(batchFirstBlockNumber, batchLastBlockNumber);
+                LOGGER.log(Level.INFO, message);
                 // now all the blocks are in the zip file and accessible, send notification
                 context.blockMessaging()
                         .sendBlockPersisted(new PersistedNotification(
