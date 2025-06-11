@@ -2,22 +2,20 @@
 
 ## Overview
 
-Persistence is a key component of the Block-Node. Although not each and every
-Block-Node will feature persistence, we need to ensure that we have good and
-reliable persistence plugins that can be used by the Block-Node. We support
-local file system persistence for recently received and verified blocks which
-we call `Files Recent Persistence`. Also, complementary to the persistence
-capability itself, we also have the ability to retrieve (read) blocks that have
-been persisted. `Block Provision` is also a key component of the Block-Node.
+Persistence is a key component of the Block-Node. We need to ensure that we have
+good and reliable persistence plugins that can be used by the Block-Node. We
+support local file system persistence for recently received and verified blocks
+which we call `Files Recent Persistence`. Also, complementary to the persistence
+capability itself, we have the ability to retrieve (read) blocks that have been
+persisted. `Block Provision` is another key component of the Block-Node.
 The `Files Recent Persistence` is however an optional component, meaning that
 the system is able to operate without it present and loaded.
 
-This E2E test plan is designed highlighting the key scenarios that need to be
+This E2E test plan is designed to highlight the key scenarios that need to be
 tested for end results in order to ensure the correctness and proper working of
 the `Files Recent Persistence` as well as the complementary `Block Provision`
 logic. Essentially, this test plan describes the intended behavior of the
-`Files Recent Persistence` and the expected results it produces. The tests
-implemented following this plan must assert all these assumptions.
+`Files Recent Persistence` and the expected results it produces.
 
 ## Key Considerations for `Files Recent Persistence`
 
@@ -25,6 +23,10 @@ implemented following this plan must assert all these assumptions.
   resolution logic which determines the location of a given block.
 - **Trie Data Structure for Path Resolution**: `Files Recent Persistence`
   utilizes a trie data structure to resolve paths for blocks. This is done to
+  ensure that the blocks are stored in a structured manner, allowing for
+  efficient storage and retrieval. The trie structure is based on the digits of
+  the blockNumber, with each directory (tree node) representing the next 3
+  digits of the whole blockNumber, going left to right.
 - **Files Recent Root Path**: This is the root path (configurable) where all
   blocks that have passed verification are stored. Generally, the stored blocks
   are relatively short-lived because this storage type is intended for recently
@@ -32,7 +34,7 @@ implemented following this plan must assert all these assumptions.
 - **Scope**: The `Files Recent Persistence` will accept verified blocks through
   the node's messaging system and will store them under its root.
   The `Files Recent Persistence` will keep a limited number of blocks in its
-  root path and will then proceed to delete the oldest blocks(rolling history).
+  root path and will then proceed to delete the oldest blocks (rolling history).
   That is the full scope of the `Files Recent Persistence`. While the blocks are
   stored and available, they can be queried by other components of the system.
 - **Persistence Results**: `Files Recent Persistence` publishes persistence
