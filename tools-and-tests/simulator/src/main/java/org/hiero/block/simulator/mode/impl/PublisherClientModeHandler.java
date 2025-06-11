@@ -15,6 +15,7 @@ import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 import javax.inject.Inject;
 import org.hiero.block.api.protoc.PublishStreamResponse;
+import org.hiero.block.api.protoc.PublishStreamResponse.EndOfStream.Code;
 import org.hiero.block.simulator.config.data.BlockStreamConfig;
 import org.hiero.block.simulator.config.types.StreamingMode;
 import org.hiero.block.simulator.exception.BlockSimulatorParsingException;
@@ -120,16 +121,17 @@ public class PublisherClientModeHandler implements SimulatorModeHandler {
 
             if (!publishStreamGrpcClient.streamBlock(nextBlock, publishStreamResponseConsumer)) {
                 publishStreamGrpcClient.shutdown();
-                publishStreamGrpcClient.init();
-                System.out.println("Block Stream Simulator stopped streaming due to errors: "
-                        + publishStreamResponseAtomicReference
-                                .get()
-                                .getEndStream()
-                                .getStatus());
+                if (publishStreamResponseAtomicReference.get().getEndStream().getStatus().equals(Code.SUCCESS)) {
+                    publishStreamGrpcClient.init();
+                    continue;
+                } else if (publishStreamResponseAtomicReference.get().getEndStream().getStatus().equals(Code.TIMEOUT)) {
+                    // TODO: The source MUST start a new stream before the failed block.
+
+                }
+                // TODO: handle other statuses here
 
                 LOGGER.log(System.Logger.Level.INFO, "Block Stream Simulator stopped streaming due to errors.");
-                continue;
-                //                break;
+                break;
             }
 
             long elapsedTime = System.nanoTime() - startTime;

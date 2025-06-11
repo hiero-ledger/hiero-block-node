@@ -57,7 +57,7 @@ public class PublishStreamGrpcClientImpl implements PublishStreamGrpcClient {
     private final Deque<String> lastKnownStatuses;
     private final SimulatorStartupData startupData;
 
-    PublishStreamObserver publishStreamObserver;
+    private PublishStreamObserver publishStreamObserver;
 
     /**
      * Creates a new PublishStreamGrpcClientImpl with the specified dependencies.
