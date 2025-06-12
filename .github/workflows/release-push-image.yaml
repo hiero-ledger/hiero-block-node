@@ -210,11 +210,12 @@ jobs:
           VERSION=$(cat version.txt)
           echo "VERSION=${VERSION}" >> $GITHUB_ENV
 
-      - name: Publish protobuf jar to maven local repo
+      - name: Publish protobuf jar to Maven Central
         if: "${{ github.event_name != 'workflow_dispatch' || github.event.inputs.publish == 'true' }}"
         env:
           NEXUS_USERNAME: ${{ secrets.SONATYPE_USERNAME }}
           NEXUS_PASSWORD: ${{ secrets.SONATYPE_PASSWORD }}
+        # If VERSION is *-SNAPSHOT the publishing directs to Maven Central Snapshots, otherwise to Maven Central
         run: ./gradlew publishAggregationToCentralPortal -PpublishSigningEnabled=true
 
   publish-simulator:
