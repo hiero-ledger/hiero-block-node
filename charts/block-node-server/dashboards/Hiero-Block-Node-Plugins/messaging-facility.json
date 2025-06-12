@@ -1,0 +1,238 @@
+{
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": {
+          "type": "grafana",
+          "uid": "-- Grafana --"
+        },
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      }
+    ]
+  },
+  "editable": true,
+  "graphTooltip": 0,
+  "links": [],
+  "refresh": "30s",
+  "schemaVersion": 40,
+  "style": "dark",
+  "tags": ["hiero_block_node", "messaging"],
+  "time": {
+    "from": "now-3h",
+    "to": "now"
+  },
+  "timepicker": {
+    "refresh_intervals": [
+      "5s",
+      "10s",
+      "30s",
+      "1m",
+      "5m",
+      "15m",
+      "30m",
+      "1h",
+      "2h",
+      "1d"
+    ]
+  },
+  "timezone": "browser",
+  "title": "Messaging Facility",
+  "uid": "messaging-facility",
+  "version": 1,
+  "panels": [
+    {
+      "type": "row",
+      "title": "Rates",
+      "id": 1,
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 },
+      "panels": []
+    },
+    {
+      "type": "timeseries",
+      "title": "Items Received /s",
+      "id": 2,
+      "datasource": { "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 1 },
+      "fieldConfig": {
+        "defaults": { "unit": "ops", "decimals": 2 },
+        "overrides": []
+      },
+      "options": {
+        "legend": { "showLegend": true, "displayMode": "list" },
+        "tooltip": { "mode": "single" }
+      },
+      "targets": [
+        {
+          "expr": "rate(hiero_block_node_messaging_block_items_received_total[$__rate_interval])",
+          "legendFormat": "received/s",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Verification Notifications /s",
+      "id": 3,
+      "datasource": { "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 1 },
+      "fieldConfig": {
+        "defaults": { "unit": "ops", "decimals": 2 },
+        "overrides": []
+      },
+      "options": {
+        "legend": { "showLegend": true, "displayMode": "list" },
+        "tooltip": { "mode": "single" }
+      },
+      "targets": [
+        {
+          "expr": "rate(hiero_block_node_messaging_block_verification_notifications_total[$__rate_interval])",
+          "legendFormat": "verifications/s",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Persistence Notifications /s",
+      "id": 4,
+      "datasource": { "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 1 },
+      "fieldConfig": {
+        "defaults": { "unit": "ops", "decimals": 2 },
+        "overrides": []
+      },
+      "options": {
+        "legend": { "showLegend": true, "displayMode": "list" },
+        "tooltip": { "mode": "single" }
+      },
+      "targets": [
+        {
+          "expr": "rate(hiero_block_node_messaging_block_persisted_notifications_total[$__rate_interval])",
+          "legendFormat": "persisted/s",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "type": "row",
+      "title": "Listeners",
+      "id": 5,
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 9 },
+      "panels": []
+    },
+    {
+      "type": "stat",
+      "title": "Item Listeners",
+      "id": 6,
+      "datasource": { "uid": "prometheus" },
+      "gridPos": { "h": 6, "w": 12, "x": 0, "y": 10 },
+      "fieldConfig": {
+        "defaults": { "unit": "none", "decimals": 0 },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "orientation": "vertical",
+        "textMode": "value",
+        "colorMode": "value"
+      },
+      "targets": [
+        {
+          "expr": "hiero_block_node_messaging_no_of_item_listeners",
+          "legendFormat": "listeners",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "type": "stat",
+      "title": "Notification Listeners",
+      "id": 7,
+      "datasource": { "uid": "prometheus" },
+      "gridPos": { "h": 6, "w": 12, "x": 12, "y": 10 },
+      "fieldConfig": {
+        "defaults": { "unit": "none", "decimals": 0 },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "orientation": "vertical",
+        "textMode": "value",
+        "colorMode": "value"
+      },
+      "targets": [
+        {
+          "expr": "hiero_block_node_messaging_no_of_notification_listeners",
+          "legendFormat": "listeners",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "type": "row",
+      "title": "Queues",
+      "id": 8,
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 16 },
+      "panels": []
+    },
+    {
+      "type": "stat",
+      "title": "Item Queue Used %",
+      "id": 9,
+      "datasource": { "uid": "prometheus" },
+      "gridPos": { "h": 6, "w": 12, "x": 0, "y": 17 },
+      "fieldConfig": {
+        "defaults": { "unit": "percent(0-100)", "decimals": 1 },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "orientation": "vertical",
+        "textMode": "value",
+        "colorMode": "value"
+      },
+      "targets": [
+        {
+          "expr": "hiero_block_node_messaging_item_queue_percent_used",
+          "legendFormat": "used",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "type": "stat",
+      "title": "Notification Queue Used %",
+      "id": 10,
+      "datasource": { "uid": "prometheus" },
+      "gridPos": { "h": 6, "w": 12, "x": 12, "y": 17 },
+      "fieldConfig": {
+        "defaults": { "unit": "percent(0-100)", "decimals": 1 },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "orientation": "vertical",
+        "textMode": "value",
+        "colorMode": "value"
+      },
+      "targets": [
+        {
+          "expr": "hiero_block_node_messaging_notification_queue_percent_used",
+          "legendFormat": "used",
+          "refId": "A"
+        }
+      ]
+    }
+  ],
+  "templating": {
+    "list": []
+  }
+}
