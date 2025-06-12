@@ -83,8 +83,13 @@ spec:
         envFrom:
           - configMapRef:
               name: {{ include "hiero-block-node.fullname" . }}-config
+          {{ if .Values.blockNode.secret }}
           - secretRef:
-              name: {{ include "hiero-block-node.fullname" . }}-secret
+             name: {{ include "hiero-block-node.fullname" . }}-secret
+          {{ else if .Values.blockNode.secretRef }}
+          - secretRef:
+              name: {{ .Values.blockNode.secretRef }}
+          {{ end }}
         volumeMounts:
           - name: logging-config
             mountPath: {{ .Values.blockNode.logs.configMountPath }}

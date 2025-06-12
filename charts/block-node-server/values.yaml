@@ -124,8 +124,11 @@ blockNode:
       # this does not create a PVC.
       # should match PERSISTENCE_STORAGE_UNVERIFIED_ROOT_PATH, leave as is for default.
       mountPath: "/opt/hiero/block-node/data/unverified"
-  secret:
-    PRIVATE_KEY: "fake_private_key"
+  # For secrets, is recommended to use a secretRef to an existing secret on the cluster.
+  # secretRef: secret-name-reference
+  # not recommended to use this, but for testing purposes you can use the following collection for secrets auto-creation
+  # secret:
+  #   EXAMPLE_SECRET: "FAKE EXAMPLE VALUE SECRET"
   health:
     readiness:
       endpoint: "/healthz/readyz"
