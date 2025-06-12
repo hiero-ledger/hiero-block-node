@@ -4,14 +4,13 @@ package org.hiero.block.suites.metrics;
 import static org.hiero.block.suites.utils.BlockAccessUtils.getBlock;
 import static org.hiero.block.suites.utils.BlockAccessUtils.getLatestBlock;
 import static org.hiero.block.suites.utils.BlockSimulatorUtils.createBlockSimulator;
-import static org.hiero.block.suites.utils.MetricsAccessorUtils.getMetricValue;
-import static org.junit.jupiter.api.Assertions.*;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.IOException;
 import java.util.concurrent.Future;
 import org.hiero.block.simulator.BlockStreamSimulatorApp;
 import org.hiero.block.suites.BaseSuite;
-import org.hiero.block.suites.utils.MetricsAccessorUtils;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -31,8 +30,14 @@ public class MetricsCommonTests extends BaseSuite {
     // Thread to run the simulator
     private Future<?> simulatorThread;
 
+    private MetricsAccessor metricsAccessor;
+
     @BeforeEach
     void publishSomeBlocks() throws IOException, InterruptedException {
+
+        // Initialize the metrics endpoint
+        String metricsEndpoint = "http://" + blockNodeContainer.getHost() + ":" + blockNodeMetricsPort + "/metrics";
+        metricsAccessor = new MetricsAccessor(metricsEndpoint);
         // Use the simulator to publish some blocks
         blockStreamSimulatorApp = createBlockSimulator();
         simulatorThread = startSimulatorInThread(blockStreamSimulatorApp);
@@ -50,6 +55,7 @@ public class MetricsCommonTests extends BaseSuite {
         if (simulatorThread != null && !simulatorThread.isCancelled()) {
             simulatorThread.cancel(true);
         }
+        metricsAccessor.close();
     }
 
     @Test
@@ -61,22 +67,25 @@ public class MetricsCommonTests extends BaseSuite {
         assertTrue(publishedBlocks > 0, "Should have published at least one block");
 
         // Verify app metrics
-        long appNewestBlock = getMetricValue("app_historical_newest_block", MetricsAccessorUtils.MetricType.GAUGE);
-        long appOldestBlock = getMetricValue("app_historical_oldest_block", MetricsAccessorUtils.MetricType.GAUGE);
-        long appState = getMetricValue("app_state_status", MetricsAccessorUtils.MetricType.GAUGE);
+        long appNewestBlock =
+                metricsAccessor.getMetricValue("app_historical_newest_block", MetricsAccessor.MetricType.GAUGE);
+        long appOldestBlock =
+                metricsAccessor.getMetricValue("app_historical_oldest_block", MetricsAccessor.MetricType.GAUGE);
+        long appState = metricsAccessor.getMetricValue("app_state_status", MetricsAccessor.MetricType.GAUGE);
 
         assertEquals(publishedBlocks - 1, appNewestBlock, "Newest block should match the published blocks");
         assertEquals(0, appOldestBlock, "Oldest block should be 0 for a new simulator run");
         assertEquals(1, appState, "App state should be 1 (running) after publishing blocks");
 
         // Verify block access metrics
-        long getBlockRequests = getMetricValue("get_block_requests", MetricsAccessorUtils.MetricType.COUNTER);
+        long getBlockRequests =
+                metricsAccessor.getMetricValue("get_block_requests", MetricsAccessor.MetricType.COUNTER);
         long getBlockRequestsSuccess =
-                getMetricValue("get_block_requests_success", MetricsAccessorUtils.MetricType.COUNTER);
+                metricsAccessor.getMetricValue("get_block_requests_success", MetricsAccessor.MetricType.COUNTER);
         long getBlockRequestsNotAvailable =
-                getMetricValue("get_block_requests_not_available", MetricsAccessorUtils.MetricType.COUNTER);
+                metricsAccessor.getMetricValue("get_block_requests_not_available", MetricsAccessor.MetricType.COUNTER);
         long getBlockRequestsFailed =
-                getMetricValue("get_block_requests_not_found", MetricsAccessorUtils.MetricType.COUNTER);
+                metricsAccessor.getMetricValue("get_block_requests_not_found", MetricsAccessor.MetricType.COUNTER);
 
         assertEquals(
                 2,
@@ -91,11 +100,11 @@ public class MetricsCommonTests extends BaseSuite {
 
         // Verify messaging metrics
         long blockItemsReceived =
-                getMetricValue("messaging_block_items_received", MetricsAccessorUtils.MetricType.COUNTER);
-        long verificationNotifications =
-                getMetricValue("messaging_block_verification_notifications", MetricsAccessorUtils.MetricType.COUNTER);
-        long persistedNotifications =
-                getMetricValue("messaging_block_persisted_notifications", MetricsAccessorUtils.MetricType.COUNTER);
+                metricsAccessor.getMetricValue("messaging_block_items_received", MetricsAccessor.MetricType.COUNTER);
+        long verificationNotifications = metricsAccessor.getMetricValue(
+                "messaging_block_verification_notifications", MetricsAccessor.MetricType.COUNTER);
+        long persistedNotifications = metricsAccessor.getMetricValue(
+                "messaging_block_persisted_notifications", MetricsAccessor.MetricType.COUNTER);
 
         assertTrue(blockItemsReceived >= 0, "Block items received should be a non-negative number");
         assertTrue(verificationNotifications >= 0, "Verification notifications should be a non-negative number");
@@ -103,16 +112,18 @@ public class MetricsCommonTests extends BaseSuite {
 
         // Verify publisher metrics
         long publisherBlocksReceived =
-                getMetricValue("publisher_block_items_received", MetricsAccessorUtils.MetricType.COUNTER);
+                metricsAccessor.getMetricValue("publisher_block_items_received", MetricsAccessor.MetricType.COUNTER);
         long publisherOpenConnections =
-                getMetricValue("publisher_open_connections", MetricsAccessorUtils.MetricType.GAUGE);
+                metricsAccessor.getMetricValue("publisher_open_connections", MetricsAccessor.MetricType.GAUGE);
 
         assertTrue(publisherBlocksReceived >= 0, "Publisher blocks received should be a non-negative number");
         assertTrue(publisherOpenConnections >= 0, "Publisher open connections should be a non-negative number");
 
         // Verify verification metrics
-        long blocksReceived = getMetricValue("verification_blocks_received", MetricsAccessorUtils.MetricType.COUNTER);
-        long blocksVerified = getMetricValue("verification_blocks_verified", MetricsAccessorUtils.MetricType.COUNTER);
+        long blocksReceived =
+                metricsAccessor.getMetricValue("verification_blocks_received", MetricsAccessor.MetricType.COUNTER);
+        long blocksVerified =
+                metricsAccessor.getMetricValue("verification_blocks_verified", MetricsAccessor.MetricType.COUNTER);
 
         assertTrue(blocksReceived >= 0, "Blocks received for verification should be a non-negative number");
         assertTrue(blocksVerified >= 0, "Blocks verified should be a non-negative number");
@@ -120,8 +131,9 @@ public class MetricsCommonTests extends BaseSuite {
 
         // Verify files.recent metrics
         long recentBlocksWritten =
-                getMetricValue("files_recent_blocks_written", MetricsAccessorUtils.MetricType.COUNTER);
-        long recentBlocksStored = getMetricValue("files_recent_blocks_stored", MetricsAccessorUtils.MetricType.GAUGE);
+                metricsAccessor.getMetricValue("files_recent_blocks_written", MetricsAccessor.MetricType.COUNTER);
+        long recentBlocksStored =
+                metricsAccessor.getMetricValue("files_recent_blocks_stored", MetricsAccessor.MetricType.GAUGE);
 
         assertTrue(recentBlocksWritten >= 0, "Recent blocks written should be a non-negative number");
         assertTrue(recentBlocksStored >= 0, "Recent blocks stored should be a non-negative number");

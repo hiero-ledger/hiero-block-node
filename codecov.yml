@@ -23,6 +23,6 @@ coverage:
 
 ignore:
   - "simulator/src/main/java/org/hiero/block/simulator/BlockStreamSimulator.java"
-  - "suites/**"
-  - "tools/**"
+  - "tools-and-tests/tools/**"
+  - "tools-and-tests/suites/**"
   - "**/src/test/**"

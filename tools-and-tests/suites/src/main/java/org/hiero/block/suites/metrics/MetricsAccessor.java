@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-package org.hiero.block.suites.utils;
+package org.hiero.block.suites.metrics;
 
 import java.io.IOException;
 import java.net.URI;
@@ -15,7 +15,15 @@ import java.util.regex.Pattern;
  * This class provides methods to fetch metric values based on metric names and types,
  * handling both labeled and unlabeled metrics.
  */
-public class MetricsAccessorUtils {
+public class MetricsAccessor {
+
+    private final String metricsEndpoint;
+    private final HttpClient client;
+
+    public MetricsAccessor(String metricsEndpoint) {
+        this.metricsEndpoint = metricsEndpoint;
+        this.client = HttpClient.newBuilder().build();
+    }
 
     /**
      * Retrieves the value of a specified metric from the Block-Node application.
@@ -26,7 +34,7 @@ public class MetricsAccessorUtils {
      * @throws IOException          If an error occurs while fetching metrics.
      * @throws InterruptedException If the operation is interrupted.
      */
-    public static long getMetricValue(final String metricName, final MetricType type)
+    public long getMetricValue(final String metricName, final MetricType type)
             throws IOException, InterruptedException {
         return getMetricValue(metricName, type, Map.of());
     }
@@ -41,17 +49,13 @@ public class MetricsAccessorUtils {
      * @throws IOException          If an error occurs while fetching metrics.
      * @throws InterruptedException If the operation is interrupted.
      */
-    public static long getMetricValue(final String metricName, final MetricType type, final Map<String, String> labels)
+    public long getMetricValue(final String metricName, final MetricType type, final Map<String, String> labels)
             throws IOException, InterruptedException {
         final String metricPrefix = "hiero_block_node_";
         final String fullMetricName = metricPrefix + metricName + (type == MetricType.COUNTER ? "_total" : "");
 
-        HttpClient client = HttpClient.newBuilder().build();
-
-        HttpRequest request = HttpRequest.newBuilder()
-                .uri(URI.create("http://localhost:9999/metrics"))
-                .GET()
-                .build();
+        HttpRequest request =
+                HttpRequest.newBuilder().uri(URI.create(metricsEndpoint)).GET().build();
 
         HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
 
@@ -87,6 +91,13 @@ public class MetricsAccessorUtils {
         }
 
         throw new IOException("Metric not found: " + fullMetricName);
+    }
+
+    /**
+     * Closes the HTTP client used for fetching metrics.
+     */
+    public void close() {
+        client.close();
     }
 
     /**
