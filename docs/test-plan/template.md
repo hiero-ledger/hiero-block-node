@@ -25,27 +25,27 @@ Basic Functionality Test 1
 
 #### Scenario Description
 
-<!-- Verify the basic functionality of the feature. -->
-
-#### Expected Behaviour
-
-<!-- The feature should perform its primary function without errors. -->
+<!-- Describe the scenario of the test. -->
 
 #### Requirements
 
-<!-- What are the prerequisite requirements that will allow us to run the test? -->
+<!-- What are the requirement(s) that the test should . -->
+
+#### Preconditions
+
+<!-- What are the preconditions that will allow us to run the test? -->
 
 #### Input
 
-<!-- Valid input data. -->
+<!-- What is the input of the test? -->
 
 #### Output
 
-<!-- The feature should return the expected result without any errors. -->
+<!-- What output/result is expected to be produced at the end of the test? -->
 
 #### Other
 
-<!-- More information, it could change the title (Other) as well, this is a placeholder for anything that needs to be added, it can also be deleted if not needed. -->
+<!-- Additional information, if applicable -->
 
 ---
 
@@ -57,22 +57,26 @@ Basic Functionality Test 2
 
 #### Scenario Description
 
-<!-- Verify the basic functionality of the feature. -->
+<!-- Describe the scenario of the test. -->
 
-#### Expected Behaviour
+#### Requirements
 
-<!-- The feature should perform its primary function without errors. -->
+<!-- What are the requirement(s) that the test should . -->
+
+#### Preconditions
+
+<!-- What are the preconditions that will allow us to run the test? -->
 
 #### Input
 
-<!-- Valid input data. -->
+<!-- What is the input of the test? -->
 
 #### Output
 
-<!-- The feature should return the expected result without any errors. -->
+<!-- What output/result is expected to be produced at the end of the test? -->
 
 #### Other
 
-<!-- More information, it could change the title (Other) as well, this is a placeholder for anything that needs to be added, it can also be deleted if not needed. -->
+<!-- Additional information, if applicable -->
 
 ---
