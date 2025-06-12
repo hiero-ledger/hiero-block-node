@@ -2,10 +2,10 @@
 
 There are 3 configuration sets:
 1. [BlockStreamConfig](#blockstreamconfig): contains the configuration for the Block Stream Simulator logic.
-1. [BlockGeneratorConfig](#blockGeneratorConfig): contains the configuration for the Block Stream Simulator generation module.
+1. [BlockGeneratorConfig](#blockgeneratorconfig): contains the configuration for the Block Stream Simulator generation module.
 1. [SimulatorStartupDataConfig](#simulatorstartupdataconfig): contains the configuration for the Block Stream Simulator startup data.
 1. [UnorderedStreamConfig](#unorderedstreamconfig): contains the configuration for the Unordered Stream Simulator logic.
-1. [ConsumerConfig](#consumerConfig): contains the configuration for the Consumer Simulator logic.
+1. [ConsumerConfig](#consumerconfig): contains the configuration for the Consumer Simulator logic.
 1. [GrpcConfig](#grpcconfig): contains the configuration for the gRPC communication with the Block-Node.
 1. [PrometheusConfig](#prometheusconfig): contains the configuration for the Prometheus.
 
@@ -13,17 +13,17 @@ There are 3 configuration sets:
 
 Uses the prefix `blockStream` so all properties should start with `blockStream.`
 
-| Key                         | Description                                                                                                                         |   Default Value |
-|:----------------------------|:------------------------------------------------------------------------------------------------------------------------------------|----------------:|
-| `simulatorMode`             | The desired simulator mode to use, it can be either `PUBLISHER` or `CONSUMER`.                                                      |     `PUBLISHER` |
-| `lastKnownStatusesCapacity` | The store capacity for the last known statuses.                                                                                     |            `10` |
-| `delayBetweenBlockItems`    | The delay between each block item in nanoseconds, only applicable when streamingMode=CONSTANT_RATE                                  |     `1_500_000` |
-| `maxBlockItemsToStream`     | The maximum number of block items to stream before stopping                                                                         |       `100_000` |
-| `streamingMode`             | Can either be `CONSTANT_RATE` or `MILLIS_PER_BLOCK`                                                                                 | `CONSTANT_RATE` |
-| `millisecondsPerBlock`      | If streamingMode is `MILLIS_PER_BLOCK` this will be the time to wait between blocks in milliseconds                                 |         `1_000` |
-| `blockItemsBatchSize`       | The number of block items to send in a single batch, however if a block has less block items, it will send all the items in a block |         `1_000` |
-| `midBlockFailType`          | The type of failure to occur while streaming. It can be `NONE`, `ABRUPT` or `EOS`                                                   |          `NONE` |
-| `midBlockFailOffset`        | The index where the failure will occur, only applicable if midBlockFailType is not `NONE`                                           |             `0` |
+| Key                         | Description                                                                                                                         |      Default Value |
+|:----------------------------|:------------------------------------------------------------------------------------------------------------------------------------|-------------------:|
+| `simulatorMode`             | The desired simulator mode to use, it can be either `PUBLISHER` or `CONSUMER`.                                                      |        `PUBLISHER` |
+| `lastKnownStatusesCapacity` | The store capacity for the last known statuses.                                                                                     |               `10` |
+| `delayBetweenBlockItems`    | The delay between each block item in nanoseconds, only applicable when streamingMode=CONSTANT_RATE                                  |        `1_500_000` |
+| `maxBlockItemsToStream`     | The maximum number of block items to stream before stopping                                                                         |          `100_000` |
+| `streamingMode`             | Can either be `CONSTANT_RATE` or `MILLIS_PER_BLOCK`                                                                                 | `MILLIS_PER_BLOCK` |
+| `millisecondsPerBlock`      | If streamingMode is `MILLIS_PER_BLOCK` this will be the time to wait between blocks in milliseconds                                 |            `1_000` |
+| `blockItemsBatchSize`       | The number of block items to send in a single batch, however if a block has less block items, it will send all the items in a block |            `1_000` |
+| `midBlockFailType`          | The type of failure to occur while streaming. It can be `NONE`, `ABRUPT` or `EOS`                                                   |             `NONE` |
+| `midBlockFailOffset`        | The index where the failure will occur, only applicable if midBlockFailType is not `NONE`                                           |                `0` |
 
 ## BlockGeneratorConfig
 
