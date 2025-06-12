@@ -32,7 +32,7 @@ This plugin purpose is to detect missing gaps in the intended stored block seque
   <dt>Backfill</dt>
   <dd>The process of fetching and storing missing blocks in the local storage.</dd>
     <dt>Grpc Client</dt>
-    <dd> A client that connects to another Block Node to fetch missing blocks.</dd>
+    <dd>A client that connects to another Block Node to fetch missing blocks.</dd>
 
 </dl>
 
@@ -155,9 +155,9 @@ sequenceDiagram
 The gRPC client is used to connect to another Block Node to fetch the missing blocks. It will be configured with the `backfill_sources` parameter, which is a list of HOST:PORT pairs of the Block Nodes to connect to.
 - Fetching blocks will be done in batches, the size of which can be configured with the `backfill.fetchBatchSize` parameter.
 - For each BN configured, the client will perform an `BlockNodeService/serverStatus` call to check if the missing gap is available in the remote BN, if it is not available, it will skip that BN and continue with the next one.
-- If the remote BN is not available, it will log an error and continue with the next one.
+- If the remote BN is not available, it will log an info and continue with the next one.
 - If the BN has the missing blocks, it will fetch them in batches using the `BlockStreamSubscribeService/subscribeBlockStream`
-- If none of the configured BNs have the missing blocks, it will log an error and continue with the next iteration after the configured interval.
+- If none of the configured BNs have the missing blocks, it will log an info and continue with the next iteration after the configured interval.
 
 ```mermaid
 flowchart TD
