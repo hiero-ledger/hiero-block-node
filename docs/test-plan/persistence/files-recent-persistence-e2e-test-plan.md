@@ -98,12 +98,12 @@ logic. Essentially, this test plan describes the intended behavior of the
 verified. It will then publish a persistence notification to the internal
 messaging system.
 
-#### Expected Behaviour
+#### Requirements
 
 It is expected that the Block-Node will respond with an acknowledgement to the
 publisher's request in this situation.
 
-#### Requirements
+#### Preconditions
 
 A publisher that is able to stream to the Block-Node under test.
 
@@ -132,11 +132,11 @@ N/A
 `Files Recent Persistence` will persist a block after it has been received and
 verified.
 
-#### Expected Behaviour
+#### Requirements
 
 It is expected that a regular file is written at the properly resolved location.
 
-#### Requirements
+#### Preconditions
 
 A publisher that is able to stream to the Block-Node under test.
 
@@ -166,12 +166,12 @@ N/A
 `Files Recent Persistence` will persist a block after it has been received and
 verified.
 
-#### Expected Behaviour
+#### Requirements
 
 It is expected that a regular file is written at the properly resolved location
 and the content of the file is the same as the original block streamed.
 
-#### Requirements
+#### Preconditions
 
 A publisher that is able to stream to the Block-Node under test.
 
@@ -202,12 +202,12 @@ N/A
 `Files Recent Persistence` will persist a block after it has been received and
 verified.
 
-#### Expected Behaviour
+#### Requirements
 
 It is expected that the Block-Node will return and EndOfStream with
 PERSISTENCE_FAILED if an IO failure occurs during write.
 
-#### Requirements
+#### Preconditions
 
 A publisher that is able to stream to the Block-Node under test. A way to
 simulate an IO issue for the resolved block.
@@ -237,13 +237,13 @@ N/A
 `Files Recent Persistence` will persist a block after it has been received and
 verified.
 
-#### Expected Behaviour
+#### Requirements
 
 It is expected that all data potentially written to the filesystem is cleaned if
 an IO failure occurs during write. No files or data related to the current block
 must be present after such failure.
 
-#### Requirements
+#### Preconditions
 
 A publisher that is able to stream to the Block-Node under test. A way to
 simulate an IO issue for the resolved block.
@@ -275,12 +275,12 @@ N/A
 `Files Recent Persistence` will persist a block after it has been received and
 verified.
 
-#### Expected Behaviour
+#### Requirements
 
 It is expected that after the persistence of the given block is successful, the
 block will be accessible via the node's public API.
 
-#### Requirements
+#### Preconditions
 
 A publisher that is able to stream to the Block-Node under test. A client that
 can call the public APIs to read the block (i.e. `getBlock`). Client receives
@@ -314,7 +314,7 @@ verified. If the received and verified block's resolved path already exists,
 no matter what the reason is, it must be overwritten with the received block's
 data.
 
-#### Expected Behaviour
+#### Requirements
 
 It is expected that when the Block-Node receives the next in sequence block and
 then verifies it, the `Files Recent Persistence` will attempt to persist it at
@@ -325,7 +325,7 @@ persisted and acknowledged), but that is outside the scope of the
 `Files Recent Persistence`. As long as data comes in to the
 `Files Recent Persistence` it will be persisted at the resolved path.
 
-#### Requirements
+#### Preconditions
 
 A publisher that is able to stream to the Block-Node under test. A regular file
 exists at the resolved location of the block under test with some arbitrary test
@@ -360,13 +360,13 @@ N/A
 `Files Recent Persistence` will persist a block after it has been received and
 verified.
 
-#### Expected Behaviour
+#### Requirements
 
 It is expected that a regular file is written at the properly resolved location
 for each block streamed. It is expected that an Acknowledgement is returned to
 the publisher for each block streamed when everything is successful.
 
-#### Requirements
+#### Preconditions
 
 A publisher that is able to stream to the Block-Node under test.
 
