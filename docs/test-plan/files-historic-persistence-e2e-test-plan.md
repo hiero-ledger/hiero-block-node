@@ -5,11 +5,12 @@
 Persistence is a key component of the Block-Node. We need to ensure that we have
 good and reliable persistence plugins that can be used by the Block-Node. We
 support local file system archive of received and verified blocks
-which we call `Files Historic Persistence`. Also, complementary to the persistence
-capability itself, we have the ability to retrieve (read) blocks that have been
-archived locally. `Block Provision` is another key component of the Block-Node.
-The `Files Historic Persistence` is however an optional component, meaning that
-the system is able to operate without it present and loaded.
+which we call `Files Historic Persistence`. Also, complementary to the
+persistence capability itself, we have the ability to retrieve (read) blocks
+that have been archived locally. `Block Provision` is another key component of
+the Block-Node. The `Files Historic Persistence` is however an optional
+component, meaning that the system is able to operate without it present and
+loaded.
 
 This E2E test plan is designed to highlight the key scenarios that need to be
 tested for end results in order to ensure the correctness and proper working of
