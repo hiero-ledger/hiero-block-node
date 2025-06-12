@@ -3,6 +3,7 @@ package org.hiero.block.node.app.fixtures.blocks;
 
 import com.hedera.hapi.block.stream.Block;
 import com.hedera.hapi.block.stream.BlockItem;
+import com.hedera.hapi.block.stream.output.BlockHeader;
 import java.util.List;
 import org.hiero.block.node.spi.historicalblocks.BlockAccessor;
 
@@ -17,32 +18,53 @@ public final class InMemoryBlockAccessor implements BlockAccessor {
     private final long blockNumber;
 
     /**
-     * Constructor.
+     * Constructor. Enforces preconditions on the input block items.
      *
-     * @param blockItems of the block, must not be empty, first item must be a
-     * {@link com.hedera.hapi.block.stream.output.BlockHeader} and last item
-     * must be a {@link com.hedera.hapi.block.stream.BlockProof}.
-     * @throws IllegalArgumentException if preconditions are not met
+     * @param blockItems of the block, if no block header is present, the
+     * block number will be set to
+     * {@value org.hiero.block.node.spi.BlockNodePlugin#UNKNOWN_BLOCK_NUMBER}
      */
     public InMemoryBlockAccessor(final List<BlockItem> blockItems) {
-        if (blockItems.isEmpty()) {
-            throw new IllegalArgumentException("Block items list cannot be empty");
-        }
-        // Ensure the first item is a BlockHeader
-        if (!blockItems.getFirst().hasBlockHeader()) {
-            throw new IllegalArgumentException("First block item must be a BlockHeader");
-        }
-        // Ensure the last item is a BlockProof
-        if (!blockItems.getLast().hasBlockProof()) {
-            throw new IllegalArgumentException("Last block item must be a BlockProof");
+        this(blockItems, true);
+    }
+
+    /**
+     * Constructor.
+     *
+     * @param blockItems of the block, if no block header is present, the
+     * block number will be set to
+     * {@value org.hiero.block.node.spi.BlockNodePlugin#UNKNOWN_BLOCK_NUMBER}
+     * @param enforcePreconditions if true, will enforce preconditions on the
+     * input block items
+     * @throws IllegalArgumentException if preconditions are not met but
+     * enforced
+     */
+    public InMemoryBlockAccessor(final List<BlockItem> blockItems, final boolean enforcePreconditions) {
+        if (enforcePreconditions) {
+            if (blockItems.isEmpty()) {
+                throw new IllegalArgumentException("Block items list cannot be empty");
+            }
+            // Ensure the first item is a BlockHeader
+            if (!blockItems.getFirst().hasBlockHeader()) {
+                throw new IllegalArgumentException("First block item must be a BlockHeader");
+            }
+            // Ensure the last item is a BlockProof
+            if (!blockItems.getLast().hasBlockProof()) {
+                throw new IllegalArgumentException("Last block item must be a BlockProof");
+            }
         }
         // Create a Block from the provided block items
         block = Block.newBuilder().items(blockItems).build();
-        blockNumber = block.items().getFirst().blockHeader().number();
+        final BlockHeader header = block.items().getFirst().blockHeader();
+        blockNumber = header != null ? header.number() : -1;
     }
 
     /**
      * {@inheritDoc}
+     * <p>
+     * This method returns the block number of the accessible block or
+     * {@value org.hiero.block.node.spi.BlockNodePlugin#UNKNOWN_BLOCK_NUMBER}
+     * if the block header is not present as the first item in the block.
      */
     @Override
     public long blockNumber() {
