@@ -85,7 +85,6 @@ public enum SlowDownType {
             randomStart = randomEnd;
             randomEnd = temp;
         }
-        System.out.println("Random block range: " + randomStart + "-" + randomEnd);
 
         Set<Long> blockRangeSet = new HashSet<>();
         for (long i = randomStart; i <= randomEnd; i++) {

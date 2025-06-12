@@ -144,7 +144,7 @@ public class ConsumerStreamObserver implements StreamObserver<SubscribeStreamRes
             Thread.sleep(consumerConfig.slowDownMilliseconds());
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
-            LOGGER.log(ERROR, "Stream processing interrupted during slowdown", e);
+            LOGGER.log(INFO, "Stream processing interrupted during slowdown", e);
         }
     }
 }
