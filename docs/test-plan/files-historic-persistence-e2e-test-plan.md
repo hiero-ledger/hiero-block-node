@@ -43,7 +43,7 @@ logic. Essentially, this test plan describes the intended behavior of the
   blockNumber `0000000000000001234` resides would be same as the path for block
   with blockNumber `0000000000000001235`, as they both belong to the same batch
   (1000-1999). An example path for that zip file could be:
-  `/historic/000/000/000/000/000/1000s.zip` if the batch size is 1000.
+  `/blocks/000/000/000/000/000/1000s.zip` if the batch size is 1000.
 - **Files Historic Root Path**: This is the root path (configurable) where all
   blocks will be archived. Generally, the stored blocks are long-lived as this
   type of persistence is used for long-term storage of blocks.
@@ -60,7 +60,38 @@ logic. Essentially, this test plan describes the intended behavior of the
 
 ## Test Scenarios
 
-TBD
+> _**NOTE**: for the purpose of the below test definitions, we will have the
+> following root definition (this could be configured to be different, but
+> whatever is configured is of no relevance to the outcome of the tests, simply
+> we need a reference point so an example could be shown):_
+> `Files Historic Root`: `/blocks`
+>
+> _**NOTE**: the trie structure for `Files Recent Root` is resolving
+> all the digits of a `long` (max. 19 digits). We have three digits per node
+> or directory. Based on archive size, the max. depth of directories vary. After
+> we have reached our max. depth, we will then have an arbitrary number of zip
+> files, each named with the batch's start number suffixed with `s.zip`.
+> As an example, if we have a batch size of 1000, we will have the following
+> resolutions:
+> </br>
+> `/blocks/000/000/000/000/000/0000s.zip` (first thousand 0-999)
+> </br>
+> `/blocks/000/000/000/000/000/1000s.zip` (second thousand 1000-1999)
+> </br>
+> etc._
+>
+> _**NOTE**: assume that for each test the configured batch size is `10` in
+> order to have a more manageable environment. An example resolution for a
+> zip would be:
+> </b>
+> `/blocks/000/000/000/000/000/00/00s.zip` (first ten 0-9)
+> `/blocks/000/000/000/000/000/00/10s.zip` (second ten 10-19)
+> </b>
+> etc._
+>
+> _**NOTE**: assume that the Block-Node under test is configured to have the
+> compression algorithm set to `ZStandard` so the file extension for an archived
+> block will be `.blk.zstd`_
 
 |                      Test Case ID | Test Name | Implemented (Y/N) |
 |----------------------------------:|:----------|:-----------------:|
