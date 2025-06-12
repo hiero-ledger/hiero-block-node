@@ -215,7 +215,7 @@ jobs:
         env:
           NEXUS_USERNAME: ${{ secrets.SONATYPE_USERNAME }}
           NEXUS_PASSWORD: ${{ secrets.SONATYPE_PASSWORD }}
-        run: ${GRADLE_EXEC} :block-node-protobuf-sources:releaseMavenCentral -PpublishingPackageGroup=org.hiero.block -PpublishSigningEnabled=true --scan --no-configuration-cache
+        run: ./gradlew publishAggregationToCentralPortal -PpublishSigningEnabled=true
 
   publish-simulator:
     timeout-minutes: 30
