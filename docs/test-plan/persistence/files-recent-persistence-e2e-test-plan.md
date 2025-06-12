@@ -310,31 +310,38 @@ N/A
 #### Scenario Description
 
 `Files Recent Persistence` will persist a block after it has been received and
-verified.
+verified. If the received and verified block's resolved path already exists,
+no matter what the reason is, it must be overwritten with the received block's
+data.
 
 #### Expected Behaviour
 
-It is expected that a regular file is written at the properly resolved location.
-It is expected that this file can be overwritten.
+It is expected that when the Block-Node receives the next in sequence block and
+then verifies it, the `Files Recent Persistence` will attempt to persist it at
+the resolved path. If a file already exists at that path, it will be truncated
+and overwritten with the received data. An Acknowledged block is deemed final
+and immutable (especially when the next block is received, verified,
+persisted and acknowledged), but that is outside the scope of the
+`Files Recent Persistence`. As long as data comes in to the
+`Files Recent Persistence` it will be persisted at the resolved path.
 
 #### Requirements
 
-A publisher that is able to stream to the Block-Node under test. A client that
-can call the public APIs to read the block (i.e. `getBlock`). Client receives
-not found if initially attempts to read the block under test (expected).
+A publisher that is able to stream to the Block-Node under test. A regular file
+exists at the resolved location of the block under test with some arbitrary test
+data. A client that can call the public API to read the block (i.e. `getBlock`).
 
 #### Input
 
 Valid block `0000000000001234567` is streamed as items, waiting for
-Acknowledgement (ensure it is persisted). Then it is streamed again with
-different binary data. The Block-Node under test must be able to accept the
-second stream and overwrite the existing file.
+Acknowledgement (ensure it is persisted).
 
 #### Output
 
 Regular Readable File:
-`/blocks/000/000/000/000/123/4/0000000000001234567.blk.zstd` exists and it's
-binary content is the same as the second time it was streamed.
+`/blocks/000/000/000/000/123/4/0000000000001234567.blk.zstd` exists it's
+binary content is the same as the binary data received via the stream and a
+client is able to read it through the public API (i.e. `getBlock`).
 
 #### Other
 
