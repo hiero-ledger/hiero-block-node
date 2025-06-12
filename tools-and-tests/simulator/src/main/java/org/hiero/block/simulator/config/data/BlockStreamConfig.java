@@ -18,6 +18,8 @@ import org.hiero.block.simulator.config.types.StreamingMode;
  * @param streamingMode the mode of streaming for the block stream (e.g., time-based, count-based)
  * @param millisecondsPerBlock the duration in milliseconds for each block when using time-based streaming
  * @param blockItemsBatchSize the number of block items to stream in each batch
+ * @param midBlockFailType the type of failure to occur while streaming
+ * @param midBlockFailOffset the index of the failing block
  */
 @ConfigData("blockStream")
 public record BlockStreamConfig(
