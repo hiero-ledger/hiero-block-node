@@ -102,20 +102,20 @@ messaging system.
 
 ##### Requirements
 
-It is expected that the Block-Node will respond with an acknowledgement to the
-publisher's request in this situation.
+- It is expected that the Block-Node will respond with an acknowledgement to the
+  publisher's request in this situation.
 
 ##### Preconditions
 
-A publisher that is able to stream to the Block-Node under test.
+- A publisher that is able to stream to the Block-Node under test.
 
 ##### Input
 
-Valid block `0000000000001234567` is streamed as items.
+- Valid block `0000000000001234567` is streamed as items.
 
 ##### Output
 
-An acknowledgement is returned to the publisher.
+- An acknowledgement is returned to the publisher.
 
 ##### Other
 
@@ -136,20 +136,21 @@ verified.
 
 ##### Requirements
 
-It is expected that a regular file is written at the properly resolved location.
+- It is expected that a regular file is written at the properly resolved
+  location.
 
 ##### Preconditions
 
-A publisher that is able to stream to the Block-Node under test.
+- A publisher that is able to stream to the Block-Node under test.
 
 ##### Input
 
-Valid block `0000000000001234567` is streamed as items.
+- Valid block `0000000000001234567` is streamed as items.
 
 ##### Output
 
-Regular Readable File:
-`/blocks/000/000/000/000/123/4/0000000000001234567.blk.zstd` exists.
+- Regular Readable File:
+  `/blocks/000/000/000/000/123/4/0000000000001234567.blk.zstd` exists.
 
 ##### Other
 
@@ -170,22 +171,25 @@ verified.
 
 ##### Requirements
 
-It is expected that a regular file is written at the properly resolved location
-and the content of the file is the same as the original block streamed.
+- It is expected that a regular file is written at the properly resolved
+  location
+- It is expected that the content of the file is the same as the original block
+  streamed.
 
 ##### Preconditions
 
-A publisher that is able to stream to the Block-Node under test.
+- A publisher that is able to stream to the Block-Node under test.
 
 ##### Input
 
-Valid block `0000000000001234567` is streamed as items.
+- Valid block `0000000000001234567` is streamed as items.
 
 ##### Output
 
-Regular Readable File:
-`/blocks/000/000/000/000/123/4/0000000000001234567.blk.zstd` has the same binary
-content as the binary data received as block items for the specified block.
+- Regular Readable File:
+  `/blocks/000/000/000/000/123/4/0000000000001234567.blk.zstd` has the same
+  binary content as the binary data received as block items for the specified
+  block.
 
 ##### Other
 
@@ -206,23 +210,24 @@ verified.
 
 ##### Requirements
 
-It is expected that after the persistence of the given block is successful, the
-block will be accessible via the node's public API.
+- It is expected that after the persistence of the given block is successful,
+  the block will be accessible via the node's public API.
 
 ##### Preconditions
 
-A publisher that is able to stream to the Block-Node under test. A client that
-can call the public APIs to read the block (i.e. `getBlock`). Client receives
-not found if initially attempts to read the block under test (expected).
+- A publisher that is able to stream to the Block-Node under test.
+- A client that can call the public APIs to read the block (i.e. `getBlock`).
+- Client receives not found if initially attempts to read the block under test
+  (expected).
 
 ##### Input
 
-Valid block `0000000000001234567` is streamed as items.
+- Valid block `0000000000001234567` is streamed as items.
 
 ##### Output
 
-Client is able to use the node's public API to read the persisted block
-(i.e. `getBlock`).
+- Client is able to use the node's public API to read the persisted block
+  (i.e. `getBlock`).
 
 ##### Other
 
@@ -241,36 +246,41 @@ N/A
 `Files Recent Persistence` will persist a block after it has been received and
 verified. If the received and verified block's resolved path already exists,
 no matter what the reason is, it must be overwritten with the received block's
-data.
+data. An Acknowledged block is deemed final and immutable (especially when the
+next block is received, verified, persisted and acknowledged), but that is
+outside the scope of the `Files Recent Persistence`. As long as data comes in to
+the`Files Recent Persistence` it will be persisted at the resolved path. The
+`Files Recent Persistence` is not a decision maker, it simply persists all data
+it receives.
 
 ##### Requirements
 
-It is expected that when the Block-Node receives the next in sequence block and
-then verifies it, the `Files Recent Persistence` will attempt to persist it at
-the resolved path. If a file already exists at that path, it will be truncated
-and overwritten with the received data. An Acknowledged block is deemed final
-and immutable (especially when the next block is received, verified,
-persisted and acknowledged), but that is outside the scope of the
-`Files Recent Persistence`. As long as data comes in to the
-`Files Recent Persistence` it will be persisted at the resolved path.
+- It is expected that when the Block-Node receives the next in sequence block
+  and then verifies it, the `Files Recent Persistence` will attempt to persist
+  it at the resolved path.
+- If a file already exists at that path, it will be truncated and overwritten
+  with the received data.
 
 ##### Preconditions
 
-A publisher that is able to stream to the Block-Node under test. A regular file
-exists at the resolved location of the block under test with some arbitrary test
-data. A client that can call the public API to read the block (i.e. `getBlock`).
+- A publisher that is able to stream to the Block-Node under test.
+- A regular file exists at the resolved location of the block under test with
+  some arbitrary test data.
+- A client that can call the public API to read the block (i.e. `getBlock`).
 
 ##### Input
 
-Valid block `0000000000001234567` is streamed as items, waiting for
-Acknowledgement (ensure it is persisted).
+- Valid block `0000000000001234567` is streamed as items, waiting for
+  Acknowledgement (ensure it is persisted).
 
 ##### Output
 
-Regular Readable File:
-`/blocks/000/000/000/000/123/4/0000000000001234567.blk.zstd` exists it's
-binary content is the same as the binary data received via the stream and a
-client is able to read it through the public API (i.e. `getBlock`).
+- Regular Readable File:
+  `/blocks/000/000/000/000/123/4/0000000000001234567.blk.zstd` exists.
+- The file's binary content is the same as the binary data received via the
+  stream
+- A client is able to read the persisted block through the public
+  API (i.e. `getBlock`).
 
 ##### Other
 
@@ -291,26 +301,28 @@ verified.
 
 ##### Requirements
 
-It is expected that a regular file is written at the properly resolved location
-for each block streamed. It is expected that an Acknowledgement is returned to
-the publisher for each block streamed when everything is successful.
+- It is expected that a regular file is written at the properly resolved
+  location for each block streamed.
+- It is expected that an Acknowledgement is returned to the publisher for each
+  block streamed when everything is successful.
 
 ##### Preconditions
 
-A publisher that is able to stream to the Block-Node under test.
+- A publisher that is able to stream to the Block-Node under test.
 
 ##### Input
 
-Valid blocks `0000000000001234000` to `0000000000001235000` are rapidly streamed
-as items.
+- Valid blocks `0000000000001234000` to `0000000000001235000` are rapidly
+  streamed as items.
 
 ##### Output
 
-Regular Readable Files:
-`/blocks/000/000/000/000/123/4/0000000000001234000.blk.zstd` to
-`/blocks/000/000/000/000/123/5/0000000000001235000.blk.zstd` exist,
-have the same binary content as the original sent blocks, are discoverable and
-readable through public API calls.
+- Regular Readable Files:
+  `/blocks/000/000/000/000/123/4/0000000000001234000.blk.zstd` to
+  `/blocks/000/000/000/000/123/5/0000000000001235000.blk.zstd` exist.
+- These files have the same binary content as the original sent blocks.
+- The persisted blocks are discoverable through public API calls.
+- The persisted blocks are readable through public API calls.
 
 ##### Other
 
@@ -333,21 +345,21 @@ verified.
 
 ##### Requirements
 
-It is expected that the Block-Node will return and EndOfStream with
-PERSISTENCE_FAILED if an IO failure occurs during write.
+- It is expected that the Block-Node will return and EndOfStream with
+  PERSISTENCE_FAILED if an IO failure occurs during write.
 
 ##### Preconditions
 
-A publisher that is able to stream to the Block-Node under test. A way to
-simulate an IO issue for the resolved block.
+- A publisher that is able to stream to the Block-Node under test.
+- A way to simulate an IO issue for the resolved block.
 
 ##### Input
 
-Valid block `0000000000001234567` is streamed as items.
+- Valid block `0000000000001234567` is streamed as items.
 
 ##### Output
 
-An EndOfStream with PERSISTENCE_FAILED is returned to the publisher.
+- An EndOfStream with PERSISTENCE_FAILED is returned to the publisher.
 
 ##### Other
 
@@ -368,24 +380,25 @@ verified.
 
 ##### Requirements
 
-It is expected that all data potentially written to the filesystem is cleaned if
-an IO failure occurs during write. No files or data related to the current block
-must be present after such failure.
+- It is expected that all data potentially written to the filesystem is cleaned
+  if an IO failure occurs during write.
+- No files or data related to the current block must be present after such
+  failure.
 
 ##### Preconditions
 
-A publisher that is able to stream to the Block-Node under test. A way to
-simulate an IO issue for the resolved block.
+- A publisher that is able to stream to the Block-Node under test.
+- A way to simulate an IO issue for the resolved block.
 
 ##### Input
 
-Valid block `0000000000001234567` is streamed as items.
+- Valid block `0000000000001234567` is streamed as items.
 
 ##### Output
 
-Regular Readable File:
-`/blocks/000/000/000/000/123/4/0000000000001234567.blk.zstd` does not exist. No
-data of the received block is present on the filesystem.
+- Regular Readable File:
+  `/blocks/000/000/000/000/123/4/0000000000001234567.blk.zstd` does not exist.
+- No data of the received through the stream block is present on the filesystem.
 
 ##### Other
 
