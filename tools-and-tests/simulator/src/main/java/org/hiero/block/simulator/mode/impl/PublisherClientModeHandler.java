@@ -11,7 +11,11 @@ import com.hedera.hapi.block.stream.protoc.Block;
 import edu.umd.cs.findbugs.annotations.NonNull;
 import java.io.IOException;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Consumer;
 import javax.inject.Inject;
+import org.hiero.block.api.protoc.PublishStreamResponse;
+import org.hiero.block.api.protoc.PublishStreamResponse.EndOfStream.Code;
 import org.hiero.block.simulator.config.data.BlockStreamConfig;
 import org.hiero.block.simulator.config.types.StreamingMode;
 import org.hiero.block.simulator.exception.BlockSimulatorParsingException;
@@ -111,8 +115,23 @@ public class PublisherClientModeHandler implements SimulatorModeHandler {
 
         Block nextBlock = blockStreamManager.getNextBlock();
         while (nextBlock != null && shouldPublish.get()) {
+            AtomicReference<PublishStreamResponse> publishStreamResponseAtomicReference = new AtomicReference<>();
             long startTime = System.nanoTime();
-            if (!publishStreamGrpcClient.streamBlock(nextBlock)) {
+            Consumer<PublishStreamResponse> publishStreamResponseConsumer = publishStreamResponseAtomicReference::set;
+
+            if (!publishStreamGrpcClient.streamBlock(nextBlock, publishStreamResponseConsumer)) {
+                // TODO: how we would simulate starting a new stream? Creating a new instance of publishStreamGrpcClient?
+                //  The same for blockStreamManager because we would want to start from before the failed block for example?
+                publishStreamGrpcClient.shutdown();
+                if (publishStreamResponseAtomicReference.get().getEndStream().getStatus().equals(Code.SUCCESS)) {
+                    publishStreamGrpcClient.init();
+                    continue;
+                } else if (publishStreamResponseAtomicReference.get().getEndStream().getStatus().equals(Code.TIMEOUT)) {
+                    // TODO: The source MUST start a new stream before the failed block.
+
+                }
+                // TODO: handle other statuses here
+
                 LOGGER.log(System.Logger.Level.INFO, "Block Stream Simulator stopped streaming due to errors.");
                 break;
             }
@@ -156,7 +175,8 @@ public class PublisherClientModeHandler implements SimulatorModeHandler {
                 LOGGER.log(INFO, "Block Stream Simulator has reached the end of the block items");
                 break;
             }
-            if (!publishStreamGrpcClient.streamBlock(block)) {
+            // TODO: handle this case
+            if (!publishStreamGrpcClient.streamBlock(block, null)) {
                 LOGGER.log(INFO, "Block Stream Simulator stopped streaming due to errors.");
                 break;
             }

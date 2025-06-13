@@ -7,6 +7,7 @@ import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.when;
 
 import com.hedera.hapi.block.stream.output.protoc.BlockHeader;
@@ -164,7 +165,7 @@ class PublishStreamGrpcClientImplTest {
                     .addItems(blockItemProof)
                     .build();
 
-            final boolean result = publishStreamGrpcClient.streamBlock(block);
+            final boolean result = publishStreamGrpcClient.streamBlock(block, any());
             assertTrue(result);
         }
 
@@ -192,7 +193,7 @@ class PublishStreamGrpcClientImplTest {
 
         for (int i = 0; i < streamedBlocks; i++) {
             final Block block = constructBlock(i, false);
-            final boolean result = publishStreamGrpcClient.streamBlock(block);
+            final boolean result = publishStreamGrpcClient.streamBlock(block, any());
             assertTrue(result);
         }
 
@@ -216,7 +217,7 @@ class PublishStreamGrpcClientImplTest {
 
         final Block block = constructBlock(0, false);
         IllegalStateException exception =
-                assertThrows(IllegalStateException.class, () -> publishStreamGrpcClient.streamBlock(block));
+                assertThrows(IllegalStateException.class, () -> publishStreamGrpcClient.streamBlock(block, any()));
         assertEquals("Stream is already completed, no further calls are allowed", exception.getMessage());
     }
 
@@ -230,8 +231,8 @@ class PublishStreamGrpcClientImplTest {
                 grpcConfig, blockStreamConfig, metricsService, streamEnabled, startupDataMock);
 
         publishStreamGrpcClient.init();
-        assertDoesNotThrow(() -> publishStreamGrpcClient.streamBlock(constructBlock(0, true)));
-        assertDoesNotThrow(() -> publishStreamGrpcClient.streamBlock(constructBlock(1, true)));
+        assertDoesNotThrow(() -> publishStreamGrpcClient.streamBlock(constructBlock(0, true), any()));
+        assertDoesNotThrow(() -> publishStreamGrpcClient.streamBlock(constructBlock(1, true), any()));
     }
 
     @Test
@@ -244,9 +245,9 @@ class PublishStreamGrpcClientImplTest {
                 grpcConfig, blockStreamConfig, metricsService, streamEnabled, startupDataMock);
 
         publishStreamGrpcClient.init();
-        assertDoesNotThrow(() -> publishStreamGrpcClient.streamBlock(constructBlock(0, true)));
+        assertDoesNotThrow(() -> publishStreamGrpcClient.streamBlock(constructBlock(0, true), any()));
         RuntimeException ex = assertThrows(
-                RuntimeException.class, () -> publishStreamGrpcClient.streamBlock(constructBlock(1, true)));
+                RuntimeException.class, () -> publishStreamGrpcClient.streamBlock(constructBlock(1, true), any()));
         assertEquals("Configured abrupt disconnection occurred", ex.getMessage());
     }
 
@@ -260,8 +261,9 @@ class PublishStreamGrpcClientImplTest {
                 grpcConfig, blockStreamConfig, metricsService, streamEnabled, startupDataMock);
 
         publishStreamGrpcClient.init();
-        assertDoesNotThrow(() -> publishStreamGrpcClient.streamBlock(constructBlock(0, true)));
-        assertThrows(IllegalStateException.class, () -> publishStreamGrpcClient.streamBlock(constructBlock(1, true)));
+        assertDoesNotThrow(() -> publishStreamGrpcClient.streamBlock(constructBlock(0, true), any()));
+        assertThrows(
+                IllegalStateException.class, () -> publishStreamGrpcClient.streamBlock(constructBlock(1, true), any()));
         isShutdownCalled = true; // to avoid calling onCompleted after onError
     }
 
@@ -274,7 +276,7 @@ class PublishStreamGrpcClientImplTest {
         publishStreamGrpcClient = new PublishStreamGrpcClientImpl(
                 grpcConfig, blockStreamConfig, metricsService, streamEnabled, startupDataMock);
         publishStreamGrpcClient.init();
-        assertDoesNotThrow(() -> publishStreamGrpcClient.streamBlock(constructBlock(1, false)));
+        assertDoesNotThrow(() -> publishStreamGrpcClient.streamBlock(constructBlock(1, false), any()));
     }
 
     private Block constructBlock(long number, boolean withItems) {
