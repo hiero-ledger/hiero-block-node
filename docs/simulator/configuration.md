@@ -1,13 +1,12 @@
 # Configuration
 
-There are 3 configuration sets:
 1. [BlockStreamConfig](#blockstreamconfig): contains the configuration for the Block Stream Simulator logic.
-1. [BlockGeneratorConfig](#blockgeneratorconfig): contains the configuration for the Block Stream Simulator generation module.
-1. [SimulatorStartupDataConfig](#simulatorstartupdataconfig): contains the configuration for the Block Stream Simulator startup data.
-1. [UnorderedStreamConfig](#unorderedstreamconfig): contains the configuration for the Unordered Stream Simulator logic.
-1. [ConsumerConfig](#consumerconfig): contains the configuration for the Consumer Simulator logic.
-1. [GrpcConfig](#grpcconfig): contains the configuration for the gRPC communication with the Block-Node.
-1. [PrometheusConfig](#prometheusconfig): contains the configuration for the Prometheus agent.
+2. [BlockGeneratorConfig](#blockgeneratorconfig): contains the configuration for the Block Stream Simulator generation module.
+3. [SimulatorStartupDataConfig](#simulatorstartupdataconfig): contains the configuration for the Block Stream Simulator startup data.
+4. [UnorderedStreamConfig](#unorderedstreamconfig): contains the configuration for the Unordered Stream Simulator logic.
+5. [ConsumerConfig](#consumerconfig): contains the configuration for the Consumer Simulator logic.
+6. [GrpcConfig](#grpcconfig): contains the configuration for the gRPC communication with the Block-Node.
+7. [PrometheusConfig](#prometheusconfig): contains the configuration for the Prometheus agent.
 
 ## BlockStreamConfig
 
@@ -15,7 +14,7 @@ Uses the prefix `blockStream` so all properties should start with `blockStream.`
 
 | Key                         | Description                                                                                                                         |      Default Value |
 |:----------------------------|:------------------------------------------------------------------------------------------------------------------------------------|-------------------:|
-| `simulatorMode`             | The desired simulator mode to use, it can be either `PUBLISHER` or `CONSUMER`.                                                      |        `PUBLISHER` |
+| `simulatorMode`             | The desired simulator mode to use, it can be either `PUBLISHER_SERVER` or `CONSUMER`.                                               | `PUBLISHER_SERVER` |
 | `lastKnownStatusesCapacity` | The store capacity for the last known statuses.                                                                                     |               `10` |
 | `delayBetweenBlockItems`    | The delay between each block item in nanoseconds, only applicable when streamingMode is `CONSTANT_RATE`                             |        `1_500_000` |
 | `maxBlockItemsToStream`     | The maximum number of block items to stream before stopping                                                                         |          `100_000` |
@@ -31,7 +30,7 @@ Uses the prefix `generator` so all properties should start with `generator.`
 
 | Key                       | Description                                                                                                 |                   Default Value |
 |:--------------------------|:------------------------------------------------------------------------------------------------------------|--------------------------------:|
-| `generationMode`          | The desired generation Mode to use, it can only be `DIR` or `CRAFT`                                         |                           `DIR` |
+| `generationMode`          | The desired generation Mode to use, it can only be `DIR` or `CRAFT`                                         |                         `CRAFT` |
 | `minEventsPerBlock`       | The minimum number of events per block                                                                      |                             `1` |
 | `maxEventsPerBlock`       | The maximum number of events per block                                                                      |                            `10` |
 | `minTransactionsPerEvent` | The minimum number of transactions per event                                                                |                             `1` |
