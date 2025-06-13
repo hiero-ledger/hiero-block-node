@@ -11,6 +11,9 @@ import org.hiero.block.simulator.config.types.SlowDownType;
  *
  * @param startBlockNumber the block number from which to start consuming
  * @param endBlockNumber the block number at which to stop consuming
+ * @param slowDownType the type of slowdown to apply while consuming
+ * @param slowDownMilliseconds the slowdown in milliseconds
+ * @param slowDownForBlockRange the range of blocks to apply the slowdown
  */
 @ConfigData("consumer")
 public record ConsumerConfig(
