@@ -10,73 +10,110 @@
 
 ## Test Scenarios
 
-|   Test Case ID    |         Test Name          | Implemented (Y/N) |
-|-------------------|----------------------------|-------------------|
-| [TC-001](#tc-001) | Basic Functionality Test 1 | Y                 |
-| [TC-002](#tc-002) | Basic Functionality Test 2 | N                 |
+|              Test Case ID |                                          Test Name | Implemented ( :white_check_mark: / :x: ) |
+|--------------------------:|---------------------------------------------------:|:----------------------------------------:|
+|                           | [_**<br/>Test Group 1<br/><br/>**_](#test-group-1) |                                          |
+| [TC-TG1-001](#tc-tg1-001) |                 Basic Functionality Test 1 Group 1 |                   :x:                    |
+| [TC-TG1-002](#tc-tg1-002) |                 Basic Functionality Test 1 Group 1 |            :white_check_mark:            |
+|                           | [_**<br/>Test Group 2<br/><br/>**_](#test-group-2) |                                          |
+| [TC-TG2-001](#tc-tg2-001) |                 Basic Functionality Test 1 Group 2 |                   :x:                    |
 
----
+### Test Group 1
 
-### TC-001
+#### TC-TG1-001
 
-#### Test Name
+##### Test Name
 
-Basic Functionality Test 1
+`Basic Functionality Test 1 Group 1`
 
-#### Scenario Description
+##### Scenario Description
 
 <!-- Describe the scenario of the test. -->
 
-#### Requirements
+##### Requirements
 
 <!-- What are the requirement(s) that the test should . -->
 
-#### Preconditions
+##### Preconditions
 
 <!-- What are the preconditions that will allow us to run the test? -->
 
-#### Input
+##### Input
 
 <!-- What is the input of the test? -->
 
-#### Output
+##### Output
 
 <!-- What output/result is expected to be produced at the end of the test? -->
 
-#### Other
+##### Other
 
 <!-- Additional information, if applicable -->
 
 ---
 
-### TC-002
+#### TC-TG1-002
 
-#### Test Name
+##### Test Name
 
-Basic Functionality Test 2
+`Basic Functionality Test 1 Group 2`
 
-#### Scenario Description
+##### Scenario Description
 
 <!-- Describe the scenario of the test. -->
 
-#### Requirements
+##### Requirements
 
 <!-- What are the requirement(s) that the test should . -->
 
-#### Preconditions
+##### Preconditions
 
 <!-- What are the preconditions that will allow us to run the test? -->
 
-#### Input
+##### Input
 
 <!-- What is the input of the test? -->
 
-#### Output
+##### Output
 
 <!-- What output/result is expected to be produced at the end of the test? -->
 
-#### Other
+##### Other
 
 <!-- Additional information, if applicable -->
+
+---
+
+### Test Group 2
+
+#### TC-TG2-001
+
+##### Test Name
+
+`Basic Functionality Test 1 Group 2`
+
+##### Scenario Description
+
+<!-- Describe the scenario of the test. -->
+
+##### Requirements
+
+<!-- What are the requirement(s) that the test should . -->
+
+##### Preconditions
+
+<!-- What are the preconditions that will allow us to run the test? -->
+
+##### Input
+
+<!-- What is the input of the test? -->
+
+##### Output
+
+<!-- What output/result is expected to be produced at the end of the test? -->
+
+##### Other
+
+<!-- Additional information, if applicable-->
 
 ---
