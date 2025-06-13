@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.simulator.grpc.impl;
 
+import static java.lang.System.Logger.Level.DEBUG;
 import static java.lang.System.Logger.Level.ERROR;
 import static java.lang.System.Logger.Level.INFO;
 import static java.lang.System.Logger.Level.WARNING;
@@ -13,9 +14,12 @@ import io.grpc.Status;
 import io.grpc.stub.StreamObserver;
 import java.util.Deque;
 import java.util.List;
+import java.util.Set;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.atomic.AtomicLong;
 import org.hiero.block.api.protoc.SubscribeStreamResponse;
+import org.hiero.block.simulator.config.data.ConsumerConfig;
+import org.hiero.block.simulator.config.types.SlowDownType;
 import org.hiero.block.simulator.metrics.MetricsService;
 
 /**
@@ -34,6 +38,9 @@ public class ConsumerStreamObserver implements StreamObserver<SubscribeStreamRes
     private final Deque<String> lastKnownStatuses;
     private final AtomicLong blocksConsumed = new AtomicLong(0);
 
+    private final ConsumerConfig consumerConfig;
+    private final Set<Long> slowDownBlockRangeSet;
+
     /**
      * Constructs a new ConsumerStreamObserver.
      *
@@ -47,11 +54,14 @@ public class ConsumerStreamObserver implements StreamObserver<SubscribeStreamRes
             @NonNull final MetricsService metricsService,
             @NonNull final CountDownLatch streamLatch,
             @NonNull final Deque<String> lastKnownStatuses,
-            final int lastKnownStatusesCapacity) {
+            final int lastKnownStatusesCapacity,
+            @NonNull final ConsumerConfig consumerConfig) {
         this.metricsService = requireNonNull(metricsService);
         this.streamLatch = requireNonNull(streamLatch);
         this.lastKnownStatuses = requireNonNull(lastKnownStatuses);
         this.lastKnownStatusesCapacity = lastKnownStatusesCapacity;
+        this.consumerConfig = consumerConfig;
+        this.slowDownBlockRangeSet = consumerConfig.slowDownType().apply(consumerConfig);
     }
 
     /**
@@ -99,6 +109,11 @@ public class ConsumerStreamObserver implements StreamObserver<SubscribeStreamRes
     }
 
     private void processBlockItems(List<BlockItem> blockItems) {
+        long lastBlockConsumed = blocksConsumed.get();
+        if (consumerConfig.slowDownType() != SlowDownType.NONE && slowDownBlockRangeSet.contains(lastBlockConsumed)) {
+            slowDownProcessing("for block %d".formatted(lastBlockConsumed));
+        }
+
         blockItems.stream().filter(BlockItem::hasBlockProof).forEach(blockItem -> {
             metricsService.get(LiveBlocksConsumed).increment();
 
@@ -120,6 +135,16 @@ public class ConsumerStreamObserver implements StreamObserver<SubscribeStreamRes
             if (count != blockNumber) {
                 LOGGER.log(WARNING, "Block number mismatch: expected %d, received %d".formatted(count, blockNumber));
             }
+        }
+    }
+
+    private void slowDownProcessing(final String message) {
+        try {
+            LOGGER.log(DEBUG, "Slowing down processing " + message);
+            Thread.sleep(consumerConfig.slowDownMilliseconds());
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            LOGGER.log(INFO, "Stream processing interrupted during slowdown", e);
         }
     }
 }

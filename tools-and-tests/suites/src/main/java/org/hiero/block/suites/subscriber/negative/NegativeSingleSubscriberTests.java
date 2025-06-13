@@ -3,6 +3,7 @@ package org.hiero.block.suites.subscriber.negative;
 
 import static org.hiero.block.suites.utils.BlockSimulatorUtils.createBlockSimulator;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -194,6 +195,67 @@ public class NegativeSingleSubscriberTests extends BaseSuite {
 
         assertTrue(consumerStatus.contains("INVALID_END_BLOCK_NUMBER"));
         assertEquals(0L, consumedBlocks);
+    }
+
+    @Test
+    @DisplayName("Should fail 3ms slowdown validation after each block in a range")
+    public void shouldFailSlowdownValidationAfterEachBlock() throws IOException, InterruptedException {
+        // ===== Prepare environment =================================================================
+        final long startBlock = 1L;
+        final long endBlock = 10L;
+        final long expectedSlowdownMillis = 3L;
+        final Map<String, String> consumerConfiguration = Map.of(
+                "blockStream.simulatorMode",
+                "CONSUMER",
+                "consumer.startBlockNumber",
+                String.valueOf(startBlock),
+                "consumer.endBlockNumber",
+                String.valueOf(endBlock),
+                "consumer.slowDownMilliseconds",
+                String.valueOf(expectedSlowdownMillis),
+                "consumer.slowDownType",
+                "FIXED",
+                "consumer.slowDownForBlockRange",
+                "1-3");
+        final BlockStreamSimulatorApp publisherSimulator = createBlockSimulator();
+        final BlockStreamSimulatorApp consumerSimulator = createBlockSimulator(consumerConfiguration);
+
+        simulatorAppsRef.add(publisherSimulator);
+        simulatorAppsRef.add(consumerSimulator);
+
+        // ===== Start publisher and make sure it's streaming =======================================
+        final Future<?> publisherSimulatorThread = startSimulatorInstance(publisherSimulator);
+        simulators.add(publisherSimulatorThread);
+
+        boolean publisherReachedEndBlock = false;
+        while (!publisherReachedEndBlock) {
+            if (publisherSimulator.getStreamStatus().publishedBlocks() > endBlock) {
+                publisherReachedEndBlock = true;
+            }
+        }
+
+        // ===== Start consumer and validate slowdown ===============================================
+        final Future<?> consumerSimulatorThread = startSimulatorInThread(consumerSimulator);
+        simulators.add(consumerSimulatorThread);
+
+        long previousBlockTime = System.currentTimeMillis();
+        boolean slowdownValidated = true;
+
+        for (long block = startBlock; block <= endBlock; block++) {
+            while (consumerSimulator.getStreamStatus().consumedBlocks() < block) {
+                Thread.sleep(1); // Wait for the block to be consumed
+            }
+            final long currentBlockTime = System.currentTimeMillis();
+            final long timeDifference = currentBlockTime - previousBlockTime;
+
+            if (timeDifference < expectedSlowdownMillis) {
+                slowdownValidated = false;
+                break;
+            }
+            previousBlockTime = currentBlockTime;
+        }
+
+        assertFalse(slowdownValidated, "Not expected 3ms slowdown was validated for all blocks.");
     }
 
     /**
