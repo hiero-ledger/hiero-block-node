@@ -41,9 +41,6 @@ public class ConsumerStreamGrpcClientImplTest {
     @Mock
     private BlockStreamConfig blockStreamConfig;
 
-    @Mock
-    private ConsumerConfig consumerConfig;
-
     private ConsumerStreamGrpcClient consumerStreamGrpcClientImpl;
     private Server server;
 
@@ -98,6 +95,7 @@ public class ConsumerStreamGrpcClientImplTest {
         when(blockStreamConfig.lastKnownStatusesCapacity()).thenReturn(10);
 
         final Configuration config = TestUtils.getTestConfiguration();
+        ConsumerConfig consumerConfig = config.getConfigData(ConsumerConfig.class);
         final MetricsService metricsService = new MetricsServiceImpl(getTestMetrics(config));
         consumerStreamGrpcClientImpl =
                 new ConsumerStreamGrpcClientImpl(grpcConfig, blockStreamConfig, consumerConfig, metricsService);
