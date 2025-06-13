@@ -102,6 +102,12 @@ messaging system.
 
 ##### Requirements
 
+The `Files Recent Persistence` is required to persist blocks. After that, the
+Block-Node is required to return an acknowledgement to the publisher, granted
+that there are no issues with the persistence process.
+
+##### Expected Behaviour
+
 - It is expected that the Block-Node will respond with an acknowledgement to the
   publisher's request in this situation.
 
@@ -135,6 +141,11 @@ N/A
 verified.
 
 ##### Requirements
+
+The `Files Recent Persistence` is required to persist blocks. These blocks
+are required to be persisted on the filesystem at a specific resolved location.
+
+##### Expected Behaviour
 
 - It is expected that a regular file is written at the properly resolved
   location.
@@ -170,6 +181,13 @@ N/A
 verified.
 
 ##### Requirements
+
+The `Files Recent Persistence` is required to persist blocks. These blocks,
+which are essentially files, are required to have the exact same binary content
+as the original block streamed to the Block-Node and received by the
+`Files Recent Persistence`.
+
+##### Expected Behaviour
 
 - It is expected that a regular file is written at the properly resolved
   location
@@ -209,6 +227,13 @@ N/A
 verified.
 
 ##### Requirements
+
+The `Files Recent Persistence` is required to persist blocks. These blocks are
+required to be discoverable through the Block-Node's public API after they have
+been successfully persisted. The blocks are required to be accessible
+(readable).
+
+##### Expected Behaviour
 
 - It is expected that after the persistence of the given block is successful,
   the block will be accessible via the node's public API.
@@ -254,6 +279,13 @@ the`Files Recent Persistence` it will be persisted at the resolved path. The
 it receives.
 
 ##### Requirements
+
+The `Files Recent Persistence` is required to persist blocks. If a file is
+present at the resolved location of the block, it is required to be truncated
+and overwritten with the received data. The `Files Recent Persistence` is not
+a decision maker, it is simply required to persists all data it receives.
+
+##### Expected Behaviour
 
 - It is expected that when the Block-Node receives the next in sequence block
   and then verifies it, the `Files Recent Persistence` will attempt to persist
@@ -301,6 +333,12 @@ verified.
 
 ##### Requirements
 
+The `Files Recent Persistence` is required to persist blocks.
+The `Files Recent Persistence` is required to be able to persist blocks in rapid
+succession with no apparent issues.
+
+##### Expected Behaviour
+
 - It is expected that a regular file is written at the properly resolved
   location for each block streamed.
 - It is expected that an Acknowledgement is returned to the publisher for each
@@ -345,6 +383,12 @@ verified.
 
 ##### Requirements
 
+The `Files Recent Persistence` is required to persist blocks. If an IO failure
+occurs during the write process, the Block-Node is required to return an
+EndOfStream with PERSISTENCE_FAILED to the publisher.
+
+##### Expected Behaviour
+
 - It is expected that the Block-Node will return and EndOfStream with
   PERSISTENCE_FAILED if an IO failure occurs during write.
 
@@ -379,6 +423,13 @@ N/A
 verified.
 
 ##### Requirements
+
+The `Files Recent Persistence` is required to persist blocks. If an IO failure
+occurs during the write process, the `Files Recent Persistence` is required
+to ensure that no files or data related to the current block are left on the
+filesystem.
+
+##### Expected Behaviour
 
 - It is expected that all data potentially written to the filesystem is cleaned
   if an IO failure occurs during write.
