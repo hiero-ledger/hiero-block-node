@@ -32,7 +32,11 @@
 
 ##### Requirements
 
-<!-- What are the requirement(s) that the test should . -->
+<!-- What are the requirement(s) that the test should aim to verify. -->
+
+##### Expected Behaviour
+
+<!-- What is the expected behavior/outcome that would make the test successful. -->
 
 ##### Preconditions
 
@@ -64,7 +68,11 @@
 
 ##### Requirements
 
-<!-- What are the requirement(s) that the test should . -->
+<!-- What are the requirement(s) that the test should aim to verify. -->
+
+##### Expected Behaviour
+
+<!-- What is the expected behavior/outcome that would make the test successful. -->
 
 ##### Preconditions
 
