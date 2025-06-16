@@ -12,13 +12,26 @@ import com.hederahashgraph.api.proto.java.AccountAmount;
 import com.hederahashgraph.api.proto.java.ResponseCodeEnum;
 import com.hederahashgraph.api.proto.java.TokenTransferList;
 import com.hederahashgraph.api.proto.java.TransferList;
+import com.swirlds.config.api.Configuration;
+import java.io.IOException;
+import org.hiero.block.simulator.TestUtils;
+import org.hiero.block.simulator.config.data.BlockGeneratorConfig;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 class TransactionResultHandlerTest {
 
+    private BlockGeneratorConfig blockGeneratorConfig;
+
+    @BeforeEach
+    void setUp() throws IOException {
+        final Configuration config = TestUtils.getTestConfiguration();
+        blockGeneratorConfig = config.getConfigData(BlockGeneratorConfig.class);
+    }
+
     @Test
     void testGetItem() {
-        TransactionResultHandler handler = new TransactionResultHandler();
+        TransactionResultHandler handler = new TransactionResultHandler(blockGeneratorConfig);
         BlockItem item = handler.getItem();
 
         assertNotNull(item);
@@ -33,7 +46,7 @@ class TransactionResultHandlerTest {
 
     @Test
     void testGetItemCaching() {
-        TransactionResultHandler handler = new TransactionResultHandler();
+        TransactionResultHandler handler = new TransactionResultHandler(blockGeneratorConfig);
         BlockItem item1 = handler.getItem();
         BlockItem item2 = handler.getItem();
 
@@ -42,7 +55,7 @@ class TransactionResultHandlerTest {
 
     @Test
     void testTransferList() {
-        TransactionResultHandler handler = new TransactionResultHandler();
+        TransactionResultHandler handler = new TransactionResultHandler(blockGeneratorConfig);
         TransferList transferList = handler.getItem().getTransactionResult().getTransferList();
 
         assertEquals(2, transferList.getAccountAmountsCount());
@@ -62,7 +75,7 @@ class TransactionResultHandlerTest {
 
     @Test
     void testTokenTransferList() {
-        TransactionResultHandler handler = new TransactionResultHandler();
+        TransactionResultHandler handler = new TransactionResultHandler(blockGeneratorConfig);
         TokenTransferList tokenTransfers =
                 handler.getItem().getTransactionResult().getTokenTransferLists(0);
 
