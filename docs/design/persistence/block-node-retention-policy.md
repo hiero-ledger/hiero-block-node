@@ -84,7 +84,7 @@ Persistence Plugin. The parameter's unit is block count.
 
 It is advised that each Persistence Plugin should keep live metrics about the
 current state of its storage, like the current amount of blocks in storage,
-data in bytes stored, etc. This will operators to monitor the current state of
+data in bytes stored, etc. This allows operators to monitor the current state of
 the storage and make appropriate decisions.
 
 ## Acceptance Tests
