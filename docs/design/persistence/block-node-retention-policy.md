@@ -18,24 +18,20 @@ Effectively, this policy will allow us to achieve rolling history.
 
 ## Goals
 
-There are a few things that the Retention Policy should achieve:
-1. Each Block-Node will give access to the Retention Policy as it is defined as
-a core concept of the Block-Node.
+There are a few things that the Retention Policy aims to achieve:
+1. Each distinct persistence plugin is completely independent and implements its
+own Retention Policy, this includes:
+- Each plugin will be responsible for respecting its own Retention Policy.
+- Each plugin will choose its own level of granularity by which it will
+remove blocks that exceed the threshold.
 2. The Retention Policy should be configurable, allowing users to set the
 desired block count threshold.
 3. The Retention Policy is **NOT** a hard limit, meaning that the Block-Node
 will keep accepting blocks even if the threshold is reached.
-4. Each Persistence Plugin is responsible for respecting the Retention
-Policy and removing blocks that exceed the threshold.
-5. Each Persistence Plugin will choose its own level of granularity
-for the Retention Policy, meaning that it can remove blocks in batches or
-one by one, or for example if the blocks are stored in a zip that contains
-'x' amount of blocks, it can delete the whole zip whenever the threshold
-passes at least one 'x' above. This really depends on implementation.
-6. The unit of the Retention Policy is block count and nothing else.
-7. The Retention Policy is all about limiting storage space. This being said,
-cleanup should be done when new data is received and not based on time. There
-is no reason to clean data that is already there if no new data comes in.
+4. The unit of the Retention Policy is block count.
+5. The Retention Policy is about limiting storage space - cleanup should happen
+when new data is received. There is no reason to clean data that is already
+there if no new data comes in.
 
 ## Terms
 
@@ -48,25 +44,45 @@ is no reason to clean data that is already there if no new data comes in.
 
 ## Design
 
-The Retention Policy is a core concept of the Block-Node. It should be a very
-simple mechanism that will simply allow Persistence Plugins to be able to make
-decisions about what to clean up.
+The Retention Policy is a concept that concerns Persistence Plugins.
+Each Persistence Plugin will implement its own Retention Policy in a way that
+serves best the system. Each plugin however should respect the general rules as
+listed in the [Goals section](#goals) above.
 
-Simply, the Retention Policy will be a configuration parameter that will be
-available to all Plugins in the Block-Node via the system-wide server
-configuration. Persistence Plugins should respect this policy.
+### `Files Recent Persistence`
+
+The `Files Recent Persistence` implements the Retention Policy:
+- A configurable parameter defines how many blocks to keep in storage.
+- The Policy is implemented by removing the oldest N amount of blocks (based on
+the configured threshold).
+- Blocks are removed only when new data is received.
+- The granularity of the removal is one whole block.
+- By default, the Retention Policy is set to `-1`, which means that there is no
+limit on the amount of blocks that can be stored.
+
+### `Files Historic Persistence`
+
+The `Files Historic Persistence` implements the Retention Policy:
+- A configurable parameter defines how many blocks to keep in storage.
+- The Policy is implemented by removing the oldest N amount of blocks (based on
+the configured threshold).
+- Blocks are removed only when new data is received.
+- The granularity of the removal is one whole zipped file, which contains one
+archived batch of blocks.
+- By default, the Retention Policy is set to `-1`, which means that there is no
+limit on the amount of blocks that can be stored.
 
 ## Configuration
 
-- the policy configurable parameter, amount of blocks to keep in storage
-  - `-1` for default value which means no limit
-  - available system-wide via the server configuration
+The Retention Policy is a configurable parameter that is specific for each
+Persistence Plugin. The parameter's unit is block count.
 
 ## Metrics
 
 It is advised that each Persistence Plugin should keep live metrics about the
 current state of its storage, like the current amount of blocks in storage,
-data in bytes stored, etc.
+data in bytes stored, etc. This will operators to monitor the current state of
+the storage and make appropriate decisions.
 
 ## Acceptance Tests
 
