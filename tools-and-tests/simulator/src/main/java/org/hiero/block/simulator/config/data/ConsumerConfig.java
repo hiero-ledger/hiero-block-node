@@ -6,6 +6,15 @@ import com.swirlds.config.api.ConfigProperty;
 import org.hiero.block.simulator.config.logging.Loggable;
 import org.hiero.block.simulator.config.types.SlowDownType;
 
+/**
+ * Defines the configuration data for the consumer.
+ *
+ * @param startBlockNumber the block number from which to start consuming
+ * @param endBlockNumber the block number at which to stop consuming
+ * @param slowDownType the type of slowdown to apply while consuming
+ * @param slowDownMilliseconds the slowdown in milliseconds
+ * @param slowDownForBlockRange the range of blocks to apply the slowdown
+ */
 @ConfigData("consumer")
 public record ConsumerConfig(
         @Loggable @ConfigProperty(defaultValue = "-1") long startBlockNumber,

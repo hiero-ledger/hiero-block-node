@@ -14,6 +14,10 @@ import org.hiero.block.simulator.config.types.GenerationMode;
  * Defines the configuration for the BlockStreamManager (Generator) of blocks in the Hedera Block Simulator.
  *
  * @param generationMode the mode of block generation (e.g., directory-based)
+ * @param minEventsPerBlock the minimum number of events per block
+ * @param maxEventsPerBlock the maximum number of events per block
+ * @param minTransactionsPerEvent the minimum number of transactions per event
+ * @param maxTransactionsPerEvent the maximum number of transactions per event
  * @param folderRootPath the root path of the folder containing block files
  * @param managerImplementation the implementation class name of the block stream manager
  * @param paddedLength the length to which block identifiers are padded
