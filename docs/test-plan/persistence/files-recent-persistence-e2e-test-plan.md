@@ -102,9 +102,9 @@ messaging system.
 
 ##### Requirements
 
-The `Files Recent Persistence` is required to persist blocks. After that, the
-Block-Node is required to return an acknowledgement to the publisher, granted
-that there are no issues with the persistence process.
+The `Files Recent Persistence` MUST persist blocks.<br/>
+The Block-Node MUST return an acknowledgement to the publisher, granted that
+there are no issues with the persistence process.
 
 ##### Expected Behaviour
 
@@ -142,8 +142,8 @@ verified.
 
 ##### Requirements
 
-The `Files Recent Persistence` is required to persist blocks. These blocks
-are required to be persisted on the filesystem at a specific resolved location.
+The `Files Recent Persistence` MUST persist blocks.<br/>
+Blocks MUST be persisted on the filesystem at a specific resolved location.
 
 ##### Expected Behaviour
 
@@ -182,10 +182,9 @@ verified.
 
 ##### Requirements
 
-The `Files Recent Persistence` is required to persist blocks. These blocks,
-which are essentially files, are required to have the exact same binary content
-as the original block streamed to the Block-Node and received by the
-`Files Recent Persistence`.
+The `Files Recent Persistence` MUST persist blocks.<br/>
+Persisted blocks MUSt have the exact same binary content as the original block
+streamed to the Block-Node and received by the`Files Recent Persistence`.
 
 ##### Expected Behaviour
 
@@ -228,10 +227,12 @@ verified.
 
 ##### Requirements
 
-The `Files Recent Persistence` is required to persist blocks. These blocks are
-required to be discoverable through the Block-Node's public API after they have
-been successfully persisted. The blocks are required to be accessible
-(readable).
+The `Files Recent Persistence` MUST persist blocks.<br/>
+Persisted blocks MUST be discoverable through the Block-Node's public API.<br/>
+Persisted blocks MUST be readable and accessible through the Block-Node's
+public API.<br/>
+A persisted blocks MUST be discoverable after it has been fully persisted.<br/>
+A persisted block MUST NOT be discoverable before the block is fully persisted.
 
 ##### Expected Behaviour
 
@@ -280,10 +281,12 @@ it receives.
 
 ##### Requirements
 
-The `Files Recent Persistence` is required to persist blocks. If a file is
-present at the resolved location of the block, it is required to be truncated
-and overwritten with the received data. The `Files Recent Persistence` is not
-a decision maker, it is simply required to persists all data it receives.
+The `Files Recent Persistence` MUST persist blocks.<br/>
+If a file is present at the resolved location of a block, the plugin MUST
+truncate and overwrite that file with the received data.<br/>
+The `Files Recent Persistence` MUST NOT decide which data to retain, but MUST
+overwrite any pre-existing file.<br/>
+The plugin MUST persist all data it receives via the messaging facility.
 
 ##### Expected Behaviour
 
@@ -333,8 +336,8 @@ verified.
 
 ##### Requirements
 
-The `Files Recent Persistence` is required to persist blocks.
-The `Files Recent Persistence` is required to be able to persist blocks in rapid
+The `Files Recent Persistence` MUST persist blocks.<br/>
+The `Files Recent Persistence` MUST be able to persist blocks in rapid
 succession with no apparent issues.
 
 ##### Expected Behaviour
@@ -379,13 +382,14 @@ N/A
 ##### Scenario Description
 
 `Files Recent Persistence` will persist a block after it has been received and
-verified.
+verified.</br>
+IO failures CAN occur during the write process.
 
 ##### Requirements
 
-The `Files Recent Persistence` is required to persist blocks. If an IO failure
-occurs during the write process, the Block-Node is required to return an
-EndOfStream with PERSISTENCE_FAILED to the publisher.
+The `Files Recent Persistence` MUST persist blocks.<br/>
+The Block-Node MUST return an EndOfStream with PERSISTENCE_FAILED to the
+publisher when an IO failure occurs.
 
 ##### Expected Behaviour
 
@@ -420,14 +424,17 @@ N/A
 ##### Scenario Description
 
 `Files Recent Persistence` will persist a block after it has been received and
-verified.
+verified.</br>
+IO failures CAN occur during the write process.</br>
+No files or data related to the current block MUST be present on the filesystem
+after an IO failure occurs during the write process.
 
 ##### Requirements
 
-The `Files Recent Persistence` is required to persist blocks. If an IO failure
-occurs during the write process, the `Files Recent Persistence` is required
-to ensure that no files or data related to the current block are left on the
-filesystem.
+The `Files Recent Persistence` MUST persist blocks.<br/>
+The `Files Recent Persistence` MUST ensure that no files or data related to the
+current block are left on the filesystem after an IO failure occurs during the
+write process.
 
 ##### Expected Behaviour
 
