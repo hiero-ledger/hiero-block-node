@@ -54,12 +54,10 @@ class TransactionResultHandlerTest {
         assertTrue(credit.getAmount() > 0);
         assertEquals(-debit.getAmount(), credit.getAmount());
 
-        assertTrue(isNumInRange(debit.getAccountID().getShardNum()));
-        assertTrue(isNumInRange(debit.getAccountID().getRealmNum()));
-        assertTrue(isNumInRange(debit.getAccountID().getAccountNum()));
-        assertTrue(isNumInRange(credit.getAccountID().getShardNum()));
-        assertTrue(isNumInRange(credit.getAccountID().getRealmNum()));
-        assertTrue(isNumInRange(credit.getAccountID().getAccountNum()));
+        assertTrue(debit.getAccountID().getAccountNum() >= 1);
+        assertTrue(debit.getAccountID().getAccountNum() <= 100);
+        assertTrue(credit.getAccountID().getAccountNum() >= 1);
+        assertTrue(credit.getAccountID().getAccountNum() <= 100);
     }
 
     @Test
@@ -69,9 +67,8 @@ class TransactionResultHandlerTest {
                 handler.getItem().getTransactionResult().getTokenTransferLists(0);
 
         assertNotNull(tokenTransfers.getToken());
-        assertTrue(isNumInRange(tokenTransfers.getToken().getShardNum()));
-        assertTrue(isNumInRange(tokenTransfers.getToken().getRealmNum()));
-        assertTrue(isNumInRange(tokenTransfers.getToken().getTokenNum()));
+        assertTrue(tokenTransfers.getToken().getTokenNum() >= 1);
+        assertTrue(tokenTransfers.getToken().getTokenNum() <= 100);
 
         assertEquals(2, tokenTransfers.getTransfersCount());
 
@@ -82,15 +79,9 @@ class TransactionResultHandlerTest {
         assertTrue(credit.getAmount() > 0);
         assertEquals(-debit.getAmount(), credit.getAmount());
 
-        assertTrue(isNumInRange(debit.getAccountID().getShardNum()));
-        assertTrue(isNumInRange(debit.getAccountID().getRealmNum()));
-        assertTrue(isNumInRange(debit.getAccountID().getAccountNum()));
-        assertTrue(isNumInRange(credit.getAccountID().getShardNum()));
-        assertTrue(isNumInRange(credit.getAccountID().getRealmNum()));
-        assertTrue(isNumInRange(credit.getAccountID().getAccountNum()));
-    }
-
-    private boolean isNumInRange(final long num) {
-        return num >= 1 && num <= 100;
+        assertTrue(debit.getAccountID().getAccountNum() >= 1);
+        assertTrue(debit.getAccountID().getAccountNum() <= 100);
+        assertTrue(credit.getAccountID().getAccountNum() >= 1);
+        assertTrue(credit.getAccountID().getAccountNum() <= 100);
     }
 }
