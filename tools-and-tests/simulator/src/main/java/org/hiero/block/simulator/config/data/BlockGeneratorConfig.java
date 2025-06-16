@@ -38,7 +38,7 @@ public record BlockGeneratorConfig(
         @Loggable @ConfigProperty(defaultValue = "-1") int endBlockNumber,
         @Loggable @ConfigProperty(defaultValue = "false") boolean invalidBlockHash,
         @Loggable @ConfigProperty(defaultValue = "0") int shardNum,
-        @Loggable @ConfigProperty(defaultValue = "0") int realmNUm) {
+        @Loggable @ConfigProperty(defaultValue = "0") int realmNum) {
 
     /**
      * Constructs a new {@code BlockGeneratorConfig} instance with validation.
