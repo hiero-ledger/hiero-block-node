@@ -61,7 +61,7 @@ public class TransactionResultHandler extends AbstractBlockItemHandler {
         // todo(700) Add support for non-zero shard/realm entity
         return AccountAmount.newBuilder()
                 .setAccountID(AccountID.newBuilder()
-                        .setRealmNum(blockGeneratorConfig.realmNUm())
+                        .setRealmNum(blockGeneratorConfig.realmNum())
                         .setShardNum(blockGeneratorConfig.shardNum())
                         .setAccountNum(accountNum)
                         .build())
@@ -77,7 +77,7 @@ public class TransactionResultHandler extends AbstractBlockItemHandler {
 
         return TokenTransferList.newBuilder()
                 .setToken(TokenID.newBuilder()
-                        .setRealmNum(blockGeneratorConfig.realmNUm())
+                        .setRealmNum(blockGeneratorConfig.realmNum())
                         .setShardNum(blockGeneratorConfig.shardNum())
                         .setTokenNum(tokenId))
                 .addTransfers(createAccountAmount(creditAccount, -amount))
