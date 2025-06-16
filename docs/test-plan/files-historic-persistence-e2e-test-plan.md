@@ -4,13 +4,12 @@
 
 Persistence is a key component of the Block-Node. We need to ensure that we have
 good and reliable persistence plugins that can be used by the Block-Node. We
-support local file system archive of received and verified blocks
-which we call `Files Historic Persistence`. Also, complementary to the
-persistence capability itself, we have the ability to retrieve (read) blocks
-that have been archived locally. `Block Provision` is another key component of
-the Block-Node. The `Files Historic Persistence` is however an optional
-component, meaning that the system is able to operate without it present and
-loaded.
+support local filesystem archive of received and verified blocks which we call
+`Files Historic Persistence`. Also, complementary to the persistence capability
+itself, we have the ability to retrieve (read) blocks that have been archived
+locally. `Block Provision` is another key component of the Block-Node.
+The `Files Historic Persistence` is however an optional component, meaning that
+the system is able to operate without it present and loaded.
 
 This E2E test plan is designed to highlight the key scenarios that need to be
 tested for end results in order to ensure the correctness and proper working of
@@ -123,23 +122,32 @@ proceed to archive the batch of blocks in a zip file.
 
 #### Requirements
 
-It is expected that the `Files Historic Persistence` will archive the batch
-successfully creating a zip file at the resolved location.
+The `Files Historic Persistence` MUST archive blocks in batches.</br>
+Each batch MUST be archived in a single zip file.</br>
+The created zip file MUST be located at the resolved path.
+
+#### Expected Behaviour
+
+- It is expected that the `Files Historic Persistence` will archive a batch
+  successfully, creating a zip file at the resolved location.
 
 #### Preconditions
 
-A running plugin in the Block-Node under test that is able to publish a
-Persisted Notification for blocks persisted in range `0-9` with priority
-higher than the `Files Historic Persistence`'s.
+- Blocks in range `0-9` are persisted (the only ones currently in existence).
+  - The system-wide block provision facility is able to provide these blocks
+    with priority higher than the `Files Historic Persistence`'s.
+- A Persisted Notification is published to the node's messaging system for
+  blocks persisted in range `0-9` with priority higher than the
+  `Files Historic Persistence`'s.
 
 #### Input
 
-Persisted Notification for blocks persisted in range `0-9` with priority
-higher than the `Files Historic Persistence`'s.
+- Persisted Notification for blocks persisted in range `0-9` with priority
+  higher than the `Files Historic Persistence`'s.
 
 #### Output
 
-Regular file: `/blocks/000/000/000/000/000/00/00s.zip` exists.
+- Regular file: `/blocks/000/000/000/000/000/00/00s.zip` exists.
 
 #### Other
 
@@ -163,26 +171,41 @@ proceed to archive the batch of blocks in a zip file.
 
 #### Requirements
 
-It is expected that the `Files Historic Persistence` will archive the batch
-successfully creating a zip file at the resolved location.
+The `Files Historic Persistence` MUST archive blocks in batches.</br>
+Each batch MUST be archived in a single zip file.</br>
+The zip file MUST contain all the blocks from the batch.</br>
+Each entry in the zip file MUST have the same binary content as the original
+block that was archived.
+
+#### Expected Behaviour
+
+- It is expected that the `Files Historic Persistence` will archive the batch
+  successfully creating a zip file at the resolved location.
+- It is expected that the zip file contains all the blocks from the batch.
+- It is expected that each entry in the zip file has the same binary content
+  as the original block that was archived.
 
 #### Preconditions
 
-A running plugin in the Block-Node under test that is able to publish a
-Persisted Notification for blocks persisted in range `0-9` with priority
-higher than the `Files Historic Persistence`'s.
+- Blocks in range `0-9` are persisted (the only ones currently in existence).
+  - The system-wide block provision facility is able to provide these blocks
+    with priority higher than the `Files Historic Persistence`'s.
+- A Persisted Notification is published to the node's messaging system for
+  blocks persisted in range `0-9` with priority higher than the
+  `Files Historic Persistence`'s.
 
 #### Input
 
-Persisted Notification for blocks persisted in range `0-9` with priority
-higher than the `Files Historic Persistence`'s.
+- Persisted Notification for blocks persisted in range `0-9` with priority
+  higher than the `Files Historic Persistence`'s.
 
 #### Output
 
-Regular file: `/blocks/000/000/000/000/000/00/00s.zip` contains 10 entries
-for each block `0000000000000000000.blk.zstd` to `0000000000000000009.blk.zstd`.
-The binary content of each block is the same as the original block that was
-persisted.
+- Regular file: `/blocks/000/000/000/000/000/00/00s.zip` contains 10 entries
+  for each block `0000000000000000000.blk.zstd` to
+  `0000000000000000009.blk.zstd`.
+- The binary content of each entry is the same as the original block that was
+  archived.
 
 #### Other
 
@@ -202,28 +225,40 @@ Blocks are persisted in range `1-9` (the only ones currently in existence).
 A Persisted Notification is published to the node's messaging system for blocks
 persisted in range `1-9` with priority higher than the
 `Files Historic Persistence`'s . The `Files Historic Persistence` will then
-proceed to not archive the batch of blocks in a zip file.
+proceed to not archive the batch of blocks in a zip file because there is a gap
+present in the batch.
 
 #### Requirements
 
-It is expected that the `Files Historic Persistence` will not archive the batch
-as there is a gap in the batch that is next to be archived. No files or data
-are expected to be persisted anywhere on the file system.
+The `Files Historic Persistence` MUST archive blocks in batches.</br>
+Each batch MUST be archived in a single zip file.</br>
+NO gaps are allowed in the batch.</br>
+NO archive MUST be created when a gap is detected in the current batch.</br>
+
+#### Expected Behaviour
+
+- It is expected that the `Files Historic Persistence` will not archive the
+  current batch if a gap in the batch is detected.
+- It is expected that no files or data exist anywhere on the filesystem that
+  would normally be produced in a successful archive.
 
 #### Preconditions
 
-A running plugin in the Block-Node under test that is able to publish a
-Persisted Notification for blocks persisted in range `1-9` with priority
-higher than the `Files Historic Persistence`'s.
+- Blocks in range `0-9` are persisted (the only ones currently in existence).
+  - The system-wide block provision facility is able to provide these blocks
+    with priority higher than the `Files Historic Persistence`'s.
+- A Persisted Notification is published to the node's messaging system for
+  blocks persisted in range `0-9` with priority higher than the
+  `Files Historic Persistence`'s.
 
 #### Input
 
-Persisted Notification for blocks persisted in range `1-9` with priority
-higher than the `Files Historic Persistence`'s.
+- Persisted Notification for blocks persisted in range `1-9` with priority
+  higher than the `Files Historic Persistence`'s.
 
 #### Output
 
-Regular file: `/blocks/000/000/000/000/000/00/00s.zip` does not exist.
+- Regular file: `/blocks/000/000/000/000/000/00/00s.zip` does not exist.
 
 #### Other
 
@@ -243,29 +278,42 @@ Blocks are persisted in range `0-9` (the only ones currently in existence).
 A Persisted Notification is published to the node's messaging system for blocks
 persisted in range `0-9` with priority higher than the
 `Files Historic Persistence`'s . The `Files Historic Persistence` will then
-proceed to archive the batch of blocks in a zip file.
+proceed to archive the batch of blocks in a zip file. However, an IO issue
+occurs during the archive attempt. The `Files Historic Persistence` cleans up
+any potential data and side effects produced during the archive attempt.
 
 #### Requirements
 
-It is expected that the `Files Historic Persistence` will clean up any potential
-data and side effects produced during an attempt to archive a batch, but an IO
-issue has occurred during the archive attempt.
+The `Files Historic Persistence` MUST archive blocks in batches.</br>
+Each batch MUST be archived in a single zip file.</br>
+The `Files Historic Persistence` MUST clean up any potential data and side
+effects produced during an attempt to archive a batch after an IO issue occurs
+during the archive attempt.
+
+#### Expected Behaviour
+
+- It is expected that the `Files Historic Persistence` will clean up any
+  potential data and side effects produced during an attempt to archive a batch
+  after an IO issue has occurred during the archive attempt.
 
 #### Preconditions
 
-A running plugin in the Block-Node under test that is able to publish a
-Persisted Notification for blocks persisted in range `0-9` with priority
-higher than the `Files Historic Persistence`'s. A way to simulate an IO issue
-during the archive attempt.
+- Blocks in range `0-9` are persisted (the only ones currently in existence).
+  - The system-wide block provision facility is able to provide these blocks
+    with priority higher than the `Files Historic Persistence`'s.
+- A Persisted Notification is published to the node's messaging system for
+  blocks persisted in range `0-9` with priority higher than the
+  `Files Historic Persistence`'s.
+- A way to simulate an IO issue during the archive attempt.
 
 #### Input
 
-Persisted Notification for blocks persisted in range `0-9` with priority
-higher than the `Files Historic Persistence`'s.
+- Persisted Notification for blocks persisted in range `0-9` with priority
+  higher than the `Files Historic Persistence`'s.
 
 #### Output
 
-Regular file: `/blocks/000/000/000/000/000/00/00s.zip` does not exist.
+- Regular file: `/blocks/000/000/000/000/000/00/00s.zip` does not exist.
 
 #### Other
 
@@ -290,26 +338,40 @@ and cannot be modified after it has been created.
 
 #### Requirements
 
-It is expected that the `Files Historic Persistence` will archive the batch
-successfully creating a zip file at the resolved location, and that the zip
-file is immutable, meaning that it cannot be modified after it has been created.
+The `Files Historic Persistence` MUST archive blocks in batches.</br>
+Each batch MUST be archived in a single zip file.</br>
+All successfully created zip files MUST be immutable, thet CANNOT be modified
+after creation.
+
+#### Expected Behaviour
+
+- It is expected that the `Files Historic Persistence` will archive a batch
+  successfully creating a zip file at the resolved location.
+- It is expected that the zip file is immutable.
+  - All subsequent attempts to modify the zip file MUST fail.
 
 #### Preconditions
 
-A running plugin in the Block-Node under test that is able to publish a
-Persisted Notification for blocks persisted in range `0-9` with priority
-higher than the `Files Historic Persistence`'s. A subsequent publish of the same
-notification is made after the first zip is successfully created.
+- Blocks in range `0-9` are persisted (the only ones currently in existence).
+  - The system-wide block provision facility is able to provide these blocks
+    with priority higher than the `Files Historic Persistence`'s.
+- A Persisted Notification is published to the node's messaging system for
+  blocks persisted in range `0-9` with priority higher than the
+  `Files Historic Persistence`'s.
+- A subsequent publish of the same notification is made after the first zip is
+  successfully created.
 
 #### Input
 
-Persisted Notification for blocks persisted in range `0-9` with priority
-higher than the `Files Historic Persistence`'s. A subsequent publish of the same
-notification is made after the first zip is successfully created.
+- Persisted Notification for blocks persisted in range `0-9` with priority
+  higher than the `Files Historic Persistence`'s.
+- A subsequent publish of the same notification is made after the first zip is
+  successfully created.
 
 #### Output
 
-Regular file: `/blocks/000/000/000/000/000/00/00s.zip` exists and is immutable.
+- Regular file: `/blocks/000/000/000/000/000/00/00s.zip` exists and is
+  immutable.
 
 #### Other
 
