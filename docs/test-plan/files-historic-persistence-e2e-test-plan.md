@@ -96,23 +96,25 @@ logic. Essentially, this test plan describes the intended behavior of the
 > compression algorithm set to `ZStandard` so the file extension for an archived
 > block will be `.blk.zstd`_
 
-|                      Test Case ID | Test Name                            | Implemented (Y/N) |
-|----------------------------------:|:-------------------------------------|:-----------------:|
-| [E2ETC_FHP_0001](#E2ETC_FHP_0001) | `Verify Archived Batch Zip Location` |         N         |
-| [E2ETC_FHP_0002](#E2ETC_FHP_0002) | `Verify Archived Batch Zip Content`  |         N         |
-| [E2ETC_FHP_0003](#E2ETC_FHP_0003) | `Verify No Gaps in Zip`              |         N         |
-| [E2ETC_FHP_0004](#E2ETC_FHP_0004) | `Verify Cleanup on IO Failure`       |         N         |
-| [E2ETC_FHP_0005](#E2ETC_FHP_0005) | `Verify Immutable Zips`              |         N         |
+|                            Test Case ID | Test Name                                                  | Implemented ( :white_check_mark: / :x: ) |
+|----------------------------------------:|:-----------------------------------------------------------|:----------------------------------------:|
+|                                         | [_**<br/>Happy Path Tests<br/><br/>**_](#happy-path-tests) |                                          |
+| [E2ETC_HP_FHP_0001](#E2ETC_HP_FHP_0001) | `Verify Archived Batch Zip Location`                       |                   :x:                    |
+| [E2ETC_HP_FHP_0002](#E2ETC_HP_FHP_0002) | `Verify Archived Batch Zip Content`                        |                   :x:                    |
+| [E2ETC_HP_FHP_0003](#E2ETC_HP_FHP_0003) | `Verify No Gaps in Zip`                                    |                   :x:                    |
+| [E2ETC_HP_FHP_0004](#E2ETC_HP_FHP_0004) | `Verify Immutable Zips`                                    |                   :x:                    |
+|                                         | [_**<br/>Error Tests<br/><br/>**_](#error-tests)           |                                          |
+|   [E2ETC_E_FHP_0001](#E2ETC_E_FHP_0001) | `Verify Cleanup on IO Failure`                             |                   :x:                    |
 
----
+### Happy Path Tests
 
-### E2ETC_FHP_0001
+#### E2ETC_HP_FHP_0001
 
-#### Test Name
+##### Test Name
 
 `Verify Archived Batch Zip Location`
 
-#### Scenario Description
+##### Scenario Description
 
 Blocks are persisted in range `0-9` (the only ones currently in existence).
 A Persisted Notification is published to the node's messaging system for blocks
@@ -120,18 +122,18 @@ persisted in range `0-9` with priority higher than the
 `Files Historic Persistence`'s . The `Files Historic Persistence` will then
 proceed to archive the batch of blocks in a zip file.
 
-#### Requirements
+##### Requirements
 
 The `Files Historic Persistence` MUST archive blocks in batches.</br>
 Each batch MUST be archived in a single zip file.</br>
 The created zip file MUST be located at the resolved path.
 
-#### Expected Behaviour
+##### Expected Behaviour
 
 - It is expected that the `Files Historic Persistence` will archive a batch
   successfully, creating a zip file at the resolved location.
 
-#### Preconditions
+##### Preconditions
 
 - Blocks in range `0-9` are persisted (the only ones currently in existence).
   - The system-wide block provision facility is able to provide these blocks
@@ -140,28 +142,28 @@ The created zip file MUST be located at the resolved path.
   blocks persisted in range `0-9` with priority higher than the
   `Files Historic Persistence`'s.
 
-#### Input
+##### Input
 
 - Persisted Notification for blocks persisted in range `0-9` with priority
   higher than the `Files Historic Persistence`'s.
 
-#### Output
+##### Output
 
 - Regular file: `/blocks/000/000/000/000/000/00/00s.zip` exists.
 
-#### Other
+##### Other
 
 N/A
 
 ---
 
-### E2ETC_FHP_0002
+#### E2ETC_HP_FHP_0002
 
-#### Test Name
+##### Test Name
 
 `Verify Archived Batch Zip Content`
 
-#### Scenario Description
+##### Scenario Description
 
 Blocks are persisted in range `0-9` (the only ones currently in existence).
 A Persisted Notification is published to the node's messaging system for blocks
@@ -169,7 +171,7 @@ persisted in range `0-9` with priority higher than the
 `Files Historic Persistence`'s . The `Files Historic Persistence` will then
 proceed to archive the batch of blocks in a zip file.
 
-#### Requirements
+##### Requirements
 
 The `Files Historic Persistence` MUST archive blocks in batches.</br>
 Each batch MUST be archived in a single zip file.</br>
@@ -177,7 +179,7 @@ The zip file MUST contain all the blocks from the batch.</br>
 Each entry in the zip file MUST have the same binary content as the original
 block that was archived.
 
-#### Expected Behaviour
+##### Expected Behaviour
 
 - It is expected that the `Files Historic Persistence` will archive the batch
   successfully creating a zip file at the resolved location.
@@ -185,7 +187,7 @@ block that was archived.
 - It is expected that each entry in the zip file has the same binary content
   as the original block that was archived.
 
-#### Preconditions
+##### Preconditions
 
 - Blocks in range `0-9` are persisted (the only ones currently in existence).
   - The system-wide block provision facility is able to provide these blocks
@@ -194,12 +196,12 @@ block that was archived.
   blocks persisted in range `0-9` with priority higher than the
   `Files Historic Persistence`'s.
 
-#### Input
+##### Input
 
 - Persisted Notification for blocks persisted in range `0-9` with priority
   higher than the `Files Historic Persistence`'s.
 
-#### Output
+##### Output
 
 - Regular file: `/blocks/000/000/000/000/000/00/00s.zip` contains 10 entries
   for each block `0000000000000000000.blk.zstd` to
@@ -207,19 +209,19 @@ block that was archived.
 - The binary content of each entry is the same as the original block that was
   archived.
 
-#### Other
+##### Other
 
 N/A
 
 ---
 
-### E2ETC_FHP_0003
+#### E2ETC_HP_FHP_0003
 
-#### Test Name
+##### Test Name
 
 `Verify No Gaps in Zip`
 
-#### Scenario Description
+##### Scenario Description
 
 Blocks are persisted in range `1-9` (the only ones currently in existence).
 A Persisted Notification is published to the node's messaging system for blocks
@@ -228,21 +230,21 @@ persisted in range `1-9` with priority higher than the
 proceed to not archive the batch of blocks in a zip file because there is a gap
 present in the batch.
 
-#### Requirements
+##### Requirements
 
 The `Files Historic Persistence` MUST archive blocks in batches.</br>
 Each batch MUST be archived in a single zip file.</br>
 NO gaps are allowed in the batch.</br>
 NO archive MUST be created when a gap is detected in the current batch.</br>
 
-#### Expected Behaviour
+##### Expected Behaviour
 
 - It is expected that the `Files Historic Persistence` will not archive the
   current batch if a gap in the batch is detected.
 - It is expected that no files or data exist anywhere on the filesystem that
   would normally be produced in a successful archive.
 
-#### Preconditions
+##### Preconditions
 
 - Blocks in range `0-9` are persisted (the only ones currently in existence).
   - The system-wide block provision facility is able to provide these blocks
@@ -251,28 +253,88 @@ NO archive MUST be created when a gap is detected in the current batch.</br>
   blocks persisted in range `0-9` with priority higher than the
   `Files Historic Persistence`'s.
 
-#### Input
+##### Input
 
 - Persisted Notification for blocks persisted in range `1-9` with priority
   higher than the `Files Historic Persistence`'s.
 
-#### Output
+##### Output
 
 - Regular file: `/blocks/000/000/000/000/000/00/00s.zip` does not exist.
 
-#### Other
+##### Other
 
 N/A
 
 ---
 
-### E2ETC_FHP_0004
+#### E2ETC_HP_FHP_0004
 
-#### Test Name
+##### Test Name
+
+`Verify Immutable Zips`
+
+##### Scenario Description
+
+Blocks are persisted in range `0-9` (the only ones currently in existence).
+A Persisted Notification is published to the node's messaging system for blocks
+persisted in range `0-9` with priority higher than the
+`Files Historic Persistence`'s . The `Files Historic Persistence` will then
+proceed to archive the batch of blocks in a zip file. The zip file is immutable
+and cannot be modified after it has been created.
+
+##### Requirements
+
+The `Files Historic Persistence` MUST archive blocks in batches.</br>
+Each batch MUST be archived in a single zip file.</br>
+All successfully created zip files MUST be immutable, thet CANNOT be modified
+after creation.
+
+##### Expected Behaviour
+
+- It is expected that the `Files Historic Persistence` will archive a batch
+  successfully creating a zip file at the resolved location.
+- It is expected that the zip file is immutable.
+  - All subsequent attempts to modify the zip file MUST fail.
+
+##### Preconditions
+
+- Blocks in range `0-9` are persisted (the only ones currently in existence).
+  - The system-wide block provision facility is able to provide these blocks
+    with priority higher than the `Files Historic Persistence`'s.
+- A Persisted Notification is published to the node's messaging system for
+  blocks persisted in range `0-9` with priority higher than the
+  `Files Historic Persistence`'s.
+- A subsequent publish of the same notification is made after the first zip is
+  successfully created.
+
+##### Input
+
+- Persisted Notification for blocks persisted in range `0-9` with priority
+  higher than the `Files Historic Persistence`'s.
+- A subsequent publish of the same notification is made after the first zip is
+  successfully created.
+
+##### Output
+
+- Regular file: `/blocks/000/000/000/000/000/00/00s.zip` exists and is
+  immutable.
+
+##### Other
+
+N/A
+
+---
+
+### Error Tests
+
+#### E2ETC_E_FHP_0001
+
+##### Test Name
 
 `Verify Cleanup on IO Failure`
 
-#### Scenario Description
+##### Scenario Description
 
 Blocks are persisted in range `0-9` (the only ones currently in existence).
 A Persisted Notification is published to the node's messaging system for blocks
@@ -282,7 +344,7 @@ proceed to archive the batch of blocks in a zip file. However, an IO issue
 occurs during the archive attempt. The `Files Historic Persistence` cleans up
 any potential data and side effects produced during the archive attempt.
 
-#### Requirements
+##### Requirements
 
 The `Files Historic Persistence` MUST archive blocks in batches.</br>
 Each batch MUST be archived in a single zip file.</br>
@@ -290,13 +352,13 @@ The `Files Historic Persistence` MUST clean up any potential data and side
 effects produced during an attempt to archive a batch after an IO issue occurs
 during the archive attempt.
 
-#### Expected Behaviour
+##### Expected Behaviour
 
 - It is expected that the `Files Historic Persistence` will clean up any
   potential data and side effects produced during an attempt to archive a batch
   after an IO issue has occurred during the archive attempt.
 
-#### Preconditions
+##### Preconditions
 
 - Blocks in range `0-9` are persisted (the only ones currently in existence).
   - The system-wide block provision facility is able to provide these blocks
@@ -306,74 +368,16 @@ during the archive attempt.
   `Files Historic Persistence`'s.
 - A way to simulate an IO issue during the archive attempt.
 
-#### Input
+##### Input
 
 - Persisted Notification for blocks persisted in range `0-9` with priority
   higher than the `Files Historic Persistence`'s.
 
-#### Output
+##### Output
 
 - Regular file: `/blocks/000/000/000/000/000/00/00s.zip` does not exist.
 
-#### Other
-
-N/A
-
----
-
-### E2ETC_FHP_0005
-
-#### Test Name
-
-`Verify Immutable Zips`
-
-#### Scenario Description
-
-Blocks are persisted in range `0-9` (the only ones currently in existence).
-A Persisted Notification is published to the node's messaging system for blocks
-persisted in range `0-9` with priority higher than the
-`Files Historic Persistence`'s . The `Files Historic Persistence` will then
-proceed to archive the batch of blocks in a zip file. The zip file is immutable
-and cannot be modified after it has been created.
-
-#### Requirements
-
-The `Files Historic Persistence` MUST archive blocks in batches.</br>
-Each batch MUST be archived in a single zip file.</br>
-All successfully created zip files MUST be immutable, thet CANNOT be modified
-after creation.
-
-#### Expected Behaviour
-
-- It is expected that the `Files Historic Persistence` will archive a batch
-  successfully creating a zip file at the resolved location.
-- It is expected that the zip file is immutable.
-  - All subsequent attempts to modify the zip file MUST fail.
-
-#### Preconditions
-
-- Blocks in range `0-9` are persisted (the only ones currently in existence).
-  - The system-wide block provision facility is able to provide these blocks
-    with priority higher than the `Files Historic Persistence`'s.
-- A Persisted Notification is published to the node's messaging system for
-  blocks persisted in range `0-9` with priority higher than the
-  `Files Historic Persistence`'s.
-- A subsequent publish of the same notification is made after the first zip is
-  successfully created.
-
-#### Input
-
-- Persisted Notification for blocks persisted in range `0-9` with priority
-  higher than the `Files Historic Persistence`'s.
-- A subsequent publish of the same notification is made after the first zip is
-  successfully created.
-
-#### Output
-
-- Regular file: `/blocks/000/000/000/000/000/00/00s.zip` exists and is
-  immutable.
-
-#### Other
+##### Other
 
 N/A
 
