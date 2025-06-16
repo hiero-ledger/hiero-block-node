@@ -14,7 +14,7 @@ dependencies {
 dependencies.constraints {
     val daggerVersion = "2.56.2"
     val grpcIoVersion = "1.73.0"
-    val helidonVersion = "4.2.2"
+    val helidonVersion = "4.2.3"
     // When Upgrading pbjVersion, also need to update pbjCompiler version on
     // protobuf/build.gradle.kts
     val pbjVersion = "0.11.6"
