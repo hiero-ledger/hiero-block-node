@@ -19,19 +19,20 @@ Effectively, this policy will allow us to achieve rolling history.
 ## Goals
 
 There are a few things that the Retention Policy aims to achieve:
+
 1. Each distinct persistence plugin is completely independent and implements its
-own Retention Policy, this includes:
-- Each plugin will be responsible for respecting its own Retention Policy.
-- Each plugin will choose its own level of granularity by which it will
-remove blocks that exceed the threshold.
+   own Retention Policy, this includes:
+   - Each plugin will be responsible for respecting its own Retention Policy.
+   - Each plugin will choose its own level of granularity by which it will
+     remove blocks that exceed the threshold.
 2. The Retention Policy should be configurable, allowing users to set the
-desired block count threshold.
+   desired block count threshold.
 3. The Retention Policy is **NOT** a hard limit, meaning that the Block-Node
-will keep accepting blocks even if the threshold is reached.
+   will keep accepting blocks even if the threshold is reached.
 4. The unit of the Retention Policy is block count.
 5. The Retention Policy is about limiting storage space - cleanup should happen
-when new data is received. There is no reason to clean data that is already
-there if no new data comes in.
+   when new data is received. There is no reason to clean data that is already
+   there if no new data comes in.
 
 ## Terms
 
@@ -52,25 +53,27 @@ listed in the [Goals section](#goals) above.
 ### `Files Recent Persistence`
 
 The `Files Recent Persistence` implements the Retention Policy:
+
 - A configurable parameter defines how many blocks to keep in storage.
 - The Policy is implemented by removing the oldest N amount of blocks (based on
-the configured threshold).
+  the configured threshold).
 - Blocks are removed only when new data is received.
 - The granularity of the removal is one whole block.
 - By default, the Retention Policy is set to `-1`, which means that there is no
-limit on the amount of blocks that can be stored.
+  limit on the amount of blocks that can be stored.
 
 ### `Files Historic Persistence`
 
 The `Files Historic Persistence` implements the Retention Policy:
+
 - A configurable parameter defines how many blocks to keep in storage.
 - The Policy is implemented by removing the oldest N amount of blocks (based on
-the configured threshold).
+  the configured threshold).
 - Blocks are removed only when new data is received.
 - The granularity of the removal is one whole zipped file, which contains one
-archived batch of blocks.
+  archived batch of blocks.
 - By default, the Retention Policy is set to `-1`, which means that there is no
-limit on the amount of blocks that can be stored.
+  limit on the amount of blocks that can be stored.
 
 ## Configuration
 
