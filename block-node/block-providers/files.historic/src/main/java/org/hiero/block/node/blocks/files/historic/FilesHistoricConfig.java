@@ -26,7 +26,8 @@ import org.hiero.block.node.base.Loggable;
 public record FilesHistoricConfig(
         @Loggable @ConfigProperty(defaultValue = "/opt/hiero/block-node/data/historic") Path rootPath,
         @Loggable @ConfigProperty(defaultValue = "ZSTD") CompressionType compression,
-        @Loggable @ConfigProperty(defaultValue = "4") @Min(1) @Max(6) int powersOfTenPerZipFileContents) {
+        @Loggable @ConfigProperty(defaultValue = "4") @Min(1) @Max(6) int powersOfTenPerZipFileContents,
+        @Loggable @ConfigProperty(defaultValue = "-1") long retentionPolicyThreshold) {
     /**
      * Constructor.
      */

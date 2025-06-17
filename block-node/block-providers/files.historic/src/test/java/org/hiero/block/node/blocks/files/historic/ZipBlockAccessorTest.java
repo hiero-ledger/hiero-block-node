@@ -602,7 +602,11 @@ class ZipBlockAccessorTest {
 
     private FilesHistoricConfig createTestConfiguration(final Path basePath, final CompressionType compressionType) {
         final FilesHistoricConfig localDefaultConfig = getDefaultConfiguration();
-        return new FilesHistoricConfig(basePath, compressionType, localDefaultConfig.powersOfTenPerZipFileContents());
+        return new FilesHistoricConfig(
+                basePath,
+                compressionType,
+                localDefaultConfig.powersOfTenPerZipFileContents(),
+                localDefaultConfig.retentionPolicyThreshold());
     }
 
     private FilesHistoricConfig getDefaultConfiguration() {
