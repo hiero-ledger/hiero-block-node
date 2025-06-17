@@ -9,7 +9,9 @@ import com.hederahashgraph.api.proto.java.ResponseCodeEnum;
 import com.hederahashgraph.api.proto.java.TokenID;
 import com.hederahashgraph.api.proto.java.TokenTransferList;
 import com.hederahashgraph.api.proto.java.TransferList;
+import edu.umd.cs.findbugs.annotations.NonNull;
 import org.hiero.block.common.utils.Preconditions;
+import org.hiero.block.simulator.config.data.BlockGeneratorConfig;
 
 /**
  * Handler for transaction results in the block stream.
@@ -17,6 +19,13 @@ import org.hiero.block.common.utils.Preconditions;
  * including transfer lists and token transfers.
  */
 public class TransactionResultHandler extends AbstractBlockItemHandler {
+
+    private final BlockGeneratorConfig blockGeneratorConfig;
+
+    public TransactionResultHandler(@NonNull final BlockGeneratorConfig blockGeneratorConfig) {
+        this.blockGeneratorConfig = blockGeneratorConfig;
+    }
+
     @Override
     public BlockItem getItem() {
         if (blockItem == null) {
@@ -52,8 +61,8 @@ public class TransactionResultHandler extends AbstractBlockItemHandler {
         // todo(700) Add support for non-zero shard/realm entity
         return AccountAmount.newBuilder()
                 .setAccountID(AccountID.newBuilder()
-                        .setRealmNum(0)
-                        .setShardNum(0)
+                        .setRealmNum(blockGeneratorConfig.realmNum())
+                        .setShardNum(blockGeneratorConfig.shardNum())
                         .setAccountNum(accountNum)
                         .build())
                 .setAmount(accountAmount)
@@ -67,7 +76,10 @@ public class TransactionResultHandler extends AbstractBlockItemHandler {
         long amount = generateRandomValue(100, 200);
 
         return TokenTransferList.newBuilder()
-                .setToken(TokenID.newBuilder().setRealmNum(0).setShardNum(0).setTokenNum(tokenId))
+                .setToken(TokenID.newBuilder()
+                        .setRealmNum(blockGeneratorConfig.realmNum())
+                        .setShardNum(blockGeneratorConfig.shardNum())
+                        .setTokenNum(tokenId))
                 .addTransfers(createAccountAmount(creditAccount, -amount))
                 .addTransfers(createAccountAmount(debitAccount, amount))
                 .build();
