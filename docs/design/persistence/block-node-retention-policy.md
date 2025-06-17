@@ -59,8 +59,8 @@ The `Files Recent Persistence` implements the Retention Policy:
   the configured threshold).
 - Blocks are removed only when new data is received.
 - The granularity of the removal is one whole block.
-- By default, the Retention Policy is set to `-1`, which means that there is no
-  limit on the amount of blocks that can be stored.
+- By default, the Retention Policy is set to `96400`, which is a bit more than
+  a day when blocks are streamed at a rate of one per second.
 
 ### `Files Historic Persistence`
 
