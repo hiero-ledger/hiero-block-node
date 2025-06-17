@@ -34,6 +34,8 @@ class FilesRecentConfigTest {
     private CompressionType defaultCompression;
     /** Default max files per dir value. */
     private int defaultMaxFilesPerDir;
+    /** Default retention policy threshold value. */
+    private long defaultRetentionPolicyThreshold;
 
     /**
      * Set up the test environment before each test.
@@ -47,6 +49,7 @@ class FilesRecentConfigTest {
         defaultLiveRootPath = jimfs.getPath("/opt/hiero/blocknode/data/live");
         defaultCompression = CompressionType.ZSTD;
         defaultMaxFilesPerDir = 3;
+        defaultRetentionPolicyThreshold = 96_000L;
     }
 
     /**
@@ -75,7 +78,8 @@ class FilesRecentConfigTest {
         void testNullLiveRootPath() {
             // call && assert
             assertThatNullPointerException()
-                    .isThrownBy(() -> new FilesRecentConfig(null, defaultCompression, defaultMaxFilesPerDir));
+                    .isThrownBy(() -> new FilesRecentConfig(
+                            null, defaultCompression, defaultMaxFilesPerDir, defaultRetentionPolicyThreshold));
         }
 
         /**
@@ -87,7 +91,8 @@ class FilesRecentConfigTest {
         void testNullCompression() {
             // call && assert
             assertThatNullPointerException()
-                    .isThrownBy(() -> new FilesRecentConfig(defaultLiveRootPath, null, defaultMaxFilesPerDir));
+                    .isThrownBy(() -> new FilesRecentConfig(
+                            defaultLiveRootPath, null, defaultMaxFilesPerDir, defaultRetentionPolicyThreshold));
         }
 
         /**
@@ -100,8 +105,11 @@ class FilesRecentConfigTest {
         void testNegativeMaxFilesPerDir(final int invalidMaxFilesPerDir) {
             // call && assert
             assertThatIllegalArgumentException()
-                    .isThrownBy(() ->
-                            new FilesRecentConfig(defaultLiveRootPath, defaultCompression, invalidMaxFilesPerDir));
+                    .isThrownBy(() -> new FilesRecentConfig(
+                            defaultLiveRootPath,
+                            defaultCompression,
+                            invalidMaxFilesPerDir,
+                            defaultRetentionPolicyThreshold));
         }
 
         /**
@@ -114,7 +122,10 @@ class FilesRecentConfigTest {
             // call && assert
             assertThatNoException()
                     .isThrownBy(() -> new FilesRecentConfig(
-                            defaultLiveRootPath.resolve("valid"), CompressionType.NONE, defaultMaxFilesPerDir + 1));
+                            defaultLiveRootPath.resolve("valid"),
+                            CompressionType.NONE,
+                            defaultMaxFilesPerDir + 1,
+                            defaultRetentionPolicyThreshold));
         }
 
         /**
@@ -126,8 +137,11 @@ class FilesRecentConfigTest {
         void testValidConstructorWithDefaults() {
             // call && assert
             assertThatNoException()
-                    .isThrownBy(() ->
-                            new FilesRecentConfig(defaultLiveRootPath, defaultCompression, defaultMaxFilesPerDir));
+                    .isThrownBy(() -> new FilesRecentConfig(
+                            defaultLiveRootPath,
+                            defaultCompression,
+                            defaultMaxFilesPerDir,
+                            defaultRetentionPolicyThreshold));
         }
 
         /**
@@ -140,7 +154,8 @@ class FilesRecentConfigTest {
             // assert that no paths exist before the constructor is called
             assertThat(defaultLiveRootPath).doesNotExist();
             // call
-            new FilesRecentConfig(defaultLiveRootPath, defaultCompression, defaultMaxFilesPerDir);
+            new FilesRecentConfig(
+                    defaultLiveRootPath, defaultCompression, defaultMaxFilesPerDir, defaultRetentionPolicyThreshold);
             // assert that no paths exist after the constructor is called
             assertThat(defaultLiveRootPath).doesNotExist();
         }

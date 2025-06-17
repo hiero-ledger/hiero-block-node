@@ -44,7 +44,7 @@ class BlockFileRecentPluginTest {
      */
     BlockFileRecentPluginTest() {
         this.fileSystem = Jimfs.newFileSystem(Configuration.unix());
-        this.filesRecentConfig = new FilesRecentConfig(fileSystem.getPath("/live"), CompressionType.ZSTD, 3);
+        this.filesRecentConfig = new FilesRecentConfig(fileSystem.getPath("/live"), CompressionType.ZSTD, 3, 96_000);
         this.blocksFilesRecentPlugin = new BlocksFilesRecentPlugin(this.filesRecentConfig);
         this.historicalBlockFacility = new HistoricalBlockFacilityImpl(List.of(blocksFilesRecentPlugin));
     }

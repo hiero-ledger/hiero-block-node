@@ -22,7 +22,8 @@ import org.hiero.block.node.base.Loggable;
 public record FilesRecentConfig(
         @Loggable @ConfigProperty(defaultValue = "/opt/hiero/block-node/data/live") Path liveRootPath,
         @Loggable @ConfigProperty(defaultValue = "ZSTD") CompressionType compression,
-        @Loggable @ConfigProperty(defaultValue = "3") int maxFilesPerDir) {
+        @Loggable @ConfigProperty(defaultValue = "3") int maxFilesPerDir,
+        @Loggable @ConfigProperty(defaultValue = "96_000") long retentionPolicyThreshold) {
     /**
      * Constructor.
      */
@@ -30,5 +31,6 @@ public record FilesRecentConfig(
         Objects.requireNonNull(liveRootPath);
         Objects.requireNonNull(compression);
         Preconditions.requirePositive(maxFilesPerDir);
+        Preconditions.requirePositive(retentionPolicyThreshold);
     }
 }

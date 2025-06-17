@@ -12,6 +12,7 @@ import edu.umd.cs.findbugs.annotations.NonNull;
 import java.io.IOException;
 import java.lang.System.Logger.Level;
 import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
@@ -50,6 +51,10 @@ public final class BlocksFilesHistoricPlugin implements BlockProviderPlugin, Blo
     private final CopyOnWriteArrayList<LongRange> inProgressZipRanges = new CopyOnWriteArrayList<>();
     /** Running total of bytes stored in the historic tier */
     private final AtomicLong totalBytesStored = new AtomicLong(0);
+    /** The config used for this plugin */
+    private FilesHistoricConfig config;
+    /** The Storage Retention Policy Threshold */
+    private long retentionPolicyThreshold;
 
     // Metrics
     /** Counter for blocks written to the historic tier */
@@ -78,11 +83,10 @@ public final class BlocksFilesHistoricPlugin implements BlockProviderPlugin, Blo
     @Override
     public void init(final BlockNodeContext context, final ServiceBuilder serviceBuilder) {
         this.context = Objects.requireNonNull(context);
-        final FilesHistoricConfig config = context.configuration().getConfigData(FilesHistoricConfig.class);
-
+        this.config = context.configuration().getConfigData(FilesHistoricConfig.class);
+        this.retentionPolicyThreshold = this.config.retentionPolicyThreshold();
         // Initialize metrics
         initMetrics(context.metrics());
-
         // create plugin data root directory if it does not exist
         try {
             Files.createDirectories(config.rootPath());
@@ -206,6 +210,11 @@ public final class BlocksFilesHistoricPlugin implements BlockProviderPlugin, Blo
         // calculations and decide if we will submit a task or not
         if (notification.blockProviderPriority() > defaultPriority()) {
             attemptZipping();
+            // @todo(1268) like in the recents plugin, should we cleanup only if the priority check passes?
+            //   here I think yes, because we only get new data if the check passes, so there is no issue
+            //   to keep within the bounds of the retention policy threshold. But for the recents plugin,
+            //   maybe we need to think about it since it gets new data via the verification notification.
+            cleanup();
         }
         // @todo(1069) this is not enough of an assertion that the blocks will be coming from the right place
         //     as notifications are async and things can happen, when we get the accessors later, we should
@@ -252,6 +261,32 @@ public final class BlocksFilesHistoricPlugin implements BlockProviderPlugin, Blo
             // try the next batch just in case there is more than one that became available
             minBlockNumber += numberOfBlocksPerZipFile;
             maxBlockNumber += numberOfBlocksPerZipFile;
+        }
+    }
+
+    private void cleanup() {
+        final long totalStored = availableBlocks.size();
+        long excess = totalStored - retentionPolicyThreshold;
+        while (excess >= numberOfBlocksPerZipFile) {
+            // if we have passed the above check, we can delete at least one zip file
+            // we assume there are no gaps in the zips, the number of blocks per zip file
+            // setting is not possible to change after starting the system for the first time,
+            // also the number of blocks per zip file is a power of ten, so we can safely
+            // say that whatever the range is, it will always start/end with a predictable number
+            // e.g. 0-9, 10-19, 20-29 (batch 10s) or 10_000-19_999, 20_000-29_999 (batch 1000s) etc.
+            // depending on the setting
+            final long minBlockNumberStored = availableBlocks.min();
+            // no need to compute existing below, we need the path to the zip file, we do not need to
+            // check if it exists, moreover we do not need to know actual block compression type.
+            final Path zipToDelete =
+                    BlockPath.computeBlockPath(config, minBlockNumberStored).zipFilePath();
+            try {
+                Files.deleteIfExists(zipToDelete);
+            } catch (final IOException e) {
+                throw new RuntimeException(e);
+                // @todo(1268) what to do here if we cannot delete the zip file?
+            }
+            excess -= numberOfBlocksPerZipFile;
         }
     }
 
