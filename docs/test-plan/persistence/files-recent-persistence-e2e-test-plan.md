@@ -75,14 +75,14 @@ logic. Essentially, this test plan describes the intended behavior of the
 
 |                            Test Case ID | Test Name                                                               | Implemented ( :white_check_mark: / :x: ) |
 |----------------------------------------:|:------------------------------------------------------------------------|:----------------------------------------:|
-|                                         | [_**<br/>Happy Path Tests<br/><br/>**_](#happy-path-tests)              |                                          |
+|                                         | _**<br/>[Happy Path Tests](#happy-path-tests)<br/>&nbsp;**_             |                                          |
 | [E2ETC_HP_FRP_0001](#E2ETC_HP_FRP_0001) | `Verify Acknowledgement Returned After Successful Persistence`          |                   :x:                    |
 | [E2ETC_HP_FRP_0002](#E2ETC_HP_FRP_0002) | `Verify Persisted Block File Location`                                  |                   :x:                    |
 | [E2ETC_HP_FRP_0003](#E2ETC_HP_FRP_0003) | `Verify Persisted Block File Content`                                   |                   :x:                    |
 | [E2ETC_HP_FRP_0004](#E2ETC_HP_FRP_0004) | `Verify Persisted Block File Discoverable After Successful Persistence` |                   :x:                    |
 | [E2ETC_HP_FRP_0005](#E2ETC_HP_FRP_0005) | `Verify Persisted Block File can be Overwritten`                        |                   :x:                    |
 | [E2ETC_HP_FRP_0006](#E2ETC_HP_FRP_0006) | `Verify Persisted Block in Rapid Succession`                            |                   :x:                    |
-|                                         | [_**<br/>Error Tests<br/><br/>**_](#error-tests)                        |                                          |
+|                                         | _**<br/>[Error Tests](#error-tests)<br/>&nbsp;**_                       |                                          |
 |   [E2ETC_E_FRP_0001](#E2ETC_E_FRP_0001) | `Verify EndOfStream returned on IO Failure`                             |                   :x:                    |
 |   [E2ETC_E_FRP_0002](#E2ETC_E_FRP_0002) | `Verify Persisted Block File Cleanup on IO Failure`                     |                   :x:                    |
 

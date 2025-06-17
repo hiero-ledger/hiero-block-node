@@ -10,13 +10,13 @@
 
 ## Test Scenarios
 
-|              Test Case ID | Test Name                                          | Implemented ( :white_check_mark: / :x: ) |
-|--------------------------:|:---------------------------------------------------|:----------------------------------------:|
-|                           | [_**<br/>Test Group 1<br/><br/>**_](#test-group-1) |                                          |
-| [TC-TG1-001](#tc-tg1-001) | Basic Functionality Test 1 Group 1                 |                   :x:                    |
-| [TC-TG1-002](#tc-tg1-002) | Basic Functionality Test 1 Group 1                 |            :white_check_mark:            |
-|                           | [_**<br/>Test Group 2<br/><br/>**_](#test-group-2) |                                          |
-| [TC-TG2-001](#tc-tg2-001) | Basic Functionality Test 1 Group 2                 |                   :x:                    |
+|              Test Case ID | Test Name                                           | Implemented ( :white_check_mark: / :x: ) |
+|--------------------------:|:----------------------------------------------------|:----------------------------------------:|
+|                           | _**<br/>[Test Group 1](#test-group-1)<br/>&nbsp;**_ |                                          |
+| [TC-TG1-001](#tc-tg1-001) | Basic Functionality Test 1 Group 1                  |                   :x:                    |
+| [TC-TG1-002](#tc-tg1-002) | Basic Functionality Test 1 Group 1                  |            :white_check_mark:            |
+|                           | _**<br/>[Test Group 2](#test-group-2)<br/>&nbsp;**_ |                                          |
+| [TC-TG2-001](#tc-tg2-001) | Basic Functionality Test 1 Group 2                  |                   :x:                    |
 
 ### Test Group 1
 
