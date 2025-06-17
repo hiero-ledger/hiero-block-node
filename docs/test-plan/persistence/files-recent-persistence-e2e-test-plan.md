@@ -183,7 +183,7 @@ verified.
 ##### Requirements
 
 The `Files Recent Persistence` MUST persist blocks.<br/>
-Persisted blocks MUSt have the exact same binary content as the original block
+Persisted blocks MUST have the exact same binary content as the original block
 streamed to the Block-Node and received by the`Files Recent Persistence`.
 
 ##### Expected Behaviour
@@ -383,7 +383,7 @@ N/A
 
 `Files Recent Persistence` will persist a block after it has been received and
 verified.</br>
-IO failures CAN occur during the write process.
+IO failures MAY occur during the write process.
 
 ##### Requirements
 
@@ -425,9 +425,9 @@ N/A
 
 `Files Recent Persistence` will persist a block after it has been received and
 verified.</br>
-IO failures CAN occur during the write process.</br>
-No files or data related to the current block MUST be present on the filesystem
-after an IO failure occurs during the write process.
+IO failures MAY occur during the write process.</br>
+Files and data related to the current block SHALL NOT be present on the
+filesystem if an IO failure occurs during the write process.
 
 ##### Requirements
 
