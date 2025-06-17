@@ -96,15 +96,15 @@ logic. Essentially, this test plan describes the intended behavior of the
 > compression algorithm set to `ZStandard` so the file extension for an archived
 > block will be `.blk.zstd`_
 
-|                            Test Case ID | Test Name                                                  | Implemented ( :white_check_mark: / :x: ) |
-|----------------------------------------:|:-----------------------------------------------------------|:----------------------------------------:|
-|                                         | [_**<br/>Happy Path Tests<br/><br/>**_](#happy-path-tests) |                                          |
-| [E2ETC_HP_FHP_0001](#E2ETC_HP_FHP_0001) | `Verify Archived Batch Zip Location`                       |                   :x:                    |
-| [E2ETC_HP_FHP_0002](#E2ETC_HP_FHP_0002) | `Verify Archived Batch Zip Content`                        |                   :x:                    |
-| [E2ETC_HP_FHP_0003](#E2ETC_HP_FHP_0003) | `Verify No Gaps in Zip`                                    |                   :x:                    |
-| [E2ETC_HP_FHP_0004](#E2ETC_HP_FHP_0004) | `Verify Immutable Zips`                                    |                   :x:                    |
-|                                         | [_**<br/>Error Tests<br/><br/>**_](#error-tests)           |                                          |
-|   [E2ETC_E_FHP_0001](#E2ETC_E_FHP_0001) | `Verify Cleanup on IO Failure`                             |                   :x:                    |
+|                            Test Case ID | Test Name                                                   | Implemented ( :white_check_mark: / :x: ) |
+|----------------------------------------:|:------------------------------------------------------------|:----------------------------------------:|
+|                                         | _**<br/>[Happy Path Tests](#happy-path-tests)<br/>&nbsp;**_ |                                          |
+| [E2ETC_HP_FHP_0001](#E2ETC_HP_FHP_0001) | `Verify Archived Batch Zip Location`                        |                   :x:                    |
+| [E2ETC_HP_FHP_0002](#E2ETC_HP_FHP_0002) | `Verify Archived Batch Zip Content`                         |                   :x:                    |
+| [E2ETC_HP_FHP_0003](#E2ETC_HP_FHP_0003) | `Verify No Gaps in Zip`                                     |                   :x:                    |
+| [E2ETC_HP_FHP_0004](#E2ETC_HP_FHP_0004) | `Verify Immutable Zips`                                     |                   :x:                    |
+|                                         | _**<br/>[Error Tests](#error-tests)<br/>&nbsp;**_           |                                          |
+|   [E2ETC_E_FHP_0001](#E2ETC_E_FHP_0001) | `Verify Cleanup on IO Failure`                              |                   :x:                    |
 
 ### Happy Path Tests
 
