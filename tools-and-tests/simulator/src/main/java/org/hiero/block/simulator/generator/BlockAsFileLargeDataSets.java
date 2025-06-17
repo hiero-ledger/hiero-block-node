@@ -102,4 +102,9 @@ public class BlockAsFileLargeDataSets implements BlockStreamManager {
 
         return block;
     }
+
+    @Override
+    public void resetToBlock(Block block) {
+        currentBlockIndex = (int) block.getItems(0).getBlockHeader().getNumber();
+    }
 }

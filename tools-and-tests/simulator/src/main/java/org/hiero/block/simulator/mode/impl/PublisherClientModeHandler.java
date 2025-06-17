@@ -49,11 +49,12 @@ public class PublisherClientModeHandler implements SimulatorModeHandler {
     // State fields
     private final AtomicBoolean shouldPublish;
 
+    PublishClientManager publishClientManager;
+
     /**
      * Constructs a new {@code PublisherModeHandler} with the specified dependencies.
      *
      * @param blockStreamConfig       The configuration for block streaming parameters
-     * @param publishStreamGrpcClient The client for publishing blocks via gRPC
      * @param blockStreamManager      The manager responsible for block generation
      * @param metricsService          The service for recording metrics
      * @throws NullPointerException if any parameter is null
@@ -61,11 +62,11 @@ public class PublisherClientModeHandler implements SimulatorModeHandler {
     @Inject
     public PublisherClientModeHandler(
             @NonNull final BlockStreamConfig blockStreamConfig,
-            @NonNull final PublishStreamGrpcClient publishStreamGrpcClient,
             @NonNull final BlockStreamManager blockStreamManager,
-            @NonNull final MetricsService metricsService) {
+            @NonNull final MetricsService metricsService,
+            @NonNull final PublishClientManager publishClientManager) {
         this.blockStreamConfig = requireNonNull(blockStreamConfig);
-        this.publishStreamGrpcClient = requireNonNull(publishStreamGrpcClient);
+        this.publishStreamGrpcClient = requireNonNull(publishClientManager.getCurrentClient());
         this.blockStreamManager = requireNonNull(blockStreamManager);
         this.metricsService = requireNonNull(metricsService);
 
@@ -73,6 +74,7 @@ public class PublisherClientModeHandler implements SimulatorModeHandler {
         delayBetweenBlockItems = blockStreamConfig.delayBetweenBlockItems();
         millisecondsPerBlock = blockStreamConfig.millisecondsPerBlock();
         shouldPublish = new AtomicBoolean(true);
+        this.publishClientManager = requireNonNull(publishClientManager);
     }
 
     public void init() {

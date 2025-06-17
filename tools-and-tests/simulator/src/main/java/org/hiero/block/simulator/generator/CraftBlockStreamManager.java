@@ -174,6 +174,11 @@ public class CraftBlockStreamManager implements BlockStreamManager {
         }
     }
 
+    @Override
+    public void resetToBlock(Block block) {
+        currentBlockNumber = block.getItems(0).getBlockHeader().getNumber();
+    }
+
     private Block createNextBlock() throws BlockSimulatorParsingException {
         LOGGER.log(DEBUG, "Started creation of block number %s.".formatted(currentBlockNumber));
         // todo(683) Refactor common hasher to accept protoc types, in order to avoid the additional overhead of keeping

@@ -39,4 +39,6 @@ public interface BlockStreamManager {
      * @throws BlockSimulatorParsingException if a parse error occurs
      */
     Block getNextBlock() throws IOException, BlockSimulatorParsingException;
+
+    void resetToBlock(Block block);
 }
