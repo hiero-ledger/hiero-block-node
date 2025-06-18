@@ -114,9 +114,13 @@ public class PublisherClientModeHandler implements SimulatorModeHandler {
         Block nextBlock = blockStreamManager.getNextBlock();
         while (nextBlock != null && shouldPublish.get()) {
             long startTime = System.nanoTime();
-            if (!publishStreamGrpcClient.streamBlock(nextBlock)) {
-                LOGGER.log(System.Logger.Level.INFO, "Block Stream Simulator stopped streaming due to errors.");
-                break;
+            if (publishStreamGrpcClient.streamBlock(nextBlock)) {
+                // We need break here to exit
+                stop();
+                publishClientManager.handleEndStream(nextBlock);
+                return;
+//                LOGGER.log(System.Logger.Level.INFO, "Block Stream Simulator stopped streaming due to errors.");
+//                break;
             }
 
             long elapsedTime = System.nanoTime() - startTime;

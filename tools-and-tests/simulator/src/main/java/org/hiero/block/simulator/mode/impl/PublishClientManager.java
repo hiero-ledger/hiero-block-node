@@ -51,22 +51,16 @@ public class PublishClientManager {
 
     private void initializeNewClientAndHandler(Block nextBlock) {
         currentClient = new PublishStreamGrpcClientImpl(grpcConfig, blockStreamConfig, metricsService, streamEnabled, startupData);
-        currentClient.init();
 
         currentHandler = new PublisherClientModeHandler(
                 blockStreamConfig, blockStreamManager, metricsService, this);
+        currentHandler.init();
         if (nextBlock != null) {
             blockStreamManager.resetToBlock(nextBlock);
         }
     }
 
     public void handleEndStream(Block nextBlock) throws InterruptedException {
-        try {
-            currentHandler.stop();
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-        }
-
         initializeNewClientAndHandler(nextBlock);
 
         try {
