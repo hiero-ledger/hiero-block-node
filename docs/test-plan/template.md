@@ -10,65 +10,122 @@
 
 ## Test Scenarios
 
-|   Test Case ID    |         Test Name          | Implemented (Y/N) |
-|-------------------|----------------------------|-------------------|
-| [TC-001](#tc-001) | Basic Functionality Test 1 | Y                 |
-| [TC-002](#tc-002) | Basic Functionality Test 2 | N                 |
+|              Test Case ID | Test Name                                           | Implemented ( :white_check_mark: / :x: ) |
+|--------------------------:|:----------------------------------------------------|:----------------------------------------:|
+|                           | _**<br/>[Test Group 1](#test-group-1)<br/>&nbsp;**_ |                                          |
+| [TC-TG1-001](#tc-tg1-001) | Basic Functionality Test 1 Group 1                  |                   :x:                    |
+| [TC-TG1-002](#tc-tg1-002) | Basic Functionality Test 1 Group 1                  |            :white_check_mark:            |
+|                           | _**<br/>[Test Group 2](#test-group-2)<br/>&nbsp;**_ |                                          |
+| [TC-TG2-001](#tc-tg2-001) | Basic Functionality Test 1 Group 2                  |                   :x:                    |
+
+### Test Group 1
+
+#### TC-TG1-001
+
+##### Test Name
+
+`Basic Functionality Test 1 Group 1`
+
+##### Scenario Description
+
+<!-- Describe the scenario of the test. -->
+
+##### Requirements
+
+<!-- What are the requirement(s) that the test should aim to verify. -->
+
+##### Expected Behaviour
+
+<!-- What is the expected behavior/outcome that would make the test successful. -->
+
+##### Preconditions
+
+<!-- What are the preconditions that will allow us to run the test? -->
+
+##### Input
+
+<!-- What is the input of the test? -->
+
+##### Output
+
+<!-- What output/result is expected to be produced at the end of the test? -->
+
+##### Other
+
+<!-- Additional information, if applicable -->
 
 ---
 
-### TC-001
+#### TC-TG1-002
 
-#### Test Name
+##### Test Name
 
-Basic Functionality Test 1
+`Basic Functionality Test 1 Group 2`
 
-#### Scenario Description
+##### Scenario Description
 
-<!-- Verify the basic functionality of the feature. -->
+<!-- Describe the scenario of the test. -->
 
-#### Expected Behaviour
+##### Requirements
 
-<!-- The feature should perform its primary function without errors. -->
+<!-- What are the requirement(s) that the test should aim to verify. -->
 
-#### Input
+##### Expected Behaviour
 
-<!-- Valid input data. -->
+<!-- What is the expected behavior/outcome that would make the test successful. -->
 
-#### Output
+##### Preconditions
 
-<!-- The feature should return the expected result without any errors. -->
+<!-- What are the preconditions that will allow us to run the test? -->
 
-#### Other
+##### Input
 
-<!-- More information, it could change the title (Other) as well, this is a placeholder for anything that needs to be added, it can also be deleted if not needed. -->
+<!-- What is the input of the test? -->
+
+##### Output
+
+<!-- What output/result is expected to be produced at the end of the test? -->
+
+##### Other
+
+<!-- Additional information, if applicable -->
 
 ---
 
-### TC-002
+### Test Group 2
 
-#### Test Name
+#### TC-TG2-001
 
-Basic Functionality Test 2
+##### Test Name
 
-#### Scenario Description
+`Basic Functionality Test 1 Group 2`
 
-<!-- Verify the basic functionality of the feature. -->
+##### Scenario Description
 
-#### Expected Behaviour
+<!-- Describe the scenario of the test. -->
 
-<!-- The feature should perform its primary function without errors. -->
+##### Requirements
 
-#### Input
+<!-- What are the requirement(s) that the test should aim to verify. -->
 
-<!-- Valid input data. -->
+##### Expected Behaviour
 
-#### Output
+<!-- What is the expected behavior/outcome that would make the test successful. -->
 
-<!-- The feature should return the expected result without any errors. -->
+##### Preconditions
 
-#### Other
+<!-- What are the preconditions that will allow us to run the test? -->
 
-<!-- More information, it could change the title (Other) as well, this is a placeholder for anything that needs to be added, it can also be deleted if not needed. -->
+##### Input
+
+<!-- What is the input of the test? -->
+
+##### Output
+
+<!-- What output/result is expected to be produced at the end of the test? -->
+
+##### Other
+
+<!-- Additional information, if applicable-->
 
 ---
