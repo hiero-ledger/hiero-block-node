@@ -67,9 +67,9 @@ public class PublisherClientModeHandler implements SimulatorModeHandler {
             @NonNull final BlockStreamConfig blockStreamConfig,
             @NonNull final BlockStreamManager blockStreamManager,
             @NonNull final MetricsService metricsService,
-            @NonNull final PublishClientManager publishClientManager) {
+            @NonNull final PublishStreamGrpcClient publishStreamGrpcClient) {
         this.blockStreamConfig = requireNonNull(blockStreamConfig);
-        this.publishStreamGrpcClient = requireNonNull(publishClientManager.getCurrentClient());
+        this.publishStreamGrpcClient = requireNonNull(publishStreamGrpcClient);
         this.blockStreamManager = requireNonNull(blockStreamManager);
         this.metricsService = requireNonNull(metricsService);
 
@@ -77,7 +77,6 @@ public class PublisherClientModeHandler implements SimulatorModeHandler {
         delayBetweenBlockItems = blockStreamConfig.delayBetweenBlockItems();
         millisecondsPerBlock = blockStreamConfig.millisecondsPerBlock();
         shouldPublish = new AtomicBoolean(true);
-        this.publishClientManager = requireNonNull(publishClientManager);
     }
 
     public void init() {
@@ -99,16 +98,16 @@ public class PublisherClientModeHandler implements SimulatorModeHandler {
     @Override
     public void start() throws BlockSimulatorParsingException, IOException, InterruptedException {
         LOGGER.log(INFO, "Block Stream Simulator is starting in publisher mode.");
-        try {
+//        try {
             if (streamingMode == StreamingMode.MILLIS_PER_BLOCK) {
                 millisPerBlockStreaming();
             } else {
                 constantRateStreaming();
             }
-        } finally {
-            publishStreamGrpcClient.shutdown();
-        }
-        LOGGER.log(INFO, "Block Stream Simulator has stopped streaming.");
+//        } finally {
+//            publishStreamGrpcClient.shutdown();
+//        }
+//        LOGGER.log(INFO, "Block Stream Simulator has stopped streaming.");
     }
 
     private void millisPerBlockStreaming() throws IOException, InterruptedException, BlockSimulatorParsingException {
@@ -122,8 +121,12 @@ public class PublisherClientModeHandler implements SimulatorModeHandler {
             if (!publishStreamGrpcClient.streamBlock(nextBlock, publishStreamResponseConsumer)) {
                 // We need break here to exit
                 stop();
-                publishClientManager.handleEndStream(nextBlock, publishStreamResponseAtomicReference.get());
-                break;
+                PublishStreamResponse publishStreamResponse = publishStreamResponseAtomicReference.get();
+                if (publishStreamResponse != null) {
+                    publishClientManager.handleEndStream(nextBlock, publishStreamResponse);
+                    break;
+                }
+//                break;
 //                LOGGER.log(System.Logger.Level.INFO, "Block Stream Simulator stopped streaming due to errors.");
 //                break;
             }
@@ -192,5 +195,9 @@ public class PublisherClientModeHandler implements SimulatorModeHandler {
     public void stop() throws InterruptedException {
         shouldPublish.set(false);
         publishStreamGrpcClient.shutdown();
+    }
+
+    public void setPublishClientManager(PublishClientManager publishClientManager) {
+        this.publishClientManager = publishClientManager;
     }
 }
