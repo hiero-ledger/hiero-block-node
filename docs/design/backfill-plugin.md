@@ -31,8 +31,8 @@ This plugin purpose is to detect missing gaps in the intended stored block seque
   <dd>Its a contiguous range of missing blocks, could be a single one.</dd>
   <dt>Backfill</dt>
   <dd>The process of fetching and storing missing blocks in the local storage.</dd>
-    <dt>Grpc Client</dt>
-    <dd>A client that connects to another Block Node to fetch missing blocks.</dd>
+  <dt>Grpc Client</dt>
+  <dd>A client that connects to another Block Node to fetch missing blocks.</dd>
 
 </dl>
 
