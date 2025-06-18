@@ -19,9 +19,9 @@ This plugin purpose is to detect missing gaps in the intended stored block seque
 
 ## Goals
 
-1. Detect gaps on start-up an while running.
-2. Fetch missing blocks from another BN, most be configurable.
-3. Asynchronously recovery (fetch and store) the missing blocks, without blocking the live ingestion path (new coming blocks).
+1. Detect gaps on start-up and while running.
+2. Fetch missing blocks from another BN, must be configurable.
+3. Asynchronously recover (fetch and store) the missing blocks, without blocking the live ingestion path (new incoming blocks).
 4. Instrumentation, logging, metrics and error handling for the backfill process.
 
 ## Terms
@@ -47,7 +47,7 @@ This plugin purpose is to detect missing gaps in the intended stored block seque
 
 ### MessagingFacility
 
-Block Node's messaging system used for communication between plugins and components.
+Block Node's messaging system used for communication between plugins.
 
 ### HistoricalBlockFacility
 
