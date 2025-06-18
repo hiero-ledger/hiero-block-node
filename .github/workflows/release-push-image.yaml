@@ -276,8 +276,8 @@ jobs:
       - name: Simulator - Build and push image
         uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83 # v6.18.0
         with:
-          context: ./simulator/build/docker
-          file: ./simulator/build/docker/Dockerfile
+          context: ./tools-and-tests/simulator/build/docker
+          file: ./tools-and-tests/simulator/build/docker/Dockerfile
           cache-from: type=gha
           cache-to: type=gha,mode=max
           platforms: linux/amd64, linux/arm64
