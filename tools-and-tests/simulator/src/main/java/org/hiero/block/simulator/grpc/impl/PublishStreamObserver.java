@@ -29,6 +29,8 @@ public class PublishStreamObserver implements StreamObserver<PublishStreamRespon
     private final Deque<String> lastKnownStatuses;
     private final SimulatorStartupData startupData;
 
+    private PublishStreamResponse publishStreamResponse;
+
     /**
      * Creates a new PublishStreamObserver instance.
      *
@@ -73,10 +75,15 @@ public class PublishStreamObserver implements StreamObserver<PublishStreamRespon
         } else if (publishStreamResponse.hasSkipBlock()) {
             // TODO handle skip block response
         } else if (publishStreamResponse.hasEndStream()) {
-            // TODO handle end of stream response
+            streamEnabled.set(false);
+            this.publishStreamResponse = publishStreamResponse;
         }
         lastKnownStatuses.add(publishStreamResponse.toString());
         LOGGER.log(INFO, "Received Response: " + publishStreamResponse);
+    }
+
+    public PublishStreamResponse getPublishStreamResponse() {
+        return publishStreamResponse;
     }
 
     /**

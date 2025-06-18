@@ -1,11 +1,10 @@
 package org.hiero.block.simulator.mode.impl;
 
-import static java.lang.System.Logger.Level.INFO;
-
 import com.hedera.hapi.block.stream.protoc.Block;
 import edu.umd.cs.findbugs.annotations.NonNull;
 import java.util.concurrent.atomic.AtomicBoolean;
 import javax.inject.Inject;
+import org.hiero.block.api.protoc.PublishStreamResponse;
 import org.hiero.block.simulator.config.data.BlockStreamConfig;
 import org.hiero.block.simulator.config.data.GrpcConfig;
 import org.hiero.block.simulator.generator.BlockStreamManager;
@@ -49,19 +48,19 @@ public class PublishClientManager {
         currentClient.init();
     }
 
-    private void initializeNewClientAndHandler(Block nextBlock) {
+    private void initializeNewClientAndHandler(Block nextBlock, PublishStreamResponse publishStreamResponse) {
         currentClient = new PublishStreamGrpcClientImpl(grpcConfig, blockStreamConfig, metricsService, streamEnabled, startupData);
 
         currentHandler = new PublisherClientModeHandler(
                 blockStreamConfig, blockStreamManager, metricsService, this);
         currentHandler.init();
         if (nextBlock != null) {
-            blockStreamManager.resetToBlock(nextBlock);
+            blockStreamManager.resetToBlock(publishStreamResponse.getEndStream().getBlockNumber());
         }
     }
 
-    public void handleEndStream(Block nextBlock) throws InterruptedException {
-        initializeNewClientAndHandler(nextBlock);
+    public void handleEndStream(Block nextBlock, PublishStreamResponse publishStreamResponse)  {
+        initializeNewClientAndHandler(nextBlock, publishStreamResponse);
 
         try {
             currentHandler.start();

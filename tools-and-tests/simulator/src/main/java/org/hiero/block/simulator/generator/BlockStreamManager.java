@@ -40,5 +40,5 @@ public interface BlockStreamManager {
      */
     Block getNextBlock() throws IOException, BlockSimulatorParsingException;
 
-    void resetToBlock(Block block);
+    void resetToBlock(long block);
 }

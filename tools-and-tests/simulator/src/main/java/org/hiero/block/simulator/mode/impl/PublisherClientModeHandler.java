@@ -11,7 +11,10 @@ import com.hedera.hapi.block.stream.protoc.Block;
 import edu.umd.cs.findbugs.annotations.NonNull;
 import java.io.IOException;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Consumer;
 import javax.inject.Inject;
+import org.hiero.block.api.protoc.PublishStreamResponse;
 import org.hiero.block.simulator.config.data.BlockStreamConfig;
 import org.hiero.block.simulator.config.types.StreamingMode;
 import org.hiero.block.simulator.exception.BlockSimulatorParsingException;
@@ -113,12 +116,14 @@ public class PublisherClientModeHandler implements SimulatorModeHandler {
 
         Block nextBlock = blockStreamManager.getNextBlock();
         while (nextBlock != null && shouldPublish.get()) {
+            AtomicReference<PublishStreamResponse> publishStreamResponseAtomicReference = new AtomicReference<>();
+            Consumer<PublishStreamResponse> publishStreamResponseConsumer = publishStreamResponseAtomicReference::set;
             long startTime = System.nanoTime();
-            if (publishStreamGrpcClient.streamBlock(nextBlock)) {
+            if (!publishStreamGrpcClient.streamBlock(nextBlock, publishStreamResponseConsumer)) {
                 // We need break here to exit
                 stop();
-                publishClientManager.handleEndStream(nextBlock);
-                return;
+                publishClientManager.handleEndStream(nextBlock, publishStreamResponseAtomicReference.get());
+                break;
 //                LOGGER.log(System.Logger.Level.INFO, "Block Stream Simulator stopped streaming due to errors.");
 //                break;
             }
@@ -157,12 +162,14 @@ public class PublisherClientModeHandler implements SimulatorModeHandler {
         while (shouldPublish.get()) {
             // get block
             Block block = blockStreamManager.getNextBlock();
+            AtomicReference<PublishStreamResponse> publishStreamResponseAtomicReference = new AtomicReference<>();
+            Consumer<PublishStreamResponse> publishStreamResponseConsumer = publishStreamResponseAtomicReference::set;
 
             if (block == null) {
                 LOGGER.log(INFO, "Block Stream Simulator has reached the end of the block items");
                 break;
             }
-            if (!publishStreamGrpcClient.streamBlock(block)) {
+            if (!publishStreamGrpcClient.streamBlock(block, publishStreamResponseConsumer)) {
                 LOGGER.log(INFO, "Block Stream Simulator stopped streaming due to errors.");
                 break;
             }

@@ -175,8 +175,8 @@ public class CraftBlockStreamManager implements BlockStreamManager {
     }
 
     @Override
-    public void resetToBlock(Block block) {
-        currentBlockNumber = block.getItems(0).getBlockHeader().getNumber();
+    public void resetToBlock(long block) {
+        currentBlockNumber = block + 1;
     }
 
     private Block createNextBlock() throws BlockSimulatorParsingException {
