@@ -70,7 +70,7 @@ public class PublishClientManager implements SimulatorModeHandler {
         currentClient = new PublishStreamGrpcClientImpl(
                 grpcConfig, blockStreamConfig, metricsService, streamEnabled, startupData);
         currentHandler =
-                new PublisherClientModeHandler(blockStreamConfig, blockStreamManager, metricsService, currentClient);
+                new PublisherClientModeHandler(blockStreamConfig, currentClient, blockStreamManager, metricsService);
 
         currentHandler.setPublishClientManager(this);
         currentHandler.init();
