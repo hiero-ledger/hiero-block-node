@@ -57,7 +57,6 @@ public class PublishStreamGrpcClientImpl implements PublishStreamGrpcClient {
     private final Deque<String> lastKnownStatuses;
     private final SimulatorStartupData startupData;
 
-
     private PublishStreamObserver publishStreamObserver;
 
     /**
@@ -96,7 +95,6 @@ public class PublishStreamGrpcClientImpl implements PublishStreamGrpcClient {
                 .build();
         final BlockStreamPublishServiceGrpc.BlockStreamPublishServiceStub stub =
                 BlockStreamPublishServiceGrpc.newStub(channel);
-        streamEnabled.set(true);
         publishStreamObserver =
                 new PublishStreamObserver(startupData, streamEnabled, lastKnownStatuses, lastKnownStatusesCapacity);
         requestStreamObserver = stub.publishBlockStream(publishStreamObserver);
@@ -110,7 +108,8 @@ public class PublishStreamGrpcClientImpl implements PublishStreamGrpcClient {
      * @return true if streaming should continue, false if streaming should stop
      */
     @Override
-    public boolean streamBlock(Block block, @NonNull final Consumer<PublishStreamResponse> publishStreamResponseConsumer) {
+    public boolean streamBlock(
+            Block block, @NonNull final Consumer<PublishStreamResponse> publishStreamResponseConsumer) {
         List<List<BlockItem>> streamingBatches =
                 ChunkUtils.chunkify(block.getItemsList(), blockStreamConfig.blockItemsBatchSize());
         for (List<BlockItem> streamingBatch : streamingBatches) {

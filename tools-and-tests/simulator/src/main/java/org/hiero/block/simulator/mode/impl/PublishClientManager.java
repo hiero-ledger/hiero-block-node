@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.simulator.mode.impl;
 
 import com.hedera.hapi.block.stream.protoc.Block;
@@ -6,6 +7,7 @@ import java.io.IOException;
 import java.util.concurrent.atomic.AtomicBoolean;
 import javax.inject.Inject;
 import org.hiero.block.api.protoc.PublishStreamResponse;
+import org.hiero.block.api.protoc.PublishStreamResponse.EndOfStream.Code;
 import org.hiero.block.simulator.config.data.BlockStreamConfig;
 import org.hiero.block.simulator.config.data.GrpcConfig;
 import org.hiero.block.simulator.exception.BlockSimulatorParsingException;
@@ -23,7 +25,6 @@ public class PublishClientManager implements SimulatorModeHandler {
     private final GrpcConfig grpcConfig;
     private final SimulatorStartupData startupData;
     private AtomicBoolean streamEnabled;
-
 
     private PublishStreamGrpcClient currentClient;
     private PublisherClientModeHandler currentHandler;
@@ -56,9 +57,7 @@ public class PublishClientManager implements SimulatorModeHandler {
 
     @Override
     public void start() throws BlockSimulatorParsingException, IOException, InterruptedException {
-
         currentHandler.start();
-
     }
 
     @Override
@@ -68,18 +67,34 @@ public class PublishClientManager implements SimulatorModeHandler {
 
     private void initializeNewClientAndHandler(Block nextBlock, PublishStreamResponse publishStreamResponse) {
         streamEnabled = new AtomicBoolean(true);
-        currentClient = new PublishStreamGrpcClientImpl(grpcConfig, blockStreamConfig, metricsService, streamEnabled, startupData);
+        currentClient = new PublishStreamGrpcClientImpl(
+                grpcConfig, blockStreamConfig, metricsService, streamEnabled, startupData);
+        currentHandler =
+                new PublisherClientModeHandler(blockStreamConfig, blockStreamManager, metricsService, currentClient);
 
-        currentHandler = new PublisherClientModeHandler(
-                blockStreamConfig, blockStreamManager, metricsService, currentClient);
         currentHandler.setPublishClientManager(this);
         currentHandler.init();
+
         if (nextBlock != null) {
-            blockStreamManager.resetToBlock(publishStreamResponse.getEndStream().getBlockNumber());
+            long blockNumber = publishStreamResponse.getEndStream().getBlockNumber();
+            Code status = publishStreamResponse.getEndStream().getStatus();
+            if (status == Code.TIMEOUT || status == Code.BAD_BLOCK_PROOF) {
+                blockStreamManager.resetToBlock(blockNumber - 1);
+            } else if (status == Code.BEHIND) {
+                blockStreamManager.resetToBlock(blockNumber + 1);
+            }
+
+            blockStreamManager.resetToBlock(blockNumber);
         }
     }
 
-    public void handleEndStream(Block nextBlock, PublishStreamResponse publishStreamResponse)  {
+    public void handleEndStream(Block nextBlock, PublishStreamResponse publishStreamResponse) {
+        try {
+            stop();
+        } catch (InterruptedException e) {
+            throw new RuntimeException(e);
+        }
+
         initializeNewClientAndHandler(nextBlock, publishStreamResponse);
 
         try {

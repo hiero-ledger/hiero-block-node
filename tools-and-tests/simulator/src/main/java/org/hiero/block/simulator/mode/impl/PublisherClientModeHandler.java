@@ -98,37 +98,32 @@ public class PublisherClientModeHandler implements SimulatorModeHandler {
     @Override
     public void start() throws BlockSimulatorParsingException, IOException, InterruptedException {
         LOGGER.log(INFO, "Block Stream Simulator is starting in publisher mode.");
-//        try {
+        try {
             if (streamingMode == StreamingMode.MILLIS_PER_BLOCK) {
                 millisPerBlockStreaming();
             } else {
                 constantRateStreaming();
             }
-//        } finally {
-//            publishStreamGrpcClient.shutdown();
-//        }
-//        LOGGER.log(INFO, "Block Stream Simulator has stopped streaming.");
+        } finally {
+            publishStreamGrpcClient.shutdown();
+        }
+        LOGGER.log(INFO, "Block Stream Simulator has stopped streaming.");
     }
 
     private void millisPerBlockStreaming() throws IOException, InterruptedException, BlockSimulatorParsingException {
         final long secondsPerBlockNanos = (long) millisecondsPerBlock * NANOS_PER_MILLI;
+        AtomicReference<PublishStreamResponse> publishStreamResponseAtomicReference = new AtomicReference<>();
+        Consumer<PublishStreamResponse> publishStreamResponseConsumer = publishStreamResponseAtomicReference::set;
 
         Block nextBlock = blockStreamManager.getNextBlock();
         while (nextBlock != null && shouldPublish.get()) {
-            AtomicReference<PublishStreamResponse> publishStreamResponseAtomicReference = new AtomicReference<>();
-            Consumer<PublishStreamResponse> publishStreamResponseConsumer = publishStreamResponseAtomicReference::set;
             long startTime = System.nanoTime();
             if (!publishStreamGrpcClient.streamBlock(nextBlock, publishStreamResponseConsumer)) {
-                // We need break here to exit
-                stop();
                 PublishStreamResponse publishStreamResponse = publishStreamResponseAtomicReference.get();
                 if (publishStreamResponse != null) {
                     publishClientManager.handleEndStream(nextBlock, publishStreamResponse);
                     break;
                 }
-//                break;
-//                LOGGER.log(System.Logger.Level.INFO, "Block Stream Simulator stopped streaming due to errors.");
-//                break;
             }
 
             long elapsedTime = System.nanoTime() - startTime;
@@ -161,12 +156,12 @@ public class PublisherClientModeHandler implements SimulatorModeHandler {
         int delayMSBetweenBlockItems = delayBetweenBlockItems / NANOS_PER_MILLI;
         int delayNSBetweenBlockItems = delayBetweenBlockItems % NANOS_PER_MILLI;
         int blockItemsStreamed = 0;
+        AtomicReference<PublishStreamResponse> publishStreamResponseAtomicReference = new AtomicReference<>();
+        Consumer<PublishStreamResponse> publishStreamResponseConsumer = publishStreamResponseAtomicReference::set;
 
         while (shouldPublish.get()) {
             // get block
             Block block = blockStreamManager.getNextBlock();
-            AtomicReference<PublishStreamResponse> publishStreamResponseAtomicReference = new AtomicReference<>();
-            Consumer<PublishStreamResponse> publishStreamResponseConsumer = publishStreamResponseAtomicReference::set;
 
             if (block == null) {
                 LOGGER.log(INFO, "Block Stream Simulator has reached the end of the block items");
