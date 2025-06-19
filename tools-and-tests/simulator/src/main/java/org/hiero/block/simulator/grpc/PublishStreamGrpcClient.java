@@ -19,6 +19,7 @@ public interface PublishStreamGrpcClient {
      * Streams the block.
      *
      * @param block the block to be streamed
+     * @param publishStreamResponseConsumer the consumer to handle the response
      * @return true if the block is streamed successfully, false otherwise
      */
     boolean streamBlock(Block block, Consumer<PublishStreamResponse> publishStreamResponseConsumer);

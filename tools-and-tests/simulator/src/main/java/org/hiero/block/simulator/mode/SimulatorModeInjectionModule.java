@@ -31,8 +31,8 @@ public interface SimulatorModeInjectionModule {
             @NonNull ConsumerStreamGrpcClient consumerStreamGrpcClient,
             @NonNull MetricsService metricsService,
             @NonNull PublishClientManager publishClientManager,
-            @NonNull final SimulatorStartupData startupData,
-            @NonNull final AtomicBoolean streamEnabled) {
+            @NonNull SimulatorStartupData startupData,
+            @NonNull AtomicBoolean streamEnabled) {
 
         final BlockStreamConfig blockStreamConfig = configuration.getConfigData(BlockStreamConfig.class);
         final GrpcConfig grpcConfig = configuration.getConfigData(GrpcConfig.class);

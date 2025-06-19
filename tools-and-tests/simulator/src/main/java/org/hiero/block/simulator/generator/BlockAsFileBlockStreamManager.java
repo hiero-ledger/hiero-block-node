@@ -93,7 +93,7 @@ public class BlockAsFileBlockStreamManager implements BlockStreamManager {
     }
 
     @Override
-    public void resetToBlock(long block) {
+    public void resetToBlock(final long block) {
         currentBlockIndex = (int) block;
     }
 

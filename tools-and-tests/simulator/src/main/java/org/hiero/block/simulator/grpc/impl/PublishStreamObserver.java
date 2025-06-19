@@ -82,6 +82,11 @@ public class PublishStreamObserver implements StreamObserver<PublishStreamRespon
         LOGGER.log(INFO, "Received Response: " + publishStreamResponse);
     }
 
+    /**
+     * Returns the last received PublishStreamResponse.
+     *
+     * @return the last PublishStreamResponse received
+     */
     public PublishStreamResponse getPublishStreamResponse() {
         return publishStreamResponse;
     }

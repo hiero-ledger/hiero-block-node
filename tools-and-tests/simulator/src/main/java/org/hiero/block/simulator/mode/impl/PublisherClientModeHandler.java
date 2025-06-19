@@ -52,7 +52,7 @@ public class PublisherClientModeHandler implements SimulatorModeHandler {
     // State fields
     private final AtomicBoolean shouldPublish;
 
-    PublishClientManager publishClientManager;
+    private PublishClientManager publishClientManager;
 
     /**
      * Constructs a new {@code PublisherModeHandler} with the specified dependencies.
@@ -112,8 +112,8 @@ public class PublisherClientModeHandler implements SimulatorModeHandler {
 
     private void millisPerBlockStreaming() throws IOException, InterruptedException, BlockSimulatorParsingException {
         final long secondsPerBlockNanos = (long) millisecondsPerBlock * NANOS_PER_MILLI;
-        AtomicReference<PublishStreamResponse> publishStreamResponseAtomicReference = new AtomicReference<>();
-        Consumer<PublishStreamResponse> publishStreamResponseConsumer = publishStreamResponseAtomicReference::set;
+        final AtomicReference<PublishStreamResponse> publishStreamResponseAtomicReference = new AtomicReference<>();
+        final Consumer<PublishStreamResponse> publishStreamResponseConsumer = publishStreamResponseAtomicReference::set;
 
         Block nextBlock = blockStreamManager.getNextBlock();
         while (nextBlock != null && shouldPublish.get()) {
@@ -192,6 +192,11 @@ public class PublisherClientModeHandler implements SimulatorModeHandler {
         publishStreamGrpcClient.shutdown();
     }
 
+    /**
+     * Sets the {@link PublishClientManager} instance to be used by this handler.
+     *
+     * @param publishClientManager The {@link PublishClientManager} instance to set.
+     */
     public void setPublishClientManager(PublishClientManager publishClientManager) {
         this.publishClientManager = publishClientManager;
     }
