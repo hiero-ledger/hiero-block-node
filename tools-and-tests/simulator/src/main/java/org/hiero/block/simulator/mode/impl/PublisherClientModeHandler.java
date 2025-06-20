@@ -11,7 +11,10 @@ import com.hedera.hapi.block.stream.protoc.Block;
 import edu.umd.cs.findbugs.annotations.NonNull;
 import java.io.IOException;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Consumer;
 import javax.inject.Inject;
+import org.hiero.block.api.protoc.PublishStreamResponse;
 import org.hiero.block.simulator.config.data.BlockStreamConfig;
 import org.hiero.block.simulator.config.types.StreamingMode;
 import org.hiero.block.simulator.exception.BlockSimulatorParsingException;
@@ -48,6 +51,8 @@ public class PublisherClientModeHandler implements SimulatorModeHandler {
 
     // State fields
     private final AtomicBoolean shouldPublish;
+
+    private PublishClientManager publishClientManager;
 
     /**
      * Constructs a new {@code PublisherModeHandler} with the specified dependencies.
@@ -108,12 +113,17 @@ public class PublisherClientModeHandler implements SimulatorModeHandler {
 
     private void millisPerBlockStreaming() throws IOException, InterruptedException, BlockSimulatorParsingException {
         final long secondsPerBlockNanos = (long) millisecondsPerBlock * NANOS_PER_MILLI;
+        final AtomicReference<PublishStreamResponse> publishStreamResponseAtomicReference = new AtomicReference<>();
+        final Consumer<PublishStreamResponse> publishStreamResponseConsumer = publishStreamResponseAtomicReference::set;
 
         Block nextBlock = blockStreamManager.getNextBlock();
         while (nextBlock != null && shouldPublish.get()) {
             long startTime = System.nanoTime();
-            if (!publishStreamGrpcClient.streamBlock(nextBlock)) {
-                LOGGER.log(System.Logger.Level.INFO, "Block Stream Simulator stopped streaming due to errors.");
+            if (!publishStreamGrpcClient.streamBlock(nextBlock, publishStreamResponseConsumer)) {
+                PublishStreamResponse publishStreamResponse = publishStreamResponseAtomicReference.get();
+                if (publishStreamResponse != null) {
+                    publishClientManager.handleEndStream(nextBlock, publishStreamResponse);
+                }
                 break;
             }
 
@@ -147,6 +157,8 @@ public class PublisherClientModeHandler implements SimulatorModeHandler {
         int delayMSBetweenBlockItems = delayBetweenBlockItems / NANOS_PER_MILLI;
         int delayNSBetweenBlockItems = delayBetweenBlockItems % NANOS_PER_MILLI;
         int blockItemsStreamed = 0;
+        AtomicReference<PublishStreamResponse> publishStreamResponseAtomicReference = new AtomicReference<>();
+        Consumer<PublishStreamResponse> publishStreamResponseConsumer = publishStreamResponseAtomicReference::set;
 
         while (shouldPublish.get()) {
             // get block
@@ -156,8 +168,11 @@ public class PublisherClientModeHandler implements SimulatorModeHandler {
                 LOGGER.log(INFO, "Block Stream Simulator has reached the end of the block items");
                 break;
             }
-            if (!publishStreamGrpcClient.streamBlock(block)) {
-                LOGGER.log(INFO, "Block Stream Simulator stopped streaming due to errors.");
+            if (!publishStreamGrpcClient.streamBlock(block, publishStreamResponseConsumer)) {
+                PublishStreamResponse publishStreamResponse = publishStreamResponseAtomicReference.get();
+                if (publishStreamResponse != null) {
+                    publishClientManager.handleEndStream(block, publishStreamResponse);
+                }
                 break;
             }
 
@@ -179,5 +194,14 @@ public class PublisherClientModeHandler implements SimulatorModeHandler {
     public void stop() throws InterruptedException {
         shouldPublish.set(false);
         publishStreamGrpcClient.shutdown();
+    }
+
+    /**
+     * Sets the {@link PublishClientManager} instance to be used by this handler.
+     *
+     * @param publishClientManager The {@link PublishClientManager} instance to set.
+     */
+    public void setPublishClientManager(PublishClientManager publishClientManager) {
+        this.publishClientManager = publishClientManager;
     }
 }

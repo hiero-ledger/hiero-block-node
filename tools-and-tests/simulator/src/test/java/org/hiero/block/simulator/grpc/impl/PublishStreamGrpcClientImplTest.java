@@ -21,6 +21,8 @@ import io.grpc.stub.StreamObserver;
 import java.io.IOException;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Consumer;
 import org.hiero.block.api.protoc.BlockItemSet;
 import org.hiero.block.api.protoc.BlockStreamPublishServiceGrpc;
 import org.hiero.block.api.protoc.PublishStreamRequest;
@@ -164,7 +166,10 @@ class PublishStreamGrpcClientImplTest {
                     .addItems(blockItemProof)
                     .build();
 
-            final boolean result = publishStreamGrpcClient.streamBlock(block);
+            final AtomicReference<PublishStreamResponse> publishStreamResponseAtomicReference = new AtomicReference<>();
+            final Consumer<PublishStreamResponse> publishStreamResponseConsumer =
+                    publishStreamResponseAtomicReference::set;
+            final boolean result = publishStreamGrpcClient.streamBlock(block, publishStreamResponseConsumer);
             assertTrue(result);
         }
 
@@ -189,10 +194,12 @@ class PublishStreamGrpcClientImplTest {
     void testStreamBlock_RejectsAfterShutdown() throws InterruptedException {
         publishStreamGrpcClient.init();
         final int streamedBlocks = 3;
+        final AtomicReference<PublishStreamResponse> publishStreamResponseAtomicReference = new AtomicReference<>();
+        final Consumer<PublishStreamResponse> publishStreamResponseConsumer = publishStreamResponseAtomicReference::set;
 
         for (int i = 0; i < streamedBlocks; i++) {
             final Block block = constructBlock(i, false);
-            final boolean result = publishStreamGrpcClient.streamBlock(block);
+            final boolean result = publishStreamGrpcClient.streamBlock(block, publishStreamResponseConsumer);
             assertTrue(result);
         }
 
@@ -215,13 +222,16 @@ class PublishStreamGrpcClientImplTest {
         isShutdownCalled = true;
 
         final Block block = constructBlock(0, false);
-        IllegalStateException exception =
-                assertThrows(IllegalStateException.class, () -> publishStreamGrpcClient.streamBlock(block));
+        IllegalStateException exception = assertThrows(
+                IllegalStateException.class,
+                () -> publishStreamGrpcClient.streamBlock(block, publishStreamResponseConsumer));
         assertEquals("Stream is already completed, no further calls are allowed", exception.getMessage());
     }
 
     @Test
     public void handleMidBlockFailIfSetNone() {
+        final AtomicReference<PublishStreamResponse> publishStreamResponseAtomicReference = new AtomicReference<>();
+        final Consumer<PublishStreamResponse> publishStreamResponseConsumer = publishStreamResponseAtomicReference::set;
         blockStreamConfig = BlockStreamConfig.builder()
                 .midBlockFailType(MidBlockFailType.NONE)
                 .midBlockFailOffset(0L)
@@ -230,12 +240,16 @@ class PublishStreamGrpcClientImplTest {
                 grpcConfig, blockStreamConfig, metricsService, streamEnabled, startupDataMock);
 
         publishStreamGrpcClient.init();
-        assertDoesNotThrow(() -> publishStreamGrpcClient.streamBlock(constructBlock(0, true)));
-        assertDoesNotThrow(() -> publishStreamGrpcClient.streamBlock(constructBlock(1, true)));
+        assertDoesNotThrow(
+                () -> publishStreamGrpcClient.streamBlock(constructBlock(0, true), publishStreamResponseConsumer));
+        assertDoesNotThrow(
+                () -> publishStreamGrpcClient.streamBlock(constructBlock(1, true), publishStreamResponseConsumer));
     }
 
     @Test
     public void handleMidBlockFailIfSetAbrupt() {
+        final AtomicReference<PublishStreamResponse> publishStreamResponseAtomicReference = new AtomicReference<>();
+        final Consumer<PublishStreamResponse> publishStreamResponseConsumer = publishStreamResponseAtomicReference::set;
         blockStreamConfig = BlockStreamConfig.builder()
                 .midBlockFailType(MidBlockFailType.ABRUPT)
                 .midBlockFailOffset(1L)
@@ -244,14 +258,18 @@ class PublishStreamGrpcClientImplTest {
                 grpcConfig, blockStreamConfig, metricsService, streamEnabled, startupDataMock);
 
         publishStreamGrpcClient.init();
-        assertDoesNotThrow(() -> publishStreamGrpcClient.streamBlock(constructBlock(0, true)));
+        assertDoesNotThrow(
+                () -> publishStreamGrpcClient.streamBlock(constructBlock(0, true), publishStreamResponseConsumer));
         RuntimeException ex = assertThrows(
-                RuntimeException.class, () -> publishStreamGrpcClient.streamBlock(constructBlock(1, true)));
+                RuntimeException.class,
+                () -> publishStreamGrpcClient.streamBlock(constructBlock(1, true), publishStreamResponseConsumer));
         assertEquals("Configured abrupt disconnection occurred", ex.getMessage());
     }
 
     @Test
     public void handleMidBlockFailIfSetEos() {
+        final AtomicReference<PublishStreamResponse> publishStreamResponseAtomicReference = new AtomicReference<>();
+        final Consumer<PublishStreamResponse> publishStreamResponseConsumer = publishStreamResponseAtomicReference::set;
         blockStreamConfig = BlockStreamConfig.builder()
                 .midBlockFailType(MidBlockFailType.EOS)
                 .midBlockFailOffset(1L)
@@ -260,13 +278,18 @@ class PublishStreamGrpcClientImplTest {
                 grpcConfig, blockStreamConfig, metricsService, streamEnabled, startupDataMock);
 
         publishStreamGrpcClient.init();
-        assertDoesNotThrow(() -> publishStreamGrpcClient.streamBlock(constructBlock(0, true)));
-        assertThrows(IllegalStateException.class, () -> publishStreamGrpcClient.streamBlock(constructBlock(1, true)));
+        assertDoesNotThrow(
+                () -> publishStreamGrpcClient.streamBlock(constructBlock(0, true), publishStreamResponseConsumer));
+        assertThrows(
+                IllegalStateException.class,
+                () -> publishStreamGrpcClient.streamBlock(constructBlock(1, true), publishStreamResponseConsumer));
         isShutdownCalled = true; // to avoid calling onCompleted after onError
     }
 
     @Test
     public void handleMidBlockFailIfSetStreamingBatchTooSmall() {
+        final AtomicReference<PublishStreamResponse> publishStreamResponseAtomicReference = new AtomicReference<>();
+        final Consumer<PublishStreamResponse> publishStreamResponseConsumer = publishStreamResponseAtomicReference::set;
         blockStreamConfig = BlockStreamConfig.builder()
                 .midBlockFailType(MidBlockFailType.ABRUPT)
                 .midBlockFailOffset(0L)
@@ -274,7 +297,8 @@ class PublishStreamGrpcClientImplTest {
         publishStreamGrpcClient = new PublishStreamGrpcClientImpl(
                 grpcConfig, blockStreamConfig, metricsService, streamEnabled, startupDataMock);
         publishStreamGrpcClient.init();
-        assertDoesNotThrow(() -> publishStreamGrpcClient.streamBlock(constructBlock(1, false)));
+        assertDoesNotThrow(
+                () -> publishStreamGrpcClient.streamBlock(constructBlock(1, false), publishStreamResponseConsumer));
     }
 
     private Block constructBlock(long number, boolean withItems) {

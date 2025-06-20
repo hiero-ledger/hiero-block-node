@@ -92,6 +92,12 @@ public class BlockAsFileBlockStreamManager implements BlockStreamManager {
         return nextBlock;
     }
 
+    // TODO: Implement resetToBlock to reset the actual block not the index
+    @Override
+    public void resetToBlock(final long block) {
+        currentBlockIndex = (int) block;
+    }
+
     private void loadBlocks() throws IOException, ParseException {
 
         final Path rootPath = Path.of(rootFolder);

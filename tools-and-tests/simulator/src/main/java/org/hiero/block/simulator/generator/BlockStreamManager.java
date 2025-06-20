@@ -39,4 +39,11 @@ public interface BlockStreamManager {
      * @throws BlockSimulatorParsingException if a parse error occurs
      */
     Block getNextBlock() throws IOException, BlockSimulatorParsingException;
+
+    /**
+     * Reset the block stream manager to a specific block.
+     *
+     * @param block the block number to reset to
+     */
+    void resetToBlock(final long block);
 }

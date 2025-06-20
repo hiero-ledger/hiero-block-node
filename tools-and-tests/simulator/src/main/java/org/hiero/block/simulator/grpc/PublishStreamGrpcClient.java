@@ -3,6 +3,8 @@ package org.hiero.block.simulator.grpc;
 
 import com.hedera.hapi.block.stream.protoc.Block;
 import java.util.List;
+import java.util.function.Consumer;
+import org.hiero.block.api.protoc.PublishStreamResponse;
 
 /**
  * The PublishStreamGrpcClient interface provides the methods to stream the block and block item.
@@ -17,9 +19,10 @@ public interface PublishStreamGrpcClient {
      * Streams the block.
      *
      * @param block the block to be streamed
+     * @param publishStreamResponseConsumer the consumer to handle the response
      * @return true if the block is streamed successfully, false otherwise
      */
-    boolean streamBlock(Block block);
+    boolean streamBlock(Block block, Consumer<PublishStreamResponse> publishStreamResponseConsumer);
 
     /**
      * Sends a onCompleted message to the server and waits for a short period of time to ensure the message is sent.
