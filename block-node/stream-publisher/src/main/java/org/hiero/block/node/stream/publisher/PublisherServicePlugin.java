@@ -146,10 +146,10 @@ public final class PublisherServicePlugin
      */
     private void onSessionUpdate(BlockStreamProducerSession session, UpdateType updateType, long blockNumber) {
         stateLock.lock();
-        // log from inside the lock so only one onSessionUpdate thread is logging at a time
-        LOGGER.log(
-                DEBUG, "START onSessionUpdate: type={0} blockNumber={1} session={2}", updateType, blockNumber, session);
         try {
+            // log from inside the lock so only one onSessionUpdate thread is logging at a time
+            final String startLogMessage = "START onSessionUpdate: type={0} blockNumber={1} session={2}";
+            LOGGER.log(DEBUG, startLogMessage, updateType, blockNumber, session);
             // ==== Update Metrics =====================================================================
             final LongSummaryStatistics blockNumbersStats = openSessions.stream()
                     .mapToLong(BlockStreamProducerSession::currentBlockNumber)
@@ -172,16 +172,14 @@ public final class PublisherServicePlugin
             if (currentBlockNumber != UNKNOWN_BLOCK_NUMBER && latestAckedBlockNumber != UNKNOWN_BLOCK_NUMBER) {
                 // Duplicate Pre-check, even before acquiring the lock
                 if (blockNumber <= latestAckedBlockNumber) {
-                    session.sendDuplicateAck(latestAckedBlockNumber);
+                    session.sendDuplicateBlock(latestAckedBlockNumber);
                     return;
                 }
 
                 // Ahead Pre-Check, similar to above,
                 // but there is how many blocks ahead we can keep in buffer?
-                // TODO, this offset should be calculated using a config value, or hard-code on a specific number but
-                // keep
-                // as
-                // constant.
+                // @todo('') this offset should be calculated using a config value, or hard-code on a
+                //     specific number but keep as constant.
                 long offset = 3; // this should be 1 + BufferCapacity=2.
                 if (blockNumber > currentBlockNumber + offset) {
                     session.sendStreamItemsBehind(latestAckedBlockNumber);
@@ -191,11 +189,10 @@ public final class PublisherServicePlugin
 
             // ==== Active Primary Session Handle =======================================================
             if (currentPrimarySession != null) {
-
                 // if update type is END_BLOCK and from primary session, we need to update the current block number, so
                 // that we start looking for next block
                 final boolean isCurrentPrimarySessionEnded = updateType == UpdateType.END_BLOCK
-                        && session.currentBlockState() == BlockStreamProducerSession.BlockState.PRIMARY;
+                        && session.currentBlockState() == BlockStreamProducerSession.BlockState.CURRENT;
 
                 if (isCurrentPrimarySessionEnded) {
                     currentBlockNumber = currentBlockNumber + 1;
@@ -215,12 +212,9 @@ public final class PublisherServicePlugin
                     return;
                 } else {
                     // this is odd, we have a primary session, but it is not the current block number
-                    LOGGER.log(
-                            WARNING,
-                            "    currentPrimarySession is not providing correct block number, "
-                                    + "currentBlockNumber={0} primarySession={1}",
-                            currentBlockNumber,
-                            currentPrimarySession);
+                    final String incorrectBlockNumberMessage =
+                            "    currentPrimarySession is not providing correct block number, currentBlockNumber={0} primarySession={1}";
+                    LOGGER.log(WARNING, incorrectBlockNumberMessage, currentBlockNumber, currentPrimarySession);
                 }
                 currentPrimarySession = null;
                 // Seems like all we can do here is request a resend of the block
@@ -228,7 +222,6 @@ public final class PublisherServicePlugin
 
                 return;
             }
-
             // ==== Inactive Primary Session Handle =====================================================
 
             // try and pick a new primary session if there is one
@@ -249,27 +242,25 @@ public final class PublisherServicePlugin
                         .mapToLong(BlockStreamProducerSession::currentBlockNumber)
                         .filter(blockNumber1 -> blockNumber1 > currentBlockNumber)
                         .min();
+                final LongSummaryStatistics sessionsSummary = openSessions.stream()
+                        .mapToLong(BlockStreamProducerSession::currentBlockNumber)
+                        .summaryStatistics();
                 if (newCurrentBlockNumber.isPresent()) {
                     LOGGER.log(
-                            INFO,
-                            "    currentBlockNumber updated from {0} to {1} from sessions, " + "availableBlocks={2}",
+                            DEBUG,
+                            "    currentBlockNumber updated from {0} to {1} from sessions, availableBlocks={2}",
                             currentBlockNumber,
                             newCurrentBlockNumber.getAsLong(),
-                            openSessions.stream()
-                                    .mapToLong(BlockStreamProducerSession::currentBlockNumber)
-                                    .summaryStatistics());
+                            sessionsSummary);
                     currentBlockNumber = newCurrentBlockNumber.getAsLong();
                     currentBlockNumberInbound.set(currentBlockNumber);
                 } else {
                     // this is not ideal, we have no sessions that are ahead of the current block number
                     LOGGER.log(
-                            WARNING,
-                            "    currentBlockNumber or newer is not being provided by any "
-                                    + "session, currentBlockNumber={0} availableBlocks={1}",
+                            INFO,
+                            "    currentBlockNumber or newer is not being provided by any session, currentBlockNumber={0} availableBlocks={1}",
                             currentBlockNumber,
-                            openSessions.stream()
-                                    .mapToLong(BlockStreamProducerSession::currentBlockNumber)
-                                    .summaryStatistics());
+                            sessionsSummary);
                 }
             }
             Optional<BlockStreamProducerSession> newPrimarySession = openSessions.stream()
@@ -308,8 +299,7 @@ public final class PublisherServicePlugin
                     if (currentMinSessionBlockNumber > currentBlockNumber) {
                         LOGGER.log(
                                 WARNING,
-                                "   All sessions are ahead [{1}] of the current block number [{2}], "
-                                        + "this means we wil never get another block",
+                                "   All sessions are ahead [{1}] of the current block number [{2}], this means we wil never get another block",
                                 currentMinSessionBlockNumber,
                                 currentBlockNumber);
                     }
@@ -461,7 +451,6 @@ public final class PublisherServicePlugin
         // reset the number of producers metric
         if (numberOfProducers != null) numberOfProducers.set(0);
     }
-
     // ==== BlockNotificationHandler Methods ===========================================================================
 
     /**
@@ -521,7 +510,6 @@ public final class PublisherServicePlugin
             stateLock.unlock();
         }
     }
-
     // ==== BlockStreamPublishServiceInterface Methods
     // ===================================================================================
 
@@ -574,10 +562,6 @@ public final class PublisherServicePlugin
                     onSessionUpdate(null, UpdateType.SESSION_ADDED, UNKNOWN_BLOCK_NUMBER);
                     // return the pipeline
                     yield pipe;
-
-                    /*case subscribeBlockStream:
-                    // we do not support this method
-                    throw new RuntimeException();*/
             };
         } finally {
             stateLock.unlock();

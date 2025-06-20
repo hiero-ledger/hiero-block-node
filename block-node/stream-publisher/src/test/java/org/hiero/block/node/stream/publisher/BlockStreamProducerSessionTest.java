@@ -122,7 +122,7 @@ public class BlockStreamProducerSessionTest {
         session.switchToPrimary();
 
         // Verify state change
-        assertEquals(BlockStreamProducerSession.BlockState.PRIMARY, session.currentBlockState());
+        assertEquals(BlockStreamProducerSession.BlockState.CURRENT, session.currentBlockState());
     }
 
     /**
@@ -163,7 +163,7 @@ public class BlockStreamProducerSessionTest {
         // Test processing in PRIMARY state with transaction result
         session.switchToPrimary();
         session.onNext(List.of(SAMPLE_ROUND_HEADER));
-        assertEquals(BlockStreamProducerSession.BlockState.PRIMARY, session.currentBlockState());
+        assertEquals(BlockStreamProducerSession.BlockState.CURRENT, session.currentBlockState());
     }
 
     /**
@@ -274,7 +274,7 @@ public class BlockStreamProducerSessionTest {
 
         // Add transaction results
         session.onNext(List.of(SAMPLE_ROUND_HEADER));
-        assertEquals(BlockStreamProducerSession.BlockState.PRIMARY, session.currentBlockState());
+        assertEquals(BlockStreamProducerSession.BlockState.CURRENT, session.currentBlockState());
 
         // End block with proof
         session.onNext(List.of(SAMPLE_BLOCK_PROOF));

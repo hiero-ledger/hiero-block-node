@@ -43,9 +43,8 @@ public final class BlockStreamProducerSession implements Pipeline<List<BlockItem
     /** Enum for the state of a block source */
     public enum BlockState {
         NEW,
-        PRIMARY,
-        BEHIND,
-        WAITING_FOR_RESEND,
+        CURRENT,
+        SKIPPING,
         DISCONNECTED
     }
 
@@ -144,8 +143,8 @@ public final class BlockStreamProducerSession implements Pipeline<List<BlockItem
      */
     @Override
     public String toString() {
-        return "BlockStreamProducerSession{id=" + sessionId + ", currentBlockNumber=" + currentBlockNumber
-                + ", currentBlockState=" + currentBlockState + '}';
+        return "BlockStreamProducerSession{id=%d, currentBlockNumber=%d, currentBlockState=%s}"
+                .formatted(sessionId, currentBlockNumber, currentBlockState);
     }
 
     /**
@@ -192,7 +191,7 @@ public final class BlockStreamProducerSession implements Pipeline<List<BlockItem
      */
     void switchToPrimary() {
         // switch to primary state
-        currentBlockState = BlockState.PRIMARY;
+        currentBlockState = BlockState.CURRENT;
         // send any items we have in the new items list to the block messaging service
         if (!newBlockItems.isEmpty()) {
             // this items will always be the first items in a block so we can use the block number
@@ -208,10 +207,14 @@ public final class BlockStreamProducerSession implements Pipeline<List<BlockItem
      * We can tell the client that we are behind so they can skip the rest of the block. This is called when we are in
      * the new state and have received the first block item for the new block. It is trusted that this is always called
      * with the stateLock already acquired.
+     * @todo() This is completely wrong, if the publisher is to _skip_ the block, then it is the
+     *     opposite of behind, it is _ahead_.  We skip because the session can now send a block
+     *     later than primary; we _continue storing block items_, and hold them for when the primary
+     *     finishes sending the earlier block.
      */
     void switchToBehind() {
         // switch to behind state
-        currentBlockState = BlockState.BEHIND;
+        currentBlockState = BlockState.SKIPPING;
         // throw away any items we have in the new items list
         newBlockItems.clear();
         // let client know we do not need more data for the current block
@@ -222,19 +225,12 @@ public final class BlockStreamProducerSession implements Pipeline<List<BlockItem
     }
 
     /**
-     * Send a message to the client that they are probably behind, and that this is a duplicate block.
+     * Send a message to the client that they sent a duplicate block and are behind.
      * @param latestAckBlock the latestBlock that we already acknowledged.
      */
-    void sendDuplicateAck(final long latestAckBlock) {
-        currentBlockState = BlockState.BEHIND;
+    void sendDuplicateBlock(final long latestAckBlock) {
         newBlockItems.clear();
-        // sending a duplicate ack should also update the latestAck.
-        latestAcknowledgedBlock = latestAckBlock;
-        final BlockAcknowledgement ack = new BlockAcknowledgement(latestAckBlock, null, true);
-        final PublishStreamResponse duplicateResponse =
-                new PublishStreamResponse(new OneOf<>(ResponseOneOfType.ACKNOWLEDGEMENT, ack));
-        sendResponse(duplicateResponse);
-        blocksAckSent.increment();
+        close(Code.DUPLICATE_BLOCK);
     }
 
     /**
@@ -242,14 +238,8 @@ public final class BlockStreamProducerSession implements Pipeline<List<BlockItem
      * @param latestAckBlock the latest block number that we already acknowledged.
      */
     void sendStreamItemsBehind(final long latestAckBlock) {
-        currentBlockState = BlockState.WAITING_FOR_RESEND;
         newBlockItems.clear();
-
-        final EndOfStream endOfStream = new EndOfStream(Code.BEHIND, latestAckBlock);
-        final PublishStreamResponse response =
-                new PublishStreamResponse(new OneOf<>(ResponseOneOfType.END_STREAM, endOfStream));
-        sendResponse(response);
-        blocksEndOfStreamSent.increment();
+        close(Code.BEHIND);
     }
 
     /**
@@ -259,8 +249,6 @@ public final class BlockStreamProducerSession implements Pipeline<List<BlockItem
      * @param blockNumber the block number to request to be resent
      */
     void requestResend(final long blockNumber) {
-        // switch to waiting for resend state
-        currentBlockState = BlockState.WAITING_FOR_RESEND;
         currentBlockNumber = blockNumber;
         // throw away any items we have in the new items list
         newBlockItems.clear();
@@ -269,21 +257,29 @@ public final class BlockStreamProducerSession implements Pipeline<List<BlockItem
                 new PublishStreamResponse(new OneOf<>(ResponseOneOfType.RESEND_BLOCK, new ResendBlock(blockNumber)));
         sendResponse(resendBlockResponse);
         blocksResendSent.increment();
+        // switch to NEW state to wait for the next block
+        currentBlockState = BlockState.NEW;
+    }
+
+    /**
+     * Close the session with SUCCESS and cancel the subscription.
+     */
+    void close() {
+        close(Code.SUCCESS);
     }
 
     /**
      * Close the session and cancel the subscription.
+     * Use the given code in the end stream message.
      */
-    void close() {
+    void close(final Code responseCode) {
         if (currentBlockState != BlockState.DISCONNECTED) {
             currentBlockState = BlockState.DISCONNECTED;
             // try to send a close response to the client
-
             final PublishStreamResponse closeResponse = new PublishStreamResponse(
-                    new OneOf<>(ResponseOneOfType.END_STREAM, new EndOfStream(Code.SUCCESS, currentBlockNumber)));
+                    new OneOf<>(ResponseOneOfType.END_STREAM, new EndOfStream(responseCode, currentBlockNumber)));
             sendResponse(closeResponse);
             blocksEndOfStreamSent.increment();
-
             if (subscription != null) {
                 subscription.cancel();
                 subscription = null;
@@ -349,7 +345,6 @@ public final class BlockStreamProducerSession implements Pipeline<List<BlockItem
             currentBlockState = BlockState.DISCONNECTED;
         }
     }
-
     // ==== Pipeline Flow Methods ==================================================================================
 
     /**
@@ -365,7 +360,7 @@ public final class BlockStreamProducerSession implements Pipeline<List<BlockItem
             liveBlockItemsReceived.add(items.size());
 
             if (items.isEmpty()) {
-                currentBlockState = BlockState.WAITING_FOR_RESEND;
+                currentBlockState = BlockState.NEW;
             } else {
                 // check items to see if we are entering a new block
                 final boolean newBlock = items.getFirst().hasBlockHeader();
@@ -376,7 +371,7 @@ public final class BlockStreamProducerSession implements Pipeline<List<BlockItem
                                 .number();
                         // move to new state if we are not in the waiting for resend state, or if we are in the waiting
                         // for resend state and the block number is the same as the current block number
-                        if (currentBlockState != BlockState.WAITING_FOR_RESEND
+                        if (currentBlockState != BlockState.SKIPPING
                                 || newBlockNumber == currentBlockNumber) {
                             // set the start time of the current block
                             startTimeOfCurrentBlock = System.nanoTime();
@@ -394,26 +389,21 @@ public final class BlockStreamProducerSession implements Pipeline<List<BlockItem
             }
             switch (currentBlockState) {
                 case NEW -> newBlockItems.addAll(items);
-                case PRIMARY -> {
+                case CURRENT -> {
                     // we are in the primary state, so we can send the items directly to the block messaging service
                     // this will never be the first items in a block so we can always send UNKNOWN_BLOCK_NUMBER for
                     // block number
                     sendToBlockMessaging.accept(new BlockItems(items, UNKNOWN_BLOCK_NUMBER));
                 }
-                case BEHIND -> {
-                    // we can ignore as any items we receive in this state are not relevant
-                    LOGGER.log(DEBUG, "Received {0} items while in BEHIND state", items);
-                }
-                case WAITING_FOR_RESEND -> {
-                    // we are waiting for a resend, so we can ignore any items we receive in this state
-                    LOGGER.log(DEBUG, "Received {0} items while in WAITING_FOR_RESEND state", items);
+                case SKIPPING -> {
+                    // @todo() Skipping means we are ahead of the primary session, so we can just store the items
+                    //  for now and send them to messaging once the "current" session gets a block proof.
                 }
                 case DISCONNECTED -> {
                     // do nothing but log, as we are disconnected
                     LOGGER.log(DEBUG, "BlockStreamProducerSession is disconnected, but received items: {0}", items);
                 }
             }
-
             updatePluginState(items);
         } finally {
             stateLock.unlock();
@@ -433,7 +423,6 @@ public final class BlockStreamProducerSession implements Pipeline<List<BlockItem
             onUpdate.update(this, UpdateType.BLOCK_ITEMS_RECEIVED, currentBlockNumber);
             return;
         }
-
         final boolean newBlock = items.getFirst().hasBlockHeader();
         // call the onUpdate method to notify the block messaging service that we have received data and updated our
         // state, check if we are starting or ending a block
