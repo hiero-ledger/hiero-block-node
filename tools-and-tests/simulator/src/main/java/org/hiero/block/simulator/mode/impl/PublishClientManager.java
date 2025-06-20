@@ -78,13 +78,12 @@ public class PublishClientManager implements SimulatorModeHandler {
         if (nextBlock != null) {
             long blockNumber = publishStreamResponse.getEndStream().getBlockNumber();
             Code status = publishStreamResponse.getEndStream().getStatus();
-            if (status == Code.TIMEOUT || status == Code.BAD_BLOCK_PROOF) {
-                blockStreamManager.resetToBlock(blockNumber - 1);
-            } else if (status == Code.BEHIND) {
-                blockStreamManager.resetToBlock(blockNumber + 1);
-            }
 
-            blockStreamManager.resetToBlock(blockNumber);
+            switch (status) {
+                case TIMEOUT, BAD_BLOCK_PROOF -> blockStreamManager.resetToBlock(blockNumber - 1);
+                case BEHIND, DUPLICATE_BLOCK, SUCCESS -> blockStreamManager.resetToBlock(blockNumber + 1);
+                case INTERNAL_ERROR, PERSISTENCE_FAILED -> blockStreamManager.resetToBlock(blockNumber);
+            }
         }
     }
 
