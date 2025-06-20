@@ -256,32 +256,32 @@ public class PublisherClientModeHandlerTest {
         verifyNoMoreInteractions(blockStreamManager);
     }
 
-    //    @Test
-    //    void testMillisPerBlockStreaming_streamSuccessBecomesFalse() throws Exception {
-    //        when(blockStreamConfig.streamingMode()).thenReturn(StreamingMode.MILLIS_PER_BLOCK);
-    //        when(blockStreamConfig.millisecondsPerBlock()).thenReturn(1000);
-    //
-    //        publisherClientModeHandler = new PublisherClientModeHandler(
-    //                blockStreamConfig, publishStreamGrpcClient, blockStreamManager, metricsService);
-    //
-    //        Block block1 = mock(Block.class);
-    //        Block block2 = mock(Block.class);
-    //
-    //        when(blockStreamManager.getNextBlock())
-    //                .thenReturn(block1)
-    //                .thenReturn(block2)
-    //                .thenReturn(null);
-    //
-    //        when(publishStreamGrpcClient.streamBlock(eq(block1), any())).thenReturn(true);
-    //        when(publishStreamGrpcClient.streamBlock(eq(block2), any())).thenReturn(false);
-    //
-    //        publisherClientModeHandler.start();
-    //
-    //        verify(publishStreamGrpcClient).streamBlock(eq(block1), any());
-    //        verify(publishStreamGrpcClient).streamBlock(eq(block2), any());
-    //        verify(publishStreamGrpcClient).shutdown();
-    //        verify(blockStreamManager, times(2)).getNextBlock();
-    //    }
+    @Test
+    void testMillisPerBlockStreaming_streamSuccessBecomesFalse() throws Exception {
+        when(blockStreamConfig.streamingMode()).thenReturn(StreamingMode.MILLIS_PER_BLOCK);
+        when(blockStreamConfig.millisecondsPerBlock()).thenReturn(1000);
+
+        publisherClientModeHandler = new PublisherClientModeHandler(
+                blockStreamConfig, publishStreamGrpcClient, blockStreamManager, metricsService);
+
+        Block block1 = mock(Block.class);
+        Block block2 = mock(Block.class);
+
+        when(blockStreamManager.getNextBlock())
+                .thenReturn(block1)
+                .thenReturn(block2)
+                .thenReturn(null);
+
+        when(publishStreamGrpcClient.streamBlock(eq(block1), any())).thenReturn(true);
+        when(publishStreamGrpcClient.streamBlock(eq(block2), any())).thenReturn(false);
+
+        publisherClientModeHandler.start();
+
+        verify(publishStreamGrpcClient).streamBlock(eq(block1), any());
+        verify(publishStreamGrpcClient).streamBlock(eq(block2), any());
+        verify(publishStreamGrpcClient).shutdown();
+        verify(blockStreamManager, times(2)).getNextBlock();
+    }
 
     @Test
     void testConstantRateStreaming_streamSuccessBecomesFalse() throws Exception {

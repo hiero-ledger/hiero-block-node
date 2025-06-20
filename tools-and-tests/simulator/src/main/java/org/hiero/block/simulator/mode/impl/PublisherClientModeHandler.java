@@ -123,8 +123,8 @@ public class PublisherClientModeHandler implements SimulatorModeHandler {
                 PublishStreamResponse publishStreamResponse = publishStreamResponseAtomicReference.get();
                 if (publishStreamResponse != null) {
                     publishClientManager.handleEndStream(nextBlock, publishStreamResponse);
-                    break;
                 }
+                break;
             }
 
             long elapsedTime = System.nanoTime() - startTime;
