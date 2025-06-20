@@ -33,6 +33,12 @@ This plugin purpose is to detect missing gaps in the intended stored block seque
   <dd>The process of fetching and storing missing blocks in the local storage.</dd>
   <dt>Grpc Client</dt>
   <dd>A client that connects to another Block Node to fetch missing blocks.</dd>
+  <dt>BackfilledBlockNotification</dt>
+  <dd>A new Notification Type that can be published to the Messaging Facility, it is intended to contain a whole block that was fetched from another source and is being backfilled into the system. </dd>
+  <dt>NewestBlockKnownToNetwork</dt>
+  <dd>Commonly sent by the Publisher Plugin to indicate that the BlockNode is behind and that needs to get up-to-date, commonly picked handled by Backfill plugin and filling the gap immediately.</dd>
+  <dt>BlockSource</dt>
+  <dd>A new Enum that will be added to existing notification types: `VerificationNotification` and `PersistedNotification` to indicate the original source where the block is coming from, currently it will only have two values: `Publisher`, `Backfill`</dd>
 
 </dl>
 
@@ -180,14 +186,50 @@ flowchart TD
 
 ## Configuration
 
-|     Configuration Property     |                                     Description                                      | Default |
-|--------------------------------|--------------------------------------------------------------------------------------|---------|
-| `backfill.firstBlockAvailable` | The first block that this BN deploy wants to have available                          | 0       |
-| `backfill.lastBlockToStore`    | For some historical-purpose–specific BNs, there could be a maximum number of blocks  | -1      |
-| `backfill.blockNodeSources`    | Endpoint for another BN deployment, as a list of `HOST:PORT`                         | —       |
-| `backfill.scanIntervalSecs`    | Interval in seconds to scan for missing gaps (skips if the previous task is running) | 60      |
-| `backfill.maxRetries`          | Maximum number of retries to fetch a missing block (with exponential back-off)       | 3       |
-| `backfill.fetchBatchSize`      | Number of blocks to fetch in a single gRPC call                                      | 100     |
+|     Configuration Property      |                                     Description                                      | Default |
+|---------------------------------|--------------------------------------------------------------------------------------|---------|
+| `backfill.firstBlockAvailable`  | The first block that this BN deploy wants to have available                          | 0       |
+| `backfill.lastBlockToStore`     | For some historical-purpose–specific BNs, there could be a maximum number of blocks  | -1      |
+| `backfill.blockNodeSourcesPath` | File path for a yaml configuration for the BN sources.                               | —       |
+| `backfill.scanIntervalMins`     | Interval in seconds to scan for missing gaps (skips if the previous task is running) | 60      |
+| `backfill.maxRetries`           | Maximum number of retries to fetch a missing block (with exponential back-off)       | 3       |
+| `backfill.fetchBatchSize`       | Number of blocks to fetch in a single gRPC call                                      | 100     |
+
+### BlockNode Sources Configuration File Structure
+
+```yaml
+# backfill_sources.yaml
+sources:
+  - priority: 1
+    nodes:
+      - name: "node 1"
+        nodeId: 102
+      - name: "node 2"
+        address: "245.87.34.52"
+        port: 35629
+
+  - priority: 5
+    nodes:
+      - name: "node 10"
+        nodeId: 263
+
+  - priority: 20
+    nodes:
+      - name: "node 23"
+        nodeId: 317
+      - name: "node 28"
+        address: "252.19.45.182"
+        port: 33182
+
+  - priority: 100
+    nodes:
+      - name: "node 192"
+        nodeId: 1726
+```
+
+** Initial implementations will only support `address`:`port` that could be a hostname or an IP address, and `port` as a number, once BlockNode supports Address Book, we can use `nodeId` as well.
+
+** Name is the internal label for the node given by the operator, is only used for observability (logging and tracking) purposes.
 
 ## Metrics
 
