@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-import org.hiero.block.node.stream.publisher.PublisherServicePlugin;
+import org.hiero.block.node.stream.publisher.StreamPublisherPlugin;
 
 // SPDX-License-Identifier: Apache-2.0
 module org.hiero.block.node.stream.publisher {
@@ -21,5 +21,5 @@ module org.hiero.block.node.stream.publisher {
     requires com.github.spotbugs.annotations;
 
     provides org.hiero.block.node.spi.BlockNodePlugin with
-            PublisherServicePlugin;
+            StreamPublisherPlugin;
 }
