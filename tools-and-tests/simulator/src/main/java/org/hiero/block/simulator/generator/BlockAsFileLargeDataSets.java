@@ -103,6 +103,7 @@ public class BlockAsFileLargeDataSets implements BlockStreamManager {
         return block;
     }
 
+    // TODO: Implement resetToBlock to reset the actual block not the index
     @Override
     public void resetToBlock(final long block) {
         currentBlockIndex = (int) block;

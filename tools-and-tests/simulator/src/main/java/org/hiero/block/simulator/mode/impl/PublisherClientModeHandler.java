@@ -171,7 +171,6 @@ public class PublisherClientModeHandler implements SimulatorModeHandler {
             if (!publishStreamGrpcClient.streamBlock(block, publishStreamResponseConsumer)) {
                 PublishStreamResponse publishStreamResponse = publishStreamResponseAtomicReference.get();
                 if (publishStreamResponse != null) {
-                    LOGGER.log(INFO, "Block Stream Simulator failed to stream block: ");
                     publishClientManager.handleEndStream(block, publishStreamResponse);
                 }
                 break;
