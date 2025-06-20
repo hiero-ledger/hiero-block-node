@@ -21,7 +21,7 @@ Maintainers are assigned the following scopes in this repository:
 | Nana Essilfie-Conduah | Nana-EC           |       |      |            |       | Hashgraph           |
 | Alfredo Gutierrez     | AlfredoG87        |       |      |            |       | Hashgraph           |
 | Jasper Potts          | jasperpotts       |       |      |            |       | Hashgraph           |
-| Matt Peterson         | mattp-swirldslabs |       |      |            |       | Hashgraph           |
+| Matt Peterson         | mattp-swirldslabs |       |      |            |       |                     |
 
 ## Emeritus Maintainers
 
