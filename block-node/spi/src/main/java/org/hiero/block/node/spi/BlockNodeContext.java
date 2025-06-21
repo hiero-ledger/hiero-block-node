@@ -29,6 +29,7 @@ import org.hiero.block.node.spi.threading.ThreadPoolManager;
  * @param blockMessaging the block messaging service of the block node
  * @param historicalBlockProvider the historical block provider of the block node
  * @param serviceLoader the service loader function to use to load services
+ * @param threadPoolManager the thread pool manager for the block node
  */
 public record BlockNodeContext(
         Configuration configuration,
