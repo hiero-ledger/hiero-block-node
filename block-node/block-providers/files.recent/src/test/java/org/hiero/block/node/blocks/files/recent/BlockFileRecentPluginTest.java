@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.node.blocks.files.recent;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.hiero.block.node.app.fixtures.blocks.BlockItemUtils.toBlockItemsUnparsed;
 import static org.hiero.block.node.app.fixtures.blocks.SimpleTestBlockItemBuilder.createNumberOfVerySimpleBlocks;
 import static org.hiero.block.node.spi.BlockNodePlugin.UNKNOWN_BLOCK_NUMBER;
@@ -15,11 +16,16 @@ import com.hedera.hapi.block.stream.BlockItem;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import java.io.IOException;
 import java.nio.file.FileSystem;
+import java.nio.file.Path;
 import java.util.List;
+import org.hiero.block.internal.BlockItemUnparsed;
 import org.hiero.block.internal.BlockUnparsed;
-import org.hiero.block.node.app.HistoricalBlockFacilityImpl;
+import org.hiero.block.node.app.fixtures.blocks.SimpleTestBlockItemBuilder;
 import org.hiero.block.node.app.fixtures.plugintest.PluginTestBase;
+import org.hiero.block.node.app.fixtures.plugintest.SimpleInMemoryHistoricalBlockFacility;
+import org.hiero.block.node.base.BlockFile;
 import org.hiero.block.node.base.CompressionType;
+import org.hiero.block.node.spi.blockmessaging.PersistedNotification;
 import org.hiero.block.node.spi.blockmessaging.VerificationNotification;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
@@ -32,21 +38,24 @@ import org.junit.jupiter.api.Test;
 class BlockFileRecentPluginTest {
     /** The testing file system. */
     private final FileSystem fileSystem;
+    /** The path to the live root directory in the testing file system. */
+    private final Path testPath;
     /** The plugin configuration, customized with testing file system. */
     private final FilesRecentConfig filesRecentConfig;
     /** The plugin under test. */
     private final BlocksFilesRecentPlugin blocksFilesRecentPlugin;
     /** The historical block facility. */
-    private final HistoricalBlockFacilityImpl historicalBlockFacility;
+    private final SimpleInMemoryHistoricalBlockFacility historicalBlockFacility;
 
     /**
      * Construct test environment.
      */
     BlockFileRecentPluginTest() {
         this.fileSystem = Jimfs.newFileSystem(Configuration.unix());
-        this.filesRecentConfig = new FilesRecentConfig(fileSystem.getPath("/live"), CompressionType.ZSTD, 3, 96_000);
+        this.testPath = fileSystem.getPath("/live");
+        this.filesRecentConfig = new FilesRecentConfig(testPath, CompressionType.ZSTD, 3, 100);
         this.blocksFilesRecentPlugin = new BlocksFilesRecentPlugin(this.filesRecentConfig);
-        this.historicalBlockFacility = new HistoricalBlockFacilityImpl(List.of(blocksFilesRecentPlugin));
+        this.historicalBlockFacility = new SimpleInMemoryHistoricalBlockFacility();
     }
 
     /**
@@ -169,6 +178,49 @@ class BlockFileRecentPluginTest {
             assertEquals(
                     blockNumber,
                     blockNodeContext.historicalBlockProvider().availableBlocks().min());
+        }
+
+        /**
+         * Test that the plugin's retention policy works correctly.
+         */
+        @Test
+        @DisplayName("Test the retention policy happy path")
+        void testRetentionPolicyHappyPath() {
+            // pre-check that there are no blocks stored
+            assertThat(plugin.availableBlocks().min()).isEqualTo(UNKNOWN_BLOCK_NUMBER);
+            assertThat(plugin.availableBlocks().max()).isEqualTo(UNKNOWN_BLOCK_NUMBER);
+            // create 150 blocks and then send a verification notification for them
+            for (int i = 0; i < 150; i++) {
+                // generate the next block
+                final BlockItemUnparsed[] block = SimpleTestBlockItemBuilder.createSimpleBlockUnparsedWithNumber(i);
+                // send the block items to the plugin
+                blockMessaging.sendBlockVerification(
+                        new VerificationNotification(true, i, Bytes.EMPTY, new BlockUnparsed(List.of(block))));
+                // assert that the block is persisted
+                final Path persistedBlock = BlockFile.nestedDirectoriesBlockFilePath(
+                        testPath, i, filesRecentConfig.compression(), filesRecentConfig.maxFilesPerDir());
+                assertThat(persistedBlock).exists();
+            }
+            // assert that the plugin has 150 blocks available (properly updated)
+            assertThat(plugin.availableBlocks().min()).isEqualTo(0L);
+            assertThat(plugin.availableBlocks().max()).isEqualTo(149L);
+            // send a persist notification which should trigger the retention policy
+            blockMessaging.sendBlockPersisted(new PersistedNotification(0, 149, plugin.defaultPriority() - 1));
+            // assert that the plugin has 100 blocks available (properly updated)
+            assertThat(plugin.availableBlocks().min()).isEqualTo(50L);
+            assertThat(plugin.availableBlocks().max()).isEqualTo(149L);
+            // assert that the first 50 blocks are not persisted anymore
+            for (int i = 0; i < 50; i++) {
+                final Path persistedBlock = BlockFile.nestedDirectoriesBlockFilePath(
+                        testPath, i, filesRecentConfig.compression(), filesRecentConfig.maxFilesPerDir());
+                assertThat(persistedBlock).doesNotExist();
+            }
+            // assert that the last 100 blocks are persisted
+            for (int i = 50; i < 150; i++) {
+                final Path persistedBlock = BlockFile.nestedDirectoriesBlockFilePath(
+                        testPath, i, filesRecentConfig.compression(), filesRecentConfig.maxFilesPerDir());
+                assertThat(persistedBlock).exists();
+            }
         }
 
         /**

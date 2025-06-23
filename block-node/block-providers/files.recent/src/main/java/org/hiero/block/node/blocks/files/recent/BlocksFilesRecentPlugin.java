@@ -268,6 +268,10 @@ public final class BlocksFilesRecentPlugin implements BlockProviderPlugin, Block
         //    persisted here all together? But we have to be careful because a big delete might
         //    take a long while and we do not want to hang the notification thread too long cause
         //    persistence relies on it (verification notification method). Am I missing something?
+        //    On another note, if we do delete here, we limit the possibility of the retention
+        //    policy to be applied only if there is something that pushes the PersistedNotification.
+        //    This is an assumption that we should probably not make, after all, the retention
+        //    policy is applied when new data comes in. This is not the place for that.
     }
 
     // ==== Action Methods =============================================================================================
