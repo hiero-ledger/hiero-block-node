@@ -36,7 +36,7 @@ This plugin purpose is to detect missing gaps in the intended stored block seque
   <dt>BackfilledBlockNotification</dt>
   <dd>A new Notification Type that can be published to the Messaging Facility, it is intended to contain a whole block that was fetched from another source and is being backfilled into the system. </dd>
   <dt>NewestBlockKnownToNetwork</dt>
-  <dd>Commonly sent by the Publisher Plugin to indicate that the BlockNode is behind and that needs to get up-to-date, commonly picked handled by Backfill plugin and filling the gap immediately.</dd>
+  <dd>Notification sent by a plugin, including a "publisher" plugin, to indicate that the BlockNode is behind and must be brought up-to-date. This is often handled by a "backfill" plugin by immediately requesting the missing blocks.</dd>
   <dt>BlockSource</dt>
   <dd>A new Enum that will be added to existing notification types: `VerificationNotification` and `PersistedNotification` to indicate the original source where the block is coming from, currently it will only have two values: `Publisher`, `Backfill`</dd>
 
@@ -186,14 +186,14 @@ flowchart TD
 
 ## Configuration
 
-|     Configuration Property      |                                     Description                                      | Default |
-|---------------------------------|--------------------------------------------------------------------------------------|---------|
-| `backfill.firstBlockAvailable`  | The first block that this BN deploy wants to have available                          | 0       |
-| `backfill.lastBlockToStore`     | For some historical-purpose–specific BNs, there could be a maximum number of blocks  | -1      |
-| `backfill.blockNodeSourcesPath` | File path for a yaml configuration for the BN sources.                               | —       |
-| `backfill.scanIntervalMins`     | Interval in seconds to scan for missing gaps (skips if the previous task is running) | 60      |
-| `backfill.maxRetries`           | Maximum number of retries to fetch a missing block (with exponential back-off)       | 3       |
-| `backfill.fetchBatchSize`       | Number of blocks to fetch in a single gRPC call                                      | 100     |
+|     Configuration Property      |                                               Description                                               | Default |
+|---------------------------------|---------------------------------------------------------------------------------------------------------|---------|
+| `backfill.firstBlockAvailable`  | The first block that this BN deploy wants to have available                                             | 0       |
+| `backfill.lastBlockToStore`     | For some historical-purpose–specific BNs, there could be a maximum number of blocks, -1 means no limit. | -1      |
+| `backfill.blockNodeSourcesPath` | File path for a yaml configuration for the BN sources.                                                  | —       |
+| `backfill.scanIntervalMins`     | Interval in minutes to scan for missing gaps (skips if the previous task is running)                    | 60      |
+| `backfill.maxRetries`           | Maximum number of retries to fetch a missing block (with exponential back-off)                          | 3       |
+| `backfill.fetchBatchSize`       | Number of blocks to fetch in a single gRPC call                                                         | 100     |
 
 ### BlockNode Sources Configuration File Structure
 
