@@ -75,7 +75,7 @@ class PublishClientManagerTest {
         when(endOfStream.getBlockNumber()).thenReturn(5L);
         when(endOfStream.getStatus()).thenReturn(Code.SUCCESS);
 
-        publishClientManager.handleEndStream(nextBlock, response);
+        publishClientManager.handleResponse(nextBlock, response);
 
         verify(blockStreamManager).resetToBlock(6L);
         verify(publisherClientModeHandler).stop();
@@ -91,7 +91,7 @@ class PublishClientManagerTest {
         when(endOfStream.getBlockNumber()).thenReturn(5L);
         when(endOfStream.getStatus()).thenReturn(Code.BEHIND);
 
-        publishClientManager.handleEndStream(nextBlock, response);
+        publishClientManager.handleResponse(nextBlock, response);
 
         verify(blockStreamManager).resetToBlock(6L);
         verify(publisherClientModeHandler).stop();
@@ -107,7 +107,7 @@ class PublishClientManagerTest {
         when(endOfStream.getBlockNumber()).thenReturn(5L);
         when(endOfStream.getStatus()).thenReturn(Code.DUPLICATE_BLOCK);
 
-        publishClientManager.handleEndStream(nextBlock, response);
+        publishClientManager.handleResponse(nextBlock, response);
 
         verify(blockStreamManager).resetToBlock(6L);
         verify(publisherClientModeHandler).stop();
@@ -123,7 +123,7 @@ class PublishClientManagerTest {
         when(endOfStream.getBlockNumber()).thenReturn(5L);
         when(endOfStream.getStatus()).thenReturn(Code.TIMEOUT);
 
-        publishClientManager.handleEndStream(nextBlock, response);
+        publishClientManager.handleResponse(nextBlock, response);
 
         verify(blockStreamManager).resetToBlock(4L);
         verify(publisherClientModeHandler).stop();
@@ -139,7 +139,7 @@ class PublishClientManagerTest {
         when(endOfStream.getBlockNumber()).thenReturn(5L);
         when(endOfStream.getStatus()).thenReturn(Code.BAD_BLOCK_PROOF);
 
-        publishClientManager.handleEndStream(nextBlock, response);
+        publishClientManager.handleResponse(nextBlock, response);
 
         verify(blockStreamManager).resetToBlock(4L);
         verify(publisherClientModeHandler).stop();
@@ -155,7 +155,7 @@ class PublishClientManagerTest {
         when(endOfStream.getBlockNumber()).thenReturn(5L);
         when(endOfStream.getStatus()).thenReturn(Code.INTERNAL_ERROR);
 
-        publishClientManager.handleEndStream(nextBlock, response);
+        publishClientManager.handleResponse(nextBlock, response);
 
         verify(blockStreamManager).resetToBlock(5L);
         verify(publisherClientModeHandler).stop();
@@ -171,7 +171,7 @@ class PublishClientManagerTest {
         when(endOfStream.getBlockNumber()).thenReturn(5L);
         when(endOfStream.getStatus()).thenReturn(Code.PERSISTENCE_FAILED);
 
-        publishClientManager.handleEndStream(nextBlock, response);
+        publishClientManager.handleResponse(nextBlock, response);
 
         verify(blockStreamManager).resetToBlock(5L);
         verify(publisherClientModeHandler).stop();

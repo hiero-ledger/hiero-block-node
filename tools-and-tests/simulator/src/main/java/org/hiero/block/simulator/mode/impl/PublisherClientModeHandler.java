@@ -122,7 +122,7 @@ public class PublisherClientModeHandler implements SimulatorModeHandler {
             if (!publishStreamGrpcClient.streamBlock(nextBlock, publishStreamResponseConsumer)) {
                 PublishStreamResponse publishStreamResponse = publishStreamResponseAtomicReference.get();
                 if (publishStreamResponse != null) {
-                    publishClientManager.handleEndStream(nextBlock, publishStreamResponse);
+                    publishClientManager.handleResponse(nextBlock, publishStreamResponse);
                 }
                 break;
             }
@@ -171,7 +171,7 @@ public class PublisherClientModeHandler implements SimulatorModeHandler {
             if (!publishStreamGrpcClient.streamBlock(block, publishStreamResponseConsumer)) {
                 PublishStreamResponse publishStreamResponse = publishStreamResponseAtomicReference.get();
                 if (publishStreamResponse != null) {
-                    publishClientManager.handleEndStream(block, publishStreamResponse);
+                    publishClientManager.handleResponse(block, publishStreamResponse);
                 }
                 break;
             }

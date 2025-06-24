@@ -87,18 +87,21 @@ public class PublishClientManager implements SimulatorModeHandler {
         }
     }
 
-    public void handleEndStream(Block nextBlock, PublishStreamResponse publishStreamResponse) {
+    public void handleResponse(Block nextBlock, PublishStreamResponse publishStreamResponse) {
+        if (publishStreamResponse.hasEndStream()) {
+            handleEndStream(nextBlock, publishStreamResponse);
+        } else {
+            throw new IllegalArgumentException("Unknown PublishStreamResponse type: " + publishStreamResponse);
+        }
+    }
+
+    private void handleEndStream(Block nextBlock, PublishStreamResponse publishStreamResponse) {
         try {
             stop();
-        } catch (InterruptedException e) {
-            throw new RuntimeException(e);
-        }
+            initializeNewClientAndHandler(nextBlock, publishStreamResponse);
 
-        initializeNewClientAndHandler(nextBlock, publishStreamResponse);
-
-        try {
-            currentHandler.start();
-        } catch (Exception e) {
+            start();
+        } catch (BlockSimulatorParsingException | IOException | InterruptedException e) {
             throw new RuntimeException("Failed to restart handler", e);
         }
     }
