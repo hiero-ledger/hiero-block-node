@@ -57,7 +57,7 @@ public class PublishStreamGrpcClientImpl implements PublishStreamGrpcClient {
     private final Deque<String> lastKnownStatuses;
     private final SimulatorStartupData startupData;
 
-    private PublishStreamObserver publishStreamObserver;
+    private final PublishStreamObserver publishStreamObserver;
 
     /**
      * Creates a new PublishStreamGrpcClientImpl with the specified dependencies.
@@ -83,6 +83,8 @@ public class PublishStreamGrpcClientImpl implements PublishStreamGrpcClient {
         this.lastKnownStatusesCapacity = blockStreamConfig.lastKnownStatusesCapacity();
         this.lastKnownStatuses = new ArrayDeque<>(this.lastKnownStatusesCapacity);
         this.startupData = requireNonNull(startupData);
+        this.publishStreamObserver =
+                new PublishStreamObserver(startupData, streamEnabled, lastKnownStatuses, lastKnownStatusesCapacity);
     }
 
     /**
@@ -95,8 +97,6 @@ public class PublishStreamGrpcClientImpl implements PublishStreamGrpcClient {
                 .build();
         final BlockStreamPublishServiceGrpc.BlockStreamPublishServiceStub stub =
                 BlockStreamPublishServiceGrpc.newStub(channel);
-        publishStreamObserver =
-                new PublishStreamObserver(startupData, streamEnabled, lastKnownStatuses, lastKnownStatusesCapacity);
         requestStreamObserver = stub.publishBlockStream(publishStreamObserver);
         lastKnownStatuses.clear();
     }
