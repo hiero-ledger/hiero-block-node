@@ -74,6 +74,7 @@ class PublishClientManagerTest {
         when(response.getEndStream()).thenReturn(endOfStream);
         when(endOfStream.getBlockNumber()).thenReturn(5L);
         when(endOfStream.getStatus()).thenReturn(Code.SUCCESS);
+        when(response.hasEndStream()).thenReturn(true);
 
         publishClientManager.handleResponse(nextBlock, response);
 
@@ -90,6 +91,7 @@ class PublishClientManagerTest {
         when(response.getEndStream()).thenReturn(endOfStream);
         when(endOfStream.getBlockNumber()).thenReturn(5L);
         when(endOfStream.getStatus()).thenReturn(Code.BEHIND);
+        when(response.hasEndStream()).thenReturn(true);
 
         publishClientManager.handleResponse(nextBlock, response);
 
@@ -106,6 +108,7 @@ class PublishClientManagerTest {
         when(response.getEndStream()).thenReturn(endOfStream);
         when(endOfStream.getBlockNumber()).thenReturn(5L);
         when(endOfStream.getStatus()).thenReturn(Code.DUPLICATE_BLOCK);
+        when(response.hasEndStream()).thenReturn(true);
 
         publishClientManager.handleResponse(nextBlock, response);
 
@@ -122,6 +125,7 @@ class PublishClientManagerTest {
         when(response.getEndStream()).thenReturn(endOfStream);
         when(endOfStream.getBlockNumber()).thenReturn(5L);
         when(endOfStream.getStatus()).thenReturn(Code.TIMEOUT);
+        when(response.hasEndStream()).thenReturn(true);
 
         publishClientManager.handleResponse(nextBlock, response);
 
@@ -138,6 +142,7 @@ class PublishClientManagerTest {
         when(response.getEndStream()).thenReturn(endOfStream);
         when(endOfStream.getBlockNumber()).thenReturn(5L);
         when(endOfStream.getStatus()).thenReturn(Code.BAD_BLOCK_PROOF);
+        when(response.hasEndStream()).thenReturn(true);
 
         publishClientManager.handleResponse(nextBlock, response);
 
@@ -154,6 +159,7 @@ class PublishClientManagerTest {
         when(response.getEndStream()).thenReturn(endOfStream);
         when(endOfStream.getBlockNumber()).thenReturn(5L);
         when(endOfStream.getStatus()).thenReturn(Code.INTERNAL_ERROR);
+        when(response.hasEndStream()).thenReturn(true);
 
         publishClientManager.handleResponse(nextBlock, response);
 
@@ -170,6 +176,7 @@ class PublishClientManagerTest {
         when(response.getEndStream()).thenReturn(endOfStream);
         when(endOfStream.getBlockNumber()).thenReturn(5L);
         when(endOfStream.getStatus()).thenReturn(Code.PERSISTENCE_FAILED);
+        when(response.hasEndStream()).thenReturn(true);
 
         publishClientManager.handleResponse(nextBlock, response);
 
