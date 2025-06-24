@@ -11,8 +11,6 @@ import com.hedera.hapi.block.stream.protoc.Block;
 import edu.umd.cs.findbugs.annotations.NonNull;
 import java.io.IOException;
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.atomic.AtomicReference;
-import java.util.function.Consumer;
 import javax.inject.Inject;
 import org.hiero.block.api.protoc.PublishStreamResponse;
 import org.hiero.block.simulator.config.data.BlockStreamConfig;
@@ -113,14 +111,13 @@ public class PublisherClientModeHandler implements SimulatorModeHandler {
 
     private void millisPerBlockStreaming() throws IOException, InterruptedException, BlockSimulatorParsingException {
         final long secondsPerBlockNanos = (long) millisecondsPerBlock * NANOS_PER_MILLI;
-        final AtomicReference<PublishStreamResponse> publishStreamResponseAtomicReference = new AtomicReference<>();
-        final Consumer<PublishStreamResponse> publishStreamResponseConsumer = publishStreamResponseAtomicReference::set;
+        PublishStreamResponse[] responseHolder = new PublishStreamResponse[1];
 
         Block nextBlock = blockStreamManager.getNextBlock();
         while (nextBlock != null && shouldPublish.get()) {
             long startTime = System.nanoTime();
-            if (!publishStreamGrpcClient.streamBlock(nextBlock, publishStreamResponseConsumer)) {
-                PublishStreamResponse publishStreamResponse = publishStreamResponseAtomicReference.get();
+            if (!publishStreamGrpcClient.streamBlock(nextBlock, response -> responseHolder[0] = response)) {
+                PublishStreamResponse publishStreamResponse = responseHolder[0];
                 if (publishStreamResponse != null) {
                     publishClientManager.handleResponse(nextBlock, publishStreamResponse);
                 }
@@ -157,8 +154,7 @@ public class PublisherClientModeHandler implements SimulatorModeHandler {
         int delayMSBetweenBlockItems = delayBetweenBlockItems / NANOS_PER_MILLI;
         int delayNSBetweenBlockItems = delayBetweenBlockItems % NANOS_PER_MILLI;
         int blockItemsStreamed = 0;
-        AtomicReference<PublishStreamResponse> publishStreamResponseAtomicReference = new AtomicReference<>();
-        Consumer<PublishStreamResponse> publishStreamResponseConsumer = publishStreamResponseAtomicReference::set;
+        PublishStreamResponse[] responseHolder = new PublishStreamResponse[1];
 
         while (shouldPublish.get()) {
             // get block
@@ -168,8 +164,8 @@ public class PublisherClientModeHandler implements SimulatorModeHandler {
                 LOGGER.log(INFO, "Block Stream Simulator has reached the end of the block items");
                 break;
             }
-            if (!publishStreamGrpcClient.streamBlock(block, publishStreamResponseConsumer)) {
-                PublishStreamResponse publishStreamResponse = publishStreamResponseAtomicReference.get();
+            if (!publishStreamGrpcClient.streamBlock(block, response -> responseHolder[0] = response)) {
+                PublishStreamResponse publishStreamResponse = responseHolder[0];
                 if (publishStreamResponse != null) {
                     publishClientManager.handleResponse(block, publishStreamResponse);
                 }
