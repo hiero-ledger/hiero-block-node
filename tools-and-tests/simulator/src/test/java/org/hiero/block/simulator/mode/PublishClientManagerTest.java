@@ -2,6 +2,7 @@
 package org.hiero.block.simulator.mode;
 
 import static org.hiero.block.simulator.TestUtils.getTestConfiguration;
+import static org.hiero.block.simulator.TestUtils.getTestMetrics;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -12,14 +13,18 @@ import java.io.IOException;
 import java.util.concurrent.atomic.AtomicBoolean;
 import org.hiero.block.api.protoc.PublishStreamResponse;
 import org.hiero.block.api.protoc.PublishStreamResponse.EndOfStream.Code;
+import org.hiero.block.simulator.config.data.BlockGeneratorConfig;
 import org.hiero.block.simulator.config.data.BlockStreamConfig;
 import org.hiero.block.simulator.config.data.GrpcConfig;
+import org.hiero.block.simulator.config.data.SimulatorStartupDataConfig;
 import org.hiero.block.simulator.generator.BlockStreamManager;
 import org.hiero.block.simulator.grpc.PublishStreamGrpcClient;
 import org.hiero.block.simulator.metrics.MetricsService;
+import org.hiero.block.simulator.metrics.MetricsServiceImpl;
 import org.hiero.block.simulator.mode.impl.PublishClientManager;
 import org.hiero.block.simulator.mode.impl.PublisherClientModeHandler;
 import org.hiero.block.simulator.startup.SimulatorStartupData;
+import org.hiero.block.simulator.startup.impl.SimulatorStartupDataImpl;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mock;
@@ -28,22 +33,13 @@ import org.mockito.MockitoAnnotations;
 class PublishClientManagerTest {
 
     @Mock
-    private BlockStreamConfig blockStreamConfig;
-
-    @Mock
     private BlockStreamManager blockStreamManager;
 
     @Mock
-    private MetricsService metricsService;
-
-    @Mock
-    private SimulatorStartupData startupData;
-
-    @Mock
-    private PublishStreamGrpcClient publishStreamGrpcClient;
-
-    @Mock
     private PublisherClientModeHandler publisherClientModeHandler;
+
+    @Mock
+    PublishStreamGrpcClient publishStreamGrpcClient;
 
     private PublishClientManager publishClientManager;
 
@@ -53,6 +49,14 @@ class PublishClientManagerTest {
         final AtomicBoolean streamEnabled = new AtomicBoolean(true);
         final Configuration configuration = getTestConfiguration();
         final GrpcConfig grpcConfig = configuration.getConfigData(GrpcConfig.class);
+        final BlockStreamConfig blockStreamConfig = configuration.getConfigData(BlockStreamConfig.class);
+        final SimulatorStartupDataConfig simulatorStartupDataConfig =
+                configuration.getConfigData(SimulatorStartupDataConfig.class);
+        final BlockGeneratorConfig blockGeneratorConfig = configuration.getConfigData(BlockGeneratorConfig.class);
+
+        final MetricsService metricsService = new MetricsServiceImpl(getTestMetrics(configuration));
+        final SimulatorStartupData startupData =
+                new SimulatorStartupDataImpl(simulatorStartupDataConfig, blockGeneratorConfig);
 
         publishClientManager = new PublishClientManager(
                 grpcConfig,
