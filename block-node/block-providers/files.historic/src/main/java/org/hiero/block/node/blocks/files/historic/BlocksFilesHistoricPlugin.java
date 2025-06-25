@@ -304,6 +304,12 @@ public final class BlocksFilesHistoricPlugin implements BlockProviderPlugin, Blo
                     } catch (final IOException e) {
                         throw new UncheckedIOException(e);
                         // @todo(1268) what to do here if we cannot delete the zip file?
+                        //   After thinking about this more, the danger here is that we will not delete anything
+                        //   if we throw. The reason is that the next time we come here, the same result may be
+                        //   produced, which will lead to the same exception being thrown. If however we do not
+                        //   throw, we will be able to delete the next files (arbitrary amount), but if the
+                        //   deletion of files is not resolved in time, and if the amount of undeletable files
+                        //   grows, we will eventually be in an infinite excess.
                     }
                 }
                 excess -= numberOfBlocksPerZipFile;

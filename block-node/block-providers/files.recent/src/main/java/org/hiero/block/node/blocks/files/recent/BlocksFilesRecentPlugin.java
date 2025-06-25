@@ -272,6 +272,12 @@ public final class BlocksFilesRecentPlugin implements BlockProviderPlugin, Block
         //    policy to be applied only if there is something that pushes the PersistedNotification.
         //    This is an assumption that we should probably not make, after all, the retention
         //    policy is applied when new data comes in. This is not the place for that.
+        //    After thinking about this more, I think we should not delete here at all.
+        //    This method and the handleVerification method are sync, meaning that either or is
+        //    called, but not both. We should have no race conditions here. We should probably move
+        //    this whole logic to the handleVerification method, where we can delete safely and we
+        //    are sure that new data has arrived, not depending on another plugin to send a
+        //    PersistedNotification.
     }
 
     // ==== Action Methods =============================================================================================
@@ -373,6 +379,12 @@ public final class BlocksFilesRecentPlugin implements BlockProviderPlugin, Block
             //   other IO happens asynchronously in the background (new persists) which can lead
             //   to exceptions during the delete of the parent(s). Do we have a better approach to
             //   clean up directories?
+            //   After thinking about this more, the danger here is that we will not delete anything
+            //   if we throw. The reason is that the next time we come here, the same result may be
+            //   produced, which will lead to the same exception being thrown. If however we do not
+            //   throw, we will be able to delete the next files (arbitrary amount), but if the
+            //   deletion of files is not resolved in time, and if the amount of undeletable files
+            //   grows, we will eventually be in an infinite excess.
         }
     }
 }
