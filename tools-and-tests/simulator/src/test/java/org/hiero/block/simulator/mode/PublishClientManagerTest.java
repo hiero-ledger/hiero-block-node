@@ -133,7 +133,7 @@ class PublishClientManagerTest {
 
         publishClientManager.handleResponse(nextBlock, response);
 
-        verify(blockStreamManager).resetToBlock(4L);
+        verify(blockStreamManager).resetToBlock(6L);
         verify(publisherClientModeHandler).stop();
     }
 
@@ -150,7 +150,7 @@ class PublishClientManagerTest {
 
         publishClientManager.handleResponse(nextBlock, response);
 
-        verify(blockStreamManager).resetToBlock(4L);
+        verify(blockStreamManager).resetToBlock(6L);
         verify(publisherClientModeHandler).stop();
     }
 
@@ -167,7 +167,7 @@ class PublishClientManagerTest {
 
         publishClientManager.handleResponse(nextBlock, response);
 
-        verify(blockStreamManager).resetToBlock(5L);
+        verify(blockStreamManager).resetToBlock(6L);
         verify(publisherClientModeHandler).stop();
     }
 
@@ -184,7 +184,7 @@ class PublishClientManagerTest {
 
         publishClientManager.handleResponse(nextBlock, response);
 
-        verify(blockStreamManager).resetToBlock(5L);
+        verify(blockStreamManager).resetToBlock(6L);
         verify(publisherClientModeHandler).stop();
     }
 }

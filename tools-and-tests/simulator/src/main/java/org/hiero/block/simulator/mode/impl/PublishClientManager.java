@@ -7,7 +7,6 @@ import java.io.IOException;
 import java.util.concurrent.atomic.AtomicBoolean;
 import javax.inject.Inject;
 import org.hiero.block.api.protoc.PublishStreamResponse;
-import org.hiero.block.api.protoc.PublishStreamResponse.EndOfStream.Code;
 import org.hiero.block.simulator.config.data.BlockStreamConfig;
 import org.hiero.block.simulator.config.data.GrpcConfig;
 import org.hiero.block.simulator.exception.BlockSimulatorParsingException;
@@ -84,13 +83,7 @@ public class PublishClientManager implements SimulatorModeHandler {
     private void adjustStreamManager(Block nextBlock, PublishStreamResponse publishStreamResponse) {
         if (nextBlock != null) {
             long blockNumber = publishStreamResponse.getEndStream().getBlockNumber();
-            Code status = publishStreamResponse.getEndStream().getStatus();
-
-            switch (status) {
-                case TIMEOUT, BAD_BLOCK_PROOF -> blockStreamManager.resetToBlock(blockNumber - 1);
-                case BEHIND, DUPLICATE_BLOCK, SUCCESS -> blockStreamManager.resetToBlock(blockNumber + 1);
-                case INTERNAL_ERROR, PERSISTENCE_FAILED -> blockStreamManager.resetToBlock(blockNumber);
-            }
+            blockStreamManager.resetToBlock(blockNumber + 1);
         }
     }
 
