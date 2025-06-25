@@ -65,22 +65,20 @@ public class PublishClientManager implements SimulatorModeHandler {
         currentHandler.stop();
     }
 
-    public void handleResponse(Block nextBlock, PublishStreamResponse publishStreamResponse) {
+    public void handleResponse(Block nextBlock, PublishStreamResponse publishStreamResponse)
+            throws BlockSimulatorParsingException, IOException, InterruptedException {
         if (publishStreamResponse.hasEndStream()) {
             handleEndStream(nextBlock, publishStreamResponse);
         }
     }
 
-    private void handleEndStream(Block nextBlock, PublishStreamResponse publishStreamResponse) {
-        try {
-            stop();
-            adjustStreamManager(nextBlock, publishStreamResponse);
-            initializeNewClientAndHandler();
+    private void handleEndStream(Block nextBlock, PublishStreamResponse publishStreamResponse)
+            throws InterruptedException, BlockSimulatorParsingException, IOException {
+        stop();
+        adjustStreamManager(nextBlock, publishStreamResponse);
+        initializeNewClientAndHandler();
 
-            start();
-        } catch (BlockSimulatorParsingException | IOException | InterruptedException e) {
-            throw new RuntimeException("Failed to restart handler", e);
-        }
+        start();
     }
 
     private void adjustStreamManager(Block nextBlock, PublishStreamResponse publishStreamResponse) {
