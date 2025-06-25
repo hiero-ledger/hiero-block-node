@@ -65,16 +65,25 @@ public class PublishClientManager implements SimulatorModeHandler {
         currentHandler.stop();
     }
 
-    private void initializeNewClientAndHandler(Block nextBlock, PublishStreamResponse publishStreamResponse) {
-        streamEnabled = new AtomicBoolean(true);
-        currentClient = new PublishStreamGrpcClientImpl(
-                grpcConfig, blockStreamConfig, metricsService, streamEnabled, startupData);
-        currentHandler =
-                new PublisherClientModeHandler(blockStreamConfig, currentClient, blockStreamManager, metricsService);
+    public void handleResponse(Block nextBlock, PublishStreamResponse publishStreamResponse) {
+        if (publishStreamResponse.hasEndStream()) {
+            handleEndStream(nextBlock, publishStreamResponse);
+        }
+    }
 
-        currentHandler.setPublishClientManager(this);
-        currentHandler.init();
+    private void handleEndStream(Block nextBlock, PublishStreamResponse publishStreamResponse) {
+        try {
+            stop();
+            adjustStreamManager(nextBlock, publishStreamResponse);
+            initializeNewClientAndHandler();
 
+            start();
+        } catch (BlockSimulatorParsingException | IOException | InterruptedException e) {
+            throw new RuntimeException("Failed to restart handler", e);
+        }
+    }
+
+    private void adjustStreamManager(Block nextBlock, PublishStreamResponse publishStreamResponse) {
         if (nextBlock != null) {
             long blockNumber = publishStreamResponse.getEndStream().getBlockNumber();
             Code status = publishStreamResponse.getEndStream().getStatus();
@@ -87,23 +96,15 @@ public class PublishClientManager implements SimulatorModeHandler {
         }
     }
 
-    public void handleResponse(Block nextBlock, PublishStreamResponse publishStreamResponse) {
-        if (publishStreamResponse.hasEndStream()) {
-            handleEndStream(nextBlock, publishStreamResponse);
-        } else {
-            throw new IllegalArgumentException("Unknown PublishStreamResponse type: " + publishStreamResponse);
-        }
-    }
+    private void initializeNewClientAndHandler() {
+        streamEnabled = new AtomicBoolean(true);
+        currentClient = new PublishStreamGrpcClientImpl(
+                grpcConfig, blockStreamConfig, metricsService, streamEnabled, startupData);
+        currentHandler =
+                new PublisherClientModeHandler(blockStreamConfig, currentClient, blockStreamManager, metricsService);
 
-    private void handleEndStream(Block nextBlock, PublishStreamResponse publishStreamResponse) {
-        try {
-            stop();
-            initializeNewClientAndHandler(nextBlock, publishStreamResponse);
-
-            start();
-        } catch (BlockSimulatorParsingException | IOException | InterruptedException e) {
-            throw new RuntimeException("Failed to restart handler", e);
-        }
+        currentHandler.setPublishClientManager(this);
+        currentHandler.init();
     }
 
     public PublisherClientModeHandler getCurrentHandler() {
