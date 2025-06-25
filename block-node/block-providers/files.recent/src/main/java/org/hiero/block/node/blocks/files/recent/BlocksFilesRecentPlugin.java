@@ -258,6 +258,8 @@ public final class BlocksFilesRecentPlugin implements BlockProviderPlugin, Block
             long excess = totalStored - retentionPolicyThreshold;
             availableBlocks.stream().sorted().limit(excess).forEach(this::delete);
         }
+        // @todo(1268) add a limit 1000 blocks max, remove the stream, simply iterate starting from min + excess
+
         // @todo(1268) Not sure if we still would want to filter by notification provider priority.
         //    In theory the new retention logic no longer supports that. We no longer delete the
         //    range of the notification. More than that, if we have only this plugin that will fire
@@ -373,6 +375,9 @@ public final class BlocksFilesRecentPlugin implements BlockProviderPlugin, Block
         } catch (final IOException e) {
             LOGGER.log(WARNING, "Failed to delete block file: " + blockFilePath, e);
             throw new UncheckedIOException(e);
+            // @todo(1268) log, increment metric and go on, make this an info, if next iter is unsuccessful,
+            //   operator has to take action.
+
             // @todo(1268) if we fail here, should we really throw or just log and continue?
             //   a retry will essentially happen on the next persisted notification.
             //   With the current implementation, this method remains problematic because
