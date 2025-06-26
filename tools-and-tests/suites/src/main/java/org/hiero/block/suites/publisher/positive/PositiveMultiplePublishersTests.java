@@ -166,6 +166,272 @@ public class PositiveMultiplePublishersTests extends BaseSuite {
         assertTrue(currentBlockResponse.getBlock().getItemsList().getFirst().hasBlockHeader());
     }
 
+    @Test
+    @DisplayName("Should resume after SUCCESS status")
+    @Timeout(30)
+    public void shouldResumeAfterSuccessStatus() throws IOException, InterruptedException {
+        // ===== Prepare and Start first simulator and make sure it's streaming ======================
+        final Map<String, String> firstSimulatorConfiguration = Map.of("generator.startBlockNumber", "0");
+        final BlockStreamSimulatorApp firstSimulator = createBlockSimulator(firstSimulatorConfiguration);
+        final Future<?> firstSimulatorThread = startSimulatorInstance(firstSimulator);
+        // ===== Stop simulator and assert ===========================================================]
+        firstSimulator.stop();
+        final String firstSimulatorLatestStatus = firstSimulator
+                .getStreamStatus()
+                .lastKnownPublisherClientStatuses()
+                .getLast();
+        final long firstSimulatorLatestPublishedBlockNumber =
+                firstSimulator.getStreamStatus().publishedBlocks() - 1; // we subtract one since we started on 0
+        firstSimulatorThread.cancel(true);
+
+        final BlockResponse latestPublishedBlockBefore =
+                getBlock(blockAccessStub, firstSimulatorLatestPublishedBlockNumber);
+        final BlockResponse nextPublishedBlockBefore =
+                getBlock(blockAccessStub, firstSimulatorLatestPublishedBlockNumber + 1);
+
+        assertNotNull(firstSimulatorLatestStatus);
+        assertTrue(firstSimulatorLatestStatus.contains(Long.toString(firstSimulatorLatestPublishedBlockNumber)));
+        assertEquals(
+                firstSimulatorLatestPublishedBlockNumber,
+                latestPublishedBlockBefore
+                        .getBlock()
+                        .getItemsList()
+                        .getFirst()
+                        .getBlockHeader()
+                        .getNumber());
+        assertEquals(Code.NOT_AVAILABLE, nextPublishedBlockBefore.getStatus());
+
+        // ===== Prepare and Start second simulator and make sure it's streaming =====================
+        // ===== Setup second simulator to start from 10 blocks after to trigger BEHIND ================
+        final Map<String, String> secondSimulatorConfiguration =
+                Map.of("generator.startBlockNumber", Long.toString(firstSimulatorLatestPublishedBlockNumber + 1));
+        final BlockStreamSimulatorApp secondSimulator = createBlockSimulator(secondSimulatorConfiguration);
+        final Future<?> secondSimulatorThread = startSimulatorInstanceWithErrorResponse(secondSimulator);
+
+        final String secondSimulatorLatestStatus = secondSimulator
+                .getStreamStatus()
+                .lastKnownPublisherClientStatuses()
+                .getFirst();
+
+        Thread.sleep(2000);
+
+        final BlockResponse latestPublishedBlockAfter = getLatestBlock(blockAccessStub);
+        secondSimulatorThread.cancel(true);
+        assertNotNull(secondSimulatorLatestStatus);
+        assertNotNull(latestPublishedBlockAfter);
+
+        final long latestBlockNodeBlockNumber = latestPublishedBlockAfter
+                .getBlock()
+                .getItemsList()
+                .getFirst()
+                .getBlockHeader()
+                .getNumber();
+
+        assertTrue(secondSimulatorLatestStatus.contains("status: SUCCESS"));
+        assertTrue(latestBlockNodeBlockNumber > 4);
+    }
+
+    @Test
+    @DisplayName("Should resume after DUPLICATE_BLOCK status")
+    @Timeout(30)
+    public void shouldResumeAfterDuplicateBlockStatus() throws IOException, InterruptedException {
+        // ===== Prepare and Start first simulator and make sure it's streaming ======================
+        final Map<String, String> firstSimulatorConfiguration = Map.of("generator.startBlockNumber", "0");
+        final BlockStreamSimulatorApp firstSimulator = createBlockSimulator(firstSimulatorConfiguration);
+        final Future<?> firstSimulatorThread = startSimulatorInstance(firstSimulator);
+        // ===== Stop simulator and assert ===========================================================]
+        firstSimulator.stop();
+        final String firstSimulatorLatestStatus = firstSimulator
+                .getStreamStatus()
+                .lastKnownPublisherClientStatuses()
+                .getLast();
+        final long firstSimulatorLatestPublishedBlockNumber =
+                firstSimulator.getStreamStatus().publishedBlocks() - 1; // we subtract one since we started on 0
+        firstSimulatorThread.cancel(true);
+
+        final BlockResponse latestPublishedBlockBefore =
+                getBlock(blockAccessStub, firstSimulatorLatestPublishedBlockNumber);
+        final BlockResponse nextPublishedBlockBefore =
+                getBlock(blockAccessStub, firstSimulatorLatestPublishedBlockNumber + 1);
+
+        assertNotNull(firstSimulatorLatestStatus);
+        assertTrue(firstSimulatorLatestStatus.contains(Long.toString(firstSimulatorLatestPublishedBlockNumber)));
+        assertEquals(
+                firstSimulatorLatestPublishedBlockNumber,
+                latestPublishedBlockBefore
+                        .getBlock()
+                        .getItemsList()
+                        .getFirst()
+                        .getBlockHeader()
+                        .getNumber());
+        assertEquals(Code.NOT_AVAILABLE, nextPublishedBlockBefore.getStatus());
+
+        // ===== Prepare and Start second simulator and make sure it's streaming =====================
+        // ===== Setup second simulator to start from 10 blocks after to trigger BEHIND ================
+        final Map<String, String> secondSimulatorConfiguration =
+                Map.of("generator.startBlockNumber", Long.toString(firstSimulatorLatestPublishedBlockNumber));
+        final BlockStreamSimulatorApp secondSimulator = createBlockSimulator(secondSimulatorConfiguration);
+        final Future<?> secondSimulatorThread = startSimulatorInstanceWithErrorResponse(secondSimulator);
+
+        final String secondSimulatorLatestStatus = secondSimulator
+                .getStreamStatus()
+                .lastKnownPublisherClientStatuses()
+                .getFirst();
+
+        Thread.sleep(2000);
+
+        final BlockResponse latestPublishedBlockAfter = getLatestBlock(blockAccessStub);
+        secondSimulatorThread.cancel(true);
+        assertNotNull(secondSimulatorLatestStatus);
+        assertNotNull(latestPublishedBlockAfter);
+
+        final long latestBlockNodeBlockNumber = latestPublishedBlockAfter
+                .getBlock()
+                .getItemsList()
+                .getFirst()
+                .getBlockHeader()
+                .getNumber();
+
+        assertTrue(secondSimulatorLatestStatus.contains("status: DUPLICATE_BLOCK"));
+        assertTrue(latestBlockNodeBlockNumber > 4);
+    }
+
+    @Test
+    @DisplayName("Should resume after TIMEOUT status")
+    @Timeout(30)
+    public void shouldResumeAfterTimeoutStatus() throws IOException, InterruptedException {
+        // ===== Prepare and Start first simulator and make sure it's streaming ======================
+        final Map<String, String> firstSimulatorConfiguration = Map.of("generator.startBlockNumber", "0");
+        final BlockStreamSimulatorApp firstSimulator = createBlockSimulator(firstSimulatorConfiguration);
+        final Future<?> firstSimulatorThread = startSimulatorInstance(firstSimulator);
+        // ===== Stop simulator and assert ===========================================================]
+        firstSimulator.stop();
+        final String firstSimulatorLatestStatus = firstSimulator
+                .getStreamStatus()
+                .lastKnownPublisherClientStatuses()
+                .getLast();
+        final long firstSimulatorLatestPublishedBlockNumber =
+                firstSimulator.getStreamStatus().publishedBlocks() - 1; // we subtract one since we started on 0
+        firstSimulatorThread.cancel(true);
+
+        final BlockResponse latestPublishedBlockBefore =
+                getBlock(blockAccessStub, firstSimulatorLatestPublishedBlockNumber);
+        final BlockResponse nextPublishedBlockBefore =
+                getBlock(blockAccessStub, firstSimulatorLatestPublishedBlockNumber + 1);
+
+        assertNotNull(firstSimulatorLatestStatus);
+        assertTrue(firstSimulatorLatestStatus.contains(Long.toString(firstSimulatorLatestPublishedBlockNumber)));
+        assertEquals(
+                firstSimulatorLatestPublishedBlockNumber,
+                latestPublishedBlockBefore
+                        .getBlock()
+                        .getItemsList()
+                        .getFirst()
+                        .getBlockHeader()
+                        .getNumber());
+        assertEquals(Code.NOT_AVAILABLE, nextPublishedBlockBefore.getStatus());
+
+        // ===== Prepare and Start second simulator and make sure it's streaming =====================
+        // ===== Setup second simulator to start from 10 blocks after to trigger BEHIND ================
+        final Map<String, String> secondSimulatorConfiguration = Map.of(
+                "generator.startBlockNumber",
+                Long.toString(firstSimulatorLatestPublishedBlockNumber),
+                "blockStream.millisecondsPerBlock",
+                "5000");
+        final BlockStreamSimulatorApp secondSimulator = createBlockSimulator(secondSimulatorConfiguration);
+        final Future<?> secondSimulatorThread = startSimulatorInstanceWithErrorResponse(secondSimulator);
+
+        final String secondSimulatorLatestStatus = secondSimulator
+                .getStreamStatus()
+                .lastKnownPublisherClientStatuses()
+                .getFirst();
+
+        Thread.sleep(2000);
+
+        final BlockResponse latestPublishedBlockAfter = getLatestBlock(blockAccessStub);
+        secondSimulatorThread.cancel(true);
+        assertNotNull(secondSimulatorLatestStatus);
+        assertNotNull(latestPublishedBlockAfter);
+
+        final long latestBlockNodeBlockNumber = latestPublishedBlockAfter
+                .getBlock()
+                .getItemsList()
+                .getFirst()
+                .getBlockHeader()
+                .getNumber();
+
+        assertTrue(secondSimulatorLatestStatus.contains("status: TIMEOUT"));
+        assertTrue(latestBlockNodeBlockNumber > 4);
+    }
+
+    @Test
+    @DisplayName("Should resume after BAD_BLOCK_PROOF status")
+    @Timeout(30)
+    public void shouldResumeAfterBadBlockProofStatus() throws IOException, InterruptedException {
+        // ===== Prepare and Start first simulator and make sure it's streaming ======================
+        final Map<String, String> firstSimulatorConfiguration = Map.of("generator.startBlockNumber", "0");
+        final BlockStreamSimulatorApp firstSimulator = createBlockSimulator(firstSimulatorConfiguration);
+        final Future<?> firstSimulatorThread = startSimulatorInstance(firstSimulator);
+        // ===== Stop simulator and assert ===========================================================]
+        firstSimulator.stop();
+        final String firstSimulatorLatestStatus = firstSimulator
+                .getStreamStatus()
+                .lastKnownPublisherClientStatuses()
+                .getLast();
+        final long firstSimulatorLatestPublishedBlockNumber =
+                firstSimulator.getStreamStatus().publishedBlocks() - 1; // we subtract one since we started on 0
+        firstSimulatorThread.cancel(true);
+
+        final BlockResponse latestPublishedBlockBefore =
+                getBlock(blockAccessStub, firstSimulatorLatestPublishedBlockNumber);
+        final BlockResponse nextPublishedBlockBefore =
+                getBlock(blockAccessStub, firstSimulatorLatestPublishedBlockNumber + 1);
+
+        assertNotNull(firstSimulatorLatestStatus);
+        assertTrue(firstSimulatorLatestStatus.contains(Long.toString(firstSimulatorLatestPublishedBlockNumber)));
+        assertEquals(
+                firstSimulatorLatestPublishedBlockNumber,
+                latestPublishedBlockBefore
+                        .getBlock()
+                        .getItemsList()
+                        .getFirst()
+                        .getBlockHeader()
+                        .getNumber());
+        assertEquals(Code.NOT_AVAILABLE, nextPublishedBlockBefore.getStatus());
+
+        // ===== Prepare and Start second simulator and make sure it's streaming =====================
+        // ===== Setup second simulator to start from 10 blocks after to trigger BEHIND ================
+        final Map<String, String> secondSimulatorConfiguration = Map.of(
+                "generator.startBlockNumber",
+                Long.toString(firstSimulatorLatestPublishedBlockNumber + 1),
+                "generator.invalidBlockHash",
+                "true");
+        final BlockStreamSimulatorApp secondSimulator = createBlockSimulator(secondSimulatorConfiguration);
+        final Future<?> secondSimulatorThread = startSimulatorInstanceWithErrorResponse(secondSimulator);
+
+        final String secondSimulatorLatestStatus = secondSimulator
+                .getStreamStatus()
+                .lastKnownPublisherClientStatuses()
+                .getFirst();
+
+        Thread.sleep(2000);
+
+        final BlockResponse latestPublishedBlockAfter = getLatestBlock(blockAccessStub);
+        secondSimulatorThread.cancel(true);
+        assertNotNull(secondSimulatorLatestStatus);
+        assertNotNull(latestPublishedBlockAfter);
+
+        final long latestBlockNodeBlockNumber = latestPublishedBlockAfter
+                .getBlock()
+                .getItemsList()
+                .getFirst()
+                .getBlockHeader()
+                .getNumber();
+
+        assertTrue(secondSimulatorLatestStatus.contains("status: BAD_BLOCK_PROOF"));
+        assertTrue(latestBlockNodeBlockNumber > 4);
+    }
+
     /**
      * Verifies that block streaming continues from a new publisher after the primary publisher disconnects.
      * The test asserts that the block-node successfully switches to the new publisher and resumes block streaming
@@ -253,6 +519,25 @@ public class PositiveMultiplePublishersTests extends BaseSuite {
                         .lastKnownPublisherClientStatuses()
                         .getLast();
             }
+        }
+        assertNotNull(simulatorStatus);
+        assertTrue(simulator.isRunning());
+        return simulatorThread;
+    }
+
+    private Future<?> startSimulatorInstanceWithErrorResponse(@NonNull final BlockStreamSimulatorApp simulator)
+            throws InterruptedException {
+        Objects.requireNonNull(simulator);
+
+        final Future<?> simulatorThread = startSimulatorInThread(simulator);
+        simulators.add(simulatorThread);
+        String simulatorStatus = null;
+        Thread.sleep(500);
+        if (!simulator.getStreamStatus().lastKnownPublisherClientStatuses().isEmpty()) {
+            simulatorStatus = simulator
+                    .getStreamStatus()
+                    .lastKnownPublisherClientStatuses()
+                    .getFirst();
         }
         assertNotNull(simulatorStatus);
         assertTrue(simulator.isRunning());
