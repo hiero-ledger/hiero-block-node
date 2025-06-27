@@ -28,7 +28,7 @@ import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
 
 class StackTracesTest {
-    private java.util.logging.Formatter formatter;
+    private org.hiero.block.common.logging.CleanColorfulFormatter formatter;
     private Instant fourthOfJuly;
     private String formattedFourthOfJuly;
 
@@ -66,10 +66,10 @@ class StackTracesTest {
         }
 
         // Get the formatter
-        java.util.logging.Formatter formatter = null;
+        org.hiero.block.common.logging.CleanColorfulFormatter formatter = null;
         for (final Handler handler : handlers) {
             if (handler instanceof java.util.logging.ConsoleHandler) {
-                formatter = handlers[0].getFormatter();
+                formatter = (org.hiero.block.common.logging.CleanColorfulFormatter) handlers[0].getFormatter();
             }
         }
 
@@ -93,14 +93,15 @@ class StackTracesTest {
     @MethodSource("provideLoggingMessages")
     void testLoggingMessage(String methodName, String message, String template, Level logLevel) {
         final String expected = String.format(
-                template, formattedFourthOfJuly, logLevel, getClass().getName(), methodName, message);
+                template, formattedFourthOfJuly, logLevel, getClass().getSimpleName(), methodName, message);
 
         final LogRecord record = new LogRecord(logLevel, message);
         record.setInstant(fourthOfJuly);
         record.setSourceMethodName(methodName);
         record.setSourceClassName(getClass().getName());
+        String formated = formatter.format(record).replaceAll("\u001B\\[\\d+m", ""); // Remove ANSI color codes
 
-        assertEquals(expected, formatter.format(record));
+        assertEquals(expected, formated);
     }
 
     @ParameterizedTest
@@ -111,7 +112,7 @@ class StackTracesTest {
                 template,
                 formattedFourthOfJuly,
                 logLevel,
-                getClass().getName(),
+                getClass().getSimpleName(),
                 methodName,
                 message,
                 buildExpectedStackTrace(testIOException));
@@ -121,8 +122,9 @@ class StackTracesTest {
         record.setSourceMethodName(methodName);
         record.setSourceClassName(getClass().getName());
         record.setThrown(testIOException);
+        String formatted = formatter.format(record).replaceAll("\u001B\\[\\d+m", ""); // Remove ANSI color codes;
 
-        assertEquals(expected, formatter.format(record));
+        assertEquals(expected, formatted);
     }
 
     private static String buildExpectedStackTrace(IOException ioException) {
@@ -144,20 +146,17 @@ class StackTracesTest {
                 // fit in a 7 char width dictated by the logging.properties file format property: %4$-7s
 
                 // INFO
-                Arguments.of("testLoggingMessage", "Info test message", "%s %s    [%s %s] %s\n", INFO),
+                Arguments.of("testLoggingMessage", "Info test message", "%s %-7s %s#%s       %s\n", INFO),
                 // DEBUG
-                Arguments.of("testLoggingMessage", "Debug test message", "%s %s    [%s %s] %s\n", FINE),
+                Arguments.of("testLoggingMessage", "Debug test message", "%s %-7s %s#%s       %s\n", FINE),
                 // TRACE
-                Arguments.of("testLoggingMessage", "Trace test message", "%s %s   [%s %s] %s\n", FINER));
+                Arguments.of("testLoggingMessage", "Trace test message", "%s %-7s %s#%s       %s\n", FINER));
     }
 
     private static Stream<Arguments> provideLoggingMessagesWithStackTraces() {
         return Stream.of(
                 // ERROR
                 Arguments.of(
-                        "testLoggingMessageWithException",
-                        "Exception test message",
-                        "%s %s  [%s %s] %s\n%s\n",
-                        SEVERE));
+                        "testLoggingMessageWithException", "Exception test message", "%s %-7s %s#%s %s\n%s\n", SEVERE));
     }
 }
