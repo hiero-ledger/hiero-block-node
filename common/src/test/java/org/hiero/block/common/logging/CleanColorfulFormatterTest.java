@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-package org.hiero.block.node.app.logging;
+package org.hiero.block.common.logging;
 
 import static org.junit.jupiter.api.Assertions.assertTrue;
 

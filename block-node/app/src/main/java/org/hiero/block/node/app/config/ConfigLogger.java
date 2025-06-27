@@ -2,9 +2,9 @@
 package org.hiero.block.node.app.config;
 
 import static java.lang.System.Logger.Level.INFO;
-import static org.hiero.block.node.app.logging.CleanColorfulFormatter.CYAN;
-import static org.hiero.block.node.app.logging.CleanColorfulFormatter.GREY;
-import static org.hiero.block.node.app.logging.CleanColorfulFormatter.WHITE;
+import static org.hiero.block.common.logging.CleanColorfulFormatter.CYAN;
+import static org.hiero.block.common.logging.CleanColorfulFormatter.GREY;
+import static org.hiero.block.common.logging.CleanColorfulFormatter.WHITE;
 
 import com.swirlds.config.api.ConfigData;
 import com.swirlds.config.api.ConfigProperty;
