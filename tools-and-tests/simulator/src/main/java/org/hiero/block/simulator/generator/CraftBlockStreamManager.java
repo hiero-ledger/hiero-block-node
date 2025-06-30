@@ -72,6 +72,8 @@ public class CraftBlockStreamManager implements BlockStreamManager {
     private final boolean unorderedStreamingEnabled;
     private Iterator<Block> unorderedStreamIterator;
 
+    private final BlockGeneratorConfig blockGeneratorConfig;
+
     /**
      * Constructs a new CraftBlockStreamManager with the specified configuration.
      *
@@ -84,6 +86,7 @@ public class CraftBlockStreamManager implements BlockStreamManager {
             @NonNull final BlockGeneratorConfig blockGeneratorConfig,
             @NonNull final SimulatorStartupData simulatorStartupData,
             @NonNull final UnorderedStreamConfig unorderedStreamConfig) {
+        this.blockGeneratorConfig = blockGeneratorConfig;
         this.generationMode = blockGeneratorConfig.generationMode();
         this.minEventsPerBlock = blockGeneratorConfig.minEventsPerBlock();
         this.maxEventsPerBlock = blockGeneratorConfig.maxEventsPerBlock();
@@ -202,7 +205,7 @@ public class CraftBlockStreamManager implements BlockStreamManager {
                 items.add(eventTransactionHandler);
                 blockItemsUnparsed.add(eventTransactionHandler.unparseBlockItem());
 
-                final ItemHandler transactionResultHandler = new TransactionResultHandler();
+                final ItemHandler transactionResultHandler = new TransactionResultHandler(blockGeneratorConfig);
                 items.add(transactionResultHandler);
                 blockItemsUnparsed.add(transactionResultHandler.unparseBlockItem());
             }

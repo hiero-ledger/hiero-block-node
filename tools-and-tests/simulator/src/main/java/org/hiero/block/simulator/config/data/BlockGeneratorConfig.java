@@ -14,6 +14,10 @@ import org.hiero.block.simulator.config.types.GenerationMode;
  * Defines the configuration for the BlockStreamManager (Generator) of blocks in the Hedera Block Simulator.
  *
  * @param generationMode the mode of block generation (e.g., directory-based)
+ * @param minEventsPerBlock the minimum number of events per block
+ * @param maxEventsPerBlock the maximum number of events per block
+ * @param minTransactionsPerEvent the minimum number of transactions per event
+ * @param maxTransactionsPerEvent the maximum number of transactions per event
  * @param folderRootPath the root path of the folder containing block files
  * @param managerImplementation the implementation class name of the block stream manager
  * @param paddedLength the length to which block identifiers are padded
@@ -36,7 +40,9 @@ public record BlockGeneratorConfig(
         // Optional block number range for the BlockAsFileLargeDataSets manager
         @Loggable @ConfigProperty(defaultValue = "0") @Min(0) int startBlockNumber,
         @Loggable @ConfigProperty(defaultValue = "-1") int endBlockNumber,
-        @Loggable @ConfigProperty(defaultValue = "false") boolean invalidBlockHash) {
+        @Loggable @ConfigProperty(defaultValue = "false") boolean invalidBlockHash,
+        @Loggable @ConfigProperty(defaultValue = "0") int shardNum,
+        @Loggable @ConfigProperty(defaultValue = "0") int realmNum) {
 
     /**
      * Constructs a new {@code BlockGeneratorConfig} instance with validation.
@@ -96,6 +102,8 @@ public record BlockGeneratorConfig(
         private int startBlockNumber;
         private int endBlockNumber;
         private boolean invalidBlockHash = false;
+        private int shardNum = 0;
+        private int realmNum = 0;
 
         /**
          * Creates a new instance of the {@code Builder} class with default configuration values.
@@ -238,6 +246,16 @@ public record BlockGeneratorConfig(
             return this;
         }
 
+        public Builder shardNum(int shardNum) {
+            this.shardNum = shardNum;
+            return this;
+        }
+
+        public Builder realmNum(int realmNum) {
+            this.realmNum = realmNum;
+            return this;
+        }
+
         /**
          * Builds a new {@link BlockGeneratorConfig} instance with the configured values.
          *
@@ -256,7 +274,9 @@ public record BlockGeneratorConfig(
                     fileExtension,
                     startBlockNumber,
                     endBlockNumber,
-                    invalidBlockHash);
+                    invalidBlockHash,
+                    shardNum,
+                    realmNum);
         }
     }
 }

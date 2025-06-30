@@ -7,21 +7,21 @@ plugins {
 }
 
 dependencies {
-    api(platform("io.netty:netty-bom:4.2.1.Final"))
-    api(platform("com.google.cloud:libraries-bom:26.61.0"))
+    api(platform("io.netty:netty-bom:4.2.2.Final"))
+    api(platform("com.google.cloud:libraries-bom:26.62.0"))
 }
 
 dependencies.constraints {
     val daggerVersion = "2.56.2"
     val grpcIoVersion = "1.73.0"
-    val helidonVersion = "4.2.2"
+    val helidonVersion = "4.2.3"
     // When Upgrading pbjVersion, also need to update pbjCompiler version on
-    // protobuf/build.gradle.kts
-    val pbjVersion = "0.11.6"
+    // block-node/protobuf-pbj/build.gradle.kts
+    val pbjVersion = "0.11.8"
     val protobufVersion = "4.31.1"
     val swirldsVersion = "0.61.3"
     val mockitoVersion = "5.18.0"
-    val testContainersVersion = "1.21.1"
+    val testContainersVersion = "1.21.2"
 
     api("com.github.luben:zstd-jni:1.5.7-3") { because("com.github.luben.zstd_jni") }
     api("com.github.spotbugs:spotbugs-annotations:4.9.3") {
@@ -88,5 +88,5 @@ dependencies.constraints {
     }
     api("com.google.jimfs:jimfs:1.3.0") { because("com.google.common.jimfs") }
     api("io.minio:minio:8.5.17") { because("io.minio") }
-    api("com.squareup.okio:okio-jvm:3.11.0") { because("okio") } // required by minio
+    api("com.squareup.okio:okio-jvm:3.13.0") { because("okio") } // required by minio
 }

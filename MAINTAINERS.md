@@ -6,20 +6,22 @@ The general handling of Maintainer rights and all groups in this GitHub org is d
 
 Maintainers are assigned the following scopes in this repository:
 
-|   Scope    |        Definition        | GitHub Role |          GitHub Team           |
-|------------|--------------------------|-------------|--------------------------------|
-| Maintainer | The GitHub Maintain role | Maintain    | `hiero-block-node-maintainers` |
+|        Scope        |            Definition             | GitHub Role |          GitHub Team           |
+|---------------------|-----------------------------------|-------------|--------------------------------|
+| project-maintainers | The Maintainers of the project    | Maintain    | `hiero-block-node-maintainers` |
+| tsc                 | The Hiero TSC                     | Maintain    | `tsc`                          |
+| github-maintainers  | The Maintainers of the github org | Maintain    | `github-maintainers`           |
 
 ## Active Maintainers
 
 <!-- Please keep this sorted alphabetically by github -->
 
-| Name |     GitHub ID     | Scope | LFID | Discord ID | Email | Company Affiliation |
-|------|-------------------|-------|------|------------|-------|---------------------|
-|      | Nana-EC           |       |      |            |       | Hashgraph           |
-|      | AlfredoG87        |       |      |            |       | Hashgraph           |
-|      | jasperpotts       |       |      |            |       | Hashgraph           |
-|      | mattp-swirldslabs |       |      |            |       |                     |
+|         Name          |     GitHub ID     | Scope | LFID | Discord ID | Email | Company Affiliation |
+|-----------------------|-------------------|-------|------|------------|-------|---------------------|
+| Nana Essilfie-Conduah | Nana-EC           |       |      |            |       | Hashgraph           |
+| Alfredo Gutierrez     | AlfredoG87        |       |      |            |       | Hashgraph           |
+| Jasper Potts          | jasperpotts       |       |      |            |       | Hashgraph           |
+| Matt Peterson         | mattp-swirldslabs |       |      |            |       |                     |
 
 ## Emeritus Maintainers
 

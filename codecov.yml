@@ -26,3 +26,4 @@ ignore:
   - "tools-and-tests/tools/**"
   - "tools-and-tests/suites/**"
   - "**/src/test/**"
+  - "block-node/app/src/testFixtures/**"
