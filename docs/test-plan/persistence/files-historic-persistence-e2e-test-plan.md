@@ -69,7 +69,7 @@ logic. Essentially, this test plan describes the intended behavior of the
 > we need a reference point so an example could be shown):_
 > `Files Historic Root`: `/blocks`
 >
-> _**NOTE**: the trie structure for `Files Recent Root` is resolving
+> _**NOTE**: the trie structure for `Files Historic Root` is resolving
 > all the digits of a `long` (max. 19 digits). We have three digits per node
 > or directory. Based on archive size, the max. depth of directories vary. After
 > we have reached our max. depth, we will then have an arbitrary number of zip
@@ -92,9 +92,11 @@ logic. Essentially, this test plan describes the intended behavior of the
 > </b>
 > etc._
 >
+> _**NOTE**: assume that for each test there are no blocks persisted initially._
+>
 > _**NOTE**: assume that the Block-Node under test is configured to have the
 > compression algorithm set to `ZStandard` so the file extension for an archived
-> block will be `.blk.zstd`_
+> block will be `.blk.zstd`._
 
 |                            Test Case ID | Test Name                                                   | Implemented ( :white_check_mark: / :x: ) |
 |----------------------------------------:|:------------------------------------------------------------|:----------------------------------------:|
