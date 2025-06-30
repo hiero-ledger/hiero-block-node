@@ -20,12 +20,13 @@ import java.nio.file.Path;
 import java.util.List;
 import org.hiero.block.internal.BlockItemUnparsed;
 import org.hiero.block.internal.BlockUnparsed;
+import org.hiero.block.node.app.HistoricalBlockFacilityImpl;
 import org.hiero.block.node.app.fixtures.blocks.SimpleTestBlockItemBuilder;
 import org.hiero.block.node.app.fixtures.plugintest.PluginTestBase;
-import org.hiero.block.node.app.fixtures.plugintest.SimpleInMemoryHistoricalBlockFacility;
 import org.hiero.block.node.base.BlockFile;
 import org.hiero.block.node.base.CompressionType;
 import org.hiero.block.node.spi.blockmessaging.VerificationNotification;
+import org.hiero.block.node.spi.historicalblocks.HistoricalBlockFacility;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -44,7 +45,7 @@ class BlockFileRecentPluginTest {
     /** The plugin under test. */
     private final BlocksFilesRecentPlugin blocksFilesRecentPlugin;
     /** The historical block facility. */
-    private final SimpleInMemoryHistoricalBlockFacility historicalBlockFacility;
+    private final HistoricalBlockFacility historicalBlockFacility;
 
     /**
      * Construct test environment.
@@ -54,7 +55,7 @@ class BlockFileRecentPluginTest {
         this.testPath = fileSystem.getPath("/live");
         this.filesRecentConfig = new FilesRecentConfig(testPath, CompressionType.ZSTD, 3, 100);
         this.blocksFilesRecentPlugin = new BlocksFilesRecentPlugin(this.filesRecentConfig);
-        this.historicalBlockFacility = new SimpleInMemoryHistoricalBlockFacility();
+        this.historicalBlockFacility = new HistoricalBlockFacilityImpl(List.of(blocksFilesRecentPlugin));
     }
 
     /**
