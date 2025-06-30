@@ -25,7 +25,6 @@ import org.hiero.block.node.app.fixtures.plugintest.PluginTestBase;
 import org.hiero.block.node.app.fixtures.plugintest.SimpleInMemoryHistoricalBlockFacility;
 import org.hiero.block.node.base.BlockFile;
 import org.hiero.block.node.base.CompressionType;
-import org.hiero.block.node.spi.blockmessaging.PersistedNotification;
 import org.hiero.block.node.spi.blockmessaging.VerificationNotification;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
@@ -123,12 +122,6 @@ class BlockFileRecentPluginTest {
             assertArrayEquals(blockBlockItems, block.items().toArray());
             assertEquals(blockNumber, plugin.availableBlocks().max());
             assertEquals(blockNumber, plugin.availableBlocks().min());
-            assertEquals(
-                    blockNumber,
-                    blockNodeContext.historicalBlockProvider().availableBlocks().max());
-            assertEquals(
-                    blockNumber,
-                    blockNodeContext.historicalBlockProvider().availableBlocks().min());
         }
 
         /**
@@ -172,12 +165,6 @@ class BlockFileRecentPluginTest {
             assertArrayEquals(blockBlockItems, block.items().toArray());
             assertEquals(blockNumber, plugin.availableBlocks().max());
             assertEquals(blockNumber, plugin.availableBlocks().min());
-            assertEquals(
-                    blockNumber,
-                    blockNodeContext.historicalBlockProvider().availableBlocks().max());
-            assertEquals(
-                    blockNumber,
-                    blockNodeContext.historicalBlockProvider().availableBlocks().min());
         }
 
         /**
@@ -201,11 +188,6 @@ class BlockFileRecentPluginTest {
                         testPath, i, filesRecentConfig.compression(), filesRecentConfig.maxFilesPerDir());
                 assertThat(persistedBlock).exists();
             }
-            // assert that the plugin has 150 blocks available (properly updated)
-            assertThat(plugin.availableBlocks().min()).isEqualTo(0L);
-            assertThat(plugin.availableBlocks().max()).isEqualTo(149L);
-            // send a persist notification which should trigger the retention policy
-            blockMessaging.sendBlockPersisted(new PersistedNotification(0, 149, plugin.defaultPriority() - 1));
             // assert that the plugin has 100 blocks available (properly updated)
             assertThat(plugin.availableBlocks().min()).isEqualTo(50L);
             assertThat(plugin.availableBlocks().max()).isEqualTo(149L);
