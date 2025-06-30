@@ -18,6 +18,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.stream.Stream;
 import org.hiero.block.internal.BlockUnparsed;
 import org.hiero.block.node.base.BlockFile;
 import org.hiero.block.node.base.ranges.ConcurrentLongRangeSet;
@@ -73,7 +74,8 @@ public final class BlocksFilesRecentPlugin implements BlockProviderPlugin, Block
     private final ConcurrentLongRangeSet availableBlocks = new ConcurrentLongRangeSet();
     /** Running total of bytes stored in the recent tier */
     private final AtomicLong totalBytesStored = new AtomicLong(0);
-
+    /** The Storage Retention Policy Threshold */
+    private long retentionPolicyThreshold;
     // Metrics
     /** Counter for blocks written to the recent tier */
     private Counter blocksWrittenCounter;
@@ -120,6 +122,7 @@ public final class BlocksFilesRecentPlugin implements BlockProviderPlugin, Block
         if (this.config == null) {
             this.config = context.configuration().getConfigData(FilesRecentConfig.class);
         }
+        this.retentionPolicyThreshold = this.config.retentionPolicyThreshold();
         this.blockMessaging = context.blockMessaging();
         // Initialize metrics
         initMetrics(context.metrics());
@@ -251,15 +254,32 @@ public final class BlocksFilesRecentPlugin implements BlockProviderPlugin, Block
     @Override
     public void handlePersisted(PersistedNotification notification) {
         if (notification.blockProviderPriority() < defaultPriority()) {
-            // remove range from available blocks
-            availableBlocks.remove(notification.startBlockNumber(), notification.endBlockNumber());
-            // delete all files in range
-            for (long blockNumber = notification.startBlockNumber();
-                    blockNumber <= notification.endBlockNumber();
-                    blockNumber++) {
-                delete(blockNumber);
-            }
+            final long totalStored = availableBlocks.size();
+            long excess = totalStored - retentionPolicyThreshold;
+            availableBlocks.stream().sorted().limit(excess).forEach(this::delete);
         }
+        // @todo(1268) add a limit 1000 blocks max, remove the stream, simply iterate starting from min + excess
+
+        // @todo(1268) Not sure if we still would want to filter by notification provider priority.
+        //    In theory the new retention logic no longer supports that. We no longer delete the
+        //    range of the notification. More than that, if we have only this plugin that will fire
+        //    such notifications, effectively we will never cleanup. I think that should also be
+        //    changed. Another way to do this is to delete in the verification notification method.
+        //    In theory from there we get the new data and the idea of the policy is to be bound to
+        //    block count and delete only if new data arrives. Maybe we could drop the handle
+        //    persisted here all together? But we have to be careful because a big delete might
+        //    take a long while and we do not want to hang the notification thread too long cause
+        //    persistence relies on it (verification notification method). Am I missing something?
+        //    On another note, if we do delete here, we limit the possibility of the retention
+        //    policy to be applied only if there is something that pushes the PersistedNotification.
+        //    This is an assumption that we should probably not make, after all, the retention
+        //    policy is applied when new data comes in. This is not the place for that.
+        //    After thinking about this more, I think we should not delete here at all.
+        //    This method and the handleVerification method are sync, meaning that either or is
+        //    called, but not both. We should have no race conditions here. We should probably move
+        //    this whole logic to the handleVerification method, where we can delete safely and we
+        //    are sure that new data has arrived, not depending on another plugin to send a
+        //    PersistedNotification.
     }
 
     // ==== Action Methods =============================================================================================
@@ -314,8 +334,8 @@ public final class BlocksFilesRecentPlugin implements BlockProviderPlugin, Block
     }
 
     /**
-     * Delete a block file from the live path. This is used when the block is no longer needed as it is stored by
-     * another plugin.
+     * Delete a block file from the live path. This is used when the block is no longer needed, determined by the
+     * retention policy threshold.
      */
     private void delete(long blockNumber) {
         // compute file path for the block
@@ -330,6 +350,7 @@ public final class BlocksFilesRecentPlugin implements BlockProviderPlugin, Block
                 long fileSize = Files.size(blockFilePath);
                 // delete the block file and update counters
                 if (Files.deleteIfExists(blockFilePath)) {
+                    availableBlocks.remove(blockNumber);
                     blocksDeletedCounter.increment();
                     totalBytesStored.addAndGet(-fileSize);
                 }
@@ -338,21 +359,37 @@ public final class BlocksFilesRecentPlugin implements BlockProviderPlugin, Block
             // clean up any empty parent directories up to the base directory
             Path parentDir = blockFilePath.getParent();
             while (parentDir != null && !parentDir.equals(config.liveRootPath())) {
-                try (var filesList = Files.list(parentDir)) {
+                try (final Stream<Path> filesList = Files.list(parentDir)) {
                     if (filesList.findAny().isPresent()) {
                         break;
                     }
-                } catch (IOException e) {
+                } catch (final IOException e) {
                     LOGGER.log(WARNING, "Failed to list files in directory: " + parentDir, e);
+                    break; // If we cannot list, we cannot assert an empty parent directory
                 }
                 // we did not find any files in the directory, so delete it
                 Files.deleteIfExists(parentDir);
                 // move up to the parent directory
                 parentDir = parentDir.getParent();
             }
-        } catch (IOException e) {
+        } catch (final IOException e) {
             LOGGER.log(WARNING, "Failed to delete block file: " + blockFilePath, e);
-            throw new RuntimeException(e);
+            throw new UncheckedIOException(e);
+            // @todo(1268) log, increment metric and go on, make this an info, if next iter is unsuccessful,
+            //   operator has to take action.
+
+            // @todo(1268) if we fail here, should we really throw or just log and continue?
+            //   a retry will essentially happen on the next persisted notification.
+            //   With the current implementation, this method remains problematic because
+            //   other IO happens asynchronously in the background (new persists) which can lead
+            //   to exceptions during the delete of the parent(s). Do we have a better approach to
+            //   clean up directories?
+            //   After thinking about this more, the danger here is that we will not delete anything
+            //   if we throw. The reason is that the next time we come here, the same result may be
+            //   produced, which will lead to the same exception being thrown. If however we do not
+            //   throw, we will be able to delete the next files (arbitrary amount), but if the
+            //   deletion of files is not resolved in time, and if the amount of undeletable files
+            //   grows, we will eventually be in an infinite excess.
         }
     }
 }
