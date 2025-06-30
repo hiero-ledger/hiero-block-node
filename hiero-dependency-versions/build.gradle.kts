@@ -72,7 +72,7 @@ dependencies.constraints {
     // Testing only versions
     api("com.github.docker-java:docker-java-api:3.5.1") { because("com.github.dockerjava.api") }
     api("org.assertj:assertj-core:3.27.3") { because("org.assertj.core") }
-    api("org.junit.jupiter:junit-jupiter-api:5.13.1") { because("org.junit.jupiter.api") }
+    api("org.junit.jupiter:junit-jupiter-api:5.13.2") { because("org.junit.jupiter.api") }
     api("org.mockito:mockito-core:${mockitoVersion}") { because("org.mockito") }
     api("org.mockito:mockito-junit-jupiter:${mockitoVersion}") {
         because("org.mockito.junit.jupiter")
