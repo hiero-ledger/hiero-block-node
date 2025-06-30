@@ -70,6 +70,8 @@ Policy and the expected results it produces.
 |--------------------------------------------:|:------------------------------------------------------------|:----------------------------------------:|
 |                                             | _**<br/>[Happy Path Tests](#happy-path-tests)<br/>&nbsp;**_ |                                          |
 | [E2ETC_HP_FRPRP_0001](#E2ETC_HP_FRPRP_0001) | `Verify Retention Policy Successful Delete`                 |                   :x:                    |
+|                                             | _**<br/>[Error Tests](#error-tests)<br/>&nbsp;**_           |                                          |
+|   [E2ETC_E_FRPRP_0001](#E2ETC_E_FRPRP_0001) | `Verify Retention Policy Failure During Delete`             |                   :x:                    |
 
 ### Happy Path Tests
 
@@ -123,6 +125,75 @@ Retention Policy threshold is reached or exceeded.
   `/blocks/000/000/000/000/000/0/0000000000000000014.blk.zstd` exist.
 - Blocks in range `0000000000000000005` to `0000000000000000014` are
   available.
+
+##### Other
+
+N/A
+
+---
+
+### Error Tests
+
+#### E2ETC_E_FRPRP_0001
+
+##### Test Name
+
+`Verify Retention Policy Failure During Delete`
+
+##### Scenario Description
+
+`Files Recent Persistence` will persist verified blocks. It will retain a
+configured amount of blocks in storage, and it will delete the oldest blocks
+when new blocks are received and persisted. It is expected that sometimes there
+will be an error during the delete operation of the Retention Policy. In such
+cases, the `Files Recent Persistence` must continue to function and to accept
+new data.
+
+##### Requirements
+
+The `Files Recent Persistence` MUST persist blocks.<br/>
+The `Files Recent Persistence` MUST retain a configured amount of blocks and
+achieve rolling history.<br/>
+The `Files Recent Persistence` MUST NOT hinder new data incoming even if the
+Retention Policy threshold is reached or exceeded.<br/>
+The `Files Recent Persistence` MUST continue to function and accept new data
+even if an error during the delete operation of the Retention Policy occurs.
+
+##### Expected Behaviour
+
+- It is expected that the Block-Node will delete an arbitrary amount of
+  blocks that exceed the configured Retention Policy threshold when new data is
+  received and persisted.
+- It is expected that the Block-Node will continue to function and accept new
+  data even if an error during the delete operation of the Retention Policy
+  occurs.
+- It is expected that the Block-Node will log the error during the delete
+  operation of the Retention Policy.
+- It is expected that the Block-Node will increment a metric to track failed
+  delete operations of the Retention Policy.
+
+##### Preconditions
+
+- A publisher that is able to stream to the Block-Node under test.
+- A way to simulate an error during the delete operation of the Retention
+  Policy.
+
+##### Input
+
+- Valid blocks `0000000000000000000` to `0000000000000000009` are streamed as
+  items, we verify that all are available.
+- Valid blocks `0000000000000000010` to `0000000000000000014` are streamed as
+  items. (simulate an error during delete here)
+- Valid blocks `0000000000000000015` to `0000000000000000019` are streamed as
+  items. (verify that new data can still be accepted)
+
+##### Output
+
+- An error is logged during the delete operation of the Retention Policy.
+- A metric is incremented to track failed delete operations of the Retention
+  Policy.
+- Subsequent attempts to send new blocks are successful, and the
+  `Files Recent Persistence` continues to function normally (write).
 
 ##### Other
 

@@ -95,6 +95,8 @@ Policy and the expected results it produces.
 |--------------------------------------------:|:------------------------------------------------------------|:----------------------------------------:|
 |                                             | _**<br/>[Happy Path Tests](#happy-path-tests)<br/>&nbsp;**_ |                                          |
 | [E2ETC_HP_FHPRP_0001](#E2ETC_HP_FHPRP_0001) | `Verify Retention Policy Successful Delete`                 |                   :x:                    |
+|                                             | _**<br/>[Error Tests](#error-tests)<br/>&nbsp;**_           |                                          |
+|   [E2ETC_E_FRPRP_0001](#E2ETC_E_FRPRP_0001) | `Verify Retention Policy Failure During Delete`             |                   :x:                    |
 
 ### Happy Path Tests
 
@@ -170,3 +172,81 @@ The `Files Historic Persistence` MUST delete the oldest archived batch(es)
 N/A
 
 ---
+
+### Error Tests
+
+#### E2ETC_E_FRPRP_0001
+
+##### Test Name
+
+`Verify Retention Policy Failure During Delete`
+
+##### Scenario Description
+
+The `Files Historic Persistence` will attempt to delete the oldest archived
+batches (zip files) when the Retention Policy threshold is exceeded.
+It is expected that sometimes the delete operation will fail due to an error.
+In such cases, the `Files Historic Persistence` must continue to function and
+accept new data. It must also log the error and increment a metric to track
+failed delete operations of the Retention Policy.
+
+##### Requirements
+
+The `Files Historic Persistence` MUST persist blocks.<br/>
+The `Files Historic Persistence` MUST retain a configured amount of blocks and
+achieve rolling history.<br/>
+The `Files Historic Persistence` MUST NOT hinder new data incoming even if the
+Retention Policy threshold is reached or exceeded.<br/>
+The `Files Historic Persistence` MUST continue to function and accept new data
+even if an error during the delete operation of the Retention Policy occurs.
+</br>
+The `Files Historic Persistence` MUST log the error that occurred during the
+delete operation of the Retention Policy.</br>
+The `Files Historic Persistence` MUST increment a metric to track failed
+delete operations of the Retention Policy when an error occurs.</br>
+
+##### Expected Behaviour
+
+- It is expected that the `Files Historic Persistence` will delete an arbitrary
+  amount of blocks that exceed the configured Retention Policy threshold when
+  new data is received and persisted.
+- It is expected that the `Files Historic Persistence` will continue to function
+  and accept new data even if an error during the delete operation of the
+  Retention Policy occurs.
+- It is expected that the `Files Historic Persistence` will log the error
+  during the delete operation of the Retention Policy.
+- It is expected that the `Files Historic Persistence` will increment a metric
+  to track failed delete operations of the Retention Policy.
+
+##### Preconditions
+
+- Blocks in range `0-9` are persisted (the only ones currently in existence).
+  - The system-wide block provision facility is able to provide these blocks
+    with priority higher than the `Files Historic Persistence`'s.
+- A Persisted Notification is published to the node's messaging system for
+  blocks persisted in range `0-9` with priority higher than the
+  `Files Historic Persistence`'s.
+  - Blocks in range `0-9` are verified available.
+- Blocks in range `10-19` are persisted.
+  - The system-wide block provision facility is able to provide these blocks
+    with priority higher than the `Files Historic Persistence`'s.
+- A Persisted Notification is published to the node's messaging system for
+  blocks persisted in range `10-19` with priority higher than the
+  `Files Historic Persistence`'s.
+  - Simulate an error during the delete operation of the Retention Policy.
+
+##### Input
+
+- Persisted Notification for blocks persisted in range `0-9` with priority
+  higher than the `Files Historic Persistence`'s.
+- Persisted Notification for blocks persisted in range `10-19` with priority
+  higher than the `Files Historic Persistence`'s. Simulate an error during the
+  delete operation of the Retention Policy.
+
+##### Output
+
+- An error is logged during the delete operation of the Retention Policy.
+- A metric is incremented to track failed delete operations of the Retention
+  Policy.
+- Subsequent attempts to send new notifications are successful, and the
+  `Files Historic Persistence` continues to function normally (write).
