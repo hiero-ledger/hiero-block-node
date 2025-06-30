@@ -92,6 +92,13 @@ public class BlockAsFileBlockStreamManager implements BlockStreamManager {
         return nextBlock;
     }
 
+    // This class will be removed so leaving it like that for now.
+    @Override
+    public void resetToBlock(final long block) {
+        currentBlockIndex = (int) block;
+        lastGivenBlockNumber = (int) block;
+    }
+
     private void loadBlocks() throws IOException, ParseException {
 
         final Path rootPath = Path.of(rootFolder);

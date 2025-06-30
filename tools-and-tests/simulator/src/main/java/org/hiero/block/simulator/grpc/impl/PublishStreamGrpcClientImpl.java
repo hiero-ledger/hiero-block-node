@@ -18,10 +18,12 @@ import java.util.Deque;
 import java.util.List;
 import java.util.Random;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.function.Consumer;
 import javax.inject.Inject;
 import org.hiero.block.api.protoc.BlockItemSet;
 import org.hiero.block.api.protoc.BlockStreamPublishServiceGrpc;
 import org.hiero.block.api.protoc.PublishStreamRequest;
+import org.hiero.block.api.protoc.PublishStreamResponse;
 import org.hiero.block.common.utils.ChunkUtils;
 import org.hiero.block.simulator.config.data.BlockStreamConfig;
 import org.hiero.block.simulator.config.data.GrpcConfig;
@@ -55,6 +57,8 @@ public class PublishStreamGrpcClientImpl implements PublishStreamGrpcClient {
     private final Deque<String> lastKnownStatuses;
     private final SimulatorStartupData startupData;
 
+    private final PublishStreamObserver publishStreamObserver;
+
     /**
      * Creates a new PublishStreamGrpcClientImpl with the specified dependencies.
      *
@@ -79,6 +83,8 @@ public class PublishStreamGrpcClientImpl implements PublishStreamGrpcClient {
         this.lastKnownStatusesCapacity = blockStreamConfig.lastKnownStatusesCapacity();
         this.lastKnownStatuses = new ArrayDeque<>(this.lastKnownStatusesCapacity);
         this.startupData = requireNonNull(startupData);
+        this.publishStreamObserver =
+                new PublishStreamObserver(startupData, streamEnabled, lastKnownStatuses, lastKnownStatusesCapacity);
     }
 
     /**
@@ -91,8 +97,6 @@ public class PublishStreamGrpcClientImpl implements PublishStreamGrpcClient {
                 .build();
         final BlockStreamPublishServiceGrpc.BlockStreamPublishServiceStub stub =
                 BlockStreamPublishServiceGrpc.newStub(channel);
-        final PublishStreamObserver publishStreamObserver =
-                new PublishStreamObserver(startupData, streamEnabled, lastKnownStatuses, lastKnownStatusesCapacity);
         requestStreamObserver = stub.publishBlockStream(publishStreamObserver);
         lastKnownStatuses.clear();
     }
@@ -104,7 +108,8 @@ public class PublishStreamGrpcClientImpl implements PublishStreamGrpcClient {
      * @return true if streaming should continue, false if streaming should stop
      */
     @Override
-    public boolean streamBlock(Block block) {
+    public boolean streamBlock(
+            Block block, @NonNull final Consumer<PublishStreamResponse> publishStreamResponseConsumer) {
         List<List<BlockItem>> streamingBatches =
                 ChunkUtils.chunkify(block.getItemsList(), blockStreamConfig.blockItemsBatchSize());
         for (List<BlockItem> streamingBatch : streamingBatches) {
@@ -121,6 +126,7 @@ public class PublishStreamGrpcClientImpl implements PublishStreamGrpcClient {
                         "Number of block items sent: "
                                 + metricsService.get(LiveBlockItemsSent).get());
             } else {
+                publishStreamResponseConsumer.accept(publishStreamObserver.getPublishStreamResponse());
                 LOGGER.log(ERROR, "Not allowed to send next batch of block items");
                 break;
             }

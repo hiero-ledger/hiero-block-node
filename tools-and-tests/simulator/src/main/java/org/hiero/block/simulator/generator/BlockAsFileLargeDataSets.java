@@ -25,7 +25,7 @@ public class BlockAsFileLargeDataSets implements BlockStreamManager {
 
     // State for getNextBlock()
     private final String blockStreamPath;
-    private int currentBlockIndex;
+    private long currentBlockIndex;
     private final int endBlockNumber;
 
     // State for getNextBlockItem()
@@ -101,5 +101,10 @@ public class BlockAsFileLargeDataSets implements BlockStreamManager {
         currentBlockIndex++;
 
         return block;
+    }
+
+    @Override
+    public void resetToBlock(final long block) {
+        currentBlockIndex = block;
     }
 }

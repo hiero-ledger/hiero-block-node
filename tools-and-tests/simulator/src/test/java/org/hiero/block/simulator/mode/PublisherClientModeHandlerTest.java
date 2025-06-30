@@ -3,6 +3,7 @@ package org.hiero.block.simulator.mode;
 
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -72,15 +73,15 @@ public class PublisherClientModeHandlerTest {
                 .thenReturn(block1)
                 .thenReturn(block2)
                 .thenReturn(null);
-        when(publishStreamGrpcClient.streamBlock(any(Block.class))).thenReturn(true);
+        when(publishStreamGrpcClient.streamBlock(any(Block.class), any())).thenReturn(true);
 
-        when(publishStreamGrpcClient.streamBlock(block1)).thenReturn(true);
-        when(publishStreamGrpcClient.streamBlock(block2)).thenReturn(true);
+        when(publishStreamGrpcClient.streamBlock(eq(block1), any())).thenReturn(true);
+        when(publishStreamGrpcClient.streamBlock(eq(block2), any())).thenReturn(true);
 
         publisherClientModeHandler.start();
 
-        verify(publishStreamGrpcClient).streamBlock(block1);
-        verify(publishStreamGrpcClient).streamBlock(block2);
+        verify(publishStreamGrpcClient).streamBlock(eq(block1), any());
+        verify(publishStreamGrpcClient).streamBlock(eq(block2), any());
         verify(publishStreamGrpcClient).shutdown();
         verify(blockStreamManager, times(3)).getNextBlock();
     }
@@ -96,7 +97,7 @@ public class PublisherClientModeHandlerTest {
 
         publisherClientModeHandler.start();
 
-        verify(publishStreamGrpcClient, never()).streamBlock(any(Block.class));
+        verify(publishStreamGrpcClient, never()).streamBlock(any(Block.class), any());
         verify(blockStreamManager).getNextBlock();
     }
 
@@ -114,15 +115,15 @@ public class PublisherClientModeHandlerTest {
                 .thenReturn(block1)
                 .thenReturn(block2)
                 .thenReturn(null);
-        when(publishStreamGrpcClient.streamBlock(any(Block.class))).thenReturn(true);
+        when(publishStreamGrpcClient.streamBlock(any(Block.class), any())).thenReturn(true);
 
-        when(publishStreamGrpcClient.streamBlock(block1)).thenReturn(true);
-        when(publishStreamGrpcClient.streamBlock(block2)).thenReturn(true);
+        when(publishStreamGrpcClient.streamBlock(eq(block1), any())).thenReturn(true);
+        when(publishStreamGrpcClient.streamBlock(eq(block2), any())).thenReturn(true);
 
         publisherClientModeHandler.stop();
         publisherClientModeHandler.start();
 
-        verify(publishStreamGrpcClient, never()).streamBlock(any(Block.class));
+        verify(publishStreamGrpcClient, never()).streamBlock(any(Block.class), any());
         verify(blockStreamManager).getNextBlock();
     }
 
@@ -138,7 +139,7 @@ public class PublisherClientModeHandlerTest {
         publisherClientModeHandler.stop();
         publisherClientModeHandler.start();
 
-        verify(publishStreamGrpcClient, never()).streamBlock(any(Block.class));
+        verify(publishStreamGrpcClient, never()).streamBlock(any(Block.class), any());
         verify(blockStreamManager).getNextBlock();
     }
 
@@ -150,7 +151,7 @@ public class PublisherClientModeHandlerTest {
 
         publisherClientModeHandler = new PublisherClientModeHandler(
                 blockStreamConfig, publishStreamGrpcClient, blockStreamManager, metricsService);
-        when(publishStreamGrpcClient.streamBlock(any(Block.class))).thenReturn(true);
+        when(publishStreamGrpcClient.streamBlock(any(Block.class), any())).thenReturn(true);
 
         Block block1 = mock(Block.class);
         Block block2 = mock(Block.class);
@@ -168,13 +169,13 @@ public class PublisherClientModeHandlerTest {
                 .thenReturn(block2)
                 .thenReturn(null);
 
-        when(publishStreamGrpcClient.streamBlock(block1)).thenReturn(true);
-        when(publishStreamGrpcClient.streamBlock(block2)).thenReturn(true);
+        when(publishStreamGrpcClient.streamBlock(eq(block1), any())).thenReturn(true);
+        when(publishStreamGrpcClient.streamBlock(eq(block2), any())).thenReturn(true);
 
         publisherClientModeHandler.start();
 
-        verify(publishStreamGrpcClient).streamBlock(block1);
-        verify(publishStreamGrpcClient).streamBlock(block2);
+        verify(publishStreamGrpcClient).streamBlock(eq(block1), any());
+        verify(publishStreamGrpcClient).streamBlock(eq(block2), any());
         verify(publishStreamGrpcClient).shutdown();
         verify(blockStreamManager, times(3)).getNextBlock();
     }
@@ -187,7 +188,7 @@ public class PublisherClientModeHandlerTest {
 
         publisherClientModeHandler = new PublisherClientModeHandler(
                 blockStreamConfig, publishStreamGrpcClient, blockStreamManager, metricsService);
-        when(publishStreamGrpcClient.streamBlock(any(Block.class))).thenReturn(true);
+        when(publishStreamGrpcClient.streamBlock(any(Block.class), any())).thenReturn(true);
 
         Block block1 = mock(Block.class);
         Block block2 = mock(Block.class);
@@ -210,16 +211,16 @@ public class PublisherClientModeHandlerTest {
                 .thenReturn(block3)
                 .thenReturn(block4);
 
-        when(publishStreamGrpcClient.streamBlock(block1)).thenReturn(true);
-        when(publishStreamGrpcClient.streamBlock(block2)).thenReturn(true);
-        when(publishStreamGrpcClient.streamBlock(block3)).thenReturn(true);
-        when(publishStreamGrpcClient.streamBlock(block4)).thenReturn(true);
+        when(publishStreamGrpcClient.streamBlock(eq(block1), any())).thenReturn(true);
+        when(publishStreamGrpcClient.streamBlock(eq(block2), any())).thenReturn(true);
+        when(publishStreamGrpcClient.streamBlock(eq(block3), any())).thenReturn(true);
+        when(publishStreamGrpcClient.streamBlock(eq(block4), any())).thenReturn(true);
 
         publisherClientModeHandler.start();
 
-        verify(publishStreamGrpcClient).streamBlock(block1);
-        verify(publishStreamGrpcClient).streamBlock(block2);
-        verify(publishStreamGrpcClient).streamBlock(block3);
+        verify(publishStreamGrpcClient).streamBlock(eq(block1), any());
+        verify(publishStreamGrpcClient).streamBlock(eq(block2), any());
+        verify(publishStreamGrpcClient).streamBlock(eq(block3), any());
         verify(publishStreamGrpcClient).shutdown();
         verify(blockStreamManager, times(3)).getNextBlock();
     }
@@ -234,7 +235,7 @@ public class PublisherClientModeHandlerTest {
 
         publisherClientModeHandler.start();
 
-        verify(publishStreamGrpcClient, never()).streamBlock(any(Block.class));
+        verify(publishStreamGrpcClient, never()).streamBlock(any(Block.class), any());
         verify(blockStreamManager).getNextBlock();
     }
 
@@ -249,7 +250,7 @@ public class PublisherClientModeHandlerTest {
 
         assertThrows(IOException.class, () -> publisherClientModeHandler.start());
 
-        verify(publishStreamGrpcClient, never()).streamBlock(any(Block.class));
+        verify(publishStreamGrpcClient, never()).streamBlock(any(Block.class), any());
         verify(blockStreamManager).getNextBlock();
         verify(publishStreamGrpcClient).shutdown();
         verifyNoMoreInteractions(blockStreamManager);
@@ -271,13 +272,13 @@ public class PublisherClientModeHandlerTest {
                 .thenReturn(block2)
                 .thenReturn(null);
 
-        when(publishStreamGrpcClient.streamBlock(block1)).thenReturn(true);
-        when(publishStreamGrpcClient.streamBlock(block2)).thenReturn(false);
+        when(publishStreamGrpcClient.streamBlock(eq(block1), any())).thenReturn(true);
+        when(publishStreamGrpcClient.streamBlock(eq(block2), any())).thenReturn(false);
 
         publisherClientModeHandler.start();
 
-        verify(publishStreamGrpcClient).streamBlock(block1);
-        verify(publishStreamGrpcClient).streamBlock(block2);
+        verify(publishStreamGrpcClient).streamBlock(eq(block1), any());
+        verify(publishStreamGrpcClient).streamBlock(eq(block2), any());
         verify(publishStreamGrpcClient).shutdown();
         verify(blockStreamManager, times(2)).getNextBlock();
     }
@@ -305,13 +306,13 @@ public class PublisherClientModeHandlerTest {
                 .thenReturn(block2)
                 .thenReturn(null);
 
-        when(publishStreamGrpcClient.streamBlock(block1)).thenReturn(true);
-        when(publishStreamGrpcClient.streamBlock(block2)).thenReturn(false);
+        when(publishStreamGrpcClient.streamBlock(eq(block1), any())).thenReturn(true);
+        when(publishStreamGrpcClient.streamBlock(eq(block2), any())).thenReturn(false);
 
         publisherClientModeHandler.start();
 
-        verify(publishStreamGrpcClient).streamBlock(block1);
-        verify(publishStreamGrpcClient).streamBlock(block2);
+        verify(publishStreamGrpcClient).streamBlock(eq(block1), any());
+        verify(publishStreamGrpcClient).streamBlock(eq(block2), any());
         verify(publishStreamGrpcClient).shutdown();
         verify(blockStreamManager, times(2)).getNextBlock();
     }

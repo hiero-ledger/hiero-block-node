@@ -12,6 +12,7 @@ import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.util.Deque;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 import org.hiero.block.api.protoc.PublishStreamResponse;
 import org.hiero.block.api.protoc.PublishStreamResponse.BlockAcknowledgement;
 import org.hiero.block.simulator.startup.SimulatorStartupData;
@@ -28,6 +29,8 @@ public class PublishStreamObserver implements StreamObserver<PublishStreamRespon
     private final int lastKnownStatusesCapacity;
     private final Deque<String> lastKnownStatuses;
     private final SimulatorStartupData startupData;
+
+    private final AtomicReference<PublishStreamResponse> publishStreamResponse = new AtomicReference<>();
 
     /**
      * Creates a new PublishStreamObserver instance.
@@ -73,10 +76,20 @@ public class PublishStreamObserver implements StreamObserver<PublishStreamRespon
         } else if (publishStreamResponse.hasSkipBlock()) {
             // TODO handle skip block response
         } else if (publishStreamResponse.hasEndStream()) {
-            // TODO handle end of stream response
+            streamEnabled.set(false);
+            this.publishStreamResponse.set(publishStreamResponse);
         }
         lastKnownStatuses.add(publishStreamResponse.toString());
         LOGGER.log(INFO, "Received Response: " + publishStreamResponse);
+    }
+
+    /**
+     * Returns the last received PublishStreamResponse.
+     *
+     * @return the last PublishStreamResponse received
+     */
+    public PublishStreamResponse getPublishStreamResponse() {
+        return publishStreamResponse.get();
     }
 
     /**
