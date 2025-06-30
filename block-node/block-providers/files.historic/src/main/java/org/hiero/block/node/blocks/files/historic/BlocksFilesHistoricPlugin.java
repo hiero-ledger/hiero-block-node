@@ -3,6 +3,7 @@ package org.hiero.block.node.blocks.files.historic;
 
 import static java.lang.System.Logger.Level.DEBUG;
 import static java.lang.System.Logger.Level.ERROR;
+import static java.lang.System.Logger.Level.INFO;
 import static java.lang.System.Logger.Level.WARNING;
 
 import com.swirlds.metrics.api.Counter;
@@ -10,7 +11,6 @@ import com.swirlds.metrics.api.LongGauge;
 import com.swirlds.metrics.api.Metrics;
 import edu.umd.cs.findbugs.annotations.NonNull;
 import java.io.IOException;
-import java.io.UncheckedIOException;
 import java.lang.System.Logger.Level;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -302,14 +302,8 @@ public final class BlocksFilesHistoricPlugin implements BlockProviderPlugin, Blo
                         availableBlocks.remove(
                                 minBlockNumberStored, minBlockNumberStored + numberOfBlocksPerZipFile - 1);
                     } catch (final IOException e) {
-                        throw new UncheckedIOException(e);
-                        // @todo(1268) what to do here if we cannot delete the zip file?
-                        //   After thinking about this more, the danger here is that we will not delete anything
-                        //   if we throw. The reason is that the next time we come here, the same result may be
-                        //   produced, which will lead to the same exception being thrown. If however we do not
-                        //   throw, we will be able to delete the next files (arbitrary amount), but if the
-                        //   deletion of files is not resolved in time, and if the amount of undeletable files
-                        //   grows, we will eventually be in an infinite excess.
+                        LOGGER.log(INFO, "Failed to delete zip file: %s".formatted(zipToDelete), e);
+                        // @todo(1268) do not throw, increment a metric and log info
                     }
                 }
                 excess -= numberOfBlocksPerZipFile;

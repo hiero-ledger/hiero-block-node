@@ -123,6 +123,12 @@ class BlockFileRecentPluginTest {
             assertArrayEquals(blockBlockItems, block.items().toArray());
             assertEquals(blockNumber, plugin.availableBlocks().max());
             assertEquals(blockNumber, plugin.availableBlocks().min());
+            assertEquals(
+                    blockNumber,
+                    blockNodeContext.historicalBlockProvider().availableBlocks().max());
+            assertEquals(
+                    blockNumber,
+                    blockNodeContext.historicalBlockProvider().availableBlocks().min());
         }
 
         /**
@@ -166,6 +172,12 @@ class BlockFileRecentPluginTest {
             assertArrayEquals(blockBlockItems, block.items().toArray());
             assertEquals(blockNumber, plugin.availableBlocks().max());
             assertEquals(blockNumber, plugin.availableBlocks().min());
+            assertEquals(
+                    blockNumber,
+                    blockNodeContext.historicalBlockProvider().availableBlocks().max());
+            assertEquals(
+                    blockNumber,
+                    blockNodeContext.historicalBlockProvider().availableBlocks().min());
         }
 
         /**
