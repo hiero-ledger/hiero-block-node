@@ -163,7 +163,7 @@ class BlocksFilesHistoricPluginTest {
                     "files.historic.powersOfTenPerZipFileContents",
                     String.valueOf(testConfig.powersOfTenPerZipFileContents()));
             final Entry<String, String> blockRetentionThreshold = Map.entry(
-                    "files.historic.blockRetentionThreshold", String.valueOf(testConfig.retentionPolicyThreshold()));
+                    "files.historic.blockRetentionThreshold", String.valueOf(testConfig.blockRetentionThreshold()));
             return Map.ofEntries(rootPath, compression, powersOfTenPerZipFileContents, blockRetentionThreshold);
         }
 
@@ -919,7 +919,7 @@ class BlocksFilesHistoricPluginTest {
         @DisplayName("Test retention policy threshold disabled")
         void testRetentionPolicyThresholdDisabled() throws IOException {
             // change the retention policy to be disabled
-            testConfig = new FilesHistoricConfig(testTempDir, CompressionType.NONE, 1, -1L);
+            testConfig = new FilesHistoricConfig(testTempDir, CompressionType.NONE, 1, 0L);
             // override the config in the plugin
             start(toTest, testHistoricalBlockFacility, getConfigOverrides());
             // generate first 150 blocks from numbers 0-149 and add them to the

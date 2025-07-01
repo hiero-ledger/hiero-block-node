@@ -55,7 +55,7 @@ public final class BlocksFilesHistoricPlugin implements BlockProviderPlugin, Blo
     /** The config used for this plugin */
     private FilesHistoricConfig config;
     /** The Storage Retention Policy Threshold */
-    private long retentionPolicyThreshold;
+    private long blockRetentionThreshold;
 
     // Metrics
     /** Counter for blocks written to the historic tier */
@@ -85,7 +85,7 @@ public final class BlocksFilesHistoricPlugin implements BlockProviderPlugin, Blo
     public void init(final BlockNodeContext context, final ServiceBuilder serviceBuilder) {
         this.context = Objects.requireNonNull(context);
         this.config = context.configuration().getConfigData(FilesHistoricConfig.class);
-        this.retentionPolicyThreshold = this.config.retentionPolicyThreshold();
+        blockRetentionThreshold = config.blockRetentionThreshold();
         // Initialize metrics
         initMetrics(context.metrics());
         // create plugin data root directory if it does not exist
@@ -211,10 +211,6 @@ public final class BlocksFilesHistoricPlugin implements BlockProviderPlugin, Blo
         // calculations and decide if we will submit a task or not
         if (notification.blockProviderPriority() > defaultPriority()) {
             attemptZipping();
-            // @todo(1268) like in the recents plugin, should we cleanup only if the priority check passes?
-            //   here I think yes, because we only get new data if the check passes, so there is no issue
-            //   to keep within the bounds of the retention policy threshold. But for the recents plugin,
-            //   maybe we need to think about it since it gets new data via the verification notification.
             cleanup();
         }
         // @todo(1069) this is not enough of an assertion that the blocks will be coming from the right place
@@ -266,10 +262,10 @@ public final class BlocksFilesHistoricPlugin implements BlockProviderPlugin, Blo
     }
 
     private void cleanup() {
-        // we only take action if the threshold is greater than -1
-        if (retentionPolicyThreshold > -1) {
+        // we only take action if the threshold is greater than 0L
+        if (blockRetentionThreshold > 0L) {
             final long totalStored = availableBlocks.size();
-            long excess = totalStored - retentionPolicyThreshold;
+            long excess = totalStored - blockRetentionThreshold;
             // the numberOfBlocksPerZipFile should generally be immutable once set
             // for the first time when the block node was originally started
             // we can rely on the check below to ensure we are deleting the correct
