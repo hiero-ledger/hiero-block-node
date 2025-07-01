@@ -86,7 +86,7 @@ public final class BlocksFilesHistoricPlugin implements BlockProviderPlugin, Blo
     @Override
     public void init(final BlockNodeContext context, final ServiceBuilder serviceBuilder) {
         this.context = Objects.requireNonNull(context);
-        this.config = context.configuration().getConfigData(FilesHistoricConfig.class);
+        config = context.configuration().getConfigData(FilesHistoricConfig.class);
         blockRetentionThreshold = config.blockRetentionThreshold();
         // Initialize metrics
         initMetrics(context.metrics());
