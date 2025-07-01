@@ -17,14 +17,15 @@ import org.hiero.block.node.base.Loggable;
  * and has existing files.
  * @param maxFilesPerDir number of files per directory. This is used to limit the number of files in a directory to avoid
  * file system issues.
- * @param retentionPolicyThreshold the retention policy threshold (count of blocks to keep). Must be positive.
+ * @param blockRetentionThreshold the retention policy threshold (count of blocks to keep). Can be positive or zero.
+ * If set to zero, the blocks are retained indefinitely.
  */
 @ConfigData("files.recent")
 public record FilesRecentConfig(
         @Loggable @ConfigProperty(defaultValue = "/opt/hiero/block-node/data/live") Path liveRootPath,
         @Loggable @ConfigProperty(defaultValue = "ZSTD") CompressionType compression,
         @Loggable @ConfigProperty(defaultValue = "3") int maxFilesPerDir,
-        @Loggable @ConfigProperty(defaultValue = "96_000") long retentionPolicyThreshold) {
+        @Loggable @ConfigProperty(defaultValue = "96_000") long blockRetentionThreshold) {
     /**
      * Constructor.
      */
@@ -32,6 +33,6 @@ public record FilesRecentConfig(
         Objects.requireNonNull(liveRootPath);
         Objects.requireNonNull(compression);
         Preconditions.requirePositive(maxFilesPerDir);
-        Preconditions.requirePositive(retentionPolicyThreshold);
+        Preconditions.requireGreaterOrEqual(blockRetentionThreshold, 0L);
     }
 }

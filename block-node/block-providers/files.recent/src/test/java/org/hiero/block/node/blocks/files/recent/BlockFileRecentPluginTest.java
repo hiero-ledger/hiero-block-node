@@ -219,6 +219,54 @@ class BlockFileRecentPluginTest {
         }
 
         /**
+         * Test that the plugin's retention policy does not apply when disabled.
+         */
+        @Test
+        @DisplayName("Test the retention policy does not apply when disabled")
+        void testRetentionPolicyDisabled() {
+            // override the plugin under test to disable the retention policy
+            final FilesRecentConfig filesRecentConfigOverride =
+                    new FilesRecentConfig(testPath, CompressionType.ZSTD, 3, 0L);
+            final BlocksFilesRecentPlugin toTest = new BlocksFilesRecentPlugin(filesRecentConfigOverride);
+            final HistoricalBlockFacility localHistoricalBlockFacility =
+                    new HistoricalBlockFacilityImpl(List.of(toTest));
+            // unregister the original plugin from the messaging queue
+            blockMessaging.unregisterBlockNotificationHandler(blocksFilesRecentPlugin);
+            // start the plugin with the overridden config
+            start(toTest, localHistoricalBlockFacility);
+            // pre-check that there are no blocks stored
+            assertThat(toTest.availableBlocks().min()).isEqualTo(UNKNOWN_BLOCK_NUMBER);
+            assertThat(toTest.availableBlocks().max()).isEqualTo(UNKNOWN_BLOCK_NUMBER);
+            // create 150 blocks and then send a verification notification for them
+            for (int i = 0; i < 150; i++) {
+                // generate the next block
+                final BlockItemUnparsed[] block = SimpleTestBlockItemBuilder.createSimpleBlockUnparsedWithNumber(i);
+                // send the block items to the plugin
+                blockMessaging.sendBlockVerification(
+                        new VerificationNotification(true, i, Bytes.EMPTY, new BlockUnparsed(List.of(block))));
+                // assert that the block is persisted
+                final Path persistedBlock = BlockFile.nestedDirectoriesBlockFilePath(
+                        testPath,
+                        i,
+                        filesRecentConfigOverride.compression(),
+                        filesRecentConfigOverride.maxFilesPerDir());
+                assertThat(persistedBlock).exists();
+            }
+            // assert that the plugin has all 150 blocks available
+            assertThat(toTest.availableBlocks().min()).isEqualTo(0L);
+            assertThat(toTest.availableBlocks().max()).isEqualTo(149L);
+            // assert that all the blocks are persisted
+            for (int i = 0; i < 150; i++) {
+                final Path persistedBlock = BlockFile.nestedDirectoriesBlockFilePath(
+                        testPath,
+                        i,
+                        filesRecentConfigOverride.compression(),
+                        filesRecentConfigOverride.maxFilesPerDir());
+                assertThat(persistedBlock).exists();
+            }
+        }
+
+        /**
          * Cleanup after each test.
          */
         @AfterEach

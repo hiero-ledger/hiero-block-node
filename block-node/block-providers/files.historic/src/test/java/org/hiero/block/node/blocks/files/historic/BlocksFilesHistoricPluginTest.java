@@ -162,9 +162,9 @@ class BlocksFilesHistoricPluginTest {
             final Entry<String, String> powersOfTenPerZipFileContents = Map.entry(
                     "files.historic.powersOfTenPerZipFileContents",
                     String.valueOf(testConfig.powersOfTenPerZipFileContents()));
-            final Entry<String, String> retentionPolicyThreshold = Map.entry(
-                    "files.historic.retentionPolicyThreshold", String.valueOf(testConfig.retentionPolicyThreshold()));
-            return Map.ofEntries(rootPath, compression, powersOfTenPerZipFileContents, retentionPolicyThreshold);
+            final Entry<String, String> blockRetentionThreshold = Map.entry(
+                    "files.historic.blockRetentionThreshold", String.valueOf(testConfig.retentionPolicyThreshold()));
+            return Map.ofEntries(rootPath, compression, powersOfTenPerZipFileContents, blockRetentionThreshold);
         }
 
         /**

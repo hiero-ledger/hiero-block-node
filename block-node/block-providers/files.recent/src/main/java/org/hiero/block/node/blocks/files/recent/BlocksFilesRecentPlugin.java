@@ -77,7 +77,7 @@ public final class BlocksFilesRecentPlugin implements BlockProviderPlugin, Block
     /** Running total of bytes stored in the recent tier */
     private final AtomicLong totalBytesStored = new AtomicLong(0);
     /** The Storage Retention Policy Threshold */
-    private long retentionPolicyThreshold;
+    private long blockRetentionThreshold;
     // Metrics
     /** Counter for blocks written to the recent tier */
     private Counter blocksWrittenCounter;
@@ -124,7 +124,7 @@ public final class BlocksFilesRecentPlugin implements BlockProviderPlugin, Block
         if (this.config == null) {
             this.config = context.configuration().getConfigData(FilesRecentConfig.class);
         }
-        this.retentionPolicyThreshold = this.config.retentionPolicyThreshold();
+        blockRetentionThreshold = config.blockRetentionThreshold();
         this.blockMessaging = context.blockMessaging();
         // Initialize metrics
         initMetrics(context.metrics());
@@ -241,17 +241,22 @@ public final class BlocksFilesRecentPlugin implements BlockProviderPlugin, Block
     public void handleVerification(VerificationNotification notification) {
         // write the block to the live path and send notification of block persisted
         writeBlockToLivePath(notification.block(), notification.blockNumber());
-        // after writing the block, we need to trigger the retention policy
-        // calculate excess
-        final long excess = availableBlocks.size() - retentionPolicyThreshold;
-        final long lowestBlockNumber = availableBlocks.min();
-        // determine how many blocks to delete, up to the retention round limit
-        final long blocksToDelete = Math.min(excess, RETENTION_ROUND_LIMIT);
-        // delete the blocks from the lowest block number up to calculated max
-        // gaps will be retried on subsequent retention runs, which are very
-        // frequent
-        for (long i = lowestBlockNumber; i < lowestBlockNumber + blocksToDelete; i++) {
-            delete(i);
+        // we do a round of retention only if the retention threshold is set to
+        // a positive value, otherwise we do not run it
+        if (blockRetentionThreshold > 0L) {
+            // after writing the block, we need to trigger the retention policy
+            // calculate excess
+            final long excess = availableBlocks.size() - blockRetentionThreshold;
+            final long firstBlockToDelete = availableBlocks.min();
+            // determine how many blocks to delete, up to the retention round limit
+            final long blocksToDelete = Math.min(excess, RETENTION_ROUND_LIMIT);
+            // delete the blocks from the lowest block number up to calculated max
+            // gaps will be retried on subsequent retention runs, which are very
+            // frequent
+            final long lastBlockToDelete = firstBlockToDelete + blocksToDelete;
+            for (long i = firstBlockToDelete; i < lastBlockToDelete; i++) {
+                delete(i);
+            }
         }
     }
 
@@ -307,8 +312,7 @@ public final class BlocksFilesRecentPlugin implements BlockProviderPlugin, Block
     }
 
     /**
-     * Delete a block file from the live path. This is used when the block is no longer needed, determined by the
-     * retention policy threshold.
+     * Delete a block file from the live path. This is used when the block is no longer needed.
      */
     private void delete(final long blockNumber) {
         // compute file path for the block
