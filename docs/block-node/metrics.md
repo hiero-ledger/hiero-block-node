@@ -177,12 +177,13 @@ Activity and utilization of the recent on‑disk tier.
 **Plugin:** `block-providers/files.historic [block-node-blocks-file-historic]`
 Activity and utilization of the historic on‑disk tier.
 
-|  Type   |                Name                 |           Description           |
-|---------|-------------------------------------|---------------------------------|
-| Counter | `files_historic_blocks_written`     | Blocks written to historic tier |
-| Counter | `files_historic_blocks_read`        | Blocks read from historic tier  |
-| Gauge   | `files_historic_blocks_stored`      | Blocks stored in historic tier  |
-| Gauge   | `files_historic_total_bytes_stored` | Bytes stored in historic tier   |
+|  Type   |                 Name                 |              Description              |
+|---------|--------------------------------------|---------------------------------------|
+| Counter | `files_historic_blocks_written`      | Blocks written to historic tier       |
+| Counter | `files_historic_blocks_read`         | Blocks read from historic tier        |
+| Gauge   | `files_historic_blocks_stored`       | Blocks stored in historic tier        |
+| Gauge   | `files_historic_total_bytes_stored`  | Bytes stored in historic tier         |
+| Counter | `files_historic_zips_deleted_failed` | Zips failed deletion in historic tier |
 
 ---
 
