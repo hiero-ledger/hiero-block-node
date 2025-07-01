@@ -18,7 +18,7 @@
   "editable": true,
   "fiscalYearStartMonth": 0,
   "graphTooltip": 0,
-  "id": 10,
+  "id": 5,
   "links": [],
   "panels": [
     {
@@ -81,8 +81,7 @@
             "mode": "absolute",
             "steps": [
               {
-                "color": "green",
-                "value": null
+                "color": "green"
               }
             ]
           },
@@ -105,11 +104,12 @@
           "showLegend": true
         },
         "tooltip": {
+          "hideZeros": false,
           "mode": "single",
           "sort": "none"
         }
       },
-      "pluginVersion": "11.4.0",
+      "pluginVersion": "11.6.0",
       "targets": [
         {
           "editorMode": "code",
@@ -169,8 +169,7 @@
             "mode": "absolute",
             "steps": [
               {
-                "color": "green",
-                "value": null
+                "color": "green"
               }
             ]
           },
@@ -193,11 +192,12 @@
           "showLegend": true
         },
         "tooltip": {
+          "hideZeros": false,
           "mode": "single",
           "sort": "none"
         }
       },
-      "pluginVersion": "11.4.0",
+      "pluginVersion": "11.6.0",
       "targets": [
         {
           "editorMode": "code",
@@ -257,8 +257,7 @@
             "mode": "absolute",
             "steps": [
               {
-                "color": "green",
-                "value": null
+                "color": "green"
               }
             ]
           },
@@ -281,11 +280,12 @@
           "showLegend": true
         },
         "tooltip": {
+          "hideZeros": false,
           "mode": "single",
           "sort": "none"
         }
       },
-      "pluginVersion": "11.4.0",
+      "pluginVersion": "11.6.0",
       "targets": [
         {
           "editorMode": "code",
@@ -309,8 +309,7 @@
             "mode": "absolute",
             "steps": [
               {
-                "color": "green",
-                "value": null
+                "color": "green"
               }
             ]
           },
@@ -342,7 +341,7 @@
         "textMode": "auto",
         "wideLayout": true
       },
-      "pluginVersion": "11.4.0",
+      "pluginVersion": "11.6.0",
       "targets": [
         {
           "editorMode": "code",
@@ -369,8 +368,7 @@
             "mode": "absolute",
             "steps": [
               {
-                "color": "green",
-                "value": null
+                "color": "green"
               }
             ]
           },
@@ -402,7 +400,7 @@
         "textMode": "auto",
         "wideLayout": true
       },
-      "pluginVersion": "11.4.0",
+      "pluginVersion": "11.6.0",
       "targets": [
         {
           "editorMode": "code",
@@ -428,8 +426,7 @@
             "mode": "absolute",
             "steps": [
               {
-                "color": "green",
-                "value": null
+                "color": "green"
               }
             ]
           },
@@ -461,7 +458,7 @@
         "textMode": "auto",
         "wideLayout": true
       },
-      "pluginVersion": "11.4.0",
+      "pluginVersion": "11.6.0",
       "targets": [
         {
           "editorMode": "code",
@@ -476,12 +473,70 @@
       "type": "stat"
     },
     {
+      "datasource": {
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green"
+              }
+            ]
+          },
+          "unit": "none"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 8,
+        "x": 0,
+        "y": 15
+      },
+      "id": 13,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "percentChangeColorMode": "standard",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "pluginVersion": "11.6.0",
+      "targets": [
+        {
+          "editorMode": "code",
+          "exemplar": false,
+          "expr": "increase(hiero_block_node_files_recent_blocks_deleted_failed_total[$__range])",
+          "instant": true,
+          "interval": "1m",
+          "range": false,
+          "refId": "A"
+        }
+      ],
+      "title": "Blocks Failed Deletion (in range)",
+      "type": "stat"
+    },
+    {
       "collapsed": false,
       "gridPos": {
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 15
+        "y": 21
       },
       "id": 12,
       "panels": [],
@@ -499,8 +554,7 @@
             "mode": "absolute",
             "steps": [
               {
-                "color": "green",
-                "value": null
+                "color": "green"
               }
             ]
           },
@@ -512,7 +566,7 @@
         "h": 6,
         "w": 8,
         "x": 0,
-        "y": 16
+        "y": 22
       },
       "id": 7,
       "options": {
@@ -532,7 +586,7 @@
         "textMode": "auto",
         "wideLayout": true
       },
-      "pluginVersion": "11.4.0",
+      "pluginVersion": "11.6.0",
       "targets": [
         {
           "editorMode": "code",
@@ -593,8 +647,7 @@
             "mode": "absolute",
             "steps": [
               {
-                "color": "green",
-                "value": null
+                "color": "green"
               }
             ]
           },
@@ -606,7 +659,7 @@
         "h": 6,
         "w": 16,
         "x": 8,
-        "y": 16
+        "y": 22
       },
       "id": 8,
       "options": {
@@ -617,11 +670,12 @@
           "showLegend": true
         },
         "tooltip": {
+          "hideZeros": false,
           "mode": "single",
           "sort": "none"
         }
       },
-      "pluginVersion": "11.4.0",
+      "pluginVersion": "11.6.0",
       "targets": [
         {
           "editorMode": "code",
@@ -645,8 +699,7 @@
             "mode": "absolute",
             "steps": [
               {
-                "color": "green",
-                "value": null
+                "color": "green"
               }
             ]
           },
@@ -658,7 +711,7 @@
         "h": 6,
         "w": 8,
         "x": 0,
-        "y": 22
+        "y": 28
       },
       "id": 9,
       "options": {
@@ -678,7 +731,7 @@
         "textMode": "auto",
         "wideLayout": true
       },
-      "pluginVersion": "11.4.0",
+      "pluginVersion": "11.6.0",
       "targets": [
         {
           "editorMode": "code",
@@ -739,8 +792,7 @@
             "mode": "absolute",
             "steps": [
               {
-                "color": "green",
-                "value": null
+                "color": "green"
               }
             ]
           },
@@ -752,7 +804,7 @@
         "h": 6,
         "w": 16,
         "x": 8,
-        "y": 22
+        "y": 28
       },
       "id": 10,
       "options": {
@@ -763,11 +815,12 @@
           "showLegend": true
         },
         "tooltip": {
+          "hideZeros": false,
           "mode": "single",
           "sort": "none"
         }
       },
-      "pluginVersion": "11.4.0",
+      "pluginVersion": "11.6.0",
       "targets": [
         {
           "editorMode": "code",
@@ -783,7 +836,7 @@
   ],
   "preload": false,
   "refresh": "30s",
-  "schemaVersion": 40,
+  "schemaVersion": 41,
   "tags": [],
   "templating": {
     "list": []
@@ -796,6 +849,5 @@
   "timezone": "browser",
   "title": "Block-Provider: Files Recent",
   "uid": "cens18daw2i2oa",
-  "version": 3,
-  "weekStart": ""
+  "version": 5
 }

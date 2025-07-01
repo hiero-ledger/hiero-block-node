@@ -161,13 +161,14 @@ Measures block‑verification throughput and success rate.
 **Plugin:** `block-providers/files.recent [block-node-blocks-file-recent]`
 Activity and utilization of the recent on‑disk tier.
 
-|  Type   |               Name                |           Description           |
-|---------|-----------------------------------|---------------------------------|
-| Counter | `files_recent_blocks_written`     | Blocks written to recent tier   |
-| Counter | `files_recent_blocks_read`        | Blocks read from recent tier    |
-| Counter | `files_recent_blocks_deleted`     | Blocks deleted from recent tier |
-| Gauge   | `files_recent_blocks_stored`      | Blocks stored in recent tier    |
-| Gauge   | `files_recent_total_bytes_stored` | Bytes stored in recent tier     |
+|  Type   |                 Name                 |               Description               |
+|---------|--------------------------------------|-----------------------------------------|
+| Counter | `files_recent_blocks_written`        | Blocks written to recent tier           |
+| Counter | `files_recent_blocks_read`           | Blocks read from recent tier            |
+| Counter | `files_recent_blocks_deleted`        | Blocks deleted from recent tier         |
+| Counter | `files_recent_blocks_deleted_failed` | Blocks failed deletion from recent tier |
+| Gauge   | `files_recent_blocks_stored`         | Blocks stored in recent tier            |
+| Gauge   | `files_recent_total_bytes_stored`    | Bytes stored in recent tier             |
 
 ---
 

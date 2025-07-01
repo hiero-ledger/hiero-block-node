@@ -2,6 +2,7 @@
 package org.hiero.block.node.blocks.files.recent;
 
 import static java.lang.System.Logger.Level.DEBUG;
+import static java.lang.System.Logger.Level.INFO;
 import static java.lang.System.Logger.Level.WARNING;
 import static org.hiero.block.node.base.BlockFile.nestedDirectoriesAllBlockNumbers;
 
@@ -85,6 +86,8 @@ public final class BlocksFilesRecentPlugin implements BlockProviderPlugin, Block
     private Counter blocksReadCounter;
     /** Counter for blocks deleted from the recent tier */
     private Counter blocksDeletedCounter;
+    /** Counter for blocks deleted from the recent tier that failed */
+    private Counter blocksDeletedFailedCounter;
     /** Gauge for the number of blocks stored in the recent tier */
     private LongGauge blocksStoredGauge;
     /** Gauge for the total bytes stored in the recent tier */
@@ -161,7 +164,7 @@ public final class BlocksFilesRecentPlugin implements BlockProviderPlugin, Block
     /**
      * Initialize metrics for this plugin. vb
      */
-    private void initMetrics(Metrics metrics) {
+    private void initMetrics(final Metrics metrics) {
         blocksWrittenCounter = metrics.getOrCreate(new Counter.Config(METRICS_CATEGORY, "files_recent_blocks_written")
                 .withDescription("Blocks written to files.recent provider"));
 
@@ -170,6 +173,10 @@ public final class BlocksFilesRecentPlugin implements BlockProviderPlugin, Block
 
         blocksDeletedCounter = metrics.getOrCreate(new Counter.Config(METRICS_CATEGORY, "files_recent_blocks_deleted")
                 .withDescription("Blocks deleted from files.recent provider"));
+
+        blocksDeletedFailedCounter =
+                metrics.getOrCreate(new Counter.Config(METRICS_CATEGORY, "files_recent_blocks_deleted_failed")
+                        .withDescription("Blocks failed deletion from files.recent provider"));
 
         blocksStoredGauge = metrics.getOrCreate(new LongGauge.Config(METRICS_CATEGORY, "files_recent_blocks_stored")
                 .withDescription("Blocks stored in files.recent provider"));
@@ -331,8 +338,8 @@ public final class BlocksFilesRecentPlugin implements BlockProviderPlugin, Block
                 blocksDeletedCounter.increment();
                 totalBytesStored.addAndGet(-fileSize);
             } catch (final IOException e) {
-                LOGGER.log(WARNING, "Failed to delete block file: " + blockFilePath, e);
-                // @todo(1268) do not throw, increment a metric and log info
+                LOGGER.log(INFO, "Failed to delete block file: " + blockFilePath, e);
+                blocksDeletedFailedCounter.increment();
             }
             // clean up any empty parent directories up to the base directory
             Path parentDir = blockFilePath.getParent();
@@ -347,7 +354,7 @@ public final class BlocksFilesRecentPlugin implements BlockProviderPlugin, Block
                         parentDir = parentDir.getParent();
                     }
                 } catch (final IOException e) {
-                    LOGGER.log(WARNING, "Failed remove parent directory: " + parentDir, e);
+                    LOGGER.log(INFO, "Failed remove parent directory: " + parentDir, e);
                     break; // If we cannot list, we cannot assert an empty parent directory
                 }
             }
