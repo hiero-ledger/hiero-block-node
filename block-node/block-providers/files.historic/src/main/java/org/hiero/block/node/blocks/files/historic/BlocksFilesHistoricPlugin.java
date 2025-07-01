@@ -66,6 +66,8 @@ public final class BlocksFilesHistoricPlugin implements BlockProviderPlugin, Blo
     private LongGauge blocksStoredGauge;
     /** Gauge for the total bytes stored in the historic tier */
     private LongGauge bytesStoredGauge;
+    /** Counter for failed zip deletions from the historic tier */
+    private Counter zipsDeletedFailedCounter;
 
     // ==== BlockProviderPlugin Methods ================================================================================
 
@@ -145,6 +147,10 @@ public final class BlocksFilesHistoricPlugin implements BlockProviderPlugin, Blo
         bytesStoredGauge =
                 metrics.getOrCreate(new LongGauge.Config(METRICS_CATEGORY, "files_historic_total_bytes_stored")
                         .withDescription("Bytes stored in files.historic provider"));
+
+        zipsDeletedFailedCounter =
+                metrics.getOrCreate(new Counter.Config(METRICS_CATEGORY, "files_historic_zips_deleted_failed")
+                        .withDescription("Zips failed deletion from files.historic provider"));
     }
 
     /**
@@ -299,7 +305,7 @@ public final class BlocksFilesHistoricPlugin implements BlockProviderPlugin, Blo
                                 minBlockNumberStored, minBlockNumberStored + numberOfBlocksPerZipFile - 1);
                     } catch (final IOException e) {
                         LOGGER.log(INFO, "Failed to delete zip file: %s".formatted(zipToDelete), e);
-                        // @todo(1268) do not throw, increment a metric and log info
+                        zipsDeletedFailedCounter.increment();
                     }
                 }
                 excess -= numberOfBlocksPerZipFile;
