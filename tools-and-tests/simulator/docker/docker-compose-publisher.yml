@@ -22,6 +22,54 @@ services:
     volumes:
       - simulator_data:/opt/simulator/data
 
+  prometheus:
+    image: prom/prometheus
+    container_name: prometheus-simulator
+    volumes:
+      - ./simulator-prometheus.yml:/etc/prometheus/prometheus.yml
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+    # Exposing Prometheus outside the stack can create issues with
+    # the MetricsService in the Simulator. Here it's exposed within
+    # the stack.
+    ports:
+      - "9095"
+
+  grafana:
+    image: grafana/grafana
+    container_name: grafana-simulator
+    depends_on:
+      - prometheus
+    environment:
+      GF_SECURITY_DISABLE_INITIAL_ADMIN_CREATION: "true"
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: "Admin"
+      GF_AUTH_DISABLE_SIGNOUT_MENU: "true"
+      GF_AUTH_DISABLE_LOGIN_FORM: "true"
+    volumes:
+      - ./dashboards:/etc/grafana/provisioning/dashboards
+      - ./datasources.yml:/etc/grafana/provisioning/datasources/datasources.yml
+    ports:
+      - "4000:3000"
+
+  # Add Loki service
+  loki:
+    image: grafana/loki:2.9.2
+    ports:
+      - "4100:3100"
+    command: -config.file=/etc/loki/local-config.yaml
+
+  # Add Promtail service
+  promtail:
+    image: grafana/promtail:2.8.2
+    container_name: promtail-simulator
+    depends_on:
+      - loki
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro  # Mount Docker socket
+      - ./simulator-promtail-config.yaml:/etc/promtail/config.yaml:ro
+    command: --config.file=/etc/promtail/config.yaml
+
 networks:
   block-node_default:
     name: block-node_default
