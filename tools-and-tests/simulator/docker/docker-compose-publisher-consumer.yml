@@ -65,13 +65,13 @@ services:
       - ./dashboards:/etc/grafana/provisioning/dashboards
       - ./datasources.yml:/etc/grafana/provisioning/datasources/datasources.yml
     ports:
-      - "4000:4000"
+      - "4000:3000"
 
   # Add Loki service
   loki:
     image: grafana/loki:2.9.2
     ports:
-      - "4100:4100"
+      - "4100:3100"
     command: -config.file=/etc/loki/local-config.yaml
 
   # Add Promtail service
