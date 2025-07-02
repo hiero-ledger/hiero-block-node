@@ -5,8 +5,8 @@ services:
       context: .
       dockerfile: Dockerfile
     image: hedera-block-simulator:latest
-    networks:
-      - block-node_default
+    ports:
+      - "9998:9998"
     env_file:
       - .env
     environment:
@@ -26,8 +26,8 @@ services:
       context: .
       dockerfile: Dockerfile
     image: hedera-block-simulator:latest
-    networks:
-      - block-node_default
+    ports:
+      - "9997:9997"
     env_file:
       - .env
     environment:
@@ -37,24 +37,25 @@ services:
       simulator-publisher:
         condition: service_healthy
 
-  prometheus:
+  prometheus-simulator:
     image: prom/prometheus
     container_name: prometheus-simulator
     volumes:
       - ./simulator-prometheus.yml:/etc/prometheus/prometheus.yml
     command:
+      - '--web.listen-address=:9091'
       - '--config.file=/etc/prometheus/prometheus.yml'
     # Exposing Prometheus outside the stack can create issues with
     # the MetricsService in the Simulator. Here it's exposed within
     # the stack.
     ports:
-      - "9090"
+      - "9091:9091"
 
   grafana:
     image: grafana/grafana
     container_name: grafana-simulator
     depends_on:
-      - prometheus
+      - prometheus-simulator
     environment:
       GF_SECURITY_DISABLE_INITIAL_ADMIN_CREATION: "true"
       GF_AUTH_ANONYMOUS_ENABLED: "true"
@@ -84,12 +85,6 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock:ro  # Mount Docker socket
       - ./simulator-promtail-config.yaml:/etc/promtail/config.yaml:ro
     command: --config.file=/etc/promtail/config.yaml
-
-
-networks:
-  block-node_default:
-    name: block-node_default
-    external: true
 
 volumes:
   simulator_data:
