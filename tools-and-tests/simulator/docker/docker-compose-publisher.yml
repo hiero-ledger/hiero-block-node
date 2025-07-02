@@ -29,9 +29,6 @@ services:
     command:
       - '--web.listen-address=:9091'
       - '--config.file=/etc/prometheus/prometheus.yml'
-    # Exposing Prometheus outside the stack can create issues with
-    # the MetricsService in the Simulator. Here it's exposed within
-    # the stack.
     ports:
       - "9091:9091"
 
