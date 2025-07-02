@@ -48,7 +48,7 @@ services:
     # the MetricsService in the Simulator. Here it's exposed within
     # the stack.
     ports:
-      - "9095"
+      - "9090"
 
   grafana:
     image: grafana/grafana

@@ -2,7 +2,7 @@ server:
   http_listen_port: 9095
   grpc_listen_port: 0
 clients:
-  - url: http://loki:4100/loki/api/v1/push
+  - url: http://loki:3100/loki/api/v1/push
 positions:
   filename: /tmp/positions.yaml
 scrape_configs:
