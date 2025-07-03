@@ -11,20 +11,15 @@ module org.hiero.block.node.app {
     uses BlockNodePlugin;
     uses BlockProviderPlugin;
 
-    // export configuration classes to the config module
-    exports org.hiero.block.node.app to
-            com.swirlds.config.impl,
-            com.swirlds.config.extensions;
-
     requires com.hedera.pbj.grpc.helidon.config;
     requires com.hedera.pbj.grpc.helidon;
     requires com.hedera.pbj.runtime;
-    requires com.swirlds.base;
     requires com.swirlds.common;
     requires com.swirlds.config.api;
     requires com.swirlds.config.extensions;
     requires com.swirlds.metrics.api;
     requires org.hiero.block.common;
+    requires org.hiero.block.node.app.config;
     requires org.hiero.block.node.base;
     requires org.hiero.block.node.spi;
     requires io.helidon.common;
