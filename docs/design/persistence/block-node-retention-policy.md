@@ -72,7 +72,7 @@ The `Files Historic Persistence` implements the Retention Policy:
 - Blocks are removed only when new data is received.
 - The granularity of the removal is one whole zipped file, which contains one
   archived batch of blocks.
-- By default, the Retention Policy is set to `-1`, which means that there is no
+- By default, the Retention Policy is set to `0`, which means that there is no
   limit on the amount of blocks that can be stored.
 
 ## Configuration
