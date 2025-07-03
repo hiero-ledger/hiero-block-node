@@ -73,7 +73,7 @@ The simulator can run in two modes (Publisher and Consumer) and provides metrics
    ./gradlew startDockerContainer
    ```
 2. Access the metrics:
-   - Open Grafana at [http://localhost:3000](http://localhost:3000)
+   - Open Grafana at [http://localhost:4000](http://localhost:4000)
    - Navigate to Dashboards
    - You'll find two dashboards:
      - Block Stream Simulator Publisher: Shows metrics for the publisher instance
