@@ -271,7 +271,9 @@ public final class BlocksFilesHistoricPlugin implements BlockProviderPlugin, Blo
         // we only take action if the threshold is greater than 0L
         if (blockRetentionThreshold > 0L) {
             final long totalStored = availableBlocks.size();
-            long excess = totalStored - blockRetentionThreshold;
+            // calculate excess blocks to delete, the retention threshold
+            // is the number of zips (archived batches) to retain
+            long excess = totalStored - (blockRetentionThreshold * numberOfBlocksPerZipFile);
             // the numberOfBlocksPerZipFile should generally be immutable once set
             // for the first time when the block node was originally started
             // we can rely on the check below to ensure we are deleting the correct
