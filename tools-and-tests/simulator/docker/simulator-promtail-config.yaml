@@ -1,0 +1,33 @@
+server:
+  http_listen_port: 9095
+  grpc_listen_port: 0
+clients:
+  - url: http://loki:3100/loki/api/v1/push
+positions:
+  filename: /tmp/positions.yaml
+scrape_configs:
+  # Docker Service Discovery
+  - job_name: docker-logs
+    docker_sd_configs:
+      - host: unix:///var/run/docker.sock
+    pipeline_stages:
+      - docker:
+          docker_url: unix:///var/run/docker.sock
+          # This multiline stage merges multiple lines for one exception stack trace
+          # into a single log message.
+      - multiline:
+          # firstline: A regex that identifies the start of a new log entry
+          firstline: '^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}'
+          # Maximum wait time for more lines before sending the collected log upstream
+          max_wait_time: 3s
+    relabel_configs:
+      - source_labels: [__meta_docker_container_name]
+        regex: "/(.*)"
+        replacement: "$1"
+        target_label: container_name
+      - source_labels: [__meta_docker_container_image]
+        target_label: image
+      - source_labels: [__meta_docker_container_id]
+        target_label: container_id
+      - target_label: job
+        replacement: docker-logs
