@@ -16,17 +16,20 @@ import org.hiero.block.node.base.Loggable;
  *
  * @param rootPath provides the root path for saving historic blocks
  * @param compression compression type to use for the storage. It is assumed this never changes while a node is running
- *                    and has existing files.
+ * and has existing files.
  * @param powersOfTenPerZipFileContents the number files in a zip file specified in powers of ten. Can can be one of
- *                                 1 = 10, 2 = 100, 3 = 1000, 4 = 10,000, 5 = 100,000, or 6 = 1,000,000 files per
- *                                 zip. Changing this is handy for testing, as having to wait for 10,000 blocks to be
- *                                 created is a long time.
+ * 1 = 10, 2 = 100, 3 = 1000, 4 = 10,000, 5 = 100,000, or 6 = 1,000,000 files per
+ * zip. Changing this is handy for testing, as having to wait for 10,000 blocks to be
+ * created is a long time.
+ * @param blockRetentionThreshold the retention policy threshold (count of blocks to keep). If set to 0 (zero),
+ * blocks will be retained indefinitely.
  */
 @ConfigData("files.historic")
 public record FilesHistoricConfig(
         @Loggable @ConfigProperty(defaultValue = "/opt/hiero/block-node/data/historic") Path rootPath,
         @Loggable @ConfigProperty(defaultValue = "ZSTD") CompressionType compression,
-        @Loggable @ConfigProperty(defaultValue = "4") @Min(1) @Max(6) int powersOfTenPerZipFileContents) {
+        @Loggable @ConfigProperty(defaultValue = "4") @Min(1) @Max(6) int powersOfTenPerZipFileContents,
+        @Loggable @ConfigProperty(defaultValue = "0") long blockRetentionThreshold) {
     /**
      * Constructor.
      */
@@ -34,5 +37,6 @@ public record FilesHistoricConfig(
         Objects.requireNonNull(rootPath);
         Objects.requireNonNull(compression);
         Preconditions.requireInRange(powersOfTenPerZipFileContents, 1, 6);
+        Preconditions.requireGreaterOrEqual(blockRetentionThreshold, 0L);
     }
 }

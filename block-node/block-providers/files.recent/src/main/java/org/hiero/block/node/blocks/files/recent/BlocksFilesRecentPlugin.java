@@ -2,6 +2,7 @@
 package org.hiero.block.node.blocks.files.recent;
 
 import static java.lang.System.Logger.Level.DEBUG;
+import static java.lang.System.Logger.Level.INFO;
 import static java.lang.System.Logger.Level.WARNING;
 import static org.hiero.block.node.base.BlockFile.nestedDirectoriesAllBlockNumbers;
 
@@ -18,6 +19,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.stream.Stream;
 import org.hiero.block.internal.BlockUnparsed;
 import org.hiero.block.node.base.BlockFile;
 import org.hiero.block.node.base.ranges.ConcurrentLongRangeSet;
@@ -63,6 +65,8 @@ import org.hiero.block.node.spi.historicalblocks.BlockRangeSet;
  * configured and can be changed at any time. The compression level is also configured and can be changed at any time.
  */
 public final class BlocksFilesRecentPlugin implements BlockProviderPlugin, BlockNotificationHandler {
+    /** The maximum limit of blocks to be deleted in a single retention run. */
+    private static final int RETENTION_ROUND_LIMIT = 1_000;
     /** The logger for this class. */
     private final System.Logger LOGGER = System.getLogger(getClass().getName());
     /** The configuration for this plugin. */
@@ -73,7 +77,8 @@ public final class BlocksFilesRecentPlugin implements BlockProviderPlugin, Block
     private final ConcurrentLongRangeSet availableBlocks = new ConcurrentLongRangeSet();
     /** Running total of bytes stored in the recent tier */
     private final AtomicLong totalBytesStored = new AtomicLong(0);
-
+    /** The Storage Retention Policy Threshold */
+    private long blockRetentionThreshold;
     // Metrics
     /** Counter for blocks written to the recent tier */
     private Counter blocksWrittenCounter;
@@ -81,6 +86,8 @@ public final class BlocksFilesRecentPlugin implements BlockProviderPlugin, Block
     private Counter blocksReadCounter;
     /** Counter for blocks deleted from the recent tier */
     private Counter blocksDeletedCounter;
+    /** Counter for blocks deleted from the recent tier that failed */
+    private Counter blocksDeletedFailedCounter;
     /** Gauge for the number of blocks stored in the recent tier */
     private LongGauge blocksStoredGauge;
     /** Gauge for the total bytes stored in the recent tier */
@@ -120,6 +127,7 @@ public final class BlocksFilesRecentPlugin implements BlockProviderPlugin, Block
         if (this.config == null) {
             this.config = context.configuration().getConfigData(FilesRecentConfig.class);
         }
+        blockRetentionThreshold = config.blockRetentionThreshold();
         this.blockMessaging = context.blockMessaging();
         // Initialize metrics
         initMetrics(context.metrics());
@@ -156,7 +164,7 @@ public final class BlocksFilesRecentPlugin implements BlockProviderPlugin, Block
     /**
      * Initialize metrics for this plugin. vb
      */
-    private void initMetrics(Metrics metrics) {
+    private void initMetrics(final Metrics metrics) {
         blocksWrittenCounter = metrics.getOrCreate(new Counter.Config(METRICS_CATEGORY, "files_recent_blocks_written")
                 .withDescription("Blocks written to files.recent provider"));
 
@@ -165,6 +173,10 @@ public final class BlocksFilesRecentPlugin implements BlockProviderPlugin, Block
 
         blocksDeletedCounter = metrics.getOrCreate(new Counter.Config(METRICS_CATEGORY, "files_recent_blocks_deleted")
                 .withDescription("Blocks deleted from files.recent provider"));
+
+        blocksDeletedFailedCounter =
+                metrics.getOrCreate(new Counter.Config(METRICS_CATEGORY, "files_recent_blocks_deleted_failed")
+                        .withDescription("Blocks failed deletion from files.recent provider"));
 
         blocksStoredGauge = metrics.getOrCreate(new LongGauge.Config(METRICS_CATEGORY, "files_recent_blocks_stored")
                 .withDescription("Blocks stored in files.recent provider"));
@@ -236,28 +248,21 @@ public final class BlocksFilesRecentPlugin implements BlockProviderPlugin, Block
     public void handleVerification(VerificationNotification notification) {
         // write the block to the live path and send notification of block persisted
         writeBlockToLivePath(notification.block(), notification.blockNumber());
-    }
-
-    /**
-     * {@inheritDoc}
-     * <p>
-     * This method is called when a block persisted notification is received. It is called on the block notification
-     * thread. We will get notifications from ourselves and other plugins. We are looking for notifications from other
-     * plugins with lower priority that have stored blocks so we can delete ours as we do not need to store them anymore
-     * if another plugin has them.
-     *
-     * @param notification the block persisted notification to handle
-     */
-    @Override
-    public void handlePersisted(PersistedNotification notification) {
-        if (notification.blockProviderPriority() < defaultPriority()) {
-            // remove range from available blocks
-            availableBlocks.remove(notification.startBlockNumber(), notification.endBlockNumber());
-            // delete all files in range
-            for (long blockNumber = notification.startBlockNumber();
-                    blockNumber <= notification.endBlockNumber();
-                    blockNumber++) {
-                delete(blockNumber);
+        // we do a round of retention only if the retention threshold is set to
+        // a positive value, otherwise we do not run it
+        if (blockRetentionThreshold > 0L) {
+            // after writing the block, we need to trigger the retention policy
+            // calculate excess
+            final long excess = availableBlocks.size() - blockRetentionThreshold;
+            final long firstBlockToDelete = availableBlocks.min();
+            // determine how many blocks to delete, up to the retention round limit
+            final long blocksToDelete = Math.min(excess, RETENTION_ROUND_LIMIT);
+            // delete the blocks from the lowest block number up to calculated max
+            // gaps will be retried on subsequent retention runs, which are very
+            // frequent
+            final long lastBlockToDelete = firstBlockToDelete + blocksToDelete;
+            for (long i = firstBlockToDelete; i < lastBlockToDelete; i++) {
+                delete(i);
             }
         }
     }
@@ -314,45 +319,45 @@ public final class BlocksFilesRecentPlugin implements BlockProviderPlugin, Block
     }
 
     /**
-     * Delete a block file from the live path. This is used when the block is no longer needed as it is stored by
-     * another plugin.
+     * Delete a block file from the live path. This is used when the block is no longer needed.
      */
-    private void delete(long blockNumber) {
+    private void delete(final long blockNumber) {
         // compute file path for the block
         final Path blockFilePath = BlockFile.nestedDirectoriesBlockFilePath(
                 config.liveRootPath(), blockNumber, config.compression(), config.maxFilesPerDir());
-        try {
+        if (Files.exists(blockFilePath)) {
             // log we are deleting the block file
             LOGGER.log(DEBUG, "Deleting block file: " + blockFilePath);
-
-            // Get file size before deleting to update total bytes stored
-            if (Files.exists(blockFilePath)) {
-                long fileSize = Files.size(blockFilePath);
+            try {
+                // Get file size before deleting to update total bytes stored
+                final long fileSize = Files.size(blockFilePath);
                 // delete the block file and update counters
-                if (Files.deleteIfExists(blockFilePath)) {
-                    blocksDeletedCounter.increment();
-                    totalBytesStored.addAndGet(-fileSize);
-                }
+                Files.delete(blockFilePath);
+                LOGGER.log(DEBUG, "Successfully deleted block file: " + blockFilePath);
+                availableBlocks.remove(blockNumber);
+                blocksDeletedCounter.increment();
+                totalBytesStored.addAndGet(-fileSize);
+            } catch (final IOException e) {
+                LOGGER.log(INFO, "Failed to delete block file: " + blockFilePath, e);
+                blocksDeletedFailedCounter.increment();
             }
-
             // clean up any empty parent directories up to the base directory
             Path parentDir = blockFilePath.getParent();
             while (parentDir != null && !parentDir.equals(config.liveRootPath())) {
-                try (var filesList = Files.list(parentDir)) {
+                try (final Stream<Path> filesList = Files.list(parentDir)) {
                     if (filesList.findAny().isPresent()) {
                         break;
+                    } else {
+                        // we did not find any files in the directory, so delete it
+                        Files.deleteIfExists(parentDir);
+                        // move up to the parent directory
+                        parentDir = parentDir.getParent();
                     }
-                } catch (IOException e) {
-                    LOGGER.log(WARNING, "Failed to list files in directory: " + parentDir, e);
+                } catch (final IOException e) {
+                    LOGGER.log(INFO, "Failed remove parent directory: " + parentDir, e);
+                    break; // If we cannot list, we cannot assert an empty parent directory
                 }
-                // we did not find any files in the directory, so delete it
-                Files.deleteIfExists(parentDir);
-                // move up to the parent directory
-                parentDir = parentDir.getParent();
             }
-        } catch (IOException e) {
-            LOGGER.log(WARNING, "Failed to delete block file: " + blockFilePath, e);
-            throw new RuntimeException(e);
         }
     }
 }

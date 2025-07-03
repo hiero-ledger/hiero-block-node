@@ -227,7 +227,6 @@ public class TestBlockMessagingFacility implements BlockMessagingFacility {
      */
     @Override
     public void unregisterBlockNotificationHandler(final BlockNotificationHandler handler) {
-        //noinspection SuspiciousMethodCalls
-        blockItemHandlers.remove(handler);
+        blockNotificationHandlers.remove(handler);
     }
 }
