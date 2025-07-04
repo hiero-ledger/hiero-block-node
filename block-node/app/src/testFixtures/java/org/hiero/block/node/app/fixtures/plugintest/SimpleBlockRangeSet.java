@@ -73,7 +73,7 @@ public class SimpleBlockRangeSet implements BlockRangeSet {
      */
     @Override
     public long min() {
-        return blockNumbers.isEmpty() ? 0 : blockNumbers.first();
+        return blockNumbers.isEmpty() ? UNKNOWN_BLOCK_NUMBER : blockNumbers.first();
     }
 
     /**
@@ -81,7 +81,7 @@ public class SimpleBlockRangeSet implements BlockRangeSet {
      */
     @Override
     public long max() {
-        return blockNumbers.isEmpty() ? 0 : blockNumbers.last();
+        return blockNumbers.isEmpty() ? UNKNOWN_BLOCK_NUMBER : blockNumbers.last();
     }
 
     /**

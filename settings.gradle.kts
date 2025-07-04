@@ -23,6 +23,7 @@ javaModules {
     directory("block-node") {
         group = hieroGroup
         module("app") { artifact = "block-node-app" }
+        module("app-config") { artifact = "block-node-app-config" }
         module("base") { artifact = "block-node-base" }
         module("block-access") { artifact = "block-access-service" }
         module("block-providers/files.historic") { artifact = "block-node-blocks-file-historic" }

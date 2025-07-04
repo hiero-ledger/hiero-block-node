@@ -20,9 +20,9 @@ import java.nio.file.Path;
 import java.util.List;
 import org.hiero.block.internal.BlockItemUnparsed;
 import org.hiero.block.internal.BlockUnparsed;
-import org.hiero.block.node.app.HistoricalBlockFacilityImpl;
 import org.hiero.block.node.app.fixtures.blocks.SimpleTestBlockItemBuilder;
 import org.hiero.block.node.app.fixtures.plugintest.PluginTestBase;
+import org.hiero.block.node.app.fixtures.plugintest.SimpleInMemoryHistoricalBlockFacility;
 import org.hiero.block.node.base.BlockFile;
 import org.hiero.block.node.base.CompressionType;
 import org.hiero.block.node.spi.blockmessaging.VerificationNotification;
@@ -45,7 +45,7 @@ class BlockFileRecentPluginTest {
     /** The plugin under test. */
     private final BlocksFilesRecentPlugin blocksFilesRecentPlugin;
     /** The historical block facility. */
-    private final HistoricalBlockFacility historicalBlockFacility;
+    private final SimpleInMemoryHistoricalBlockFacility historicalBlockFacility;
 
     /**
      * Construct test environment.
@@ -55,7 +55,7 @@ class BlockFileRecentPluginTest {
         this.testPath = fileSystem.getPath("/live");
         this.filesRecentConfig = new FilesRecentConfig(testPath, CompressionType.ZSTD, 3, 100);
         this.blocksFilesRecentPlugin = new BlocksFilesRecentPlugin(this.filesRecentConfig);
-        this.historicalBlockFacility = new HistoricalBlockFacilityImpl(List.of(blocksFilesRecentPlugin));
+        this.historicalBlockFacility = new SimpleInMemoryHistoricalBlockFacility();
     }
 
     /**
@@ -123,12 +123,6 @@ class BlockFileRecentPluginTest {
             assertArrayEquals(blockBlockItems, block.items().toArray());
             assertEquals(blockNumber, plugin.availableBlocks().max());
             assertEquals(blockNumber, plugin.availableBlocks().min());
-            assertEquals(
-                    blockNumber,
-                    blockNodeContext.historicalBlockProvider().availableBlocks().max());
-            assertEquals(
-                    blockNumber,
-                    blockNodeContext.historicalBlockProvider().availableBlocks().min());
         }
 
         /**
@@ -172,12 +166,6 @@ class BlockFileRecentPluginTest {
             assertArrayEquals(blockBlockItems, block.items().toArray());
             assertEquals(blockNumber, plugin.availableBlocks().max());
             assertEquals(blockNumber, plugin.availableBlocks().min());
-            assertEquals(
-                    blockNumber,
-                    blockNodeContext.historicalBlockProvider().availableBlocks().max());
-            assertEquals(
-                    blockNumber,
-                    blockNodeContext.historicalBlockProvider().availableBlocks().min());
         }
 
         /**
@@ -228,8 +216,7 @@ class BlockFileRecentPluginTest {
             final FilesRecentConfig filesRecentConfigOverride =
                     new FilesRecentConfig(testPath, CompressionType.ZSTD, 3, 0L);
             final BlocksFilesRecentPlugin toTest = new BlocksFilesRecentPlugin(filesRecentConfigOverride);
-            final HistoricalBlockFacility localHistoricalBlockFacility =
-                    new HistoricalBlockFacilityImpl(List.of(toTest));
+            final HistoricalBlockFacility localHistoricalBlockFacility = new SimpleInMemoryHistoricalBlockFacility();
             // unregister the original plugin from the messaging queue
             blockMessaging.unregisterBlockNotificationHandler(blocksFilesRecentPlugin);
             // start the plugin with the overridden config
