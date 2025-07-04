@@ -11,10 +11,10 @@ module org.hiero.block.node.stream.subscriber {
             com.swirlds.config.extensions,
             org.hiero.block.node.app;
 
+    requires transitive com.hedera.node.hapi;
     requires transitive com.hedera.pbj.runtime;
     requires transitive com.swirlds.config.api;
     requires transitive org.hiero.block.node.spi;
-    requires transitive org.hiero.block.protobuf.pbj;
     requires com.swirlds.metrics.api;
     requires org.hiero.block.node.base;
     requires com.github.spotbugs.annotations;

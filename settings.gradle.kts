@@ -39,6 +39,16 @@ javaModules {
     }
 }
 
+@Suppress("UnstableApiUsage")
+gradle.lifecycle.beforeProject {
+    // Register resolution strategy for all modules that prefers :block-node-protobuf-pbj over :hapi
+    configurations.configureEach {
+        resolutionStrategy.capabilitiesResolution.withCapability("com.hedera.hashgraph", "hapi") {
+            select(candidates.single { it.id.toString().contains(":block-node-protobuf-pbj") })
+        }
+    }
+}
+
 // @jjohannes: remove once 'swirldsVersion' is updated to '0.63.x' in
 // hiero-dependency-versions/build.gradle.kts
 @Suppress("UnstableApiUsage")
