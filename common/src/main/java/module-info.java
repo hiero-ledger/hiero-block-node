@@ -3,11 +3,9 @@ module org.hiero.block.common {
     exports org.hiero.block.common.constants;
     exports org.hiero.block.common.utils;
     exports org.hiero.block.common.hasher;
-    exports org.hiero.block.common.logging;
 
     requires transitive com.hedera.pbj.runtime;
     requires transitive org.hiero.block.protobuf.pbj;
     requires com.swirlds.common;
-    requires java.logging;
     requires static com.github.spotbugs.annotations;
 }

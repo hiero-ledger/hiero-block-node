@@ -22,13 +22,14 @@ import java.util.logging.Level;
 import java.util.logging.LogRecord;
 import java.util.logging.Logger;
 import java.util.stream.Stream;
+import org.hiero.block.simulator.logging.CleanColorfulFormatter;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
 
 class StackTracesTest {
-    private org.hiero.block.common.logging.CleanColorfulFormatter formatter;
+    private CleanColorfulFormatter formatter;
     private Instant fourthOfJuly;
     private String formattedFourthOfJuly;
 
@@ -66,10 +67,10 @@ class StackTracesTest {
         }
 
         // Get the formatter
-        org.hiero.block.common.logging.CleanColorfulFormatter formatter = null;
+        CleanColorfulFormatter formatter = null;
         for (final Handler handler : handlers) {
             if (handler instanceof java.util.logging.ConsoleHandler) {
-                formatter = (org.hiero.block.common.logging.CleanColorfulFormatter) handlers[0].getFormatter();
+                formatter = (CleanColorfulFormatter) handlers[0].getFormatter();
             }
         }
 
