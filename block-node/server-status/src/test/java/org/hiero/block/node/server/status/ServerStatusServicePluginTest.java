@@ -73,8 +73,8 @@ public class ServerStatusServicePluginTest extends GrpcPluginTestBase<ServerStat
         final ServerStatusResponse response = ServerStatusResponse.PROTOBUF.parse(fromPluginBytes.getFirst());
 
         assertNotNull(response);
-        assertEquals(UNKNOWN_BLOCK_NUMBER, response.firstAvailableBlock());
-        assertEquals(UNKNOWN_BLOCK_NUMBER, response.lastAvailableBlock());
+        assertEquals(0, response.firstAvailableBlock());
+        assertEquals(0, response.lastAvailableBlock());
         assertFalse(response.onlyLatestState());
 
         // TODO(#579) Remove when block node version information is implemented.

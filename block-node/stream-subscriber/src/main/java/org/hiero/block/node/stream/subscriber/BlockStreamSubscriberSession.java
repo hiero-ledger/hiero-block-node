@@ -116,12 +116,7 @@ public class BlockStreamSubscriberSession implements Callable<BlockStreamSubscri
         latestLiveStreamBlock = new AtomicLong(UNKNOWN_BLOCK_NUMBER - 1);
         pluginConfiguration = context.configuration().getConfigData(SubscriberConfig.class);
         // Next block to send depends on what was requested and what is available.
-        if (startBlockNumber < 0) {
-            final long latestKnownBlock = getLatestKnownBlock();
-            nextBlockToSend = latestKnownBlock < 0 ? 0 : latestKnownBlock;
-        } else {
-            nextBlockToSend = startBlockNumber;
-        }
+        nextBlockToSend = startBlockNumber < 0 ? getLatestKnownBlock() : startBlockNumber;
         handlerName = "Live stream client " + clientId;
         liveBlockQueue = new ArrayBlockingQueue<>(pluginConfiguration.liveQueueSize());
         liveBlockHandler = new LiveBlockHandler(liveBlockQueue, latestLiveStreamBlock, handlerName);

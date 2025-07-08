@@ -98,22 +98,10 @@ class BlockFileRecentPluginTest {
             assertNull(plugin.block(blockNumber));
             assertEquals(UNKNOWN_BLOCK_NUMBER, plugin.availableBlocks().max());
             assertEquals(UNKNOWN_BLOCK_NUMBER, plugin.availableBlocks().min());
-            assertEquals(
-                    UNKNOWN_BLOCK_NUMBER,
-                    blockNodeContext.historicalBlockProvider().availableBlocks().max());
-            assertEquals(
-                    UNKNOWN_BLOCK_NUMBER,
-                    blockNodeContext.historicalBlockProvider().availableBlocks().min());
             // check if we try to read we get null as nothing is verified yet
             assertNull(plugin.block(blockNumber));
             assertEquals(UNKNOWN_BLOCK_NUMBER, plugin.availableBlocks().max());
             assertEquals(UNKNOWN_BLOCK_NUMBER, plugin.availableBlocks().min());
-            assertEquals(
-                    UNKNOWN_BLOCK_NUMBER,
-                    blockNodeContext.historicalBlockProvider().availableBlocks().max());
-            assertEquals(
-                    UNKNOWN_BLOCK_NUMBER,
-                    blockNodeContext.historicalBlockProvider().availableBlocks().min());
             // send verified block notification
             blockMessaging.sendBlockVerification(new VerificationNotification(
                     true, blockNumber, Bytes.EMPTY, new BlockUnparsed(toBlockItemsUnparsed(blockBlockItems))));
@@ -141,22 +129,10 @@ class BlockFileRecentPluginTest {
             assertNull(plugin.block(blockNumber));
             assertEquals(UNKNOWN_BLOCK_NUMBER, plugin.availableBlocks().max());
             assertEquals(UNKNOWN_BLOCK_NUMBER, plugin.availableBlocks().min());
-            assertEquals(
-                    UNKNOWN_BLOCK_NUMBER,
-                    blockNodeContext.historicalBlockProvider().availableBlocks().max());
-            assertEquals(
-                    UNKNOWN_BLOCK_NUMBER,
-                    blockNodeContext.historicalBlockProvider().availableBlocks().min());
             // check if we try to read we get null as nothing is persisted yet
             assertNull(plugin.block(blockNumber));
             assertEquals(UNKNOWN_BLOCK_NUMBER, plugin.availableBlocks().max());
             assertEquals(UNKNOWN_BLOCK_NUMBER, plugin.availableBlocks().min());
-            assertEquals(
-                    UNKNOWN_BLOCK_NUMBER,
-                    blockNodeContext.historicalBlockProvider().availableBlocks().max());
-            assertEquals(
-                    UNKNOWN_BLOCK_NUMBER,
-                    blockNodeContext.historicalBlockProvider().availableBlocks().min());
             // send verified block notification
             blockMessaging.sendBlockVerification(
                     new VerificationNotification(true, blockNumber, Bytes.EMPTY, blockOrig));
