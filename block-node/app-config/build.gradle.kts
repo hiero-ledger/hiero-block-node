@@ -11,7 +11,6 @@ mainModuleInfo { runtimeOnly("com.swirlds.config.impl") }
 
 testModuleInfo {
     requires("org.junit.jupiter.api")
-    requires("org.junit.jupiter.params")
     requires("com.swirlds.config.extensions")
     exportsTo("com.swirlds.config.impl")
 }
