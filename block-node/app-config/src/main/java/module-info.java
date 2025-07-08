@@ -5,8 +5,6 @@ module org.hiero.block.node.app.config {
             com.swirlds.config.impl,
             com.swirlds.config.extensions,
             org.hiero.block.node.app;
-    exports org.hiero.block.node.app.logging to
-            org.hiero.block.node.app;
 
     requires transitive com.swirlds.config.api;
     requires com.swirlds.base;

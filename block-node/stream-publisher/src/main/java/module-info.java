@@ -9,7 +9,6 @@ module org.hiero.block.node.stream.publisher {
     exports org.hiero.block.node.stream.publisher to
             com.swirlds.config.impl,
             com.swirlds.config.extensions,
-            org.hiero.block.node.app.config,
             org.hiero.block.node.app;
 
     requires transitive com.hedera.pbj.runtime;

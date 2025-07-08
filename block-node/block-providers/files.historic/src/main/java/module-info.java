@@ -9,7 +9,6 @@ module org.hiero.block.node.blocks.files.historic {
     exports org.hiero.block.node.blocks.files.historic to
             com.swirlds.config.impl,
             com.swirlds.config.extensions,
-            org.hiero.block.node.app.config,
             org.hiero.block.node.app;
 
     requires transitive com.swirlds.config.api;

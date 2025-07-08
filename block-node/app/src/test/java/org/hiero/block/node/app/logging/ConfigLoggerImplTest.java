@@ -18,7 +18,6 @@ import java.util.logging.Handler;
 import java.util.logging.LogRecord;
 import java.util.logging.Logger;
 import org.hiero.block.node.app.config.ServerConfig;
-import org.hiero.block.node.app.config.TestSecretConfig;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 

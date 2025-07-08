@@ -9,7 +9,6 @@ module org.hiero.block.node.messaging {
     exports org.hiero.block.node.messaging to
             com.swirlds.config.impl,
             com.swirlds.config.extensions,
-            org.hiero.block.node.app.config,
             org.hiero.block.node.app;
 
     requires transitive com.swirlds.config.api;
