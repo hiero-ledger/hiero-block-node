@@ -278,7 +278,7 @@ public class CraftBlockStreamManager implements BlockStreamManager {
         consensusHeaderHasher = new NaiveStreamingTreeHasher();
         stateChangesHasher = new NaiveStreamingTreeHasher();
         traceDataHasher = new NaiveStreamingTreeHasher();
-        // Reset the previous state root hash to the current block hash
+        // Reset the previous root hash to the current block hash
         currentBlockNumber++;
         previousBlockHash = currentBlockHash;
     }

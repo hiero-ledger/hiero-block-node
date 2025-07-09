@@ -16,12 +16,9 @@ import org.hiero.block.internal.BlockItemUnparsed;
  * Provides common utility methods for hashing and combining hashes.
  */
 public final class HashingUtilities {
-    private HashingUtilities() {
-        throw new UnsupportedOperationException("Utility Class");
-    }
 
     /**
-     * The size of a SHA-384 hash, in bytes.
+     * The size of an SHA-384 hash, in bytes.
      */
     public static final int HASH_SIZE = 48;
     /**
@@ -30,12 +27,16 @@ public final class HashingUtilities {
     public static final Bytes NULL_HASH = Bytes.wrap(new byte[HASH_SIZE]);
     /**
      * The standard name of the SHA2 384-bit hash algorithm.
-     *
+     * <p>
      * This value must match what is declared for the
      * <a href="https://docs.oracle.com/en/java/javase/21/docs/specs/security/standard-names.html#messagedigest-algorithms">
      * standard message digest names</a>.
      */
     public static final String HASH_ALGORITHM = "SHA-384";
+
+    private HashingUtilities() {
+        throw new UnsupportedOperationException("Utility Class");
+    }
 
     /**
      * Returns the SHA-384 hash of the given bytes.
