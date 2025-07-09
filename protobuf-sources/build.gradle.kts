@@ -16,7 +16,7 @@ val generateBlockNodeProtoArtifact: TaskProvider<Exec> =
         group = "protobuf"
 
         workingDir(layout.projectDirectory)
-        val cnTagHash = "efb0134e921b32ed6302da9c93874d65492e876f" // v0.62.2
+        val cnTagHash = "c86619410f0e0da3719c39c9447a96438200166d" // v0.63.9
 
         // run build-bn-proto.sh skipping inclusion of BN API as it messes up proto considerations
         commandLine(
