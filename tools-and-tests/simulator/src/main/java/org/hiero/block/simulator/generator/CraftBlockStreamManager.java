@@ -67,6 +67,9 @@ public class CraftBlockStreamManager implements BlockStreamManager {
     private long currentBlockNumber;
     private StreamingTreeHasher inputTreeHasher;
     private StreamingTreeHasher outputTreeHasher;
+    private StreamingTreeHasher consensusHeaderHasher;
+    private StreamingTreeHasher stateChangesHasher;
+    private StreamingTreeHasher traceDataHasher;
 
     // Unordered streaming
     private final boolean unorderedStreamingEnabled;
@@ -98,6 +101,9 @@ public class CraftBlockStreamManager implements BlockStreamManager {
         this.currentBlockHash = new byte[StreamingTreeHasher.HASH_LENGTH];
         this.inputTreeHasher = new NaiveStreamingTreeHasher();
         this.outputTreeHasher = new NaiveStreamingTreeHasher();
+        this.consensusHeaderHasher = new NaiveStreamingTreeHasher();
+        this.stateChangesHasher = new NaiveStreamingTreeHasher();
+        this.traceDataHasher = new NaiveStreamingTreeHasher();
         this.currentBlockNumber = simulatorStartupData.getLatestAckBlockNumber() + 1L;
         this.previousBlockHash = simulatorStartupData.getLatestAckBlockHash();
         LOGGER.log(INFO, "Block Stream Simulator will use Craft mode for block management");
@@ -237,7 +243,12 @@ public class CraftBlockStreamManager implements BlockStreamManager {
                 .build();
 
         currentBlockHash = HashingUtilities.computeFinalBlockHash(
-                        unfinishedBlockProof, inputTreeHasher, outputTreeHasher)
+                        unfinishedBlockProof,
+                        inputTreeHasher,
+                        outputTreeHasher,
+                        consensusHeaderHasher,
+                        stateChangesHasher,
+                        traceDataHasher)
                 .toByteArray();
     }
 
@@ -249,11 +260,25 @@ public class CraftBlockStreamManager implements BlockStreamManager {
         while (hashes.outputHashes().hasRemaining()) {
             outputTreeHasher.addLeaf(hashes.outputHashes());
         }
+        while (hashes.consensusHeaderHashes().hasRemaining()) {
+            consensusHeaderHasher.addLeaf(hashes.consensusHeaderHashes());
+        }
+        while (hashes.stateChangesHashes().hasRemaining()) {
+            stateChangesHasher.addLeaf(hashes.stateChangesHashes());
+        }
+        while (hashes.traceDataHashes().hasRemaining()) {
+            traceDataHasher.addLeaf(hashes.traceDataHashes());
+        }
     }
 
     private void resetState() {
+        // Reset the hasher states for the next block
         inputTreeHasher = new NaiveStreamingTreeHasher();
         outputTreeHasher = new NaiveStreamingTreeHasher();
+        consensusHeaderHasher = new NaiveStreamingTreeHasher();
+        stateChangesHasher = new NaiveStreamingTreeHasher();
+        traceDataHasher = new NaiveStreamingTreeHasher();
+        // Reset the previous state root hash to the current block hash
         currentBlockNumber++;
         previousBlockHash = currentBlockHash;
     }

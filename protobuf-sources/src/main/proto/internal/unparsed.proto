@@ -58,5 +58,6 @@ message BlockItemUnparsed {
         bytes filtered_item_hash = 8;
         bytes block_proof = 9;
         bytes record_file = 10;
+        bytes trace_data = 16;
     }
 }

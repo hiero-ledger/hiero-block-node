@@ -7,6 +7,7 @@ import com.hedera.hapi.block.stream.BlockProof;
 import com.hedera.pbj.runtime.ParseException;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import edu.umd.cs.findbugs.annotations.NonNull;
+import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.List;
 import org.hiero.block.common.hasher.HashingUtilities;
@@ -23,10 +24,17 @@ import org.hiero.block.node.spi.blockmessaging.VerificationNotification;
 public class BlockVerificationSession {
     /** The block number being verified. */
     protected final long blockNumber;
+    // Stream Hashers
     /** The tree hasher for input hashes. */
     protected final StreamingTreeHasher inputTreeHasher;
     /** The tree hasher for output hashes. */
     protected final StreamingTreeHasher outputTreeHasher;
+    /** The tree hasher for consensus header hashes. */
+    private final StreamingTreeHasher consensusHeaderHasher;
+    /** The tree hasher for state changes hashes. */
+    private final StreamingTreeHasher stateChangesHasher;
+    /** The tree hasher for trace data hashes. */
+    private final StreamingTreeHasher traceDataHasher;
     /**
      * The block items for the block this session is responsible for. We collect them here so we can provide the
      * complete block in the final notification.
@@ -44,6 +52,9 @@ public class BlockVerificationSession {
         // using NaiveStreamingTreeHasher as we should only need single threaded
         this.inputTreeHasher = new NaiveStreamingTreeHasher();
         this.outputTreeHasher = new NaiveStreamingTreeHasher();
+        this.consensusHeaderHasher = new NaiveStreamingTreeHasher();
+        this.stateChangesHasher = new NaiveStreamingTreeHasher();
+        this.traceDataHasher = new NaiveStreamingTreeHasher();
     }
 
     /**
@@ -61,10 +72,13 @@ public class BlockVerificationSession {
         // branch based on the type of block item and update respective merkle tree
         for (BlockItemUnparsed item : blockItems) {
             final BlockItemUnparsed.ItemOneOfType kind = item.item().kind();
+            final ByteBuffer hash = getBlockItemHash(item);
             switch (kind) {
-                case EVENT_HEADER, EVENT_TRANSACTION, ROUND_HEADER -> inputTreeHasher.addLeaf(getBlockItemHash(item));
-                case TRANSACTION_OUTPUT, STATE_CHANGES, TRANSACTION_RESULT, BLOCK_HEADER -> outputTreeHasher.addLeaf(
-                        getBlockItemHash(item));
+                case ROUND_HEADER, EVENT_HEADER -> consensusHeaderHasher.addLeaf(hash);
+                case EVENT_TRANSACTION -> inputTreeHasher.addLeaf(hash);
+                case TRANSACTION_RESULT, TRANSACTION_OUTPUT, BLOCK_HEADER -> outputTreeHasher.addLeaf(hash);
+                case STATE_CHANGES -> stateChangesHasher.addLeaf(hash);
+                case TRACE_DATA -> traceDataHasher.addLeaf(hash);
             }
         }
         // Check if this batch contains the final block proof
@@ -86,7 +100,13 @@ public class BlockVerificationSession {
      * @return VerificationNotification indicating the result of the verification
      */
     VerificationNotification finalizeVerification(BlockProof blockProof) {
-        final Bytes blockHash = HashingUtilities.computeFinalBlockHash(blockProof, inputTreeHasher, outputTreeHasher);
+        final Bytes blockHash = HashingUtilities.computeFinalBlockHash(
+                blockProof,
+                inputTreeHasher,
+                outputTreeHasher,
+                consensusHeaderHasher,
+                stateChangesHasher,
+                traceDataHasher);
         final boolean verified = verifySignature(blockHash, blockProof.blockSignature());
         return new VerificationNotification(
                 verified, blockNumber, blockHash, verified ? new BlockUnparsed(blockItems) : null);
