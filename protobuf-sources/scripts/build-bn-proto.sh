@@ -90,9 +90,16 @@ fi
 rm -rf $output_dir
 mkdir -p $output_dir
 
-# Copy CN 'block' protobuf files to the output_dir directory, remove block_service.proto to avoid conflicts
+# Copy CN 'block' protobuf files to the output_dir directory, remove duplicated files to avoid conflicts
 cp -r ./hiero-consensus-node/hapi/hedera-protobuf-java-api/src/main/proto/block "$output_dir"
-rm -f ./block-node-protobuf/block/block_service.proto
+rm -f ./block-node-protobuf/block/block_access_service.proto
+rm -f ./block-node-protobuf/block/block_stream_publish_service.proto
+rm -f ./block-node-protobuf/block/block_stream_subscribe_service.proto
+rm -f ./block-node-protobuf/block/node_service.proto
+rm -f ./block-node-protobuf/block/proof_service.proto
+rm -f ./block-node-protobuf/block/reconnect_service.proto
+rm -f ./block-node-protobuf/block/state_service.proto
+rm -f ./block-node-protobuf/block/shared_message_types.protogit
 
 # Copy CN 'platform' protobuf files to the output_dir directory
 cp -r ./hiero-consensus-node/hapi/hedera-protobuf-java-api/src/main/proto/platform "$output_dir"
