@@ -52,10 +52,12 @@ import org.junit.jupiter.api.io.TempDir;
  */
 @DisplayName("BlocksFilesHistoricPlugin Tests")
 class BlocksFilesHistoricPluginTest {
+    /** TempDir for the current test */
+    private final Path testTempDir;
     /** The test block messaging facility to use for testing. */
     private final SimpleInMemoryHistoricalBlockFacility testHistoricalBlockFacility;
-    /** The test config to use for the plugin. */
-    private final FilesHistoricConfig testConfig;
+    /** The test config to use for the plugin, overridable. */
+    private FilesHistoricConfig testConfig;
     /** The instance under test. */
     private final BlocksFilesHistoricPlugin toTest;
 
@@ -63,12 +65,12 @@ class BlocksFilesHistoricPluginTest {
      * Construct test environment.
      */
     BlocksFilesHistoricPluginTest(@TempDir final Path tempDir) {
-        Objects.requireNonNull(tempDir);
+        this.testTempDir = Objects.requireNonNull(tempDir);
         // generate test config, for the purposes of this test, we will always
         // use 10 blocks per zip, assuming that the first zip file will contain
         // for example blocks 0-9, the second zip file will contain blocks 10-19
         // also we will not use compression, and we will use the jUnit temp dir
-        testConfig = new FilesHistoricConfig(tempDir, CompressionType.NONE, 1);
+        testConfig = new FilesHistoricConfig(this.testTempDir, CompressionType.NONE, 1, 10L);
         // build the plugin using the test environment
         toTest = new BlocksFilesHistoricPlugin();
         // initialize an in memory historical block facility to use for testing
@@ -160,7 +162,9 @@ class BlocksFilesHistoricPluginTest {
             final Entry<String, String> powersOfTenPerZipFileContents = Map.entry(
                     "files.historic.powersOfTenPerZipFileContents",
                     String.valueOf(testConfig.powersOfTenPerZipFileContents()));
-            return Map.ofEntries(rootPath, compression, powersOfTenPerZipFileContents);
+            final Entry<String, String> blockRetentionThreshold = Map.entry(
+                    "files.historic.blockRetentionThreshold", String.valueOf(testConfig.blockRetentionThreshold()));
+            return Map.ofEntries(rootPath, compression, powersOfTenPerZipFileContents, blockRetentionThreshold);
         }
 
         /**
@@ -852,6 +856,106 @@ class BlocksFilesHistoricPluginTest {
             // assert that the first 10 blocks are zipped now
             for (int i = 0; i < 10; i++) {
                 assertThat(BlockPath.computeExistingBlockPath(testConfig, i)).isNotNull();
+            }
+        }
+
+        /**
+         * This test aims to assert that the plugin will correctly handle the
+         * retention policy threshold passed scenario. We must retain as many
+         * blocks as the configured retention policy threshold.
+         */
+        @Test
+        @DisplayName("Test retention policy threshold passed happy path")
+        void testRetentionPolicyThresholdHappyPath() throws IOException {
+            // generate first 150 blocks from numbers 0-149 and add them to the
+            // test historical block facility
+            for (int i = 0; i < 150; i++) {
+                final BlockItemUnparsed[] block = SimpleTestBlockItemBuilder.createSimpleBlockUnparsedWithNumber(i);
+                testHistoricalBlockFacility.handleBlockItemsReceived(new BlockItems(List.of(block), i), false);
+            }
+            // assert that none of the first 150 blocks are zipped yet and are
+            // not present in the available blocks
+            assertThat(plugin.availableBlocks().size()).isEqualTo(0);
+            for (int i = 0; i < 150; i++) {
+                assertThat(BlockPath.computeExistingBlockPath(testConfig, i)).isNull();
+                assertThat(plugin.availableBlocks().contains(i)).isFalse();
+            }
+            // send a block persisted notification for the range we just created
+            blockMessaging.sendBlockPersisted(new PersistedNotification(0, 149, toTest.defaultPriority() + 1));
+            // execute serially to ensure all tasks are completed
+            pluginExecutor.executeSerially();
+            // assert that all blocks are now zipped and the available blocks
+            // is updated accordingly (this is just before applying the retention)
+            assertThat(plugin.availableBlocks().size()).isEqualTo(150);
+            for (int i = 0; i < 150; i++) {
+                assertThat(BlockPath.computeExistingBlockPath(testConfig, i)).isNotNull();
+                assertThat(plugin.availableBlocks().contains(i)).isTrue();
+            }
+            // send another notification to trigger the retention policy, we do
+            // not need to actually persist the block
+            blockMessaging.sendBlockPersisted(new PersistedNotification(150, 150, toTest.defaultPriority() + 1));
+            // assert that the size of the available blocks is now 100 (post retention policy cleanup)
+            assertThat(plugin.availableBlocks().size()).isEqualTo(100);
+            // assert that the first 50 blocks were cleaned up and that the
+            // available blocks are updated accordingly
+            for (int i = 0; i < 50; i++) {
+                assertThat(BlockPath.computeExistingBlockPath(testConfig, i)).isNull();
+                assertThat(plugin.availableBlocks().contains(i)).isFalse();
+            }
+            // assert that the rest of the blocks are still zipped and that
+            // the available blocks are updated accordingly
+            for (int i = 50; i < 150; i++) {
+                assertThat(BlockPath.computeExistingBlockPath(testConfig, i)).isNotNull();
+                assertThat(plugin.availableBlocks().contains(i)).isTrue();
+            }
+        }
+
+        /**
+         * This test aims to assert that the plugin will not apply the retention
+         * policy threshold when it is disabled. We expect that all blocks
+         * will remain zipped and available.
+         */
+        @Test
+        @DisplayName("Test retention policy threshold disabled")
+        void testRetentionPolicyThresholdDisabled() throws IOException {
+            // change the retention policy to be disabled
+            testConfig = new FilesHistoricConfig(testTempDir, CompressionType.NONE, 1, 0L);
+            // override the config in the plugin
+            start(toTest, testHistoricalBlockFacility, getConfigOverrides());
+            // generate first 150 blocks from numbers 0-149 and add them to the
+            // test historical block facility
+            for (int i = 0; i < 150; i++) {
+                final BlockItemUnparsed[] block = SimpleTestBlockItemBuilder.createSimpleBlockUnparsedWithNumber(i);
+                testHistoricalBlockFacility.handleBlockItemsReceived(new BlockItems(List.of(block), i), false);
+            }
+            // assert that none of the first 150 blocks are zipped yet and are
+            // not present in the available blocks
+            assertThat(plugin.availableBlocks().size()).isEqualTo(0);
+            for (int i = 0; i < 150; i++) {
+                assertThat(BlockPath.computeExistingBlockPath(testConfig, i)).isNull();
+                assertThat(plugin.availableBlocks().contains(i)).isFalse();
+            }
+            // send a block persisted notification for the range we just created
+            blockMessaging.sendBlockPersisted(new PersistedNotification(0, 149, toTest.defaultPriority() + 1));
+            // execute serially to ensure all tasks are completed
+            pluginExecutor.executeSerially();
+            // assert that all blocks are now zipped and the available blocks
+            // is updated accordingly (this is just before applying the retention)
+            assertThat(plugin.availableBlocks().size()).isEqualTo(150);
+            for (int i = 0; i < 150; i++) {
+                assertThat(BlockPath.computeExistingBlockPath(testConfig, i)).isNotNull();
+                assertThat(plugin.availableBlocks().contains(i)).isTrue();
+            }
+            // send another notification to trigger the retention policy, we do
+            // not need to actually persist the block
+            blockMessaging.sendBlockPersisted(new PersistedNotification(150, 150, toTest.defaultPriority() + 1));
+            // assert that the size of the available blocks is still 150 (post retention policy cleanup)
+            assertThat(plugin.availableBlocks().size()).isEqualTo(150);
+            // assert that all the blocks are still zipped and that
+            // the available blocks are updated accordingly
+            for (int i = 0; i < 150; i++) {
+                assertThat(BlockPath.computeExistingBlockPath(testConfig, i)).isNotNull();
+                assertThat(plugin.availableBlocks().contains(i)).isTrue();
             }
         }
     }
