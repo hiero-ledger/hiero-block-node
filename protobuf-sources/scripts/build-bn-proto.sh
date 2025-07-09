@@ -99,7 +99,7 @@ rm -f ./block-node-protobuf/block/node_service.proto
 rm -f ./block-node-protobuf/block/proof_service.proto
 rm -f ./block-node-protobuf/block/reconnect_service.proto
 rm -f ./block-node-protobuf/block/state_service.proto
-rm -f ./block-node-protobuf/block/shared_message_types.protogit
+rm -f ./block-node-protobuf/block/shared_message_types.proto
 
 # Copy CN 'platform' protobuf files to the output_dir directory
 cp -r ./hiero-consensus-node/hapi/hedera-protobuf-java-api/src/main/proto/platform "$output_dir"
