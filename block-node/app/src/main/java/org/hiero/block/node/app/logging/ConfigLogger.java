@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-package org.hiero.block.node.app.config;
+package org.hiero.block.node.app.logging;
 
 import static java.lang.System.Logger.Level.INFO;
 import static org.hiero.block.node.app.logging.CleanColorfulFormatter.CYAN;

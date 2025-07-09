@@ -9,11 +9,10 @@ import com.swirlds.config.api.ConfigurationBuilder;
 import java.util.Collections;
 import java.util.List;
 import java.util.NoSuchElementException;
-import org.hiero.block.node.app.ServerConfig;
 import org.junit.jupiter.api.Test;
 
 /**
- * Unit tests for the {@link ConfigLogger} class.
+ * Unit tests for logging.
  */
 public class AutomaticEnvironmentVariableConfigSourceTest {
     /**
@@ -29,7 +28,6 @@ public class AutomaticEnvironmentVariableConfigSourceTest {
                 .withConfigDataType(ServerConfig.class)
                 .build();
         assertEquals(8080, config.getConfigData(ServerConfig.class).port());
-        ConfigLogger.log(config);
     }
 
     /**
