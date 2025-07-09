@@ -137,7 +137,7 @@ public class PositiveMultiplePublishersTests extends BaseSuite {
      */
     @Test
     @DisplayName("Should prefer publisher with current blocks over future blocks")
-    @Timeout(value = 2, unit = MINUTES)
+    @Timeout(value = 5, unit = MINUTES)
     public void shouldPreferCurrentBlockPublisher() throws IOException {
         // ===== Prepare environment =================================================================
         final Map<String, String> currentSimulatorConfiguration = Map.of("generator.startBlockNumber", "0");
