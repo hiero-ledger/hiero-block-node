@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.suites.publisher.positive;
 
-import static java.util.concurrent.TimeUnit.MINUTES;
 import static org.hiero.block.suites.utils.BlockAccessUtils.getBlock;
 import static org.hiero.block.suites.utils.BlockAccessUtils.getLatestBlock;
 import static org.hiero.block.suites.utils.BlockSimulatorUtils.createBlockSimulator;
@@ -137,7 +136,7 @@ public class PositiveMultiplePublishersTests extends BaseSuite {
      */
     @Test
     @DisplayName("Should prefer publisher with current blocks over future blocks")
-    @Timeout(value = 5, unit = MINUTES)
+    @Timeout(30)
     public void shouldPreferCurrentBlockPublisher() throws IOException {
         // ===== Prepare environment =================================================================
         final Map<String, String> currentSimulatorConfiguration = Map.of("generator.startBlockNumber", "0");
