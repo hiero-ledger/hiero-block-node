@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 import org.gradlex.javamodule.moduleinfo.ExtraJavaModuleInfoPluginExtension
 
-plugins { id("org.hiero.gradle.build") version "0.4.5" }
+plugins { id("org.hiero.gradle.build") version "0.4.7" }
 
 val hieroGroup = "org.hiero.block"
 
