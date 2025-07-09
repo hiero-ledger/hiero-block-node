@@ -44,3 +44,14 @@ val cleanUpAfterBlockNodeProtoArtifact: TaskProvider<Exec> =
             "${layout.projectDirectory}/hiero-consensus-node",
         )
     }
+
+// further clean up of the project downloaded files
+tasks.named<Delete>("clean") {
+    // remove the downloaded block-node-protobuf directory and hiero-consensus-node directory
+    delete(
+        layout.projectDirectory.dir("block-node-protobuf"),
+        layout.projectDirectory.dir("hiero-consensus-node"),
+    )
+    // remove the downloaded tarball
+    delete(project.fileTree(layout.projectDirectory) { include("block-node-protobuf-*.tgz") })
+}
