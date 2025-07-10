@@ -20,4 +20,12 @@ public interface BlockNotificationHandler {
      * @param notification the block persisted notification to handle
      */
     default void handlePersisted(PersistedNotification notification) {}
+
+    /**
+     * Handle a backfilled block notification. Always called on handler thread. Each registered handler will have its
+     * own virtual thread.
+     *
+     * @param notification the backfilled block notification to handle
+     */
+    default void handleBackfilled(BackfilledBlockNotification notification) {}
 }

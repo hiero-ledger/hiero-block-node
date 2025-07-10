@@ -20,6 +20,7 @@ import org.hiero.block.node.app.fixtures.blocks.BlockUtils;
 import org.hiero.block.node.app.fixtures.plugintest.NoBlocksHistoricalBlockFacility;
 import org.hiero.block.node.app.fixtures.plugintest.PluginTestBase;
 import org.hiero.block.node.app.fixtures.plugintest.TestHealthFacility;
+import org.hiero.block.node.spi.blockmessaging.BackfilledBlockNotification;
 import org.hiero.block.node.spi.blockmessaging.BlockItems;
 import org.hiero.block.node.spi.blockmessaging.VerificationNotification;
 import org.junit.jupiter.api.DisplayName;
@@ -134,5 +135,40 @@ class VerificationServicePluginTest extends PluginTestBase<VerificationServicePl
         assertTrue(
                 ((TestHealthFacility) blockNodeContext.serverHealth()).shutdownCalled.get(),
                 "The server should be shutdown after an exception is thrown");
+    }
+
+    @Test
+    @DisplayName("Test handleBackfilled with a valid backfilled block")
+    void testHandleBackfilledNotification() throws IOException, ParseException {
+
+        // prepare test data
+        BlockUtils.SampleBlockInfo sampleBlockInfo =
+                BlockUtils.getSampleBlockInfo(BlockUtils.SAMPLE_BLOCKS.GENERATED_14);
+
+        List<BlockItemUnparsed> blockItems = sampleBlockInfo.blockUnparsed().blockItems();
+        long blockNumber = sampleBlockInfo.blockNumber();
+        BackfilledBlockNotification notification =
+                new BackfilledBlockNotification(blockNumber, sampleBlockInfo.blockUnparsed());
+
+        // call the method with a valid backfilled block notification
+        plugin.handleBackfilled(notification);
+
+        // check we received a block verification notification
+        VerificationNotification blockNotification =
+                blockMessaging.getSentVerificationNotifications().getFirst();
+        assertNotNull(blockNotification);
+        assertEquals(
+                blockNumber,
+                blockNotification.blockNumber(),
+                "The block number should be the same as the one in the block header");
+        assertTrue(blockNotification.success(), "The verification should be successful");
+        assertEquals(
+                sampleBlockInfo.blockRootHash(),
+                blockNotification.blockHash(),
+                "The block hash should be the same as the one in the block header");
+        assertEquals(
+                sampleBlockInfo.blockUnparsed(),
+                blockNotification.block(),
+                "The block should be the same as the one sent");
     }
 }

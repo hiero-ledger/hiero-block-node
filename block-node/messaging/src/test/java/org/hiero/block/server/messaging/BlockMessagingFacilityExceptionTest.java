@@ -10,10 +10,13 @@ import java.util.logging.Handler;
 import java.util.logging.LogRecord;
 import org.hiero.block.internal.BlockItemUnparsed;
 import org.hiero.block.internal.BlockItemUnparsed.ItemOneOfType;
+import org.hiero.block.internal.BlockUnparsed;
 import org.hiero.block.node.messaging.BlockMessagingFacilityImpl;
+import org.hiero.block.node.spi.blockmessaging.BackfilledBlockNotification;
 import org.hiero.block.node.spi.blockmessaging.BlockItems;
 import org.hiero.block.node.spi.blockmessaging.BlockMessagingFacility;
 import org.hiero.block.node.spi.blockmessaging.BlockNotificationHandler;
+import org.hiero.block.node.spi.blockmessaging.BlockSource;
 import org.hiero.block.node.spi.blockmessaging.PersistedNotification;
 import org.hiero.block.node.spi.blockmessaging.VerificationNotification;
 import org.junit.jupiter.api.BeforeEach;
@@ -120,6 +123,12 @@ public class BlockMessagingFacilityExceptionTest {
                         // Simulate an exception
                         throw new RuntimeException("Simulated exception");
                     }
+
+                    @Override
+                    public void handleBackfilled(BackfilledBlockNotification notification) {
+                        // Simulate an exception
+                        throw new RuntimeException("Simulated exception");
+                    }
                 },
                 false,
                 null);
@@ -130,8 +139,10 @@ public class BlockMessagingFacilityExceptionTest {
         } catch (InterruptedException e) {
             throw new RuntimeException(e);
         }
-        service.sendBlockVerification(new VerificationNotification(true, 1, null, null));
-        service.sendBlockPersisted(new PersistedNotification(1, 1, 1));
+        service.sendBlockVerification(new VerificationNotification(true, 1, null, null, BlockSource.PUBLISHER));
+        service.sendBlockPersisted(new PersistedNotification(1, 1, 1, BlockSource.PUBLISHER));
+        service.sendBackfilledBlockNotification(
+                new BackfilledBlockNotification(1, BlockUnparsed.newBuilder().build()));
         service.stop();
         // wait for the log handler to process the log messages
         for (int i = 0; i < 10 && logHandler.getLogMessages().isEmpty(); i++) {

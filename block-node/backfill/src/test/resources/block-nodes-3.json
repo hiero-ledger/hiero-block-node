@@ -1,0 +1,5 @@
+{
+  "nodes": [
+    { "address": "node2.example.com", "port": 8082, "priority": 1 }
+  ]
+}

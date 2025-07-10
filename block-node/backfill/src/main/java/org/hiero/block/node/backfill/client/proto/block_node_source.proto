@@ -1,0 +1,16 @@
+// SPDX-License-Identifier: Apache-2.0
+syntax = "proto3";
+
+package org.hiero.block.node.backfill.client.proto;
+
+option java_package = "org.hiero.block.node.backfill.client";
+
+message BackfillSource {
+  repeated BackfillSourceConfig nodes = 1; // Array of BlockNode messages
+}
+
+message BackfillSourceConfig {
+  string address = 1; // Address as a string (either hostname or IP)
+  uint32 port = 2; // Port number
+  uint32 priority = 3; // Priority for each node
+}

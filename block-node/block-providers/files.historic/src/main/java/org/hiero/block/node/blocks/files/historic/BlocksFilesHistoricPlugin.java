@@ -24,6 +24,7 @@ import org.hiero.block.node.base.ranges.ConcurrentLongRangeSet;
 import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.ServiceBuilder;
 import org.hiero.block.node.spi.blockmessaging.BlockNotificationHandler;
+import org.hiero.block.node.spi.blockmessaging.BlockSource;
 import org.hiero.block.node.spi.blockmessaging.PersistedNotification;
 import org.hiero.block.node.spi.historicalblocks.BlockAccessor;
 import org.hiero.block.node.spi.historicalblocks.BlockProviderPlugin;
@@ -397,7 +398,7 @@ public final class BlocksFilesHistoricPlugin implements BlockProviderPlugin, Blo
                 // now all the blocks are in the zip file and accessible, send notification
                 context.blockMessaging()
                         .sendBlockPersisted(new PersistedNotification(
-                                batchFirstBlockNumber, batchLastBlockNumber, defaultPriority()));
+                                batchFirstBlockNumber, batchLastBlockNumber, defaultPriority(), BlockSource.HISTORY));
             }
         } finally {
             // always make sure to remove the batch of blocks from in progress ranges
