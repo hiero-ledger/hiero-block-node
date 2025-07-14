@@ -3,6 +3,7 @@ package org.hiero.block.simulator.mode;
 
 import static org.hiero.block.simulator.fixtures.TestUtils.getTestConfiguration;
 import static org.hiero.block.simulator.fixtures.TestUtils.getTestMetrics;
+import static org.hiero.block.simulator.fixtures.blocks.BlockBuilder.createBlocks;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
@@ -72,7 +73,7 @@ class PublishClientManagerTest {
 
     @Test
     void handleEndOfStreamOnSuccess() throws Exception {
-        Block nextBlock = mock(Block.class);
+        Block nextBlock = createBlocks(0, 1);
         PublishStreamResponse response = mock(PublishStreamResponse.class);
         PublishStreamResponse.EndOfStream endOfStream = mock(PublishStreamResponse.EndOfStream.class);
 
@@ -89,7 +90,7 @@ class PublishClientManagerTest {
 
     @Test
     void handleEndOfStreamOnBehind() throws Exception {
-        Block nextBlock = mock(Block.class);
+        Block nextBlock = createBlocks(0, 1);
         PublishStreamResponse response = mock(PublishStreamResponse.class);
         PublishStreamResponse.EndOfStream endOfStream = mock(PublishStreamResponse.EndOfStream.class);
 
@@ -106,7 +107,7 @@ class PublishClientManagerTest {
 
     @Test
     void handleEndOfStreamOnDuplicateBlock() throws Exception {
-        Block nextBlock = mock(Block.class);
+        Block nextBlock = createBlocks(0, 1);
         PublishStreamResponse response = mock(PublishStreamResponse.class);
         PublishStreamResponse.EndOfStream endOfStream = mock(PublishStreamResponse.EndOfStream.class);
 
@@ -123,7 +124,7 @@ class PublishClientManagerTest {
 
     @Test
     void handleEndOfStreamOnTimeout() throws Exception {
-        Block nextBlock = mock(Block.class);
+        Block nextBlock = createBlocks(0, 1);
         PublishStreamResponse response = mock(PublishStreamResponse.class);
         PublishStreamResponse.EndOfStream endOfStream = mock(PublishStreamResponse.EndOfStream.class);
 
@@ -140,7 +141,7 @@ class PublishClientManagerTest {
 
     @Test
     void handleEndOfStreamOnBadBlockProof() throws Exception {
-        Block nextBlock = mock(Block.class);
+        Block nextBlock = createBlocks(0, 1);
         PublishStreamResponse response = mock(PublishStreamResponse.class);
         PublishStreamResponse.EndOfStream endOfStream = mock(PublishStreamResponse.EndOfStream.class);
 
@@ -157,7 +158,7 @@ class PublishClientManagerTest {
 
     @Test
     void handleEndOfStreamOnInternalError() throws Exception {
-        Block nextBlock = mock(Block.class);
+        Block nextBlock = createBlocks(0, 1);
         PublishStreamResponse response = mock(PublishStreamResponse.class);
         PublishStreamResponse.EndOfStream endOfStream = mock(PublishStreamResponse.EndOfStream.class);
 
@@ -174,7 +175,7 @@ class PublishClientManagerTest {
 
     @Test
     void handleEndOfStreamOnPersistenceFailed() throws Exception {
-        Block nextBlock = mock(Block.class);
+        Block nextBlock = createBlocks(0, 1);
         PublishStreamResponse response = mock(PublishStreamResponse.class);
         PublishStreamResponse.EndOfStream endOfStream = mock(PublishStreamResponse.EndOfStream.class);
 

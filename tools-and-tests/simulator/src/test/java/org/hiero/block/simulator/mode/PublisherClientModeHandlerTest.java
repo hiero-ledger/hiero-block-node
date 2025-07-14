@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.simulator.mode;
 
+import static org.hiero.block.simulator.fixtures.blocks.BlockBuilder.createBlocks;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -12,11 +12,8 @@ import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.when;
 
 import com.hedera.hapi.block.stream.protoc.Block;
-import com.hedera.hapi.block.stream.protoc.BlockItem;
 import com.swirlds.config.api.Configuration;
 import java.io.IOException;
-import java.util.Arrays;
-import java.util.Collections;
 import java.util.Map;
 import org.hiero.block.simulator.config.data.BlockStreamConfig;
 import org.hiero.block.simulator.fixtures.TestUtils;
@@ -61,8 +58,8 @@ public class PublisherClientModeHandlerTest {
         publisherClientModeHandler = new PublisherClientModeHandler(
                 blockStreamConfig, publishStreamGrpcClient, blockStreamManager, metricsService);
 
-        Block block1 = mock(Block.class);
-        Block block2 = mock(Block.class);
+        Block block1 = createBlocks(0, 1);
+        Block block2 = createBlocks(1, 2);
 
         when(blockStreamManager.getNextBlock())
                 .thenReturn(block1)
@@ -99,8 +96,8 @@ public class PublisherClientModeHandlerTest {
         publisherClientModeHandler = new PublisherClientModeHandler(
                 blockStreamConfig, publishStreamGrpcClient, blockStreamManager, metricsService);
 
-        Block block1 = mock(Block.class);
-        Block block2 = mock(Block.class);
+        Block block1 = createBlocks(0, 1);
+        Block block2 = createBlocks(1, 2);
 
         when(blockStreamManager.getNextBlock())
                 .thenReturn(block1)
@@ -140,31 +137,20 @@ public class PublisherClientModeHandlerTest {
                 "blockstream.delayBetweenBlockItems",
                 "0",
                 "blockStream.maxBlockItemsToStream",
-                "5"));
+                "13"));
         blockStreamConfig = configuration.getConfigData(BlockStreamConfig.class);
 
         publisherClientModeHandler = new PublisherClientModeHandler(
                 blockStreamConfig, publishStreamGrpcClient, blockStreamManager, metricsService);
         when(publishStreamGrpcClient.streamBlock(any(Block.class), any())).thenReturn(true);
 
-        Block block1 = mock(Block.class);
-        Block block2 = mock(Block.class);
-
-        BlockItem blockItem1 = mock(BlockItem.class);
-        BlockItem blockItem2 = mock(BlockItem.class);
-        BlockItem blockItem3 = mock(BlockItem.class);
-        BlockItem blockItem4 = mock(BlockItem.class);
-
-        when(block1.getItemsList()).thenReturn(Arrays.asList(blockItem1, blockItem2));
-        when(block2.getItemsList()).thenReturn(Arrays.asList(blockItem3, blockItem4));
+        Block block1 = createBlocks(0, 1);
+        Block block2 = createBlocks(1, 2);
 
         when(blockStreamManager.getNextBlock())
                 .thenReturn(block1)
                 .thenReturn(block2)
                 .thenReturn(null);
-
-        when(publishStreamGrpcClient.streamBlock(eq(block1), any())).thenReturn(true);
-        when(publishStreamGrpcClient.streamBlock(eq(block2), any())).thenReturn(true);
 
         publisherClientModeHandler.start();
 
@@ -182,38 +168,23 @@ public class PublisherClientModeHandlerTest {
                 "blockstream.delayBetweenBlockItems",
                 "0",
                 "blockStream.maxBlockItemsToStream",
-                "5"));
+                "18"));
         blockStreamConfig = configuration.getConfigData(BlockStreamConfig.class);
 
         publisherClientModeHandler = new PublisherClientModeHandler(
                 blockStreamConfig, publishStreamGrpcClient, blockStreamManager, metricsService);
         when(publishStreamGrpcClient.streamBlock(any(Block.class), any())).thenReturn(true);
 
-        Block block1 = mock(Block.class);
-        Block block2 = mock(Block.class);
-        Block block3 = mock(Block.class);
-        Block block4 = mock(Block.class);
-
-        BlockItem blockItem1 = mock(BlockItem.class);
-        BlockItem blockItem2 = mock(BlockItem.class);
-        BlockItem blockItem3 = mock(BlockItem.class);
-        BlockItem blockItem4 = mock(BlockItem.class);
-
-        when(block1.getItemsList()).thenReturn(Arrays.asList(blockItem1, blockItem2));
-        when(block2.getItemsList()).thenReturn(Arrays.asList(blockItem3, blockItem4));
-        when(block3.getItemsList()).thenReturn(Arrays.asList(blockItem1, blockItem2));
-        when(block4.getItemsList()).thenReturn(Arrays.asList(blockItem3, blockItem4));
+        Block block1 = createBlocks(0, 1);
+        Block block2 = createBlocks(1, 2);
+        Block block3 = createBlocks(2, 3);
+        Block block4 = createBlocks(3, 4);
 
         when(blockStreamManager.getNextBlock())
                 .thenReturn(block1)
                 .thenReturn(block2)
                 .thenReturn(block3)
                 .thenReturn(block4);
-
-        when(publishStreamGrpcClient.streamBlock(eq(block1), any())).thenReturn(true);
-        when(publishStreamGrpcClient.streamBlock(eq(block2), any())).thenReturn(true);
-        when(publishStreamGrpcClient.streamBlock(eq(block3), any())).thenReturn(true);
-        when(publishStreamGrpcClient.streamBlock(eq(block4), any())).thenReturn(true);
 
         publisherClientModeHandler.start();
 
@@ -260,8 +231,8 @@ public class PublisherClientModeHandlerTest {
         publisherClientModeHandler = new PublisherClientModeHandler(
                 blockStreamConfig, publishStreamGrpcClient, blockStreamManager, metricsService);
 
-        Block block1 = mock(Block.class);
-        Block block2 = mock(Block.class);
+        Block block1 = createBlocks(0, 1);
+        Block block2 = createBlocks(1, 2);
 
         when(blockStreamManager.getNextBlock())
                 .thenReturn(block1)
@@ -287,20 +258,14 @@ public class PublisherClientModeHandlerTest {
                 "blockstream.delayBetweenBlockItems",
                 "0",
                 "blockStream.maxBlockItemsToStream",
-                "5"));
+                "7"));
         blockStreamConfig = configuration.getConfigData(BlockStreamConfig.class);
 
         publisherClientModeHandler = new PublisherClientModeHandler(
                 blockStreamConfig, publishStreamGrpcClient, blockStreamManager, metricsService);
 
-        Block block1 = mock(Block.class);
-        Block block2 = mock(Block.class);
-
-        BlockItem blockItem1 = mock(BlockItem.class);
-        BlockItem blockItem2 = mock(BlockItem.class);
-
-        when(block1.getItemsList()).thenReturn(Collections.singletonList(blockItem1));
-        when(block2.getItemsList()).thenReturn(Collections.singletonList(blockItem2));
+        Block block1 = createBlocks(0, 1);
+        Block block2 = createBlocks(1, 2);
 
         when(blockStreamManager.getNextBlock())
                 .thenReturn(block1)
