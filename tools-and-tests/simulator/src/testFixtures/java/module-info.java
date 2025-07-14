@@ -6,7 +6,6 @@ module org.hiero.block.simulator.test.fixtures {
 
     requires com.swirlds.common;
     requires com.swirlds.config.extensions;
-    requires org.hiero.block.protobuf.pbj;
     requires org.hiero.block.protobuf.protoc;
     requires org.hiero.block.simulator;
     requires com.google.protobuf;
