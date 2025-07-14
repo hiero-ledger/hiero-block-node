@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.simulator.generator;
 
-import static org.hiero.block.simulator.TestUtils.getAbsoluteFolder;
+import static org.hiero.block.simulator.fixtures.TestUtils.getAbsoluteFolder;
 import static org.junit.jupiter.api.Assertions.*;
 
 import java.io.IOException;

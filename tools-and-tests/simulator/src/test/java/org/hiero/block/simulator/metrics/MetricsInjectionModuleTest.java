@@ -6,7 +6,7 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import com.swirlds.config.api.Configuration;
 import com.swirlds.metrics.api.Metrics;
 import java.io.IOException;
-import org.hiero.block.simulator.TestUtils;
+import org.hiero.block.simulator.fixtures.TestUtils;
 import org.junit.jupiter.api.Test;
 
 public class MetricsInjectionModuleTest {

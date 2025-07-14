@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 plugins {
     id("org.hiero.gradle.module.library")
+    id("org.hiero.gradle.feature.test-fixtures")
     id("application")
 }
 
@@ -23,6 +24,7 @@ mainModuleInfo {
 }
 
 testModuleInfo {
+    requires("org.hiero.block.simulator.test.fixtures")
     requires("org.junit.jupiter.api")
     requires("org.junit.jupiter.params")
     requires("org.mockito")

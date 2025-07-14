@@ -18,9 +18,8 @@ import java.io.IOException;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.Map;
-import org.hiero.block.simulator.TestUtils;
 import org.hiero.block.simulator.config.data.BlockStreamConfig;
-import org.hiero.block.simulator.config.types.StreamingMode;
+import org.hiero.block.simulator.fixtures.TestUtils;
 import org.hiero.block.simulator.generator.BlockStreamManager;
 import org.hiero.block.simulator.grpc.PublishStreamGrpcClient;
 import org.hiero.block.simulator.metrics.MetricsService;
@@ -33,7 +32,6 @@ import org.mockito.MockitoAnnotations;
 
 public class PublisherClientModeHandlerTest {
 
-    @Mock
     private BlockStreamConfig blockStreamConfig;
 
     @Mock
@@ -42,7 +40,6 @@ public class PublisherClientModeHandlerTest {
     @Mock
     private BlockStreamManager blockStreamManager;
 
-    @Mock
     private MetricsService metricsService;
 
     private PublisherClientModeHandler publisherClientModeHandler;
@@ -51,18 +48,16 @@ public class PublisherClientModeHandlerTest {
     void setUp() throws IOException {
         MockitoAnnotations.openMocks(this);
 
-        Configuration configuration = TestUtils.getTestConfiguration(
-                Map.of("blockStream.maxBlockItemsToStream", "100", "blockStream.streamingMode", "CONSTANT_RATE"));
+        Configuration configuration = TestUtils.getTestConfiguration(Map.of(
+                "blockstream.streamingMode", "MILLIS_PER_BLOCK",
+                "blockstream.millisecondsPerBlock", "0"));
+        blockStreamConfig = configuration.getConfigData(BlockStreamConfig.class);
 
         metricsService = new MetricsServiceImpl(TestUtils.getTestMetrics(configuration));
     }
 
     @Test
     void testStartWithMillisPerBlockStreaming_WithBlocks() throws Exception {
-        // Configure blockStreamConfig
-        when(blockStreamConfig.streamingMode()).thenReturn(StreamingMode.MILLIS_PER_BLOCK);
-        when(blockStreamConfig.millisecondsPerBlock()).thenReturn(0); // No delay for testing
-
         publisherClientModeHandler = new PublisherClientModeHandler(
                 blockStreamConfig, publishStreamGrpcClient, blockStreamManager, metricsService);
 
@@ -88,8 +83,6 @@ public class PublisherClientModeHandlerTest {
 
     @Test
     void testStartWithMillisPerBlockStreaming_NoBlocks() throws Exception {
-        when(blockStreamConfig.streamingMode()).thenReturn(StreamingMode.MILLIS_PER_BLOCK);
-
         publisherClientModeHandler = new PublisherClientModeHandler(
                 blockStreamConfig, publishStreamGrpcClient, blockStreamManager, metricsService);
 
@@ -103,8 +96,6 @@ public class PublisherClientModeHandlerTest {
 
     @Test
     void testStartWithMillisPerBlockStreaming_ShouldPublishFalse() throws Exception {
-        when(blockStreamConfig.streamingMode()).thenReturn(StreamingMode.MILLIS_PER_BLOCK);
-
         publisherClientModeHandler = new PublisherClientModeHandler(
                 blockStreamConfig, publishStreamGrpcClient, blockStreamManager, metricsService);
 
@@ -129,8 +120,6 @@ public class PublisherClientModeHandlerTest {
 
     @Test
     void testStartWithMillisPerBlockStreaming_NoBlocksAndShouldPublishFalse() throws Exception {
-        when(blockStreamConfig.streamingMode()).thenReturn(StreamingMode.MILLIS_PER_BLOCK);
-
         publisherClientModeHandler = new PublisherClientModeHandler(
                 blockStreamConfig, publishStreamGrpcClient, blockStreamManager, metricsService);
 
@@ -145,9 +134,14 @@ public class PublisherClientModeHandlerTest {
 
     @Test
     void testStartWithConstantRateStreaming_WithinMaxItems() throws Exception {
-        when(blockStreamConfig.streamingMode()).thenReturn(StreamingMode.CONSTANT_RATE);
-        when(blockStreamConfig.delayBetweenBlockItems()).thenReturn(0);
-        when(blockStreamConfig.maxBlockItemsToStream()).thenReturn(5);
+        Configuration configuration = TestUtils.getTestConfiguration(Map.of(
+                "blockStream.streamingMode",
+                "CONSTANT_RATE",
+                "blockstream.delayBetweenBlockItems",
+                "0",
+                "blockStream.maxBlockItemsToStream",
+                "5"));
+        blockStreamConfig = configuration.getConfigData(BlockStreamConfig.class);
 
         publisherClientModeHandler = new PublisherClientModeHandler(
                 blockStreamConfig, publishStreamGrpcClient, blockStreamManager, metricsService);
@@ -182,9 +176,14 @@ public class PublisherClientModeHandlerTest {
 
     @Test
     void testStartWithConstantRateStreaming_ExceedingMaxItems() throws Exception {
-        when(blockStreamConfig.streamingMode()).thenReturn(StreamingMode.CONSTANT_RATE);
-        when(blockStreamConfig.delayBetweenBlockItems()).thenReturn(0);
-        when(blockStreamConfig.maxBlockItemsToStream()).thenReturn(5);
+        Configuration configuration = TestUtils.getTestConfiguration(Map.of(
+                "blockStream.streamingMode",
+                "CONSTANT_RATE",
+                "blockstream.delayBetweenBlockItems",
+                "0",
+                "blockStream.maxBlockItemsToStream",
+                "5"));
+        blockStreamConfig = configuration.getConfigData(BlockStreamConfig.class);
 
         publisherClientModeHandler = new PublisherClientModeHandler(
                 blockStreamConfig, publishStreamGrpcClient, blockStreamManager, metricsService);
@@ -227,7 +226,9 @@ public class PublisherClientModeHandlerTest {
 
     @Test
     void testStartWithConstantRateStreaming_NoBlocks() throws Exception {
-        when(blockStreamConfig.streamingMode()).thenReturn(StreamingMode.CONSTANT_RATE);
+        Configuration configuration =
+                TestUtils.getTestConfiguration(Map.of("blockStream.streamingMode", "CONSTANT_RATE"));
+        blockStreamConfig = configuration.getConfigData(BlockStreamConfig.class);
         publisherClientModeHandler = new PublisherClientModeHandler(
                 blockStreamConfig, publishStreamGrpcClient, blockStreamManager, metricsService);
 
@@ -241,8 +242,6 @@ public class PublisherClientModeHandlerTest {
 
     @Test
     void testStartWithExceptionDuringStreaming() throws Exception {
-        when(blockStreamConfig.streamingMode()).thenReturn(StreamingMode.MILLIS_PER_BLOCK);
-
         publisherClientModeHandler = new PublisherClientModeHandler(
                 blockStreamConfig, publishStreamGrpcClient, blockStreamManager, metricsService);
 
@@ -258,9 +257,6 @@ public class PublisherClientModeHandlerTest {
 
     @Test
     void testMillisPerBlockStreaming_streamSuccessBecomesFalse() throws Exception {
-        when(blockStreamConfig.streamingMode()).thenReturn(StreamingMode.MILLIS_PER_BLOCK);
-        when(blockStreamConfig.millisecondsPerBlock()).thenReturn(1000);
-
         publisherClientModeHandler = new PublisherClientModeHandler(
                 blockStreamConfig, publishStreamGrpcClient, blockStreamManager, metricsService);
 
@@ -285,9 +281,14 @@ public class PublisherClientModeHandlerTest {
 
     @Test
     void testConstantRateStreaming_streamSuccessBecomesFalse() throws Exception {
-        when(blockStreamConfig.streamingMode()).thenReturn(StreamingMode.CONSTANT_RATE);
-        when(blockStreamConfig.delayBetweenBlockItems()).thenReturn(0);
-        when(blockStreamConfig.maxBlockItemsToStream()).thenReturn(100);
+        Configuration configuration = TestUtils.getTestConfiguration(Map.of(
+                "blockStream.streamingMode",
+                "CONSTANT_RATE",
+                "blockstream.delayBetweenBlockItems",
+                "0",
+                "blockStream.maxBlockItemsToStream",
+                "5"));
+        blockStreamConfig = configuration.getConfigData(BlockStreamConfig.class);
 
         publisherClientModeHandler = new PublisherClientModeHandler(
                 blockStreamConfig, publishStreamGrpcClient, blockStreamManager, metricsService);
