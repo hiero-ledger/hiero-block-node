@@ -225,16 +225,15 @@ public final class BlockStreamProducerSession implements Pipeline<List<BlockItem
      * Send a message to the client that they are probably behind, and that this is a duplicate block.
      * @param latestAckBlock the latestBlock that we already acknowledged.
      */
-    void sendDuplicateAck(final long latestAckBlock) {
+    void sendDuplicateBlockResponse(final long latestAckBlock) {
         currentBlockState = BlockState.BEHIND;
         newBlockItems.clear();
-        // sending a duplicate ack should also update the latestAck.
-        latestAcknowledgedBlock = latestAckBlock;
-        final BlockAcknowledgement ack = new BlockAcknowledgement(latestAckBlock, null);
-        final PublishStreamResponse duplicateResponse =
-                new PublishStreamResponse(new OneOf<>(ResponseOneOfType.ACKNOWLEDGEMENT, ack));
-        sendResponse(duplicateResponse);
-        blocksAckSent.increment();
+
+        final EndOfStream endOfStream = new EndOfStream(Code.DUPLICATE_BLOCK, latestAckBlock);
+        final PublishStreamResponse response =
+                new PublishStreamResponse(new OneOf<>(ResponseOneOfType.END_STREAM, endOfStream));
+        sendResponse(response);
+        blocksEndOfStreamSent.increment();
     }
 
     /**
