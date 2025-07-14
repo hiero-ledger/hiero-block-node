@@ -239,19 +239,6 @@ message PublishStreamResponse {
          * system to validate the block.
          */
         bytes block_root_hash = 2;
-
-        /**
-         * A flag indicating that the received block duplicates an
-         * existing block.
-         * <p>
-         * If a Publisher receives acknowledgement with this flag set
-         * true the Publisher MAY end the stream.<br/>
-         * The `block_number` returned SHALL be the last block known and
-         * verified by the Block-Node.<br/>
-         * The Publisher MAY resume publishing immediately after the indicated
-         * block.
-         */
-        bool block_already_exists = 3;
     }
 
     /**

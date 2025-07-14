@@ -230,7 +230,7 @@ public final class BlockStreamProducerSession implements Pipeline<List<BlockItem
         newBlockItems.clear();
         // sending a duplicate ack should also update the latestAck.
         latestAcknowledgedBlock = latestAckBlock;
-        final BlockAcknowledgement ack = new BlockAcknowledgement(latestAckBlock, null, true);
+        final BlockAcknowledgement ack = new BlockAcknowledgement(latestAckBlock, null);
         final PublishStreamResponse duplicateResponse =
                 new PublishStreamResponse(new OneOf<>(ResponseOneOfType.ACKNOWLEDGEMENT, ack));
         sendResponse(duplicateResponse);
@@ -317,8 +317,8 @@ public final class BlockStreamProducerSession implements Pipeline<List<BlockItem
             while (futureBlockAcknowledgments.contains(blockToSend)) {
                 latestAcknowledgedBlock = blockToSend;
                 // TODO BlockAcknowledgement block hash should be removed from spec as not needed
-                final PublishStreamResponse goodBlockResponse = new PublishStreamResponse(new OneOf<>(
-                        ResponseOneOfType.ACKNOWLEDGEMENT, new BlockAcknowledgement(blockToSend, null, false)));
+                final PublishStreamResponse goodBlockResponse = new PublishStreamResponse(
+                        new OneOf<>(ResponseOneOfType.ACKNOWLEDGEMENT, new BlockAcknowledgement(blockToSend, null)));
                 // send the acknowledgment to the client
                 sendResponse(goodBlockResponse);
                 blocksAckSent.increment();
