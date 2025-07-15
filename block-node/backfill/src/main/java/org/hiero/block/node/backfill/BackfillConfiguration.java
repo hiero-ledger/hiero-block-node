@@ -15,15 +15,17 @@ import org.hiero.block.node.base.Loggable;
  * @param scanIntervalMins Interval in minutes to scan for missing gaps (skips if the previous task is running)
  * @param maxRetries Maximum number of retries to fetch a missing block (with exponential back-off)
  * @param fetchBatchSize Number of blocks to fetch in a single gRPC call
+ * @param coolDownTimeBetweenBatchesMs Cool down time in milliseconds between batches of blocks to fetch
  */
 @ConfigData("backfill")
 public record BackfillConfiguration(
         @Loggable @ConfigProperty(defaultValue = "0") long firstBlockAvailable,
         @Loggable @ConfigProperty(defaultValue = "-1") long lastBlockToStore,
         @Loggable @ConfigProperty(defaultValue = "") String blockNodeSourcesPath,
-        @Loggable @ConfigProperty(defaultValue = "60") long scanIntervalMins,
-        @Loggable @ConfigProperty(defaultValue = "3") long maxRetries,
-        @Loggable @ConfigProperty(defaultValue = "100") long fetchBatchSize) {
+        @Loggable @ConfigProperty(defaultValue = "60") int scanIntervalMins,
+        @Loggable @ConfigProperty(defaultValue = "3") int maxRetries,
+        @Loggable @ConfigProperty(defaultValue = "100") int fetchBatchSize,
+        @Loggable @ConfigProperty(defaultValue = "1000") int coolDownTimeBetweenBatchesMs) {
 
     /**
      * Constructs a new instance of {@link BackfillConfiguration}.

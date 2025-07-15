@@ -3,6 +3,7 @@ package org.hiero.block.node.backfill;
 
 import static java.lang.System.Logger.Level.INFO;
 
+import com.hedera.hapi.block.stream.Block;
 import com.swirlds.metrics.api.Counter;
 import com.swirlds.metrics.api.LongGauge;
 import edu.umd.cs.findbugs.annotations.NonNull;
@@ -42,6 +43,8 @@ public class BackfillPlugin implements BlockNodePlugin {
     private boolean hasBNSourcesPath = false;
 
     private List<BlockGap> detectedGaps;
+
+    private BackfillGrpcClient backfillGrpcClient;
 
     /**
      * {@inheritDoc}
@@ -94,7 +97,7 @@ public class BackfillPlugin implements BlockNodePlugin {
         }
         // if path is set but file does not exist, log and stop the plugin.
         Path blockNodeSourcesPath = Path.of(backfillConfiguration.blockNodeSourcesPath());
-        if (Files.isRegularFile(blockNodeSourcesPath)) {
+        if (!Files.isRegularFile(blockNodeSourcesPath)) {
             LOGGER.log(
                     INFO,
                     "BackfillPlugin: Block node sources path does not exist: {0}, backfill will not run",
@@ -103,6 +106,14 @@ public class BackfillPlugin implements BlockNodePlugin {
         }
 
         hasBNSourcesPath = true;
+        // Initialize the gRPC client with the block node sources path
+        try {
+            backfillGrpcClient = new BackfillGrpcClient(
+                    blockNodeSourcesPath, backfillConfiguration.maxRetries());
+            LOGGER.log(INFO, "BackfillPlugin: Initialized gRPC client with sources path: {0}", blockNodeSourcesPath);
+        } catch (Exception e) {
+            LOGGER.log(INFO, "BackfillPlugin: Failed to initialize gRPC client: {0}", e.getMessage());
+        }
     }
 
     /**
@@ -145,10 +156,10 @@ public class BackfillPlugin implements BlockNodePlugin {
             previousRangeEnd = range.end();
         }
 
-        // Update metrics
-        backfillGapsDetected.add(detectedGaps.size());
-
         if (!detectedGaps.isEmpty()) {
+            // Gaps detected, proceed to backfill
+            backfillGapsDetected.add(detectedGaps.size());
+
             long pendingBlocks = detectedGaps.stream()
                     .mapToLong(gap -> gap.endBlockNumber() - gap.startBlockNumber() + 1)
                     .sum();
@@ -158,8 +169,65 @@ public class BackfillPlugin implements BlockNodePlugin {
                     "BackfillPlugin: Detected {0} gaps with {1} total missing blocks",
                     detectedGaps.size(),
                     pendingBlocks);
+
+            // Start the backfill process
+
+            // fetch blocks in batches.
+            for (BlockGap gap : detectedGaps) {
+                LOGGER.log(
+                        INFO,
+                        "BackfillPlugin: Fetching blocks from {0} to {1}",
+                        gap.startBlockNumber(),
+                        gap.endBlockNumber());
+                try {
+                    backfillGap(gap);
+                } catch (Exception e) {
+                    LOGGER.log(INFO, "BackfillPlugin: Error fetching blocks for gap {0}: {1}", gap, e.getMessage());
+                    backfillFetchErrors.add(1);
+                }
+            }
+
         } else {
             LOGGER.log(INFO, "BackfillPlugin: No gaps detected in historical blocks");
         }
+    }
+
+    private void backfillGap(BlockGap gap) {
+        // Split the gap into smaller chunks based on the batch size
+        List<BlockGap> chunks = chunkifyGap(gap);
+        // for each chunk, fetch the blocks and backfill them
+        for (BlockGap chunk : chunks) {
+            try {
+                List<Block> batchOfBlocks = backfillGrpcClient.fetchBlocks(chunk);
+                for (Block block : batchOfBlocks) {
+                    // Process each block, e.g., backfill it into the historical block provider
+                    LOGGER.log(
+                            INFO,
+                            "BackfillPlugin: Backfilling block {0} from chunk {1}",
+                            block.items().getFirst().blockHeader().number(),
+                            chunk);
+                }
+
+
+            } catch (Exception e) {
+                LOGGER.log(INFO, "BackfillPlugin: Error backfilling chunk {0}: {1}", chunk, e.getMessage());
+                backfillFetchErrors.add(1);
+            }
+        }
+    }
+
+    private List<BlockGap> chunkifyGap(BlockGap gap) {
+        // Split the gap into smaller chunks based on the batch size
+        long start = gap.startBlockNumber();
+        long end = gap.endBlockNumber();
+        long batchSize = backfillConfiguration.fetchBatchSize();
+        List<BlockGap> chunks = new java.util.ArrayList<>();
+
+        while (start <= end) {
+            long chunkEnd = Math.min(start + batchSize - 1, end);
+            chunks.add(new BlockGap(start, chunkEnd));
+            start += batchSize;
+        }
+        return chunks;
     }
 }
