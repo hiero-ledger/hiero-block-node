@@ -35,8 +35,7 @@ public class BackfillGrpcClient {
      *
      * @param blockNodePreferenceFilePath the path to the block node preference file
      */
-    public BackfillGrpcClient(Path blockNodePreferenceFilePath, int maxRetries)
-            throws IOException, ParseException {
+    public BackfillGrpcClient(Path blockNodePreferenceFilePath, int maxRetries) throws IOException, ParseException {
         this.blockNodeSource = BlockNodeSources.JSON.parse(Bytes.wrap(Files.readAllBytes(blockNodePreferenceFilePath)));
         this.maxRetries = maxRetries;
 

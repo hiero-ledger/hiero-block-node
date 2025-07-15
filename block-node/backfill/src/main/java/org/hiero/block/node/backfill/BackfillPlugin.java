@@ -108,8 +108,7 @@ public class BackfillPlugin implements BlockNodePlugin {
         hasBNSourcesPath = true;
         // Initialize the gRPC client with the block node sources path
         try {
-            backfillGrpcClient = new BackfillGrpcClient(
-                    blockNodeSourcesPath, backfillConfiguration.maxRetries());
+            backfillGrpcClient = new BackfillGrpcClient(blockNodeSourcesPath, backfillConfiguration.maxRetries());
             LOGGER.log(INFO, "BackfillPlugin: Initialized gRPC client with sources path: {0}", blockNodeSourcesPath);
         } catch (Exception e) {
             LOGGER.log(INFO, "BackfillPlugin: Failed to initialize gRPC client: {0}", e.getMessage());
@@ -207,7 +206,6 @@ public class BackfillPlugin implements BlockNodePlugin {
                             block.items().getFirst().blockHeader().number(),
                             chunk);
                 }
-
 
             } catch (Exception e) {
                 LOGGER.log(INFO, "BackfillPlugin: Error backfilling chunk {0}: {1}", chunk, e.getMessage());
