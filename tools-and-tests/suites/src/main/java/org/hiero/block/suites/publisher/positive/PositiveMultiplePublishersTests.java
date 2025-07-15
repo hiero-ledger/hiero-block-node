@@ -20,8 +20,8 @@ import org.hiero.block.api.protoc.BlockResponse;
 import org.hiero.block.api.protoc.BlockResponse.Code;
 import org.hiero.block.simulator.BlockStreamSimulatorApp;
 import org.hiero.block.suites.BaseSuite;
-import org.junit.Ignore;
 import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
@@ -62,7 +62,7 @@ public class PositiveMultiplePublishersTests extends BaseSuite {
      * Verifies that block data is taken from the faster publisher, when two publishers are streaming to the block-node.
      * The test asserts that the slower one receives skip block response.
      */
-    @Ignore("Temporarily disabled whiles publisher plugin is being rewritten. Currently produces a false positive")
+    @Disabled("Temporarily disabled whiles publisher plugin is being rewritten. Currently produces a false positive")
     @Test
     @DisplayName("Should switch to faster publisher when it catches up with current block number")
     @Timeout(30)
