@@ -1,11 +1,24 @@
 // SPDX-License-Identifier: Apache-2.0
-plugins { id("org.hiero.gradle.module.library") }
+plugins {
+    id("org.hiero.gradle.module.library")
+    id("com.hedera.pbj.pbj-compiler") version "0.11.9"
+}
 
 description = "Hiero Block Node Backfill Plugin"
 
 // Remove the following line to enable all 'javac' lint checks that we have turned on by default
 // and then fix the reported issues.
 tasks.withType<JavaCompile>().configureEach { options.compilerArgs.add("-Xlint:-exports") }
+
+tasks.javadoc {
+    options {
+        this as StandardJavadocDocletOptions
+        // There are violations in the generated pbj code
+        addStringOption("Xdoclint:-reference,-html", "-quiet")
+    }
+}
+
+pbj { generateTestClasses = false }
 
 mainModuleInfo {
     runtimeOnly("com.swirlds.config.impl")
@@ -18,4 +31,17 @@ testModuleInfo {
     requires("org.junit.jupiter.api")
     requires("org.hiero.block.node.app.test.fixtures")
     requires("org.mockito")
+}
+
+sourceSets {
+    main {
+        pbj {
+            // use sources from 'protobuf' module
+            srcDir(
+                layout.projectDirectory.dir(
+                    "src/main/java/org/hiero/block/node/backfill/client/proto"
+                )
+            )
+        }
+    }
 }
