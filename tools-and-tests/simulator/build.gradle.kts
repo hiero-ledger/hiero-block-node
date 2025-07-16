@@ -56,7 +56,7 @@ tasks.register<JavaExec>("runPublisherClient") {
 
     environment("BLOCK_STREAM_SIMULATOR_MODE", "PUBLISHER_CLIENT")
     environment("PROMETHEUS_ENDPOINT_ENABLED", "true")
-    environment("PROMETHEUS_ENDPOINT_PORT_NUMBER", "16007")
+    environment("PROMETHEUS_ENDPOINT_PORT_NUMBER", "16008")
 }
 
 tasks.register<JavaExec>("runPublisherServer") {
@@ -69,7 +69,7 @@ tasks.register<JavaExec>("runPublisherServer") {
 
     environment("BLOCK_STREAM_SIMULATOR_MODE", "PUBLISHER_SERVER")
     environment("PROMETHEUS_ENDPOINT_ENABLED", "true")
-    environment("PROMETHEUS_ENDPOINT_PORT_NUMBER", "16008")
+    environment("PROMETHEUS_ENDPOINT_PORT_NUMBER", "16010")
 }
 
 // Task to run simulator in Consumer mode
