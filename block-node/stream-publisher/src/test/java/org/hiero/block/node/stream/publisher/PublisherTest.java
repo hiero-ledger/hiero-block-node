@@ -2,6 +2,7 @@
 package org.hiero.block.node.stream.publisher;
 
 import static org.hiero.block.api.PublishStreamResponse.ResponseOneOfType.ACKNOWLEDGEMENT;
+import static org.hiero.block.api.PublishStreamResponse.ResponseOneOfType.END_STREAM;
 import static org.hiero.block.node.app.fixtures.TestUtils.enableDebugLogging;
 import static org.hiero.block.node.app.fixtures.blocks.BlockItemUtils.toBlockItemJson;
 import static org.hiero.block.node.app.fixtures.blocks.BlockItemUtils.toBlockItemsUnparsed;
@@ -111,18 +112,18 @@ public class PublisherTest extends GrpcPluginTestBase<PublisherServicePlugin> {
         PublishStreamResponse response = PublishStreamResponse.PROTOBUF.parse(fromPluginBytes.getFirst());
         assertEquals(ACKNOWLEDGEMENT, response.response().kind());
         final BlockAcknowledgement ack = response.response().as();
-        assertEquals(new BlockAcknowledgement(0, null, false), ack);
+        assertEquals(new BlockAcknowledgement(0, null), ack);
         // check second block
         blockMessaging.sendBlockPersisted(new PersistedNotification(1, 1, 1));
         PublishStreamResponse response1 = PublishStreamResponse.PROTOBUF.parse(fromPluginBytes.getLast());
         assertEquals(ACKNOWLEDGEMENT, response1.response().kind());
         final BlockAcknowledgement ack1 = response1.response().as();
-        assertEquals(new BlockAcknowledgement(1, null, false), ack1);
+        assertEquals(new BlockAcknowledgement(1, null), ack1);
     }
 
     @Test
     @DisplayName(
-            "When publisher receives a Duplicated (already acked) block, it should send an ack with duplicate flag")
+            "When Block Node receives a Duplicated (already acked) block, it should send an duplicate block end stream response")
     void testPublisherDuplicateBlock() throws ParseException {
         // create sample block 0, the fact that it is 0 is important as it's the first block after -1, so we will get
         // ack
@@ -143,10 +144,8 @@ public class PublisherTest extends GrpcPluginTestBase<PublisherServicePlugin> {
         assertEquals(2, fromPluginBytes.size());
         // last fromPluginBytes should be Duplicate
         PublishStreamResponse response = PublishStreamResponse.PROTOBUF.parse(fromPluginBytes.getLast());
-        assertEquals(ACKNOWLEDGEMENT, response.response().kind());
-        BlockAcknowledgement ack = response.acknowledgement();
-        BlockAcknowledgement expectedAck = new BlockAcknowledgement(0, null, true);
-        assertEquals(expectedAck, ack, "Expected an ACK with flag of duplicate (blockAlreadyExists=true)");
+        assertEquals(END_STREAM, response.response().kind());
+        assertEquals(Code.DUPLICATE_BLOCK, response.endStream().status(), "Expected status code DUPLICATE_BLOCK");
     }
 
     @Test
