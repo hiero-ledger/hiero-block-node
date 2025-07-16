@@ -17,7 +17,6 @@ import org.hiero.block.simulator.config.data.SimulatorStartupDataConfig;
 import org.hiero.block.simulator.config.data.UnorderedStreamConfig;
 import org.hiero.block.simulator.config.logging.ConfigurationLogging;
 import org.junit.jupiter.api.BeforeAll;
-import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 
 /**
