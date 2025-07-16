@@ -91,7 +91,7 @@ public class PositiveServerAvailabilityTests extends BaseSuite {
     @DisplayName("Verify /metrics endpoint")
     public void verifyMetricsEndpoint() throws Exception {
         final String host = "localhost";
-        final int port = 9999;
+        final int port = 16007;
         final String baseUrl = String.format("http://%s:%d", host, port);
 
         // Test /metrics endpoint

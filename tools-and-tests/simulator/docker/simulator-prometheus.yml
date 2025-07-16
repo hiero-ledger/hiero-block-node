@@ -4,7 +4,7 @@ global:
 scrape_configs:
   - job_name: 'simulator-publisher'
     static_configs:
-      - targets: ['simulator-publisher:9998']
+      - targets: ['simulator-publisher:16008']
     metrics_path: '/metrics'
     scheme: 'http'
     relabel_configs:
@@ -14,7 +14,7 @@ scrape_configs:
 
   - job_name: 'simulator-consumer'
     static_configs:
-      - targets: ['simulator-consumer:9997']
+      - targets: ['simulator-consumer:16009']
     metrics_path: '/metrics'
     scheme: 'http'
     relabel_configs:

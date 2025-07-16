@@ -40,16 +40,16 @@ Prefix: prometheus, ie. `prometheus.configKey`
 | ConfigKey                 | Description                                                                           | Default |
 |:--------------------------|:--------------------------------------------------------------------------------------|--------:|
 | enableEndpoint            | either `true` or `false`. Enables or disables the endpoint for metrics                |    true |
-| endpointPortNumber        | Port of the Prometheus endpoint                                                       |    9999 |
+| endpointPortNumber        | Port of the Prometheus endpoint                                                       |   16007 |
 | endpointMaxBacklogAllowed | The maximum number of incoming TCP connections which the system will queue internally |       1 |
 
 ## How to Access Metrics
 
 ```
-http://<host>:9999/metrics
+http://<host>:16007/metrics
 ```
 
-* Default port `9999`.
+* Default port `16007`.
 * Output is plain‑text in Prometheus exposition format (`# HELP`, `# TYPE`, `<metric> <value>`).
 
 Example `scrape_configs` snippet:
@@ -57,7 +57,7 @@ Example `scrape_configs` snippet:
         scrape_configs:
           - job_name: hiero-block-node
             static_configs:
-              - targets: ['bn‑01.example.com:9999']   # change port if customised
+              - targets: ['bn‑01.example.com:16007']   # change port if customised
 
 ---
 

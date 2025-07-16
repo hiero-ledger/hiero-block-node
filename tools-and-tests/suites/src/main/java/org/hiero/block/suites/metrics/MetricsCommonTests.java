@@ -59,7 +59,7 @@ public class MetricsCommonTests extends BaseSuite {
     }
 
     @Test
-    @DisplayName("Verify that metrics are being collected - reported in host:9999/metrics")
+    @DisplayName("Verify that metrics are being collected - reported in host:16007/metrics")
     void verifyMetricsAreCollected() throws IOException, InterruptedException {
         long publishedBlocks = blockStreamSimulatorApp.getStreamStatus().publishedBlocks();
 

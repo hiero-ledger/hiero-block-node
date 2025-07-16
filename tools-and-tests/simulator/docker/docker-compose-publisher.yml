@@ -7,14 +7,14 @@ services:
     image: hedera-block-simulator:latest
     ports:
       - "5006:5006"
-      - "9998:9998"
+      - "16008:16008"
     env_file:
       - .env
     environment:
       - BLOCK_STREAM_SIMULATOR_MODE=${PUBLISHER_BLOCK_STREAM_SIMULATOR_MODE}
       - PROMETHEUS_ENDPOINT_PORT_NUMBER=${PUBLISHER_PROMETHEUS_ENDPOINT_PORT_NUMBER}
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:9998/metrics"]
+      test: ["CMD", "curl", "-f", "http://localhost:16008/metrics"]
       interval: 3s
       timeout: 10s
       retries: 5

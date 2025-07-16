@@ -114,7 +114,7 @@ public abstract class BaseSuite {
     protected static GenericContainer<?> createContainer() {
         String blockNodeVersion = BaseSuite.getBlockNodeVersion();
         blockNodePort = 40840;
-        blockNodeMetricsPort = 9999;
+        blockNodeMetricsPort = 16007;
         List<String> portBindings = new ArrayList<>();
         portBindings.add(String.format("%d:%2d", blockNodePort, blockNodePort));
         portBindings.add(String.format("%d:%2d", blockNodeMetricsPort, blockNodeMetricsPort));

@@ -78,7 +78,7 @@ spec:
             containerPort: {{ .Values.service.port }}
             protocol: TCP
           - name: metrics
-            containerPort: 9999
+            containerPort: 16007
             protocol: TCP
         envFrom:
           - configMapRef:

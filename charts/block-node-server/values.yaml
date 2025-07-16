@@ -135,7 +135,7 @@ blockNode:
     liveness:
       endpoint: "/healthz/livez"
     metrics:
-      port: 9999
+      port: 16007
   logs:
     # Available Levels are (from most verbose to least verbose):
     # ALL FINEST FINER FINE CONFIG INFO WARNING SEVERE OFF
