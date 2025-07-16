@@ -3,8 +3,7 @@ package org.hiero.block.node.backfill.client;
 
 import static java.util.Objects.requireNonNull;
 
-import com.hedera.hapi.block.stream.Block;
-import com.hedera.hapi.block.stream.BlockItem;
+import com.hedera.hapi.block.stream.output.BlockHeader;
 import com.hedera.pbj.runtime.Codec;
 import com.hedera.pbj.runtime.ParseException;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
@@ -26,15 +25,18 @@ import java.util.concurrent.atomic.AtomicReference;
 import org.hiero.block.api.BlockStreamSubscribeServiceInterface;
 import org.hiero.block.api.SubscribeStreamRequest;
 import org.hiero.block.api.SubscribeStreamResponse;
+import org.hiero.block.internal.BlockItemUnparsed;
+import org.hiero.block.internal.BlockUnparsed;
+import org.hiero.block.internal.SubscribeStreamResponseUnparsed;
 
-public class BlockNodeSubscribeClient implements StreamObserver<SubscribeStreamResponse> {
+public class BlockNodeSubscribeClient implements StreamObserver<SubscribeStreamResponseUnparsed> {
     private final GrpcServiceClient blockStreamSubscribeServiceClient;
     private final String methodName =
             BlockStreamSubscribeServiceInterface.BlockStreamSubscribeServiceMethod.subscribeBlockStream.name();
     // Per Request State
-    private List<BlockItem> currentBlockItems;
+    private List<BlockItemUnparsed> currentBlockItems;
     private AtomicLong currentBlockNumber;
-    private AtomicReference<List<Block>> replyRef;
+    private AtomicReference<List<BlockUnparsed>> replyRef;
     private AtomicReference<Throwable> errorRef;
     private CountDownLatch latch;
 
@@ -47,13 +49,13 @@ public class BlockNodeSubscribeClient implements StreamObserver<SubscribeStreamR
                         GrpcClientMethodDescriptor.serverStreaming(
                                         BlockStreamSubscribeServiceInterface.FULL_NAME, methodName)
                                 .requestType(SubscribeStreamRequest.class)
-                                .responseType(SubscribeStreamResponse.class)
+                                .responseType(SubscribeStreamResponseUnparsed.class)
                                 .marshallerSupplier(new BlockStreeamSubscribeMarshaller.Supplier())
                                 .build())
                 .build());
     }
 
-    public List<Block> getBatchOfBlocks(long startBlockNumber, long endBlockNumber) {
+    public List<BlockUnparsed> getBatchOfBlocks(long startBlockNumber, long endBlockNumber) {
         // Validate input parameters
         if (startBlockNumber < 0 || endBlockNumber < 0 || startBlockNumber > endBlockNumber) {
             throw new IllegalArgumentException("Invalid block range: " + startBlockNumber + " to " + endBlockNumber);
@@ -86,14 +88,22 @@ public class BlockNodeSubscribeClient implements StreamObserver<SubscribeStreamR
     }
 
     @Override
-    public void onNext(SubscribeStreamResponse subscribeStreamResponse) {
+    public void onNext(SubscribeStreamResponseUnparsed subscribeStreamResponse) {
         if (subscribeStreamResponse.hasBlockItems()) {
-            List<BlockItem> blockItems = subscribeStreamResponse.blockItems().blockItems();
+            List<BlockItemUnparsed> blockItems =
+                    subscribeStreamResponse.blockItems().blockItems();
             // Check if is new Block
             if (blockItems.getFirst().hasBlockHeader()) {
                 // verify is the expected block number
                 long expectedBlockNumber = currentBlockNumber.get();
-                long actualBlockNumber = blockItems.getFirst().blockHeader().number();
+                long actualBlockNumber = 0;
+                try {
+                    actualBlockNumber = BlockHeader.PROTOBUF
+                            .parse(blockItems.getFirst().blockHeaderOrThrow())
+                            .number();
+                } catch (ParseException e) {
+                    throw new RuntimeException(e);
+                }
                 if (actualBlockNumber != expectedBlockNumber) {
                     throw new IllegalStateException(
                             "Expected block number " + expectedBlockNumber + " but received " + actualBlockNumber);
@@ -108,9 +118,10 @@ public class BlockNodeSubscribeClient implements StreamObserver<SubscribeStreamR
             // Check if response contains block proof (end of block)
             if (blockItems.getLast().hasBlockProof()) {
                 // Create Block from current items
-                Block block = Block.newBuilder().items(currentBlockItems).build();
+                BlockUnparsed block =
+                        BlockUnparsed.newBuilder().blockItems(currentBlockItems).build();
                 // Add to reply
-                List<Block> blocks = replyRef.get();
+                List<BlockUnparsed> blocks = replyRef.get();
                 if (blocks == null) {
                     blocks = new ArrayList<>();
                     replyRef.set(blocks);
@@ -153,8 +164,8 @@ public class BlockNodeSubscribeClient implements StreamObserver<SubscribeStreamR
 
             if (clazz == SubscribeStreamRequest.class) {
                 this.codec = (Codec<T>) SubscribeStreamRequest.PROTOBUF;
-            } else if (clazz == SubscribeStreamResponse.class) {
-                this.codec = (Codec<T>) SubscribeStreamResponse.PROTOBUF;
+            } else if (clazz == SubscribeStreamResponseUnparsed.class) {
+                this.codec = (Codec<T>) SubscribeStreamResponseUnparsed.PROTOBUF;
             } else {
                 throw new IllegalArgumentException("Unsupported class: " + clazz.getName());
             }

@@ -3,7 +3,6 @@ package org.hiero.block.node.backfill;
 
 import static java.lang.System.Logger.Level.*;
 
-import com.hedera.hapi.block.stream.Block;
 import com.hedera.pbj.runtime.ParseException;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import java.io.IOException;
@@ -14,6 +13,7 @@ import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
+import org.hiero.block.internal.BlockUnparsed;
 import org.hiero.block.node.backfill.client.BlockNodeClient;
 import org.hiero.block.node.backfill.client.proto.BlockNodeConfig;
 import org.hiero.block.node.backfill.client.proto.BlockNodeSources;
@@ -69,7 +69,7 @@ public class BackfillGrpcClient {
      * @param blockRange The block range to fetch
      * @return A list of blocks fetched from the block nodes, or an empty list if no blocks were found
      */
-    public List<Block> fetchBlocks(BlockGap blockRange) {
+    public List<BlockUnparsed> fetchBlocks(BlockGap blockRange) {
         LOGGER.log(
                 INFO,
                 "Requesting blocks for range: {0} to {1}",

@@ -3,16 +3,18 @@ package org.hiero.block.node.backfill;
 
 import static java.lang.System.Logger.Level.INFO;
 
-import com.hedera.hapi.block.stream.Block;
+import com.hedera.hapi.block.stream.output.BlockHeader;
 import com.swirlds.metrics.api.Counter;
 import com.swirlds.metrics.api.LongGauge;
 import edu.umd.cs.findbugs.annotations.NonNull;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
+import org.hiero.block.internal.BlockUnparsed;
 import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.BlockNodePlugin;
 import org.hiero.block.node.spi.ServiceBuilder;
+import org.hiero.block.node.spi.blockmessaging.BackfilledBlockNotification;
 
 public class BackfillPlugin implements BlockNodePlugin {
 
@@ -197,14 +199,17 @@ public class BackfillPlugin implements BlockNodePlugin {
         // for each chunk, fetch the blocks and backfill them
         for (BlockGap chunk : chunks) {
             try {
-                List<Block> batchOfBlocks = backfillGrpcClient.fetchBlocks(chunk);
-                for (Block block : batchOfBlocks) {
+                List<BlockUnparsed> batchOfBlocks = backfillGrpcClient.fetchBlocks(chunk);
+                for (BlockUnparsed blockUnparsed : batchOfBlocks) {
                     // Process each block, e.g., backfill it into the historical block provider
-                    LOGGER.log(
-                            INFO,
-                            "BackfillPlugin: Backfilling block {0} from chunk {1}",
-                            block.items().getFirst().blockHeader().number(),
-                            chunk);
+                    long blockNumber = BlockHeader.PROTOBUF
+                            .parse(blockUnparsed.blockItems().getFirst().blockHeaderOrThrow())
+                            .number();
+                    context.blockMessaging()
+                            .sendBackfilledBlockNotification(
+                                    new BackfilledBlockNotification(blockNumber, blockUnparsed));
+
+                    LOGGER.log(INFO, "BackfillPlugin: Backfilling block {0} from chunk {1}", blockNumber, chunk);
                 }
 
             } catch (Exception e) {
