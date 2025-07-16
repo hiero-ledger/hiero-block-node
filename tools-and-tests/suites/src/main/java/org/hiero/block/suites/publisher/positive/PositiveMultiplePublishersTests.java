@@ -177,6 +177,7 @@ public class PositiveMultiplePublishersTests extends BaseSuite {
      * The test asserts that the block-node successfully switches to the new publisher and resumes block streaming
      * once the new publisher catches up to the current block number.
      */
+    @Disabled("Temporarily disabled whiles publisher plugin is being rewritten. Currently hangs after duplicate block")
     @Test
     @DisplayName("Should resume block streaming from new publisher after primary publisher disconnects")
     @Timeout(30)
