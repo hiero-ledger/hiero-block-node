@@ -7,7 +7,7 @@ import io.helidon.webclient.grpc.GrpcClientProtocolConfig;
 import java.time.Duration;
 import org.hiero.block.node.backfill.client.proto.BlockNodeConfig;
 
-public class BlockNodeClient implements AutoCloseable {
+public class BlockNodeClient {
     private final BlockNodeConfig blockNodeConfig;
     private final GrpcClient grpcClient;
     private final BlockNodeServerStatusClient blockNodeServerStatusClient;
@@ -46,7 +46,4 @@ public class BlockNodeClient implements AutoCloseable {
     public GrpcClient getGrpcClient() {
         return grpcClient;
     }
-
-    @Override
-    public void close() throws Exception {}
 }

@@ -12,6 +12,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 import org.hiero.block.internal.BlockUnparsed;
 import org.hiero.block.node.backfill.client.BlockNodeClient;
@@ -29,6 +30,13 @@ public class BackfillGrpcClient {
     // first retry will be after INITIAL_RETRY_DELAY_SECONDS seconds
     // subsequent retries will double the delay each time
     private static final int INITIAL_RETRY_DELAY_SECONDS = 5;
+    /** Current status of the Block Node Client */
+    private ConcurrentHashMap<BlockNodeConfig, status> nodeStatusMap = new ConcurrentHashMap<>();
+    /**
+     * Map of BlockNodeConfig to BlockNodeClient instances.
+     * This allows us to reuse clients for the same node configuration.
+     */
+    private ConcurrentHashMap<BlockNodeConfig, BlockNodeClient> nodeClientMap = new ConcurrentHashMap<>();
 
     /**
      * Constructor for BackfillGrpcClient.
@@ -76,18 +84,26 @@ public class BackfillGrpcClient {
                 blockRange.startBlockNumber(),
                 blockRange.endBlockNumber());
 
-        // Sort nodes by priority but randomize between nodes with same priority
-        List<BlockNodeConfig> sortedNodes = new ArrayList<>(blockNodeSource.nodes());
-        Collections.shuffle(sortedNodes); // Randomize order to avoid always hitting the same node first
+        // only use nodes that are ACTIVE or UNKNOWN
+        List<BlockNodeConfig> activeOrUnknownNodes = new ArrayList<>();
+        for (BlockNodeConfig node : blockNodeSource.nodes()) {
+            status currentStatus = nodeStatusMap.getOrDefault(node, status.UNKNOWN);
+            if (currentStatus == status.ACTIVE || currentStatus == status.UNKNOWN) {
+                activeOrUnknownNodes.add(node);
+            }
+        }
+        // Randomize order to avoid always hitting the same node first
+        Collections.shuffle(activeOrUnknownNodes);
         // Sort by priority
-        sortedNodes.sort(Comparator.comparingInt(BlockNodeConfig::priority));
+        activeOrUnknownNodes.sort(Comparator.comparingInt(BlockNodeConfig::priority));
 
         // Try each node in priority order
-        for (BlockNodeConfig node : sortedNodes) {
+        for (BlockNodeConfig node : activeOrUnknownNodes) {
             LOGGER.log(INFO, "Trying Block Node: {0}:{1}", node.address(), node.port());
 
             for (int attempt = 1; attempt <= maxRetries; attempt++) {
-                try (BlockNodeClient currentNodeClient = new BlockNodeClient(node)) {
+                try {
+                    BlockNodeClient currentNodeClient = getNodeClient(node);
                     // Check if the node has the blocks we need
                     if (!isRangeAvailableInNode(currentNodeClient, blockRange)) {
                         LOGGER.log(
@@ -97,6 +113,8 @@ public class BackfillGrpcClient {
                                 node.port());
                         break;
                     }
+                    // if we reach here, the node is available
+                    nodeStatusMap.put(node, status.ACTIVE);
 
                     // Try to fetch blocks from this node
                     return currentNodeClient
@@ -104,7 +122,9 @@ public class BackfillGrpcClient {
                             .getBatchOfBlocks(blockRange.startBlockNumber(), blockRange.endBlockNumber());
                 } catch (Exception e) {
                     if (attempt == maxRetries) {
-                        sortedNodes.remove(node);
+                        // If we reach the max retries, mark the node as UNAVAILABLE
+                        nodeStatusMap.put(node, status.UNAVAILABLE);
+
                         LOGGER.log(
                                 INFO,
                                 "Failed to fetch blocks from node {0}:{1}, error: {2}",
@@ -131,5 +151,21 @@ public class BackfillGrpcClient {
                 blockRange.startBlockNumber(),
                 blockRange.endBlockNumber());
         return Collections.emptyList();
+    }
+
+    private BlockNodeClient getNodeClient(BlockNodeConfig node) {
+        return nodeClientMap.computeIfAbsent(node, BlockNodeClient::new);
+    }
+
+    public void resetStatus() {
+        for (BlockNodeConfig node : blockNodeSource.nodes()) {
+            nodeStatusMap.put(node, status.UNKNOWN);
+        }
+    }
+
+    public enum status {
+        UNKNOWN,
+        ACTIVE,
+        UNAVAILABLE
     }
 }

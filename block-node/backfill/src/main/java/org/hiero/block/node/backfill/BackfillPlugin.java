@@ -194,6 +194,10 @@ public class BackfillPlugin implements BlockNodePlugin {
     }
 
     private void backfillGap(BlockGap gap) {
+        // for each gap task, reset the status of bn clients to unknown
+        // this allows to retry fetching blocks from the nodes previously marked as unavailable
+        backfillGrpcClient.resetStatus();
+
         // Split the gap into smaller chunks based on the batch size
         List<BlockGap> chunks = chunkifyGap(gap);
         // for each chunk, fetch the blocks and backfill them
