@@ -83,7 +83,7 @@ Uses the prefix `grpc` so all properties should start with `grpc.`
 | Key             | Description                | Default Value |
 |:----------------|:---------------------------|--------------:|
 | `serverAddress` | The host of the Block-Node |   `localhost` |
-| `port`          | The port of the Block-Node |        `8080` |
+| `port`          | The port of the Block-Node |       `40840` |
 
 ## PrometheusConfig
 

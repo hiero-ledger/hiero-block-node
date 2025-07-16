@@ -139,15 +139,15 @@ ENV BN_WORKDIR=/opt/hiero/block-node
 COPY --from=java-builder ${JAVA_HOME}/ ${JAVA_HOME}/
 
 # Expose the port that the application will run on
-EXPOSE 8080/tcp
+EXPOSE 40840/tcp
 
 USER hedera
 WORKDIR ${BN_WORKDIR}
 
 # HEALTHCHECK for liveness and readiness
 HEALTHCHECK --interval=30s --timeout=10s --start-period=3s --retries=3 \
-  CMD curl -f http://localhost:8080/healthz/livez || exit 1 && \
-      curl -f http://localhost:8080/healthz/readyz || exit 1
+  CMD curl -f http://localhost:40840/healthz/livez || exit 1 && \
+      curl -f http://localhost:40840/healthz/readyz || exit 1
 
 # RUN the bin script for starting the server
 ENTRYPOINT ["/bin/bash", "-c", "${BN_WORKDIR}/block-node-app-${VERSION}/bin/block-node-app"]

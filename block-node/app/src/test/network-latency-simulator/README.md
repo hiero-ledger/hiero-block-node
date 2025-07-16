@@ -52,7 +52,7 @@ There are some environment variables that you can set to change the behavior of 
 - `MAX_LATENCY`: The maximum latency to reach, default is 12000 (ms).
 
 **consumer.sh:**
-- `GRPC_SERVER`: The gRPC server to connect to, default is `host.docker.internal:8080`, connects to the host BlockNode.
+- `GRPC_SERVER`: The gRPC server to connect to, default is `host.docker.internal:40840`, connects to the host BlockNode.
 - `GRPC_METHOD`: The gRPC method to call, default is `BlockStreamGrpc/StreamSource`.
 - `PATH_TO_PROTO`: The path to the proto file, default is `/usr/local/protos/blockstream.proto` (inside the container).
 - `PROTO_IMPORT_PATH`: The import path of the proto file, default is `/usr/local/protos` (inside the container).

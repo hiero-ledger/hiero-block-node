@@ -23,5 +23,5 @@ public record ServerConfig(
                 int socketSendBufferSizeBytes,
         @Loggable @ConfigProperty(defaultValue = "32768") @Min(32768) @Max(Integer.MAX_VALUE)
                 int socketReceiveBufferSizeBytes,
-        @Loggable @ConfigProperty(defaultValue = "8080") @Min(1024) @Max(65_535) int port,
+        @Loggable @ConfigProperty(defaultValue = "40840") @Min(1024) @Max(65_535) int port,
         @Loggable @ConfigProperty(defaultValue = "500") int shutdownDelayMillis) {}
