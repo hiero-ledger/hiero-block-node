@@ -9,4 +9,5 @@ module org.hiero.block.simulator.test.fixtures {
     requires org.hiero.block.protobuf.protoc;
     requires org.hiero.block.simulator;
     requires com.google.protobuf;
+    requires org.junit.jupiter.api;
 }

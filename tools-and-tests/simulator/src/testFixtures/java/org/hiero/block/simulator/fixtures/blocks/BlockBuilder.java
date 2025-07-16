@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.simulator.fixtures.blocks;
 
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
 import com.google.protobuf.ByteString;
 import com.hedera.hapi.block.stream.input.protoc.RoundHeader;
 import com.hedera.hapi.block.stream.output.protoc.BlockHeader;
@@ -53,8 +55,8 @@ public class BlockBuilder {
      * @return an array of BlockItem objects
      */
     public static BlockItem[] createNumberOfVerySimpleBlocks(final long startBlockNumber, final long endBlockNumber) {
-        assert startBlockNumber <= endBlockNumber;
-        assert startBlockNumber >= 0;
+        assertTrue(startBlockNumber <= endBlockNumber, "startBlockNumber must be less than or equal to endBlockNumber");
+        assertTrue(startBlockNumber >= 0, "startBlockNumber must be greater than or equal to 0");
         final int numberOfBlocks = (int) (endBlockNumber - startBlockNumber + 1);
         final BlockItem[] blockItems = new BlockItem[numberOfBlocks * 3];
         for (int blockNumber = (int) startBlockNumber; blockNumber <= endBlockNumber; blockNumber++) {
