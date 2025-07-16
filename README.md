@@ -11,14 +11,14 @@
 [![Development Branch](https://img.shields.io/badge/docs-quickstart-green.svg)](docs/overview.md)
 [![License](https://img.shields.io/badge/license-apache2-blue.svg)](LICENSE)
 
-The Preview Hiero Block Node is the implementation of [HIP 1081](https://hips.hedera.com/hip/hip-1081) and serves as the
-decentralized data lake for the Hiero ledger block and state information.
+The Beta Hiero Block Node is the implementation of [HIP 1081](https://hips.hedera.com/hip/hip-1081) and serves as the
+decentralized data lake for the Hiero ledgers block and state information.
 
 The Block Node is responsible for consuming the block streams (defined in [HIP 1056](https://hips.hedera.com/hip/hip-1056)),
-verifying each block’s integrity, storing the block chain, distributing blocks to downstream clients and maintaining a
+verifying each block’s integrity, storing the blockchain, distributing blocks to downstream clients and maintaining a
 copy of consensus network state.
 
-The Block Node also exposes additional targeted value adding APIs to the Hiero community.
+The Block Node will also expose additional targeted value adding APIs to the Hiero community such as Proofs.
 
 ## Table of Contents
 
