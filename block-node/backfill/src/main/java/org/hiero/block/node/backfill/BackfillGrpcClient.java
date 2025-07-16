@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.node.backfill;
 
-import static java.lang.System.Logger.Level.*;
+import static java.lang.System.Logger.Level.INFO;
 
 import com.hedera.pbj.runtime.ParseException;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
@@ -146,7 +146,7 @@ public class BackfillGrpcClient {
         }
 
         LOGGER.log(
-                WARNING,
+                INFO,
                 "No configured Block Node had the missing blocks for range: {0} to {1}",
                 blockRange.startBlockNumber(),
                 blockRange.endBlockNumber());
