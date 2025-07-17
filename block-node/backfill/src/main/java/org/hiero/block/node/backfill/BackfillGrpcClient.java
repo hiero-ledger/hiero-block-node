@@ -141,6 +141,8 @@ public class BackfillGrpcClient {
                                 node.address(),
                                 node.port(),
                                 e.getMessage());
+
+                        throw e;
                     } else {
                         long delay = (long) Math.pow(INITIAL_RETRY_DELAY_SECONDS, attempt);
                         LOGGER.log(INFO, "Attempt {0} failed. Retrying in {1} seconds...", attempt, delay);
