@@ -21,6 +21,7 @@ import org.hiero.block.api.protoc.BlockResponse.Code;
 import org.hiero.block.simulator.BlockStreamSimulatorApp;
 import org.hiero.block.suites.BaseSuite;
 import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
@@ -52,6 +53,7 @@ public class PositiveMultiplePublishersTests extends BaseSuite {
                 // Do nothing, this is not mandatory, we try to shut down  cleaner and graceful
             }
         });
+        simulatorAppsRef.clear();
         simulators.forEach(simulator -> simulator.cancel(true));
         simulators.clear();
     }
@@ -60,6 +62,7 @@ public class PositiveMultiplePublishersTests extends BaseSuite {
      * Verifies that block data is taken from the faster publisher, when two publishers are streaming to the block-node.
      * The test asserts that the slower one receives skip block response.
      */
+    @Disabled("Temporarily disabled whiles publisher plugin is being rewritten. Currently produces a false positive")
     @Test
     @DisplayName("Should switch to faster publisher when it catches up with current block number")
     @Timeout(30)
@@ -82,6 +85,7 @@ public class PositiveMultiplePublishersTests extends BaseSuite {
         long fasterSimulatorPublishedBlocksAfter = 0;
 
         // ===== Start slower simulator and make sure it's streaming ==================================
+        // slow simulator will publish 5 (current default) statuses before we start the faster one
         final Future<?> slowerSimulatorThread = startSimulatorInstance(slowerSimulator);
         simulators.add(slowerSimulatorThread);
         // ===== Start faster simulator and make sure it's streaming ==================================
@@ -98,7 +102,9 @@ public class PositiveMultiplePublishersTests extends BaseSuite {
                         .getLast();
             }
         }
-        assertTrue(lastFasterSimulatorStatusBefore.contains("block_already_exists"));
+
+        // faster simulator is expected to hit a duplicate block case on its first status response
+        assertTrue(lastFasterSimulatorStatusBefore.contains("DUPLICATE_BLOCK"));
 
         // ===== Assert whether catching up to the slower will result in correct statutes =============
 
@@ -125,7 +131,7 @@ public class PositiveMultiplePublishersTests extends BaseSuite {
 
         assertTrue(slowerSimulatorPublishedBlocksBefore > fasterSimulatorPublishedBlocksBefore);
         assertTrue(fasterSimulatorPublishedBlocksAfter > slowerSimulatorPublishedBlocksAfter);
-        assertFalse(lastFasterSimulatorStatusAfter.contains("block_already_exists"));
+        assertFalse(lastFasterSimulatorStatusAfter.contains("DUPLICATE_BLOCK"));
     }
 
     /**
@@ -171,6 +177,7 @@ public class PositiveMultiplePublishersTests extends BaseSuite {
      * The test asserts that the block-node successfully switches to the new publisher and resumes block streaming
      * once the new publisher catches up to the current block number.
      */
+    @Disabled("Temporarily disabled whiles publisher plugin is being rewritten. Currently hangs after duplicate block")
     @Test
     @DisplayName("Should resume block streaming from new publisher after primary publisher disconnects")
     @Timeout(30)

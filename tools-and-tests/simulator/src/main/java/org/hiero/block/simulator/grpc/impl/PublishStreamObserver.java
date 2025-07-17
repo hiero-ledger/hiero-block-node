@@ -67,7 +67,7 @@ public class PublishStreamObserver implements StreamObserver<PublishStreamRespon
             final BlockAcknowledgement ack = publishStreamResponse.getAcknowledgement();
             try {
                 startupData.updateLatestAckBlockStartupData(
-                        ack.getBlockNumber(), ack.getBlockRootHash().toByteArray(), ack.getBlockAlreadyExists());
+                        ack.getBlockNumber(), ack.getBlockRootHash().toByteArray());
             } catch (final IOException e) {
                 throw new UncheckedIOException(e);
             }

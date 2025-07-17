@@ -172,7 +172,7 @@ public final class PublisherServicePlugin
             if (currentBlockNumber != UNKNOWN_BLOCK_NUMBER && latestAckedBlockNumber != UNKNOWN_BLOCK_NUMBER) {
                 // Duplicate Pre-check, even before acquiring the lock
                 if (blockNumber <= latestAckedBlockNumber) {
-                    session.sendDuplicateAck(latestAckedBlockNumber);
+                    session.sendDuplicateBlockResponse(latestAckedBlockNumber);
                     return;
                 }
 

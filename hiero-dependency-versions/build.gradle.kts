@@ -8,7 +8,7 @@ plugins {
 
 dependencies {
     api(platform("io.netty:netty-bom:4.2.2.Final"))
-    api(platform("com.google.cloud:libraries-bom:26.62.0"))
+    api(platform("com.google.cloud:libraries-bom:26.63.0"))
 }
 
 dependencies.constraints {
@@ -23,7 +23,7 @@ dependencies.constraints {
     val mockitoVersion = "5.18.0"
     val testContainersVersion = "1.21.3"
 
-    api("com.github.luben:zstd-jni:1.5.7-3") { because("com.github.luben.zstd_jni") }
+    api("com.github.luben:zstd-jni:1.5.7-4") { because("com.github.luben.zstd_jni") }
     api("com.github.spotbugs:spotbugs-annotations:4.9.3") {
         because("com.github.spotbugs.annotations")
     }
@@ -70,7 +70,7 @@ dependencies.constraints {
     api("com.google.dagger:dagger-compiler:$daggerVersion") { because("dagger.compiler") }
 
     // Testing only versions
-    api("com.github.docker-java:docker-java-api:3.5.2") { because("com.github.dockerjava.api") }
+    api("com.github.docker-java:docker-java-api:3.5.3") { because("com.github.dockerjava.api") }
     api("org.assertj:assertj-core:3.27.3") { because("org.assertj.core") }
     api("org.junit.jupiter:junit-jupiter-api:5.13.3") { because("org.junit.jupiter.api") }
     api("org.mockito:mockito-core:${mockitoVersion}") { because("org.mockito") }
@@ -86,7 +86,7 @@ dependencies.constraints {
     api("com.google.auto.service:auto-service:1.1.1") {
         because("com.google.auto.service.processor")
     }
-    api("com.google.jimfs:jimfs:1.3.0") { because("com.google.common.jimfs") }
+    api("com.google.jimfs:jimfs:1.3.1") { because("com.google.common.jimfs") }
     api("io.minio:minio:8.5.17") { because("io.minio") }
     api("com.squareup.okio:okio-jvm:3.15.0") { because("okio") } // required by minio
 }

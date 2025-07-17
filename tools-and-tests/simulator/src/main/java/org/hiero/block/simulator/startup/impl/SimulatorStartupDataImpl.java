@@ -104,9 +104,8 @@ public final class SimulatorStartupDataImpl implements SimulatorStartupData {
     }
 
     @Override
-    public void updateLatestAckBlockStartupData(
-            final long blockNumber, final byte[] blockHash, final boolean alreadyExists) throws IOException {
-        if (enabled && !alreadyExists) {
+    public void updateLatestAckBlockStartupData(final long blockNumber, final byte[] blockHash) throws IOException {
+        if (enabled) {
             // @todo(904) we need the correct response code, currently it seems that
             //   the response code is not being set correctly? The if check should
             //   be different and based on the response code, only saving
