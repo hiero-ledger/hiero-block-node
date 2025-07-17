@@ -1,19 +1,5 @@
 # Hiero Block Node
 
-Implementation of the Hiero Block Node, which is responsible for consuming the block streams, maintaining state and exposing additional targeted value adding APIs to the Hiero community.
-
-## Table of Contents
-
-1. [Project Links](#project-links)
-2. [Prerequisites](#prerequisites)
-3. [Overview of child modules](#overview-of-child-modules)
-4. [Getting Started](#getting-started)
-5. [Contributing](#contributing)
-6. [Code of Conduct](#code-of-conduct)
-7. [License](#license)
-
-## Project Links
-
 [![Build Application](https://github.com/hiero-ledger/hiero-block-node/actions/workflows/build-application.yaml/badge.svg?branch=main)](https://github.com/hiero-ledger/hiero-block-node/actions/workflows/build-application.yaml)
 [![E2E Test Suites](https://github.com/hiero-ledger/hiero-block-node/actions/workflows/e2e-tests.yaml/badge.svg?branch=main)](https://github.com/hiero-ledger/hiero-block-node/actions/workflows/e2e-tests.yaml)
 [![codecov](https://codecov.io/github/hiero-ledger/hiero-block-node/graph/badge.svg?token=OF6T6E8V7U)](https://codecov.io/github/hiero-ledger/hiero-block-node)
@@ -24,6 +10,24 @@ Implementation of the Hiero Block Node, which is responsible for consuming the b
 [![Made With](https://img.shields.io/badge/made_with-java-blue)](https://github.com/hiero-ledger/hiero-block-node/)
 [![Development Branch](https://img.shields.io/badge/docs-quickstart-green.svg)](docs/overview.md)
 [![License](https://img.shields.io/badge/license-apache2-blue.svg)](LICENSE)
+
+The Beta Hiero Block Node is the implementation of [HIP 1081](https://hips.hedera.com/hip/hip-1081) and serves as the
+decentralized data lake for the Hiero ledgers block and state information.
+
+The Block Node is responsible for consuming the block streams (defined in [HIP 1056](https://hips.hedera.com/hip/hip-1056)),
+verifying each block’s integrity, storing the blockchain, distributing blocks to downstream clients and maintaining a
+copy of consensus network state.
+
+The Block Node will also expose additional targeted value adding APIs to the Hiero community such as Proofs.
+
+## Table of Contents
+
+1. [Prerequisites](#prerequisites)
+2. [Overview of child modules](#overview-of-child-modules)
+3. [Getting Started](#getting-started)
+4. [Contributing](#contributing)
+5. [Code of Conduct](#code-of-conduct)
+6. [License](#license)
 
 ## Prerequisites
 

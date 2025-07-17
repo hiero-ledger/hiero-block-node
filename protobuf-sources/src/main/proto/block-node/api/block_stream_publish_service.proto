@@ -354,11 +354,26 @@ message PublishStreamResponse {
             SUCCESS = 1;
 
             /**
+             * The request cannot be fulfilled.<br/>
+             * The client sent a malformed or structurally incorrect request.
+             * <p>
+             * The client MAY retry the request after correcting the form and
+             * structure.
+             */
+            INVALID_REQUEST = 2;
+
+            /**
+             * The Block-Node had an error and cannot continue processing.<br/>
+             * The Publisher may retry again later.
+             */
+            ERROR = 3;
+
+            /**
              * The delay between items was too long.
              * <p>
              * The source MUST start a new stream before the failed block.
              */
-            TIMEOUT = 2;
+            TIMEOUT = 4;
 
             /**
              * An item received is already stored.<br/>
@@ -366,13 +381,13 @@ message PublishStreamResponse {
              * The source MUST start a new stream after the last persisted and
              * verified block.
              */
-            DUPLICATE_BLOCK = 3;
+            DUPLICATE_BLOCK = 5;
 
             /**
              * A block state proof item could not be validated.<br/>
              * The source MUST start a new stream before the failed block.
              */
-            BAD_BLOCK_PROOF = 4;
+            BAD_BLOCK_PROOF = 6;
 
             /**
              * The Block-Node is "behind" the Publisher.<br/>
@@ -385,13 +400,7 @@ message PublishStreamResponse {
              * blocks from another Block-Node or other source of recent historical
              * block stream data.
              */
-            BEHIND = 5;
-
-            /**
-             * The Block-Node had an internal error and cannot continue processing.<br/>
-             * The Publisher may retry again later.
-             */
-            INTERNAL_ERROR = 6;
+            BEHIND = 7;
 
             /**
              * The Block-Node failed to store the block persistently.
@@ -401,7 +410,7 @@ message PublishStreamResponse {
              * The Publisher MUST NOT discard the block until it is successfully
              * persisted and verified (and acknowledged) by at least one Block-Node.
              */
-            PERSISTENCE_FAILED = 7;
+            PERSISTENCE_FAILED = 8;
         }
 
     }

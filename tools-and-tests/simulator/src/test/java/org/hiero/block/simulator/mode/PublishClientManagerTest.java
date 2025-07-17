@@ -164,7 +164,7 @@ class PublishClientManagerTest {
 
         when(response.getEndStream()).thenReturn(endOfStream);
         when(endOfStream.getBlockNumber()).thenReturn(5L);
-        when(endOfStream.getStatus()).thenReturn(Code.INTERNAL_ERROR);
+        when(endOfStream.getStatus()).thenReturn(Code.ERROR);
         when(response.hasEndStream()).thenReturn(true);
 
         publishClientManager.handleResponse(nextBlock, response);
