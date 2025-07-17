@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.node.spi.blockmessaging;
 
-public record PersistedNotification(long startBlockNumber, long endBlockNumber, int blockProviderPriority) {
+public record PersistedNotification(
+        long startBlockNumber, long endBlockNumber, int blockProviderPriority, BlockSource blockSource) {
     /**
      * Constructor for PersistedNotification. Validates the start and end block numbers.
      *

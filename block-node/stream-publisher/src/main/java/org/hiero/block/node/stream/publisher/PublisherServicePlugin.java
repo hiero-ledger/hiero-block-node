@@ -32,6 +32,7 @@ import org.hiero.block.node.spi.BlockNodePlugin;
 import org.hiero.block.node.spi.ServiceBuilder;
 import org.hiero.block.node.spi.blockmessaging.BlockItems;
 import org.hiero.block.node.spi.blockmessaging.BlockNotificationHandler;
+import org.hiero.block.node.spi.blockmessaging.BlockSource;
 import org.hiero.block.node.spi.blockmessaging.PersistedNotification;
 import org.hiero.block.node.spi.blockmessaging.VerificationNotification;
 import org.hiero.block.node.stream.publisher.PublisherConfig.PublisherType;
@@ -503,6 +504,11 @@ public final class PublisherServicePlugin
      */
     @Override
     public void handlePersisted(PersistedNotification notification) {
+        if (notification.blockSource() != BlockSource.PUBLISHER) {
+            // we only care about persisted notifications from the publisher
+            return;
+        }
+
         Objects.requireNonNull(notification);
         stateLock.lock();
         try {
