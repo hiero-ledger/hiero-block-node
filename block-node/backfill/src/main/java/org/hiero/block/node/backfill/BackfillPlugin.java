@@ -24,6 +24,7 @@ import org.hiero.block.node.spi.blockmessaging.BlockNotificationHandler;
 import org.hiero.block.node.spi.blockmessaging.BlockSource;
 import org.hiero.block.node.spi.blockmessaging.PersistedNotification;
 import org.hiero.block.node.spi.blockmessaging.VerificationNotification;
+import org.hiero.block.node.spi.historicalblocks.LongRange;
 
 public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler {
 
@@ -53,7 +54,7 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
     /** boolean indicating if the block node sources path is set. */
     private boolean hasBNSourcesPath = false;
     /** list of detected gaps in the historical blocks. */
-    private List<BlockGap> detectedGaps;
+    private List<LongRange> detectedGaps;
     /** gRPC client for fetching blocks from block node sources. */
     private BackfillGrpcClient backfillGrpcClient;
     /** Pending block counter for backfill queue. */
@@ -108,7 +109,7 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
         backfillConfiguration = context.configuration().getConfigData(BackfillConfiguration.class);
         // initialize metrics
         initMetrics(context);
-        // Set initial status to idle
+        // Set initial Status to idle
         backfillStatus.set(0); // 0 = idle
         // if BN sources path is not set, log and stop the plugin.
         if (backfillConfiguration.blockNodeSourcesPath().isEmpty()) {
@@ -201,13 +202,13 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
             for (var range : blockRanges) {
                 // If there's a gap between the previous range end and current range start
                 if (range.start() > previousRangeEnd + 1) {
-                    BlockGap gap = new BlockGap(previousRangeEnd + 1, range.start() - 1);
+                    LongRange gap = new LongRange(previousRangeEnd + 1, range.start() - 1);
                     detectedGaps.add(gap);
                     LOGGER.log(
                             INFO,
                             "BackfillPlugin: Detected a gap in the historical blocks from {0} to {1}",
-                            gap.startBlockNumber(),
-                            gap.endBlockNumber());
+                            gap.start(),
+                            gap.end());
                 }
                 previousRangeEnd = range.end();
             }
@@ -218,7 +219,7 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
                 backfillGapsDetected.add(detectedGaps.size());
                 // Calculate the total number of pending blocks across all detected gaps
                 long pendingBlocks = detectedGaps.stream()
-                        .mapToLong(gap -> gap.endBlockNumber() - gap.startBlockNumber() + 1)
+                        .mapToLong(gap -> gap.end() - gap.start() + 1)
                         .sum();
                 // Update the pending blocks counter and gauge
                 backfillPendingBlocks.set(pendingBlocks);
@@ -231,12 +232,8 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
                         pendingBlocks);
 
                 // Start the backfill process for each detected gap
-                for (BlockGap gap : detectedGaps) {
-                    LOGGER.log(
-                            INFO,
-                            "BackfillPlugin: Fetching blocks from {0} to {1}",
-                            gap.startBlockNumber(),
-                            gap.endBlockNumber());
+                for (LongRange gap : detectedGaps) {
+                    LOGGER.log(INFO, "BackfillPlugin: Fetching blocks from {0} to {1}", gap.start(), gap.end());
                     try {
                         backfillGap(gap);
                     } catch (Exception e) {
@@ -255,14 +252,14 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
         }
     }
 
-    private void backfillGap(BlockGap gap) {
-        // for each gap task, reset the status of bn clients to unknown
+    private void backfillGap(LongRange gap) {
+        // for each gap task, reset the Status of bn clients to unknown
         // this allows to retry fetching blocks from the nodes previously marked as unavailable
         backfillGrpcClient.resetStatus();
         // Split the gap into smaller chunks based on the batch size
-        List<BlockGap> chunks = chunkifyGap(gap);
+        List<LongRange> chunks = chunkifyGap(gap);
         // for each chunk, fetch the blocks and backfill them
-        for (BlockGap chunk : chunks) {
+        for (LongRange chunk : chunks) {
             try {
                 List<BlockUnparsed> batchOfBlocks = backfillGrpcClient.fetchBlocks(chunk);
                 // create a latch to wait for the blocks to be persisted
@@ -292,16 +289,16 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
         }
     }
 
-    private List<BlockGap> chunkifyGap(BlockGap gap) {
+    private List<LongRange> chunkifyGap(LongRange gap) {
         // Split the gap into smaller chunks based on the batch size
-        long start = gap.startBlockNumber();
-        long end = gap.endBlockNumber();
+        long start = gap.start();
+        long end = gap.end();
         long batchSize = backfillConfiguration.fetchBatchSize();
-        List<BlockGap> chunks = new java.util.ArrayList<>();
+        List<LongRange> chunks = new java.util.ArrayList<>();
 
         while (start <= end) {
             long chunkEnd = Math.min(start + batchSize - 1, end);
-            chunks.add(new BlockGap(start, chunkEnd));
+            chunks.add(new LongRange(start, chunkEnd));
             start += batchSize;
         }
         return chunks;

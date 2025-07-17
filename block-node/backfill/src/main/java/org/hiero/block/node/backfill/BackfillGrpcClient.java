@@ -19,6 +19,7 @@ import org.hiero.block.internal.BlockUnparsed;
 import org.hiero.block.node.backfill.client.BlockNodeClient;
 import org.hiero.block.node.backfill.client.proto.BlockNodeConfig;
 import org.hiero.block.node.backfill.client.proto.BlockNodeSources;
+import org.hiero.block.node.spi.historicalblocks.LongRange;
 
 public class BackfillGrpcClient {
     private static final System.Logger LOGGER = System.getLogger(BackfillGrpcClient.class.getName());
@@ -70,14 +71,13 @@ public class BackfillGrpcClient {
      * @param blockRange the block range to check
      * @return true if the range is available in the node, false otherwise
      */
-    private boolean isRangeAvailableInNode(BlockNodeClient node, BlockGap blockRange) {
+    private boolean isRangeAvailableInNode(BlockNodeClient node, LongRange blockRange) {
         long firstAvailableBlock =
                 node.getBlockNodeServerStatusClient().getServerStatus().firstAvailableBlock();
         long lastAvailableBlock =
                 node.getBlockNodeServerStatusClient().getServerStatus().lastAvailableBlock();
 
-        return blockRange.startBlockNumber() >= firstAvailableBlock
-                && blockRange.endBlockNumber() <= lastAvailableBlock;
+        return blockRange.start() >= firstAvailableBlock && blockRange.end() <= lastAvailableBlock;
 
         // TODO: there might be some cases when BlockGap is available between more than 1 node.
         // ie: Gap from 0 to 100, 0-50 is available in node A, 51-100 is available in node B.
@@ -91,12 +91,8 @@ public class BackfillGrpcClient {
      * @param blockRange The block range to fetch
      * @return A list of blocks fetched from the block nodes, or an empty list if no blocks were found
      */
-    public List<BlockUnparsed> fetchBlocks(BlockGap blockRange) {
-        LOGGER.log(
-                INFO,
-                "Requesting blocks for range: {0} to {1}",
-                blockRange.startBlockNumber(),
-                blockRange.endBlockNumber());
+    public List<BlockUnparsed> fetchBlocks(LongRange blockRange) {
+        LOGGER.log(INFO, "Requesting blocks for range: {0} to {1}", blockRange.start(), blockRange.end());
 
         // only use nodes that are ACTIVE or UNKNOWN
         List<BlockNodeConfig> activeOrUnknownNodes = new ArrayList<>();
@@ -133,7 +129,7 @@ public class BackfillGrpcClient {
                     // Try to fetch blocks from this node
                     return currentNodeClient
                             .getBlockNodeSubscribeClient()
-                            .getBatchOfBlocks(blockRange.startBlockNumber(), blockRange.endBlockNumber());
+                            .getBatchOfBlocks(blockRange.start(), blockRange.end());
                 } catch (Exception e) {
                     if (attempt == maxRetries) {
                         // If we reach the max retries, mark the node as UNAVAILABLE
@@ -164,8 +160,8 @@ public class BackfillGrpcClient {
         LOGGER.log(
                 INFO,
                 "No configured Block Node had the missing blocks for range: {0} to {1}",
-                blockRange.startBlockNumber(),
-                blockRange.endBlockNumber());
+                blockRange.start(),
+                blockRange.end());
         return Collections.emptyList();
     }
 
