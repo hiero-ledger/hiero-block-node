@@ -5,6 +5,7 @@ import static java.lang.System.Logger.Level.INFO;
 
 import com.hedera.pbj.runtime.ParseException;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
+import com.swirlds.metrics.api.Counter;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -22,8 +23,14 @@ import org.hiero.block.node.backfill.client.proto.BlockNodeSources;
 public class BackfillGrpcClient {
     private static final System.Logger LOGGER = System.getLogger(BackfillGrpcClient.class.getName());
 
-    // BN Sources List
+    /** Metric for Number of retries during the backfill process. */
+    private final Counter backfillRetries;
+    /** Source of block node configurations. */
     private final BlockNodeSources blockNodeSource;
+    /**
+     * Maximum number of retries to fetch blocks from a block node.
+     * This is used to avoid infinite loops in case of persistent failures.
+     */
     private final int maxRetries;
 
     // default initial delay of retry in seconds
@@ -43,9 +50,11 @@ public class BackfillGrpcClient {
      *
      * @param blockNodePreferenceFilePath the path to the block node preference file
      */
-    public BackfillGrpcClient(Path blockNodePreferenceFilePath, int maxRetries) throws IOException, ParseException {
+    public BackfillGrpcClient(Path blockNodePreferenceFilePath, int maxRetries, Counter backfillRetriesCounter)
+            throws IOException, ParseException {
         this.blockNodeSource = BlockNodeSources.JSON.parse(Bytes.wrap(Files.readAllBytes(blockNodePreferenceFilePath)));
         this.maxRetries = maxRetries;
+        this.backfillRetries = backfillRetriesCounter;
 
         for (BlockNodeConfig node : blockNodeSource.nodes()) {
             LOGGER.log(INFO, "Address: {0}, Port: {1}, Priority: {2}", node.address(), node.port(), node.priority());
@@ -145,6 +154,8 @@ public class BackfillGrpcClient {
                             Thread.currentThread().interrupt();
                             break;
                         }
+                        // update metrics
+                        backfillRetries.increment();
                     }
                 }
             }

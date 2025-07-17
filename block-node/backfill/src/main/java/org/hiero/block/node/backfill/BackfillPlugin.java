@@ -21,6 +21,7 @@ import org.hiero.block.node.spi.BlockNodePlugin;
 import org.hiero.block.node.spi.ServiceBuilder;
 import org.hiero.block.node.spi.blockmessaging.BackfilledBlockNotification;
 import org.hiero.block.node.spi.blockmessaging.BlockNotificationHandler;
+import org.hiero.block.node.spi.blockmessaging.BlockSource;
 import org.hiero.block.node.spi.blockmessaging.PersistedNotification;
 import org.hiero.block.node.spi.blockmessaging.VerificationNotification;
 
@@ -127,7 +128,8 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
         hasBNSourcesPath = true;
         // Initialize the gRPC client with the block node sources path
         try {
-            backfillGrpcClient = new BackfillGrpcClient(blockNodeSourcesPath, backfillConfiguration.maxRetries());
+            backfillGrpcClient = new BackfillGrpcClient(
+                    blockNodeSourcesPath, backfillConfiguration.maxRetries(), this.backfillRetries);
             LOGGER.log(INFO, "BackfillPlugin: Initialized gRPC client with sources path: {0}", blockNodeSourcesPath);
         } catch (Exception e) {
             LOGGER.log(INFO, "BackfillPlugin: Failed to initialize gRPC client: {0}", e.getMessage());
@@ -307,18 +309,20 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
 
     @Override
     public void handlePersisted(PersistedNotification notification) {
-        pendingVerificationAndPersistenceLatch.countDown();
-        // update metrics
-        final long pendingBlocks = backfillPendingBlocks.decrementAndGet();
-        backfillPendingBlocksGauge.set(pendingBlocks);
-        backfillBlocksBackfilled.increment();
+        if (notification.blockSource() == BlockSource.BACKFILL) {
+            pendingVerificationAndPersistenceLatch.countDown();
+            // update metrics
+            final long pendingBlocks = backfillPendingBlocks.decrementAndGet();
+            backfillPendingBlocksGauge.set(pendingBlocks);
+            backfillBlocksBackfilled.increment();
+        }
     }
 
     @Override
     public void handleVerification(VerificationNotification notification) {
         // This method is called when a block is verified
         // We can use it to update the metrics or perform any other actions needed
-        if (!notification.success()) {
+        if (!notification.success() && notification.source() == BlockSource.BACKFILL) {
             LOGGER.log(INFO, "BackfillPlugin: Block {0} verification failed", notification.blockNumber());
             // if verification failed it will retry the block later at the next backfill run
             // decrement the pending blocks counter
