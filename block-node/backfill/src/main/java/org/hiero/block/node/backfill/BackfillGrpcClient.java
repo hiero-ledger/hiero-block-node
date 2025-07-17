@@ -30,7 +30,7 @@ public class BackfillGrpcClient {
     // first retry will be after INITIAL_RETRY_DELAY_SECONDS seconds
     // subsequent retries will double the delay each time
     private static final int INITIAL_RETRY_DELAY_SECONDS = 5;
-    /** Current status of the Block Node Client */
+    /** Current status of the Block Node Clients */
     private ConcurrentHashMap<BlockNodeConfig, status> nodeStatusMap = new ConcurrentHashMap<>();
     /**
      * Map of BlockNodeConfig to BlockNodeClient instances.
@@ -52,7 +52,7 @@ public class BackfillGrpcClient {
         }
 
         BlockNodeConfig firstNode = blockNodeSource.nodes().get(0);
-        LOGGER.log(INFO, "Using first node as default: {0}:{1}", firstNode.address(), firstNode.port());
+        LOGGER.log(INFO, "Using block-node as default: {0}:{1}", firstNode.address(), firstNode.port());
     }
 
     /**
@@ -69,6 +69,11 @@ public class BackfillGrpcClient {
 
         return blockRange.startBlockNumber() >= firstAvailableBlock
                 && blockRange.endBlockNumber() <= lastAvailableBlock;
+
+        // TODO: there might be some cases when BlockGap is available between more than 1 node.
+        // ie: Gap from 0 to 100, 0-50 is available in node A, 51-100 is available in node B.
+        // in this case we should return the available gap in the node instead and null when not a single block of given
+        // gap is available.
     }
 
     /**

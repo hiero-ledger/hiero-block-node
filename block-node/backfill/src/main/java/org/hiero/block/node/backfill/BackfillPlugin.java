@@ -10,13 +10,21 @@ import edu.umd.cs.findbugs.annotations.NonNull;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicLong;
 import org.hiero.block.internal.BlockUnparsed;
 import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.BlockNodePlugin;
 import org.hiero.block.node.spi.ServiceBuilder;
 import org.hiero.block.node.spi.blockmessaging.BackfilledBlockNotification;
+import org.hiero.block.node.spi.blockmessaging.BlockNotificationHandler;
+import org.hiero.block.node.spi.blockmessaging.PersistedNotification;
+import org.hiero.block.node.spi.blockmessaging.VerificationNotification;
 
-public class BackfillPlugin implements BlockNodePlugin {
+public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler {
 
     /** The logger for this class. */
     private final System.Logger LOGGER = System.getLogger(getClass().getName());
@@ -30,7 +38,7 @@ public class BackfillPlugin implements BlockNodePlugin {
     /** Metric for Number of gaps detected during the backfill process.	. */
     private Counter backfillGapsDetected;
     /** Metric for Number of blocks fetched during the backfill process. */
-    private Counter backfillBlocksFetched;
+    private Counter backfillFetchedBlocks;
     /** Metric for Number of blocks backfilled during the backfill process. */
     private Counter backfillBlocksBackfilled;
     /** Metric for Number of errors encountered during the backfill process. */
@@ -40,13 +48,21 @@ public class BackfillPlugin implements BlockNodePlugin {
     /** Current status of the backfill process (e.g., idle = 0, running = 1, error = 2). */
     private LongGauge backfillStatus;
     /** Current amount of blocks pending to be backfilled. */
-    private LongGauge backfillPendingBlocks;
-
+    private LongGauge backfillPendingBlocksGauge;
+    /** boolean indicating if the block node sources path is set. */
     private boolean hasBNSourcesPath = false;
-
+    /** list of detected gaps in the historical blocks. */
     private List<BlockGap> detectedGaps;
-
+    /** gRPC client for fetching blocks from block node sources. */
     private BackfillGrpcClient backfillGrpcClient;
+    /** Pending block counter for backfill queue. */
+    private AtomicLong backfillPendingBlocks = new AtomicLong(0);
+    /** Executor service for scheduling the gap detection task. */
+    private ScheduledExecutorService scheduler;
+    /** Flag to indicate if the gap detection task is currently running. */
+    private volatile boolean isDetectingGaps = false;
+
+    private CountDownLatch pendingVerificationAndPersistenceLatch;
 
     /**
      * {@inheritDoc}
@@ -65,7 +81,7 @@ public class BackfillPlugin implements BlockNodePlugin {
         final var metrics = context.metrics();
         backfillGapsDetected = metrics.getOrCreate(new Counter.Config(METRICS_CATEGORY, "backfill_gaps_detected")
                 .withDescription("Number of gaps detected during the backfill process."));
-        backfillBlocksFetched = metrics.getOrCreate(new Counter.Config(METRICS_CATEGORY, "backfill_blocks_fetched")
+        backfillFetchedBlocks = metrics.getOrCreate(new Counter.Config(METRICS_CATEGORY, "backfill_blocks_fetched")
                 .withDescription("Number of blocks fetched during the backfill process."));
         backfillBlocksBackfilled =
                 metrics.getOrCreate(new Counter.Config(METRICS_CATEGORY, "backfill_blocks_backfilled")
@@ -76,8 +92,9 @@ public class BackfillPlugin implements BlockNodePlugin {
                 .withDescription("Number of retries during the backfill process."));
         backfillStatus = metrics.getOrCreate(new LongGauge.Config(METRICS_CATEGORY, "backfill_status")
                 .withDescription("Current status of the backfill process (e.g., idle = 0, running = 1, error = 2)."));
-        backfillPendingBlocks = metrics.getOrCreate(new LongGauge.Config(METRICS_CATEGORY, "backfill_pending_blocks")
-                .withDescription("Current amount of blocks pending to be backfilled."));
+        backfillPendingBlocksGauge =
+                metrics.getOrCreate(new LongGauge.Config(METRICS_CATEGORY, "backfill_pending_blocks")
+                        .withDescription("Current amount of blocks pending to be backfilled."));
     }
 
     /**
@@ -115,6 +132,9 @@ public class BackfillPlugin implements BlockNodePlugin {
         } catch (Exception e) {
             LOGGER.log(INFO, "BackfillPlugin: Failed to initialize gRPC client: {0}", e.getMessage());
         }
+
+        // register the service
+        context.blockMessaging().registerBlockNotificationHandler(this, false, "BackfillPlugin");
     }
 
     /**
@@ -124,72 +144,112 @@ public class BackfillPlugin implements BlockNodePlugin {
     public void start() {
         if (hasBNSourcesPath) {
             LOGGER.log(INFO, "BackfillPlugin: Starting backfill process");
-            detectGaps();
+            // Schedule the gap detection task to run every X minutes
+            // giving 1-minute initial delay to allow the system to complete startup
+            int interval = backfillConfiguration.scanIntervalMins() * 60;
+            scheduler = Executors.newSingleThreadScheduledExecutor();
+            scheduler.scheduleAtFixedRate(this::detectGaps, 10, interval, TimeUnit.SECONDS);
+        }
+    }
+
+    /**
+     * {@inheritDoc}
+     */
+    @Override
+    public void stop() {
+        if (scheduler != null) {
+            scheduler.shutdownNow();
+            try {
+                if (!scheduler.awaitTermination(5, TimeUnit.SECONDS)) {
+                    LOGGER.log(INFO, "BackfillPlugin: Scheduler did not terminate in time.");
+                }
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+            LOGGER.log(INFO, "BackfillPlugin: Stopped backfill process");
         }
     }
 
     private void detectGaps() {
-        LOGGER.log(INFO, "BackfillPlugin: Detecting gaps in historical blocks");
-        detectedGaps = new java.util.ArrayList<>();
-
-        // Get the configured first block available
-        long expectedFirstBlock = backfillConfiguration.firstBlockAvailable();
-        long previousRangeEnd = expectedFirstBlock - 1; // Initialize to one before the expected start
-
-        // Get all available block ranges
-        var blockRanges = context.historicalBlockProvider()
-                .availableBlocks()
-                .streamRanges()
-                .toList();
-
-        // Check for gaps between ranges (including initial gap)
-        for (var range : blockRanges) {
-            // If there's a gap between the previous range end and current range start
-            if (range.start() > previousRangeEnd + 1) {
-                BlockGap gap = new BlockGap(previousRangeEnd + 1, range.start() - 1);
-                detectedGaps.add(gap);
-                LOGGER.log(
-                        INFO,
-                        "BackfillPlugin: Detected a gap in the historical blocks from {0} to {1}",
-                        gap.startBlockNumber(),
-                        gap.endBlockNumber());
-            }
-            previousRangeEnd = range.end();
+        // If the task is already running, skip this execution
+        if (isDetectingGaps) {
+            LOGGER.log(INFO, "BackfillPlugin: Gap detection already in progress, skipping this execution");
+            return;
         }
 
-        if (!detectedGaps.isEmpty()) {
-            // Gaps detected, proceed to backfill
-            backfillGapsDetected.add(detectedGaps.size());
+        // Set the flag to indicate that the task is running
+        isDetectingGaps = true;
+        backfillStatus.set(1); // 1 = running
 
-            long pendingBlocks = detectedGaps.stream()
-                    .mapToLong(gap -> gap.endBlockNumber() - gap.startBlockNumber() + 1)
-                    .sum();
-            backfillPendingBlocks.set(pendingBlocks);
-            LOGGER.log(
-                    INFO,
-                    "BackfillPlugin: Detected {0} gaps with {1} total missing blocks",
-                    detectedGaps.size(),
-                    pendingBlocks);
+        try {
+            LOGGER.log(INFO, "BackfillPlugin: Detecting gaps in historical blocks");
+            detectedGaps = new java.util.ArrayList<>();
 
-            // Start the backfill process
+            // Get the configured first block available
+            long expectedFirstBlock = backfillConfiguration.firstBlockAvailable();
+            long previousRangeEnd = expectedFirstBlock - 1; // Initialize to one before the expected start
 
-            // fetch blocks in batches.
-            for (BlockGap gap : detectedGaps) {
-                LOGGER.log(
-                        INFO,
-                        "BackfillPlugin: Fetching blocks from {0} to {1}",
-                        gap.startBlockNumber(),
-                        gap.endBlockNumber());
-                try {
-                    backfillGap(gap);
-                } catch (Exception e) {
-                    LOGGER.log(INFO, "BackfillPlugin: Error fetching blocks for gap {0}: {1}", gap, e.getMessage());
-                    backfillFetchErrors.add(1);
+            // Get all available block ranges
+            var blockRanges = context.historicalBlockProvider()
+                    .availableBlocks()
+                    .streamRanges()
+                    .toList();
+
+            // Check for gaps between ranges (including initial gap)
+            for (var range : blockRanges) {
+                // If there's a gap between the previous range end and current range start
+                if (range.start() > previousRangeEnd + 1) {
+                    BlockGap gap = new BlockGap(previousRangeEnd + 1, range.start() - 1);
+                    detectedGaps.add(gap);
+                    LOGGER.log(
+                            INFO,
+                            "BackfillPlugin: Detected a gap in the historical blocks from {0} to {1}",
+                            gap.startBlockNumber(),
+                            gap.endBlockNumber());
                 }
+                previousRangeEnd = range.end();
             }
 
-        } else {
-            LOGGER.log(INFO, "BackfillPlugin: No gaps detected in historical blocks");
+            // if detectedGap is not empty, start the backfill process
+            if (!detectedGaps.isEmpty()) {
+                // update metrics
+                backfillGapsDetected.add(detectedGaps.size());
+                // Calculate the total number of pending blocks across all detected gaps
+                long pendingBlocks = detectedGaps.stream()
+                        .mapToLong(gap -> gap.endBlockNumber() - gap.startBlockNumber() + 1)
+                        .sum();
+                // Update the pending blocks counter and gauge
+                backfillPendingBlocks.set(pendingBlocks);
+                backfillPendingBlocksGauge.set(pendingBlocks);
+
+                LOGGER.log(
+                        INFO,
+                        "BackfillPlugin: Detected {0} gaps with {1} total missing blocks",
+                        detectedGaps.size(),
+                        pendingBlocks);
+
+                // Start the backfill process for each detected gap
+                for (BlockGap gap : detectedGaps) {
+                    LOGGER.log(
+                            INFO,
+                            "BackfillPlugin: Fetching blocks from {0} to {1}",
+                            gap.startBlockNumber(),
+                            gap.endBlockNumber());
+                    try {
+                        backfillGap(gap);
+                    } catch (Exception e) {
+                        LOGGER.log(INFO, "BackfillPlugin: Error fetching blocks for gap {0}: {1}", gap, e.getMessage());
+                        backfillFetchErrors.add(1);
+                    }
+                }
+
+            } else {
+                LOGGER.log(INFO, "BackfillPlugin: No gaps detected in historical blocks");
+            }
+        } finally {
+            // Reset the flag to indicate that the task is no longer running
+            isDetectingGaps = false;
+            backfillStatus.set(0); // 0 = idle
         }
     }
 
@@ -197,13 +257,14 @@ public class BackfillPlugin implements BlockNodePlugin {
         // for each gap task, reset the status of bn clients to unknown
         // this allows to retry fetching blocks from the nodes previously marked as unavailable
         backfillGrpcClient.resetStatus();
-
         // Split the gap into smaller chunks based on the batch size
         List<BlockGap> chunks = chunkifyGap(gap);
         // for each chunk, fetch the blocks and backfill them
         for (BlockGap chunk : chunks) {
             try {
                 List<BlockUnparsed> batchOfBlocks = backfillGrpcClient.fetchBlocks(chunk);
+                // create a latch to wait for the blocks to be persisted
+                pendingVerificationAndPersistenceLatch = new CountDownLatch(batchOfBlocks.size());
                 for (BlockUnparsed blockUnparsed : batchOfBlocks) {
                     // Process each block, e.g., backfill it into the historical block provider
                     long blockNumber = BlockHeader.PROTOBUF
@@ -214,7 +275,13 @@ public class BackfillPlugin implements BlockNodePlugin {
                                     new BackfilledBlockNotification(blockNumber, blockUnparsed));
 
                     LOGGER.log(INFO, "BackfillPlugin: Backfilling block {0} from chunk {1}", blockNumber, chunk);
+                    // update metrics
+                    backfillFetchedBlocks.increment();
                 }
+                // wait until the blocks are persisted before continuing to the next chunk
+                pendingVerificationAndPersistenceLatch.await();
+                // wait cooldown period in between chunks to avoid overwhelming the system
+                Thread.sleep(backfillConfiguration.coolDownTimeBetweenBatchesMs());
 
             } catch (Exception e) {
                 LOGGER.log(INFO, "BackfillPlugin: Error backfilling chunk {0}: {1}", chunk, e.getMessage());
@@ -236,5 +303,28 @@ public class BackfillPlugin implements BlockNodePlugin {
             start += batchSize;
         }
         return chunks;
+    }
+
+    @Override
+    public void handlePersisted(PersistedNotification notification) {
+        pendingVerificationAndPersistenceLatch.countDown();
+        // update metrics
+        final long pendingBlocks = backfillPendingBlocks.decrementAndGet();
+        backfillPendingBlocksGauge.set(pendingBlocks);
+        backfillBlocksBackfilled.increment();
+    }
+
+    @Override
+    public void handleVerification(VerificationNotification notification) {
+        // This method is called when a block is verified
+        // We can use it to update the metrics or perform any other actions needed
+        if (!notification.success()) {
+            LOGGER.log(INFO, "BackfillPlugin: Block {0} verification failed", notification.blockNumber());
+            // if verification failed it will retry the block later at the next backfill run
+            // decrement the pending blocks counter
+            pendingVerificationAndPersistenceLatch.countDown();
+            // update metrics
+            backfillFetchErrors.increment();
+        }
     }
 }
