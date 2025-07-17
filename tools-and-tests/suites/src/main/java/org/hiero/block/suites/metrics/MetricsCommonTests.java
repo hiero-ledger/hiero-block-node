@@ -77,6 +77,8 @@ public class MetricsCommonTests extends BaseSuite {
         assertEquals(0, appOldestBlock, "Oldest block should be 0 for a new simulator run");
         assertEquals(1, appState, "App state should be 1 (running) after publishing blocks");
 
+        Thread.sleep(2_000); // Allow some time for metrics to be updated
+
         // Verify block access metrics
         long getBlockRequests =
                 metricsAccessor.getMetricValue("get_block_requests", MetricsAccessor.MetricType.COUNTER);

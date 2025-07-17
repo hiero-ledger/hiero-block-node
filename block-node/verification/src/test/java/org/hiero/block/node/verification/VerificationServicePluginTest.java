@@ -38,7 +38,7 @@ class VerificationServicePluginTest extends PluginTestBase<VerificationServicePl
     void testVerificationPlugin() throws IOException, ParseException {
 
         BlockUtils.SampleBlockInfo sampleBlockInfo =
-                BlockUtils.getSampleBlockInfo(BlockUtils.SAMPLE_BLOCKS.GENERATED_10);
+                BlockUtils.getSampleBlockInfo(BlockUtils.SAMPLE_BLOCKS.GENERATED_14);
 
         List<BlockItemUnparsed> blockItems = sampleBlockInfo.blockUnparsed().blockItems();
         long blockNumber = sampleBlockInfo.blockNumber();
@@ -68,7 +68,7 @@ class VerificationServicePluginTest extends PluginTestBase<VerificationServicePl
     void testFailedVerification() throws IOException, ParseException {
 
         BlockUtils.SampleBlockInfo sampleBlockInfo =
-                BlockUtils.getSampleBlockInfo(BlockUtils.SAMPLE_BLOCKS.GENERATED_10);
+                BlockUtils.getSampleBlockInfo(BlockUtils.SAMPLE_BLOCKS.GENERATED_14);
 
         List<BlockItemUnparsed> blockItems = sampleBlockInfo.blockUnparsed().blockItems();
         // remove one block item, so the hash is no longer valid
@@ -99,7 +99,7 @@ class VerificationServicePluginTest extends PluginTestBase<VerificationServicePl
     void testHandleBlockItemsReceived_NoCurrentSession() throws IOException, ParseException {
         // create sample block data
         BlockUtils.SampleBlockInfo sampleBlockInfo =
-                BlockUtils.getSampleBlockInfo(BlockUtils.SAMPLE_BLOCKS.GENERATED_10);
+                BlockUtils.getSampleBlockInfo(BlockUtils.SAMPLE_BLOCKS.GENERATED_14);
         long blockNumber = sampleBlockInfo.blockNumber();
         List<BlockItemUnparsed> blockItems = sampleBlockInfo.blockUnparsed().blockItems();
         // remove the header to simulate a case where receive items and have never received a header

@@ -70,7 +70,7 @@ class BlocksFilesHistoricPluginTest {
         // use 10 blocks per zip, assuming that the first zip file will contain
         // for example blocks 0-9, the second zip file will contain blocks 10-19
         // also we will not use compression, and we will use the jUnit temp dir
-        testConfig = new FilesHistoricConfig(this.testTempDir, CompressionType.NONE, 1, 100L);
+        testConfig = new FilesHistoricConfig(this.testTempDir, CompressionType.NONE, 1, 10L);
         // build the plugin using the test environment
         toTest = new BlocksFilesHistoricPlugin();
         // initialize an in memory historical block facility to use for testing

@@ -7,7 +7,7 @@ echo "Creating .env file for simulator services..."
 
 # Generate .env file with default values
 cat > .env << EOL
-GRPC_SERVER_ADDRESS=block-node-server
+GRPC_SERVER_ADDRESS=host.docker.internal
 PROMETHEUS_ENDPOINT_ENABLED=true
 
 # For publisher service

@@ -80,11 +80,12 @@ public final class BlockUtils {
      * These blocks are used for testing purposes only.
      */
     public enum SAMPLE_BLOCKS {
-        GENERATED_10(
-                "generated-10.blk.gz",
-                "1d315470a3cfe12838d10cda3ad17f93a577a563efb45725f78a58384b8d2ebddf1dd5d849f922ddd72e9e824f565ebc",
-                10);
+        GENERATED_14(
+                "000000000000000000000000000000000014.blk.gz",
+                "54dca69665741f13d8c956dffb3327edbe5d56e32d2bc66d6ce145a1e1b62fe61cddb74b19f17a5da9bb01933429d5e0",
+                14);
 
+        // VNymlmV0HxPYyVbf+zMn7b5dVuMtK8ZtbOFFoeG2L+Yc3bdLGfF6Xam7AZM0KdXg
         private final String blockName;
         private final Bytes blockHash;
         private final long blockNumber;

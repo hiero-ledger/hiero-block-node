@@ -5,8 +5,8 @@ services:
       context: .
       dockerfile: Dockerfile
     image: hedera-block-simulator:latest
-    networks:
-      - block-node_default
+    ports:
+      - "9998:9998"
     env_file:
       - .env
     environment:
@@ -26,8 +26,8 @@ services:
       context: .
       dockerfile: Dockerfile
     image: hedera-block-simulator:latest
-    networks:
-      - block-node_default
+    ports:
+      - "9997:9997"
     env_file:
       - .env
     environment:
@@ -37,10 +37,51 @@ services:
       simulator-publisher:
         condition: service_healthy
 
-networks:
-  block-node_default:
-    name: block-node_default
-    external: true
+  prometheus-simulator:
+    image: prom/prometheus
+    container_name: prometheus-simulator
+    volumes:
+      - ./simulator-prometheus.yml:/etc/prometheus/prometheus.yml
+    command:
+      - '--web.listen-address=:9091'
+      - '--config.file=/etc/prometheus/prometheus.yml'
+    ports:
+      - "9091:9091"
+
+  grafana:
+    image: grafana/grafana
+    container_name: grafana-simulator
+    depends_on:
+      - prometheus-simulator
+    environment:
+      GF_SECURITY_DISABLE_INITIAL_ADMIN_CREATION: "true"
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: "Admin"
+      GF_AUTH_DISABLE_SIGNOUT_MENU: "true"
+      GF_AUTH_DISABLE_LOGIN_FORM: "true"
+    volumes:
+      - ./dashboards:/etc/grafana/provisioning/dashboards
+      - ./datasources.yml:/etc/grafana/provisioning/datasources/datasources.yml
+    ports:
+      - "4000:3000"
+
+  # Add Loki service
+  loki:
+    image: grafana/loki:2.9.2
+    ports:
+      - "4100:3100"
+    command: -config.file=/etc/loki/local-config.yaml
+
+  # Add Promtail service
+  promtail:
+    image: grafana/promtail:2.8.2
+    container_name: promtail-simulator
+    depends_on:
+      - loki
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro  # Mount Docker socket
+      - ./simulator-promtail-config.yaml:/etc/promtail/config.yaml:ro
+    command: --config.file=/etc/promtail/config.yaml
 
 volumes:
   simulator_data:

@@ -21,8 +21,11 @@ import org.hiero.block.node.base.Loggable;
  * 1 = 10, 2 = 100, 3 = 1000, 4 = 10,000, 5 = 100,000, or 6 = 1,000,000 files per
  * zip. Changing this is handy for testing, as having to wait for 10,000 blocks to be
  * created is a long time.
- * @param blockRetentionThreshold the retention policy threshold (count of blocks to keep). If set to 0 (zero),
- * blocks will be retained indefinitely.
+ * @param blockRetentionThreshold the retention policy threshold (count of blocks to keep). For the historic
+ * plugin, this value determines how many zips (archived batches) to retain. For instance if set to 5 and if the
+ * {@link #powersOfTenPerZipFileContents} is set to 3, then this means that 5 zips will be retained and these zips
+ * contain 10^3 blocks, i.e. 5_000 blocks effectively retained. If set to 0 (zero), blocks will be retained
+ * indefinitely.
  */
 @ConfigData("files.historic")
 public record FilesHistoricConfig(
