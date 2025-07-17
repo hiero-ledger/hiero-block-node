@@ -38,7 +38,7 @@ public class BackfillGrpcClient {
     // subsequent retries will double the delay each time
     private static final int INITIAL_RETRY_DELAY_SECONDS = 5;
     /** Current status of the Block Node Clients */
-    private ConcurrentHashMap<BlockNodeConfig, status> nodeStatusMap = new ConcurrentHashMap<>();
+    private ConcurrentHashMap<BlockNodeConfig, Status> nodeStatusMap = new ConcurrentHashMap<>();
     /**
      * Map of BlockNodeConfig to BlockNodeClient instances.
      * This allows us to reuse clients for the same node configuration.
@@ -101,8 +101,8 @@ public class BackfillGrpcClient {
         // only use nodes that are ACTIVE or UNKNOWN
         List<BlockNodeConfig> activeOrUnknownNodes = new ArrayList<>();
         for (BlockNodeConfig node : blockNodeSource.nodes()) {
-            status currentStatus = nodeStatusMap.getOrDefault(node, status.UNKNOWN);
-            if (currentStatus == status.ACTIVE || currentStatus == status.UNKNOWN) {
+            Status currentStatus = nodeStatusMap.getOrDefault(node, Status.UNKNOWN);
+            if (currentStatus == Status.ACTIVE || currentStatus == Status.UNKNOWN) {
                 activeOrUnknownNodes.add(node);
             }
         }
@@ -128,7 +128,7 @@ public class BackfillGrpcClient {
                         break;
                     }
                     // if we reach here, the node is available
-                    nodeStatusMap.put(node, status.ACTIVE);
+                    nodeStatusMap.put(node, Status.ACTIVE);
 
                     // Try to fetch blocks from this node
                     return currentNodeClient
@@ -137,7 +137,7 @@ public class BackfillGrpcClient {
                 } catch (Exception e) {
                     if (attempt == maxRetries) {
                         // If we reach the max retries, mark the node as UNAVAILABLE
-                        nodeStatusMap.put(node, status.UNAVAILABLE);
+                        nodeStatusMap.put(node, Status.UNAVAILABLE);
 
                         LOGGER.log(
                                 INFO,
@@ -175,11 +175,11 @@ public class BackfillGrpcClient {
 
     public void resetStatus() {
         for (BlockNodeConfig node : blockNodeSource.nodes()) {
-            nodeStatusMap.put(node, status.UNKNOWN);
+            nodeStatusMap.put(node, Status.UNKNOWN);
         }
     }
 
-    public enum status {
+    public enum Status {
         UNKNOWN,
         ACTIVE,
         UNAVAILABLE
