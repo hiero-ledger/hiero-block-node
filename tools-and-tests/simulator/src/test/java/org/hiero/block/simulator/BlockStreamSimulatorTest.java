@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.simulator;
 
-import static org.hiero.block.simulator.TestUtils.getTestMetrics;
+import static org.hiero.block.simulator.fixtures.TestUtils.getTestMetrics;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -29,7 +29,9 @@ import java.util.logging.Logger;
 import org.hiero.block.simulator.config.data.BlockStreamConfig;
 import org.hiero.block.simulator.config.data.StreamStatus;
 import org.hiero.block.simulator.config.logging.ConfigurationLogging;
+import org.hiero.block.simulator.config.logging.SimulatorConfigurationLogger;
 import org.hiero.block.simulator.exception.BlockSimulatorParsingException;
+import org.hiero.block.simulator.fixtures.TestUtils;
 import org.hiero.block.simulator.generator.BlockStreamManager;
 import org.hiero.block.simulator.grpc.ConsumerStreamGrpcClient;
 import org.hiero.block.simulator.grpc.PublishStreamGrpcClient;
@@ -64,7 +66,6 @@ class BlockStreamSimulatorTest {
     @Mock
     private SimulatorModeHandler simulatorModeHandler;
 
-    @Mock
     private ConfigurationLogging configurationLoggingMock;
 
     private BlockStreamSimulatorApp blockStreamSimulator;
@@ -76,6 +77,7 @@ class BlockStreamSimulatorTest {
         Configuration configuration = TestUtils.getTestConfiguration(
                 Map.of("blockStream.maxBlockItemsToStream", "100", "blockStream.streamingMode", "CONSTANT_RATE"));
 
+        configurationLoggingMock = new SimulatorConfigurationLogger(configuration);
         metricsService = new MetricsServiceImpl(getTestMetrics(configuration));
         blockStreamSimulator = new BlockStreamSimulatorApp(
                 configuration,

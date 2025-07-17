@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.simulator.grpc.impl;
 
-import static org.hiero.block.simulator.TestUtils.getTestMetrics;
+import static org.hiero.block.simulator.fixtures.TestUtils.getTestMetrics;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
 
@@ -14,7 +14,7 @@ import java.util.ArrayDeque;
 import org.hiero.block.api.protoc.BlockItemSet;
 import org.hiero.block.api.protoc.PublishStreamRequest;
 import org.hiero.block.api.protoc.PublishStreamResponse;
-import org.hiero.block.simulator.TestUtils;
+import org.hiero.block.simulator.fixtures.TestUtils;
 import org.hiero.block.simulator.metrics.MetricsService;
 import org.hiero.block.simulator.metrics.MetricsServiceImpl;
 import org.junit.jupiter.api.BeforeEach;

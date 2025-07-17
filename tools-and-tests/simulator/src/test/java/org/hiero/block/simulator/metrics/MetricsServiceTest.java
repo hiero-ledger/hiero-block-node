@@ -1,14 +1,14 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.simulator.metrics;
 
-import static org.hiero.block.simulator.TestUtils.getTestMetrics;
+import static org.hiero.block.simulator.fixtures.TestUtils.getTestMetrics;
 import static org.hiero.block.simulator.metrics.SimulatorMetricTypes.Counter.LiveBlockItemsSent;
 import static org.hiero.block.simulator.metrics.SimulatorMetricTypes.Counter.LiveBlocksSent;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
 import com.swirlds.config.api.Configuration;
 import java.io.IOException;
-import org.hiero.block.simulator.TestUtils;
+import org.hiero.block.simulator.fixtures.TestUtils;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
