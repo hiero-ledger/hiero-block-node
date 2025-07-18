@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.simulator.config.types;
 
-import static org.junit.jupiter.api.Assertions.*;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 class StreamingModeTest {
 

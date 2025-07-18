@@ -3,7 +3,9 @@ package org.hiero.block.simulator.grpc.impl;
 
 import static org.hiero.block.simulator.fixtures.TestUtils.findFreePort;
 import static org.hiero.block.simulator.fixtures.TestUtils.getTestMetrics;
-import static org.junit.jupiter.api.Assertions.*;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.when;
 
 import com.hedera.hapi.block.stream.output.protoc.BlockHeader;
