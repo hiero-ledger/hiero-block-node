@@ -2,7 +2,7 @@
 package org.hiero.block.simulator.generator;
 
 import static org.hiero.block.simulator.fixtures.TestUtils.getAbsoluteFolder;
-import static org.junit.jupiter.api.Assertions.*;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 
 import java.io.IOException;
 import java.util.Map;
