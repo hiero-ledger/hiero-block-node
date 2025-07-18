@@ -18,13 +18,13 @@ module org.hiero.block.node.backfill {
 
     requires transitive com.hedera.pbj.runtime;
     requires transitive com.swirlds.config.api;
+    requires transitive com.swirlds.metrics.api;
     requires transitive org.hiero.block.node.spi;
     requires transitive org.hiero.block.protobuf.pbj;
     requires transitive io.grpc.stub;
     requires transitive io.grpc;
     requires transitive io.helidon.grpc.core;
     requires transitive io.helidon.webclient.grpc;
-    requires com.swirlds.metrics.api;
     requires org.hiero.block.common;
     requires org.hiero.block.node.base;
     requires com.github.spotbugs.annotations;

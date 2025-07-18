@@ -146,7 +146,8 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
         // Schedule gap detection with 10-second initial delay
         int intervalSeconds = backfillConfiguration.scanIntervalMins() * 60;
         scheduler = Executors.newSingleThreadScheduledExecutor();
-        scheduler.scheduleAtFixedRate(this::detectGaps, 10, intervalSeconds, TimeUnit.SECONDS);
+        scheduler.scheduleAtFixedRate(
+                this::detectGaps, backfillConfiguration.initialDelayMs(), intervalSeconds, TimeUnit.MILLISECONDS);
     }
 
     /**

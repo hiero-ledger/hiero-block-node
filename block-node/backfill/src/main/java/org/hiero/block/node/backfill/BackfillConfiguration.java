@@ -25,7 +25,8 @@ public record BackfillConfiguration(
         @Loggable @ConfigProperty(defaultValue = "60") int scanIntervalMins,
         @Loggable @ConfigProperty(defaultValue = "3") int maxRetries,
         @Loggable @ConfigProperty(defaultValue = "100") int fetchBatchSize,
-        @Loggable @ConfigProperty(defaultValue = "1000") int coolDownTimeBetweenBatchesMs) {
+        @Loggable @ConfigProperty(defaultValue = "1000") int coolDownTimeBetweenBatchesMs,
+        @Loggable @ConfigProperty(defaultValue = "15000") int initialDelayMs) {
 
     /**
      * Constructs a new instance of {@link BackfillConfiguration}.
@@ -42,5 +43,8 @@ public record BackfillConfiguration(
         Preconditions.requirePositive(scanIntervalMins, "[SCAN_INTERVAL_MINS] must be positive");
         Preconditions.requirePositive(maxRetries, "[MAX_RETRIES] must be positive");
         Preconditions.requirePositive(fetchBatchSize, "[FETCH_BATCH_SIZE] must be positive");
+        Preconditions.requirePositive(
+                coolDownTimeBetweenBatchesMs, "[COOL_DOWN_TIME_BETWEEN_BATCHES_MS] must be positive");
+        Preconditions.requirePositive(initialDelayMs, "[INITIAL_DELAY_MS] must be positive");
     }
 }
