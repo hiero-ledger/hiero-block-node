@@ -80,6 +80,9 @@ blockNode:
     # VERIFICATION_TYPE: "NO_OP"
     # MEDIATOR_TYPE: "NO_OP"
     MEDIATOR_RING_BUFFER_SIZE: "8192"
+    SERVER_PORT: "40840"
+    PROMETHEUS_ENDPOINT_PORT_NUMBER: "16007"
+    PROMETHEUS_ENDPOINT_ENABLED: "true"
   persistence:
     archive:
       # If false, the chart expects an externally provided PVC

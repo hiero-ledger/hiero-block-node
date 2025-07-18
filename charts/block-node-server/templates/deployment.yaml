@@ -78,7 +78,7 @@ spec:
             containerPort: {{ .Values.service.port }}
             protocol: TCP
           - name: metrics
-            containerPort: 16007
+            containerPort: {{ .Values.blockNode.health.metrics.port }}
             protocol: TCP
         envFrom:
           - configMapRef:
@@ -112,10 +112,15 @@ spec:
           httpGet:
             path: {{ .Values.blockNode.health.liveness.endpoint }}
             port: {{ .Values.service.port }}
+          initialDelaySeconds: 50
+          periodSeconds: 10
+          timeoutSeconds: 2
         readinessProbe:
           httpGet:
             path: {{ .Values.blockNode.health.readiness.endpoint }}
             port: {{ .Values.service.port }}
+          initialDelaySeconds: 40
+          timeoutSeconds: 2
       {{- with .Values.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}

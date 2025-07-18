@@ -11,7 +11,7 @@ Set Release name and version to install.
 
 ```bash
 export RELEASE="simulator-release"
-export VERSION="0.3.0-SNAPSHOT"
+export VERSION="0.15.0-SNAPSHOT"
 ```
 
 ## Template
@@ -27,7 +27,7 @@ helm template --name-template simulator-release blockstream-simulator/ --dry-run
 To pull the packaged chart from the public repo:
 
 ```bash
-helm pull oci://ghcr.io/hiero-ledger/hiero-block-node/charts/blockstream-simulator-chart--version "${VERSION}"
+helm pull oci://ghcr.io/hiero-ledger/hiero-block-node/charts/blockstream-simulator-chart --version "${VERSION}"
 ```
 
 ## Install using a local chart cloned from the repo

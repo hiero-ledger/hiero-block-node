@@ -6,14 +6,14 @@ services:
       dockerfile: Dockerfile
     image: hedera-block-simulator:latest
     ports:
-      - "16008:16008"
+      - "${PUBLISHER_PROMETHEUS_ENDPOINT_PORT_NUMBER}:${PUBLISHER_PROMETHEUS_ENDPOINT_PORT_NUMBER}"
     env_file:
       - .env
     environment:
       - BLOCK_STREAM_SIMULATOR_MODE=${PUBLISHER_BLOCK_STREAM_SIMULATOR_MODE}
       - PROMETHEUS_ENDPOINT_PORT_NUMBER=${PUBLISHER_PROMETHEUS_ENDPOINT_PORT_NUMBER}
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:16008/metrics"]
+      test: ["CMD", "curl", "-f", "http://localhost:${PUBLISHER_PROMETHEUS_ENDPOINT_PORT_NUMBER}/metrics"]
       interval: 3s
       timeout: 10s
       retries: 5
@@ -27,7 +27,7 @@ services:
       dockerfile: Dockerfile
     image: hedera-block-simulator:latest
     ports:
-      - "16009:16009"
+      - "${CONSUMER_PROMETHEUS_ENDPOINT_PORT_NUMBER}:${CONSUMER_PROMETHEUS_ENDPOINT_PORT_NUMBER}"
     env_file:
       - .env
     environment:
