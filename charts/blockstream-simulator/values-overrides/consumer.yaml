@@ -4,5 +4,6 @@ replicas: 2
 simulator:
   config:
     GRPC_SERVER_ADDRESS: "my-bn-block-node-helm-chart"
+    GRPC_PORT: 40840
     BLOCK_STREAM_SIMULATOR_MODE: "CONSUMER"
     SIMULATOR_STARTUP_DATA_ENABLED: "false"

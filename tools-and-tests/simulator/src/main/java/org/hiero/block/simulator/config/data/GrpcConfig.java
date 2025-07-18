@@ -16,4 +16,4 @@ import org.hiero.block.simulator.config.logging.Loggable;
 @ConfigData("grpc")
 public record GrpcConfig(
         @Loggable @ConfigProperty(defaultValue = "localhost") String serverAddress,
-        @Loggable @ConfigProperty(defaultValue = "8080") @Min(0) @Max(65535) int port) {}
+        @Loggable @ConfigProperty(defaultValue = "40840") @Min(0) @Max(65535) int port) {}

@@ -27,7 +27,7 @@ public class AutomaticEnvironmentVariableConfigSourceTest {
                         List.of(TestSecretConfig.class, ServerConfig.class), System::getenv))
                 .withConfigDataType(ServerConfig.class)
                 .build();
-        assertEquals(8080, config.getConfigData(ServerConfig.class).port());
+        assertEquals(40840, config.getConfigData(ServerConfig.class).port());
     }
 
     /**

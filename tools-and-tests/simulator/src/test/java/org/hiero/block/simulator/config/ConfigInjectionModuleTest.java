@@ -53,7 +53,7 @@ class ConfigInjectionModuleTest {
         final GrpcConfig grpcConfig = ConfigInjectionModule.provideGrpcConfig(configuration);
         assertNotNull(grpcConfig);
         assertEquals("localhost", grpcConfig.serverAddress());
-        assertEquals(8080, grpcConfig.port());
+        assertEquals(40840, grpcConfig.port());
     }
 
     /**
@@ -81,7 +81,7 @@ class ConfigInjectionModuleTest {
         final PrometheusConfig prometheusConfig = ConfigInjectionModule.providePrometheusConfig(configuration);
         assertNotNull(prometheusConfig);
         assertFalse(prometheusConfig.endpointEnabled());
-        assertEquals(9998, prometheusConfig.endpointPortNumber());
+        assertEquals(16007, prometheusConfig.endpointPortNumber());
     }
 
     /**

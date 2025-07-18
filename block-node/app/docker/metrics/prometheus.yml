@@ -4,4 +4,4 @@ global:
 scrape_configs:
   - job_name: 'local'
     static_configs:
-      - targets: ['block-node-server:9999', 'cadvisor:8080']
+      - targets: ['block-node-server:16007', 'cadvisor:8080']

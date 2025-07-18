@@ -105,7 +105,7 @@ public abstract class BaseSuite {
      *
      * <ul>
      *   <li>Setting the environment variable "VERSION" from the .env file.
-     *   <li>Exposing the default gRPC port (8080).
+     *   <li>Exposing the default gRPC port (40840).
      *   <li>Using the Testcontainers health check mechanism to ensure the container is ready.
      * </ul>
      *
@@ -113,8 +113,8 @@ public abstract class BaseSuite {
      */
     protected static GenericContainer<?> createContainer() {
         String blockNodeVersion = BaseSuite.getBlockNodeVersion();
-        blockNodePort = 8080;
-        blockNodeMetricsPort = 9999;
+        blockNodePort = 40840;
+        blockNodeMetricsPort = 16007;
         List<String> portBindings = new ArrayList<>();
         portBindings.add(String.format("%d:%2d", blockNodePort, blockNodePort));
         portBindings.add(String.format("%d:%2d", blockNodeMetricsPort, blockNodeMetricsPort));

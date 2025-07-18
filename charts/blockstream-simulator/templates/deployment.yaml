@@ -55,7 +55,7 @@ spec:
         imagePullPolicy: {{ .Values.image.pullPolicy }}
         ports:
           - name: metrics
-            containerPort: 9999
+            containerPort: 16007
             protocol: TCP
         envFrom:
           - configMapRef:

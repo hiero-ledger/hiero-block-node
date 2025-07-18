@@ -38,7 +38,7 @@ securityContext: {}
 
 service:
   type: ClusterIP
-  port: 8080
+  port: 40840
 
 ingress:
   enabled: false
@@ -80,6 +80,9 @@ blockNode:
     # VERIFICATION_TYPE: "NO_OP"
     # MEDIATOR_TYPE: "NO_OP"
     MEDIATOR_RING_BUFFER_SIZE: "8192"
+    PROMETHEUS_ENDPOINT_ENABLED: true
+    PROMETHEUS_ENDPOINT_PORT_NUMBER: "16007"
+    SERVER_PORT: "40840"
   persistence:
     archive:
       # If false, the chart expects an externally provided PVC
@@ -135,7 +138,7 @@ blockNode:
     liveness:
       endpoint: "/healthz/livez"
     metrics:
-      port: 9999
+      port: 16007
   logs:
     # Available Levels are (from most verbose to least verbose):
     # ALL FINEST FINER FINE CONFIG INFO WARNING SEVERE OFF
