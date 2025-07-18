@@ -63,7 +63,7 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin> {
         temporaryAvailableBlocks.add(10, 20);
         this.historicalBlockFacility.setTemporaryAvailableBlocks(temporaryAvailableBlocks);
         CountDownLatch countDownLatch =
-                new CountDownLatch((int) (temporaryAvailableBlocks.max() - temporaryAvailableBlocks.min() + 1));
+                new CountDownLatch((int) (temporaryAvailableBlocks.max() - temporaryAvailableBlocks.min()));
 
         this.blockMessaging.registerBlockNotificationHandler(
                 new BlockNotificationHandler() {
