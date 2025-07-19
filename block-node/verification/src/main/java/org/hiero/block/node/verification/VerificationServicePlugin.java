@@ -10,13 +10,16 @@ import java.util.List;
 import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.BlockNodePlugin;
 import org.hiero.block.node.spi.ServiceBuilder;
+import org.hiero.block.node.spi.blockmessaging.BackfilledBlockNotification;
 import org.hiero.block.node.spi.blockmessaging.BlockItemHandler;
 import org.hiero.block.node.spi.blockmessaging.BlockItems;
+import org.hiero.block.node.spi.blockmessaging.BlockNotificationHandler;
+import org.hiero.block.node.spi.blockmessaging.BlockSource;
 import org.hiero.block.node.spi.blockmessaging.VerificationNotification;
 
 /** Provides implementation for the health endpoints of the server. */
 @SuppressWarnings("unused")
-public class VerificationServicePlugin implements BlockNodePlugin, BlockItemHandler {
+public class VerificationServicePlugin implements BlockNodePlugin, BlockItemHandler, BlockNotificationHandler {
     /** The logger for this class. */
     private final System.Logger LOGGER = System.getLogger(getClass().getName());
     /** The block node context, for access to core facilities. */
@@ -89,6 +92,9 @@ public class VerificationServicePlugin implements BlockNodePlugin, BlockItemHand
         // beginning.
         verificationConfig = context.configuration().getConfigData(VerificationConfig.class);
 
+        // register the service
+        context.blockMessaging().registerBlockNotificationHandler(this, false, "VerificationServicePlugin");
+
         // initialize metrics
         initMetrics(context);
     }
@@ -127,7 +133,7 @@ public class VerificationServicePlugin implements BlockNodePlugin, BlockItemHand
                 // start working time
                 blockWorkStartTime = System.nanoTime();
                 // start new session and set it as current
-                currentSession = new BlockVerificationSession(currentBlockNumber);
+                currentSession = new BlockVerificationSession(currentBlockNumber, BlockSource.PUBLISHER);
             }
             if (currentSession == null) {
                 // todo(452): correctly propagate this exception to the rest of the system, so it can be handled
@@ -154,6 +160,30 @@ public class VerificationServicePlugin implements BlockNodePlugin, BlockItemHand
             // TODO is shutting down here really the right thing to do?
             // Trigger the server to stop accepting new requests
             context.serverHealth().shutdown(VerificationServicePlugin.class.getSimpleName(), e.getMessage());
+        }
+    }
+
+    /**
+     * {@inheritDoc}
+     * <p>
+     * This method is called when a block backfilled notification is received. It is called on the block notification
+     * thread.
+     */
+    @Override
+    public void handleBackfilled(BackfilledBlockNotification notification) {
+        try {
+            BlockVerificationSession backfillSession =
+                    new BlockVerificationSession(notification.blockNumber(), BlockSource.BACKFILL);
+            VerificationNotification backfillNotification =
+                    backfillSession.processBlockItems(notification.block().blockItems());
+            context.blockMessaging().sendBlockVerification(backfillNotification);
+        } catch (Exception ex) {
+            LOGGER.log(ERROR, "Failed to handle verification notification: ", ex);
+            verificationBlocksError.increment();
+            // Return a success=false notification to indicate failure
+            VerificationNotification errorNotification =
+                    new VerificationNotification(false, notification.blockNumber(), null, null, BlockSource.BACKFILL);
+            context.blockMessaging().sendBlockVerification(errorNotification);
         }
     }
 }

@@ -23,6 +23,7 @@ import org.hiero.block.node.messaging.BlockMessagingFacilityImpl;
 import org.hiero.block.node.messaging.MessagingConfig;
 import org.hiero.block.node.spi.blockmessaging.BlockMessagingFacility;
 import org.hiero.block.node.spi.blockmessaging.BlockNotificationHandler;
+import org.hiero.block.node.spi.blockmessaging.BlockSource;
 import org.hiero.block.node.spi.blockmessaging.VerificationNotification;
 import org.junit.jupiter.api.Test;
 
@@ -226,7 +227,8 @@ public class BlockMessagingServiceBlockNotificationTest {
                 // wait for a bit to let the handler unregister
                 LockSupport.parkNanos(500_000);
             }
-            messagingService.sendBlockVerification(new VerificationNotification(true, i, null, null));
+            messagingService.sendBlockVerification(
+                    new VerificationNotification(true, i, null, null, BlockSource.PUBLISHER));
             // have to slow down production to make test reliable
             LockSupport.parkNanos(500_000);
         }
@@ -303,7 +305,8 @@ public class BlockMessagingServiceBlockNotificationTest {
         @Override
         public void run() {
             for (int i = 0; i < TEST_DATA_COUNT; i++) {
-                messagingService.sendBlockVerification(new VerificationNotification(true, i, null, null));
+                messagingService.sendBlockVerification(
+                        new VerificationNotification(true, i, null, null, BlockSource.PUBLISHER));
                 int totalSent = sentCounter.incrementAndGet();
                 if (pauseControl != null) {
                     // release the pause control occasionally, to slow a handler by some amount.

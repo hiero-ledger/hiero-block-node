@@ -4,7 +4,10 @@ module org.hiero.block.node.app.test.fixtures {
     exports org.hiero.block.node.app.fixtures.async;
     exports org.hiero.block.node.app.fixtures.blocks;
     exports org.hiero.block.node.app.fixtures.plugintest;
+    exports org.hiero.block.node.app.fixtures.server;
 
+    requires com.hedera.pbj.grpc.helidon.config;
+    requires com.hedera.pbj.grpc.helidon;
     requires com.hedera.pbj.runtime;
     requires com.swirlds.common;
     requires com.swirlds.config.api;

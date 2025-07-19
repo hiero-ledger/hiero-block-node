@@ -17,6 +17,7 @@ import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.ServiceBuilder;
 import org.hiero.block.node.spi.blockmessaging.BlockItemHandler;
 import org.hiero.block.node.spi.blockmessaging.BlockItems;
+import org.hiero.block.node.spi.blockmessaging.BlockSource;
 import org.hiero.block.node.spi.blockmessaging.PersistedNotification;
 import org.hiero.block.node.spi.historicalblocks.BlockAccessor;
 import org.hiero.block.node.spi.historicalblocks.BlockRangeSet;
@@ -74,7 +75,8 @@ public class SimpleInMemoryHistoricalBlockFacility implements HistoricalBlockFac
                 if (sendNotification) {
                     blockNodeContext
                             .blockMessaging()
-                            .sendBlockPersisted(new PersistedNotification(blockNumber, blockNumber, 2000));
+                            .sendBlockPersisted(
+                                    new PersistedNotification(blockNumber, blockNumber, 2000, BlockSource.PUBLISHER));
                 }
             }
         }

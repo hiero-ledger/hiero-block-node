@@ -73,6 +73,13 @@ public interface BlockMessagingFacility extends BlockNodePlugin {
     void sendBlockPersisted(PersistedNotification notification);
 
     /**
+     * Use this method to send backfilled block notifications to all registered handlers.
+     *
+     * @param notification the backfilled block notification to send
+     */
+    void sendBackfilledBlockNotification(BackfilledBlockNotification notification);
+
+    /**
      * Use this method to register a block notification handler. The handler will be called every time new block
      * notifications arrive. The calls will be on its own thread, every handler registered has its own thread. It can
      * consume block notifications at its own pace, if it is too slow then it will apply back pressure to block

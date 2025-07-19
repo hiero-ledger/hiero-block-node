@@ -23,6 +23,7 @@ import org.hiero.block.api.PublishStreamResponse;
 import org.hiero.block.api.PublishStreamResponse.ResponseOneOfType;
 import org.hiero.block.internal.BlockItemUnparsed;
 import org.hiero.block.node.spi.blockmessaging.BlockItems;
+import org.hiero.block.node.spi.blockmessaging.BlockSource;
 import org.hiero.block.node.spi.blockmessaging.PersistedNotification;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Disabled;
@@ -341,7 +342,7 @@ public class BlockStreamProducerSessionTest {
     @Disabled // TODO this needs more work as logic is more complex now
     void testSendBlockPersisted() {
         // Send block persisted notification
-        session.handlePersisted(new PersistedNotification(100L, 100L, 1));
+        session.handlePersisted(new PersistedNotification(100L, 100L, 1, BlockSource.PUBLISHER));
 
         assertNotNull(lastResponse);
         assertEquals(
@@ -427,7 +428,7 @@ public class BlockStreamProducerSessionTest {
                 streamErrors);
 
         // Try to send a response that should trigger the exception
-        failingSession.handlePersisted(new PersistedNotification(0L, 0L, 1));
+        failingSession.handlePersisted(new PersistedNotification(0L, 0L, 1, BlockSource.PUBLISHER));
 
         // Verify that the session was disconnected due to the failure
         assertEquals(BlockStreamProducerSession.BlockState.DISCONNECTED, failingSession.currentBlockState());
