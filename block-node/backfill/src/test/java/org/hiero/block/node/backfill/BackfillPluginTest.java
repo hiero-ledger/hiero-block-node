@@ -41,12 +41,15 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin> {
         this.historicalBlockFacility = new SimpleInMemoryHistoricalBlockFacility();
         this.blockNodeMock = new BlockNodeMock(8081, secondBNBlockFacility);
 
+        String blockNodeSourcesPath =
+                getClass().getClassLoader().getResource("block-nodes.json").getFile();
+
         start(
                 new BackfillPlugin(),
                 this.historicalBlockFacility,
                 Map.of(
                         "backfill.blockNodeSourcesPath",
-                        "/Users/user/Projects/hiero-block-node/block-node/backfill/src/test/resources/block-nodes.json",
+                        blockNodeSourcesPath,
                         "backfill.fetchBatchSize",
                         "5",
                         "backfill.coolDownTimeBetweenBatchesMs",
