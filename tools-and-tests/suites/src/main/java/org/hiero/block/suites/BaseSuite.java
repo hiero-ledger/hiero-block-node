@@ -189,8 +189,8 @@ public abstract class BaseSuite {
                         DockerImageName.parse("block-node-server:" + blockNodeVersion))
                 .withExposedPorts(blockNodePort)
                 .withEnv("VERSION", blockNodeVersion)
-                .waitingFor(Wait.forListeningPort())
-                .waitingFor(Wait.forHealthcheck());
+                .withEnv("SERVER_PORT", String.valueOf(blockNodePort))
+                .waitingFor(Wait.forListeningPort());
 
         container.setPortBindings(portBindings);
         return container;
