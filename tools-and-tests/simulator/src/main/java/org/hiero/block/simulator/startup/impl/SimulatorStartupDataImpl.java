@@ -33,31 +33,22 @@ public final class SimulatorStartupDataImpl implements SimulatorStartupData {
         byte[] localStartupDataBlockHash = new byte[StreamingTreeHasher.HASH_LENGTH];
         if (enabled) {
             try {
-                final int existsLatestAckBlockNumberFile = Files.exists(latestAckBlockNumberPath) ? 1 : 0;
-                // manage presence of data file
-                switch (existsLatestAckBlockNumberFile) {
-                    case 0 -> {
-                        // if no startup data files exist, this means that this
-                        // is the initial setup, we only need to create the
-                        // startup data files
-                        FileUtilities.createFile(latestAckBlockNumberPath);
-                    }
-                    case 1 -> {
-                        // entering here means that both files exist, so now we
-                        // must attempt to read the startup data from the files.
-                        // If successful, we can finish initialization, otherwise
-                        // we have broken state and cannot continue.
-                        final String blockNumberFromFile = Files.readString(latestAckBlockNumberPath);
-                        if (!StringUtilities.isBlank(blockNumberFromFile)) {
-                            localStartupDataBlockNumber = Long.parseLong(blockNumberFromFile);
-                        } else {
-                            throw new IllegalStateException(
-                                    "Failed to initialize latest ack block number from Simulator Startup Data");
-                        }
-                    }
-                    default ->
+                if (!Files.exists(latestAckBlockNumberPath)) {
+                    // if no startup data files exist, this means that this
+                    // is the initial setup, we only need to create the
+                    // startup data files
+                    Files.createFile(latestAckBlockNumberPath);
+                } else {
+                    // data from the files.
+                    // If successful, we can finish initialization, otherwise
+                    // we have broken state and cannot continue.
+                    final String blockNumberFromFile = Files.readString(latestAckBlockNumberPath);
+                    if (!StringUtilities.isBlank(blockNumberFromFile)) {
+                        localStartupDataBlockNumber = Long.parseLong(blockNumberFromFile);
+                    } else {
                         throw new IllegalStateException(
-                                "Failed to initialize Simulator Startup Data, invalid number of startup data files!");
+                                "Failed to initialize latest ack block number from Simulator Startup Data");
+                    }
                 }
             } catch (final IOException e) {
                 throw new UncheckedIOException(e);

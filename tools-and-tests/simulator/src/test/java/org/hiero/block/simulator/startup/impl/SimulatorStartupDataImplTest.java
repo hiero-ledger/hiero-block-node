@@ -3,6 +3,7 @@ package org.hiero.block.simulator.startup.impl;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatExceptionOfType;
+import static org.assertj.core.api.Assertions.assertThatIllegalStateException;
 import static org.assertj.core.api.Assertions.from;
 
 import com.swirlds.config.api.Configuration;
@@ -126,6 +127,17 @@ class SimulatorStartupDataImplTest {
         Files.write(latestAckBlockNumberPath, "1".getBytes());
         final SimulatorStartupDataImpl toTest = newInstanceToTest(true);
         assertThat(toTest).returns(1L, from(SimulatorStartupDataImpl::getLatestAckBlockNumber));
+    }
+
+
+    /**
+     * This test aims to verify that the {@link SimulatorStartupDataImpl} will
+     * fail initialization if only the block number startup data file exists.
+     */
+    @Test
+    void testFailedInitializationUnavailableHashFile() throws IOException {
+        Files.write(latestAckBlockNumberPath, "".getBytes());
+        assertThatIllegalStateException().isThrownBy(() -> newInstanceToTest(true));
     }
 
     /**
