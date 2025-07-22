@@ -230,15 +230,6 @@ message PublishStreamResponse {
          * one greater than this value.
          */
         uint64 block_number = 1;
-
-        /**
-         * A hash of the virtual merkle root for the block.
-         * <p>
-         * This SHALL be the hash calculated by the Block-Node for the
-         * root node of the virtual merkle tree that is signed by the source
-         * system to validate the block.
-         */
-        bytes block_root_hash = 2;
     }
 
     /**
