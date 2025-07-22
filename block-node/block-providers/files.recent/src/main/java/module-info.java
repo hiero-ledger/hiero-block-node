@@ -14,10 +14,10 @@ module org.hiero.block.node.blocks.files.recent {
     requires transitive com.swirlds.config.api;
     requires transitive org.hiero.block.node.base;
     requires transitive org.hiero.block.node.spi;
+    requires com.hedera.node.hapi;
     requires com.hedera.pbj.runtime;
     requires com.swirlds.metrics.api;
     requires org.hiero.block.common;
-    requires org.hiero.block.protobuf.pbj;
     requires com.github.luben.zstd_jni;
     requires com.github.spotbugs.annotations;
 

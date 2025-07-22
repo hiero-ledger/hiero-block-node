@@ -17,13 +17,13 @@ module org.hiero.block.simulator {
             com.swirlds.config.impl;
     exports org.hiero.block.simulator.logging;
 
+    requires com.hedera.node.hapi;
     requires com.hedera.pbj.runtime;
     requires com.swirlds.common;
     requires com.swirlds.config.api;
     requires com.swirlds.config.extensions;
     requires com.swirlds.metrics.api;
     requires org.hiero.block.common;
-    requires org.hiero.block.protobuf.pbj;
     requires org.hiero.block.protobuf.protoc;
     requires com.google.protobuf;
     requires dagger;
