@@ -128,8 +128,8 @@ public abstract class BaseSuite {
 
     /**
      * Launch multiple Block Node containers with the given configs.
-     * Each BN will be started on its own port and with its own range.
-     * @param configs List of BlockNodeConfig specifying port and range for each BN
+     * Each BN will be started on its own port.
+     * @param configs List of BlockNodeConfig specifying port and metricPort for each BN
      */
     protected void launchBlockNodes(List<BlockNodeConfig> configs) {
         for (BlockNodeConfig config : configs) {
