@@ -129,13 +129,12 @@ class SimulatorStartupDataImplTest {
         assertThat(toTest).returns(1L, from(SimulatorStartupDataImpl::getLatestAckBlockNumber));
     }
 
-
     /**
      * This test aims to verify that the {@link SimulatorStartupDataImpl} will
-     * fail initialization if only the block number startup data file exists.
+     * fail initialization if the block number startup data file exists with a blank value.
      */
     @Test
-    void testFailedInitializationUnavailableHashFile() throws IOException {
+    void testFailedInitializationUnavailableBlockNumberFile() throws IOException {
         Files.write(latestAckBlockNumberPath, "".getBytes());
         assertThatIllegalStateException().isThrownBy(() -> newInstanceToTest(true));
     }

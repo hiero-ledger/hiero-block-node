@@ -10,7 +10,6 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import javax.inject.Inject;
 import org.hiero.block.common.hasher.StreamingTreeHasher;
-import org.hiero.block.common.utils.FileUtilities;
 import org.hiero.block.common.utils.StringUtilities;
 import org.hiero.block.simulator.config.data.BlockGeneratorConfig;
 import org.hiero.block.simulator.config.data.SimulatorStartupDataConfig;
