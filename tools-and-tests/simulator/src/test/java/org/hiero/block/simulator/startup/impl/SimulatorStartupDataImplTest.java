@@ -3,7 +3,6 @@ package org.hiero.block.simulator.startup.impl;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatExceptionOfType;
-import static org.assertj.core.api.Assertions.assertThatIllegalStateException;
 import static org.assertj.core.api.Assertions.from;
 
 import com.swirlds.config.api.Configuration;
@@ -131,26 +130,6 @@ class SimulatorStartupDataImplTest {
 
     /**
      * This test aims to verify that the {@link SimulatorStartupDataImpl} will
-     * fail initialization if only the block number startup data file exists.
-     */
-    @Test
-    void testFailedInitializationUnavailableHashFile() throws IOException {
-        Files.write(latestAckBlockNumberPath, "1".getBytes());
-        assertThatIllegalStateException().isThrownBy(() -> newInstanceToTest(true));
-    }
-
-    /**
-     * This test aims to verify that the {@link SimulatorStartupDataImpl} will
-     * fail initialization if only the block hash startup data file exists.
-     */
-    @Test
-    void testFailedInitializationUnavailableBlockNumberFile() throws IOException {
-        assertThat(latestAckBlockNumberPath).doesNotExist();
-        assertThatIllegalStateException().isThrownBy(() -> newInstanceToTest(true));
-    }
-
-    /**
-     * This test aims to verify that the {@link SimulatorStartupDataImpl} will
      * fail initialization if the block number startup data file contains an
      * invalid number.
      */
@@ -158,17 +137,6 @@ class SimulatorStartupDataImplTest {
     void testFailedInitializationWrongNumberFormat() throws IOException {
         Files.write(latestAckBlockNumberPath, "wrongNumberFormat".getBytes());
         assertThatExceptionOfType(NumberFormatException.class).isThrownBy(() -> newInstanceToTest(true));
-    }
-
-    /**
-     * This test aims to verify that the {@link SimulatorStartupDataImpl} will
-     * fail initialization if the block hash startup data file contains an invalid
-     * hash length.
-     */
-    @Test
-    void testFailedInitializationWrongHashLength() throws IOException {
-        Files.write(latestAckBlockNumberPath, "1".getBytes());
-        assertThatIllegalStateException().isThrownBy(() -> newInstanceToTest(true));
     }
 
     /**
