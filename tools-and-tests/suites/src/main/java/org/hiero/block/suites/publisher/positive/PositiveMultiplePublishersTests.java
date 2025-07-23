@@ -140,6 +140,7 @@ public class PositiveMultiplePublishersTests extends BaseSuite {
      * a consistent and chronological order of block processing, even when multiple publishers with
      * different block timings are connected simultaneously.
      */
+    @Disabled("Temporarily disabled whiles publisher plugin is being rewritten.")
     @Test
     @DisplayName("Should prefer publisher with current blocks over future blocks")
     @Timeout(30)

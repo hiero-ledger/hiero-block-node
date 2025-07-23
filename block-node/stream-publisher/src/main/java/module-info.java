@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-import org.hiero.block.node.stream.publisher.PublisherServicePlugin;
+import org.hiero.block.node.stream.publisher.StreamPublisherPlugin;
 
 // SPDX-License-Identifier: Apache-2.0
 module org.hiero.block.node.stream.publisher {
@@ -16,10 +16,9 @@ module org.hiero.block.node.stream.publisher {
     requires transitive com.swirlds.metrics.api;
     requires transitive org.hiero.block.node.spi;
     requires transitive org.hiero.block.protobuf.pbj;
-    requires org.hiero.block.common;
     requires org.hiero.block.node.base;
     requires com.github.spotbugs.annotations;
 
     provides org.hiero.block.node.spi.BlockNodePlugin with
-            PublisherServicePlugin;
+            StreamPublisherPlugin;
 }
