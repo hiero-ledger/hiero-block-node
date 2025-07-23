@@ -23,10 +23,13 @@ import javax.inject.Inject;
 import org.hiero.block.api.protoc.BlockItemSet;
 import org.hiero.block.api.protoc.BlockStreamPublishServiceGrpc;
 import org.hiero.block.api.protoc.PublishStreamRequest;
+import org.hiero.block.api.protoc.PublishStreamRequest.EndStream;
+import org.hiero.block.api.protoc.PublishStreamRequest.EndStream.Code;
 import org.hiero.block.api.protoc.PublishStreamResponse;
 import org.hiero.block.common.utils.ChunkUtils;
 import org.hiero.block.simulator.config.data.BlockStreamConfig;
 import org.hiero.block.simulator.config.data.GrpcConfig;
+import org.hiero.block.simulator.config.types.EndStreamMode;
 import org.hiero.block.simulator.config.types.MidBlockFailType;
 import org.hiero.block.simulator.grpc.PublishStreamGrpcClient;
 import org.hiero.block.simulator.metrics.MetricsService;
@@ -109,12 +112,14 @@ public class PublishStreamGrpcClientImpl implements PublishStreamGrpcClient {
      */
     @Override
     public boolean streamBlock(
-            Block block, @NonNull final Consumer<PublishStreamResponse> publishStreamResponseConsumer) {
+            Block block, @NonNull final Consumer<PublishStreamResponse> publishStreamResponseConsumer)
+            throws InterruptedException {
         List<List<BlockItem>> streamingBatches =
                 ChunkUtils.chunkify(block.getItemsList(), blockStreamConfig.blockItemsBatchSize());
         for (List<BlockItem> streamingBatch : streamingBatches) {
             if (streamEnabled.get()) {
                 handleMidBlockFailIfSet(streamingBatch);
+                handleEndStreamModeIfSet(streamingBatch);
                 requestStreamObserver.onNext(PublishStreamRequest.newBuilder()
                         .setBlockItems(BlockItemSet.newBuilder()
                                 .addAllBlockItems(streamingBatch)
@@ -194,5 +199,22 @@ public class PublishStreamGrpcClientImpl implements PublishStreamGrpcClient {
             throw new RuntimeException("Configured abrupt disconnection occurred");
         }
         requestStreamObserver.onError(new Exception("Configured failure occurred, calling onError()"));
+    }
+
+    private void handleEndStreamModeIfSet(@NonNull final List<BlockItem> streamingBatch) throws InterruptedException {
+        if (blockStreamConfig.endStreamMode() == EndStreamMode.NONE) {
+            return;
+        }
+        if (blockStreamConfig.endStreamMode() == EndStreamMode.TOO_FAR_BEHIND) {
+            requestStreamObserver.onNext(PublishStreamRequest.newBuilder()
+                    .setBlockItems(BlockItemSet.newBuilder()
+                            .addAllBlockItems(streamingBatch)
+                            .build())
+                    .setEndStream(EndStream.newBuilder()
+                            .setEndCode(Code.TOO_FAR_BEHIND)
+                            .build())
+                    .build());
+            Thread.sleep(2);
+        }
     }
 }
