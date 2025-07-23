@@ -22,7 +22,8 @@ public interface PublishStreamGrpcClient {
      * @param publishStreamResponseConsumer the consumer to handle the response
      * @return true if the block is streamed successfully, false otherwise
      */
-    boolean streamBlock(Block block, Consumer<PublishStreamResponse> publishStreamResponseConsumer);
+    boolean streamBlock(Block block, Consumer<PublishStreamResponse> publishStreamResponseConsumer)
+            throws InterruptedException;
 
     /**
      * Sends a onCompleted message to the server and waits for a short period of time to ensure the message is sent.
@@ -51,4 +52,11 @@ public interface PublishStreamGrpcClient {
      * @throws InterruptedException if the thread is interrupted
      */
     void shutdown() throws InterruptedException;
+
+    /**
+     * Handles the EndStream mode if it is set.
+     * This method is responsible for performing any necessary actions
+     * when the EndStream mode is enabled.
+     */
+    void handleEndStreamModeIfSet();
 }

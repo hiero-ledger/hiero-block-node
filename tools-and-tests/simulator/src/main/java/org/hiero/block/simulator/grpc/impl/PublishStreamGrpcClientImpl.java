@@ -23,10 +23,13 @@ import javax.inject.Inject;
 import org.hiero.block.api.protoc.BlockItemSet;
 import org.hiero.block.api.protoc.BlockStreamPublishServiceGrpc;
 import org.hiero.block.api.protoc.PublishStreamRequest;
+import org.hiero.block.api.protoc.PublishStreamRequest.EndStream;
+import org.hiero.block.api.protoc.PublishStreamRequest.EndStream.Code;
 import org.hiero.block.api.protoc.PublishStreamResponse;
 import org.hiero.block.common.utils.ChunkUtils;
 import org.hiero.block.simulator.config.data.BlockStreamConfig;
 import org.hiero.block.simulator.config.data.GrpcConfig;
+import org.hiero.block.simulator.config.types.EndStreamMode;
 import org.hiero.block.simulator.config.types.MidBlockFailType;
 import org.hiero.block.simulator.grpc.PublishStreamGrpcClient;
 import org.hiero.block.simulator.metrics.MetricsService;
@@ -194,5 +197,18 @@ public class PublishStreamGrpcClientImpl implements PublishStreamGrpcClient {
             throw new RuntimeException("Configured abrupt disconnection occurred");
         }
         requestStreamObserver.onError(new Exception("Configured failure occurred, calling onError()"));
+    }
+
+    public void handleEndStreamModeIfSet() {
+        if (blockStreamConfig.endStreamMode() == EndStreamMode.NONE) {
+            return;
+        }
+        if (blockStreamConfig.endStreamMode() == EndStreamMode.TOO_FAR_BEHIND) {
+            requestStreamObserver.onNext(PublishStreamRequest.newBuilder()
+                    .setEndStream(EndStream.newBuilder()
+                            .setEndCode(Code.TOO_FAR_BEHIND)
+                            .build())
+                    .build());
+        }
     }
 }
