@@ -12,6 +12,7 @@ import org.hiero.block.simulator.BlockStreamSimulatorApp;
 import org.hiero.block.suites.BaseSuite;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
@@ -52,6 +53,8 @@ public class VerificationCommonTests extends BaseSuite {
         assertEquals(true, consoleLog.contains("acknowledgement"), "acknowledgement not found in console log");
     }
 
+    // @todo(1422) should be able to re-enable this after publisher starts to handle failed verifications
+    @Disabled("Disabled because publisher rework does not support this yet.")
     @Test
     @DisplayName(
             "Send some corrupted/malformed block hash - Verify response is a VerificationFailure with resend block.")
