@@ -266,7 +266,7 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
 
     @Override
     public void handlePersisted(@NonNull final PersistedNotification notification) {
-        if(notification.blockSource() != BlockSource.PUBLISHER) {
+        if (notification.blockSource() != BlockSource.PUBLISHER) {
             // We only handle notifications from the publisher.
             return;
         }
