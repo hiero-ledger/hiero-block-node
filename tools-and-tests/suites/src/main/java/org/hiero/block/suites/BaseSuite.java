@@ -4,7 +4,9 @@ package org.hiero.block.suites;
 import io.grpc.ManagedChannel;
 import io.grpc.ManagedChannelBuilder;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import org.hiero.block.api.protoc.BlockAccessServiceGrpc;
@@ -33,6 +35,9 @@ public abstract class BaseSuite {
     /** Container running the Block Node Application */
     protected static GenericContainer<?> blockNodeContainer;
 
+    /** List of containers running Block Node Applications */
+    protected List<GenericContainer<?>> blockNodeContainers = new ArrayList<>();
+
     /** Port that is used by the Block Node Application */
     protected static int blockNodePort;
 
@@ -45,11 +50,22 @@ public abstract class BaseSuite {
     /** gRPC channel for connecting to Block Node */
     protected static ManagedChannel channel;
 
+    /** Map from port to gRPC channel */
+    protected Map<Integer, ManagedChannel> channels = new LinkedHashMap<>();
+
     /** gRPC client stub for BlockAccessService */
     protected static BlockAccessServiceGrpc.BlockAccessServiceBlockingStub blockAccessStub;
 
     /** gRPC client stub for BlockNodeService */
     protected static BlockNodeServiceGrpc.BlockNodeServiceBlockingStub blockServiceStub;
+
+    /** Map from port to BlockAccessService stub */
+    protected Map<Integer, BlockAccessServiceGrpc.BlockAccessServiceBlockingStub> blockAccessStubs =
+            new LinkedHashMap<>();
+    /** Map from port to BlockNodeService stub */
+    protected Map<Integer, BlockNodeServiceGrpc.BlockNodeServiceBlockingStub> blockServiceStubs = new LinkedHashMap<>();
+
+    private static final String PORT_BINDING_FORMAT = "%d:%d";
 
     /**
      * Default constructor for the BaseSuite class.
@@ -96,6 +112,43 @@ public abstract class BaseSuite {
     }
 
     /**
+     * Teardown all Block Node containers and channels.
+     */
+    protected void teardownBlockNodes() throws InterruptedException {
+        for (GenericContainer<?> container : blockNodeContainers) {
+            container.stop();
+            container.close();
+        }
+        blockNodeContainers.clear();
+
+        for (ManagedChannel ch : channels.values()) {
+            ch.shutdown().awaitTermination(5, TimeUnit.SECONDS);
+        }
+        channels.clear();
+        blockAccessStubs.clear();
+        blockServiceStubs.clear();
+    }
+
+    /**
+     * Launch multiple Block Node containers with the given configs.
+     * Each BN will be started on its own port.
+     * @param configs List of BlockNodeConfig specifying port and metricPort for each BN
+     */
+    protected void launchBlockNodes(List<BlockNodeContainerConfig> configs) {
+        for (BlockNodeContainerConfig config : configs) {
+            GenericContainer<?> container = createContainer(config);
+            container.start();
+            blockNodeContainers.add(container);
+            ManagedChannel ch = ManagedChannelBuilder.forAddress(container.getHost(), config.port())
+                    .usePlaintext()
+                    .build();
+            channels.put(config.port(), ch);
+            blockAccessStubs.put(config.port(), BlockAccessServiceGrpc.newBlockingStub(ch));
+            blockServiceStubs.put(config.port(), BlockNodeServiceGrpc.newBlockingStub(ch));
+        }
+    }
+
+    /**
      * Initialize container with the default configuration and returns it.
      *
      * <p>This method initializes the Block Node container with the version retrieved from the .env
@@ -125,6 +178,25 @@ public abstract class BaseSuite {
                 .waitingFor(Wait.forHealthcheck());
         blockNodeContainer.setPortBindings(portBindings);
         return blockNodeContainer;
+    }
+
+    protected static GenericContainer<?> createContainer(BlockNodeContainerConfig config) {
+        String blockNodeVersion = BaseSuite.getBlockNodeVersion();
+        int blockNodePort = config.port();
+        int blockNodeMetricsPort = config.metricPort();
+        List<String> portBindings = new ArrayList<>();
+        portBindings.add(PORT_BINDING_FORMAT.formatted(blockNodePort, blockNodePort));
+        portBindings.add(PORT_BINDING_FORMAT.formatted(blockNodeMetricsPort, blockNodeMetricsPort));
+
+        GenericContainer<?> container = new GenericContainer<>(
+                        DockerImageName.parse("block-node-server:" + blockNodeVersion))
+                .withExposedPorts(blockNodePort)
+                .withEnv("VERSION", blockNodeVersion)
+                .withEnv("SERVER_PORT", String.valueOf(blockNodePort))
+                .waitingFor(Wait.forListeningPort());
+
+        container.setPortBindings(portBindings);
+        return container;
     }
 
     /**
