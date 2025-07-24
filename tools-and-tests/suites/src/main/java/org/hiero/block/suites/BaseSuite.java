@@ -4,7 +4,7 @@ package org.hiero.block.suites;
 import io.grpc.ManagedChannel;
 import io.grpc.ManagedChannelBuilder;
 import java.util.ArrayList;
-import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.Future;
@@ -51,7 +51,7 @@ public abstract class BaseSuite {
     protected static ManagedChannel channel;
 
     /** Map from port to gRPC channel */
-    protected Map<Integer, ManagedChannel> channels = new HashMap<>();
+    protected Map<Integer, ManagedChannel> channels = new LinkedHashMap<>();
 
     /** gRPC client stub for BlockAccessService */
     protected static BlockAccessServiceGrpc.BlockAccessServiceBlockingStub blockAccessStub;
@@ -60,9 +60,12 @@ public abstract class BaseSuite {
     protected static BlockNodeServiceGrpc.BlockNodeServiceBlockingStub blockServiceStub;
 
     /** Map from port to BlockAccessService stub */
-    protected Map<Integer, BlockAccessServiceGrpc.BlockAccessServiceBlockingStub> blockAccessStubs = new HashMap<>();
+    protected Map<Integer, BlockAccessServiceGrpc.BlockAccessServiceBlockingStub> blockAccessStubs =
+            new LinkedHashMap<>();
     /** Map from port to BlockNodeService stub */
-    protected Map<Integer, BlockNodeServiceGrpc.BlockNodeServiceBlockingStub> blockServiceStubs = new HashMap<>();
+    protected Map<Integer, BlockNodeServiceGrpc.BlockNodeServiceBlockingStub> blockServiceStubs = new LinkedHashMap<>();
+
+    private static final String PORT_BINDING_FORMAT = "%d:%d";
 
     /**
      * Default constructor for the BaseSuite class.
@@ -131,17 +134,17 @@ public abstract class BaseSuite {
      * Each BN will be started on its own port.
      * @param configs List of BlockNodeConfig specifying port and metricPort for each BN
      */
-    protected void launchBlockNodes(List<BlockNodeConfig> configs) {
-        for (BlockNodeConfig config : configs) {
+    protected void launchBlockNodes(List<BlockNodeContainerConfig> configs) {
+        for (BlockNodeContainerConfig config : configs) {
             GenericContainer<?> container = createContainer(config);
             container.start();
             blockNodeContainers.add(container);
-            ManagedChannel ch = ManagedChannelBuilder.forAddress(container.getHost(), config.getPort())
+            ManagedChannel ch = ManagedChannelBuilder.forAddress(container.getHost(), config.port())
                     .usePlaintext()
                     .build();
-            channels.put(config.getPort(), ch);
-            blockAccessStubs.put(config.getPort(), BlockAccessServiceGrpc.newBlockingStub(ch));
-            blockServiceStubs.put(config.getPort(), BlockNodeServiceGrpc.newBlockingStub(ch));
+            channels.put(config.port(), ch);
+            blockAccessStubs.put(config.port(), BlockAccessServiceGrpc.newBlockingStub(ch));
+            blockServiceStubs.put(config.port(), BlockNodeServiceGrpc.newBlockingStub(ch));
         }
     }
 
@@ -177,13 +180,13 @@ public abstract class BaseSuite {
         return blockNodeContainer;
     }
 
-    protected static GenericContainer<?> createContainer(BlockNodeConfig config) {
+    protected static GenericContainer<?> createContainer(BlockNodeContainerConfig config) {
         String blockNodeVersion = BaseSuite.getBlockNodeVersion();
-        var blockNodePort = config.getPort();
-        var blockNodeMetricsPort = config.getMetricPort();
+        int blockNodePort = config.port();
+        int blockNodeMetricsPort = config.metricPort();
         List<String> portBindings = new ArrayList<>();
-        portBindings.add(String.format("%d:%2d", blockNodePort, blockNodePort));
-        portBindings.add(String.format("%d:%2d", blockNodeMetricsPort, blockNodeMetricsPort));
+        portBindings.add(PORT_BINDING_FORMAT.formatted(blockNodePort, blockNodePort));
+        portBindings.add(PORT_BINDING_FORMAT.formatted(blockNodeMetricsPort, blockNodeMetricsPort));
 
         GenericContainer<?> container = new GenericContainer<>(
                         DockerImageName.parse("block-node-server:" + blockNodeVersion))
