@@ -207,9 +207,6 @@ public class PublishStreamGrpcClientImpl implements PublishStreamGrpcClient {
         }
         if (blockStreamConfig.endStreamMode() == EndStreamMode.TOO_FAR_BEHIND) {
             requestStreamObserver.onNext(PublishStreamRequest.newBuilder()
-                    .setBlockItems(BlockItemSet.newBuilder()
-                            .addAllBlockItems(streamingBatch)
-                            .build())
                     .setEndStream(EndStream.newBuilder()
                             .setEndCode(Code.TOO_FAR_BEHIND)
                             .build())
