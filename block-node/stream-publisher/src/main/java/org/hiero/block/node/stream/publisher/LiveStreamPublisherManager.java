@@ -266,11 +266,6 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
 
     @Override
     public void handlePersisted(@NonNull final PersistedNotification notification) {
-        if (notification.blockSource() != BlockSource.PUBLISHER) {
-            // We only handle notifications from the publisher.
-            return;
-        }
-
         // update the latest known verified and persisted block number
         // and signal all handlers to send acknowledgements
         // @todo(1417) is the below correct/sufficient? Is it ok to block here?
