@@ -25,6 +25,7 @@ import org.hiero.block.node.app.fixtures.plugintest.PluginTestBase;
 import org.hiero.block.node.app.fixtures.plugintest.SimpleInMemoryHistoricalBlockFacility;
 import org.hiero.block.node.base.BlockFile;
 import org.hiero.block.node.base.CompressionType;
+import org.hiero.block.node.spi.blockmessaging.BlockSource;
 import org.hiero.block.node.spi.blockmessaging.VerificationNotification;
 import org.hiero.block.node.spi.historicalblocks.HistoricalBlockFacility;
 import org.junit.jupiter.api.AfterEach;
@@ -104,7 +105,11 @@ class BlockFileRecentPluginTest {
             assertEquals(UNKNOWN_BLOCK_NUMBER, plugin.availableBlocks().min());
             // send verified block notification
             blockMessaging.sendBlockVerification(new VerificationNotification(
-                    true, blockNumber, Bytes.EMPTY, new BlockUnparsed(toBlockItemsUnparsed(blockBlockItems))));
+                    true,
+                    blockNumber,
+                    Bytes.EMPTY,
+                    new BlockUnparsed(toBlockItemsUnparsed(blockBlockItems)),
+                    BlockSource.PUBLISHER));
             // now try and read it back
             final Block block = plugin.block(blockNumber).block();
             // check we got the correct block
@@ -135,7 +140,7 @@ class BlockFileRecentPluginTest {
             assertEquals(UNKNOWN_BLOCK_NUMBER, plugin.availableBlocks().min());
             // send verified block notification
             blockMessaging.sendBlockVerification(
-                    new VerificationNotification(true, blockNumber, Bytes.EMPTY, blockOrig));
+                    new VerificationNotification(true, blockNumber, Bytes.EMPTY, blockOrig, BlockSource.PUBLISHER));
             // now try and read it back
             final Block block = plugin.block(blockNumber).block();
             // check we got the correct block
@@ -158,8 +163,8 @@ class BlockFileRecentPluginTest {
                 // generate the next block
                 final BlockItemUnparsed[] block = SimpleTestBlockItemBuilder.createSimpleBlockUnparsedWithNumber(i);
                 // send the block items to the plugin
-                blockMessaging.sendBlockVerification(
-                        new VerificationNotification(true, i, Bytes.EMPTY, new BlockUnparsed(List.of(block))));
+                blockMessaging.sendBlockVerification(new VerificationNotification(
+                        true, i, Bytes.EMPTY, new BlockUnparsed(List.of(block)), BlockSource.PUBLISHER));
                 // assert that the block is persisted
                 final Path persistedBlock = BlockFile.nestedDirectoriesBlockFilePath(
                         testPath, i, filesRecentConfig.compression(), filesRecentConfig.maxFilesPerDir());
@@ -205,8 +210,8 @@ class BlockFileRecentPluginTest {
                 // generate the next block
                 final BlockItemUnparsed[] block = SimpleTestBlockItemBuilder.createSimpleBlockUnparsedWithNumber(i);
                 // send the block items to the plugin
-                blockMessaging.sendBlockVerification(
-                        new VerificationNotification(true, i, Bytes.EMPTY, new BlockUnparsed(List.of(block))));
+                blockMessaging.sendBlockVerification(new VerificationNotification(
+                        true, i, Bytes.EMPTY, new BlockUnparsed(List.of(block)), BlockSource.PUBLISHER));
                 // assert that the block is persisted
                 final Path persistedBlock = BlockFile.nestedDirectoriesBlockFilePath(
                         testPath,

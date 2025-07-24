@@ -27,6 +27,7 @@ import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.ServiceBuilder;
 import org.hiero.block.node.spi.blockmessaging.BlockMessagingFacility;
 import org.hiero.block.node.spi.blockmessaging.BlockNotificationHandler;
+import org.hiero.block.node.spi.blockmessaging.BlockSource;
 import org.hiero.block.node.spi.blockmessaging.PersistedNotification;
 import org.hiero.block.node.spi.blockmessaging.VerificationNotification;
 import org.hiero.block.node.spi.historicalblocks.BlockAccessor;
@@ -247,7 +248,7 @@ public final class BlocksFilesRecentPlugin implements BlockProviderPlugin, Block
     @Override
     public void handleVerification(VerificationNotification notification) {
         // write the block to the live path and send notification of block persisted
-        writeBlockToLivePath(notification.block(), notification.blockNumber());
+        writeBlockToLivePath(notification.block(), notification.blockNumber(), notification.source());
         // we do a round of retention only if the retention threshold is set to
         // a positive value, otherwise we do not run it
         if (blockRetentionThreshold > 0L) {
@@ -275,7 +276,7 @@ public final class BlocksFilesRecentPlugin implements BlockProviderPlugin, Block
      * @param block       the block to write
      * @param blockNumber the block number of the block to write
      */
-    private void writeBlockToLivePath(final BlockUnparsed block, final long blockNumber) {
+    private void writeBlockToLivePath(final BlockUnparsed block, final long blockNumber, final BlockSource source) {
         final Path verifiedBlockPath = BlockFile.nestedDirectoriesBlockFilePath(
                 config.liveRootPath(), blockNumber, config.compression(), config.maxFilesPerDir());
         try {
@@ -305,7 +306,8 @@ public final class BlocksFilesRecentPlugin implements BlockProviderPlugin, Block
             // update the oldest and newest verified block numbers
             availableBlocks.add(blockNumber);
             // Send block persisted notification
-            blockMessaging.sendBlockPersisted(new PersistedNotification(blockNumber, blockNumber, defaultPriority()));
+            blockMessaging.sendBlockPersisted(
+                    new PersistedNotification(blockNumber, blockNumber, defaultPriority(), source));
             // Increment blocks written counter
             blocksWrittenCounter.increment();
         } catch (final IOException e) {

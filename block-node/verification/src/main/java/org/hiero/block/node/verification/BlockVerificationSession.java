@@ -10,11 +10,13 @@ import edu.umd.cs.findbugs.annotations.NonNull;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 import org.hiero.block.common.hasher.HashingUtilities;
 import org.hiero.block.common.hasher.NaiveStreamingTreeHasher;
 import org.hiero.block.common.hasher.StreamingTreeHasher;
 import org.hiero.block.internal.BlockItemUnparsed;
 import org.hiero.block.internal.BlockUnparsed;
+import org.hiero.block.node.spi.blockmessaging.BlockSource;
 import org.hiero.block.node.spi.blockmessaging.VerificationNotification;
 
 /**
@@ -35,6 +37,9 @@ public class BlockVerificationSession {
     private final StreamingTreeHasher stateChangesHasher;
     /** The tree hasher for trace data hashes. */
     private final StreamingTreeHasher traceDataHasher;
+    /** The source of the block, used to construct the final notification. */
+    private final BlockSource blockSource;
+
     /**
      * The block items for the block this session is responsible for. We collect them here so we can provide the
      * complete block in the final notification.
@@ -47,7 +52,7 @@ public class BlockVerificationSession {
      * @param blockNumber the block number to verify, we pass it in even though we could extract from block items to
      *                    avoid having to duplicate parsing work of the block header.
      */
-    protected BlockVerificationSession(final long blockNumber) {
+    protected BlockVerificationSession(final long blockNumber, @NonNull final BlockSource blockSource) {
         this.blockNumber = blockNumber;
         // using NaiveStreamingTreeHasher as we should only need single threaded
         this.inputTreeHasher = new NaiveStreamingTreeHasher();
@@ -55,6 +60,7 @@ public class BlockVerificationSession {
         this.consensusHeaderHasher = new NaiveStreamingTreeHasher();
         this.stateChangesHasher = new NaiveStreamingTreeHasher();
         this.traceDataHasher = new NaiveStreamingTreeHasher();
+        this.blockSource = Objects.requireNonNull(blockSource, "BlockSource must not be null");
     }
 
     /**
@@ -109,7 +115,7 @@ public class BlockVerificationSession {
                 traceDataHasher);
         final boolean verified = verifySignature(blockHash, blockProof.blockSignature());
         return new VerificationNotification(
-                verified, blockNumber, blockHash, verified ? new BlockUnparsed(blockItems) : null);
+                verified, blockNumber, blockHash, verified ? new BlockUnparsed(blockItems) : null, blockSource);
     }
 
     /**
