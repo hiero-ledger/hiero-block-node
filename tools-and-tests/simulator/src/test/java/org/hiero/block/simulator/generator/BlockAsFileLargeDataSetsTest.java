@@ -6,7 +6,6 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
-import com.hedera.hapi.block.stream.protoc.BlockItem;
 import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -77,20 +76,6 @@ class BlockAsFileLargeDataSetsTest {
         }
 
         assertNull(blockStreamManager.getNextBlock());
-    }
-
-    @Test
-    void getNextBlockItem() throws IOException, BlockSimulatorParsingException {
-        BlockStreamManager blockStreamManager =
-                getBlockAsFileLargeDatasetsBlockStreamManager(getAbsoluteFolder(rootFolder));
-
-        while (true) {
-            BlockItem blockItem = blockStreamManager.getNextBlockItem();
-            if (blockItem == null) {
-                break;
-            }
-            assertNotNull(blockItem);
-        }
     }
 
     @Test

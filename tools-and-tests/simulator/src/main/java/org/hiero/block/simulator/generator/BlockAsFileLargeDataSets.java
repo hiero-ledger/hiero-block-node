@@ -6,7 +6,6 @@ import static org.hiero.block.simulator.Constants.GZ_EXTENSION;
 import static org.hiero.block.simulator.Constants.RECORD_EXTENSION;
 
 import com.hedera.hapi.block.stream.protoc.Block;
-import com.hedera.hapi.block.stream.protoc.BlockItem;
 import edu.umd.cs.findbugs.annotations.NonNull;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -53,21 +52,6 @@ public class BlockAsFileLargeDataSets implements BlockStreamManager {
     @Override
     public GenerationMode getGenerationMode() {
         return GenerationMode.DIR;
-    }
-
-    @Override
-    public BlockItem getNextBlockItem() throws IOException, BlockSimulatorParsingException {
-        if (currentBlock != null && currentBlock.getItemsList().size() > currentBlockItemIndex) {
-            return currentBlock.getItemsList().get(currentBlockItemIndex++);
-        } else {
-            currentBlock = getNextBlock();
-            if (currentBlock != null) {
-                currentBlockItemIndex = 0; // Reset for new block
-                return getNextBlockItem();
-            }
-        }
-
-        return null; // No more blocks/items
     }
 
     @Override

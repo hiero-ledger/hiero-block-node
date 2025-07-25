@@ -2,7 +2,6 @@
 package org.hiero.block.simulator.generator;
 
 import com.hedera.hapi.block.stream.protoc.Block;
-import com.hedera.hapi.block.stream.protoc.BlockItem;
 import java.io.IOException;
 import org.hiero.block.simulator.config.types.GenerationMode;
 import org.hiero.block.simulator.exception.BlockSimulatorParsingException;
@@ -21,15 +20,6 @@ public interface BlockStreamManager {
      * @return the generation mode
      */
     GenerationMode getGenerationMode();
-
-    /**
-     * Get the next block item.
-     *
-     * @return the next block item
-     * @throws IOException if a I/O error occurs
-     * @throws BlockSimulatorParsingException if a parse error occurs
-     */
-    BlockItem getNextBlockItem() throws IOException, BlockSimulatorParsingException;
 
     /**
      * Get the next block.

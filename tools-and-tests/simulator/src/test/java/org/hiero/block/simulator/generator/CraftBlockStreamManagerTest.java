@@ -69,11 +69,6 @@ class CraftBlockStreamManagerTest {
     }
 
     @Test
-    void testGetNextBlockItem() {
-        assertThrows(UnsupportedOperationException.class, () -> manager.getNextBlockItem());
-    }
-
-    @Test
     void testGetNextBlock() throws IOException, BlockSimulatorParsingException {
         final Block block = manager.getNextBlock();
         assertNotNull(block);

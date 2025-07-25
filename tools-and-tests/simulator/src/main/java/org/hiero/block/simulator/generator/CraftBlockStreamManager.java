@@ -9,7 +9,6 @@ import static java.util.Objects.requireNonNull;
 
 import com.hedera.hapi.block.stream.BlockProof;
 import com.hedera.hapi.block.stream.protoc.Block;
-import com.hedera.hapi.block.stream.protoc.BlockItem;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import edu.umd.cs.findbugs.annotations.NonNull;
 import java.io.IOException;
@@ -150,16 +149,6 @@ public class CraftBlockStreamManager implements BlockStreamManager {
     @Override
     public GenerationMode getGenerationMode() {
         return generationMode;
-    }
-
-    /**
-     * This operation is not supported in Craft mode.
-     *
-     * @throws UnsupportedOperationException always, as Craft mode does not support getting individual block items
-     */
-    @Override
-    public BlockItem getNextBlockItem() {
-        throw new UnsupportedOperationException("Craft mode does not support getting block items.");
     }
 
     /**
