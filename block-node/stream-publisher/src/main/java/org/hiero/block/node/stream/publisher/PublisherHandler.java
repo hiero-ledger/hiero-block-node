@@ -129,8 +129,8 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
 
     @Override
     public void onNext(@NonNull final PublishStreamRequestUnparsed request) {
-        final BlockItemSetUnparsed itemSetUnparsed = Objects.requireNonNull(request.blockItems());
         if (request.hasBlockItems()) {
+            final BlockItemSetUnparsed itemSetUnparsed = Objects.requireNonNull(request.blockItems());
             final List<BlockItemUnparsed> blockItems = itemSetUnparsed.blockItems();
             if (blockItems.isEmpty()) {
                 try {

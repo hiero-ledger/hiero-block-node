@@ -94,7 +94,7 @@ class StreamPublisherPluginTest {
          */
         @Test
         @DisplayName("Test publish null block items")
-        void testPublishNullItems() throws ParseException {
+        void testPublishNullItems() {
             // Build a PublishStreamRequest with null block items
             final PublishStreamRequest request = PublishStreamRequest.newBuilder()
                     .blockItems(BlockItemSet.newBuilder()
@@ -121,7 +121,7 @@ class StreamPublisherPluginTest {
          */
         @Test
         @DisplayName("Test publish empty block items")
-        void testPublishEmptyItems() throws ParseException {
+        void testPublishEmptyItems() {
             // Build a PublishStreamRequest with empty block items
             final PublishStreamRequest request = PublishStreamRequest.newBuilder()
                     .blockItems(BlockItemSet.newBuilder()
@@ -138,6 +138,30 @@ class StreamPublisherPluginTest {
                     .isNotNull()
                     .returns(ResponseOneOfType.END_STREAM, responseKindExtractor)
                     .returns(Code.INVALID_REQUEST, endStreamResponseCodeExtractor);
+        }
+
+        /**
+         * This test aims to verify that when empty block items are published to
+         * the pipeline, an
+         * {@link PublishStreamResponse.EndOfStream}
+         * response is returned with code {@link Code#ERROR}.
+         */
+        @Test
+        @DisplayName("Test publish unset oneOf")
+        void testPublishUnsetOneOf() {
+            // Build a PublishStreamRequest with an unset oneOf
+            final PublishStreamRequest request =
+                    PublishStreamRequest.newBuilder().build();
+            // Send the request to the pipeline
+            toPluginPipe.onNext(PublishStreamRequest.PROTOBUF.toBytes(request));
+            // Assert response
+            assertThat(fromPluginBytes)
+                    .hasSize(1)
+                    .first()
+                    .extracting(bytesToPublishStreamResponseMapper)
+                    .isNotNull()
+                    .returns(ResponseOneOfType.END_STREAM, responseKindExtractor)
+                    .returns(Code.ERROR, endStreamResponseCodeExtractor);
         }
     }
 }
