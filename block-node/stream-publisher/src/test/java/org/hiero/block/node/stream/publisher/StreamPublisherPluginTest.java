@@ -4,9 +4,21 @@ package org.hiero.block.node.stream.publisher;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hiero.block.node.app.fixtures.TestUtils.enableDebugLogging;
 
+import com.hedera.hapi.block.stream.BlockItem;
+import com.hedera.pbj.runtime.ParseException;
+import com.hedera.pbj.runtime.UncheckedParseException;
 import com.hedera.pbj.runtime.grpc.ServiceInterface;
+import com.hedera.pbj.runtime.io.buffer.Bytes;
+import java.util.Collections;
 import java.util.List;
+import java.util.Objects;
+import java.util.function.Function;
 import org.assertj.core.api.InstanceOfAssertFactories;
+import org.hiero.block.api.BlockItemSet;
+import org.hiero.block.api.PublishStreamRequest;
+import org.hiero.block.api.PublishStreamResponse;
+import org.hiero.block.api.PublishStreamResponse.EndOfStream.Code;
+import org.hiero.block.api.PublishStreamResponse.ResponseOneOfType;
 import org.hiero.block.node.app.fixtures.plugintest.GrpcPluginTestBase;
 import org.hiero.block.node.app.fixtures.plugintest.SimpleInMemoryHistoricalBlockFacility;
 import org.junit.jupiter.api.BeforeEach;
@@ -33,6 +45,20 @@ class StreamPublisherPluginTest {
     @Nested
     @DisplayName("Plugin Tests")
     class PluginTest extends GrpcPluginTestBase<StreamPublisherPlugin> {
+        // ASSERTION MAPPERS
+        private final Function<Bytes, PublishStreamResponse> bytesToPublishStreamResponseMapper = bytes -> {
+            try {
+                return PublishStreamResponse.PROTOBUF.parse(bytes);
+            } catch (final ParseException e) {
+                throw new UncheckedParseException(e);
+            }
+        };
+        // ASSERTION EXTRACTORS
+        private final Function<PublishStreamResponse, ResponseOneOfType> responseKindExtractor =
+                response -> response.response().kind();
+        private final Function<PublishStreamResponse, Code> endStreamResponseCodeExtractor =
+                response -> Objects.requireNonNull(response.endStream()).status();
+
         /**
          * Constructor for the plugin tests.
          */
@@ -58,6 +84,60 @@ class StreamPublisherPluginTest {
                     .containsExactly(plugin.methods().getFirst())
                     .actual();
             System.out.println("Methods registered for plugin tests: " + methods);
+        }
+
+        /**
+         * This test aims to verify that when null block items are published to
+         * the pipeline, an
+         * {@link PublishStreamResponse.EndOfStream}
+         * response is returned with code {@link Code#INVALID_REQUEST}.
+         */
+        @Test
+        @DisplayName("Test publish null block items")
+        void testPublishNullItems() throws ParseException {
+            // Build a PublishStreamRequest with null block items
+            final PublishStreamRequest request = PublishStreamRequest.newBuilder()
+                    .blockItems(BlockItemSet.newBuilder()
+                            .blockItems((List<BlockItem>) null)
+                            .build())
+                    .build();
+            // Send the request to the pipeline
+            toPluginPipe.onNext(PublishStreamRequest.PROTOBUF.toBytes(request));
+            // Assert response
+            assertThat(fromPluginBytes)
+                    .hasSize(1)
+                    .first()
+                    .extracting(bytesToPublishStreamResponseMapper)
+                    .isNotNull()
+                    .returns(ResponseOneOfType.END_STREAM, responseKindExtractor)
+                    .returns(Code.INVALID_REQUEST, endStreamResponseCodeExtractor);
+        }
+
+        /**
+         * This test aims to verify that when empty block items are published to
+         * the pipeline, an
+         * {@link PublishStreamResponse.EndOfStream}
+         * response is returned with code {@link Code#INVALID_REQUEST}.
+         */
+        @Test
+        @DisplayName("Test publish empty block items")
+        void testPublishEmptyItems() throws ParseException {
+            // Build a PublishStreamRequest with empty block items
+            final PublishStreamRequest request = PublishStreamRequest.newBuilder()
+                    .blockItems(BlockItemSet.newBuilder()
+                            .blockItems(Collections.emptyList())
+                            .build())
+                    .build();
+            // Send the request to the pipeline
+            toPluginPipe.onNext(PublishStreamRequest.PROTOBUF.toBytes(request));
+            // Assert response
+            assertThat(fromPluginBytes)
+                    .hasSize(1)
+                    .first()
+                    .extracting(bytesToPublishStreamResponseMapper)
+                    .isNotNull()
+                    .returns(ResponseOneOfType.END_STREAM, responseKindExtractor)
+                    .returns(Code.INVALID_REQUEST, endStreamResponseCodeExtractor);
         }
     }
 }
