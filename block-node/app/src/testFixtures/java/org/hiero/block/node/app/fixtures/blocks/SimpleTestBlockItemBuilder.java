@@ -86,6 +86,17 @@ public final class SimpleTestBlockItemBuilder {
                 .build();
     }
 
+    private static BlockItemUnparsed sampleBrokenBlockHeaderUnparsed(final long blockNumber) {
+        final Bytes valid = createBlockHeaderUnparsed(blockNumber);
+        final byte[] arr = valid.toByteArray();
+        arr[0] = (byte) (arr[0] ^ 0xFF); // flip the first byte to break the header
+        return BlockItemUnparsed.newBuilder().blockHeader(Bytes.wrap(arr)).build();
+    }
+
+    private static BlockItemUnparsed sampleNullBlockHeaderUnparsed(final long blockNumber) {
+        return BlockItemUnparsed.newBuilder().blockHeader(null).build();
+    }
+
     /**
      * Creates a sample BlockItem representing a block header with the given block number and consensus time.
      */
@@ -137,6 +148,13 @@ public final class SimpleTestBlockItemBuilder {
         return BlockItemUnparsed.newBuilder()
                 .blockProof(createBlockProofUnparsed(blockNumber))
                 .build();
+    }
+
+    public static BlockItemUnparsed sampleBrokenBlockProofUnparsed(final long blockNumber) {
+        final Bytes valid = createBlockProofUnparsed(blockNumber);
+        final byte[] arr = valid.toByteArray();
+        arr[0] = (byte) (arr[0] ^ 0xFF); // flip the first byte to break the proof
+        return BlockItemUnparsed.newBuilder().blockProof(Bytes.wrap(arr)).build();
     }
 
     /**
@@ -277,6 +295,45 @@ public final class SimpleTestBlockItemBuilder {
         for (int i = 0; i < blockItems.length; i += 3) {
             long blockNumber = i / 3;
             blockItems[i] = sampleBlockHeaderUnparsed(blockNumber);
+            blockItems[i + 1] = sampleRoundHeaderUnparsed(blockNumber * 10);
+            blockItems[i + 2] = sampleBlockProofUnparsed(blockNumber);
+        }
+        return blockItems;
+    }
+
+    public static BlockItemUnparsed[] createNumberOfVerySimpleBlocksUnparsedWithBrokenHeaders(
+            final int startBlockNumber, final int endBlockNumber) {
+        final int numberOfBlocks = endBlockNumber - startBlockNumber;
+        final BlockItemUnparsed[] blockItems = new BlockItemUnparsed[numberOfBlocks * 3];
+        for (int i = 0; i < blockItems.length; i += 3) {
+            long blockNumber = i / 3;
+            blockItems[i] = sampleBrokenBlockHeaderUnparsed(blockNumber);
+            blockItems[i + 1] = sampleRoundHeaderUnparsed(blockNumber * 10);
+            blockItems[i + 2] = sampleBlockProofUnparsed(blockNumber);
+        }
+        return blockItems;
+    }
+
+    public static BlockItemUnparsed[] createNumberOfVerySimpleBlocksUnparsedWithBrokenProofs(
+            final int startBlockNumber, final int endBlockNumber) {
+        final int numberOfBlocks = endBlockNumber - startBlockNumber;
+        final BlockItemUnparsed[] blockItems = new BlockItemUnparsed[numberOfBlocks * 3];
+        for (int i = 0; i < blockItems.length; i += 3) {
+            long blockNumber = i / 3;
+            blockItems[i] = sampleBlockHeaderUnparsed(blockNumber);
+            blockItems[i + 1] = sampleRoundHeaderUnparsed(blockNumber * 10);
+            blockItems[i + 2] = sampleBrokenBlockProofUnparsed(blockNumber);
+        }
+        return blockItems;
+    }
+
+    public static BlockItemUnparsed[] createNumberOfVerySimpleBlocksUnparsedWithNullHeaderBytes(
+            final int startBlockNumber, final int endBlockNumber) {
+        final int numberOfBlocks = endBlockNumber - startBlockNumber;
+        final BlockItemUnparsed[] blockItems = new BlockItemUnparsed[numberOfBlocks * 3];
+        for (int i = 0; i < blockItems.length; i += 3) {
+            long blockNumber = i / 3;
+            blockItems[i] = sampleNullBlockHeaderUnparsed(blockNumber);
             blockItems[i + 1] = sampleRoundHeaderUnparsed(blockNumber * 10);
             blockItems[i + 2] = sampleBlockProofUnparsed(blockNumber);
         }

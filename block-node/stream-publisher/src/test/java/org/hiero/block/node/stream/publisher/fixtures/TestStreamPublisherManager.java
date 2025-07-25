@@ -4,7 +4,14 @@ package org.hiero.block.node.stream.publisher.fixtures;
 import com.hedera.hapi.block.stream.BlockProof;
 import com.hedera.pbj.runtime.grpc.Pipeline;
 import edu.umd.cs.findbugs.annotations.NonNull;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Objects;
 import org.hiero.block.api.PublishStreamResponse;
+import org.hiero.block.node.spi.blockmessaging.PersistedNotification;
+import org.hiero.block.node.spi.blockmessaging.VerificationNotification;
 import org.hiero.block.node.stream.publisher.PublisherHandler;
 import org.hiero.block.node.stream.publisher.PublisherHandler.MetricsHolder;
 import org.hiero.block.node.stream.publisher.StreamPublisherManager;
@@ -13,6 +20,12 @@ import org.hiero.block.node.stream.publisher.StreamPublisherManager;
  * @todo add documentation
  */
 public class TestStreamPublisherManager implements StreamPublisherManager {
+    /** The map of calls to closeBlock, with the handler id as key and the number of calls as value. */
+    final Map<Long, Integer> closeBlockCalls = new LinkedHashMap<>();
+    /** The map of calls to closeBlock with null proof bytes, with the handler id as key and the number of calls as value. */
+    final Map<Long, Integer> nullCloseBlockCalls = new LinkedHashMap<>();
+    /** The list of publisher handlers managed by this manager. This could be a map with handler id as key if needed */
+    private final List<PublisherHandler> publisherHandlers = new ArrayList<>();
     /** The BlockAction to return when querying for next action for a block. */
     private BlockAction blockAction;
     /** The latest block number to be returned. */
@@ -41,12 +54,85 @@ public class TestStreamPublisherManager implements StreamPublisherManager {
 
     @Override
     public void closeBlock(final BlockProof blockEndProof, final long handlerId) {
-        // do nothing, implement when needed
+        // Increment the number of calls for the handler id
+        if (blockEndProof == null) {
+            nullCloseBlockCalls.merge(handlerId, 1, Integer::sum);
+        } else {
+            closeBlockCalls.merge(handlerId, 1, Integer::sum);
+        }
     }
 
     @Override
     public long getLatestBlockNumber() {
         return latestBlockNumber;
+    }
+
+    @Override
+    public void handleVerification(final VerificationNotification notification) {
+        throw new UnsupportedOperationException("implement handleVerification in test class");
+    }
+
+    /**
+     * Handle a persisted notification.
+     * <p>
+     * Please note that this fixture implementation should be called only
+     * after explicitly setting the latest block number to a valid value. A
+     * valid value is a value that is lower or equal to the end block number
+     * of the notification. This is done so that we can make a best effort to
+     * mitigate false positives in tests that use this fixture. Also, this
+     * method will NOT update the state of the manager (latestBlockNumber)! Any
+     * updates must be explicit!
+     */
+    @Override
+    public void handlePersisted(final PersistedNotification notification) {
+        final long newLastPersistedBlock = notification.endBlockNumber();
+        if (newLastPersistedBlock >= latestBlockNumber) {
+            publisherHandlers.forEach(h -> h.sendAcknowledgement(newLastPersistedBlock));
+        } else {
+            final String message = ("Illegal state for publisher manager test fixture. "
+                            + "`handlePersisted` is called when `latestBlockNumber` "
+                            + "is greater than the argument notification's end block number. "
+                            + "This is not allowed in fixtures, the latest block number must always be "
+                            + "set explicitly to a valid value before calling `handlePersisted` in order "
+                            + "to mitigate false positives. \n"
+                            + "latestBlockNumber: %d, notification end block number: %d")
+                    .formatted(latestBlockNumber, newLastPersistedBlock);
+            throw new IllegalStateException(message);
+        }
+    }
+
+    /**
+     * Fixture method to get the number of calls to closeBlock for a handler.
+     * <p>
+     * Returns the number of calls to {@link #closeBlock(BlockProof, long)}
+     * made by the handler with the given ID. If the handler ID is not found,
+     * returns -1.
+     */
+    public int closeBlockCallsForHandler(final long handlerId) {
+        return closeBlockCalls.getOrDefault(handlerId, -1);
+    }
+
+    /**
+     * Fixture method to get the number of calls to closeBlock with null proof
+     * for a handler.
+     * <p>
+     * Returns the number of calls to {@link #closeBlock(BlockProof, long)}
+     * made by the handler with the given ID, where the proof was null.
+     * If the handler ID is not found, returns -1.
+     */
+    public int nullCloseBlockCallsForHandler(final long handlerId) {
+        return nullCloseBlockCalls.getOrDefault(handlerId, -1);
+    }
+
+    /**
+     * Fixture method to add a handler.
+     * <p>
+     * This method is used when we want to add an already initialized handler
+     * to the manager and not use the {@link #addHandler(Pipeline, MetricsHolder)}
+     * method.<br/>
+     */
+    public void addHandler(@NonNull final PublisherHandler handler) {
+        publisherHandlers.add(Objects.requireNonNull(handler));
     }
 
     /**
