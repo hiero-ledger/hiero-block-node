@@ -10,8 +10,7 @@ import edu.umd.cs.findbugs.annotations.NonNull;
 import io.helidon.webserver.http.HttpService;
 import java.util.Map;
 import java.util.Map.Entry;
-import java.util.concurrent.LinkedBlockingQueue;
-import org.hiero.block.node.app.fixtures.async.BlockingSerialExecutor;
+import java.util.concurrent.ExecutorService;
 import org.hiero.block.node.app.fixtures.async.TestThreadPoolManager;
 import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.BlockNodePlugin;
@@ -21,7 +20,6 @@ import org.hiero.block.node.spi.blockmessaging.BlockItemHandler;
 import org.hiero.block.node.spi.blockmessaging.BlockNotificationHandler;
 import org.hiero.block.node.spi.health.HealthFacility;
 import org.hiero.block.node.spi.historicalblocks.HistoricalBlockFacility;
-import org.hiero.block.node.spi.threading.ThreadPoolManager;
 import org.junit.jupiter.api.AfterEach;
 
 /**
@@ -41,20 +39,23 @@ import org.junit.jupiter.api.AfterEach;
  *
  * @param <P> the type of plugin being tested
  */
-public abstract class PluginTestBase<P extends BlockNodePlugin> {
+public abstract class PluginTestBase<P extends BlockNodePlugin, E extends ExecutorService> {
     /** The logger for this class. */
     protected final System.Logger LOGGER = System.getLogger(getClass().getName());
+    /** The test thread pool manager */
+    protected final TestThreadPoolManager<E> testThreadPoolManager;
     /** The metrics provider for the test. */
     private DefaultMetricsProvider metricsProvider;
     /** The block node context, for access to core facilities. */
     protected BlockNodeContext blockNodeContext;
     /** The test block messaging facility, for mocking out the messaging service. */
     protected TestBlockMessagingFacility blockMessaging = new TestBlockMessagingFacility();
-    /** The test thread pool manager */
-    protected TestThreadPoolManager<BlockingSerialExecutor> testThreadPoolManager =
-            new TestThreadPoolManager<>(new BlockingSerialExecutor(new LinkedBlockingQueue<>()));
     /** The plugin to be tested */
     protected P plugin;
+
+    protected PluginTestBase(@NonNull final E executorService) {
+        testThreadPoolManager = new TestThreadPoolManager<>(executorService);
+    }
 
     /**
      * Start the test fixture.<br/>
@@ -64,34 +65,8 @@ public abstract class PluginTestBase<P extends BlockNodePlugin> {
      * @param plugin the plugin to be tested
      * @param historicalBlockFacility the historical block facility to be used
      */
-    public void start(P plugin, HistoricalBlockFacility historicalBlockFacility) {
-        start(plugin, historicalBlockFacility, testThreadPoolManager, null);
-    }
-
-    /**
-     * Start the test fixture.<br/>
-     * This overload uses the default configuration, but allows for a custom
-     * thread pool manager to be passed in.
-     *
-     * @param plugin the plugin to be tested
-     * @param historicalBlockFacility the historical block facility to be used
-     * @param testThreadManager the thread pool manager to be used
-     */
-    public void start(P plugin, HistoricalBlockFacility historicalBlockFacility, ThreadPoolManager testThreadManager) {
-        start(plugin, historicalBlockFacility, testThreadManager, null);
-    }
-
-    /**
-     * Start the test fixture.<br/>
-     * This overload uses the default test thread pool manager, but allows for
-     * custom configuration overrides.
-     *
-     * @param plugin the plugin to be tested
-     * @param historicalBlockFacility the historical block facility to be used
-     * @param configOverrides a map of configuration overrides to be applied to loaded configuration
-     */
-    public void start(P plugin, HistoricalBlockFacility historicalBlockFacility, Map<String, String> configOverrides) {
-        start(plugin, historicalBlockFacility, testThreadPoolManager, configOverrides);
+    public void start(@NonNull final P plugin, @NonNull final HistoricalBlockFacility historicalBlockFacility) {
+        start(plugin, historicalBlockFacility, null);
     }
 
     /**
@@ -99,14 +74,12 @@ public abstract class PluginTestBase<P extends BlockNodePlugin> {
      *
      * @param plugin the plugin to be tested
      * @param historicalBlockFacility the historical block facility to be used
-     * @param testThreadManager the thread pool manager to be used
      * @param configOverrides a map of configuration overrides to be applied to loaded configuration
      */
     public void start(
-            P plugin,
-            HistoricalBlockFacility historicalBlockFacility,
-            ThreadPoolManager testThreadManager,
-            Map<String, String> configOverrides) {
+            @NonNull final P plugin,
+            @NonNull final HistoricalBlockFacility historicalBlockFacility,
+            final Map<String, String> configOverrides) {
         this.plugin = plugin;
         org.hiero.block.node.app.fixtures.logging.CleanColorfulFormatter.makeLoggingColorful();
         // Build the configuration
@@ -135,9 +108,9 @@ public abstract class PluginTestBase<P extends BlockNodePlugin> {
                 blockMessaging,
                 historicalBlockFacility,
                 new ServiceLoaderFunction(),
-                testThreadManager);
+                testThreadPoolManager);
         // if the subclass implements ServiceBuilder, use it otherwise create a mock
-        ServiceBuilder mockServiceBuilder = (this instanceof ServiceBuilder)
+        final ServiceBuilder mockServiceBuilder = (this instanceof ServiceBuilder)
                 ? (ServiceBuilder) this
                 : new ServiceBuilder() {
                     @Override

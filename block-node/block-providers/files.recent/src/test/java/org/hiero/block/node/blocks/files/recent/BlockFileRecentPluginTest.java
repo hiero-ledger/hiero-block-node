@@ -18,8 +18,10 @@ import java.io.IOException;
 import java.nio.file.FileSystem;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.concurrent.LinkedBlockingQueue;
 import org.hiero.block.internal.BlockItemUnparsed;
 import org.hiero.block.internal.BlockUnparsed;
+import org.hiero.block.node.app.fixtures.async.BlockingSerialExecutor;
 import org.hiero.block.node.app.fixtures.blocks.SimpleTestBlockItemBuilder;
 import org.hiero.block.node.app.fixtures.plugintest.PluginTestBase;
 import org.hiero.block.node.app.fixtures.plugintest.SimpleInMemoryHistoricalBlockFacility;
@@ -64,12 +66,13 @@ class BlockFileRecentPluginTest {
      */
     @Nested
     @DisplayName("Plugin Tests")
-    final class PluginTest extends PluginTestBase<BlocksFilesRecentPlugin> {
+    final class PluginTest extends PluginTestBase<BlocksFilesRecentPlugin, BlockingSerialExecutor> {
 
         /**
          * Test Constructor.
          */
         PluginTest() {
+            super(new BlockingSerialExecutor(new LinkedBlockingQueue<>()));
             start(blocksFilesRecentPlugin, historicalBlockFacility);
         }
 
