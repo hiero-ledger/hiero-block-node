@@ -97,7 +97,7 @@ public record BlockGeneratorConfig(
         private int paddedLength = 36;
         private String fileExtension = ".blk.gz";
         private int startBlockNumber;
-        private int endBlockNumber;
+        private int endBlockNumber = -1;
         private boolean invalidBlockHash = false;
         private int shardNum = 0;
         private int realmNum = 0;
