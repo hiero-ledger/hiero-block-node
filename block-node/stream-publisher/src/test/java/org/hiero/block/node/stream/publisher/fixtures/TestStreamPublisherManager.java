@@ -17,9 +17,17 @@ import org.hiero.block.node.stream.publisher.PublisherHandler.MetricsHolder;
 import org.hiero.block.node.stream.publisher.StreamPublisherManager;
 
 /**
- * @todo add documentation
+ * A test fixture for the {@link StreamPublisherManager}.
  */
 public class TestStreamPublisherManager implements StreamPublisherManager {
+    /** The message to be used when the handlePersisted method is called in an illegal state. */
+    private static final String PERSISTED_NOTIFICATION_ILLEGAL_STATE_MESSAGE =
+            """
+    Illegal state for publisher manager test fixture.
+    `handlePersisted` is called when `latestBlockNumber` is greater than the argument notification's end block number.
+    This is not allowed in fixtures, the latest block number must always be set explicitly to a valid value before calling `handlePersisted` in order to mitigate false positives.
+    latestBlockNumber: %d, notification end block number: %d
+    """;
     /** The map of calls to closeBlock, with the handler id as key and the number of calls as value. */
     final Map<Long, Integer> closeBlockCalls = new LinkedHashMap<>();
     /** The map of calls to closeBlock with null proof bytes, with the handler id as key and the number of calls as value. */
@@ -77,7 +85,7 @@ public class TestStreamPublisherManager implements StreamPublisherManager {
      * <p>
      * Please note that this fixture implementation should be called only
      * after explicitly setting the latest block number to a valid value. A
-     * valid value is a value that is lower or equal to the end block number
+     * valid value is a value that is lower than the end block number
      * of the notification. This is done so that we can make a best effort to
      * mitigate false positives in tests that use this fixture. Also, this
      * method will NOT update the state of the manager (latestBlockNumber)! Any
@@ -86,18 +94,11 @@ public class TestStreamPublisherManager implements StreamPublisherManager {
     @Override
     public void handlePersisted(final PersistedNotification notification) {
         final long newLastPersistedBlock = notification.endBlockNumber();
-        if (newLastPersistedBlock >= latestBlockNumber) {
+        if (newLastPersistedBlock > latestBlockNumber) {
             publisherHandlers.forEach(h -> h.sendAcknowledgement(newLastPersistedBlock));
         } else {
-            final String message = ("Illegal state for publisher manager test fixture. "
-                            + "`handlePersisted` is called when `latestBlockNumber` "
-                            + "is greater than the argument notification's end block number. "
-                            + "This is not allowed in fixtures, the latest block number must always be "
-                            + "set explicitly to a valid value before calling `handlePersisted` in order "
-                            + "to mitigate false positives. \n"
-                            + "latestBlockNumber: %d, notification end block number: %d")
-                    .formatted(latestBlockNumber, newLastPersistedBlock);
-            throw new IllegalStateException(message);
+            throw new IllegalStateException(
+                    PERSISTED_NOTIFICATION_ILLEGAL_STATE_MESSAGE.formatted(latestBlockNumber, newLastPersistedBlock));
         }
     }
 

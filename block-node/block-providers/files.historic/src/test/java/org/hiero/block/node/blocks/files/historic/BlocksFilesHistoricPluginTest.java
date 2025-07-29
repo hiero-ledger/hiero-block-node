@@ -25,7 +25,7 @@ import java.util.Objects;
 import java.util.concurrent.LinkedBlockingQueue;
 import org.hiero.block.internal.BlockItemUnparsed;
 import org.hiero.block.internal.BlockUnparsed;
-import org.hiero.block.node.app.fixtures.async.BlockingSerialExecutor;
+import org.hiero.block.node.app.fixtures.async.BlockingExecutor;
 import org.hiero.block.node.app.fixtures.async.TestThreadPoolManager;
 import org.hiero.block.node.app.fixtures.blocks.SimpleTestBlockItemBuilder;
 import org.hiero.block.node.app.fixtures.plugintest.NoOpServiceBuilder;
@@ -128,7 +128,7 @@ class BlocksFilesHistoricPluginTest {
                     new TestBlockMessagingFacility(),
                     historicalBlockProvider,
                     null,
-                    new TestThreadPoolManager<>(new BlockingSerialExecutor(new LinkedBlockingQueue<>())));
+                    new TestThreadPoolManager<>(new BlockingExecutor(new LinkedBlockingQueue<>())));
             // call
             final BlocksFilesHistoricPlugin toTest = new BlocksFilesHistoricPlugin();
             assertThatNoException().isThrownBy(() -> toTest.init(testContext, null));
@@ -140,15 +140,15 @@ class BlocksFilesHistoricPluginTest {
      */
     @Nested
     @DisplayName("Plugin Tests")
-    final class PluginTests extends PluginTestBase<BlocksFilesHistoricPlugin, BlockingSerialExecutor> {
+    final class PluginTests extends PluginTestBase<BlocksFilesHistoricPlugin, BlockingExecutor> {
         /** The test block serial executor service to use for the plugin. */
-        private final BlockingSerialExecutor pluginExecutor;
+        private final BlockingExecutor pluginExecutor;
 
         /**
          * Construct plugin base.
          */
         PluginTests() {
-            super(new BlockingSerialExecutor(new LinkedBlockingQueue<>()));
+            super(new BlockingExecutor(new LinkedBlockingQueue<>()));
             // match overrides to the test config
             final Map<String, String> configOverrides = getConfigOverrides();
             pluginExecutor = testThreadPoolManager.executor();
