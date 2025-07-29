@@ -21,7 +21,7 @@ import java.util.List;
 import java.util.concurrent.LinkedBlockingQueue;
 import org.hiero.block.internal.BlockItemUnparsed;
 import org.hiero.block.internal.BlockUnparsed;
-import org.hiero.block.node.app.fixtures.async.BlockingSerialExecutor;
+import org.hiero.block.node.app.fixtures.async.BlockingExecutor;
 import org.hiero.block.node.app.fixtures.blocks.SimpleTestBlockItemBuilder;
 import org.hiero.block.node.app.fixtures.plugintest.PluginTestBase;
 import org.hiero.block.node.app.fixtures.plugintest.SimpleInMemoryHistoricalBlockFacility;
@@ -66,13 +66,13 @@ class BlockFileRecentPluginTest {
      */
     @Nested
     @DisplayName("Plugin Tests")
-    final class PluginTest extends PluginTestBase<BlocksFilesRecentPlugin, BlockingSerialExecutor> {
+    final class PluginTest extends PluginTestBase<BlocksFilesRecentPlugin, BlockingExecutor> {
 
         /**
          * Test Constructor.
          */
         PluginTest() {
-            super(new BlockingSerialExecutor(new LinkedBlockingQueue<>()));
+            super(new BlockingExecutor(new LinkedBlockingQueue<>()));
             start(blocksFilesRecentPlugin, historicalBlockFacility);
         }
 
