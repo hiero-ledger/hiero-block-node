@@ -60,7 +60,7 @@ public class BlockAsFileLargeDataSets implements BlockStreamManager {
                     })
                     .forEach(blockFile -> blockNumbers.add(blockNumberFromFile(blockFile)));
         } catch (IOException e) {
-            throw new RuntimeException(e);
+            LOGGER.log(INFO, "Error reading block files from directory: " + blockStreamPath, e);
         }
     }
 
