@@ -19,7 +19,6 @@ import org.hiero.block.simulator.config.types.GenerationMode;
  * @param minTransactionsPerEvent the minimum number of transactions per event
  * @param maxTransactionsPerEvent the maximum number of transactions per event
  * @param folderRootPath the root path of the folder containing block files
- * @param managerImplementation the implementation class name of the block stream manager
  * @param paddedLength the length to which block identifiers are padded
  * @param fileExtension the file extension used for block files
  * @param startBlockNumber the optional start block number for the BlockAsFileLargeDataSets manager
@@ -34,7 +33,6 @@ public record BlockGeneratorConfig(
         @Loggable @ConfigProperty(defaultValue = "1") @Min(1) int minTransactionsPerEvent,
         @Loggable @ConfigProperty(defaultValue = "10") int maxTransactionsPerEvent,
         @Loggable @ConfigProperty(defaultValue = "") String folderRootPath,
-        @Loggable @ConfigProperty(defaultValue = "BlockAsFileBlockStreamManager") String managerImplementation,
         @Loggable @ConfigProperty(defaultValue = "36") int paddedLength,
         @Loggable @ConfigProperty(defaultValue = ".blk.gz") String fileExtension,
         // Optional block number range for the BlockAsFileLargeDataSets manager
@@ -96,7 +94,6 @@ public record BlockGeneratorConfig(
         private int minTransactionsPerEvent = 1;
         private int maxTransactionsPerEvent = 10;
         private String folderRootPath = "";
-        private String managerImplementation = "BlockAsFileBlockStreamManager";
         private int paddedLength = 36;
         private String fileExtension = ".blk.gz";
         private int startBlockNumber;
@@ -175,17 +172,6 @@ public record BlockGeneratorConfig(
          */
         public Builder folderRootPath(String folderRootPath) {
             this.folderRootPath = folderRootPath;
-            return this;
-        }
-
-        /**
-         * Sets the implementation class name of the block stream manager.
-         *
-         * @param managerImplementation the class name of the manager implementation
-         * @return this {@code Builder} instance
-         */
-        public Builder managerImplementation(String managerImplementation) {
-            this.managerImplementation = managerImplementation;
             return this;
         }
 
@@ -269,7 +255,6 @@ public record BlockGeneratorConfig(
                     minTransactionsPerEvent,
                     maxTransactionsPerEvent,
                     folderRootPath,
-                    managerImplementation,
                     paddedLength,
                     fileExtension,
                     startBlockNumber,

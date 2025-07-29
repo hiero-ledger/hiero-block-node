@@ -51,7 +51,13 @@ public class BlockAsFileLargeDataSets implements BlockStreamManager {
     public void init() {
         try (var stream = Files.walk(Path.of(blockStreamPath))) {
             stream.filter(Files::isRegularFile)
-                    .filter(path -> path.getFileName().toString().endsWith(GZ_EXTENSION))
+                    .filter(path -> path.getFileName().toString().endsWith(GZ_EXTENSION)
+                            || path.getFileName().toString().endsWith(RECORD_EXTENSION))
+                    .filter(path -> {
+                        long blockNumber = blockNumberFromFile(path);
+                        return (currentBlockNumber <= 0 || blockNumber >= currentBlockNumber)
+                                && (endBlockNumber <= 0 || blockNumber <= endBlockNumber);
+                    })
                     .forEach(blockFile -> blockNumbers.add(blockNumberFromFile(blockFile)));
         } catch (IOException e) {
             throw new RuntimeException(e);

@@ -32,8 +32,6 @@ class GeneratorInjectionModuleTest {
         final BlockGeneratorConfig blockGeneratorConfig = TestUtils.getTestConfiguration(Map.of(
                         "generator.generationMode",
                         "DIR",
-                        "generator.managerImplementation",
-                        "BlockAsFileLargeDataSets",
                         "generator.folderRootPath",
                         getAbsoluteFolder("build/resources/test/block-0.0.3-blk/")))
                 .getConfigData(BlockGeneratorConfig.class);

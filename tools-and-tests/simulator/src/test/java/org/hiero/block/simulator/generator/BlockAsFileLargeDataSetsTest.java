@@ -44,7 +44,8 @@ class BlockAsFileLargeDataSetsTest {
     void getNextBlock() throws IOException, BlockSimulatorParsingException {
         BlockStreamManager blockStreamManager =
                 getBlockAsFileLargeDatasetsBlockStreamManager(getAbsoluteFolder(rootFolder));
-        for (int i = 0; i < filesInFolder - 1; i++) {
+        blockStreamManager.init();
+        for (int i = 0; i < filesInFolder; i++) {
             assertNotNull(blockStreamManager.getNextBlock());
         }
 
@@ -57,7 +58,6 @@ class BlockAsFileLargeDataSetsTest {
         final BlockGeneratorConfig blockGeneratorConfig = BlockGeneratorConfig.builder()
                 .generationMode(GenerationMode.DIR)
                 .folderRootPath(getAbsoluteFolder(rootFolder))
-                .managerImplementation("BlockAsFileBlockStreamManager")
                 .paddedLength(36)
                 .fileExtension(".blk")
                 .startBlockNumber(2)
@@ -66,6 +66,7 @@ class BlockAsFileLargeDataSetsTest {
 
         final BlockStreamManager blockStreamManager =
                 getBlockAsFileLargeDatasetsBlockStreamManager(blockGeneratorConfig);
+        blockStreamManager.init();
 
         // The startBlockNumber and endBlockNumber signal to the manager
         // that it should only return blocks within the specified range.
@@ -98,12 +99,12 @@ class BlockAsFileLargeDataSetsTest {
         final BlockGeneratorConfig blockGeneratorConfig = BlockGeneratorConfig.builder()
                 .generationMode(GenerationMode.DIR)
                 .folderRootPath(blockDirPath.toString())
-                .managerImplementation("BlockAsFileBlockStreamManager")
                 .paddedLength(36)
                 .fileExtension(".blk")
                 .build();
 
         BlockAsFileLargeDataSets blockStreamManager = new BlockAsFileLargeDataSets(blockGeneratorConfig);
+        blockStreamManager.init();
 
         assertThrows(
                 com.google.protobuf.InvalidProtocolBufferException.class,
@@ -116,7 +117,6 @@ class BlockAsFileLargeDataSetsTest {
         final BlockGeneratorConfig blockGeneratorConfig = BlockGeneratorConfig.builder()
                 .generationMode(GenerationMode.DIR)
                 .folderRootPath(rootFolder)
-                .managerImplementation("BlockAsFileBlockStreamManager")
                 .paddedLength(36)
                 .fileExtension(".blk")
                 .build();

@@ -28,20 +28,19 @@ Uses the prefix `blockStream` so all properties should start with `blockStream.`
 
 Uses the prefix `generator` so all properties should start with `generator.`
 
-| Key                       | Description                                                                                                 |                   Default Value |
-|:--------------------------|:------------------------------------------------------------------------------------------------------------|--------------------------------:|
-| `generationMode`          | The desired generation Mode to use, it can only be `DIR` or `CRAFT`                                         |                         `CRAFT` |
-| `minEventsPerBlock`       | The minimum number of events per block                                                                      |                             `1` |
-| `maxEventsPerBlock`       | The maximum number of events per block                                                                      |                            `10` |
-| `minTransactionsPerEvent` | The minimum number of transactions per event                                                                |                             `1` |
-| `maxTransactionsPerEvent` | The maximum number of transactions per event                                                                |                            `10` |
-| `folderRootPath`          | If the generationMode is `DIR` this will be used as the source of the recording to stream to the Block-Node |                              `` |
-| `managerImplementation`   | The desired implementation of the BlockStreamManager to use                                                 | `BlockAsFileBlockStreamManager` |
-| `paddedLength`            | On the `BlockAsFileLargeDataSets` implementation, the length of the padded left zeroes `000001.blk.gz`      |                            `36` |
-| `fileExtension`           | On the `BlockAsFileLargeDataSets` implementation, the extension of the files to be streamed                 |                       `.blk.gz` |
-| `startBlockNumber`        | The block number to start streaming from                                                                    |                             `0` |
-| `endBlockNumber`          | The block number to stop streaming at                                                                       |                            `-1` |
-| `invalidBlockHash`        | If set to true, will send invalid block root hash                                                           |                         `false` |
+| Key                       | Description                                                                                                 | Default Value |
+|:--------------------------|:------------------------------------------------------------------------------------------------------------|--------------:|
+| `generationMode`          | The desired generation Mode to use, it can only be `DIR` or `CRAFT`                                         |       `CRAFT` |
+| `minEventsPerBlock`       | The minimum number of events per block                                                                      |           `1` |
+| `maxEventsPerBlock`       | The maximum number of events per block                                                                      |          `10` |
+| `minTransactionsPerEvent` | The minimum number of transactions per event                                                                |           `1` |
+| `maxTransactionsPerEvent` | The maximum number of transactions per event                                                                |          `10` |
+| `folderRootPath`          | If the generationMode is `DIR` this will be used as the source of the recording to stream to the Block-Node |            `` |
+| `paddedLength`            | On the `BlockAsFileLargeDataSets` implementation, the length of the padded left zeroes `000001.blk.gz`      |          `36` |
+| `fileExtension`           | On the `BlockAsFileLargeDataSets` implementation, the extension of the files to be streamed                 |     `.blk.gz` |
+| `startBlockNumber`        | The block number to start streaming from                                                                    |           `0` |
+| `endBlockNumber`          | The block number to stop streaming at                                                                       |          `-1` |
+| `invalidBlockHash`        | If set to true, will send invalid block root hash                                                           |       `false` |
 
 ## SimulatorStartupDataConfig
 

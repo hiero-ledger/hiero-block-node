@@ -38,13 +38,11 @@ class BlockStreamConfigTest {
         String folderRootPath = "build/resources/test/block-0.0.3-blk/";
         GenerationMode generationMode = GenerationMode.DIR;
 
-        String blockStreamManagerImplementation = "BlockAsFileBlockStreamManager";
         int paddedLength = 36;
         String fileExtension = ".blk";
         return BlockGeneratorConfig.builder()
                 .generationMode(generationMode)
                 .folderRootPath(folderRootPath)
-                .managerImplementation(blockStreamManagerImplementation)
                 .paddedLength(paddedLength)
                 .fileExtension(fileExtension);
     }

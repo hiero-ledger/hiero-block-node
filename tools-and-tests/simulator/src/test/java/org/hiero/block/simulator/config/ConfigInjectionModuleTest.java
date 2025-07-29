@@ -15,6 +15,7 @@ import org.hiero.block.simulator.config.data.GrpcConfig;
 import org.hiero.block.simulator.config.data.SimulatorStartupDataConfig;
 import org.hiero.block.simulator.config.data.UnorderedStreamConfig;
 import org.hiero.block.simulator.config.logging.ConfigurationLogging;
+import org.hiero.block.simulator.config.types.GenerationMode;
 import org.hiero.block.simulator.fixtures.TestUtils;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
@@ -27,8 +28,7 @@ class ConfigInjectionModuleTest {
 
     @BeforeAll
     static void setUpAll() throws IOException {
-        configuration = TestUtils.getTestConfiguration(
-                Map.of("generator.managerImplementation", "BlockAsFileBlockStreamManager"));
+        configuration = TestUtils.getTestConfiguration(Map.of("generator.generationMode", "CRAFT"));
     }
 
     /**
@@ -67,7 +67,7 @@ class ConfigInjectionModuleTest {
         final BlockGeneratorConfig blockGeneratorConfig =
                 ConfigInjectionModule.provideBlockGeneratorConfig(configuration);
         assertNotNull(blockGeneratorConfig);
-        assertEquals("BlockAsFileBlockStreamManager", blockGeneratorConfig.managerImplementation());
+        assertEquals(GenerationMode.CRAFT, blockGeneratorConfig.generationMode());
     }
 
     /**
