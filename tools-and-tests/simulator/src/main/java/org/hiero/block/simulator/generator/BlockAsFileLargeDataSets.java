@@ -10,7 +10,9 @@ import edu.umd.cs.findbugs.annotations.NonNull;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.HashSet;
 import java.util.Objects;
+import java.util.Set;
 import javax.inject.Inject;
 import org.hiero.block.common.utils.FileUtilities;
 import org.hiero.block.simulator.config.data.BlockGeneratorConfig;
@@ -24,13 +26,11 @@ public class BlockAsFileLargeDataSets implements BlockStreamManager {
 
     // State for getNextBlock()
     private final String blockStreamPath;
-    private long currentBlockIndex;
+    private long currentBlockNumber;
     private final int endBlockNumber;
 
-    // State for getNextBlockItem()
-    private int currentBlockItemIndex;
-    private Block currentBlock;
     private final String formatString;
+    private final Set<Long> blockNumbers = new HashSet<>();
 
     /**
      * Constructs a new BlockAsFileLargeDataSets instance.
@@ -42,11 +42,20 @@ public class BlockAsFileLargeDataSets implements BlockStreamManager {
 
         this.blockStreamPath = config.folderRootPath();
         this.endBlockNumber = config.endBlockNumber();
-
-        // Override if startBlockNumber is set
-        this.currentBlockIndex = (config.startBlockNumber() > 1) ? config.startBlockNumber() : 1;
+        this.currentBlockNumber = config.startBlockNumber();
 
         this.formatString = "%0" + config.paddedLength() + "d" + config.fileExtension();
+    }
+
+    @Override
+    public void init() {
+        try (var stream = Files.walk(Path.of(blockStreamPath))) {
+            stream.filter(Files::isRegularFile)
+                    .filter(path -> path.getFileName().toString().endsWith(GZ_EXTENSION))
+                    .forEach(blockFile -> blockNumbers.add(blockNumberFromFile(blockFile)));
+        } catch (IOException e) {
+            throw new RuntimeException(e);
+        }
     }
 
     @Override
@@ -56,14 +65,19 @@ public class BlockAsFileLargeDataSets implements BlockStreamManager {
 
     @Override
     public Block getNextBlock() throws IOException, BlockSimulatorParsingException {
-
+        if (blockNumbers.isEmpty()) {
+            return null;
+        }
         // If endBlockNumber is set, evaluate if we've exceeded the
         // range. If so, then return null.
-        if (endBlockNumber > 0 && currentBlockIndex > endBlockNumber) {
+        if (endBlockNumber > 0 && currentBlockNumber > endBlockNumber) {
             return null;
         }
 
-        final String nextBlockFileName = String.format(formatString, currentBlockIndex);
+        long nextBlockNumber = blockNumbers.iterator().next();
+        blockNumbers.remove(nextBlockNumber);
+
+        final String nextBlockFileName = String.format(formatString, nextBlockNumber);
         final Path localBlockStreamPath = Path.of(blockStreamPath).resolve(nextBlockFileName);
         if (!Files.exists(localBlockStreamPath)) {
             return null;
@@ -82,13 +96,37 @@ public class BlockAsFileLargeDataSets implements BlockStreamManager {
         final Block block = Block.parseFrom(blockBytes);
         LOGGER.log(INFO, "block loaded with items size= " + block.getItemsList().size());
 
-        currentBlockIndex++;
+        currentBlockNumber = nextBlockNumber;
 
         return block;
     }
 
     @Override
     public void resetToBlock(final long block) {
-        currentBlockIndex = block;
+        currentBlockNumber = block;
+    }
+
+    /**
+     * Extracts the block number from a file name. The file name is expected to be in the format
+     * {@code "0000000000000000000.blk.xyz"} where the block number is the first 19 digits and the rest is the file
+     * extension.
+     *
+     * @param fileName the file name to extract the block number from
+     * @return the block number
+     */
+    public static long blockNumberFromFile(final String fileName) {
+        return Long.parseLong(fileName.substring(0, fileName.indexOf('.')));
+    }
+
+    /**
+     * Extracts the block number from a file name. The file name is expected to be in the format
+     * {@code "0000000000000000000.blk.xyz"} where the block number is the first 19 digits and the rest is the file
+     * extension.
+     *
+     * @param file the path for file to extract the block number from
+     * @return the block number
+     */
+    public static long blockNumberFromFile(final Path file) {
+        return blockNumberFromFile(file.getFileName().toString());
     }
 }
