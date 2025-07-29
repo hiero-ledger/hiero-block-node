@@ -10,9 +10,9 @@ import edu.umd.cs.findbugs.annotations.NonNull;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.HashSet;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.Objects;
-import java.util.Set;
 import javax.inject.Inject;
 import org.hiero.block.common.utils.FileUtilities;
 import org.hiero.block.simulator.config.data.BlockGeneratorConfig;
@@ -30,7 +30,7 @@ public class BlockAsFileLargeDataSets implements BlockStreamManager {
     private final int endBlockNumber;
 
     private final String formatString;
-    private final Set<Long> blockNumbers = new HashSet<>();
+    private final Map<Long, String> blockNumbers = new HashMap<>();
 
     /**
      * Constructs a new BlockAsFileLargeDataSets instance.
@@ -58,9 +58,19 @@ public class BlockAsFileLargeDataSets implements BlockStreamManager {
                         return (blockNumber >= currentBlockNumber)
                                 && (endBlockNumber <= 0 || blockNumber <= endBlockNumber);
                     })
-                    .forEach(blockFile -> blockNumbers.add(blockNumberFromFile(blockFile)));
+                    .forEach(blockFile -> {
+                        long blockNumber = blockNumberFromFile(blockFile);
+                        blockNumbers.put(blockNumber, String.format(formatString, blockNumber));
+                    });
         } catch (IOException e) {
             LOGGER.log(INFO, "Error reading block files from directory: " + blockStreamPath, e);
+        }
+        // If currentBlockNumber is not in the map, find the next valid block number
+        if (!blockNumbers.containsKey(currentBlockNumber)) {
+            currentBlockNumber = blockNumbers.keySet().stream()
+                    .filter(blockNumber -> blockNumber >= currentBlockNumber)
+                    .min(Long::compareTo)
+                    .orElseThrow(() -> new IllegalStateException("No valid block numbers available."));
         }
     }
 
@@ -80,10 +90,10 @@ public class BlockAsFileLargeDataSets implements BlockStreamManager {
             return null;
         }
 
-        long nextBlockNumber = blockNumbers.iterator().next();
-        blockNumbers.remove(nextBlockNumber);
-
-        final String nextBlockFileName = String.format(formatString, nextBlockNumber);
+        final String nextBlockFileName = blockNumbers.get(currentBlockNumber);
+        if (nextBlockFileName == null) {
+            return null;
+        }
         final Path localBlockStreamPath = Path.of(blockStreamPath).resolve(nextBlockFileName);
         if (!Files.exists(localBlockStreamPath)) {
             return null;
@@ -102,7 +112,7 @@ public class BlockAsFileLargeDataSets implements BlockStreamManager {
         final Block block = Block.parseFrom(blockBytes);
         LOGGER.log(INFO, "block loaded with items size= " + block.getItemsList().size());
 
-        currentBlockNumber = nextBlockNumber;
+        currentBlockNumber++;
 
         return block;
     }
