@@ -55,7 +55,7 @@ public class BlockAsFileLargeDataSets implements BlockStreamManager {
                             || path.getFileName().toString().endsWith(RECORD_EXTENSION))
                     .filter(path -> {
                         long blockNumber = blockNumberFromFile(path);
-                        return (currentBlockNumber <= 0 || blockNumber >= currentBlockNumber)
+                        return (blockNumber >= currentBlockNumber)
                                 && (endBlockNumber <= 0 || blockNumber <= endBlockNumber);
                     })
                     .forEach(blockFile -> blockNumbers.add(blockNumberFromFile(blockFile)));
