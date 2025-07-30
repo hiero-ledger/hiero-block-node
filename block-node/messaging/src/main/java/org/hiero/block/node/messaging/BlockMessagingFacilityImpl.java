@@ -28,6 +28,7 @@ import org.hiero.block.node.spi.blockmessaging.BlockItemHandler;
 import org.hiero.block.node.spi.blockmessaging.BlockItems;
 import org.hiero.block.node.spi.blockmessaging.BlockMessagingFacility;
 import org.hiero.block.node.spi.blockmessaging.BlockNotificationHandler;
+import org.hiero.block.node.spi.blockmessaging.NewestBlockKnownToNetworkNotification;
 import org.hiero.block.node.spi.blockmessaging.NoBackPressureBlockItemHandler;
 import org.hiero.block.node.spi.blockmessaging.PersistedNotification;
 import org.hiero.block.node.spi.blockmessaging.VerificationNotification;
@@ -422,6 +423,13 @@ public class BlockMessagingFacilityImpl implements BlockMessagingFacility {
         blockNotificationDisruptor.getRingBuffer().publishEvent((event, sequence) -> event.set(notification));
         // TODO: Add a counter for backfilled notifications
         // blockBackfilledNotificationsCounter.increment();
+    }
+
+    @Override
+    public void sendNewestBlockKnownToNetwork(NewestBlockKnownToNetworkNotification notification) {
+        blockNotificationDisruptor.getRingBuffer().publishEvent((event, sequence) -> event.set(notification));
+        // TODO: add a counter for NewestBlockKnownToNetwork notification
+        // NewestBlockKnownToNetworkNotificationsCounter.increment();
     }
 
     /**

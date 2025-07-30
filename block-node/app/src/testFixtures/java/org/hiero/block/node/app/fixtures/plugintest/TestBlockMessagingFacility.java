@@ -13,6 +13,7 @@ import org.hiero.block.node.spi.blockmessaging.BlockItemHandler;
 import org.hiero.block.node.spi.blockmessaging.BlockItems;
 import org.hiero.block.node.spi.blockmessaging.BlockMessagingFacility;
 import org.hiero.block.node.spi.blockmessaging.BlockNotificationHandler;
+import org.hiero.block.node.spi.blockmessaging.NewestBlockKnownToNetworkNotification;
 import org.hiero.block.node.spi.blockmessaging.NoBackPressureBlockItemHandler;
 import org.hiero.block.node.spi.blockmessaging.PersistedNotification;
 import org.hiero.block.node.spi.blockmessaging.VerificationNotification;
@@ -222,6 +223,14 @@ public class TestBlockMessagingFacility implements BlockMessagingFacility {
         LOGGER.log(Level.TRACE, "Sending backfilled block notification " + notification);
         for (BlockNotificationHandler handler : blockNotificationHandlers) {
             handler.handleBackfilled(notification);
+        }
+    }
+
+    @Override
+    public void sendNewestBlockKnownToNetwork(NewestBlockKnownToNetworkNotification notification) {
+        LOGGER.log(Level.TRACE, "Sending NewestBlockKnownToNetworkNotification block notification " + notification);
+        for (BlockNotificationHandler handler : blockNotificationHandlers) {
+            handler.handleNewestBlockKnownToNetwork(notification);
         }
     }
 
