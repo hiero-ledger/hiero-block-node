@@ -2,6 +2,7 @@
 package org.hiero.block.node.messaging;
 
 import org.hiero.block.node.spi.blockmessaging.BackfilledBlockNotification;
+import org.hiero.block.node.spi.blockmessaging.NewestBlockKnownToNetworkNotification;
 import org.hiero.block.node.spi.blockmessaging.PersistedNotification;
 import org.hiero.block.node.spi.blockmessaging.VerificationNotification;
 
@@ -15,6 +16,8 @@ public class BlockNotificationRingEvent {
     private PersistedNotification persistedNotification;
     /** The Backfilled block notification to be published to downstream subscribers through the LMAX Disruptor. */
     private BackfilledBlockNotification backfilledBlockNotification;
+    /** The Newest block known to network notification to be published to downstream subscribers through the LMAX Disruptor. */
+    private NewestBlockKnownToNetworkNotification newestBlockKnownToNetworkNotification;
 
     /** Constructor for the BlockNotificationRingEvent class. */
     public BlockNotificationRingEvent() {}
@@ -28,6 +31,7 @@ public class BlockNotificationRingEvent {
         this.verificationNotification = verificationNotification;
         this.persistedNotification = null;
         this.backfilledBlockNotification = null;
+        this.newestBlockKnownToNetworkNotification = null;
     }
 
     /**
@@ -39,6 +43,7 @@ public class BlockNotificationRingEvent {
         this.verificationNotification = null;
         this.persistedNotification = persistedNotification;
         this.backfilledBlockNotification = null;
+        this.newestBlockKnownToNetworkNotification = null;
     }
 
     /**
@@ -48,6 +53,14 @@ public class BlockNotificationRingEvent {
      */
     public void set(final BackfilledBlockNotification backfilledBlockNotification) {
         this.backfilledBlockNotification = backfilledBlockNotification;
+        this.verificationNotification = null;
+        this.persistedNotification = null;
+        this.newestBlockKnownToNetworkNotification = null;
+    }
+
+    public void set(final NewestBlockKnownToNetworkNotification newestBlockKnownToNetworkNotification) {
+        this.newestBlockKnownToNetworkNotification = newestBlockKnownToNetworkNotification;
+        this.backfilledBlockNotification = null;
         this.verificationNotification = null;
         this.persistedNotification = null;
     }
@@ -80,5 +93,15 @@ public class BlockNotificationRingEvent {
      */
     public BackfilledBlockNotification getBackfilledBlockNotification() {
         return backfilledBlockNotification;
+    }
+
+    /**
+     * Gets the newest block known to network notification of the event from the LMAX Disruptor on the consumer side. If
+     * the event is a verification, persisted or backfilled block notification, this will return null.
+     *
+     * @return the value of the event
+     */
+    public NewestBlockKnownToNetworkNotification getNewestBlockKnownToNetworkNotification() {
+        return newestBlockKnownToNetworkNotification;
     }
 }
