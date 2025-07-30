@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.node.stream.publisher;
 
+import static java.lang.System.Logger.Level.DEBUG;
 import static java.lang.System.Logger.Level.INFO;
 import static org.hiero.block.node.spi.BlockNodePlugin.METRICS_CATEGORY;
 import static org.hiero.block.node.spi.BlockNodePlugin.UNKNOWN_BLOCK_NUMBER;
@@ -129,28 +130,40 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
 
     @Override
     public void onNext(@NonNull final PublishStreamRequestUnparsed request) {
-        if (request.hasBlockItems()) {
-            final BlockItemSetUnparsed itemSetUnparsed = Objects.requireNonNull(request.blockItems());
-            final List<BlockItemUnparsed> blockItems = itemSetUnparsed.blockItems();
-            if (blockItems.isEmpty()) {
+        try {
+            if (request.hasBlockItems()) {
+                final BlockItemSetUnparsed itemSetUnparsed = Objects.requireNonNull(request.blockItems());
+                final List<BlockItemUnparsed> blockItems = itemSetUnparsed.blockItems();
+                if (blockItems.isEmpty()) {
+                    try {
+                        sendEndOfStream(Code.INVALID_REQUEST);
+                        // @todo(1416) add metrics
+                        resetState();
+                    } finally {
+                        shutdown();
+                    }
+                } else {
+                    handleBlockItemsRequest(itemSetUnparsed, blockItems);
+                }
+            } else if (request.hasEndStream()) {
+                // @todo(1236) handle an endStream potentially received from publisher, for now we simply shutdown
+                shutdown();
+            } else {
+                // this should never happen
                 try {
-                    sendEndOfStream(Code.INVALID_REQUEST);
+                    sendEndOfStream(Code.ERROR);
                     // @todo(1416) add metrics
                     resetState();
                 } finally {
                     shutdown();
                 }
-            } else {
-                handleBlockItemsRequest(itemSetUnparsed, blockItems);
             }
-        } else if (request.hasEndStream()) {
-            // @todo(1236) handle an endStream potentially received from publisher, for now we simply shutdown
-            shutdown();
-        } else {
-            // this should never happen
+        } catch(final InterruptedException | RuntimeException e) {
+            // If we reach here, it means that the handler was interrupted or
+            // an unexpected error occurred. We should log the error and shut down.
+            LOGGER.log(INFO, "Error processing request: %s", e);
             try {
                 sendEndOfStream(Code.ERROR);
-                // @todo(1416) add metrics
                 resetState();
             } finally {
                 shutdown();
@@ -159,7 +172,8 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
     }
 
     private void handleBlockItemsRequest(
-            final BlockItemSetUnparsed itemSetUnparsed, final List<BlockItemUnparsed> blockItems) {
+            final BlockItemSetUnparsed itemSetUnparsed, final List<BlockItemUnparsed> blockItems)
+            throws InterruptedException {
         long blockNumber = currentStreamingBlockNumber.get();
         final BlockItemUnparsed first = blockItems.getFirst();
         // every time we receive an item set, we need to check if we have
@@ -310,15 +324,21 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
     }
 
     private void sendEndOfStream(final EndOfStream.Code codeToSend) {
-        final EndOfStream endOfStream = EndOfStream.newBuilder()
-                .status(codeToSend)
-                .blockNumber(publisherManager.getLatestBlockNumber())
-                .build();
-        final PublishStreamResponse response =
-                PublishStreamResponse.newBuilder().endStream(endOfStream).build();
-        replies.onNext(response);
-        // @todo(1416) handle additional metrics outside of this method
-        metrics.endOfStreamsSent.increment(); // @todo(1415) add label
+        try {
+            final EndOfStream endOfStream = EndOfStream.newBuilder()
+                    .status(codeToSend)
+                    .blockNumber(publisherManager.getLatestBlockNumber())
+                    .build();
+            final PublishStreamResponse response =
+                    PublishStreamResponse.newBuilder().endStream(endOfStream).build();
+            replies.onNext(response);
+            // @todo(1416) handle additional metrics outside of this method
+            metrics.endOfStreamsSent.increment(); // @todo(1415) add label
+        } catch (RuntimeException e) {
+            // Sending this response is best-effort, not something to alert
+            // on-call or throw exceptions.
+            LOGGER.log(DEBUG, "Failed to send end of stream response: %s", e);
+        }
     }
 
     // ==== Block Action Handling Methods ======================================
@@ -336,14 +356,11 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
      * Handle the ACCEPT action for a block.
      */
     private BatchHandleResult handleAccept(
-            final BlockItemSetUnparsed itemSetUnparsed, final List<BlockItemUnparsed> blockItems) {
+            final BlockItemSetUnparsed itemSetUnparsed, final List<BlockItemUnparsed> blockItems)
+            throws InterruptedException {
         // If the action is ACCEPT, we can safely propagate the items
         // to the manager.
-        // @todo(1416) Ignoring this return value can result in lost data.
-        //   An alternative is to use `put`, which might block, but won't
-        //   just fail to add the item set.
-        // @todo(1416) need to check if the item was added and handle "not added".
-        blockItemsQueue.offer(itemSetUnparsed);
+        blockItemsQueue.put(itemSetUnparsed);
         final int itemsReceived = blockItems.size();
         metrics.liveBlockItemsReceived.add(itemsReceived); // @todo(1415) add label
         return new BatchHandleResult(false, false);
