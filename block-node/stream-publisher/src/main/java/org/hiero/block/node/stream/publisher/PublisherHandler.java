@@ -154,6 +154,10 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
             }
         } else if (request.hasEndStream()) {
             // @todo(1236) handle an endStream potentially received from publisher, for now we simply shutdown
+
+            // handle end stream request
+            publisherManager.handleEndStreamRequest(request.endStream());
+
             shutdown();
         } else {
             // this should never happen

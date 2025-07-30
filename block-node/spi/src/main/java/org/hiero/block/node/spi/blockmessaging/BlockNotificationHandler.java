@@ -34,4 +34,12 @@ public interface BlockNotificationHandler {
      * @param notification the backfilled block notification to handle
      */
     default void handleBackfilled(BackfilledBlockNotification notification) {}
+
+    /**
+     * Handle a new block known to the network notification. Always called on handler thread. Each registered handler
+     * will have its own virtual thread.
+     *
+     * @param notification the new block known to the network notification to handle
+     */
+    default void handleNewestBlockKnownToNetwork(NewestBlockKnownToNetworkNotification notification) {}
 }

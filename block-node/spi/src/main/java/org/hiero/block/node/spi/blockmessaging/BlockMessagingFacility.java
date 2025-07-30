@@ -80,6 +80,14 @@ public interface BlockMessagingFacility extends BlockNodePlugin {
     void sendBackfilledBlockNotification(BackfilledBlockNotification notification);
 
     /**
+     * Use this method to notify the system about a new block known to the network.
+     * This is used to inform the system that a new block header is known to the network,
+     * and our node should attempt to get up to date with the latest block.
+     * @param notification the notification containing the block number.
+     */
+    void sendNewestBlockKnownToNetwork(NewestBlockKnownToNetworkNotification notification);
+
+    /**
      * Use this method to register a block notification handler. The handler will be called every time new block
      * notifications arrive. The calls will be on its own thread, every handler registered has its own thread. It can
      * consume block notifications at its own pace, if it is too slow then it will apply back pressure to block

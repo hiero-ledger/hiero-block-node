@@ -28,6 +28,6 @@ public record BackfillConfiguration(
         @Loggable @ConfigProperty(defaultValue = "60000") @Min(100) int scanIntervalMs,
         @Loggable @ConfigProperty(defaultValue = "3") @Min(0) @Max(10) int maxRetries,
         @Loggable @ConfigProperty(defaultValue = "5000") @Min(500) int initialRetryDelayMs,
-        @Loggable @ConfigProperty(defaultValue = "100") @Min(1) @Max(10_000) int fetchBatchSize,
+        @Loggable @ConfigProperty(defaultValue = "25") @Min(1) @Max(10_000) int fetchBatchSize,
         @Loggable @ConfigProperty(defaultValue = "1000") @Min(100) int delayBetweenBatchesMs,
         @Loggable @ConfigProperty(defaultValue = "15000") @Min(5) int initialDelayMs) {}

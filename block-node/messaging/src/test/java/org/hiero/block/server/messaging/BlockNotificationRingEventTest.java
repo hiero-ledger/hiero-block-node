@@ -8,6 +8,7 @@ import org.hiero.block.internal.BlockUnparsed;
 import org.hiero.block.node.messaging.BlockNotificationRingEvent;
 import org.hiero.block.node.spi.blockmessaging.BackfilledBlockNotification;
 import org.hiero.block.node.spi.blockmessaging.BlockSource;
+import org.hiero.block.node.spi.blockmessaging.NewestBlockKnownToNetworkNotification;
 import org.hiero.block.node.spi.blockmessaging.PersistedNotification;
 import org.hiero.block.node.spi.blockmessaging.VerificationNotification;
 import org.junit.jupiter.api.DisplayName;
@@ -45,6 +46,9 @@ class BlockNotificationRingEventTest {
         assertEquals(notification, event.getVerificationNotification());
         assertNull(event.getPersistedNotification(), "Persisted notification should be null");
         assertNull(event.getBackfilledBlockNotification(), "Backfilled notification should be null");
+        assertNull(
+                event.getNewestBlockKnownToNetworkNotification(),
+                "Newest block known to network notification should be null");
     }
 
     /**
@@ -61,6 +65,9 @@ class BlockNotificationRingEventTest {
         assertEquals(notification, event.getPersistedNotification());
         assertNull(event.getVerificationNotification(), "Verification notification should be null");
         assertNull(event.getBackfilledBlockNotification(), "Backfilled notification should be null");
+        assertNull(
+                event.getNewestBlockKnownToNetworkNotification(),
+                "Newest block known to network notification should be null");
     }
 
     /**
@@ -78,6 +85,26 @@ class BlockNotificationRingEventTest {
         assertEquals(notification, event.getBackfilledBlockNotification());
         assertNull(event.getVerificationNotification(), "Verification notification should be null");
         assertNull(event.getPersistedNotification(), "Persisted notification should be null");
+        assertNull(
+                event.getNewestBlockKnownToNetworkNotification(),
+                "Newest block known to network notification should be null");
+    }
+
+    /**
+     * Tests setting and getting a backfilled notification.
+     */
+    @Test
+    @DisplayName("Should set and get NewestBlockKnownToNetworkNotification notification correctly")
+    void shouldSetAndGetNewestBlockKnownToNetworkNotification() {
+        final BlockNotificationRingEvent event = new BlockNotificationRingEvent();
+        final NewestBlockKnownToNetworkNotification notification = new NewestBlockKnownToNetworkNotification(10L);
+
+        event.set(notification);
+
+        assertEquals(notification, event.getNewestBlockKnownToNetworkNotification());
+        assertNull(event.getVerificationNotification(), "Verification notification should be null");
+        assertNull(event.getPersistedNotification(), "Persisted notification should be null");
+        assertNull(event.getBackfilledBlockNotification(), "Backfilled notification should be null");
     }
 
     /**
