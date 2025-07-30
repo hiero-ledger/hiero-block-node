@@ -300,6 +300,7 @@ class PublisherHandlerTest {
                 assertThat(metrics.blockSkipsSent().get()).isEqualTo(0);
                 assertThat(metrics.blockResendsSent().get()).isEqualTo(0);
                 assertThat(metrics.endOfStreamsSent().get()).isEqualTo(0);
+                assertThat(metrics.sendResponseFailed().get()).isEqualTo(0);
                 assertThat(metrics.endStreamsReceived().get()).isEqualTo(0);
             }
 
@@ -530,6 +531,7 @@ class PublisherHandlerTest {
                 assertThat(metrics.blockSkipsSent().get()).isEqualTo(0);
                 assertThat(metrics.blockResendsSent().get()).isEqualTo(0);
                 assertThat(metrics.endOfStreamsSent().get()).isEqualTo(0);
+                assertThat(metrics.sendResponseFailed().get()).isEqualTo(0);
                 assertThat(metrics.endStreamsReceived().get()).isEqualTo(0);
             }
 
@@ -644,6 +646,7 @@ class PublisherHandlerTest {
                 assertThat(metrics.streamErrors().get()).isEqualTo(0);
                 assertThat(metrics.blockResendsSent().get()).isEqualTo(0);
                 assertThat(metrics.endOfStreamsSent().get()).isEqualTo(0);
+                assertThat(metrics.sendResponseFailed().get()).isEqualTo(0);
                 assertThat(metrics.endStreamsReceived().get()).isEqualTo(0);
             }
 
@@ -766,6 +769,7 @@ class PublisherHandlerTest {
                 assertThat(metrics.streamErrors().get()).isEqualTo(0);
                 assertThat(metrics.blockSkipsSent().get()).isEqualTo(0);
                 assertThat(metrics.endOfStreamsSent().get()).isEqualTo(0);
+                assertThat(metrics.sendResponseFailed().get()).isEqualTo(0);
                 assertThat(metrics.endStreamsReceived().get()).isEqualTo(0);
             }
 
@@ -891,6 +895,7 @@ class PublisherHandlerTest {
                 assertThat(metrics.streamErrors().get()).isEqualTo(0);
                 assertThat(metrics.blockSkipsSent().get()).isEqualTo(0);
                 assertThat(metrics.blockResendsSent().get()).isEqualTo(0);
+                assertThat(metrics.sendResponseFailed().get()).isEqualTo(0);
                 assertThat(metrics.endStreamsReceived().get()).isEqualTo(0);
             }
 
@@ -1015,6 +1020,7 @@ class PublisherHandlerTest {
                 assertThat(metrics.streamErrors().get()).isEqualTo(0);
                 assertThat(metrics.blockSkipsSent().get()).isEqualTo(0);
                 assertThat(metrics.blockResendsSent().get()).isEqualTo(0);
+                assertThat(metrics.sendResponseFailed().get()).isEqualTo(0);
                 assertThat(metrics.endStreamsReceived().get()).isEqualTo(0);
             }
 
@@ -1139,6 +1145,7 @@ class PublisherHandlerTest {
                 assertThat(metrics.blockAcknowledgementsSent().get()).isEqualTo(0);
                 assertThat(metrics.blockSkipsSent().get()).isEqualTo(0);
                 assertThat(metrics.blockResendsSent().get()).isEqualTo(0);
+                assertThat(metrics.sendResponseFailed().get()).isEqualTo(0);
                 assertThat(metrics.endStreamsReceived().get()).isEqualTo(0);
             }
 
@@ -1248,6 +1255,7 @@ class PublisherHandlerTest {
                 assertThat(metrics.blockSkipsSent().get()).isEqualTo(0);
                 assertThat(metrics.blockResendsSent().get()).isEqualTo(0);
                 assertThat(metrics.endOfStreamsSent().get()).isEqualTo(0);
+                assertThat(metrics.sendResponseFailed().get()).isEqualTo(0);
                 assertThat(metrics.endStreamsReceived().get()).isEqualTo(0);
             }
 
@@ -1397,6 +1405,7 @@ class PublisherHandlerTest {
                 assertThat(metrics.blockSkipsSent().get()).isEqualTo(0);
                 assertThat(metrics.blockResendsSent().get()).isEqualTo(0);
                 assertThat(metrics.endOfStreamsSent().get()).isEqualTo(0);
+                assertThat(metrics.sendResponseFailed().get()).isEqualTo(0);
                 assertThat(metrics.endStreamsReceived().get()).isEqualTo(0);
                 // Now send a valid request, which contains a block header
                 final BlockItemSetUnparsed validBlockItemSet =
@@ -1419,6 +1428,7 @@ class PublisherHandlerTest {
                 assertThat(metrics.blockSkipsSent().get()).isEqualTo(0);
                 assertThat(metrics.blockResendsSent().get()).isEqualTo(0);
                 assertThat(metrics.endOfStreamsSent().get()).isEqualTo(0);
+                assertThat(metrics.sendResponseFailed().get()).isEqualTo(0);
                 assertThat(metrics.endStreamsReceived().get()).isEqualTo(0);
             }
 
@@ -1564,6 +1574,7 @@ class PublisherHandlerTest {
                 assertThat(metrics.streamErrors().get()).isEqualTo(0);
                 assertThat(metrics.blockSkipsSent().get()).isEqualTo(0);
                 assertThat(metrics.blockResendsSent().get()).isEqualTo(0);
+                assertThat(metrics.sendResponseFailed().get()).isEqualTo(0);
                 assertThat(metrics.endStreamsReceived().get()).isEqualTo(0);
             }
 
@@ -1665,6 +1676,7 @@ class PublisherHandlerTest {
                 assertThat(metrics.streamErrors().get()).isEqualTo(0);
                 assertThat(metrics.blockSkipsSent().get()).isEqualTo(0);
                 assertThat(metrics.blockResendsSent().get()).isEqualTo(0);
+                assertThat(metrics.sendResponseFailed().get()).isEqualTo(0);
                 assertThat(metrics.endStreamsReceived().get()).isEqualTo(0);
             }
 
@@ -1764,6 +1776,7 @@ class PublisherHandlerTest {
                 assertThat(metrics.streamErrors().get()).isEqualTo(0);
                 assertThat(metrics.blockSkipsSent().get()).isEqualTo(0);
                 assertThat(metrics.blockResendsSent().get()).isEqualTo(0);
+                assertThat(metrics.sendResponseFailed().get()).isEqualTo(0);
                 assertThat(metrics.endStreamsReceived().get()).isEqualTo(0);
             }
 
@@ -2050,6 +2063,7 @@ class PublisherHandlerTest {
                 assertThat(metrics.streamErrors().get()).isEqualTo(0);
                 assertThat(metrics.blockSkipsSent().get()).isEqualTo(0);
                 assertThat(metrics.blockResendsSent().get()).isEqualTo(0);
+                assertThat(metrics.sendResponseFailed().get()).isEqualTo(0);
                 assertThat(metrics.endStreamsReceived().get()).isEqualTo(0);
             }
         }
@@ -2190,6 +2204,7 @@ class PublisherHandlerTest {
      */
     private MetricsHolder createMetrics() {
         return new MetricsHolder(
+                new DefaultCounter(new Config("category", "name")),
                 new DefaultCounter(new Config("category", "name")),
                 new DefaultCounter(new Config("category", "name")),
                 new DefaultCounter(new Config("category", "name")),

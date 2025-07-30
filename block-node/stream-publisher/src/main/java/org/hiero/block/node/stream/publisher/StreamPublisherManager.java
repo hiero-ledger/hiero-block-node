@@ -78,6 +78,11 @@ public interface StreamPublisherManager extends BlockNotificationHandler {
     void handlerIsEnding(final long blockNumber, final long handlerId);
 
     /**
+     * Shut down the publisher manager and all of its handlers.
+     */
+    void shutdown();
+
+    /**
      * The action to take within the PublisherHandler for a block.
      */
     enum BlockAction {
