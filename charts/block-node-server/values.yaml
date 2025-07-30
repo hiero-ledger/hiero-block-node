@@ -68,6 +68,30 @@ tolerations: []
 affinity: {}
 
 blockNode:
+  # init container verbatim
+  initContainers:
+    - name: init-storage-dirs
+      image: busybox
+      command:
+        - sh
+        - -c
+        - |
+          mkdir -p /live-pvc/live-storage && \
+          chown 2000:2000 /live-pvc/live-storage && \
+          chmod 700 /live-pvc/live-storage && \
+          mkdir -p /archive-pvc/archive-storage && \
+          chown 2000:2000 /archive-pvc/archive-storage && \
+          chmod 700 /archive-pvc/archive-storage && \
+          mkdir -p /logging-pvc/logging-data && \
+          chown 2000:2000 /logging-pvc/logging-data && \
+          chmod 700 /logging-pvc/logging-data
+      volumeMounts:
+        - name: live-storage
+          mountPath: /live-pvc
+        - name: archive-storage
+          mountPath: /archive-pvc
+        - name: logging-data
+          mountPath: /logging-pvc
   # if blank will use same as AppVersion of chart.
   version: ""
   config:
@@ -85,6 +109,8 @@ blockNode:
     SERVER_PORT: "40840"
   persistence:
     archive:
+      #name of the volume within the deploymeent
+      volumeName: "archive-storage"
       # If false, the chart expects an externally provided PVC
       create: true
       # Name of the externally provided PVC
@@ -98,6 +124,8 @@ blockNode:
       # Optionally add a storage class name if needed
       # storageClass: "your-storage-class"
     logging:
+      #name of the volume within the deploymeent
+      volumeName: "logging-data"
       # If false, the chart expects an externally provided PVC
       create: true
       # Name of the externally provided PVC
@@ -110,6 +138,8 @@ blockNode:
       # Optionally add a storage class name if needed
       # storageClass: "your-storage-class"
     live:
+      #name of the volume within the deploymeent
+      volumeName: "live-storage"
       # If false, the chart expects an externally provided PVC
       create: true
       # Name of the externally provided PVC
