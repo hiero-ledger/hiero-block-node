@@ -2,7 +2,6 @@
 package org.hiero.block.node.stream.publisher;
 
 import static java.lang.System.Logger.Level.TRACE;
-import static java.util.concurrent.locks.LockSupport.parkNanos;
 import static org.hiero.block.node.spi.BlockNodePlugin.METRICS_CATEGORY;
 import static org.hiero.block.node.spi.BlockNodePlugin.UNKNOWN_BLOCK_NUMBER;
 
@@ -23,9 +22,13 @@ import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.ConcurrentSkipListMap;
 import java.util.concurrent.Future;
 import java.util.concurrent.LinkedTransferQueue;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.locks.Condition;
+import java.util.concurrent.locks.ReentrantLock;
 import org.hiero.block.api.PublishStreamResponse;
 import org.hiero.block.internal.BlockItemSetUnparsed;
+import org.hiero.block.node.app.config.node.NodeConfig;
 import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.blockmessaging.BlockItems;
 import org.hiero.block.node.spi.blockmessaging.BlockMessagingFacility;
@@ -39,6 +42,7 @@ import org.hiero.block.node.spi.threading.ThreadPoolManager;
  */
 public final class LiveStreamPublisherManager implements StreamPublisherManager {
     private static final String QUEUE_ID_FORMAT = "Q%016d";
+    private static final int DATA_READY_WAIT_MICROSECONDS = 500;
     // @todo(1413) utilize the logger
     private final System.Logger LOGGER = System.getLogger(LiveStreamPublisherManager.class.getName());
     private final MetricsHolder metrics;
@@ -48,6 +52,8 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
     private final AtomicLong nextHandlerId;
     private final ConcurrentMap<String, BlockingQueue<BlockItemSetUnparsed>> transferQueueMap;
     private final ConcurrentMap<Long, BlockingQueue<BlockItemSetUnparsed>> queueByBlockMap;
+    private final Condition dataReadyLatch;
+    private final ReentrantLock dataReadyLock;
 
     /**
      * Future tracking the queue forwarder task.
@@ -81,6 +87,8 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
         currentStreamingBlockNumber = new AtomicLong(-1);
         nextUnstreamedBlockNumber = new AtomicLong(-1);
         lastPersistedBlockNumber = new AtomicLong(-1);
+        dataReadyLock = new ReentrantLock();
+        dataReadyLatch = dataReadyLock.newCondition();
         updateBlockNumbers(serverContext);
     }
 
@@ -129,6 +137,25 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
         };
     }
 
+    @Override
+    public void shutdown() {
+        // Shut down all handlers and clear the queues.
+        for (final Long nextKey : handlers.keySet()) {
+            final PublisherHandler value = handlers.remove(nextKey);
+            if (value != null) {
+                value.closeCommunication();
+            }
+        }
+        handlers.clear();
+        transferQueueMap.clear();
+        queueByBlockMap.clear();
+        // Cancel the queue forwarder task if it is running.
+        if (queueForwarderResult != null) {
+            queueForwarderResult.cancel(true);
+            queueForwarderResult = null;
+        }
+    }
+
     /**
      * todo(1420) add documentation
      */
@@ -167,11 +194,59 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
                 if (queueForwarderResult == null) {
                     queueForwarderResult = launchQueueForwarder();
                 }
+                // This should result in new data being available, so we
+                // count down the data ready latch.
+                signalDataReady();
                 return BlockAction.ACCEPT;
             }
         }
         // Return the correct action if another handler jumped in front of the caller.
         return blockNumber < nextUnstreamedBlockNumber.get() ? BlockAction.SKIP : BlockAction.END_BEHIND;
+    }
+
+    /*
+     * Signal the data ready condition.
+     * <p>
+     * This method is called to indicate that data _might_ be available to be
+     * sent to the messaging facility.<br/>
+     * The messaging thread may wait on this condition to limit spin cycles
+     * and still have a low impact on latency.
+     */
+    private void signalDataReady() {
+        dataReadyLock.lock();
+        try {
+            dataReadyLatch.signal();
+        } finally {
+            dataReadyLock.unlock();
+        }
+    }
+
+    /**
+     * Wait for data to be ready.
+     * <p>
+     * This method will block until the data ready condition is signaled or
+     * the timeout is reached.<br/>
+     * This method is used (with {@link #signalDataReady()}) to limit spin
+     * cycles and still have a low impact on latency.
+     * <p>
+     * When this method returns data _might_ be available to send to the
+     * messaging facility, but it is not guaranteed.
+     * <p>
+     * Note
+     * <blockquote>This method ignored interrupted exceptions as a specific
+     * optimization to avoid unnecessarily ending a thread or causing failures
+     * when interrupt is used as a signal rather than signaling the `Condition`
+     * variable.</blockquote>
+     */
+    private void waitForDataReady() {
+        dataReadyLock.lock();
+        try {
+            dataReadyLatch.await(DATA_READY_WAIT_MICROSECONDS, TimeUnit.MICROSECONDS);
+        } catch (InterruptedException e) {
+            // just ignore interruption in this specific case.
+        } finally {
+            dataReadyLock.unlock();
+        }
     }
 
     /**
@@ -185,6 +260,9 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
             // We'll have to skip the rest of this block.
             return BlockAction.SKIP;
         } else if (blockNumber >= currentStreamingBlockNumber.get() && blockNumber < nextUnstreamedBlockNumber.get()) {
+            // This should result in new data being available, so we
+            // count down the data ready latch.
+            signalDataReady();
             // We're one of the handlers currently streaming, keep going.
             return BlockAction.ACCEPT;
         } else if (blockNumber == nextUnstreamedBlockNumber.get()) {
@@ -220,11 +298,13 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
         if (queueForwarderResult == null || queueForwarderResult.isDone()) {
             queueForwarderResult = launchQueueForwarder();
         }
-        // @todo(1416) complete tasks that do not require the block proof data here.
+        // @todo(1416) complete tasks that do not require the block proof data here (before this line).
         if (blockEndProof == null) {
             // No point logging here, as the handler would have done that.
             // here we just update metrics.
+            metrics.blocksClosedIncomplete.increment();
         } else {
+            metrics.blocksClosedComplete.increment();
             // @todo(1413) Also log completed blocks metric and any other relevant
             //     actions. Also check if we have incomplete blocks lower than the
             //     block that completed, and possibly enter the resend process to
@@ -393,10 +473,7 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
         return QUEUE_ID_FORMAT.formatted(handlerId);
     }
 
-    // Somewhere we were supposed to set the first block number supported by
-    // the block node. I don't know what happened to that config, but it seems
-    // to be missing. I asked the question on the backfill PR as it's also
-    // relevant there. The current streaming should be the next block to be
+    // The current streaming should be the next block to be
     // streamed, but _only_ on startup. After that there should always be
     // a delta (next unstreamed must always be strictly greater than the current
     // streaming block number).
@@ -406,11 +483,12 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
         // Always set the last persisted block number, even if there are no
         // known blocks.
         lastPersistedBlockNumber.set(latestKnownBlock);
+        NodeConfig nodeConfiguration = serverContext.configuration().getConfigData(NodeConfig.class);
+        final long earliestManagedBlock = nodeConfiguration.earliestManagedBlock();
         if (UNKNOWN_BLOCK_NUMBER == latestKnownBlock) {
             // if we have entered here, then we have no blocks available
-            // @todo(1416) get below values from hiero config.
-            currentStreamingBlockNumber.set(0L);
-            nextUnstreamedBlockNumber.set(0L);
+            currentStreamingBlockNumber.set(earliestManagedBlock);
+            nextUnstreamedBlockNumber.set(earliestManagedBlock);
         } else {
             // if we have entered here, we know what the latest known block is,
             // so we can set the next unstreamed block number to one greater
@@ -483,15 +561,11 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
                         }
                     }
                     // If the current block number has no batches to send, then
-                    // block on a count down latch until more data is available.
-                    // @todo(1416) need to figure out how to reset and set the countdown
-                    //     latch...  Until then, just park for 1/2 millisecond.
-                    // Park for 500 microseconds if there is no data available,
-                    // but not if the current block is completed (i.e. we just
-                    // sent a block proof).
+                    // block on a condition variable until more data is
+                    // _probably_ available, or 500 microseconds elapses.
                     if (publisherManager.currentStreamingBlockNumber.get() == currentBlockNumber
                             && availableBatches.isEmpty()) {
-                        parkNanos(500_000); // Park for 500 microseconds
+                        publisherManager.waitForDataReady();
                     }
                 }
             }
@@ -501,10 +575,14 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
 
     /**
      * Metrics for tracking publisher handler activity:
+     * blockItemsMessaged - Number of block items delivered to the messaging service
+     * currentPublisherCount - Number of currently connected publishers
      * lowestBlockNumber - Lowest incoming block number
      * currentBlockNumber - Current incoming block number
      * highestBlockNumber - Highest incoming block number
      * latestBlockNumberAcknowledged - The latest block number acknowledged
+     * blocksClosedComplete - Number of blocks received complete (with both header and proof)
+     * blocksClosedIncomplete - Number of blocks received incomplete (missing header or proof)
      */
     public record MetricsHolder(
             Counter blockItemsMessaged,
@@ -512,7 +590,9 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
             LongGauge lowestBlockNumber,
             LongGauge currentBlockNumber,
             LongGauge highestBlockNumber,
-            LongGauge latestBlockNumberAcknowledged) {
+            LongGauge latestBlockNumberAcknowledged,
+            Counter blocksClosedComplete,
+            Counter blocksClosedIncomplete) {
         /**
          * todo(1420) add documentation
          */
@@ -520,6 +600,12 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
             final Counter blockItemsMessaged =
                     metrics.getOrCreate(new Counter.Config(METRICS_CATEGORY, "publisher_block_items_messaged")
                             .withDescription("Live block items messaged to the messaging service"));
+            final Counter blocksClosedComplete =
+                    metrics.getOrCreate(new Counter.Config(METRICS_CATEGORY, "publisher_blocks_closed_complete")
+                            .withDescription("Blocks received complete (with both header and proof) by any Handler"));
+            final Counter blocksClosedIncomplete =
+                    metrics.getOrCreate(new Counter.Config(METRICS_CATEGORY, "publisher_blocks_closed_incomplete")
+                            .withDescription("Blocks received incomplete (missing header or proof) by any Handler"));
             final LongGauge numberOfProducers =
                     metrics.getOrCreate(new LongGauge.Config(METRICS_CATEGORY, "publisher_open_connections")
                             .withDescription("Connected publishers"));
@@ -541,7 +627,9 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
                     lowestBlockNumber,
                     currentBlockNumber,
                     highestBlockNumber,
-                    latestBlockNumberAcknowledged);
+                    latestBlockNumberAcknowledged,
+                    blocksClosedComplete,
+                    blocksClosedIncomplete);
         }
     }
 }

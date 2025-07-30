@@ -114,7 +114,8 @@ public final class StreamPublisherPlugin implements BlockNodePlugin, BlockStream
 
     @Override
     public void stop() {
-        // @todo(1416) clean up the publisher manager and handlers
+        context.blockMessaging().unregisterBlockNotificationHandler(publisherManager);
+        publisherManager.shutdown();
     }
 
     @Override
