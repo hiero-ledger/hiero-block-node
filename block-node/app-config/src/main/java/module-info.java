@@ -5,6 +5,8 @@ module org.hiero.block.node.app.config {
             com.swirlds.config.impl,
             com.swirlds.config.extensions,
             org.hiero.block.node.app;
+    // export the node-wide configuration to everything.
+    exports org.hiero.block.node.app.config.node;
 
     requires transitive com.swirlds.config.api;
     requires com.swirlds.base;
