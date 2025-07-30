@@ -14,8 +14,10 @@ import com.hedera.pbj.runtime.OneOf;
 import com.hedera.pbj.runtime.ParseException;
 import java.io.IOException;
 import java.util.List;
+import java.util.concurrent.LinkedBlockingQueue;
 import org.hiero.block.internal.BlockItemUnparsed;
 import org.hiero.block.internal.BlockItemUnparsed.ItemOneOfType;
+import org.hiero.block.node.app.fixtures.async.BlockingSerialExecutor;
 import org.hiero.block.node.app.fixtures.blocks.BlockUtils;
 import org.hiero.block.node.app.fixtures.plugintest.NoBlocksHistoricalBlockFacility;
 import org.hiero.block.node.app.fixtures.plugintest.PluginTestBase;
@@ -29,9 +31,10 @@ import org.junit.jupiter.api.Test;
 /**
  * Unit test for {@link VerificationServicePlugin}.
  */
-class VerificationServicePluginTest extends PluginTestBase<VerificationServicePlugin> {
+class VerificationServicePluginTest extends PluginTestBase<VerificationServicePlugin, BlockingSerialExecutor> {
 
     public VerificationServicePluginTest() {
+        super(new BlockingSerialExecutor(new LinkedBlockingQueue<>()));
         start(new VerificationServicePlugin(), new NoBlocksHistoricalBlockFacility());
     }
 

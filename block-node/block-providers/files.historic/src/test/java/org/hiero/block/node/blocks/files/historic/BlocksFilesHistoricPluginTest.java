@@ -140,7 +140,7 @@ class BlocksFilesHistoricPluginTest {
      */
     @Nested
     @DisplayName("Plugin Tests")
-    final class PluginTests extends PluginTestBase<BlocksFilesHistoricPlugin> {
+    final class PluginTests extends PluginTestBase<BlocksFilesHistoricPlugin, BlockingSerialExecutor> {
         /** The test block serial executor service to use for the plugin. */
         private final BlockingSerialExecutor pluginExecutor;
 
@@ -148,6 +148,7 @@ class BlocksFilesHistoricPluginTest {
          * Construct plugin base.
          */
         PluginTests() {
+            super(new BlockingSerialExecutor(new LinkedBlockingQueue<>()));
             // match overrides to the test config
             final Map<String, String> configOverrides = getConfigOverrides();
             pluginExecutor = testThreadPoolManager.executor();

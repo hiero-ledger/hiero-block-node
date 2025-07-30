@@ -129,10 +129,38 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
 
     @Override
     public void onNext(@NonNull final PublishStreamRequestUnparsed request) {
-        // @todo(1236) handle an endStream potentially received from publisher
-        final BlockItemSetUnparsed itemSetUnparsed = Objects.requireNonNull(request.blockItems());
+        if (request.hasBlockItems()) {
+            final BlockItemSetUnparsed itemSetUnparsed = Objects.requireNonNull(request.blockItems());
+            final List<BlockItemUnparsed> blockItems = itemSetUnparsed.blockItems();
+            if (blockItems.isEmpty()) {
+                try {
+                    sendEndOfStream(Code.INVALID_REQUEST);
+                    // @todo(1416) add metrics
+                    resetState();
+                } finally {
+                    shutdown();
+                }
+            } else {
+                handleBlockItemsRequest(itemSetUnparsed, blockItems);
+            }
+        } else if (request.hasEndStream()) {
+            // @todo(1236) handle an endStream potentially received from publisher, for now we simply shutdown
+            shutdown();
+        } else {
+            // this should never happen
+            try {
+                sendEndOfStream(Code.ERROR);
+                // @todo(1416) add metrics
+                resetState();
+            } finally {
+                shutdown();
+            }
+        }
+    }
+
+    private void handleBlockItemsRequest(
+            final BlockItemSetUnparsed itemSetUnparsed, final List<BlockItemUnparsed> blockItems) {
         long blockNumber = currentStreamingBlockNumber.get();
-        final List<BlockItemUnparsed> blockItems = itemSetUnparsed.blockItems();
         final BlockItemUnparsed first = blockItems.getFirst();
         // every time we receive an item set, we need to check if we have
         // a block header, if we do, we need to take the number and store it

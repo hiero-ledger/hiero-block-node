@@ -9,16 +9,18 @@ import com.hedera.pbj.runtime.grpc.ServiceInterface;
 import com.hedera.pbj.runtime.grpc.ServiceInterface.Method;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import edu.umd.cs.findbugs.annotations.NonNull;
+import edu.umd.cs.findbugs.annotations.Nullable;
 import io.helidon.webserver.http.HttpService;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
+import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Flow.Subscription;
 import org.hiero.block.node.spi.BlockNodePlugin;
 import org.hiero.block.node.spi.ServiceBuilder;
 import org.hiero.block.node.spi.historicalblocks.HistoricalBlockFacility;
-import org.hiero.block.node.spi.threading.ThreadPoolManager;
 
 /**
  * Base class for testing GRPC block node plugins.
@@ -31,8 +33,8 @@ import org.hiero.block.node.spi.threading.ThreadPoolManager;
  * Implementations of this class should call one of the start() methods. This will start the plugin and initialize the
  * test fixture.
  */
-public abstract class GrpcPluginTestBase<P extends BlockNodePlugin> extends PluginTestBase<P>
-        implements ServiceBuilder {
+public abstract class GrpcPluginTestBase<P extends BlockNodePlugin, E extends ExecutorService>
+        extends PluginTestBase<P, E> implements ServiceBuilder {
     private record ReqOptions(Optional<String> authority, boolean isProtobuf, boolean isJson, String contentType)
             implements ServiceInterface.RequestOptions {}
     /** The GRPC bytes received from the plugin. */
@@ -44,23 +46,29 @@ public abstract class GrpcPluginTestBase<P extends BlockNodePlugin> extends Plug
     /** The GRPC service interface for the plugin. */
     protected ServiceInterface serviceInterface;
 
+    protected GrpcPluginTestBase(@NonNull final E executorService) {
+        super(executorService);
+    }
+
     /**
      * Start the test fixture with the given plugin and historical block facility.
      *
      * @param plugin the plugin to be tested
      * @param historicalBlockFacility the historical block facility to be used
      */
-    public void start(P plugin, Method method, HistoricalBlockFacility historicalBlockFacility) {
-        start(plugin, method, historicalBlockFacility, null, null);
+    public void start(
+            @NonNull final P plugin,
+            @NonNull final Method method,
+            @NonNull final HistoricalBlockFacility historicalBlockFacility) {
+        start(plugin, method, historicalBlockFacility, null);
     }
 
     public void start(
-            P plugin,
-            Method method,
-            HistoricalBlockFacility historicalBlockFacility,
-            ThreadPoolManager testThreadManager,
-            Map<String, String> configOverrides) {
-        super.start(plugin, historicalBlockFacility, testThreadManager, configOverrides);
+            @NonNull final P plugin,
+            @NonNull final Method method,
+            @NonNull final HistoricalBlockFacility historicalBlockFacility,
+            @Nullable final Map<String, String> configOverrides) {
+        super.start(plugin, historicalBlockFacility, configOverrides);
         // setup to receive bytes from the plugin
         fromPluginPipe = new Pipeline<>() {
             @Override
@@ -90,7 +98,9 @@ public abstract class GrpcPluginTestBase<P extends BlockNodePlugin> extends Plug
         };
         // open a fake GRPC connection to the plugin
         toPluginPipe = serviceInterface.open(
-                method, new ReqOptions(Optional.empty(), true, false, "application/grpc"), fromPluginPipe);
+                Objects.requireNonNull(method),
+                new ReqOptions(Optional.empty(), true, false, "application/grpc"),
+                fromPluginPipe);
     }
 
     @Override

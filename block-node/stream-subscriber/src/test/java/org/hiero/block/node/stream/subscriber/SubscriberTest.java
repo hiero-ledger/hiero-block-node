@@ -16,17 +16,16 @@ import com.hedera.pbj.runtime.ParseException;
 import com.hedera.pbj.runtime.grpc.ServiceInterface.Method;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import java.util.List;
+import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import org.assertj.core.api.SoftAssertions;
 import org.hiero.block.api.SubscribeStreamRequest;
 import org.hiero.block.api.SubscribeStreamResponse;
 import org.hiero.block.api.SubscribeStreamResponse.ResponseOneOfType;
 import org.hiero.block.internal.BlockItemUnparsed;
-import org.hiero.block.node.app.fixtures.async.TestThreadPoolManager;
 import org.hiero.block.node.app.fixtures.plugintest.GrpcPluginTestBase;
 import org.hiero.block.node.app.fixtures.plugintest.SimpleInMemoryHistoricalBlockFacility;
 import org.hiero.block.node.spi.blockmessaging.BlockItems;
-import org.hiero.block.node.spi.threading.ThreadPoolManager;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
@@ -36,7 +35,7 @@ import org.junit.jupiter.api.Test;
  * plugin.
  */
 @SuppressWarnings("DataFlowIssue")
-public class SubscriberTest extends GrpcPluginTestBase<SubscriberServicePlugin> {
+public class SubscriberTest extends GrpcPluginTestBase<SubscriberServicePlugin, ExecutorService> {
     private static final int RESPONSE_WAIT_LIMIT = 1000;
 
     private final SubscriberServicePlugin activePlugin;
@@ -46,10 +45,10 @@ public class SubscriberTest extends GrpcPluginTestBase<SubscriberServicePlugin> 
      * Constructor that creates new subscriber plugin and in-memory block facility.
      */
     public SubscriberTest() {
+        super(Executors.newVirtualThreadPerTaskExecutor());
         historicalFacility = new SimpleInMemoryHistoricalBlockFacility();
         activePlugin = new SubscriberServicePlugin();
-        ThreadPoolManager virtualTaskThreads = new TestThreadPoolManager<>(Executors.newVirtualThreadPerTaskExecutor());
-        start(activePlugin, subscribeBlockStream, historicalFacility, virtualTaskThreads, null);
+        start(activePlugin, subscribeBlockStream, historicalFacility, null);
     }
 
     /**

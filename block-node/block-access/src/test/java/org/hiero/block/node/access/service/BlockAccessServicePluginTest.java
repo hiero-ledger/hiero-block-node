@@ -13,9 +13,11 @@ import com.hedera.hapi.block.stream.BlockItem;
 import com.hedera.pbj.runtime.ParseException;
 import com.hedera.pbj.runtime.grpc.ServiceInterface;
 import java.util.List;
+import java.util.concurrent.LinkedBlockingQueue;
 import org.hiero.block.api.BlockRequest;
 import org.hiero.block.api.BlockResponse;
 import org.hiero.block.api.BlockResponse.Code;
+import org.hiero.block.node.app.fixtures.async.BlockingSerialExecutor;
 import org.hiero.block.node.app.fixtures.plugintest.GrpcPluginTestBase;
 import org.hiero.block.node.app.fixtures.plugintest.SimpleInMemoryHistoricalBlockFacility;
 import org.hiero.block.node.spi.blockmessaging.BlockItems;
@@ -23,11 +25,11 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
-public class BlockAccessServicePluginTest extends GrpcPluginTestBase<BlockAccessServicePlugin> {
+public class BlockAccessServicePluginTest extends GrpcPluginTestBase<BlockAccessServicePlugin, BlockingSerialExecutor> {
     private final BlockAccessServicePlugin plugin = new BlockAccessServicePlugin();
 
     public BlockAccessServicePluginTest() {
-        super();
+        super(new BlockingSerialExecutor(new LinkedBlockingQueue<>()));
         start(plugin, plugin.methods().getFirst(), new SimpleInMemoryHistoricalBlockFacility());
     }
 

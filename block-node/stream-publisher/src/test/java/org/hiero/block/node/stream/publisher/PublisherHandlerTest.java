@@ -21,6 +21,8 @@ import org.hiero.block.internal.BlockItemSetUnparsed;
 import org.hiero.block.internal.BlockItemUnparsed;
 import org.hiero.block.internal.PublishStreamRequestUnparsed;
 import org.hiero.block.node.app.fixtures.blocks.SimpleTestBlockItemBuilder;
+import org.hiero.block.node.spi.blockmessaging.BlockSource;
+import org.hiero.block.node.spi.blockmessaging.PersistedNotification;
 import org.hiero.block.node.stream.publisher.PublisherHandler.MetricsHolder;
 import org.hiero.block.node.stream.publisher.StreamPublisherManager.BlockAction;
 import org.hiero.block.node.stream.publisher.fixtures.TestResponsePipeline;
@@ -29,6 +31,8 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 
 /**
  * Tests for {@link PublisherHandler}.
@@ -157,6 +161,8 @@ class PublisherHandlerTest {
                 response -> Objects.requireNonNull(response.skipBlock()).blockNumber();
         private final Function<PublishStreamResponse, Long> resendBlockNumberExtractor =
                 response -> Objects.requireNonNull(response.resendBlock()).blockNumber();
+        private final Function<PublishStreamResponse, Long> acknowledgementBlockNumberExtractor =
+                response -> Objects.requireNonNull(response.acknowledgement()).blockNumber();
 
         /**
          * Environment setup executed before each test in this nested class.
@@ -169,6 +175,7 @@ class PublisherHandlerTest {
             manager = new TestStreamPublisherManager();
             transferQueue = new LinkedTransferQueue<>();
             toTest = new PublisherHandler(handlerId, repliesPipeline, metrics, manager, transferQueue);
+            manager.addHandler(toTest);
         }
 
         /**
@@ -238,6 +245,133 @@ class PublisherHandlerTest {
             assertThat(repliesPipeline.getOnSubscriptionCalls()).isEmpty();
             assertThat(repliesPipeline.getOnCompleteCalls().get()).isEqualTo(0);
             assertThat(repliesPipeline.getClientEndStreamCalls().get()).isEqualTo(0);
+        }
+
+        /**
+         * This test aims to assert that the {@link PublisherHandler} correctly
+         * handles a received request
+         * {@link PublisherHandler#onNext(PublishStreamRequestUnparsed)} happy
+         * path scenario. Here we stream a single complete valid block as items.
+         * The request's first item is the block header for the streamed block,
+         * and the last item is the block proof for the streamed block.
+         * We expect that when the {@link StreamPublisherManager} returns
+         * {@link BlockAction#ACCEPT} for the streamed block number no replies
+         * to the pipeline are made. After a {@link PersistedNotification} for
+         * the streamed block is published to the manager, the handler will
+         * send an acknowledgement response.
+         */
+        @Test
+        @DisplayName(
+                "Test onNext() with valid request with a complete single block sends acknowledgement after persisted - happy path ACCEPT")
+        void testPublishItemsAcknowledgementAfterPersistedHappyPathACCEPT() {
+            // Setup request to send, in this case a single complete valid block
+            // as items, starting with header and ending with proof
+            final int expectedStreamedBlockNumber = 0;
+            final BlockItemUnparsed[] blockItems = SimpleTestBlockItemBuilder.createNumberOfVerySimpleBlocksUnparsed(
+                    expectedStreamedBlockNumber, expectedStreamedBlockNumber + 1);
+            final BlockItemSetUnparsed blockItemSet =
+                    BlockItemSetUnparsed.newBuilder().blockItems(blockItems).build();
+            final PublishStreamRequestUnparsed request = PublishStreamRequestUnparsed.newBuilder()
+                    .blockItems(blockItemSet)
+                    .build();
+            // Train the manager to return ACCEPT for the block number
+            manager.setBlockAction(BlockAction.ACCEPT);
+            // Call
+            toTest.onNext(request);
+            // Assert no replies sent to the pipeline
+            assertThat(repliesPipeline.getOnNextCalls()).isEmpty();
+            assertThat(repliesPipeline.getOnErrorCalls()).isEmpty();
+            assertThat(repliesPipeline.getOnSubscriptionCalls()).isEmpty();
+            assertThat(repliesPipeline.getOnCompleteCalls().get()).isEqualTo(0);
+            assertThat(repliesPipeline.getClientEndStreamCalls().get()).isEqualTo(0);
+            // Publish the persisted notification for the streamed block
+            manager.handlePersisted(new PersistedNotification(
+                    expectedStreamedBlockNumber, expectedStreamedBlockNumber, 0, BlockSource.PUBLISHER));
+            // Assert the acknowledgement response is sent to the pipeline
+            // Assert that an acknowledgement was sent for the valid request
+            assertThat(repliesPipeline.getOnNextCalls())
+                    .hasSize(1)
+                    .first()
+                    .returns(ResponseOneOfType.ACKNOWLEDGEMENT, responseKindExtractor)
+                    .returns((long) expectedStreamedBlockNumber, acknowledgementBlockNumberExtractor);
+            // Assert no other responses sent to the pipeline
+            assertThat(repliesPipeline.getOnErrorCalls()).isEmpty();
+            assertThat(repliesPipeline.getOnSubscriptionCalls()).isEmpty();
+            assertThat(repliesPipeline.getOnCompleteCalls().get()).isEqualTo(0);
+            assertThat(repliesPipeline.getClientEndStreamCalls().get()).isEqualTo(0);
+        }
+
+        /**
+         * This test aims to assert that the {@link PublisherHandler} correctly
+         * handles a received request
+         * {@link PublisherHandler#onNext(PublishStreamRequestUnparsed)} happy
+         * path scenario. Here we stream a single complete valid block as items.
+         * The request's first item is the block header for the streamed block,
+         * and the last item is the block proof for the streamed block.
+         * We expect that when the {@link StreamPublisherManager} returns
+         * any action for the streamed block number and when the
+         * streamed items end with a valid block proof, the handler will send
+         * a signal to the manager to close the block.
+         */
+        @ParameterizedTest
+        @EnumSource(value = BlockAction.class)
+        @DisplayName(
+                "Test onNext() with valid request with a complete single block calls closeBlock on manager when batch ends with valid proof - happy path ACCEPT")
+        void testPublishItemsCloseBlockCallWhenRequestEndsWithValidProofHappyPathACCEPT(final BlockAction action) {
+            // Setup request to send, in this case a single complete valid block
+            // as items, starting with header and ending with proof
+            final int streamedBlockNumber = 0;
+            final BlockItemUnparsed[] blockItems = SimpleTestBlockItemBuilder.createNumberOfVerySimpleBlocksUnparsed(
+                    streamedBlockNumber, streamedBlockNumber + 1);
+            final BlockItemSetUnparsed blockItemSet =
+                    BlockItemSetUnparsed.newBuilder().blockItems(blockItems).build();
+            final PublishStreamRequestUnparsed request = PublishStreamRequestUnparsed.newBuilder()
+                    .blockItems(blockItemSet)
+                    .build();
+            // Train the manager to return the current action for the block number
+            manager.setBlockAction(action);
+            // Call
+            toTest.onNext(request);
+            // Assert that the manager's closeBlock method was called
+            assertThat(manager.closeBlockCallsForHandler(handlerId)).isOne();
+            assertThat(manager.nullCloseBlockCallsForHandler(handlerId)).isEqualTo(-1);
+        }
+
+        /**
+         * This test aims to assert that the {@link PublisherHandler} correctly
+         * handles a received request
+         * {@link PublisherHandler#onNext(PublishStreamRequestUnparsed)} happy
+         * path scenario. Here we stream a single complete valid block as items.
+         * The request's first item is the block header for the streamed block,
+         * and the last item is the block proof for the streamed block.
+         * We expect that when the {@link StreamPublisherManager} returns
+         * any action for the streamed block number and when the
+         * streamed items end with a valid block proof, the handler will send
+         * a signal to the manager to close the block.
+         */
+        @ParameterizedTest
+        @EnumSource(value = BlockAction.class)
+        @DisplayName(
+                "Test onNext() with valid request with a complete single block calls closeBlock on manager when batch ends with valid proof - happy path ACCEPT")
+        void testPublishItemsNullCloseBlockCallWhenRequestEndsWithBrokenProofHappyPathACCEPT(final BlockAction action) {
+            // Setup request to send, in this case a single complete valid block
+            // as items, starting with header and ending with a broken proof
+            final int streamedBlockNumber = 0;
+            final BlockItemUnparsed[] blockItems =
+                    SimpleTestBlockItemBuilder.createNumberOfVerySimpleBlocksUnparsedWithBrokenProofs(
+                            streamedBlockNumber, streamedBlockNumber + 1);
+            final BlockItemSetUnparsed blockItemSet =
+                    BlockItemSetUnparsed.newBuilder().blockItems(blockItems).build();
+            final PublishStreamRequestUnparsed request = PublishStreamRequestUnparsed.newBuilder()
+                    .blockItems(blockItemSet)
+                    .build();
+            // Train the manager to return the current action for the block number
+            manager.setBlockAction(action);
+            // Call
+            toTest.onNext(request);
+            // Assert that the manager's closeBlock method was called
+            assertThat(manager.closeBlockCallsForHandler(handlerId)).isEqualTo(-1);
+            assertThat(manager.nullCloseBlockCallsForHandler(handlerId)).isOne();
         }
 
         /**
@@ -1098,6 +1232,174 @@ class PublisherHandlerTest {
 
         /**
          * This test aims to assert that the {@link PublisherHandler} correctly
+         * handles a received invalid request
+         * {@link PublisherHandler#onNext(PublishStreamRequestUnparsed)} when
+         * block header is expected, but it is not present. Here, the handler
+         * is in a state where it expects a block header to be the first item
+         * in next request, but the request does not contain a block header as
+         * first item. We expect that the handler will simply return w/o
+         * propagating any items to the transfer queue. Subsequent requests,
+         * if valid, will be processed normally and items will be propagated
+         * to the transfer queue.
+         */
+        @Test
+        @DisplayName(
+                "Test onNext() with invalid request - no header, but expected - subsequent valid request items propagated")
+        void testPublishInvalidRequestItemsPropagatedOnSubsequentValidRequest() {
+            // Setup request to send, in this case a single complete valid block
+            // as items, starting with header and ending with proof
+            final int expectedStreamedBlockNumber = 0;
+            final BlockItemUnparsed[] blockItems = SimpleTestBlockItemBuilder.createNumberOfVerySimpleBlocksUnparsed(
+                    expectedStreamedBlockNumber, expectedStreamedBlockNumber + 1);
+            // Remove the first item, which is the block header
+            final BlockItemUnparsed[] blockItemsToSend = Arrays.copyOfRange(blockItems, 1, blockItems.length);
+            final BlockItemSetUnparsed blockItemSet = BlockItemSetUnparsed.newBuilder()
+                    .blockItems(blockItemsToSend)
+                    .build();
+            final PublishStreamRequestUnparsed request = PublishStreamRequestUnparsed.newBuilder()
+                    .blockItems(blockItemSet)
+                    .build();
+            // Call
+            toTest.onNext(request);
+            // Assert no items offered to the transfer queue
+            assertThat(transferQueue).isEmpty();
+            // Now send a valid request, which contains a block header
+            final BlockItemSetUnparsed validBlockItemSet =
+                    BlockItemSetUnparsed.newBuilder().blockItems(blockItems).build();
+            final PublishStreamRequestUnparsed validRequest = PublishStreamRequestUnparsed.newBuilder()
+                    .blockItems(validBlockItemSet)
+                    .build();
+            // Train the manager to expect return ACCEPT
+            manager.setBlockAction(BlockAction.ACCEPT);
+            // Call with valid request
+            toTest.onNext(validRequest);
+            // Assert items were propagated to the transfer queue
+            assertThat(transferQueue).hasSize(1).containsExactly(validBlockItemSet);
+        }
+
+        /**
+         * This test aims to assert that the {@link PublisherHandler} correctly
+         * handles a received invalid request
+         * {@link PublisherHandler#onNext(PublishStreamRequestUnparsed)} when
+         * block header is expected, but it is not present. Here, the handler
+         * is in a state where it expects a block header to be the first item
+         * in next request, but the request does not contain a block header as
+         * first item. We expect that the handler will simply return w/o
+         * propagating any items to the transfer queue. Subsequent requests,
+         * if valid, will be processed normally and acknowledgements will be
+         * sent.
+         */
+        @Test
+        @DisplayName(
+                "Test onNext() with invalid request - no header, but expected - subsequent valid request sends acknowledgement")
+        void testPublishInvalidRequestAcknowledgementSentOnSubsequentValidRequest() {
+            // Setup request to send, in this case a single complete valid block
+            // as items, starting with header and ending with proof
+            final int expectedStreamedBlockNumber = 0;
+            final BlockItemUnparsed[] blockItems = SimpleTestBlockItemBuilder.createNumberOfVerySimpleBlocksUnparsed(
+                    expectedStreamedBlockNumber, expectedStreamedBlockNumber + 1);
+            // Remove the first item, which is the block header
+            final BlockItemUnparsed[] blockItemsToSend = Arrays.copyOfRange(blockItems, 1, blockItems.length);
+            final BlockItemSetUnparsed blockItemSet = BlockItemSetUnparsed.newBuilder()
+                    .blockItems(blockItemsToSend)
+                    .build();
+            final PublishStreamRequestUnparsed request = PublishStreamRequestUnparsed.newBuilder()
+                    .blockItems(blockItemSet)
+                    .build();
+            // Call
+            toTest.onNext(request);
+            // Assert no responses sent to the reply pipeline
+            assertThat(repliesPipeline.getOnNextCalls()).isEmpty();
+            // Now send a valid request, which contains a block header
+            final BlockItemSetUnparsed validBlockItemSet =
+                    BlockItemSetUnparsed.newBuilder().blockItems(blockItems).build();
+            final PublishStreamRequestUnparsed validRequest = PublishStreamRequestUnparsed.newBuilder()
+                    .blockItems(validBlockItemSet)
+                    .build();
+            // Train the manager to expect return ACCEPT
+            manager.setBlockAction(BlockAction.ACCEPT);
+            // Call with valid request
+            toTest.onNext(validRequest);
+            // Send a PersistedNotification for the streamed block number
+            manager.handlePersisted(new PersistedNotification(
+                    expectedStreamedBlockNumber, expectedStreamedBlockNumber, 0, BlockSource.PUBLISHER));
+            // Assert that an acknowledgement was sent for the valid request
+            assertThat(repliesPipeline.getOnNextCalls())
+                    .hasSize(1)
+                    .first()
+                    .returns(ResponseOneOfType.ACKNOWLEDGEMENT, responseKindExtractor)
+                    .returns((long) expectedStreamedBlockNumber, acknowledgementBlockNumberExtractor);
+            // Assert no replies sent to the pipeline
+            assertThat(repliesPipeline.getOnErrorCalls()).isEmpty();
+            assertThat(repliesPipeline.getOnSubscriptionCalls()).isEmpty();
+            assertThat(repliesPipeline.getOnCompleteCalls().get()).isEqualTo(0);
+            assertThat(repliesPipeline.getClientEndStreamCalls().get()).isEqualTo(0);
+        }
+
+        /**
+         * This test aims to assert that the {@link PublisherHandler} correctly
+         * handles a received invalid request
+         * {@link PublisherHandler#onNext(PublishStreamRequestUnparsed)} when
+         * block header is expected, but it is not present. Here, the handler
+         * is in a state where it expects a block header to be the first item
+         * in next request, but the request does not contain a block header as
+         * first item. We expect that the handler will simply return w/o
+         * propagating any items to the transfer queue. Subsequent requests,
+         * if valid, will be processed normally and metrics will be updated.
+         */
+        @Test
+        @DisplayName(
+                "Test onNext() with invalid request - no header, but expected - subsequent valid request updates metrics")
+        void testPublishInvalidRequestMetricsUpdatedOnSubsequentValidRequest() {
+            // Setup request to send, in this case a single complete valid block
+            // as items, starting with header and ending with proof
+            final int expectedStreamedBlockNumber = 0;
+            final BlockItemUnparsed[] blockItems = SimpleTestBlockItemBuilder.createNumberOfVerySimpleBlocksUnparsed(
+                    expectedStreamedBlockNumber, expectedStreamedBlockNumber + 1);
+            // Remove the first item, which is the block header
+            final BlockItemUnparsed[] blockItemsToSend = Arrays.copyOfRange(blockItems, 1, blockItems.length);
+            final BlockItemSetUnparsed blockItemSet = BlockItemSetUnparsed.newBuilder()
+                    .blockItems(blockItemsToSend)
+                    .build();
+            final PublishStreamRequestUnparsed request = PublishStreamRequestUnparsed.newBuilder()
+                    .blockItems(blockItemSet)
+                    .build();
+            // Call
+            toTest.onNext(request);
+            // Assert no metrics updated
+            assertThat(metrics.liveBlockItemsReceived().get()).isEqualTo(0);
+            assertThat(metrics.blockAcknowledgementsSent().get()).isEqualTo(0);
+            assertThat(metrics.streamErrors().get()).isEqualTo(0);
+            assertThat(metrics.blockSkipsSent().get()).isEqualTo(0);
+            assertThat(metrics.blockResendsSent().get()).isEqualTo(0);
+            assertThat(metrics.endOfStreamsSent().get()).isEqualTo(0);
+            assertThat(metrics.endStreamsReceived().get()).isEqualTo(0);
+            // Now send a valid request, which contains a block header
+            final BlockItemSetUnparsed validBlockItemSet =
+                    BlockItemSetUnparsed.newBuilder().blockItems(blockItems).build();
+            final PublishStreamRequestUnparsed validRequest = PublishStreamRequestUnparsed.newBuilder()
+                    .blockItems(validBlockItemSet)
+                    .build();
+            // Train the manager to expect return ACCEPT
+            manager.setBlockAction(BlockAction.ACCEPT);
+            // Call with valid request
+            toTest.onNext(validRequest);
+            // Send a PersistedNotification for the streamed block number
+            manager.handlePersisted(new PersistedNotification(
+                    expectedStreamedBlockNumber, expectedStreamedBlockNumber, 0, BlockSource.PUBLISHER));
+            // Assert live items received updated and acknowledgement sent updated
+            assertThat(metrics.liveBlockItemsReceived().get()).isEqualTo(blockItems.length);
+            assertThat(metrics.blockAcknowledgementsSent().get()).isEqualTo(1);
+            // Assert other metrics unchanged
+            assertThat(metrics.streamErrors().get()).isEqualTo(0);
+            assertThat(metrics.blockSkipsSent().get()).isEqualTo(0);
+            assertThat(metrics.blockResendsSent().get()).isEqualTo(0);
+            assertThat(metrics.endOfStreamsSent().get()).isEqualTo(0);
+            assertThat(metrics.endStreamsReceived().get()).isEqualTo(0);
+        }
+
+        /**
+         * This test aims to assert that the {@link PublisherHandler} correctly
          * handles a received request
          * {@link PublisherHandler#onNext(PublishStreamRequestUnparsed)} when
          * premature header is received, i.e. the request contains a block
@@ -1294,13 +1596,211 @@ class PublisherHandlerTest {
             assertThat(metrics.blockResendsSent().get()).isEqualTo(0);
             assertThat(metrics.endStreamsReceived().get()).isEqualTo(0);
         }
-        // @todo(1419) tests to add:
-        //    test onNext() can receive next request if previous request was invalid (header expected but not present)
-        //    test broken header (unable to parse) will send invalid response and shutdown
-        //    test null header bytes will send error and shutdown
-        //    test for sending acks
-        //    test for calling closeBlock()
-        //    test for handleBlockProof() when parse is not successful
+
+        /**
+         * This test aims to assert that the {@link PublisherHandler} correctly
+         * handles a received invalid request
+         * {@link PublisherHandler#onNext(PublishStreamRequestUnparsed)} when
+         * block header is broken, cannot be parsed. We expect that the handler
+         * will not propagate any items to the transfer queue.
+         */
+        @Test
+        @DisplayName("Test onNext() with invalid request - broken header - no items propagated")
+        void testPublishBrokenHeaderNoItemsPropagated() {
+            // Setup request to send, in this case a single complete block
+            // as items, starting with a broken header and ending with proof
+            final int streamedBlockNumber = 0;
+            final BlockItemUnparsed[] blockItems =
+                    SimpleTestBlockItemBuilder.createNumberOfVerySimpleBlocksUnparsedWithBrokenHeaders(
+                            streamedBlockNumber, streamedBlockNumber + 1);
+            final BlockItemSetUnparsed blockItemSet =
+                    BlockItemSetUnparsed.newBuilder().blockItems(blockItems).build();
+            final PublishStreamRequestUnparsed request = PublishStreamRequestUnparsed.newBuilder()
+                    .blockItems(blockItemSet)
+                    .build();
+            // Call
+            toTest.onNext(request);
+            // Assert no items offered to the transfer queue
+            assertThat(transferQueue).isEmpty();
+        }
+
+        /**
+         * This test aims to assert that the {@link PublisherHandler} correctly
+         * handles a received invalid request
+         * {@link PublisherHandler#onNext(PublishStreamRequestUnparsed)} when
+         * block header is broken, cannot be parsed. We expect that the handler
+         * will simply reply with a
+         * {@link org.hiero.block.api.PublishStreamResponse.EndOfStream}
+         * with {@link org.hiero.block.api.PublishStreamResponse.EndOfStream.Code#INVALID_REQUEST}.
+         */
+        @Test
+        @DisplayName(
+                "Test onNext() with invalid request - broken header - respond with EndOfStream, Code INVALID_REQUEST")
+        void testPublishBrokenHeaderRespondsWithInvalidRequest() {
+            // Setup request to send, in this case a single complete block
+            // as items, starting with a broken header and ending with proof
+            final int streamedBlockNumber = 0;
+            final BlockItemUnparsed[] blockItems =
+                    SimpleTestBlockItemBuilder.createNumberOfVerySimpleBlocksUnparsedWithBrokenHeaders(
+                            streamedBlockNumber, streamedBlockNumber + 1);
+            final BlockItemSetUnparsed blockItemSet =
+                    BlockItemSetUnparsed.newBuilder().blockItems(blockItems).build();
+            final PublishStreamRequestUnparsed request = PublishStreamRequestUnparsed.newBuilder()
+                    .blockItems(blockItemSet)
+                    .build();
+            // Call
+            toTest.onNext(request);
+            // Assert single response is EndOfStream with Code INVALID_REQUEST
+            assertThat(repliesPipeline.getOnNextCalls())
+                    .hasSize(1)
+                    .first()
+                    .returns(ResponseOneOfType.END_STREAM, responseKindExtractor)
+                    .returns(Code.INVALID_REQUEST, endStreamResponseCodeExtractor)
+                    .returns(manager.getLatestBlockNumber(), endStreamBlockNumberExtractor);
+            // Assert no other responses sent
+            assertThat(repliesPipeline.getOnErrorCalls()).isEmpty();
+            assertThat(repliesPipeline.getOnSubscriptionCalls()).isEmpty();
+            assertThat(repliesPipeline.getOnCompleteCalls().get()).isEqualTo(0);
+            assertThat(repliesPipeline.getClientEndStreamCalls().get()).isEqualTo(0);
+        }
+
+        /**
+         * This test aims to assert that the {@link PublisherHandler} correctly
+         * handles a received invalid request
+         * {@link PublisherHandler#onNext(PublishStreamRequestUnparsed)} when
+         * block header is broken, cannot be parsed. We expect that the handler
+         * will update metrics.
+         */
+        @Test
+        @DisplayName("Test onNext() with invalid request - broken header - metrics updated")
+        void testPublishBrokenHeaderMetricsUpdated() {
+            // Setup request to send, in this case a single complete block
+            // as items, starting with a broken header and ending with proof
+            final int streamedBlockNumber = 0;
+            final BlockItemUnparsed[] blockItems =
+                    SimpleTestBlockItemBuilder.createNumberOfVerySimpleBlocksUnparsedWithBrokenHeaders(
+                            streamedBlockNumber, streamedBlockNumber + 1);
+            final BlockItemSetUnparsed blockItemSet =
+                    BlockItemSetUnparsed.newBuilder().blockItems(blockItems).build();
+            final PublishStreamRequestUnparsed request = PublishStreamRequestUnparsed.newBuilder()
+                    .blockItems(blockItemSet)
+                    .build();
+            // Call
+            toTest.onNext(request);
+            // Assert metrics updated
+            assertThat(metrics.endOfStreamsSent().get()).isEqualTo(1);
+            // Assert other metrics unchanged
+            assertThat(metrics.liveBlockItemsReceived().get()).isEqualTo(0);
+            assertThat(metrics.blockAcknowledgementsSent().get()).isEqualTo(0);
+            assertThat(metrics.streamErrors().get()).isEqualTo(0);
+            assertThat(metrics.blockSkipsSent().get()).isEqualTo(0);
+            assertThat(metrics.blockResendsSent().get()).isEqualTo(0);
+            assertThat(metrics.endStreamsReceived().get()).isEqualTo(0);
+        }
+
+        /**
+         * This test aims to assert that the {@link PublisherHandler} correctly
+         * handles a received invalid request
+         * {@link PublisherHandler#onNext(PublishStreamRequestUnparsed)} when
+         * block header null. We expect that the handler will not propagate any
+         * items to the transfer queue.
+         */
+        @Test
+        @DisplayName("Test onNext() with invalid request - null header - no items propagated")
+        void testPublishNullHeaderNoItemsPropagated() {
+            // Setup request to send, in this case a single complete block
+            // as items, starting with a null header and ending with proof
+            final int streamedBlockNumber = 0;
+            final BlockItemUnparsed[] blockItems =
+                    SimpleTestBlockItemBuilder.createNumberOfVerySimpleBlocksUnparsedWithNullHeaderBytes(
+                            streamedBlockNumber, streamedBlockNumber + 1);
+            final BlockItemSetUnparsed blockItemSet =
+                    BlockItemSetUnparsed.newBuilder().blockItems(blockItems).build();
+            final PublishStreamRequestUnparsed request = PublishStreamRequestUnparsed.newBuilder()
+                    .blockItems(blockItemSet)
+                    .build();
+            // Call
+            toTest.onNext(request);
+            // Assert no items offered to the transfer queue
+            assertThat(transferQueue).isEmpty();
+        }
+
+        /**
+         * This test aims to assert that the {@link PublisherHandler} correctly
+         * handles a received invalid request
+         * {@link PublisherHandler#onNext(PublishStreamRequestUnparsed)} when
+         * block header null. We expect that the handler
+         * will simply reply with a
+         * {@link org.hiero.block.api.PublishStreamResponse.EndOfStream}
+         * with {@link org.hiero.block.api.PublishStreamResponse.EndOfStream.Code#ERROR}.
+         */
+        @Test
+        @DisplayName("Test onNext() with invalid request - null header - respond with EndOfStream, Code ERROR")
+        void testPublishNullHeaderRespondWithError() {
+            // Setup request to send, in this case a single complete block
+            // as items, starting with a null header and ending with proof
+            final int streamedBlockNumber = 0;
+            final BlockItemUnparsed[] blockItems =
+                    SimpleTestBlockItemBuilder.createNumberOfVerySimpleBlocksUnparsedWithNullHeaderBytes(
+                            streamedBlockNumber, streamedBlockNumber + 1);
+            final BlockItemSetUnparsed blockItemSet =
+                    BlockItemSetUnparsed.newBuilder().blockItems(blockItems).build();
+            final PublishStreamRequestUnparsed request = PublishStreamRequestUnparsed.newBuilder()
+                    .blockItems(blockItemSet)
+                    .build();
+            // Call
+            toTest.onNext(request);
+            // Assert single response is EndOfStream with Code ERROR
+            assertThat(repliesPipeline.getOnNextCalls())
+                    .hasSize(1)
+                    .first()
+                    .returns(ResponseOneOfType.END_STREAM, responseKindExtractor)
+                    .returns(Code.ERROR, endStreamResponseCodeExtractor)
+                    .returns(manager.getLatestBlockNumber(), endStreamBlockNumberExtractor);
+            // Assert no other responses sent
+            assertThat(repliesPipeline.getOnErrorCalls()).isEmpty();
+            assertThat(repliesPipeline.getOnSubscriptionCalls()).isEmpty();
+            assertThat(repliesPipeline.getOnCompleteCalls().get()).isEqualTo(0);
+            assertThat(repliesPipeline.getClientEndStreamCalls().get()).isEqualTo(0);
+        }
+
+        /**
+         * This test aims to assert that the {@link PublisherHandler} correctly
+         * handles a received invalid request
+         * {@link PublisherHandler#onNext(PublishStreamRequestUnparsed)} when
+         * block header null. We expect that the handler will update metrics.
+         */
+        @Test
+        @DisplayName("Test onNext() with invalid request - null header - metrics updated")
+        void testPublishNullHeaderMetricsUpdated() {
+            // Setup request to send, in this case a single complete block
+            // as items, starting with a null header and ending with proof
+            final int streamedBlockNumber = 0;
+            final BlockItemUnparsed[] blockItems =
+                    SimpleTestBlockItemBuilder.createNumberOfVerySimpleBlocksUnparsedWithNullHeaderBytes(
+                            streamedBlockNumber, streamedBlockNumber + 1);
+            final BlockItemSetUnparsed blockItemSet =
+                    BlockItemSetUnparsed.newBuilder().blockItems(blockItems).build();
+            final PublishStreamRequestUnparsed request = PublishStreamRequestUnparsed.newBuilder()
+                    .blockItems(blockItemSet)
+                    .build();
+            // Call
+            toTest.onNext(request);
+            // Assert metrics updated
+            assertThat(metrics.endOfStreamsSent().get()).isEqualTo(1);
+            // Assert other metrics unchanged
+            assertThat(metrics.liveBlockItemsReceived().get()).isEqualTo(0);
+            assertThat(metrics.blockAcknowledgementsSent().get()).isEqualTo(0);
+            assertThat(metrics.streamErrors().get()).isEqualTo(0);
+            assertThat(metrics.blockSkipsSent().get()).isEqualTo(0);
+            assertThat(metrics.blockResendsSent().get()).isEqualTo(0);
+            assertThat(metrics.endStreamsReceived().get()).isEqualTo(0);
+        }
+        // @todo(1435) tests to add:
+        //    add tests for onComplete
+        //    add tests for onSubscribe
+        //    add tests for clientEndStreamReceived
+        //    add tests for EndStream requests when they become available
         //    ...
     }
 

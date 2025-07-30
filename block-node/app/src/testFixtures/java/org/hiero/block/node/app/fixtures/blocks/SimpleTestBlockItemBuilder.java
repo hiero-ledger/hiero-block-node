@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.node.app.fixtures.blocks;
 
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
 import com.hedera.hapi.block.stream.Block;
 import com.hedera.hapi.block.stream.BlockItem;
 import com.hedera.hapi.block.stream.BlockItem.ItemOneOfType;
@@ -86,6 +88,17 @@ public final class SimpleTestBlockItemBuilder {
                 .build();
     }
 
+    private static BlockItemUnparsed sampleBrokenBlockHeaderUnparsed(final long blockNumber) {
+        final Bytes valid = createBlockHeaderUnparsed(blockNumber);
+        final byte[] arr = valid.toByteArray();
+        arr[0] = (byte) (arr[0] ^ 0xFF); // flip the first byte to break the header
+        return BlockItemUnparsed.newBuilder().blockHeader(Bytes.wrap(arr)).build();
+    }
+
+    private static BlockItemUnparsed sampleNullBlockHeaderUnparsed() {
+        return BlockItemUnparsed.newBuilder().blockHeader(null).build();
+    }
+
     /**
      * Creates a sample BlockItem representing a block header with the given block number and consensus time.
      */
@@ -139,6 +152,13 @@ public final class SimpleTestBlockItemBuilder {
                 .build();
     }
 
+    public static BlockItemUnparsed sampleBrokenBlockProofUnparsed(final long blockNumber) {
+        final Bytes valid = createBlockProofUnparsed(blockNumber);
+        final byte[] arr = valid.toByteArray();
+        arr[0] = (byte) (arr[0] ^ 0xFF); // flip the first byte to break the proof
+        return BlockItemUnparsed.newBuilder().blockProof(Bytes.wrap(arr)).build();
+    }
+
     /**
      * Creates an array of BlockItem objects representing a very simple block stream of N blocks.
      *
@@ -158,8 +178,8 @@ public final class SimpleTestBlockItemBuilder {
      * @return an array of BlockItem objects
      */
     public static BlockItem[] createNumberOfVerySimpleBlocks(final long startBlockNumber, final long endBlockNumber) {
-        assert startBlockNumber <= endBlockNumber;
-        assert startBlockNumber >= 0;
+        assertTrue(startBlockNumber <= endBlockNumber);
+        assertTrue(startBlockNumber >= 0);
         final int numberOfBlocks = (int) (endBlockNumber - startBlockNumber + 1);
         final BlockItem[] blockItems = new BlockItem[numberOfBlocks * 3];
         for (int blockNumber = (int) startBlockNumber; blockNumber <= endBlockNumber; blockNumber++) {
@@ -180,8 +200,8 @@ public final class SimpleTestBlockItemBuilder {
      * @return an array of BlockItem objects
      */
     public static BlockItem[] createNumberOfLargeBlocks(final long startBlockNumber, final long endBlockNumber) {
-        assert startBlockNumber <= endBlockNumber;
-        assert startBlockNumber >= 0;
+        assertTrue(startBlockNumber <= endBlockNumber);
+        assertTrue(startBlockNumber >= 0);
         final int numberOfBlocks = (int) (endBlockNumber - startBlockNumber + 1);
         final BlockItem[] blockItems = new BlockItem[numberOfBlocks * 8];
         for (int blockNumber = (int) startBlockNumber; blockNumber <= endBlockNumber; blockNumber++) {
@@ -213,8 +233,8 @@ public final class SimpleTestBlockItemBuilder {
             final long endBlockNumber,
             Instant firstBlockConsensusTime,
             Duration consensusTimeBetweenBlocks) {
-        assert startBlockNumber <= endBlockNumber;
-        assert startBlockNumber >= 0;
+        assertTrue(startBlockNumber <= endBlockNumber);
+        assertTrue(startBlockNumber >= 0);
         final int numberOfBlocks = (int) (endBlockNumber - startBlockNumber + 1);
         final BlockItemUnparsed[] blockItems = new BlockItemUnparsed[numberOfBlocks * 3];
         Instant blockTime = firstBlockConsensusTime;
@@ -270,8 +290,8 @@ public final class SimpleTestBlockItemBuilder {
 
     public static BlockItemUnparsed[] createNumberOfVerySimpleBlocksUnparsed(
             final int startBlockNumber, final int endBlockNumber) {
-        assert startBlockNumber < endBlockNumber;
-        assert startBlockNumber >= 0;
+        assertTrue(startBlockNumber <= endBlockNumber);
+        assertTrue(startBlockNumber >= 0);
         final int numberOfBlocks = endBlockNumber - startBlockNumber;
         final BlockItemUnparsed[] blockItems = new BlockItemUnparsed[numberOfBlocks * 3];
         for (int i = 0; i < blockItems.length; i += 3) {
@@ -283,13 +303,58 @@ public final class SimpleTestBlockItemBuilder {
         return blockItems;
     }
 
+    public static BlockItemUnparsed[] createNumberOfVerySimpleBlocksUnparsedWithBrokenHeaders(
+            final int startBlockNumber, final int endBlockNumber) {
+        assertTrue(startBlockNumber <= endBlockNumber);
+        assertTrue(startBlockNumber >= 0);
+        final int numberOfBlocks = endBlockNumber - startBlockNumber;
+        final BlockItemUnparsed[] blockItems = new BlockItemUnparsed[numberOfBlocks * 3];
+        for (int i = 0; i < blockItems.length; i += 3) {
+            long blockNumber = i / 3;
+            blockItems[i] = sampleBrokenBlockHeaderUnparsed(blockNumber);
+            blockItems[i + 1] = sampleRoundHeaderUnparsed(blockNumber * 10);
+            blockItems[i + 2] = sampleBlockProofUnparsed(blockNumber);
+        }
+        return blockItems;
+    }
+
+    public static BlockItemUnparsed[] createNumberOfVerySimpleBlocksUnparsedWithBrokenProofs(
+            final int startBlockNumber, final int endBlockNumber) {
+        assertTrue(startBlockNumber <= endBlockNumber);
+        assertTrue(startBlockNumber >= 0);
+        final int numberOfBlocks = endBlockNumber - startBlockNumber;
+        final BlockItemUnparsed[] blockItems = new BlockItemUnparsed[numberOfBlocks * 3];
+        for (int i = 0; i < blockItems.length; i += 3) {
+            long blockNumber = i / 3;
+            blockItems[i] = sampleBlockHeaderUnparsed(blockNumber);
+            blockItems[i + 1] = sampleRoundHeaderUnparsed(blockNumber * 10);
+            blockItems[i + 2] = sampleBrokenBlockProofUnparsed(blockNumber);
+        }
+        return blockItems;
+    }
+
+    public static BlockItemUnparsed[] createNumberOfVerySimpleBlocksUnparsedWithNullHeaderBytes(
+            final int startBlockNumber, final int endBlockNumber) {
+        assertTrue(startBlockNumber <= endBlockNumber);
+        assertTrue(startBlockNumber >= 0);
+        final int numberOfBlocks = endBlockNumber - startBlockNumber;
+        final BlockItemUnparsed[] blockItems = new BlockItemUnparsed[numberOfBlocks * 3];
+        for (int i = 0; i < blockItems.length; i += 3) {
+            long blockNumber = i / 3;
+            blockItems[i] = sampleNullBlockHeaderUnparsed();
+            blockItems[i + 1] = sampleRoundHeaderUnparsed(blockNumber * 10);
+            blockItems[i + 2] = sampleBlockProofUnparsed(blockNumber);
+        }
+        return blockItems;
+    }
+
     public static BlockItems[] createNumberOfSimpleBlockBatches(final int numberOfBatches) {
         return createNumberOfSimpleBlockBatches(0, numberOfBatches);
     }
 
     public static BlockItems[] createNumberOfSimpleBlockBatches(final int startBlockNumber, final int endBlockNumber) {
-        assert startBlockNumber < endBlockNumber;
-        assert startBlockNumber >= 0;
+        assertTrue(startBlockNumber <= endBlockNumber);
+        assertTrue(startBlockNumber >= 0);
         final int numberOfBatches = endBlockNumber - startBlockNumber;
         final BlockItems[] batches = new BlockItems[numberOfBatches];
         for (int i = startBlockNumber; i < endBlockNumber; i++) {

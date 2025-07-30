@@ -26,6 +26,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.LinkedBlockingQueue;
 import java.util.stream.Collectors;
 import java.util.stream.StreamSupport;
 import org.hiero.block.internal.BlockItemUnparsed;
@@ -43,7 +44,7 @@ import org.testcontainers.containers.GenericContainer;
  * Unit tests for the {@link S3ArchivePlugin} class.
  */
 @SuppressWarnings("SameParameterValue")
-class S3ArchivePluginTest extends PluginTestBase<S3ArchivePlugin> {
+class S3ArchivePluginTest extends PluginTestBase<S3ArchivePlugin, BlockingSerialExecutor> {
     private static final Instant START_TIME =
             ZonedDateTime.of(2025, 1, 1, 0, 0, 0, 0, ZoneOffset.UTC).toInstant();
     private static final String BUCKET_NAME = "test-bucket";
@@ -56,6 +57,7 @@ class S3ArchivePluginTest extends PluginTestBase<S3ArchivePlugin> {
 
     @SuppressWarnings("resource")
     public S3ArchivePluginTest() throws Exception {
+        super(new BlockingSerialExecutor(new LinkedBlockingQueue<>()));
         // Start MinIO container
         GenericContainer<?> minioContainer = new GenericContainer<>("minio/minio:latest")
                 .withCommand("server /data")
