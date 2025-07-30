@@ -9,13 +9,13 @@ import com.swirlds.common.metrics.platform.prometheus.PrometheusConfig;
 import com.swirlds.config.api.Configuration;
 import java.io.IOException;
 import java.util.Map;
-import org.hiero.block.simulator.TestUtils;
 import org.hiero.block.simulator.config.data.BlockGeneratorConfig;
 import org.hiero.block.simulator.config.data.BlockStreamConfig;
 import org.hiero.block.simulator.config.data.GrpcConfig;
 import org.hiero.block.simulator.config.data.SimulatorStartupDataConfig;
 import org.hiero.block.simulator.config.data.UnorderedStreamConfig;
 import org.hiero.block.simulator.config.logging.ConfigurationLogging;
+import org.hiero.block.simulator.fixtures.TestUtils;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 
@@ -53,7 +53,7 @@ class ConfigInjectionModuleTest {
         final GrpcConfig grpcConfig = ConfigInjectionModule.provideGrpcConfig(configuration);
         assertNotNull(grpcConfig);
         assertEquals("localhost", grpcConfig.serverAddress());
-        assertEquals(8080, grpcConfig.port());
+        assertEquals(40840, grpcConfig.port());
     }
 
     /**
@@ -81,7 +81,7 @@ class ConfigInjectionModuleTest {
         final PrometheusConfig prometheusConfig = ConfigInjectionModule.providePrometheusConfig(configuration);
         assertNotNull(prometheusConfig);
         assertFalse(prometheusConfig.endpointEnabled());
-        assertEquals(9998, prometheusConfig.endpointPortNumber());
+        assertEquals(16007, prometheusConfig.endpointPortNumber());
     }
 
     /**

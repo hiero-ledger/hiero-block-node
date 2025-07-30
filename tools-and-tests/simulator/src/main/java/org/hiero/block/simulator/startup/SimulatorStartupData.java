@@ -24,11 +24,9 @@ public interface SimulatorStartupData {
      * last update will be used for initialization.
      * @param blockNumber the block number to update the startup data with
      * @param blockHash the block hash to update the startup data with
-     * @param alreadyExists whether the block number already exists
      * @throws IOException if an error occurs while updating the startup data
      */
-    void updateLatestAckBlockStartupData(final long blockNumber, final byte[] blockHash, final boolean alreadyExists)
-            throws IOException;
+    void updateLatestAckBlockStartupData(final long blockNumber, final byte[] blockHash) throws IOException;
 
     /**
      * This method returns the latest acknowledged block number based on startup

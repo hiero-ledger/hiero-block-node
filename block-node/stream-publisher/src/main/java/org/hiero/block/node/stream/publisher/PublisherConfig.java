@@ -4,39 +4,14 @@ package org.hiero.block.node.stream.publisher;
 import com.swirlds.config.api.ConfigData;
 import com.swirlds.config.api.ConfigProperty;
 import com.swirlds.config.api.validation.annotation.Min;
-import java.util.Objects;
-import org.hiero.block.common.utils.Preconditions;
 import org.hiero.block.node.base.Loggable;
 
 /**
- * Use this configuration across the producer package
- *
- * @param type use a predefined type string to replace the producer component implementation.
- *     Non-PRODUCTION values should only be used for troubleshooting and development purposes.
+ * Configuration for a block stream publisher plugin.
  */
 @ConfigData("producer")
 public record PublisherConfig(
-        @Loggable @ConfigProperty(defaultValue = "PRODUCTION") PublisherType type,
-        @Loggable @ConfigProperty(defaultValue = "8000") @Min(2000) int timeoutThresholdMillis) {
-    /**
-     * The type of the publisher service to use - PRODUCTION or NO_OP.
-     */
-    public enum PublisherType {
-        /**
-         * Production mode, which is the default. Sends all incoming block items to the block messaging service
-         */
-        PRODUCTION,
-        /**
-         * No-op mode. Does not send any block items to the block messaging service. Just updates the metrics
-         */
-        NO_OP,
-    }
-
-    /**
-     * Constructs a new {@code PublisherConfig} instance with validation.
-     */
-    public PublisherConfig {
-        Objects.requireNonNull(type);
-        Preconditions.requirePositive(timeoutThresholdMillis);
-    }
+        @Loggable @ConfigProperty(defaultValue = "9_223_372_036_854_775_807") @Min(100_000L) long batchForwardLimit) {
+    // Do not create a constructor just to validate the `@Min`, because that's
+    // already done in the Configuration framework initialization.
 }

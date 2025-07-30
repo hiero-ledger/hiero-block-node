@@ -40,16 +40,16 @@ Prefix: prometheus, ie. `prometheus.configKey`
 | ConfigKey                 | Description                                                                           | Default |
 |:--------------------------|:--------------------------------------------------------------------------------------|--------:|
 | enableEndpoint            | either `true` or `false`. Enables or disables the endpoint for metrics                |    true |
-| endpointPortNumber        | Port of the Prometheus endpoint                                                       |    9999 |
+| endpointPortNumber        | Port of the Prometheus endpoint                                                       |   16007 |
 | endpointMaxBacklogAllowed | The maximum number of incoming TCP connections which the system will queue internally |       1 |
 
 ## How to Access Metrics
 
 ```
-http://<host>:9999/metrics
+http://<host>:16007/metrics
 ```
 
-* Default port `9999`.
+* Default port `16007`.
 * Output is plain‑text in Prometheus exposition format (`# HELP`, `# TYPE`, `<metric> <value>`).
 
 Example `scrape_configs` snippet:
@@ -57,7 +57,7 @@ Example `scrape_configs` snippet:
         scrape_configs:
           - job_name: hiero-block-node
             static_configs:
-              - targets: ['bn‑01.example.com:9999']   # change port if customised
+              - targets: ['bn‑01.example.com:16007']   # change port if customised
 
 ---
 
@@ -161,13 +161,14 @@ Measures block‑verification throughput and success rate.
 **Plugin:** `block-providers/files.recent [block-node-blocks-file-recent]`
 Activity and utilization of the recent on‑disk tier.
 
-|  Type   |               Name                |           Description           |
-|---------|-----------------------------------|---------------------------------|
-| Counter | `files_recent_blocks_written`     | Blocks written to recent tier   |
-| Counter | `files_recent_blocks_read`        | Blocks read from recent tier    |
-| Counter | `files_recent_blocks_deleted`     | Blocks deleted from recent tier |
-| Gauge   | `files_recent_blocks_stored`      | Blocks stored in recent tier    |
-| Gauge   | `files_recent_total_bytes_stored` | Bytes stored in recent tier     |
+|  Type   |                 Name                 |               Description               |
+|---------|--------------------------------------|-----------------------------------------|
+| Counter | `files_recent_blocks_written`        | Blocks written to recent tier           |
+| Counter | `files_recent_blocks_read`           | Blocks read from recent tier            |
+| Counter | `files_recent_blocks_deleted`        | Blocks deleted from recent tier         |
+| Counter | `files_recent_blocks_deleted_failed` | Blocks failed deletion from recent tier |
+| Gauge   | `files_recent_blocks_stored`         | Blocks stored in recent tier            |
+| Gauge   | `files_recent_total_bytes_stored`    | Bytes stored in recent tier             |
 
 ---
 
@@ -176,12 +177,13 @@ Activity and utilization of the recent on‑disk tier.
 **Plugin:** `block-providers/files.historic [block-node-blocks-file-historic]`
 Activity and utilization of the historic on‑disk tier.
 
-|  Type   |                Name                 |           Description           |
-|---------|-------------------------------------|---------------------------------|
-| Counter | `files_historic_blocks_written`     | Blocks written to historic tier |
-| Counter | `files_historic_blocks_read`        | Blocks read from historic tier  |
-| Gauge   | `files_historic_blocks_stored`      | Blocks stored in historic tier  |
-| Gauge   | `files_historic_total_bytes_stored` | Bytes stored in historic tier   |
+|  Type   |                 Name                 |              Description              |
+|---------|--------------------------------------|---------------------------------------|
+| Counter | `files_historic_blocks_written`      | Blocks written to historic tier       |
+| Counter | `files_historic_blocks_read`         | Blocks read from historic tier        |
+| Gauge   | `files_historic_blocks_stored`       | Blocks stored in historic tier        |
+| Gauge   | `files_historic_total_bytes_stored`  | Bytes stored in historic tier         |
+| Counter | `files_historic_zips_deleted_failed` | Zips failed deletion in historic tier |
 
 ---
 

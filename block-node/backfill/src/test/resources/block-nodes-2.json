@@ -1,0 +1,8 @@
+{
+  "nodes": [
+    { "address": "node2.example.com", "port": 8082, "priority": 1 },
+    { "address": "localhost", "port": 8082, "priority": 1 },
+    { "address": "localhost", "port": 8081, "priority": 2 }
+
+  ]
+}

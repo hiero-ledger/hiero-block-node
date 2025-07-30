@@ -17,6 +17,7 @@ import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.ServiceBuilder;
 import org.hiero.block.node.spi.blockmessaging.BlockItemHandler;
 import org.hiero.block.node.spi.blockmessaging.BlockItems;
+import org.hiero.block.node.spi.blockmessaging.BlockSource;
 import org.hiero.block.node.spi.blockmessaging.PersistedNotification;
 import org.hiero.block.node.spi.historicalblocks.BlockAccessor;
 import org.hiero.block.node.spi.historicalblocks.BlockRangeSet;
@@ -49,7 +50,8 @@ public class SimpleInMemoryHistoricalBlockFacility implements HistoricalBlockFac
         handleBlockItemsReceived(blockItems, true);
     }
 
-    public void handleBlockItemsReceived(BlockItems blockItems, final boolean sendNotification) {
+    public void handleBlockItemsReceived(
+            BlockItems blockItems, final boolean sendNotification, int priority, BlockSource source) {
         if (!disablePlugin.get()) {
             if (blockItems.isStartOfNewBlock()) {
                 if (!partialBlock.isEmpty()) {
@@ -74,12 +76,15 @@ public class SimpleInMemoryHistoricalBlockFacility implements HistoricalBlockFac
                 if (sendNotification) {
                     blockNodeContext
                             .blockMessaging()
-                            .sendBlockPersisted(new PersistedNotification(blockNumber, blockNumber, 2000));
+                            .sendBlockPersisted(new PersistedNotification(blockNumber, blockNumber, priority, source));
                 }
             }
         }
     }
 
+    public void handleBlockItemsReceived(BlockItems blockItems, final boolean sendNotification) {
+        handleBlockItemsReceived(blockItems, sendNotification, 2000, BlockSource.UNKNOWN);
+    }
     /**
      * {@inheritDoc}
      */

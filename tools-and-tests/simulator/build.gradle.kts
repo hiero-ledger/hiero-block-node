@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 plugins {
     id("org.hiero.gradle.module.library")
+    id("org.hiero.gradle.feature.test-fixtures")
     id("application")
 }
 
@@ -23,6 +24,7 @@ mainModuleInfo {
 }
 
 testModuleInfo {
+    requires("org.hiero.block.simulator.test.fixtures")
     requires("org.junit.jupiter.api")
     requires("org.junit.jupiter.params")
     requires("org.mockito")
@@ -54,7 +56,7 @@ tasks.register<JavaExec>("runPublisherClient") {
 
     environment("BLOCK_STREAM_SIMULATOR_MODE", "PUBLISHER_CLIENT")
     environment("PROMETHEUS_ENDPOINT_ENABLED", "true")
-    environment("PROMETHEUS_ENDPOINT_PORT_NUMBER", "9998")
+    environment("PROMETHEUS_ENDPOINT_PORT_NUMBER", "16008")
 }
 
 tasks.register<JavaExec>("runPublisherServer") {
@@ -67,7 +69,7 @@ tasks.register<JavaExec>("runPublisherServer") {
 
     environment("BLOCK_STREAM_SIMULATOR_MODE", "PUBLISHER_SERVER")
     environment("PROMETHEUS_ENDPOINT_ENABLED", "true")
-    environment("PROMETHEUS_ENDPOINT_PORT_NUMBER", "9996")
+    environment("PROMETHEUS_ENDPOINT_PORT_NUMBER", "16010")
 }
 
 // Task to run simulator in Consumer mode
@@ -81,7 +83,7 @@ tasks.register<JavaExec>("runConsumer") {
 
     environment("BLOCK_STREAM_SIMULATOR_MODE", "CONSUMER")
     environment("PROMETHEUS_ENDPOINT_ENABLED", "true")
-    environment("PROMETHEUS_ENDPOINT_PORT_NUMBER", "9997")
+    environment("PROMETHEUS_ENDPOINT_PORT_NUMBER", "16009")
 }
 
 // Vals

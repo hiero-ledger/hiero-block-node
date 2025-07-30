@@ -9,9 +9,13 @@ option java_multiple_files = true;
 
 import "block-node/api/block_access_service.proto";
 import "block-node/api/block_stream_subscribe_service.proto";
+import "block-node/api/block_stream_publish_service.proto";
 
 message PublishStreamRequestUnparsed {
-    BlockItemSetUnparsed block_items = 1;
+    oneof request {
+        BlockItemSetUnparsed block_items = 1;
+        org.hiero.block.api.PublishStreamRequest.EndStream end_stream = 2;
+    }
 }
 
 message SubscribeStreamResponseUnparsed {
@@ -58,5 +62,6 @@ message BlockItemUnparsed {
         bytes filtered_item_hash = 8;
         bytes block_proof = 9;
         bytes record_file = 10;
+        bytes trace_data = 16;
     }
 }

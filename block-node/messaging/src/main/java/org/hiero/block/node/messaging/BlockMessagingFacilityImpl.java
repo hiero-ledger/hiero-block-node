@@ -21,6 +21,7 @@ import java.util.Map;
 import java.util.concurrent.ThreadFactory;
 import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.ServiceBuilder;
+import org.hiero.block.node.spi.blockmessaging.BackfilledBlockNotification;
 import org.hiero.block.node.spi.blockmessaging.BlockItemHandler;
 import org.hiero.block.node.spi.blockmessaging.BlockItems;
 import org.hiero.block.node.spi.blockmessaging.BlockMessagingFacility;
@@ -372,6 +373,16 @@ public class BlockMessagingFacilityImpl implements BlockMessagingFacility {
      * {@inheritDoc}
      */
     @Override
+    public void sendBackfilledBlockNotification(BackfilledBlockNotification notification) {
+        blockNotificationDisruptor.getRingBuffer().publishEvent((event, sequence) -> event.set(notification));
+        // TODO: Add a counter for backfilled notifications
+        // blockBackfilledNotificationsCounter.increment();
+    }
+
+    /**
+     * {@inheritDoc}
+     */
+    @Override
     public synchronized void registerBlockNotificationHandler(
             final BlockNotificationHandler handler, final boolean cpuIntensiveHandler, final String handlerName) {
         final InformedEventHandler<BlockNotificationRingEvent> informedEventHandler =
@@ -379,8 +390,10 @@ public class BlockMessagingFacilityImpl implements BlockMessagingFacility {
                     // send on the event
                     if (event.getVerificationNotification() != null) {
                         handler.handleVerification(event.getVerificationNotification());
-                    } else {
+                    } else if (event.getPersistedNotification() != null) {
                         handler.handlePersisted(event.getPersistedNotification());
+                    } else if (event.getBackfilledBlockNotification() != null) {
+                        handler.handleBackfilled(event.getBackfilledBlockNotification());
                     }
                 };
         if (blockNotificationDisruptor.hasStarted()) {

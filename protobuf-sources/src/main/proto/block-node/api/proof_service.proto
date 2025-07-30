@@ -118,20 +118,35 @@ message BlockContentsProofResponse {
         SUCCESS = 1;
 
         /**
+         * The request cannot be fulfilled.<br/>
+         * The client sent a malformed or structurally incorrect request.
+         * <p>
+         * The client MAY retry the request after correcting the form and
+         * structure.
+         */
+        INVALID_REQUEST = 2;
+
+        /**
+         * The Block-Node had an error and cannot continue processing.<br/>
+         * The client may retry again later.
+         */
+        ERROR = 3;
+
+        /**
          * The specified block item was not found.
          */
-        ITEM_NOT_FOUND = 2;
+        ITEM_NOT_FOUND = 4;
 
         /**
          * The block content proof is not available for the specified block.
          */
-        NOT_AVAILABLE = 3;
+        NOT_AVAILABLE = 5;
 
         /**
          * Duplicate hash items were found, causing ambiguity.
          * Clients MUST use the block item index to resolve the ambiguity.
          */
-        DUPLICATE_HASH_ITEM_FOUND = 4;
+        DUPLICATE_HASH_ITEM_FOUND = 6;
     }
 
     /**

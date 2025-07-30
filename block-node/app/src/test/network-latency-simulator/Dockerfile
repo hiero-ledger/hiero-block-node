@@ -3,7 +3,7 @@ FROM ubuntu:latest
 
 # Set environment variables
 ENV DEBIAN_FRONTEND=noninteractive
-ENV GRPC_SERVER="host.docker.internal:8080"
+ENV GRPC_SERVER="host.docker.internal:40840"
 ENV GRPC_METHOD="BlockStreamGrpc/StreamSource"
 ENV PATH_TO_PROTO="/usr/local/protos/blockstream.proto"
 ENV PROTO_IMPORT_PATH="/usr/local/protos"

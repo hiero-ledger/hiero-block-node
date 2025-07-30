@@ -15,6 +15,7 @@ module org.hiero.block.simulator {
     exports org.hiero.block.simulator.mode.impl;
     exports org.hiero.block.simulator.config.logging to
             com.swirlds.config.impl;
+    exports org.hiero.block.simulator.logging;
 
     requires com.hedera.pbj.runtime;
     requires com.swirlds.common;

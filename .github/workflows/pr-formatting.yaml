@@ -32,13 +32,13 @@ jobs:
     runs-on: hiero-block-node-linux-medium
     steps:
       - name: Harden Runner
-        uses: step-security/harden-runner@002fdce3c6a235733a90a27c80493a3241e56863 # v2.12.1
+        uses: step-security/harden-runner@ec9f2d5744a09debf3a187a3f4f675c53b671911 # v2.13.0
         with:
           egress-policy: audit
 
       - name: Check PR Title
         id: title-check
-        uses: step-security/conventional-pr-title-action@101b3d5adffb51b5789997fea508c8313c8ddf02 # v3.2.2
+        uses: step-security/conventional-pr-title-action@d47e8818876fa91d2010b65c4d699bb5f0d34d56 # v3.2.3
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         continue-on-error: true

@@ -59,7 +59,7 @@ public class MetricsCommonTests extends BaseSuite {
     }
 
     @Test
-    @DisplayName("Verify that metrics are being collected - reported in host:9999/metrics")
+    @DisplayName("Verify that metrics are being collected - reported in host:16007/metrics")
     void verifyMetricsAreCollected() throws IOException, InterruptedException {
         long publishedBlocks = blockStreamSimulatorApp.getStreamStatus().publishedBlocks();
 
@@ -76,6 +76,8 @@ public class MetricsCommonTests extends BaseSuite {
         assertEquals(publishedBlocks - 1, appNewestBlock, "Newest block should match the published blocks");
         assertEquals(0, appOldestBlock, "Oldest block should be 0 for a new simulator run");
         assertEquals(1, appState, "App state should be 1 (running) after publishing blocks");
+
+        Thread.sleep(2_000); // Allow some time for metrics to be updated
 
         // Verify block access metrics
         long getBlockRequests =

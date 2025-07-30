@@ -8,6 +8,7 @@ import java.util.List;
 import org.hiero.block.common.utils.ChunkUtils;
 import org.hiero.block.internal.BlockItemUnparsed;
 import org.hiero.block.node.app.fixtures.blocks.BlockUtils;
+import org.hiero.block.node.spi.blockmessaging.BlockSource;
 import org.hiero.block.node.spi.blockmessaging.VerificationNotification;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
@@ -20,7 +21,7 @@ class BlockVerificationSessionTest {
 
     @BeforeEach
     void setUp() throws IOException, ParseException {
-        sampleBlockInfo = BlockUtils.getSampleBlockInfo(BlockUtils.SAMPLE_BLOCKS.GENERATED_10);
+        sampleBlockInfo = BlockUtils.getSampleBlockInfo(BlockUtils.SAMPLE_BLOCKS.GENERATED_14);
         blockItems = sampleBlockInfo.blockUnparsed().blockItems();
     }
 
@@ -34,7 +35,7 @@ class BlockVerificationSessionTest {
 
         long blockNumber = blockHeader.number();
 
-        BlockVerificationSession session = new BlockVerificationSession(blockNumber);
+        BlockVerificationSession session = new BlockVerificationSession(blockNumber, BlockSource.PUBLISHER);
 
         VerificationNotification blockNotification = session.processBlockItems(blockItems);
 
@@ -75,7 +76,7 @@ class BlockVerificationSessionTest {
         int currentChunk = 0;
         long blockNumber = sampleBlockInfo.blockNumber();
 
-        BlockVerificationSession session = new BlockVerificationSession(blockNumber);
+        BlockVerificationSession session = new BlockVerificationSession(blockNumber, BlockSource.PUBLISHER);
 
         VerificationNotification blockNotification = session.processBlockItems(chunkifiedItems.get(currentChunk));
 
@@ -116,7 +117,7 @@ class BlockVerificationSessionTest {
         blockItems.remove(5);
 
         long blockNumber = sampleBlockInfo.blockNumber();
-        BlockVerificationSession session = new BlockVerificationSession(blockNumber);
+        BlockVerificationSession session = new BlockVerificationSession(blockNumber, BlockSource.PUBLISHER);
         VerificationNotification blockNotification = session.processBlockItems(blockItems);
 
         Assertions.assertEquals(
@@ -144,7 +145,7 @@ class BlockVerificationSessionTest {
         int currentChunk = 0;
         long blockNumber = sampleBlockInfo.blockNumber();
 
-        BlockVerificationSession session = new BlockVerificationSession(blockNumber);
+        BlockVerificationSession session = new BlockVerificationSession(blockNumber, BlockSource.PUBLISHER);
         VerificationNotification blockNotification = session.processBlockItems(chunkifiedItems.get(currentChunk));
 
         while (blockNotification == null) {

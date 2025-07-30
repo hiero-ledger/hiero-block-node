@@ -16,23 +16,27 @@ import org.hiero.block.internal.BlockItemUnparsed;
  * Provides common utility methods for hashing and combining hashes.
  */
 public final class HashingUtilities {
-    private HashingUtilities() {
-        throw new UnsupportedOperationException("Utility Class");
-    }
 
     /**
-     * The size of a SHA-384 hash, in bytes.
+     * The size of an SHA-384 hash, in bytes.
      */
     public static final int HASH_SIZE = 48;
-
+    /**
+     * A constant representing a null hash, which is a zeroed-out byte array of size {@link #HASH_SIZE}.
+     */
+    public static final Bytes NULL_HASH = Bytes.wrap(new byte[HASH_SIZE]);
     /**
      * The standard name of the SHA2 384-bit hash algorithm.
-     *
+     * <p>
      * This value must match what is declared for the
      * <a href="https://docs.oracle.com/en/java/javase/21/docs/specs/security/standard-names.html#messagedigest-algorithms">
      * standard message digest names</a>.
      */
     public static final String HASH_ALGORITHM = "SHA-384";
+
+    private HashingUtilities() {
+        throw new UnsupportedOperationException("Utility Class");
+    }
 
     /**
      * Returns the SHA-384 hash of the given bytes.
@@ -117,31 +121,58 @@ public final class HashingUtilities {
     public static Hashes getBlockHashes(@NonNull List<BlockItemUnparsed> blockItems) {
         int numInputs = 0;
         int numOutputs = 0;
+        int numConsensusHeaders = 0;
+        int numStateChanges = 0;
+        int numTraceData = 0;
+
         int itemSize = blockItems.size();
         for (int i = 0; i < itemSize; i++) {
             final BlockItemUnparsed item = blockItems.get(i);
             final BlockItemUnparsed.ItemOneOfType kind = item.item().kind();
             switch (kind) {
-                case EVENT_HEADER, EVENT_TRANSACTION, ROUND_HEADER -> numInputs++;
-                case TRANSACTION_RESULT, TRANSACTION_OUTPUT, STATE_CHANGES, BLOCK_HEADER -> numOutputs++;
+                case ROUND_HEADER, EVENT_HEADER -> numConsensusHeaders++;
+                case EVENT_TRANSACTION -> numInputs++;
+                case TRANSACTION_RESULT, TRANSACTION_OUTPUT, BLOCK_HEADER -> numOutputs++;
+                case STATE_CHANGES -> numStateChanges++;
+                case TRACE_DATA -> numTraceData++;
             }
         }
 
         final var inputHashes = ByteBuffer.allocate(HASH_SIZE * numInputs);
         final var outputHashes = ByteBuffer.allocate(HASH_SIZE * numOutputs);
+        final var consensusHeaderHashes = ByteBuffer.allocate(HASH_SIZE * numConsensusHeaders);
+        final var stateChangesHashes = ByteBuffer.allocate(HASH_SIZE * numStateChanges);
+        final var traceDataHashes = ByteBuffer.allocate(HASH_SIZE * numTraceData);
+
         final var digest = sha384DigestOrThrow();
         for (int i = 0; i < itemSize; i++) {
             final BlockItemUnparsed item = blockItems.get(i);
             final BlockItemUnparsed.ItemOneOfType kind = item.item().kind();
             switch (kind) {
-                case EVENT_HEADER, EVENT_TRANSACTION, ROUND_HEADER -> inputHashes.put(
-                        digest.digest(BlockItemUnparsed.PROTOBUF.toBytes(item).toByteArray()));
-                case TRANSACTION_RESULT, TRANSACTION_OUTPUT, STATE_CHANGES, BLOCK_HEADER -> outputHashes.put(
-                        digest.digest(BlockItemUnparsed.PROTOBUF.toBytes(item).toByteArray()));
+                case ROUND_HEADER, EVENT_HEADER ->
+                    consensusHeaderHashes.put(digest.digest(
+                            BlockItemUnparsed.PROTOBUF.toBytes(item).toByteArray()));
+                case EVENT_TRANSACTION ->
+                    inputHashes.put(digest.digest(
+                            BlockItemUnparsed.PROTOBUF.toBytes(item).toByteArray()));
+                case TRANSACTION_RESULT, TRANSACTION_OUTPUT, BLOCK_HEADER ->
+                    outputHashes.put(digest.digest(
+                            BlockItemUnparsed.PROTOBUF.toBytes(item).toByteArray()));
+                case STATE_CHANGES ->
+                    stateChangesHashes.put(digest.digest(
+                            BlockItemUnparsed.PROTOBUF.toBytes(item).toByteArray()));
+                case TRACE_DATA ->
+                    traceDataHashes.put(digest.digest(
+                            BlockItemUnparsed.PROTOBUF.toBytes(item).toByteArray()));
             }
         }
 
-        return new Hashes(inputHashes.flip(), outputHashes.flip());
+        return new Hashes(
+                inputHashes.flip(),
+                outputHashes.flip(),
+                consensusHeaderHashes.flip(),
+                stateChangesHashes.flip(),
+                traceDataHashes.flip());
     }
 
     /**
@@ -163,23 +194,42 @@ public final class HashingUtilities {
      * @param blockProof the block proof
      * @param inputTreeHasher the input tree hasher
      * @param outputTreeHasher the output tree hasher
+     * @param consensusHeaderHasher the consensus header hasher
+     * @param stateChangesHasher the state changes hasher
+     * @param traceDataHasher the trace data hasher
      * @return the final block hash
      */
     public static Bytes computeFinalBlockHash(
             @NonNull final BlockProof blockProof,
             @NonNull final StreamingTreeHasher inputTreeHasher,
-            @NonNull final StreamingTreeHasher outputTreeHasher) {
+            @NonNull final StreamingTreeHasher outputTreeHasher,
+            @NonNull final StreamingTreeHasher consensusHeaderHasher,
+            @NonNull final StreamingTreeHasher stateChangesHasher,
+            @NonNull final StreamingTreeHasher traceDataHasher) {
         Objects.requireNonNull(blockProof);
         Objects.requireNonNull(inputTreeHasher);
         Objects.requireNonNull(outputTreeHasher);
 
         Bytes inputHash = inputTreeHasher.rootHash().join();
         Bytes outputHash = outputTreeHasher.rootHash().join();
-        Bytes providedLasBlockHash = blockProof.previousBlockRootHash();
-        Bytes providedBlockStartStateHash = blockProof.startOfBlockStateRootHash();
+        Bytes consensusHeaderHash = consensusHeaderHasher.rootHash().join();
+        Bytes stateChangesHash = stateChangesHasher.rootHash().join();
+        Bytes traceDataHash = traceDataHasher.rootHash().join();
 
-        final var leftParent = combine(providedLasBlockHash, inputHash);
-        final var rightParent = combine(outputHash, providedBlockStartStateHash);
-        return combine(leftParent, rightParent);
+        Bytes lastBlockHash = blockProof.previousBlockRootHash();
+        Bytes blockStartStateHash = blockProof.startOfBlockStateRootHash();
+
+        // Compute depth two hashes
+        final Bytes depth2Node0 = combine(lastBlockHash, blockStartStateHash);
+        final Bytes depth2Node1 = combine(consensusHeaderHash, inputHash);
+        final Bytes depth2Node2 = combine(outputHash, stateChangesHash);
+        final Bytes depth2Node3 = combine(traceDataHash, NULL_HASH);
+
+        // Compute depth one hashes
+        final Bytes depth1Node0 = combine(depth2Node0, depth2Node1);
+        final Bytes depth1Node1 = combine(depth2Node2, depth2Node3);
+
+        // Compute the block hash
+        return combine(depth1Node0, depth1Node1);
     }
 }

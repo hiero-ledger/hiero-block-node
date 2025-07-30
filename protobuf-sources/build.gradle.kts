@@ -16,7 +16,7 @@ val generateBlockNodeProtoArtifact: TaskProvider<Exec> =
         group = "protobuf"
 
         workingDir(layout.projectDirectory)
-        val cnTagHash = "efb0134e921b32ed6302da9c93874d65492e876f" // v0.62.2
+        val cnTagHash = "c86619410f0e0da3719c39c9447a96438200166d" // v0.63.9
 
         // run build-bn-proto.sh skipping inclusion of BN API as it messes up proto considerations
         commandLine(
@@ -44,3 +44,14 @@ val cleanUpAfterBlockNodeProtoArtifact: TaskProvider<Exec> =
             "${layout.projectDirectory}/hiero-consensus-node",
         )
     }
+
+// further clean up of the project downloaded files
+tasks.named<Delete>("clean") {
+    // remove the downloaded block-node-protobuf directory and hiero-consensus-node directory
+    delete(
+        layout.projectDirectory.dir("block-node-protobuf"),
+        layout.projectDirectory.dir("hiero-consensus-node"),
+    )
+    // remove the downloaded tarball
+    delete(project.fileTree(layout.projectDirectory) { include("block-node-protobuf-*.tgz") })
+}

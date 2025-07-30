@@ -8,6 +8,7 @@ import java.util.Set;
 import java.util.concurrent.ConcurrentSkipListSet;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.RejectedExecutionException;
+import org.hiero.block.node.spi.blockmessaging.BackfilledBlockNotification;
 import org.hiero.block.node.spi.blockmessaging.BlockItemHandler;
 import org.hiero.block.node.spi.blockmessaging.BlockItems;
 import org.hiero.block.node.spi.blockmessaging.BlockMessagingFacility;
@@ -217,6 +218,17 @@ public class TestBlockMessagingFacility implements BlockMessagingFacility {
      * {@inheritDoc}
      */
     @Override
+    public void sendBackfilledBlockNotification(BackfilledBlockNotification notification) {
+        LOGGER.log(Level.TRACE, "Sending backfilled block notification " + notification);
+        for (BlockNotificationHandler handler : blockNotificationHandlers) {
+            handler.handleBackfilled(notification);
+        }
+    }
+
+    /**
+     * {@inheritDoc}
+     */
+    @Override
     public void registerBlockNotificationHandler(
             BlockNotificationHandler handler, boolean cpuIntensiveHandler, String handlerName) {
         blockNotificationHandlers.add(handler);
@@ -227,7 +239,6 @@ public class TestBlockMessagingFacility implements BlockMessagingFacility {
      */
     @Override
     public void unregisterBlockNotificationHandler(final BlockNotificationHandler handler) {
-        //noinspection SuspiciousMethodCalls
-        blockItemHandlers.remove(handler);
+        blockNotificationHandlers.remove(handler);
     }
 }

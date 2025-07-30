@@ -27,8 +27,9 @@ import java.util.concurrent.atomic.AtomicReference;
 import java.util.logging.LogManager;
 import java.util.stream.Collectors;
 import org.hiero.block.node.app.config.AutomaticEnvironmentVariableConfigSource;
-import org.hiero.block.node.app.config.ConfigLogger;
+import org.hiero.block.node.app.config.ServerConfig;
 import org.hiero.block.node.app.logging.CleanColorfulFormatter;
+import org.hiero.block.node.app.logging.ConfigLogger;
 import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.BlockNodePlugin;
 import org.hiero.block.node.spi.ServiceLoaderFunction;
@@ -203,7 +204,7 @@ public class BlockNodeApp implements HealthFacility {
      * and starts the metrics.
      */
     void start() {
-        LOGGER.log(INFO, LIGHT_GREEN + "Starting BlockNode Server");
+        LOGGER.log(INFO, LIGHT_GREEN + "Starting BlockNode Server on port {0}", serverConfig.port());
         // Start the web server
         webServer.start();
         // Start metrics

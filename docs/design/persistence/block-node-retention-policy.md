@@ -66,13 +66,16 @@ The `Files Recent Persistence` implements the Retention Policy:
 
 The `Files Historic Persistence` implements the Retention Policy:
 
-- A configurable parameter defines how many blocks to keep in storage.
+- A configurable parameter defines how many blocks to keep in storage. This
+  parameter determines how many zips (archived batches blocks) will be retained
+  at any given time. Multiplying this value by the archive batch size gives us
+  the total number of individual blocks that that will be effectively retained.
 - The Policy is implemented by removing the oldest N amount of blocks (based on
   the configured threshold).
 - Blocks are removed only when new data is received.
 - The granularity of the removal is one whole zipped file, which contains one
   archived batch of blocks.
-- By default, the Retention Policy is set to `-1`, which means that there is no
+- By default, the Retention Policy is set to `0`, which means that there is no
   limit on the amount of blocks that can be stored.
 
 ## Configuration

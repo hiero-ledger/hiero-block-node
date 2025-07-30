@@ -1,0 +1,23 @@
+global:
+  scrape_interval: 1s
+
+scrape_configs:
+  - job_name: 'simulator-publisher'
+    static_configs:
+      - targets: ['simulator-publisher:16008']
+    metrics_path: '/metrics'
+    scheme: 'http'
+    relabel_configs:
+      - source_labels: [__name__]
+        target_label: instance_type
+        replacement: 'publisher'
+
+  - job_name: 'simulator-consumer'
+    static_configs:
+      - targets: ['simulator-consumer:16009']
+    metrics_path: '/metrics'
+    scheme: 'http'
+    relabel_configs:
+      - source_labels: [__name__]
+        target_label: instance_type
+        replacement: 'consumer'

@@ -9,5 +9,13 @@ import java.nio.ByteBuffer;
  *
  * @param inputHashes the input hashes
  * @param outputHashes the output hashes
+ * @param consensusHeaderHashes the consensus header hashes
+ * @param stateChangesHashes the state changes hashes
+ * @param traceDataHashes the trace data hashes
  */
-public record Hashes(@NonNull ByteBuffer inputHashes, @NonNull ByteBuffer outputHashes) {}
+public record Hashes(
+        @NonNull ByteBuffer inputHashes,
+        @NonNull ByteBuffer outputHashes,
+        @NonNull ByteBuffer consensusHeaderHashes,
+        @NonNull ByteBuffer stateChangesHashes,
+        @NonNull ByteBuffer traceDataHashes) {}

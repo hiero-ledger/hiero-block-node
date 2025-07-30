@@ -7,16 +7,16 @@ echo "Creating .env file for simulator services..."
 
 # Generate .env file with default values
 cat > .env << EOL
-GRPC_SERVER_ADDRESS=block-node-server
+GRPC_SERVER_ADDRESS=host.docker.internal
 PROMETHEUS_ENDPOINT_ENABLED=true
 
 # For publisher service
 PUBLISHER_BLOCK_STREAM_SIMULATOR_MODE=PUBLISHER_CLIENT
-PUBLISHER_PROMETHEUS_ENDPOINT_PORT_NUMBER=9998
+PUBLISHER_PROMETHEUS_ENDPOINT_PORT_NUMBER=16008
 
 # For consumer service
 CONSUMER_BLOCK_STREAM_SIMULATOR_MODE=CONSUMER
-CONSUMER_PROMETHEUS_ENDPOINT_PORT_NUMBER=9997
+CONSUMER_PROMETHEUS_ENDPOINT_PORT_NUMBER=16009
 EOL
 
 logging_config_file_arg="-Djava.util.logging.config.file=/opt/hiero/block-node/logs/config/logging.properties"
