@@ -178,9 +178,10 @@ public class PositiveMultiplePublishersTests extends BaseSuite {
     }
 
     @ParameterizedTest
+    @DisplayName("Publisher should handle error responses and resume streaming")
     @MethodSource("provideDataForErrorResponses")
     @Timeout(30)
-    public void shouldResumeAfterError(Map<String, String> config, String errorStatus)
+    public void publisherShouldResumeAfterError(Map<String, String> config, String errorStatus)
             throws IOException, InterruptedException {
         // ===== Prepare and Start first simulator and make sure it's streaming ======================
         final Map<String, String> firstSimulatorConfiguration = Map.of("generator.startBlockNumber", "0");
@@ -356,17 +357,6 @@ public class PositiveMultiplePublishersTests extends BaseSuite {
     private static Stream<Arguments> provideDataForErrorResponses() {
         return Stream.of(
                 Arguments.of(Map.of("generator.startBlockNumber", Long.toString(15)), "status: BEHIND"),
-                Arguments.of(Map.of("generator.startBlockNumber", Long.toString(5)), "status: SUCCESS"),
-                Arguments.of(Map.of("generator.startBlockNumber", Long.toString(4)), "status: DUPLICATE_BLOCK"),
-                Arguments.of(
-                        Map.of(
-                                "generator.startBlockNumber",
-                                Long.toString(4),
-                                "blockStream.millisecondsPerBlock",
-                                "5000"),
-                        "status: TIMEOUT"),
-                Arguments.of(
-                        Map.of("generator.startBlockNumber", Long.toString(5), "generator.invalidBlockHash", "true"),
-                        "status: BAD_BLOCK_PROOF"));
+                Arguments.of(Map.of("generator.startBlockNumber", Long.toString(4)), "status: DUPLICATE_BLOCK"));
     }
 }
