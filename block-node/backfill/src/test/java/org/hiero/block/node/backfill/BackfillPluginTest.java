@@ -43,20 +43,6 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, BlockingExecutor
      */
     private final SimpleInMemoryHistoricalBlockFacility historicalBlockFacility;
 
-    private final TestBlockNodeServer testBlockNodeServer;
-
-    private final List<TestBlockNodeServer> blockNodeServerMocks = new ArrayList();
-
-    private final Map<String, String> defaultConfig = Map.of(
-            "backfill.blockNodeSourcesPath",
-            getClass().getClassLoader().getResource("block-nodes.json").getFile(),
-            "backfill.fetchBatchSize",
-            "5",
-            "backfill.delayBetweenBatchesMs",
-            "100",
-            "backfill.initialDelayMs",
-            "1000");
-
     public BackfillPluginTest(@TempDir final Path tempDir) {
         super(new BlockingExecutor(new LinkedBlockingQueue<>()));
         this.testTempDir = Objects.requireNonNull(tempDir);
@@ -68,7 +54,7 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, BlockingExecutor
         }
 
         this.historicalBlockFacility = new SimpleInMemoryHistoricalBlockFacility();
-        this.testBlockNodeServer = new TestBlockNodeServer(8081, secondBNBlockFacility);
+        TestBlockNodeServer testBlockNodeServer = new TestBlockNodeServer(8081, secondBNBlockFacility);
 
         // we create another BN Server Mock that is available at port 8082 but has no useful blocks
         final SimpleInMemoryHistoricalBlockFacility emptyBNBlockFacility = new SimpleInMemoryHistoricalBlockFacility();
@@ -76,6 +62,7 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, BlockingExecutor
             final BlockItemUnparsed[] block = SimpleTestBlockItemBuilder.createSimpleBlockUnparsedWithNumber(i);
             emptyBNBlockFacility.handleBlockItemsReceived(new BlockItems(List.of(block), i), false);
         }
+        List<TestBlockNodeServer> blockNodeServerMocks = new ArrayList<>();
         blockNodeServerMocks.add(new TestBlockNodeServer(8082, emptyBNBlockFacility));
     }
 
@@ -420,7 +407,7 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, BlockingExecutor
 
     @Test
     @DisplayName("Backfill Autonomous, GAP available within 2 different backfill sources")
-    void testBackfillPartialAvaiableSourcesForGap() throws  InterruptedException {
+    void testBackfillPartialAvaiableSourcesForGap() throws InterruptedException {
 
         // Set up 2 backfill sources with two nodes, one primary and one secondary
         // primary node will have blocks from 0 to 100
@@ -428,12 +415,12 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, BlockingExecutor
         BackfillSourceConfig backfillSourceConfig = BackfillSourceConfig.newBuilder()
                 .address("localhost")
                 .port(40841)
-                .priority(1)
+                .priority(2)
                 .build();
         BackfillSourceConfig secondaryBackfillSourceConfig = BackfillSourceConfig.newBuilder()
                 .address("localhost")
                 .port(40842)
-                .priority(2)
+                .priority(1)
                 .build();
         BackfillSource backfillSource = BackfillSource.newBuilder()
                 .nodes(backfillSourceConfig, secondaryBackfillSourceConfig)
@@ -455,7 +442,8 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, BlockingExecutor
         }
         // start block-node mocks
         TestBlockNodeServer testBlockNodeServer1 = new TestBlockNodeServer(backfillSourceConfig.port(), storage1);
-        TestBlockNodeServer testBlockNodeServer2 = new TestBlockNodeServer(secondaryBackfillSourceConfig.port(), storage2);
+        TestBlockNodeServer testBlockNodeServer2 =
+                new TestBlockNodeServer(secondaryBackfillSourceConfig.port(), storage2);
 
         // start with plugin configuration
         start(
@@ -469,7 +457,9 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, BlockingExecutor
                         "backfill.delayBetweenBatchesMs",
                         "100",
                         "backfill.initialDelaySeconds",
-                        "5"));
+                        "5",
+                        "backfill.scanIntervalMs",
+                        "200"));
 
         // Insert blocks from 125 to 175 in the historical block facility
         final SimpleBlockRangeSet temporaryAvailableBlocks = new SimpleBlockRangeSet();
@@ -481,7 +471,29 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, BlockingExecutor
         // register the backfill handler
         registerBackfillHandler();
         // register the verification handler
-        registerVerificationHandler(backfillLatch);
+        this.blockMessaging.registerBlockNotificationHandler(
+                new BlockNotificationHandler() {
+                    @Override
+                    public void handleVerification(VerificationNotification notification) {
+                        blockNodeContext
+                                .blockMessaging()
+                                .sendBlockPersisted(new PersistedNotification(
+                                        notification.blockNumber(),
+                                        notification.blockNumber(),
+                                        10,
+                                        notification.source()));
+                        backfillLatch.countDown();
+
+                        // Add the block number to the historical block facility's available blocks
+                        // since next iteration we will only fill remaining blocks
+                        SimpleBlockRangeSet newRange =
+                                ((SimpleBlockRangeSet) historicalBlockFacility.availableBlocks());
+                        newRange.add(notification.blockNumber());
+                        historicalBlockFacility.setTemporaryAvailableBlocks(newRange);
+                    }
+                },
+                false,
+                "test-backfill-handler");
 
         boolean backfillSuccess =
                 backfillLatch.await(2, TimeUnit.MINUTES); // Wait until countDownLatch.countDown() is called
@@ -500,11 +512,6 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, BlockingExecutor
                 "Should have sent 125 verification notifications");
         // Stop the plugin
         plugin.stop();
-
-
-
-
-
     }
 
     private void createTestConfig(BackfillSource backfillSource, String configPath) {
