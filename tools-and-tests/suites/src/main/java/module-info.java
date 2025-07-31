@@ -7,7 +7,6 @@ open module org.hiero.block.node.suites {
     requires io.grpc;
     requires java.net.http;
     requires org.junit.jupiter.api;
-    requires org.junit.jupiter.params;
     requires org.junit.platform.suite.api;
     requires org.testcontainers;
     requires static com.github.spotbugs.annotations;

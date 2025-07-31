@@ -21,6 +21,7 @@ import org.hiero.block.simulator.config.types.StreamingMode;
  * @param blockItemsBatchSize the number of block items to stream in each batch
  * @param midBlockFailType the type of failure to occur while streaming
  * @param midBlockFailOffset the index of the failing block
+ * @param endStreamMode the mode for ending the stream
  */
 @ConfigData("blockStream")
 public record BlockStreamConfig(

@@ -23,6 +23,7 @@ Uses the prefix `blockStream` so all properties should start with `blockStream.`
 | `blockItemsBatchSize`       | The number of block items to send in a single batch, however if a block has less block items, it will send all the items in a block |            `1_000` |
 | `midBlockFailType`          | The type of failure to occur while streaming. It can be `NONE`, `ABRUPT` or `EOS`                                                   |             `NONE` |
 | `midBlockFailOffset`        | The index where the failure will occur, only applicable if midBlockFailType is not `NONE`                                           |                `0` |
+| `endStreamMode`             | The mode to use when ending the stream                                                                                              |             `NONE` |
 
 ## BlockGeneratorConfig
 
