@@ -5,6 +5,7 @@ import static org.hiero.block.simulator.fixtures.TestUtils.findFreePort;
 import static org.hiero.block.simulator.fixtures.TestUtils.getTestMetrics;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.when;
@@ -77,6 +78,10 @@ class PublishStreamGrpcClientImplTest {
                             public void onNext(PublishStreamRequest request) {
                                 BlockItemSet blockItems = request.getBlockItems();
                                 List<BlockItem> items = blockItems.getBlockItemsList();
+
+                                if (request.hasEndStream()) {
+                                    server.shutdown();
+                                }
                                 // Simulate processing of block items
                                 for (BlockItem item : items) {
                                     // Assume that the first BlockItem is a BlockHeader
@@ -303,7 +308,7 @@ class PublishStreamGrpcClientImplTest {
     }
 
     @Test
-    public void handleEndStreamTooFarBehind() {
+    public void handleEndStreamTooFarBehind() throws InterruptedException {
         blockStreamConfig = BlockStreamConfig.builder()
                 .endStreamMode(EndStreamMode.TOO_FAR_BEHIND)
                 .build();
@@ -311,16 +316,20 @@ class PublishStreamGrpcClientImplTest {
                 grpcConfig, blockStreamConfig, metricsService, streamEnabled, startupDataMock);
         publishStreamGrpcClient.init();
         publishStreamGrpcClient.handleEndStreamModeIfSet();
+        Thread.sleep(200);
+        assertTrue(server.isShutdown());
     }
 
     @Test
-    public void handleEndStreamNone() {
+    public void handleEndStreamNone() throws InterruptedException {
         blockStreamConfig =
                 BlockStreamConfig.builder().endStreamMode(EndStreamMode.NONE).build();
         publishStreamGrpcClient = new PublishStreamGrpcClientImpl(
                 grpcConfig, blockStreamConfig, metricsService, streamEnabled, startupDataMock);
         publishStreamGrpcClient.init();
         publishStreamGrpcClient.handleEndStreamModeIfSet();
+        Thread.sleep(200);
+        assertFalse(server.isShutdown());
     }
 
     private Block constructBlock(long number, boolean withItems) {
