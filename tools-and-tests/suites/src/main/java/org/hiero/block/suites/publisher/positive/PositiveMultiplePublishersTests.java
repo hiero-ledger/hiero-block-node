@@ -58,6 +58,68 @@ public class PositiveMultiplePublishersTests extends BaseSuite {
         simulators.clear();
     }
 
+    @Test
+    @DisplayName("Publisher should handle BEHIND and send TOO_FAR_BEHIND")
+    @Timeout(30)
+    public void publisherShouldSendTooFarBehindAfterBehind() throws IOException, InterruptedException {
+        // ===== Prepare and Start first simulator and make sure it's streaming ======================
+        final Map<String, String> firstSimulatorConfiguration = Map.of("generator.startBlockNumber", "0");
+        final BlockStreamSimulatorApp firstSimulator = createBlockSimulator(firstSimulatorConfiguration);
+        final Future<?> firstSimulatorThread = startSimulatorInstance(firstSimulator);
+        // ===== Stop simulator and assert ===========================================================]
+        firstSimulator.stop();
+        final String firstSimulatorLatestStatus = firstSimulator
+                .getStreamStatus()
+                .lastKnownPublisherClientStatuses()
+                .getLast();
+        final long firstSimulatorLatestPublishedBlockNumber =
+                firstSimulator.getStreamStatus().publishedBlocks() - 1; // we subtract one since we started on 0
+        firstSimulatorThread.cancel(true);
+
+        final BlockResponse latestPublishedBlockBefore =
+                getBlock(blockAccessStub, firstSimulatorLatestPublishedBlockNumber);
+        final BlockResponse nextPublishedBlockBefore =
+                getBlock(blockAccessStub, firstSimulatorLatestPublishedBlockNumber + 1);
+
+        assertNotNull(firstSimulatorLatestStatus);
+        assertTrue(firstSimulatorLatestStatus.contains(Long.toString(firstSimulatorLatestPublishedBlockNumber)));
+        assertEquals(
+                firstSimulatorLatestPublishedBlockNumber,
+                latestPublishedBlockBefore
+                        .getBlock()
+                        .getItemsList()
+                        .getFirst()
+                        .getBlockHeader()
+                        .getNumber());
+        assertEquals(Code.NOT_AVAILABLE, nextPublishedBlockBefore.getStatus());
+
+        // ===== Prepare and Start second simulator and make sure it's streaming =====================
+        final Map<String, String> secondSimulatorConfiguration =
+                Map.of("generator.startBlockNumber", Long.toString(15), "blockStream.endStreamMode", "TOO_FAR_BEHIND");
+        final BlockStreamSimulatorApp secondSimulator = createBlockSimulator(secondSimulatorConfiguration);
+        final Future<?> secondSimulatorThread = startSimulatorInstanceWithErrorResponse(secondSimulator);
+
+        final String secondSimulatorLatestStatus = secondSimulator
+                .getStreamStatus()
+                .lastKnownPublisherClientStatuses()
+                .getFirst();
+
+        final BlockResponse latestPublishedBlockAfter = getLatestBlock(blockAccessStub);
+        secondSimulatorThread.cancel(true);
+        assertNotNull(secondSimulatorLatestStatus);
+        assertNotNull(latestPublishedBlockAfter);
+
+        final long latestBlockNodeBlockNumber = latestPublishedBlockAfter
+                .getBlock()
+                .getItemsList()
+                .getFirst()
+                .getBlockHeader()
+                .getNumber();
+
+        assertTrue(secondSimulatorLatestStatus.contains("status: BEHIND"));
+        assertEquals(firstSimulatorLatestPublishedBlockNumber, latestBlockNodeBlockNumber);
+    }
+
     /**
      * Verifies that block data is taken from the faster publisher, when two publishers are streaming to the block-node.
      * The test asserts that the slower one receives skip block response.
@@ -261,6 +323,25 @@ public class PositiveMultiplePublishersTests extends BaseSuite {
                         .lastKnownPublisherClientStatuses()
                         .getLast();
             }
+        }
+        assertNotNull(simulatorStatus);
+        assertTrue(simulator.isRunning());
+        return simulatorThread;
+    }
+
+    private Future<?> startSimulatorInstanceWithErrorResponse(@NonNull final BlockStreamSimulatorApp simulator)
+            throws InterruptedException {
+        Objects.requireNonNull(simulator);
+
+        final Future<?> simulatorThread = startSimulatorInThread(simulator);
+        simulators.add(simulatorThread);
+        String simulatorStatus = null;
+        Thread.sleep(500);
+        if (!simulator.getStreamStatus().lastKnownPublisherClientStatuses().isEmpty()) {
+            simulatorStatus = simulator
+                    .getStreamStatus()
+                    .lastKnownPublisherClientStatuses()
+                    .getFirst();
         }
         assertNotNull(simulatorStatus);
         assertTrue(simulator.isRunning());
