@@ -83,7 +83,7 @@ public class BackfillGrpcClient {
      * @param blockRange the block range to check
      * @return a LongRange representing the intersection of the block range and the available blocks in the node.
      */
-    private LongRange isRangeAvailableInNode(BlockNodeClient node, LongRange blockRange) {
+    private LongRange getAvailableRangeInNode(BlockNodeClient node, LongRange blockRange) {
         long firstAvailableBlock =
                 node.getBlockNodeServerStatusClient().getServerStatus().firstAvailableBlock();
         long lastAvailableBlock =
@@ -102,8 +102,6 @@ public class BackfillGrpcClient {
         }
 
         return new LongRange(intersectionStart, intersectionEnd);
-
-
     }
 
     /**
@@ -136,7 +134,7 @@ public class BackfillGrpcClient {
                 try {
                     BlockNodeClient currentNodeClient = getNodeClient(node);
                     // Check if the node has the blocks we need
-                    LongRange actualRange = isRangeAvailableInNode(currentNodeClient, blockRange);
+                    LongRange actualRange = getAvailableRangeInNode(currentNodeClient, blockRange);
                     if (actualRange == null) {
                         LOGGER.log(
                                 INFO,
