@@ -27,9 +27,7 @@ Entry point for the project is `BlockStreamSimulator.java`, in wich the main met
 
 The BlockStreamSimulatorApp consumes other services that are injected using DaggerComponent, these are:
 1. **generator:** responsible for generating blocks, exposes a single interface `BlockStreamManager` and several implementations
-1. BlockAsDirBlockStreamManager: generates blocks from a directory, each folder is a block, and block-items are single 'blk' or 'blk.gz' files.
-1. BlockAsFileBlockStreamManager: generates blocks from a single file, each file is a block, used to the format of the CN recordings. (since it loads blocks on memory it can stream really fast, really useful for simple streaming tests)
-1. BlockAsFileLargeDataSets: similar to BlockAsFileBLockStreamManager, but designed to work with GB folders with thousands of big blocks (since it has a high size block and volume of blocks, is useful for performace, load and stress testing)
+1. BlockAsFileLargeDataSets: designed to work with GB folders with thousands of big blocks (since it has a high size block and volume of blocks, is useful for performace, load and stress testing)
 1. **grpc:** responsible for the communication with the Block-Node, currently only has 1 interface `PublishStreamGrpcClient` and 1 Implementation, however also exposes a `PublishStreamObserver'
 
 ## Configuration

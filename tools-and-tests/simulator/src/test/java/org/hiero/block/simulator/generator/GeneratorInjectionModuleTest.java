@@ -32,8 +32,6 @@ class GeneratorInjectionModuleTest {
         final BlockGeneratorConfig blockGeneratorConfig = TestUtils.getTestConfiguration(Map.of(
                         "generator.generationMode",
                         "DIR",
-                        "generator.managerImplementation",
-                        "BlockAsFileLargeDataSets",
                         "generator.folderRootPath",
                         getAbsoluteFolder("build/resources/test/block-0.0.3-blk/")))
                 .getConfigData(BlockGeneratorConfig.class);
@@ -42,40 +40,6 @@ class GeneratorInjectionModuleTest {
                 blockGeneratorConfig, startupDataMock, unorderedStreamConfig);
 
         assertEquals(blockStreamManager.getClass().getName(), BlockAsFileLargeDataSets.class.getName());
-    }
-
-    @Test
-    void providesBlockStreamManager_AsFile() throws IOException {
-        final BlockGeneratorConfig blockGeneratorConfig = TestUtils.getTestConfiguration(Map.of(
-                        "generator.generationMode",
-                        "DIR",
-                        "generator.managerImplementation",
-                        "BlockAsFileBlockStreamManager",
-                        "generator.folderRootPath",
-                        getAbsoluteFolder("build/resources/test/block-0.0.3-blk/")))
-                .getConfigData(BlockGeneratorConfig.class);
-
-        final BlockStreamManager blockStreamManager = GeneratorInjectionModule.providesBlockStreamManager(
-                blockGeneratorConfig, startupDataMock, unorderedStreamConfig);
-
-        assertEquals(blockStreamManager.getClass().getName(), BlockAsFileBlockStreamManager.class.getName());
-    }
-
-    @Test
-    void providesBlockStreamManager_default() throws IOException {
-        final BlockGeneratorConfig blockGeneratorConfig = TestUtils.getTestConfiguration(Map.of(
-                        "generator.generationMode",
-                        "DIR",
-                        "generator.managerImplementation",
-                        "",
-                        "generator.folderRootPath",
-                        getAbsoluteFolder("build/resources/test/block-0.0.3-blk/")))
-                .getConfigData(BlockGeneratorConfig.class);
-
-        final BlockStreamManager blockStreamManager = GeneratorInjectionModule.providesBlockStreamManager(
-                blockGeneratorConfig, startupDataMock, unorderedStreamConfig);
-
-        assertEquals(blockStreamManager.getClass().getName(), BlockAsFileBlockStreamManager.class.getName());
     }
 
     @Test
