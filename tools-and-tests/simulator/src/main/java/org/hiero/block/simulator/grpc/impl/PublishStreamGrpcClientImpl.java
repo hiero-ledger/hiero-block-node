@@ -200,9 +200,6 @@ public class PublishStreamGrpcClientImpl implements PublishStreamGrpcClient {
     }
 
     public void handleEndStreamModeIfSet() {
-        if (blockStreamConfig.endStreamMode() == EndStreamMode.NONE) {
-            return;
-        }
         if (blockStreamConfig.endStreamMode() == EndStreamMode.TOO_FAR_BEHIND) {
             requestStreamObserver.onNext(PublishStreamRequest.newBuilder()
                     .setEndStream(EndStream.newBuilder()
