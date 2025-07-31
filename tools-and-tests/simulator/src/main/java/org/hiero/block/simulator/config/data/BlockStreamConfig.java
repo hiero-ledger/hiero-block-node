@@ -166,7 +166,7 @@ public record BlockStreamConfig(
             return this;
         }
 
-        private Builder endStreamMode(EndStreamMode endStreamMode) {
+        public Builder endStreamMode(EndStreamMode endStreamMode) {
             this.endStreamMode = endStreamMode;
             return this;
         }
