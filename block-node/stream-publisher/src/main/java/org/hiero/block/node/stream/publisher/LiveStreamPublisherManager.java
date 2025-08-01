@@ -48,7 +48,8 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
     private final ConcurrentMap<String, BlockingQueue<BlockItemSetUnparsed>> transferQueueMap;
     private final ConcurrentMap<Long, BlockingQueue<BlockItemSetUnparsed>> queueByBlockMap;
 
-    /** Future tracking the queue forwarder task.
+    /**
+     * Future tracking the queue forwarder task.
      * <p>
      * This will run until it encounters an exception or reaches a reasonable
      * run time limit. When handlers encounter a block proof, a method is called
@@ -263,26 +264,41 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
         // @todo(1422) implement
     }
 
+    /**
+     * {@inheritDoc}
+     * <p>
+     * Here, we check the new persisted block number against the last persisted
+     * block number, and only send acknowledgements if the new persisted block
+     * number is greater than the last persisted block number. Otherwise, the
+     * block is already acknowledged and we can ignore this notification.
+     * <p>
+     * This implementation uses fork/join processing to fork a task for each
+     * publisher handler to send acknowledgements for their connected publishers
+     * in parallel and then joins the tasks to ensure all are completed.
+     * <p>
+     * The messaging handler thread is not released until all acknowledgements
+     * are sent.
+     * <p>Note
+     * <blockquote>It is OK to block here, but not overly long. What we
+     * need is a fork/join process that forks for each handler and sends acks
+     * for all in thread(s) then joins at the end. Fortunately the Streams API
+     * offers a convenient parallelStream() method that does exactly that. We
+     * further declare the set explicitly unordered to further limit
+     * unnecessary ties between handlers. The overall time blocked should not
+     * significantly exceed the time to send a single acknowledgement.
+     * </blockquote>
+     */
     @Override
     public void handlePersisted(@NonNull final PersistedNotification notification) {
-        // update the latest known verified and persisted block number
-        // and signal all handlers to send acknowledgements
-        // @todo(1417) is the below correct/sufficient? Is it ok to block here?
-        //     Also, need to set persisted block number _first_ and
-        //     need to check that new persisted is > last persisted
-        //     before doing more.
         final long newLastPersistedBlock = notification.endBlockNumber();
-        // @note it is _not_ OK to block here. What we need is a forkJoin task
-        // that forks for each handler and sends acks for all in thread(s)
-        // then joins at the end. That can be added next sprint, however.
-        if (newLastPersistedBlock >= lastPersistedBlockNumber.get()) {
-            for (final PublisherHandler handler : handlers.values()) {
+        if (newLastPersistedBlock > lastPersistedBlockNumber.get()) {
+            handlers.values().parallelStream().unordered().forEach(handler -> {
                 // _Important_, we only need the last persisted block number
-                //     all previous blocks are implicitly acknowledged.
+                // all previous blocks are implicitly acknowledged.
                 handler.sendAcknowledgement(newLastPersistedBlock);
-            }
-        } // otherwise, just ignore this, we already acknowledged this block
-        lastPersistedBlockNumber.set(newLastPersistedBlock);
+            });
+            lastPersistedBlockNumber.set(newLastPersistedBlock);
+        }
     }
 
     /**
