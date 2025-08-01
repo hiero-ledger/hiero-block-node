@@ -33,40 +33,21 @@ spec:
         - name: logging-config
           configMap:
             name: {{ include "hiero-block-node.fullname" . }}-logging-config
-        - name: logging-storage
+        - name: {{ default "logging-storage" .Values.blockNode.persistence.logging.volumeName }}
           persistentVolumeClaim:
             claimName: {{ if .Values.blockNode.persistence.logging.create }}{{ include "hiero-block-node.fullname" . }}-logging{{ else }}{{ .Values.blockNode.persistence.logging.existingClaim }}{{ end }}
-        - name: archive-storage
+        - name: {{ default "archive-storage" .Values.blockNode.persistence.archive.volumeName }}
           persistentVolumeClaim:
             claimName: {{ if .Values.blockNode.persistence.archive.create }}{{ include "hiero-block-node.fullname" . }}-archive{{ else }}{{ .Values.blockNode.persistence.archive.existingClaim }}{{ end }}
-        - name: live-storage
+        - name: {{ default "live-storage" .Values.blockNode.persistence.live.volumeName }}
           persistentVolumeClaim:
             claimName: {{ if .Values.blockNode.persistence.live.create }}{{ include "hiero-block-node.fullname" . }}-live{{ else }}{{ .Values.blockNode.persistence.live.existingClaim }}{{ end }}
         - name: unverified-ephemeral-storage
           emptyDir: {}
+      {{- with .Values.blockNode.initContainers }}
       initContainers:
-        - name: init-storage-dirs
-          image: busybox
-          command:
-            - sh
-            - -c
-            - |
-              mkdir -p /live-pvc/{{ .Values.blockNode.persistence.live.subPath }} && \
-              chown 2000:2000 /live-pvc/{{ .Values.blockNode.persistence.live.subPath }} && \
-              chmod 700 /live-pvc/{{ .Values.blockNode.persistence.live.subPath }} && \
-              mkdir -p /archive-pvc/{{ .Values.blockNode.persistence.archive.subPath }} && \
-              chown 2000:2000 /archive-pvc/{{ .Values.blockNode.persistence.archive.subPath }} && \
-              chmod 700 /archive-pvc/{{ .Values.blockNode.persistence.archive.subPath }} && \
-              mkdir -p /logging-pvc/{{ .Values.blockNode.persistence.logging.subPath }} && \
-              chown 2000:2000 /logging-pvc/{{ .Values.blockNode.persistence.logging.subPath }} && \
-              chmod 700 /logging-pvc/{{ .Values.blockNode.persistence.logging.subPath }}
-          volumeMounts:
-            - name: live-storage
-              mountPath: /live-pvc
-            - name: archive-storage
-              mountPath: /archive-pvc
-            - name: logging-storage
-              mountPath: /logging-pvc
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       containers:
       - name: {{ .Chart.Name }}
         securityContext:
@@ -94,12 +75,12 @@ spec:
           - name: logging-config
             mountPath: {{ .Values.blockNode.logs.configMountPath }}
             readOnly: true
-          - name: logging-storage
+          - name: {{ default "logging-storage" .Values.blockNode.persistence.logging.volumeName }}
             mountPath: {{ .Values.blockNode.persistence.logging.mountPath }}
-          - name: archive-storage
+          - name: {{ default "archive-storage" .Values.blockNode.persistence.archive.volumeName }}
             mountPath: {{ .Values.blockNode.persistence.archive.mountPath }}
             subPath: {{ .Values.blockNode.persistence.archive.subPath }}
-          - name: live-storage
+          - name: {{ default "live-storage" .Values.blockNode.persistence.live.volumeName }}
             mountPath: {{ .Values.blockNode.persistence.live.mountPath }}
             subPath: {{ .Values.blockNode.persistence.live.subPath }}
         {{- with  .Values.resources }}
