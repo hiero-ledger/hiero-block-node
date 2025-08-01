@@ -25,18 +25,11 @@ class SimulatorStartupDataImplTest {
     @TempDir
     private Path tempDir;
 
-    private byte[] validSimulatedBlockHash;
     private Path latestAckBlockNumberPath;
-    private Path latestAckBlockHashPath;
 
     @BeforeEach
     void setup() {
-        validSimulatedBlockHash = new byte[StreamingTreeHasher.HASH_LENGTH];
-        for (byte i = 0; i < StreamingTreeHasher.HASH_LENGTH; i++) {
-            validSimulatedBlockHash[i] = i;
-        }
         latestAckBlockNumberPath = tempDir.resolve("latestAckBlockNumber");
-        latestAckBlockHashPath = tempDir.resolve("latestAckBlockHash");
     }
 
     /**
@@ -57,7 +50,6 @@ class SimulatorStartupDataImplTest {
                 .withConfigDataType(SimulatorStartupDataConfig.class)
                 .withValue("simulator.startup.data.enabled", enabled ? "true" : "false")
                 .withValue("simulator.startup.data.latestAckBlockNumberPath", latestAckBlockNumberPath.toString())
-                .withValue("simulator.startup.data.latestAckBlockHashPath", latestAckBlockHashPath.toString())
                 .build();
         final BlockGeneratorConfig blockGeneratorConfig = configuration.getConfigData(BlockGeneratorConfig.class);
         final SimulatorStartupDataConfig simulatorStartupDataConfig =
@@ -73,10 +65,8 @@ class SimulatorStartupDataImplTest {
     @Test
     void testInitializationWhenDisabled() {
         assertThat(latestAckBlockNumberPath).doesNotExist();
-        assertThat(latestAckBlockHashPath).doesNotExist();
         newInstanceToTest(false);
         assertThat(latestAckBlockNumberPath).doesNotExist();
-        assertThat(latestAckBlockHashPath).doesNotExist();
     }
 
     /**
@@ -87,15 +77,8 @@ class SimulatorStartupDataImplTest {
     @Test
     void testInitializationWhenEnabled() {
         assertThat(latestAckBlockNumberPath).doesNotExist();
-        assertThat(latestAckBlockHashPath).doesNotExist();
         newInstanceToTest(true);
         assertThat(latestAckBlockNumberPath)
-                .exists()
-                .isRegularFile()
-                .isReadable()
-                .isWritable()
-                .isEmptyFile();
-        assertThat(latestAckBlockHashPath)
                 .exists()
                 .isRegularFile()
                 .isReadable()
@@ -109,7 +92,6 @@ class SimulatorStartupDataImplTest {
      */
     @Test
     void testDefaultValues() {
-        assertThat(latestAckBlockHashPath).doesNotExist();
         assertThat(latestAckBlockNumberPath).doesNotExist();
         final SimulatorStartupDataImpl toTest = newInstanceToTest(false);
         assertThat(toTest)
@@ -126,7 +108,6 @@ class SimulatorStartupDataImplTest {
      */
     @Test
     void testDefaultValuesIfInitialStartup() {
-        assertThat(latestAckBlockHashPath).doesNotExist();
         assertThat(latestAckBlockNumberPath).doesNotExist();
         final SimulatorStartupDataImpl toTest = newInstanceToTest(true);
         assertThat(toTest)
@@ -144,32 +125,17 @@ class SimulatorStartupDataImplTest {
     @Test
     void testCorrectValuesStartup() throws IOException {
         Files.write(latestAckBlockNumberPath, "1".getBytes());
-        Files.write(latestAckBlockHashPath, validSimulatedBlockHash);
         final SimulatorStartupDataImpl toTest = newInstanceToTest(true);
-        assertThat(toTest)
-                .returns(1L, from(SimulatorStartupDataImpl::getLatestAckBlockNumber))
-                .returns(validSimulatedBlockHash, from(SimulatorStartupDataImpl::getLatestAckBlockHash));
+        assertThat(toTest).returns(1L, from(SimulatorStartupDataImpl::getLatestAckBlockNumber));
     }
 
     /**
      * This test aims to verify that the {@link SimulatorStartupDataImpl} will
-     * fail initialization if only the block number startup data file exists.
-     */
-    @Test
-    void testFailedInitializationUnavailableHashFile() throws IOException {
-        Files.write(latestAckBlockNumberPath, "1".getBytes());
-        assertThat(latestAckBlockHashPath).doesNotExist();
-        assertThatIllegalStateException().isThrownBy(() -> newInstanceToTest(true));
-    }
-
-    /**
-     * This test aims to verify that the {@link SimulatorStartupDataImpl} will
-     * fail initialization if only the block hash startup data file exists.
+     * fail initialization if the block number startup data file exists with a blank value.
      */
     @Test
     void testFailedInitializationUnavailableBlockNumberFile() throws IOException {
-        assertThat(latestAckBlockNumberPath).doesNotExist();
-        Files.write(latestAckBlockHashPath, validSimulatedBlockHash);
+        Files.write(latestAckBlockNumberPath, "".getBytes());
         assertThatIllegalStateException().isThrownBy(() -> newInstanceToTest(true));
     }
 
@@ -181,46 +147,29 @@ class SimulatorStartupDataImplTest {
     @Test
     void testFailedInitializationWrongNumberFormat() throws IOException {
         Files.write(latestAckBlockNumberPath, "wrongNumberFormat".getBytes());
-        Files.write(latestAckBlockHashPath, validSimulatedBlockHash);
         assertThatExceptionOfType(NumberFormatException.class).isThrownBy(() -> newInstanceToTest(true));
     }
 
     /**
-     * This test aims to verify that the {@link SimulatorStartupDataImpl} will
-     * fail initialization if the block hash startup data file contains an invalid
-     * hash length.
-     */
-    @Test
-    void testFailedInitializationWrongHashLength() throws IOException {
-        Files.write(latestAckBlockNumberPath, "1".getBytes());
-        Files.write(latestAckBlockHashPath, new byte[StreamingTreeHasher.HASH_LENGTH - 1]);
-        assertThatIllegalStateException().isThrownBy(() -> newInstanceToTest(true));
-    }
-
-    /**
      * This test aims to verify that the
-     * {@link SimulatorStartupDataImpl#updateLatestAckBlockStartupData(long, byte[])}
+     * {@link SimulatorStartupDataImpl#updateLatestAckBlockStartupData(long)}
      * will correctly not update the startup data if the functionality is disabled.
      */
     @Test
     void testUpdateStartupDataDisabled() throws IOException {
-        assertThat(latestAckBlockHashPath).doesNotExist();
         assertThat(latestAckBlockNumberPath).doesNotExist();
         final SimulatorStartupDataImpl toTest = newInstanceToTest(false);
         assertThat(toTest.isEnabled()).isFalse();
-        toTest.updateLatestAckBlockStartupData(1L, validSimulatedBlockHash);
-        assertThat(latestAckBlockHashPath).doesNotExist();
         assertThat(latestAckBlockNumberPath).doesNotExist();
     }
 
     /**
      * This test aims to verify that the
-     * {@link SimulatorStartupDataImpl#updateLatestAckBlockStartupData(long, byte[])}
+     * {@link SimulatorStartupDataImpl#updateLatestAckBlockStartupData(long)}
      * will correctly update the startup data if the functionality is enabled.
      */
     @Test
     void testUpdateStartupDataEnabled() throws IOException {
-        assertThat(latestAckBlockHashPath).doesNotExist();
         assertThat(latestAckBlockNumberPath).doesNotExist();
         final SimulatorStartupDataImpl toTest = newInstanceToTest(true);
         assertThat(toTest.isEnabled()).isTrue();
@@ -230,14 +179,8 @@ class SimulatorStartupDataImplTest {
                 .isReadable()
                 .isWritable()
                 .isEmptyFile();
-        assertThat(latestAckBlockHashPath)
-                .exists()
-                .isRegularFile()
-                .isReadable()
-                .isWritable()
-                .isEmptyFile();
         // @todo(904) we need the correct response code
-        toTest.updateLatestAckBlockStartupData(1L, validSimulatedBlockHash);
+        toTest.updateLatestAckBlockStartupData(1L);
         assertThat(latestAckBlockNumberPath)
                 .exists()
                 .isRegularFile()
@@ -245,12 +188,5 @@ class SimulatorStartupDataImplTest {
                 .isWritable()
                 .isNotEmptyFile()
                 .hasBinaryContent("1".getBytes());
-        assertThat(latestAckBlockHashPath)
-                .exists()
-                .isRegularFile()
-                .isReadable()
-                .isWritable()
-                .isNotEmptyFile()
-                .hasBinaryContent(validSimulatedBlockHash);
     }
 }
