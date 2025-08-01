@@ -419,6 +419,7 @@ public class PositiveMultiplePublishersTests extends BaseSuite {
     private static Stream<Arguments> provideDataForErrorResponses() {
         return Stream.of(
                 Arguments.of(Map.of("generator.startBlockNumber", Long.toString(15)), "status: BEHIND"),
-                Arguments.of(Map.of("generator.startBlockNumber", Long.toString(4)), "status: DUPLICATE_BLOCK"));
+                Arguments.of(Map.of("generator.startBlockNumber", Long.toString(4)), "status: DUPLICATE_BLOCK"),
+                Arguments.of(Map.of("generator.startBlockNumber", Long.toString(0)), "status: DUPLICATE_BLOCK"));
     }
 }
