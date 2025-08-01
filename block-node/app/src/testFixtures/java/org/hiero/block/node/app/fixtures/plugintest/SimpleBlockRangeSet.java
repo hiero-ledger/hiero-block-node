@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.node.app.fixtures.plugintest;
 
+import static org.hiero.block.node.spi.BlockNodePlugin.UNKNOWN_BLOCK_NUMBER;
+
 import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
@@ -72,7 +74,7 @@ public class SimpleBlockRangeSet implements BlockRangeSet {
      */
     @Override
     public long min() {
-        return blockNumbers.isEmpty() ? 0 : blockNumbers.first();
+        return blockNumbers.isEmpty() ? UNKNOWN_BLOCK_NUMBER : blockNumbers.first();
     }
 
     /**
@@ -80,7 +82,7 @@ public class SimpleBlockRangeSet implements BlockRangeSet {
      */
     @Override
     public long max() {
-        return blockNumbers.isEmpty() ? 0 : blockNumbers.last();
+        return blockNumbers.isEmpty() ? UNKNOWN_BLOCK_NUMBER : blockNumbers.last();
     }
 
     /**

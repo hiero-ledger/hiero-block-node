@@ -11,7 +11,7 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.TimeUnit;
 import org.hiero.block.internal.BlockItemUnparsed;
-import org.hiero.block.node.app.fixtures.async.BlockingSerialExecutor;
+import org.hiero.block.node.app.fixtures.async.BlockingExecutor;
 import org.hiero.block.node.app.fixtures.blocks.SimpleTestBlockItemBuilder;
 import org.hiero.block.node.app.fixtures.plugintest.PluginTestBase;
 import org.hiero.block.node.app.fixtures.plugintest.SimpleBlockRangeSet;
@@ -26,7 +26,7 @@ import org.hiero.block.node.spi.blockmessaging.VerificationNotification;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
-class BackfillPluginTest extends PluginTestBase<BackfillPlugin, BlockingSerialExecutor> {
+class BackfillPluginTest extends PluginTestBase<BackfillPlugin, BlockingExecutor> {
 
     /** The historical block facility. */
     private final SimpleInMemoryHistoricalBlockFacility historicalBlockFacility;
@@ -46,7 +46,7 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, BlockingSerialEx
             "1000");
 
     public BackfillPluginTest() {
-        super(new BlockingSerialExecutor(new LinkedBlockingQueue<>()));
+        super(new BlockingExecutor(new LinkedBlockingQueue<>()));
         // we will create a BN Mock with port number 8081 and blocks from 0 to 400
         final SimpleInMemoryHistoricalBlockFacility secondBNBlockFacility = new SimpleInMemoryHistoricalBlockFacility();
         for (int i = 0; i < 400; i++) {

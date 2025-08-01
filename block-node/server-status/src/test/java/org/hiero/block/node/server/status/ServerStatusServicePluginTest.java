@@ -16,7 +16,7 @@ import java.util.List;
 import java.util.concurrent.LinkedBlockingQueue;
 import org.hiero.block.api.ServerStatusRequest;
 import org.hiero.block.api.ServerStatusResponse;
-import org.hiero.block.node.app.fixtures.async.BlockingSerialExecutor;
+import org.hiero.block.node.app.fixtures.async.BlockingExecutor;
 import org.hiero.block.node.app.fixtures.plugintest.GrpcPluginTestBase;
 import org.hiero.block.node.app.fixtures.plugintest.SimpleInMemoryHistoricalBlockFacility;
 import org.hiero.block.node.spi.blockmessaging.BlockItems;
@@ -29,12 +29,11 @@ import org.junit.jupiter.api.Test;
  * Validates the functionality of the server status service and its responses
  * under different conditions.
  */
-public class ServerStatusServicePluginTest
-        extends GrpcPluginTestBase<ServerStatusServicePlugin, BlockingSerialExecutor> {
+public class ServerStatusServicePluginTest extends GrpcPluginTestBase<ServerStatusServicePlugin, BlockingExecutor> {
     private final ServerStatusServicePlugin plugin = new ServerStatusServicePlugin();
 
     public ServerStatusServicePluginTest() {
-        super(new BlockingSerialExecutor(new LinkedBlockingQueue<>()));
+        super(new BlockingExecutor(new LinkedBlockingQueue<>()));
         start(plugin, plugin.methods().getFirst(), new SimpleInMemoryHistoricalBlockFacility());
     }
 
@@ -76,8 +75,8 @@ public class ServerStatusServicePluginTest
         final ServerStatusResponse response = ServerStatusResponse.PROTOBUF.parse(fromPluginBytes.getFirst());
 
         assertNotNull(response);
-        assertEquals(0, response.firstAvailableBlock());
-        assertEquals(0, response.lastAvailableBlock());
+        assertEquals(UNKNOWN_BLOCK_NUMBER, response.firstAvailableBlock());
+        assertEquals(UNKNOWN_BLOCK_NUMBER, response.lastAvailableBlock());
         assertFalse(response.onlyLatestState());
 
         // TODO(#579) Remove when block node version information is implemented.

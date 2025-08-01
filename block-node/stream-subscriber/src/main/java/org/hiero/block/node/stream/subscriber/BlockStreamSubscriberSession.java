@@ -134,7 +134,26 @@ public class BlockStreamSubscriberSession implements Callable<BlockStreamSubscri
         return context.historicalBlockProvider().availableBlocks().max();
     }
 
-    @Override
+    /**
+     * Based on the cases and conditions below, stream items to the subscriber.
+     * <p>
+     * Cases:
+     * <ul>
+     *   <li>Start and end are both negative: give me live, whatever that is.</li>
+     *   <li>Start negative, end positive: client error.</li>
+     *   <li>Start positive, end negative: Start at N, continue forever.</li>
+     *   <li>Start positive, end positive: Stream from N to M.</li>
+     *   <li>Start > End: Client error.</li>
+     * </ul>
+     *
+     * If I cannot fulfill the request:
+     * <ul>
+     *   <li>First known block is greater than start, and start is positive: Server error.</li>
+     *   <li>First known block is negative, and start is positive: Server error.</li>
+     *   <li>First known block is negative, and start is negative: Stream live if available, otherwise Server error.</li>
+     * </ul>
+     */
+    @Override // @todo(1374) validate that the above logic is correctly implemented below
     public BlockStreamSubscriberSession call() {
         try {
             // get latest available blocks
