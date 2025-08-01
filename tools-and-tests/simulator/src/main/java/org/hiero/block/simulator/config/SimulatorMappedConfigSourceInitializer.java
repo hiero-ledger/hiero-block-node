@@ -26,6 +26,7 @@ public final class SimulatorMappedConfigSourceInitializer {
             new ConfigMapping("blockStream.blockItemsBatchSize", "BLOCK_STREAM_BLOCK_ITEMS_BATCH_SIZE"),
             new ConfigMapping("blockStream.midBlockFailType", "BLOCK_STREAM_MID_BLOCK_FAIL_TYPE"),
             new ConfigMapping("blockStream.midBlockFailOffset", "BLOCK_STREAM_MID_BLOCK_FAIL_OFFSET"),
+            new ConfigMapping("blockStream.endStreamMode", "BLOCK_STREAM_END_STREAM_MODE"),
 
             // Block consumer configuration
             new ConfigMapping("consumer.startBlockNumber", "CONSUMER_START_BLOCK_NUMBER"),

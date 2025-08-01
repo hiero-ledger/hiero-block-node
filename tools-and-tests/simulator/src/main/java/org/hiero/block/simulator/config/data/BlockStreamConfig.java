@@ -4,6 +4,7 @@ package org.hiero.block.simulator.config.data;
 import com.swirlds.config.api.ConfigData;
 import com.swirlds.config.api.ConfigProperty;
 import org.hiero.block.simulator.config.logging.Loggable;
+import org.hiero.block.simulator.config.types.EndStreamMode;
 import org.hiero.block.simulator.config.types.MidBlockFailType;
 import org.hiero.block.simulator.config.types.SimulatorMode;
 import org.hiero.block.simulator.config.types.StreamingMode;
@@ -20,6 +21,7 @@ import org.hiero.block.simulator.config.types.StreamingMode;
  * @param blockItemsBatchSize the number of block items to stream in each batch
  * @param midBlockFailType the type of failure to occur while streaming
  * @param midBlockFailOffset the index of the failing block
+ * @param endStreamMode the mode for ending the stream
  */
 @ConfigData("blockStream")
 public record BlockStreamConfig(
@@ -31,7 +33,8 @@ public record BlockStreamConfig(
         @Loggable @ConfigProperty(defaultValue = "1000") int millisecondsPerBlock,
         @Loggable @ConfigProperty(defaultValue = "1000") int blockItemsBatchSize,
         @Loggable @ConfigProperty(defaultValue = "NONE") MidBlockFailType midBlockFailType,
-        @Loggable @ConfigProperty(defaultValue = "0") long midBlockFailOffset) {
+        @Loggable @ConfigProperty(defaultValue = "0") long midBlockFailOffset,
+        @Loggable @ConfigProperty(defaultValue = "NONE") EndStreamMode endStreamMode) {
 
     /**
      * Creates a new {@link Builder} instance for constructing a {@code BlockStreamConfig}.
@@ -55,6 +58,7 @@ public record BlockStreamConfig(
         private int blockItemsBatchSize = 1000;
         private MidBlockFailType midBlockFailType = MidBlockFailType.NONE;
         private long midBlockFailOffset = 0;
+        EndStreamMode endStreamMode = EndStreamMode.NONE;
 
         /**
          * Creates a new instance of the {@code Builder} class with default configuration values.
@@ -162,6 +166,11 @@ public record BlockStreamConfig(
             return this;
         }
 
+        public Builder endStreamMode(EndStreamMode endStreamMode) {
+            this.endStreamMode = endStreamMode;
+            return this;
+        }
+
         /**
          * Builds a new {@link BlockStreamConfig} instance with the configured values.
          *
@@ -177,7 +186,8 @@ public record BlockStreamConfig(
                     millisecondsPerBlock,
                     blockItemsBatchSize,
                     midBlockFailType,
-                    midBlockFailOffset);
+                    midBlockFailOffset,
+                    endStreamMode);
         }
     }
 }
