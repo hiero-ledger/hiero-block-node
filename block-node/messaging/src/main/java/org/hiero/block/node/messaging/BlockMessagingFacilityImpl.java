@@ -201,6 +201,13 @@ public class BlockMessagingFacilityImpl implements BlockMessagingFacility {
 
         // Initialize metrics
         initMetrics(context);
+
+        // log successful initialization
+        LOGGER.log(
+                TRACE,
+                "BlockMessagingFacility initialized with block item queue size: {0} and block notification queue size: {1}",
+                messagingConfig.blockItemQueueSize(),
+                messagingConfig.blockNotificationQueueSize());
     }
 
     /**
@@ -277,7 +284,16 @@ public class BlockMessagingFacilityImpl implements BlockMessagingFacility {
     @Override
     public void sendBlockItems(final BlockItems blockItems) {
         blockItemDisruptor.getRingBuffer().publishEvent((event, sequence) -> event.set(blockItems));
+        // metrics
         blockItemsReceivedCounter.add(blockItems.blockItems().size());
+        // log sending of block items with details
+        LOGGER.log(
+                TRACE,
+                "Sending block items: size: {0}, isStartOfNewBlock: {1}, isEndOfBlock: {2}, newBlockNumber: {3}",
+                blockItems.blockItems().size(),
+                blockItems.isStartOfNewBlock(),
+                blockItems.isEndOfBlock(),
+                blockItems.newBlockNumber());
     }
 
     /**
@@ -304,6 +320,14 @@ public class BlockMessagingFacilityImpl implements BlockMessagingFacility {
             preRegisteredBlockItemHandlers.add(
                     new PreRegisteredBlockItemHandler(handler, informedEventHandler, cpuIntensiveHandler, handlerName));
         }
+
+        // log the registration of the handler
+        LOGGER.log(
+                TRACE,
+                "Registering block item handler: {0}, cpuIntensive: {1}, handlerName: {2}",
+                handler.getClass().getSimpleName(),
+                cpuIntensiveHandler,
+                handlerName);
     }
 
     /**
@@ -339,6 +363,14 @@ public class BlockMessagingFacilityImpl implements BlockMessagingFacility {
             preRegisteredBlockItemHandlers.add(
                     new PreRegisteredBlockItemHandler(handler, informedEventHandler, cpuIntensiveHandler, handlerName));
         }
+
+        // log the registration of the handler
+        LOGGER.log(
+                TRACE,
+                "Registering no backpressure block item handler: {0}, cpuIntensive: {1}, handlerName: {2}",
+                handler.getClass().getSimpleName(),
+                cpuIntensiveHandler,
+                handlerName);
     }
 
     /**
@@ -358,16 +390,16 @@ public class BlockMessagingFacilityImpl implements BlockMessagingFacility {
      */
     @Override
     public void sendBlockVerification(VerificationNotification notification) {
-
+        blockNotificationDisruptor.getRingBuffer().publishEvent((event, sequence) -> event.set(notification));
+        // metrics
+        blockVerificationNotificationsCounter.increment();
+        // logs
         LOGGER.log(
                 TRACE,
                 "Sending block verification notificiation for block: {0}, blockSource: {1}, and success: {2} ",
                 notification.blockNumber(),
                 notification.blockNumber(),
                 notification.success());
-
-        blockNotificationDisruptor.getRingBuffer().publishEvent((event, sequence) -> event.set(notification));
-        blockVerificationNotificationsCounter.increment();
     }
 
     /**
@@ -423,6 +455,14 @@ public class BlockMessagingFacilityImpl implements BlockMessagingFacility {
             preRegisteredBlockNotificationHandlers.add(new PreRegisteredBlockNotificationHandler(
                     handler, informedEventHandler, cpuIntensiveHandler, handlerName));
         }
+
+        // log the registration of the handler
+        LOGGER.log(
+                TRACE,
+                "Registering block notification handler: {0}, cpuIntensive: {1}, handlerName: {2}",
+                handler.getClass().getSimpleName(),
+                cpuIntensiveHandler,
+                handlerName);
     }
 
     /**
@@ -467,6 +507,13 @@ public class BlockMessagingFacilityImpl implements BlockMessagingFacility {
                     blockNotificationHandlerToEventProcessor,
                     blockNotificationHandlerToThread);
         }
+
+        // log successful start
+        LOGGER.log(
+                TRACE,
+                "BlockMessagingFacility successfully started with block item queue size: {0} and block notification queue size: {1}",
+                blockItemDisruptor.getRingBuffer().getBufferSize(),
+                blockNotificationDisruptor.getRingBuffer().getBufferSize());
     }
 
     /**
@@ -482,6 +529,8 @@ public class BlockMessagingFacilityImpl implements BlockMessagingFacility {
         // Stop all the block item handler threads
         for (Thread thread : blockItemHandlerToThread.values()) {
             thread.interrupt();
+            // log the stopping of the thread
+            LOGGER.log(TRACE, "Stopped block item handler thread: {0}", thread.getName());
         }
         // Stop all the block notification event handlers
         for (var eventHandler : blockNotificationHandlerToEventProcessor.values()) {
@@ -494,6 +543,8 @@ public class BlockMessagingFacilityImpl implements BlockMessagingFacility {
         // Stop all the block notification handlers
         for (Thread thread : blockNotificationHandlerToThread.values()) {
             thread.interrupt();
+            // log the stopping of the thread
+            LOGGER.log(TRACE, "Stopped block notification handler thread: {0}", thread.getName());
         }
     }
 
@@ -569,6 +620,12 @@ public class BlockMessagingFacilityImpl implements BlockMessagingFacility {
         // interrupt the thread so it stops quickly
         if (handlerThread != null) {
             handlerThread.interrupt();
+            // log the unregistration of the handler
+            LOGGER.log(
+                    TRACE,
+                    "Unregistered block item handler: {0}, thread: {1}",
+                    handler.getClass().getSimpleName(),
+                    handlerThread.getName());
         }
     }
 
