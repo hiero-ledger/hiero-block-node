@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.node.messaging;
 
+import static java.lang.System.Logger.Level.TRACE;
+
 import com.lmax.disruptor.BatchEventProcessor;
 import com.lmax.disruptor.BatchEventProcessorBuilder;
 import com.lmax.disruptor.ExceptionHandler;
@@ -356,6 +358,14 @@ public class BlockMessagingFacilityImpl implements BlockMessagingFacility {
      */
     @Override
     public void sendBlockVerification(VerificationNotification notification) {
+
+        LOGGER.log(
+                TRACE,
+                "Sending block verification notificiation for block: {0}, blockSource: {1}, and success: {2} ",
+                notification.blockNumber(),
+                notification.blockNumber(),
+                notification.success());
+
         blockNotificationDisruptor.getRingBuffer().publishEvent((event, sequence) -> event.set(notification));
         blockVerificationNotificationsCounter.increment();
     }
@@ -365,6 +375,7 @@ public class BlockMessagingFacilityImpl implements BlockMessagingFacility {
      */
     @Override
     public void sendBlockPersisted(PersistedNotification notification) {
+        LOGGER.log(TRACE, "Sending block persisted notification: " + notification);
         blockNotificationDisruptor.getRingBuffer().publishEvent((event, sequence) -> event.set(notification));
         blockPersistedNotificationsCounter.increment();
     }
@@ -374,6 +385,7 @@ public class BlockMessagingFacilityImpl implements BlockMessagingFacility {
      */
     @Override
     public void sendBackfilledBlockNotification(BackfilledBlockNotification notification) {
+        LOGGER.log(TRACE, "Sending backfilled block notification: " + notification);
         blockNotificationDisruptor.getRingBuffer().publishEvent((event, sequence) -> event.set(notification));
         // TODO: Add a counter for backfilled notifications
         // blockBackfilledNotificationsCounter.increment();

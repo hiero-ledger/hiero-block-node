@@ -39,7 +39,7 @@ import org.hiero.block.node.spi.threading.ThreadPoolManager;
 public final class LiveStreamPublisherManager implements StreamPublisherManager {
     private static final String QUEUE_ID_FORMAT = "Q%016d";
     // @todo(1413) utilize the logger
-    private final System.Logger LOGGER = System.getLogger(getClass().getName());
+    private static final System.Logger LOGGER = System.getLogger(LiveStreamPublisherManager.class.getName());
     private final MetricsHolder metrics;
     private final BlockNodeContext serverContext;
     private final ThreadPoolManager threadManager;
@@ -393,6 +393,12 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
                     List<BlockItemSetUnparsed> availableBatches = new LinkedList<>();
                     queueToForward.drainTo(availableBatches);
                     for (BlockItemSetUnparsed currentBatch : availableBatches) {
+                        // log the batch being forwarded to messaging facility from publisher plugin
+                        LOGGER.log(
+                                TRACE,
+                                "Forwarding batch for block {0} with {1} items",
+                                currentBlockNumber,
+                                currentBatch.blockItems().size());
                         // send the batch to the messaging facility
                         messaging.sendBlockItems(new BlockItems(currentBatch.blockItems(), currentBlockNumber));
                         // forward the batches for the _current_ block first,

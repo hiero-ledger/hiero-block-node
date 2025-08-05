@@ -2,6 +2,7 @@
 package org.hiero.block.node.verification;
 
 import static java.lang.System.Logger.Level.ERROR;
+import static java.lang.System.Logger.Level.TRACE;
 import static java.lang.System.Logger.Level.WARNING;
 
 import com.swirlds.metrics.api.Counter;
@@ -97,6 +98,8 @@ public class VerificationServicePlugin implements BlockNodePlugin, BlockItemHand
 
         // initialize metrics
         initMetrics(context);
+
+        LOGGER.log(TRACE, "VerificationServicePlugin initialized successfully.");
     }
 
     /**
@@ -108,6 +111,8 @@ public class VerificationServicePlugin implements BlockNodePlugin, BlockItemHand
         // specify that we are cpu intensive and should be run on a separate non-virtual thread
         context.blockMessaging().registerBlockItemHandler(this, true, VerificationServicePlugin.class.getSimpleName());
         // we do not need to unregister the handler as it will be unregistered when the message service is stopped
+
+        LOGGER.log(TRACE, "VerificationServicePlugin started successfully.");
     }
 
     // ==== BlockItemHandler Methods ===================================================================================
@@ -134,6 +139,7 @@ public class VerificationServicePlugin implements BlockNodePlugin, BlockItemHand
                 blockWorkStartTime = System.nanoTime();
                 // start new session and set it as current
                 currentSession = new BlockVerificationSession(currentBlockNumber, BlockSource.PUBLISHER);
+                LOGGER.log(TRACE, "Started new block verification session for block number: {0}", currentBlockNumber);
             }
             if (currentSession == null) {
                 // todo(452): correctly propagate this exception to the rest of the system, so it can be handled
@@ -142,8 +148,18 @@ public class VerificationServicePlugin implements BlockNodePlugin, BlockItemHand
                 // when the block node is just starting vs in the middle of running normal as that should not happen.
                 LOGGER.log(ERROR, "Received block items before a block header.");
             } else {
+                LOGGER.log(
+                        TRACE,
+                        "Appending {0} block items to the current session for block number: {1}",
+                        blockItems.blockItems().size(),
+                        currentBlockNumber);
                 VerificationNotification notification = currentSession.processBlockItems(blockItems.blockItems());
                 if (notification != null) {
+                    LOGGER.log(
+                            TRACE,
+                            "Block verification session completed for block number: {0} with status success={1}",
+                            currentBlockNumber,
+                            notification.success());
                     if (notification.success()) {
                         verificationBlocksVerified.increment();
                     } else {
@@ -151,6 +167,9 @@ public class VerificationServicePlugin implements BlockNodePlugin, BlockItemHand
                         LOGGER.log(WARNING, "Block verification failed for block number: {0}", currentBlockNumber);
                     }
                     verificationBlockTime.add(System.nanoTime() - blockWorkStartTime);
+                    // send the notification to the block messaging service
+                    LOGGER.log(
+                            TRACE, "Sending block verification notification for block number: {0}", currentBlockNumber);
                     context.blockMessaging().sendBlockVerification(notification);
                 }
             }
@@ -172,10 +191,22 @@ public class VerificationServicePlugin implements BlockNodePlugin, BlockItemHand
     @Override
     public void handleBackfilled(BackfilledBlockNotification notification) {
         try {
+            // log the backfilled block notification received
+            LOGGER.log(
+                    TRACE, "Received backfilled block notification for block number: {0}", notification.blockNumber());
+            // create a new verification session for the backfilled block
             BlockVerificationSession backfillSession =
                     new BlockVerificationSession(notification.blockNumber(), BlockSource.BACKFILL);
+            // process the block items in the backfilled notification
             VerificationNotification backfillNotification =
                     backfillSession.processBlockItems(notification.block().blockItems());
+            // Log the backfill verification result
+            LOGGER.log(
+                    TRACE,
+                    "Verified backfilled block items for block number: {0} with success={1}",
+                    notification.blockNumber(),
+                    backfillNotification.success());
+            // send the verification notification for the backfilled block
             context.blockMessaging().sendBlockVerification(backfillNotification);
         } catch (Exception ex) {
             LOGGER.log(ERROR, "Failed to handle verification notification: ", ex);
