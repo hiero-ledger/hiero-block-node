@@ -427,6 +427,7 @@ public class BlockMessagingFacilityImpl implements BlockMessagingFacility {
 
     @Override
     public void sendNewestBlockKnownToNetwork(NewestBlockKnownToNetworkNotification notification) {
+        LOGGER.log(TRACE, "Sending NewestBlockKnownToNetwork notification: " + notification);
         blockNotificationDisruptor.getRingBuffer().publishEvent((event, sequence) -> event.set(notification));
         // TODO: add a counter for NewestBlockKnownToNetwork notification
         // NewestBlockKnownToNetworkNotificationsCounter.increment();
@@ -447,6 +448,10 @@ public class BlockMessagingFacilityImpl implements BlockMessagingFacility {
                         handler.handlePersisted(event.getPersistedNotification());
                     } else if (event.getBackfilledBlockNotification() != null) {
                         handler.handleBackfilled(event.getBackfilledBlockNotification());
+                    } else if (event.getNewestBlockKnownToNetworkNotification() != null) {
+                        handler.handleNewestBlockKnownToNetwork(event.getNewestBlockKnownToNetworkNotification());
+                    } else {
+                        LOGGER.log(Level.INFO, "Received an event with no notification set");
                     }
                 };
         if (blockNotificationDisruptor.hasStarted()) {

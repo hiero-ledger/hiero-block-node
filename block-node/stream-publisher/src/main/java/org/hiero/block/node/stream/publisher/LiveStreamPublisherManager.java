@@ -88,8 +88,13 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
             @NonNull final Pipeline<? super PublishStreamResponse> replies,
             @NonNull final PublisherHandler.MetricsHolder handlerMetrics) {
         final long handlerId = nextHandlerId.getAndIncrement();
-        final PublisherHandler newHandler =
-                new PublisherHandler(handlerId, replies, handlerMetrics, this, registerTransferQueue(handlerId));
+        final PublisherHandler newHandler = new PublisherHandler(
+                handlerId,
+                replies,
+                handlerMetrics,
+                this,
+                registerTransferQueue(handlerId),
+                serverContext.blockMessaging());
         handlers.put(handlerId, newHandler);
         metrics.currentPublisherCount().set(handlers.size());
         return newHandler;

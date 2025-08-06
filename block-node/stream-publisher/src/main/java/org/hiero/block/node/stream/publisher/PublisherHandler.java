@@ -30,6 +30,7 @@ import org.hiero.block.api.PublishStreamResponse.SkipBlock;
 import org.hiero.block.internal.BlockItemSetUnparsed;
 import org.hiero.block.internal.BlockItemUnparsed;
 import org.hiero.block.internal.PublishStreamRequestUnparsed;
+import org.hiero.block.node.spi.blockmessaging.BlockMessagingFacility;
 import org.hiero.block.node.spi.blockmessaging.NewestBlockKnownToNetworkNotification;
 import org.hiero.block.node.stream.publisher.StreamPublisherManager.BlockAction;
 
@@ -70,6 +71,9 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
      * what to do with the current block. */
     private BlockAction blockAction;
 
+    /** Block Messaging Facility for sending notifications. */
+    private final BlockMessagingFacility blockMessagingFacility;
+
     /**
      * Initialize a new publisher handler.
      *
@@ -84,13 +88,15 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
             @NonNull final Pipeline<? super PublishStreamResponse> replyPipeline,
             @NonNull final MetricsHolder handlerMetrics,
             @NonNull final StreamPublisherManager manager,
-            @NonNull final BlockingQueue<BlockItemSetUnparsed> transferQueue) {
+            @NonNull final BlockingQueue<BlockItemSetUnparsed> transferQueue,
+            @NonNull final BlockMessagingFacility blockMessagingFacility) {
         handlerId = nextId;
         replies = Objects.requireNonNull(replyPipeline);
         metrics = Objects.requireNonNull(handlerMetrics);
         publisherManager = Objects.requireNonNull(manager);
         blockItemsQueue = Objects.requireNonNull(transferQueue);
         currentStreamingBlockNumber = new AtomicLong(UNKNOWN_BLOCK_NUMBER);
+        this.blockMessagingFacility = Objects.requireNonNull(blockMessagingFacility);
     }
 
     // ==== Flow Methods =======================================================
@@ -180,9 +186,18 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
 
         // Handle too far behind case
         if (endStreamCode.equals(PublishStreamRequest.EndStream.Code.TOO_FAR_BEHIND)) {
+            // make sure we are really behind?
+            if (endStreamLatestBlockNumber <= publisherManager.getLatestBlockNumber()) {
+                // No need to do anything, we are not really behind.
+                return;
+            }
+
             // create a NewestBlockKnownToNetwork and sent it to the messaging facility
-            publisherManager.handleNewestBlockKnownToNetwork(
-                    new NewestBlockKnownToNetworkNotification(endStreamLatestBlockNumber));
+            NewestBlockKnownToNetworkNotification notification =
+                    new NewestBlockKnownToNetworkNotification(endStreamLatestBlockNumber);
+
+            // send the notification
+            blockMessagingFacility.sendNewestBlockKnownToNetwork(notification);
 
             // log the newest block known to network
             LOGGER.log(
