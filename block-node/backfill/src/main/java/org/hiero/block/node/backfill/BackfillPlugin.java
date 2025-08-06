@@ -390,7 +390,7 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
                 newestBlockKnown,
                 gap);
 
-        if(!hasBNSourcesPath) {
+        if (!hasBNSourcesPath) {
             LOGGER.log(INFO, "No block node sources path configured, skipping on-demand backfill");
             return;
         }
