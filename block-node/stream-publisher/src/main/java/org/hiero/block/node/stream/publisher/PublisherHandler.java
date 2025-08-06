@@ -2,6 +2,7 @@
 package org.hiero.block.node.stream.publisher;
 
 import static java.lang.System.Logger.Level.INFO;
+import static java.lang.System.Logger.Level.TRACE;
 import static org.hiero.block.node.spi.BlockNodePlugin.METRICS_CATEGORY;
 import static org.hiero.block.node.spi.BlockNodePlugin.UNKNOWN_BLOCK_NUMBER;
 
@@ -19,6 +20,7 @@ import java.util.Objects;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.Flow.Subscription;
 import java.util.concurrent.atomic.AtomicLong;
+import org.hiero.block.api.PublishStreamRequest;
 import org.hiero.block.api.PublishStreamResponse;
 import org.hiero.block.api.PublishStreamResponse.BlockAcknowledgement;
 import org.hiero.block.api.PublishStreamResponse.EndOfStream;
@@ -28,6 +30,7 @@ import org.hiero.block.api.PublishStreamResponse.SkipBlock;
 import org.hiero.block.internal.BlockItemSetUnparsed;
 import org.hiero.block.internal.BlockItemUnparsed;
 import org.hiero.block.internal.PublishStreamRequestUnparsed;
+import org.hiero.block.node.spi.blockmessaging.NewestBlockKnownToNetworkNotification;
 import org.hiero.block.node.stream.publisher.StreamPublisherManager.BlockAction;
 
 /**
@@ -145,6 +148,10 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
             }
         } else if (request.hasEndStream()) {
             // @todo(1236) handle an endStream potentially received from publisher, for now we simply shutdown
+
+            // handle end stream request
+            handleEndStreamRequest(request.endStream());
+
             shutdown();
         } else {
             // this should never happen
@@ -155,6 +162,33 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
             } finally {
                 shutdown();
             }
+        }
+    }
+
+    private void handleEndStreamRequest(final PublishStreamRequest.EndStream endStream) {
+        PublishStreamRequest.EndStream.Code endStreamCode = endStream.endCode();
+        long endStreamLatestBlockNumber = endStream.latestBlockNumber();
+        long endStreamEarliestBlockNumber = endStream.earliestBlockNumber();
+
+        // log the end stream received
+        LOGGER.log(
+                TRACE,
+                "Received end stream request with code: {0}, latest block number: {1}, earliest block number: {2}",
+                endStreamCode,
+                endStreamLatestBlockNumber,
+                endStreamEarliestBlockNumber);
+
+        // Handle too far behind case
+        if (endStreamCode.equals(PublishStreamRequest.EndStream.Code.TOO_FAR_BEHIND)) {
+            // create a NewestBlockKnownToNetwork and sent it to the messaging facility
+            publisherManager.handleNewestBlockKnownToNetwork(
+                    new NewestBlockKnownToNetworkNotification(endStreamLatestBlockNumber));
+
+            // log the newest block known to network
+            LOGGER.log(
+                    TRACE,
+                    "Attempted to recover from TOO_FAR_BEHIND end stream request, latest block number: {0}, sending NewestBlockKnownToNetworkNotification",
+                    endStreamLatestBlockNumber);
         }
     }
 

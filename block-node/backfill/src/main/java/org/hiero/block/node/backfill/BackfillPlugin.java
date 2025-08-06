@@ -389,6 +389,12 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
                 "Detected new block known to network: {0}, starting backfill task for gap: {1}",
                 newestBlockKnown,
                 gap);
+
+        if(!hasBNSourcesPath) {
+            LOGGER.log(INFO, "No block node sources path configured, skipping on-demand backfill");
+            return;
+        }
+
         // if the gap is not empty, we can backfill it
         if (gap.size() > 0) {
             try {
