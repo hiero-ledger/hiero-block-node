@@ -4,6 +4,7 @@ package org.hiero.block.simulator.generator;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -61,6 +62,17 @@ class CraftBlockStreamManagerTest {
         assertThrows(
                 NullPointerException.class,
                 () -> new CraftBlockStreamManager(generatorConfigMock, startupDataMock, null));
+    }
+
+    @Test
+    void testEndBlockNumber() throws BlockSimulatorParsingException, IOException {
+        Mockito.when(generatorConfigMock.endBlockNumber()).thenReturn(3);
+        manager = new CraftBlockStreamManager(generatorConfigMock, startupDataMock, unorderedStreamConfigMock);
+        final Block block2 = manager.getNextBlock();
+        final Block block3 = manager.getNextBlock();
+        assertNotNull(block2);
+        assertNotNull(block3);
+        assertNull(manager.getNextBlock());
     }
 
     @Test
