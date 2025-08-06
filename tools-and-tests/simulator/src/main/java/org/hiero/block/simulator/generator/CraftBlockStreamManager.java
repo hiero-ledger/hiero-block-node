@@ -57,6 +57,7 @@ public class CraftBlockStreamManager implements BlockStreamManager {
     private final int minTransactionsPerEvent;
     private final int maxTransactionsPerEvent;
     private final boolean invalidBlockHash;
+    private final int endBlockNumber;
 
     // State
     private final GenerationMode generationMode;
@@ -95,6 +96,7 @@ public class CraftBlockStreamManager implements BlockStreamManager {
         this.minTransactionsPerEvent = blockGeneratorConfig.minTransactionsPerEvent();
         this.maxTransactionsPerEvent = blockGeneratorConfig.maxTransactionsPerEvent();
         this.invalidBlockHash = blockGeneratorConfig.invalidBlockHash();
+        this.endBlockNumber = blockGeneratorConfig.endBlockNumber();
         this.random = new Random();
         this.previousStateRootHash = new byte[StreamingTreeHasher.HASH_LENGTH];
         this.currentBlockHash = new byte[StreamingTreeHasher.HASH_LENGTH];
@@ -162,6 +164,10 @@ public class CraftBlockStreamManager implements BlockStreamManager {
      */
     @Override
     public Block getNextBlock() throws IOException, BlockSimulatorParsingException {
+        if (endBlockNumber > 0 && currentBlockNumber > endBlockNumber) {
+            return null;
+        }
+
         if (unorderedStreamingEnabled) {
             if (unorderedStreamIterator.hasNext()) {
                 return unorderedStreamIterator.next();
