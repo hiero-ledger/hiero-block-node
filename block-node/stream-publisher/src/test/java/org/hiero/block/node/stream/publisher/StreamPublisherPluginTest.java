@@ -12,7 +12,9 @@ import com.hedera.pbj.runtime.io.buffer.Bytes;
 import java.util.Collections;
 import java.util.List;
 import java.util.Objects;
-import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 import java.util.function.Function;
 import org.assertj.core.api.InstanceOfAssertFactories;
 import org.hiero.block.api.BlockItemSet;
@@ -20,12 +22,13 @@ import org.hiero.block.api.PublishStreamRequest;
 import org.hiero.block.api.PublishStreamResponse;
 import org.hiero.block.api.PublishStreamResponse.EndOfStream.Code;
 import org.hiero.block.api.PublishStreamResponse.ResponseOneOfType;
-import org.hiero.block.node.app.fixtures.async.BlockingSerialExecutor;
+import org.hiero.block.internal.BlockItemSetUnparsed;
+import org.hiero.block.internal.BlockItemUnparsed;
+import org.hiero.block.internal.PublishStreamRequestUnparsed;
 import org.hiero.block.node.app.fixtures.blocks.SimpleTestBlockItemBuilder;
 import org.hiero.block.node.app.fixtures.plugintest.GrpcPluginTestBase;
 import org.hiero.block.node.app.fixtures.plugintest.SimpleInMemoryHistoricalBlockFacility;
 import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
@@ -48,7 +51,7 @@ class StreamPublisherPluginTest {
      */
     @Nested
     @DisplayName("Plugin Tests")
-    class PluginTest extends GrpcPluginTestBase<StreamPublisherPlugin, BlockingSerialExecutor> {
+    class PluginTest extends GrpcPluginTestBase<StreamPublisherPlugin, ExecutorService> {
         // ASSERTION MAPPERS
         private final Function<Bytes, PublishStreamResponse> bytesToPublishStreamResponseMapper = bytes -> {
             try {
@@ -67,7 +70,7 @@ class StreamPublisherPluginTest {
          * Constructor for the plugin tests.
          */
         PluginTest() {
-            super(new BlockingSerialExecutor(new LinkedBlockingQueue<>()));
+            super(Executors.newSingleThreadExecutor());
             final StreamPublisherPlugin toTest = new StreamPublisherPlugin();
             final SimpleInMemoryHistoricalBlockFacility historicalBlockFacility =
                     new SimpleInMemoryHistoricalBlockFacility();
@@ -146,8 +149,8 @@ class StreamPublisherPluginTest {
         }
 
         /**
-         * This test aims to verify that when empty block items are published to
-         * the pipeline, an
+         * This test aims to verify that when a request with unset oneOf is
+         * published to the pipeline, an
          * {@link PublishStreamResponse.EndOfStream}
          * response is returned with code {@link Code#ERROR}.
          */
@@ -171,30 +174,23 @@ class StreamPublisherPluginTest {
 
         /**
          * This test aims to verify that when a valid block is published to the
-         * pipeline, an
-         * {@link PublishStreamResponse.BlockAcknowledgement} response is returned.
+         * pipeline, a {@link PublishStreamResponse.BlockAcknowledgement}
+         * response is returned.
          */
-        @Disabled("This requires GH issue #1374 to be resolved, otherwise we will get DUPLICATE_BLOCK")
         @Test
         @DisplayName("Test publish a valid block as items")
-        void testPublishValidBlock() {
-            final BlockItem[] block = SimpleTestBlockItemBuilder.createNumberOfVerySimpleBlocks(0, 1);
+        void testPublishValidBlock() throws InterruptedException {
+            final BlockItemUnparsed[] block = SimpleTestBlockItemBuilder.createNumberOfVerySimpleBlocksUnparsed(0, 1);
             // Build a PublishStreamRequest with a valid block as items
-            final PublishStreamRequest request = PublishStreamRequest.newBuilder()
-                    .blockItems(BlockItemSet.newBuilder().blockItems(block).build())
+            final BlockItemSetUnparsed blockItems =
+                    BlockItemSetUnparsed.newBuilder().blockItems(block).build();
+            final PublishStreamRequestUnparsed request = PublishStreamRequestUnparsed.newBuilder()
+                    .blockItems(blockItems)
                     .build();
             // Send the request to the pipeline
-            toPluginPipe.onNext(PublishStreamRequest.PROTOBUF.toBytes(request));
-            // @todo(1435) we cannot use blocking executor here because the plugin config
-            //   for max iterations min value is way too high for us to block in this test
-            //   we need to execute this async and assert after some time
-            final BlockingSerialExecutor executor = testThreadPoolManager.executor();
-            final boolean taskSubmitted = executor.wasAnyTaskSubmitted();
-            // Assert that a task was submitted to the executor
-            assertThat(taskSubmitted).isTrue();
-            // Execute task serially (blocking)
-            executor.executeSerially();
-            // Assert response
+            toPluginPipe.onNext(PublishStreamRequestUnparsed.PROTOBUF.toBytes(request));
+            TimeUnit.MILLISECONDS.sleep(500L);
+            // Await to ensure async execution and assert response
             assertThat(fromPluginBytes)
                     .hasSize(1)
                     .first()

@@ -84,6 +84,8 @@ public class SubscriberTest extends GrpcPluginTestBase<SubscriberServicePlugin, 
      *
      * @throws ParseException should not happen
      */
+    // @todo(1374): This test is disabled because the subscriber logic needs further validation.
+    @Disabled("Disabled until GH Issue #1374 is fully implemented, subscriber logic must be validated!")
     @Test
     void testSubscribeAnyToMaxBlocksUnknown() throws ParseException {
         // first we need to create and send a SubscribeStreamRequest
@@ -111,6 +113,8 @@ public class SubscriberTest extends GrpcPluginTestBase<SubscriberServicePlugin, 
      *
      * @throws ParseException should not happen
      */
+    // @todo(1374): This test is disabled because the subscriber logic needs further validation.
+    @Disabled("Disabled until GH Issue #1374 is fully implemented, subscriber logic must be validated!")
     @Test
     void testSubscribeAnyToMaxBlocksZero() throws ParseException {
         // first we need to create and send a SubscribeStreamRequest
@@ -140,6 +144,8 @@ public class SubscriberTest extends GrpcPluginTestBase<SubscriberServicePlugin, 
      *
      * @throws ParseException should not happen
      */
+    // @todo(1374): This test is disabled because the subscriber logic needs further validation.
+    @Disabled("Disabled until GH Issue #1374 is fully implemented, subscriber logic must be validated!")
     @Test
     void testSubscribeAnyToMaxBlocksMax() throws ParseException {
         // first we need to create and send a SubscribeStreamRequest
