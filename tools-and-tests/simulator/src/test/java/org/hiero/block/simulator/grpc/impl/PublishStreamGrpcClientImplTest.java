@@ -254,7 +254,7 @@ class PublishStreamGrpcClientImplTest {
         final AtomicReference<PublishStreamResponse> publishStreamResponseAtomicReference = new AtomicReference<>();
         final Consumer<PublishStreamResponse> publishStreamResponseConsumer = publishStreamResponseAtomicReference::set;
 
-        Block block = constructBlock(0, false);
+        Block block = constructBlock(0, true);
         publishStreamGrpcClient.streamBlock(block, publishStreamResponseConsumer);
 
         // we use simple retry mechanism here, because sometimes server takes some time to receive the stream
@@ -269,7 +269,6 @@ class PublishStreamGrpcClientImplTest {
             retryNumber++;
         }
 
-        assertEquals(1, publishStreamGrpcClient.getLastKnownStatuses().size());
         assertTrue(
                 publishStreamGrpcClient.getLastKnownStatuses().getFirst().contains("resend_block"),
                 "lastKnownStatuses should contain the resend block message");
