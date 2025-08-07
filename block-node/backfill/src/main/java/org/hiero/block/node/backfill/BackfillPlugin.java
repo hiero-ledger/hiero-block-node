@@ -2,7 +2,9 @@
 package org.hiero.block.node.backfill;
 
 import static java.lang.System.Logger.Level.INFO;
+import static java.lang.System.Logger.Level.TRACE;
 import static java.lang.System.Logger.Level.WARNING;
+import static java.util.concurrent.locks.LockSupport.parkNanos;
 
 import com.hedera.hapi.block.stream.output.BlockHeader;
 import com.hedera.pbj.runtime.ParseException;
@@ -56,6 +58,7 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
     private final Map<BackfillType, CountDownLatch> backfillLatches = new HashMap<>();
     private boolean autonomousError = false;
     private boolean onDemandError = false;
+    private long onDemandBackfillStartBlock = -1;
 
     // Metrics
     private Counter backfillGapsDetected;
@@ -214,10 +217,20 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
         return pendingAutonomousBlocks > 0;
     }
 
+    private boolean isOnDemandBackfillRunning() {
+        return onDemandBackfillStartBlock != -1;
+    }
+
     private void detectGaps() {
         // Skip if already running
         if (isAutonomousBackfillRunning()) {
             LOGGER.log(INFO, "Gap detection already in progress, skipping this execution");
+            return;
+        }
+
+        // Skip if OnDemand backfill is running
+        if (isOnDemandBackfillRunning()) {
+            LOGGER.log(INFO, "On-Demand backfill is running, skipping autonomous gap detection");
             return;
         }
 
@@ -303,15 +316,34 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
                 context.blockMessaging()
                         .sendBackfilledBlockNotification(new BackfilledBlockNotification(blockNumber, blockUnparsed));
 
+                // Give messaging system some time to process
+                parkNanos(500_000); // 500 microseconds
+
                 LOGGER.log(INFO, "Backfilling block {0}", blockNumber);
                 backfillFetchedBlocks.increment();
             }
 
             // Wait for verification and persistence to complete
-            backfillLatches.get(backfillType).await();
+            // give about 1 second for each block to be processed (should be much faster)
+            boolean backfillFinished = backfillLatches.get(backfillType).await(batchOfBlocks.size(), TimeUnit.SECONDS);
+
+            // Check if the backfill finished successfully
+            if (!backfillFinished) {
+                LOGGER.log(INFO, "Backfill for gap {0} did not finish in time", chunk);
+                backfillFetchErrors.increment();
+                // If it didn't finish, we will retry it later but move on to next chunk
+            } else {
+                // just log a victory message for each chunk
+                LOGGER.log(TRACE, "Successfully backfilled gap {0}", chunk);
+            }
 
             // Cooldown between batches
             Thread.sleep(backfillConfiguration.delayBetweenBatchesMs());
+        }
+
+        LOGGER.log(INFO, "Completed backfilling of type {0} gap from {1} to {2}", backfillType, gap.start(), gap.end());
+        if (backfillType.equals(BackfillType.ON_DEMAND)) {
+            onDemandBackfillStartBlock = -1; // Reset on-demand start block after backfill
         }
     }
 
@@ -353,10 +385,20 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
     @Override
     public void handlePersisted(PersistedNotification notification) {
         if (notification.blockSource() == BlockSource.BACKFILL) {
+            BackfillType backfillType = getBackfillTypeForBlock(notification.endBlockNumber());
+
+            // Add more detailed logging for persistence notifications
+            LOGGER.log(
+                    INFO,
+                    "Received {0} persisted notification for block {1}",
+                    backfillType,
+                    notification.endBlockNumber());
+
             backfillBlocksBackfilled.increment();
             // decrement the latch for the backfill type
-            BackfillType backfillType = getBackfillTypeForBlock(notification.endBlockNumber());
             backfillLatches.get(backfillType).countDown();
+        } else {
+            LOGGER.log(TRACE, "Received non-backfill persisted notification: {0}", notification);
         }
     }
 
@@ -366,6 +408,7 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
     @Override
     public void handleVerification(VerificationNotification notification) {
         if (notification.source() == BlockSource.BACKFILL) {
+            LOGGER.log(TRACE, "Received verification notification for block {0}", notification.blockNumber());
             if (!notification.success()) {
                 LOGGER.log(WARNING, "Block {0} verification failed", notification.blockNumber());
                 backfillFetchErrors.increment();
@@ -395,15 +438,43 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
             return;
         }
 
+        // Skip if Autonomous backfill is running
+        if (isAutonomousBackfillRunning()) {
+            LOGGER.log(INFO, "Autonomous backfill is running, skipping on-demand backfill");
+            return;
+        }
+
+        // Skip if another On-Demand backfill is already running
+        if (isOnDemandBackfillRunning()) {
+            LOGGER.log(INFO, "On-Demand backfill is already running, skipping new on-demand backfill");
+            return;
+        }
+
         // if the gap is not empty, we can backfill it
         if (gap.size() > 0) {
             try {
-                backfillGap(gap, BackfillType.ON_DEMAND);
+                // Set the start block for on-demand backfill BEFORE scheduling the task
+                onDemandBackfillStartBlock = gap.start();
+
+                // use the scheduler to run the backfill in its own thread (only call backfillGap once)
+                scheduler.execute(() -> {
+                    try {
+                        LOGGER.log(INFO, "Starting on-demand backfill for gap: {0}", gap);
+                        backfillGap(gap, BackfillType.ON_DEMAND);
+                    } catch (Exception e) {
+                        LOGGER.log(INFO, "Error backfilling gap {0}: {1}", gap, e.getMessage());
+                        backfillFetchErrors.add(1);
+                        onDemandError = true;
+                        onDemandBackfillStartBlock = -1; // Reset on error to allow new backfills
+                    }
+                });
+
                 onDemandError = false;
             } catch (Exception e) {
-                LOGGER.log(INFO, "Error backfilling gap {0}: {1}", gap, e.getMessage());
+                LOGGER.log(INFO, "Error scheduling backfill for gap {0}: {1}", gap, e.getMessage());
                 backfillFetchErrors.add(1);
                 onDemandError = true;
+                onDemandBackfillStartBlock = -1; // Reset on error to allow new backfills
             }
         } else {
             LOGGER.log(INFO, "No gap to backfill for newest block known: {0}", newestBlockKnown);
@@ -412,11 +483,10 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
 
     private BackfillType getBackfillTypeForBlock(long blockNumber) {
         // Determine if the block is old (Autonomous) or new (On-Demand)
-        if (blockNumber < context.historicalBlockProvider().availableBlocks().max()) {
-            return BackfillType.AUTONOMOUS;
-        } else {
+        if (onDemandBackfillStartBlock != -1 && blockNumber >= onDemandBackfillStartBlock) {
             return BackfillType.ON_DEMAND;
         }
+        return BackfillType.AUTONOMOUS;
     }
 
     private enum BackfillType {
