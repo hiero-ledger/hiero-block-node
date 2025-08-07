@@ -285,12 +285,13 @@ public class BlockMessagingFacilityImpl implements BlockMessagingFacility {
     public void sendBlockItems(final BlockItems blockItems) {
         blockItemDisruptor.getRingBuffer().publishEvent((event, sequence) -> event.set(blockItems));
         // metrics
-        blockItemsReceivedCounter.add(blockItems.blockItems().size());
+        long blockItemsSize = blockItems.blockItems().size();
+        blockItemsReceivedCounter.add(blockItemsSize);
         // log sending of block items with details
         LOGGER.log(
                 TRACE,
                 "Sending block items: size: {0}, isStartOfNewBlock: {1}, isEndOfBlock: {2}, newBlockNumber: {3}",
-                blockItems.blockItems().size(),
+                blockItemsSize,
                 blockItems.isStartOfNewBlock(),
                 blockItems.isEndOfBlock(),
                 blockItems.newBlockNumber());
@@ -374,7 +375,7 @@ public class BlockMessagingFacilityImpl implements BlockMessagingFacility {
     }
 
     /**
-     * {@inheritDoc}
+     * {@inheritDoc}F
      */
     @Override
     public synchronized void unregisterBlockItemHandler(final BlockItemHandler handler) {
@@ -398,7 +399,7 @@ public class BlockMessagingFacilityImpl implements BlockMessagingFacility {
                 TRACE,
                 "Sending block verification notificiation for block: {0}, blockSource: {1}, and success: {2} ",
                 notification.blockNumber(),
-                notification.blockNumber(),
+                notification.source(),
                 notification.success());
     }
 
@@ -417,7 +418,7 @@ public class BlockMessagingFacilityImpl implements BlockMessagingFacility {
      */
     @Override
     public void sendBackfilledBlockNotification(BackfilledBlockNotification notification) {
-        LOGGER.log(TRACE, "Sending backfilled block notification: " + notification);
+        LOGGER.log(TRACE, "Sending backfilled block notification: {0}", notification);
         blockNotificationDisruptor.getRingBuffer().publishEvent((event, sequence) -> event.set(notification));
         // TODO: Add a counter for backfilled notifications
         // blockBackfilledNotificationsCounter.increment();
@@ -509,11 +510,13 @@ public class BlockMessagingFacilityImpl implements BlockMessagingFacility {
         }
 
         // log successful start
-        LOGGER.log(
-                TRACE,
-                "BlockMessagingFacility successfully started with block item queue size: {0} and block notification queue size: {1}",
-                blockItemDisruptor.getRingBuffer().getBufferSize(),
-                blockNotificationDisruptor.getRingBuffer().getBufferSize());
+        if (LOGGER.isLoggable(TRACE)) {
+            LOGGER.log(
+                    TRACE,
+                    "BlockMessagingFacility successfully started with block item queue size: {0} and block notification queue size: {1}",
+                    blockItemDisruptor.getRingBuffer().getBufferSize(),
+                    blockNotificationDisruptor.getRingBuffer().getBufferSize());
+        }
     }
 
     /**

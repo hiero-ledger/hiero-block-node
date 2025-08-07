@@ -39,7 +39,7 @@ import org.hiero.block.node.spi.threading.ThreadPoolManager;
 public final class LiveStreamPublisherManager implements StreamPublisherManager {
     private static final String QUEUE_ID_FORMAT = "Q%016d";
     // @todo(1413) utilize the logger
-    private static final System.Logger LOGGER = System.getLogger(LiveStreamPublisherManager.class.getName());
+    private final System.Logger LOGGER = System.getLogger(LiveStreamPublisherManager.class.getName());
     private final MetricsHolder metrics;
     private final BlockNodeContext serverContext;
     private final ThreadPoolManager threadManager;
@@ -357,6 +357,8 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
      * todo(1420) add documentation
      */
     private static class MessagingForwarderTask implements Callable<Long> {
+
+        private final System.Logger LOGGER = System.getLogger(MessagingForwarderTask.class.getName());
         private final BlockNodeContext serverContext;
         private final LiveStreamPublisherManager publisherManager;
         private final ConcurrentMap<Long, BlockingQueue<BlockItemSetUnparsed>> queueByBlockMap;
