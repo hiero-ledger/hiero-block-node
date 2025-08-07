@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.node.messaging;
 
+import static java.lang.System.Logger.Level.TRACE;
+
 import com.lmax.disruptor.BatchEventProcessor;
 import com.lmax.disruptor.BatchEventProcessorBuilder;
 import com.lmax.disruptor.ExceptionHandler;
@@ -199,6 +201,13 @@ public class BlockMessagingFacilityImpl implements BlockMessagingFacility {
 
         // Initialize metrics
         initMetrics(context);
+
+        // log successful initialization
+        LOGGER.log(
+                TRACE,
+                "BlockMessagingFacility initialized with block item queue size: {0} and block notification queue size: {1}",
+                messagingConfig.blockItemQueueSize(),
+                messagingConfig.blockNotificationQueueSize());
     }
 
     /**
@@ -275,7 +284,17 @@ public class BlockMessagingFacilityImpl implements BlockMessagingFacility {
     @Override
     public void sendBlockItems(final BlockItems blockItems) {
         blockItemDisruptor.getRingBuffer().publishEvent((event, sequence) -> event.set(blockItems));
-        blockItemsReceivedCounter.add(blockItems.blockItems().size());
+        // metrics
+        long blockItemsSize = blockItems.blockItems().size();
+        blockItemsReceivedCounter.add(blockItemsSize);
+        // log sending of block items with details
+        LOGGER.log(
+                TRACE,
+                "Sending block items: size: {0}, isStartOfNewBlock: {1}, isEndOfBlock: {2}, newBlockNumber: {3}",
+                blockItemsSize,
+                blockItems.isStartOfNewBlock(),
+                blockItems.isEndOfBlock(),
+                blockItems.newBlockNumber());
     }
 
     /**
@@ -302,6 +321,14 @@ public class BlockMessagingFacilityImpl implements BlockMessagingFacility {
             preRegisteredBlockItemHandlers.add(
                     new PreRegisteredBlockItemHandler(handler, informedEventHandler, cpuIntensiveHandler, handlerName));
         }
+
+        // log the registration of the handler
+        LOGGER.log(
+                TRACE,
+                "Registering block item handler: {0}, cpuIntensive: {1}, handlerName: {2}",
+                handler.getClass().getSimpleName(),
+                cpuIntensiveHandler,
+                handlerName);
     }
 
     /**
@@ -337,10 +364,18 @@ public class BlockMessagingFacilityImpl implements BlockMessagingFacility {
             preRegisteredBlockItemHandlers.add(
                     new PreRegisteredBlockItemHandler(handler, informedEventHandler, cpuIntensiveHandler, handlerName));
         }
+
+        // log the registration of the handler
+        LOGGER.log(
+                TRACE,
+                "Registering no backpressure block item handler: {0}, cpuIntensive: {1}, handlerName: {2}",
+                handler.getClass().getSimpleName(),
+                cpuIntensiveHandler,
+                handlerName);
     }
 
     /**
-     * {@inheritDoc}
+     * {@inheritDoc}F
      */
     @Override
     public synchronized void unregisterBlockItemHandler(final BlockItemHandler handler) {
@@ -357,7 +392,15 @@ public class BlockMessagingFacilityImpl implements BlockMessagingFacility {
     @Override
     public void sendBlockVerification(VerificationNotification notification) {
         blockNotificationDisruptor.getRingBuffer().publishEvent((event, sequence) -> event.set(notification));
+        // metrics
         blockVerificationNotificationsCounter.increment();
+        // logs
+        LOGGER.log(
+                TRACE,
+                "Sending block verification notificiation for block: {0}, blockSource: {1}, and success: {2} ",
+                notification.blockNumber(),
+                notification.source(),
+                notification.success());
     }
 
     /**
@@ -365,6 +408,7 @@ public class BlockMessagingFacilityImpl implements BlockMessagingFacility {
      */
     @Override
     public void sendBlockPersisted(PersistedNotification notification) {
+        LOGGER.log(TRACE, "Sending block persisted notification: " + notification);
         blockNotificationDisruptor.getRingBuffer().publishEvent((event, sequence) -> event.set(notification));
         blockPersistedNotificationsCounter.increment();
     }
@@ -374,6 +418,7 @@ public class BlockMessagingFacilityImpl implements BlockMessagingFacility {
      */
     @Override
     public void sendBackfilledBlockNotification(BackfilledBlockNotification notification) {
+        LOGGER.log(TRACE, "Sending backfilled block notification: {0}", notification);
         blockNotificationDisruptor.getRingBuffer().publishEvent((event, sequence) -> event.set(notification));
         // TODO: Add a counter for backfilled notifications
         // blockBackfilledNotificationsCounter.increment();
@@ -411,6 +456,14 @@ public class BlockMessagingFacilityImpl implements BlockMessagingFacility {
             preRegisteredBlockNotificationHandlers.add(new PreRegisteredBlockNotificationHandler(
                     handler, informedEventHandler, cpuIntensiveHandler, handlerName));
         }
+
+        // log the registration of the handler
+        LOGGER.log(
+                TRACE,
+                "Registering block notification handler: {0}, cpuIntensive: {1}, handlerName: {2}",
+                handler.getClass().getSimpleName(),
+                cpuIntensiveHandler,
+                handlerName);
     }
 
     /**
@@ -455,6 +508,15 @@ public class BlockMessagingFacilityImpl implements BlockMessagingFacility {
                     blockNotificationHandlerToEventProcessor,
                     blockNotificationHandlerToThread);
         }
+
+        // log successful start
+        if (LOGGER.isLoggable(TRACE)) {
+            LOGGER.log(
+                    TRACE,
+                    "BlockMessagingFacility successfully started with block item queue size: {0} and block notification queue size: {1}",
+                    blockItemDisruptor.getRingBuffer().getBufferSize(),
+                    blockNotificationDisruptor.getRingBuffer().getBufferSize());
+        }
     }
 
     /**
@@ -470,6 +532,8 @@ public class BlockMessagingFacilityImpl implements BlockMessagingFacility {
         // Stop all the block item handler threads
         for (Thread thread : blockItemHandlerToThread.values()) {
             thread.interrupt();
+            // log the stopping of the thread
+            LOGGER.log(TRACE, "Stopped block item handler thread: {0}", thread.getName());
         }
         // Stop all the block notification event handlers
         for (var eventHandler : blockNotificationHandlerToEventProcessor.values()) {
@@ -482,6 +546,8 @@ public class BlockMessagingFacilityImpl implements BlockMessagingFacility {
         // Stop all the block notification handlers
         for (Thread thread : blockNotificationHandlerToThread.values()) {
             thread.interrupt();
+            // log the stopping of the thread
+            LOGGER.log(TRACE, "Stopped block notification handler thread: {0}", thread.getName());
         }
     }
 
@@ -557,6 +623,12 @@ public class BlockMessagingFacilityImpl implements BlockMessagingFacility {
         // interrupt the thread so it stops quickly
         if (handlerThread != null) {
             handlerThread.interrupt();
+            // log the unregistration of the handler
+            LOGGER.log(
+                    TRACE,
+                    "Unregistered block item handler: {0}, thread: {1}",
+                    handler.getClass().getSimpleName(),
+                    handlerThread.getName());
         }
     }
 

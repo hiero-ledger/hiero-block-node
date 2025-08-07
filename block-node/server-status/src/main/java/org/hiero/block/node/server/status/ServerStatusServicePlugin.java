@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.node.server.status;
 
+import static java.lang.System.Logger.Level.TRACE;
 import static java.util.Objects.requireNonNull;
 
 import com.swirlds.metrics.api.Counter;
@@ -35,7 +36,7 @@ public class ServerStatusServicePlugin implements BlockNodePlugin, BlockNodeServ
     public ServerStatusResponse serverStatus(@NonNull final ServerStatusRequest request) {
         requestCounter.increment();
 
-        final ServerStatusResponse.Builder serverStatusResponse = ServerStatusResponse.newBuilder();
+        final ServerStatusResponse.Builder serverStatusResponseBuilder = ServerStatusResponse.newBuilder();
         final long firstAvailableBlock = blockProvider.availableBlocks().min();
         final long lastAvailableBlock = blockProvider.availableBlocks().max();
 
@@ -47,11 +48,18 @@ public class ServerStatusServicePlugin implements BlockNodePlugin, BlockNodeServ
         // by
         // the context from responsible facility
 
-        return serverStatusResponse
+        // Build the response
+        ServerStatusResponse response = serverStatusResponseBuilder
                 .firstAvailableBlock(firstAvailableBlock)
                 .lastAvailableBlock(lastAvailableBlock)
                 .onlyLatestState(onlyLatestState)
                 .build();
+
+        // Log request and response
+        LOGGER.log(
+                TRACE, "Received server status request: {0}, and will respond with response: {1}", request, response);
+
+        return response;
     }
 
     // ==== BlockNodePlugin Methods ====================================================================================
