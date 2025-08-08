@@ -16,6 +16,7 @@ import java.lang.System.Logger.Level;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CompletionService;
 import java.util.concurrent.ConcurrentSkipListMap;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutionException;
@@ -26,7 +27,9 @@ import java.util.concurrent.atomic.AtomicLong;
 import org.hiero.block.api.BlockStreamSubscribeServiceInterface;
 import org.hiero.block.api.SubscribeStreamRequest;
 import org.hiero.block.api.SubscribeStreamResponse;
+import org.hiero.block.api.SubscribeStreamResponse.Code;
 import org.hiero.block.internal.SubscribeStreamResponseUnparsed;
+import org.hiero.block.internal.SubscribeStreamResponseUnparsed.Builder;
 import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.BlockNodePlugin;
 import org.hiero.block.node.spi.ServiceBuilder;
@@ -132,7 +135,7 @@ public class SubscriberServicePlugin implements BlockNodePlugin, BlockStreamSubs
         /** A context that applies to the pipeline this handler supports. */
         private final BlockNodeContext context;
         /** Set of open client sessions */
-        private final Map<Long, BlockStreamSubscriberSession> openSessions;
+        private volatile Map<Long, BlockStreamSubscriberSession> openSessions;
         // Metrics
         /** Counter for errors while streaming to subscribers */
         private final Counter subscriberErrorsCounter;
@@ -140,11 +143,11 @@ public class SubscriberServicePlugin implements BlockNodePlugin, BlockStreamSubs
         private final LongGauge numberOfSubscribers;
 
         private final ExecutorService virtualThreadExecutor;
-        private final ExecutorCompletionService<BlockStreamSubscriberSession> streamSessions;
+        private volatile CompletionService<BlockStreamSubscriberSession> streamSessions;
 
         private SubscribeBlockStreamHandler(@NonNull final BlockNodeContext context) {
             this.context = requireNonNull(context);
-            this.openSessions = new ConcurrentSkipListMap<>();
+            openSessions = new ConcurrentSkipListMap<>();
             virtualThreadExecutor = context.threadPoolManager().getVirtualThreadExecutor();
             streamSessions = new ExecutorCompletionService<>(virtualThreadExecutor);
             // create the metrics
@@ -158,27 +161,34 @@ public class SubscriberServicePlugin implements BlockNodePlugin, BlockStreamSubs
 
         private void stop() {
             // Stop allowing new connection threads.
-            virtualThreadExecutor.shutdown();
+            CompletionService<BlockStreamSubscriberSession> sessionsToClose = streamSessions;
+            streamSessions = null;
+            Map<Long, BlockStreamSubscriberSession> closeableSessions = openSessions;
+            openSessions = null;
             // Close all connections and notify the clients.
-            for (final BlockStreamSubscriberSession session : openSessions.values()) {
-                session.close(SubscribeStreamResponse.Code.SUCCESS);
-            }
-            // Make sure all the threads complete.
-            while (!openSessions.isEmpty()) {
-                try {
-                    // This blocks until the session thread ends, but the close
-                    // calls above _should have_ ended all the threads already.
-                    openSessions.remove(streamSessions.take().get().clientId());
-                } catch (InterruptedException e) {
-                    Thread.currentThread().interrupt();
-                } catch (ExecutionException e) {
-                    // This should never happen, but if it does, log the error.
-                    final String message = "Error ending subscriber session: {0}.";
-                    LOGGER.log(Level.ERROR, message, e);
+            // Handle a nigh impossible situation where stop is called twice.
+            if (closeableSessions != null) {
+                for (final BlockStreamSubscriberSession session : closeableSessions.values()) {
+                    session.close(SubscribeStreamResponse.Code.SUCCESS);
+                }
+                // Make sure all the threads complete.
+                while (!closeableSessions.isEmpty() && sessionsToClose != null) {
+                    try {
+                        // This blocks until the session thread ends, but the close
+                        // calls above _should have_ ended all the threads already.
+                        closeableSessions.remove(sessionsToClose.take().get().clientId());
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                    } catch (ExecutionException e) {
+                        // This should never happen, but if it does, log the error.
+                        final String message = "Error ending subscriber session: {0}.";
+                        LOGGER.log(Level.ERROR, message, e);
+                    }
                 }
             }
         }
 
+        @SuppressWarnings("NestedAssignment")
         @Override
         public void apply(
                 @NonNull final SubscribeStreamRequest request,
@@ -186,19 +196,46 @@ public class SubscriberServicePlugin implements BlockNodePlugin, BlockStreamSubs
                 throws InterruptedException {
             final long clientId = nextClientId.getAndIncrement();
             final CountDownLatch sessionReadyLatch = new CountDownLatch(1);
-            final BlockStreamSubscriberSession blockStreamSession =
-                    new BlockStreamSubscriberSession(clientId, request, responsePipeline, context, sessionReadyLatch);
-            streamSessions.submit(blockStreamSession);
-            // Wait for the session to start
-            sessionReadyLatch.await();
-            // add the session to the set of open sessions
-            openSessions.put(clientId, blockStreamSession);
-            numberOfSubscribers.set(sessionCount.incrementAndGet());
-            Future<BlockStreamSubscriberSession> completedSessionFuture;
-            // Get any available completed sessions and log success/failure.
-            // noinspection NestedAssignment
-            while ((completedSessionFuture = streamSessions.poll()) != null) {
-                handleCompletedStream(completedSessionFuture);
+            // IMPORTANT! Assign these to local variables to avoid potential
+            // concurrent modification issues.
+            final CompletionService<BlockStreamSubscriberSession> streams = streamSessions;
+            final Map<Long, BlockStreamSubscriberSession> sessions = openSessions;
+            if (streams != null && sessions != null) {
+                final BlockStreamSubscriberSession blockStreamSession = new BlockStreamSubscriberSession(
+                        clientId, request, responsePipeline, context, sessionReadyLatch);
+                streams.submit(blockStreamSession);
+                // Wait for the session to start
+                sessionReadyLatch.await();
+                // add the session to the set of open sessions
+                sessions.put(clientId, blockStreamSession);
+                numberOfSubscribers.set(sessionCount.incrementAndGet());
+                Future<BlockStreamSubscriberSession> completedSessionFuture;
+                // Get any available completed sessions and log success/failure.
+                while ((completedSessionFuture = streams.poll()) != null) {
+                    handleCompletedStream(completedSessionFuture);
+                }
+            } else {
+                failStreamRequest(responsePipeline);
+            }
+        }
+
+        /**
+         * Sends an error response to the client if a new request cannot be fulfilled.
+         * <p>
+         * This is typically called when a request comes in after the handler is
+         * processing a stop or shut down.
+         */
+        private void failStreamRequest(
+                @NonNull final Pipeline<? super SubscribeStreamResponseUnparsed> responsePipeline) {
+            final Builder response =
+                    SubscribeStreamResponseUnparsed.newBuilder().status(Code.NOT_AVAILABLE);
+            responsePipeline.onNext(response.build());
+            try {
+                responsePipeline.onComplete();
+            } catch (RuntimeException e) {
+                // If the pipeline cannot be completed, log and suppress this exception.
+                final String message = "Suppressed client error when \"failing\" stream for new client %n%s";
+                LOGGER.log(Level.DEBUG, message.formatted(e.getMessage()), e);
             }
         }
 
@@ -208,7 +245,8 @@ public class SubscriberServicePlugin implements BlockNodePlugin, BlockStreamSubs
                 BlockStreamSubscriberSession completedSession = completedSessionFuture.get();
                 long clientId = completedSession.clientId();
                 // Remove the completed session from open sessions.
-                openSessions.remove(clientId);
+                final Map<Long, BlockStreamSubscriberSession> sessions = openSessions;
+                if (sessions != null) sessions.remove(clientId);
                 final Exception failureCause = completedSession.getSessionFailedCause();
                 if (failureCause != null) {
                     // If the session failed, log the failure.
