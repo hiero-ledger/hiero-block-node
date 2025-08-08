@@ -110,7 +110,7 @@ jobs:
         run: ${GRADLE_EXEC} clean assemble
 
       - name: Login to GitHub Container Registry
-        uses: docker/login-action@74a5d142397b4f367a81961eba4e8cd7edddf772 # v3.4.0
+        uses: docker/login-action@184bdaa0721073962dff0199f1fb9940f07167d1 # v3.5.0
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
@@ -244,7 +244,7 @@ jobs:
         run: ${GRADLE_EXEC} clean assemble
 
       - name: Login to GitHub Container Registry
-        uses: docker/login-action@74a5d142397b4f367a81961eba4e8cd7edddf772 # v3.4.0
+        uses: docker/login-action@184bdaa0721073962dff0199f1fb9940f07167d1 # v3.5.0
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
@@ -304,7 +304,7 @@ jobs:
         uses: azure/setup-helm@b9e51907a09c216f16ebe8536097933489208112 # v4.3.0
 
       - name: Login to GitHub Container Registry
-        uses: docker/login-action@74a5d142397b4f367a81961eba4e8cd7edddf772 # v3.4.0
+        uses: docker/login-action@184bdaa0721073962dff0199f1fb9940f07167d1 # v3.5.0
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
@@ -344,7 +344,7 @@ jobs:
         uses: azure/setup-helm@b9e51907a09c216f16ebe8536097933489208112 # v4.3.0
 
       - name: Login to GitHub Container Registry
-        uses: docker/login-action@74a5d142397b4f367a81961eba4e8cd7edddf772 # v3.4.0
+        uses: docker/login-action@184bdaa0721073962dff0199f1fb9940f07167d1 # v3.5.0
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
