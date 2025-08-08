@@ -16,6 +16,7 @@ import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ConcurrentHashMap;
@@ -29,6 +30,7 @@ import org.hiero.block.internal.BlockItemSetUnparsed;
 import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.blockmessaging.BlockItems;
 import org.hiero.block.node.spi.blockmessaging.BlockMessagingFacility;
+import org.hiero.block.node.spi.blockmessaging.BlockSource;
 import org.hiero.block.node.spi.blockmessaging.PersistedNotification;
 import org.hiero.block.node.spi.blockmessaging.VerificationNotification;
 import org.hiero.block.node.spi.threading.ThreadPoolManager;
@@ -257,11 +259,50 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
         return lastPersistedBlockNumber.get();
     }
 
+    /**
+     * {@inheritDoc}
+     * <p>
+     * This method handles verification notifications from the block messaging
+     * facility. It checks if the notification is from a publisher and if the
+     * verification was unsuccessful. If so, it forks each handler and calls
+     * the {@link PublisherHandler#handleFailedVerification(long)} on each.
+     * After each invocation, it clears the transfer queue for that handler
+     * if it exists.
+     * <blockquote>
+     * NOTE: The handler that was responsible for sending the block that failed
+     * verification will proceed to send an {@link PublishStreamResponse.EndOfStream}
+     * with {@link PublishStreamResponse.EndOfStream.Code#BAD_BLOCK_PROOF}. The
+     * handler will then shut down. All other handler will send
+     * a {@link PublishStreamResponse.ResendBlock}, if the resend was
+     * successfully sent, then the handler will continue to operate normally.
+     * Otherwise, the handler will also shut down.
+     * <br>
+     * After we exit from the fork, we will clear all transfer queues.
+     * Naturally, handlers that have shut down will not have the queue
+     * available, i.e. it will be {@code null}.
+     * </blockquote>
+     */
     @Override
     public void handleVerification(@NonNull final VerificationNotification notification) {
-        // Need to check, but should only handle the "failed" case.
-        // on success we should probably do nothing.
-        // @todo(1422) implement
+        final long blockNumber = notification.blockNumber();
+        final boolean shouldHandle = BlockSource.PUBLISHER == notification.source()
+                && !notification.success()
+                && blockNumber > getLatestBlockNumber();
+        if (shouldHandle) {
+            // use a copy of the handlers to avoid concurrent modification exceptions
+            // even though we are using concurrent maps/collections.
+            Set.copyOf(handlers.values()).parallelStream().unordered().forEach(handler -> {
+                final long handlerId = handler.handleFailedVerification(blockNumber);
+                final String qId = getQueueNameForHandlerId(handlerId);
+                final BlockingQueue<BlockItemSetUnparsed> queue = transferQueueMap.get(qId);
+                if (queue != null) {
+                    // If a queue exists for the handler, we need to flush it
+                    queue.clear();
+                }
+            });
+            nextUnstreamedBlockNumber.set(blockNumber);
+            currentStreamingBlockNumber.set(blockNumber);
+        }
     }
 
     /**
@@ -292,7 +333,9 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
     public void handlePersisted(@NonNull final PersistedNotification notification) {
         final long newLastPersistedBlock = notification.endBlockNumber();
         if (newLastPersistedBlock > lastPersistedBlockNumber.get()) {
-            handlers.values().parallelStream().unordered().forEach(handler -> {
+            // use a copy of the handlers to avoid concurrent modification exceptions
+            // even though we are using concurrent maps/collections.
+            Set.copyOf(handlers.values()).parallelStream().unordered().forEach(handler -> {
                 // _Important_, we only need the last persisted block number
                 // all previous blocks are implicitly acknowledged.
                 handler.sendAcknowledgement(newLastPersistedBlock);
