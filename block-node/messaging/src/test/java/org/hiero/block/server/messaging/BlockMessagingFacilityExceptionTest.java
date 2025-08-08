@@ -43,7 +43,7 @@ public class BlockMessagingFacilityExceptionTest {
         System.out.println("logger = " + logger);
         logHandler = new TestLogHandler();
         logger.addHandler(logHandler);
-        logger.setLevel(java.util.logging.Level.ALL);
+        logger.setLevel(java.util.logging.Level.INFO);
     }
 
     /**
