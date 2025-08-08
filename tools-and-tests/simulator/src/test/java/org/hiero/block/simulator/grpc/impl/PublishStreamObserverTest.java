@@ -68,7 +68,7 @@ class PublishStreamObserverTest {
         assertEquals(1, lastKnownStatuses.size(), "lastKnownStatuses should have one element after onNext");
         assertTrue(
                 lastKnownStatuses.getFirst().contains("skip_block"),
-                "lastKnownStatuses should contain the resend block message");
+                "lastKnownStatuses should contain the skip block message");
     }
 
     @Test

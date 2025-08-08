@@ -309,7 +309,7 @@ class PublishStreamGrpcClientImplTest {
 
         assertTrue(
                 publishStreamGrpcClient.getLastKnownStatuses().getFirst().contains("skip_block"),
-                "lastKnownStatuses should contain the resend block message");
+                "lastKnownStatuses should contain the skip block message");
     }
 
     @Test
