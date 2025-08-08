@@ -14,6 +14,7 @@ import org.hiero.block.api.SubscribeStreamResponse;
 import org.hiero.block.node.spi.historicalblocks.HistoricalBlockFacility;
 
 public class TestBlockNodeServer {
+    private final WebServer webServer;
 
     public TestBlockNodeServer(int port, HistoricalBlockFacility historicalBlockFacility) {
         // Override the default message size in PBJ
@@ -52,7 +53,7 @@ public class TestBlockNodeServer {
                 });
 
         // start the web server with the PBJ configuration and routing
-        WebServer webServer = WebServerConfig.builder()
+        webServer = WebServerConfig.builder()
                 .port(port)
                 .addProtocol(pbjConfig)
                 .addRouting(pbjRoutingBuilder)
@@ -63,5 +64,14 @@ public class TestBlockNodeServer {
                 .build();
 
         webServer.start();
+    }
+
+    /**
+     * Stop the web server.
+     */
+    public void stop() {
+        if (webServer != null) {
+            webServer.stop();
+        }
     }
 }

@@ -24,6 +24,8 @@ import org.hiero.block.internal.BlockItemSetUnparsed;
 import org.hiero.block.internal.BlockItemUnparsed;
 import org.hiero.block.internal.PublishStreamRequestUnparsed;
 import org.hiero.block.node.app.fixtures.blocks.SimpleTestBlockItemBuilder;
+import org.hiero.block.node.app.fixtures.plugintest.TestBlockMessagingFacility;
+import org.hiero.block.node.spi.blockmessaging.BlockMessagingFacility;
 import org.hiero.block.node.spi.blockmessaging.BlockSource;
 import org.hiero.block.node.spi.blockmessaging.PersistedNotification;
 import org.hiero.block.node.stream.publisher.PublisherHandler.MetricsHolder;
@@ -59,6 +61,8 @@ class PublisherHandlerTest {
         private TestStreamPublisherManager validPublisherManager;
         /** Transfer queue used for asserting the items offered by the handler. */
         private BlockingQueue<BlockItemSetUnparsed> validTranserQueue;
+        /** A test Block messaging facility for testing purposes */
+        BlockMessagingFacility blockMessagingFacility = new TestBlockMessagingFacility();
 
         /**
          * Environment setup executed before each test in this nested class.
@@ -81,7 +85,12 @@ class PublisherHandlerTest {
         void testValidParameters() {
             assertThatNoException().isThrownBy(() -> {
                 new PublisherHandler(
-                        validNextId, validReplyPipeline, validMetricsHodler, validPublisherManager, validTranserQueue);
+                        validNextId,
+                        validReplyPipeline,
+                        validMetricsHodler,
+                        validPublisherManager,
+                        validTranserQueue,
+                        blockMessagingFacility);
             });
         }
 
@@ -93,7 +102,13 @@ class PublisherHandlerTest {
         @DisplayName("Test constructor with null reply pipeline")
         void testNullReplyPipeline() {
             assertThatNullPointerException().isThrownBy(() -> {
-                new PublisherHandler(validNextId, null, validMetricsHodler, validPublisherManager, validTranserQueue);
+                new PublisherHandler(
+                        validNextId,
+                        null,
+                        validMetricsHodler,
+                        validPublisherManager,
+                        validTranserQueue,
+                        blockMessagingFacility);
             });
         }
 
@@ -105,7 +120,13 @@ class PublisherHandlerTest {
         @DisplayName("Test constructor with null metrics holder")
         void testNullMetricsHolder() {
             assertThatNullPointerException().isThrownBy(() -> {
-                new PublisherHandler(validNextId, validReplyPipeline, null, validPublisherManager, validTranserQueue);
+                new PublisherHandler(
+                        validNextId,
+                        validReplyPipeline,
+                        null,
+                        validPublisherManager,
+                        validTranserQueue,
+                        blockMessagingFacility);
             });
         }
 
@@ -117,7 +138,13 @@ class PublisherHandlerTest {
         @DisplayName("Test constructor with null publisher manager")
         void testNullPublisherManager() {
             assertThatNullPointerException().isThrownBy(() -> {
-                new PublisherHandler(validNextId, validReplyPipeline, validMetricsHodler, null, validTranserQueue);
+                new PublisherHandler(
+                        validNextId,
+                        validReplyPipeline,
+                        validMetricsHodler,
+                        null,
+                        validTranserQueue,
+                        blockMessagingFacility);
             });
         }
 
@@ -129,7 +156,13 @@ class PublisherHandlerTest {
         @DisplayName("Test constructor with null transfer queue")
         void testNullTransferQueue() {
             assertThatNullPointerException().isThrownBy(() -> {
-                new PublisherHandler(validNextId, validReplyPipeline, validMetricsHodler, validPublisherManager, null);
+                new PublisherHandler(
+                        validNextId,
+                        validReplyPipeline,
+                        validMetricsHodler,
+                        validPublisherManager,
+                        null,
+                        blockMessagingFacility);
             });
         }
     }
@@ -152,6 +185,8 @@ class PublisherHandlerTest {
         private TransferQueue<BlockItemSetUnparsed> transferQueue;
         /** The handler under test. */
         private PublisherHandler toTest;
+
+        private final BlockMessagingFacility blockMessagingFacility = new TestBlockMessagingFacility();
 
         // ASSERTION EXTRACTORS
         private final Function<PublishStreamResponse, ResponseOneOfType> responseKindExtractor =
@@ -177,7 +212,8 @@ class PublisherHandlerTest {
             metrics = createMetrics();
             manager = new TestStreamPublisherManager();
             transferQueue = new LinkedTransferQueue<>();
-            toTest = new PublisherHandler(handlerId, repliesPipeline, metrics, manager, transferQueue);
+            toTest = new PublisherHandler(
+                    handlerId, repliesPipeline, metrics, manager, transferQueue, blockMessagingFacility);
             manager.addHandler(toTest);
         }
 

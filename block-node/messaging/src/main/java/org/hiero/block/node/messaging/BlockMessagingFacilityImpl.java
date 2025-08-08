@@ -28,6 +28,7 @@ import org.hiero.block.node.spi.blockmessaging.BlockItemHandler;
 import org.hiero.block.node.spi.blockmessaging.BlockItems;
 import org.hiero.block.node.spi.blockmessaging.BlockMessagingFacility;
 import org.hiero.block.node.spi.blockmessaging.BlockNotificationHandler;
+import org.hiero.block.node.spi.blockmessaging.NewestBlockKnownToNetworkNotification;
 import org.hiero.block.node.spi.blockmessaging.NoBackPressureBlockItemHandler;
 import org.hiero.block.node.spi.blockmessaging.PersistedNotification;
 import org.hiero.block.node.spi.blockmessaging.VerificationNotification;
@@ -48,6 +49,11 @@ public class BlockMessagingFacilityImpl implements BlockMessagingFacility {
     private Counter blockVerificationNotificationsCounter;
     /** Counter for notifications issued after persistence */
     private Counter blockPersistedNotificationsCounter;
+    /** Counter for notifications issued after backfilling */
+    private Counter blockBackfilledNotificationsCounter;
+    /** Counter for notifications issued after the newest block known to network */
+    private Counter newestBlockKnownToNetworkNotificationsCounter;
+
     /** Gauge for active item listeners */
     private LongGauge itemListenersGauge;
     /** Gauge for active notification listeners */
@@ -228,6 +234,15 @@ public class BlockMessagingFacilityImpl implements BlockMessagingFacility {
         blockPersistedNotificationsCounter = context.metrics()
                 .getOrCreate(new Counter.Config(METRICS_CATEGORY, "messaging_block_persisted_notifications")
                         .withDescription("Notifications issued after persistence"));
+
+        blockBackfilledNotificationsCounter = context.metrics()
+                .getOrCreate(new Counter.Config(METRICS_CATEGORY, "messaging_block_backfilled_notifications")
+                        .withDescription("Notifications issued after backfilling"));
+
+        newestBlockKnownToNetworkNotificationsCounter = context.metrics()
+                .getOrCreate(
+                        new Counter.Config(METRICS_CATEGORY, "messaging_newest_block_known_to_network_notifications")
+                                .withDescription("Notifications issued after the newest block known to network"));
 
         // Initialize gauges
         itemListenersGauge = context.metrics()
@@ -420,8 +435,14 @@ public class BlockMessagingFacilityImpl implements BlockMessagingFacility {
     public void sendBackfilledBlockNotification(BackfilledBlockNotification notification) {
         LOGGER.log(TRACE, "Sending backfilled block notification: {0}", notification);
         blockNotificationDisruptor.getRingBuffer().publishEvent((event, sequence) -> event.set(notification));
-        // TODO: Add a counter for backfilled notifications
-        // blockBackfilledNotificationsCounter.increment();
+        blockBackfilledNotificationsCounter.increment();
+    }
+
+    @Override
+    public void sendNewestBlockKnownToNetwork(NewestBlockKnownToNetworkNotification notification) {
+        LOGGER.log(TRACE, "Sending NewestBlockKnownToNetwork notification: " + notification);
+        blockNotificationDisruptor.getRingBuffer().publishEvent((event, sequence) -> event.set(notification));
+        newestBlockKnownToNetworkNotificationsCounter.increment();
     }
 
     /**
@@ -439,6 +460,10 @@ public class BlockMessagingFacilityImpl implements BlockMessagingFacility {
                         handler.handlePersisted(event.getPersistedNotification());
                     } else if (event.getBackfilledBlockNotification() != null) {
                         handler.handleBackfilled(event.getBackfilledBlockNotification());
+                    } else if (event.getNewestBlockKnownToNetworkNotification() != null) {
+                        handler.handleNewestBlockKnownToNetwork(event.getNewestBlockKnownToNetworkNotification());
+                    } else {
+                        LOGGER.log(Level.INFO, "Received an event with no notification set");
                     }
                 };
         if (blockNotificationDisruptor.hasStarted()) {
