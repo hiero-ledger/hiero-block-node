@@ -205,4 +205,20 @@ class PublishClientManagerTest {
         assertTrue(
                 blockStreamManager.getNextBlock().getItems(0).getBlockHeader().getNumber() > 1L);
     }
+
+    @Test
+    void handleSkipBlock() throws Exception {
+        Block nextBlock = createBlocks(0, 1);
+        PublishStreamResponse response = mock(PublishStreamResponse.class);
+        PublishStreamResponse.SkipBlock skipBlock = mock(PublishStreamResponse.SkipBlock.class);
+
+        when(response.getSkipBlock()).thenReturn(skipBlock);
+        when(response.hasSkipBlock()).thenReturn(true);
+        when(skipBlock.getBlockNumber()).thenReturn(1L);
+
+        publishClientManager.handleResponse(nextBlock, response);
+
+        assertTrue(
+                blockStreamManager.getNextBlock().getItems(0).getBlockHeader().getNumber() > 1L);
+    }
 }
