@@ -63,6 +63,7 @@ class PublishStreamGrpcClientImplTest {
     private Server server;
 
     private boolean isResendBlockEnabled = false;
+    private boolean isSkipBlockEnabled = false;
 
     @BeforeEach
     void setUp() throws IOException {
@@ -87,6 +88,15 @@ class PublishStreamGrpcClientImplTest {
                                 if (isResendBlockEnabled) {
                                     responseObserver.onNext(PublishStreamResponse.newBuilder()
                                             .setResendBlock(ResendBlock.newBuilder()
+                                                    .setBlockNumber(1)
+                                                    .build())
+                                            .build());
+                                    return;
+                                }
+
+                                if (isSkipBlockEnabled) {
+                                    responseObserver.onNext(PublishStreamResponse.newBuilder()
+                                            .setSkipBlock(PublishStreamResponse.SkipBlock.newBuilder()
                                                     .setBlockNumber(1)
                                                     .build())
                                             .build());
@@ -159,6 +169,7 @@ class PublishStreamGrpcClientImplTest {
             server.shutdown();
         }
         isResendBlockEnabled = false;
+        isSkipBlockEnabled = false;
     }
 
     @Test
@@ -272,6 +283,33 @@ class PublishStreamGrpcClientImplTest {
         assertTrue(
                 publishStreamGrpcClient.getLastKnownStatuses().getFirst().contains("resend_block"),
                 "lastKnownStatuses should contain the resend block message");
+    }
+
+    @Test
+    public void testSteamBlockWithSkipBlock() throws InterruptedException {
+        isSkipBlockEnabled = true;
+        publishStreamGrpcClient.init();
+        final AtomicReference<PublishStreamResponse> publishStreamResponseAtomicReference = new AtomicReference<>();
+        final Consumer<PublishStreamResponse> publishStreamResponseConsumer = publishStreamResponseAtomicReference::set;
+
+        Block block = constructBlock(0, true);
+        publishStreamGrpcClient.streamBlock(block, publishStreamResponseConsumer);
+
+        // we use simple retry mechanism here, because sometimes server takes some time to receive the stream
+        long retryNumber = 1;
+        long waitTime = 500;
+
+        while (retryNumber < 3) {
+            if (!publishStreamGrpcClient.getLastKnownStatuses().isEmpty()) {
+                break;
+            }
+            Thread.sleep(retryNumber * waitTime);
+            retryNumber++;
+        }
+
+        assertTrue(
+                publishStreamGrpcClient.getLastKnownStatuses().getFirst().contains("skip_block"),
+                "lastKnownStatuses should contain the skip block message");
     }
 
     @Test

@@ -117,8 +117,9 @@ public class PublishStreamGrpcClientImpl implements PublishStreamGrpcClient {
                 ChunkUtils.chunkify(block.getItemsList(), blockStreamConfig.blockItemsBatchSize());
         for (List<BlockItem> streamingBatch : streamingBatches) {
             if (publishStreamObserver.getPublishStreamResponse() != null
-                    && publishStreamObserver.getPublishStreamResponse().hasResendBlock()) {
-                LOGGER.log(DEBUG, "Received resend block request, stopping streaming for this block");
+                    && (publishStreamObserver.getPublishStreamResponse().hasResendBlock()
+                            || publishStreamObserver.getPublishStreamResponse().hasSkipBlock())) {
+                LOGGER.log(DEBUG, "Received resend block or skip block request, stopping streaming for this block");
                 publishStreamResponseConsumer.accept(publishStreamObserver.getPublishStreamResponse());
                 publishStreamObserver.clearPublishStreamResponse();
                 return false;
