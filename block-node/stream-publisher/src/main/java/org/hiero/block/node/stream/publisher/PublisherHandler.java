@@ -16,6 +16,7 @@ import com.swirlds.metrics.api.Metrics;
 import edu.umd.cs.findbugs.annotations.NonNull;
 import java.lang.System.Logger;
 import java.util.List;
+import java.util.NavigableSet;
 import java.util.Objects;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.ConcurrentSkipListSet;
@@ -66,10 +67,11 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
     /** The current streaming block number. This is used to track the current block being streamed. */
     private final AtomicLong currentStreamingBlockNumber;
     /** The unacknowledged yet blocks that were streamed to completion by this handler. */
-    private final ConcurrentSkipListSet<Long> unacknowledgedStreamedBlocks;
+    private final NavigableSet<Long> unacknowledgedStreamedBlocks;
     /**
-     * The current block action. This is tracked to help the manager determine
-     * what to do with the current block.
+     * The current block action.
+     * This is tracked to help the manager determine what to do with the current
+     * block.
      */
     private BlockAction blockAction;
 
@@ -367,7 +369,7 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
             replies.onNext(response);
             return true;
         } catch (final Exception e) {
-            final String message = "Failed to send response: %s".formatted(e.getMessage());
+            final String message = "Failed to send response for handler %d: %s".formatted(handlerId, e.getMessage());
             LOGGER.log(DEBUG, message, e);
             return false;
         }

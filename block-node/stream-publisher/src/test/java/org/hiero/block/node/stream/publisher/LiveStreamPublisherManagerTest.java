@@ -520,6 +520,86 @@ class LiveStreamPublisherManagerTest {
             /**
              * This test aims to assert that the
              * {@link LiveStreamPublisherManager#handleVerification(VerificationNotification)}
+             * does nothing when the failed block's number is equal the
+             * latest know block in the manager.
+             * We expect that no responses are sent.
+             */
+            @Test
+            @DisplayName(
+                    "handleVerification() does nothing when block number of failed block is equal to the latest known")
+            void testHandleVerificationEqualToLatest() {
+                // We need to send a PersistedNotification first, so that the latest known block number will be updated
+                // to 0L.
+                final long expectedLatestBlockNumber = 0L;
+                final PersistedNotification persistedNotification = new PersistedNotification(
+                        expectedLatestBlockNumber, expectedLatestBlockNumber, 0, BlockSource.PUBLISHER);
+                // Send the persisted notification to the manager.
+                toTest.handlePersisted(persistedNotification);
+                // Assert that the latest known block number is now 0L.
+                assertThat(toTest.getLatestBlockNumber()).isEqualTo(expectedLatestBlockNumber);
+                // Clear the pipeline because an acknowledgement response has been sent due to the
+                // persisted notification.
+                responsePipeline.clear();
+                // Build a verification notification with block number equal to the latest known.
+                // Source must be publisher.
+                final VerificationNotification notification = new VerificationNotification(
+                        false, expectedLatestBlockNumber, null, null, BlockSource.PUBLISHER);
+                // Call
+                toTest.handleVerification(notification);
+                // Assert that only an Acknowledgement response has been sent,
+                // this is because of the persisted notification. No other
+                // responses should be sent.
+                assertThat(responsePipeline.getOnNextCalls()).isEmpty();
+                // Assert no other responses sent
+                assertThat(responsePipeline.getOnErrorCalls()).isEmpty();
+                assertThat(responsePipeline.getOnSubscriptionCalls()).isEmpty();
+                assertThat(responsePipeline.getOnCompleteCalls().get()).isEqualTo(0);
+                assertThat(responsePipeline.getClientEndStreamCalls().get()).isEqualTo(0);
+            }
+
+            /**
+             * This test aims to assert that the
+             * {@link LiveStreamPublisherManager#handleVerification(VerificationNotification)}
+             * does nothing when the failed block's number is lower than the
+             * latest know block in the manager.
+             * We expect that no responses are sent.
+             */
+            @Test
+            @DisplayName(
+                    "handleVerification() does nothing when block number of failed block is lower than the latest known")
+            void testHandleVerificationLowerThanLatest() {
+                // We need to send a PersistedNotification first, so that the latest known block number will be updated
+                // to 0L.
+                final long expectedLatestBlockNumber = 0L;
+                final PersistedNotification persistedNotification = new PersistedNotification(
+                        expectedLatestBlockNumber, expectedLatestBlockNumber, 0, BlockSource.PUBLISHER);
+                // Send the persisted notification to the manager.
+                toTest.handlePersisted(persistedNotification);
+                // Assert that the latest known block number is now 0L.
+                assertThat(toTest.getLatestBlockNumber()).isEqualTo(expectedLatestBlockNumber);
+                // Clear the pipeline because an acknowledgement response has been sent due to the
+                // persisted notification.
+                responsePipeline.clear();
+                // Build a verification notification with block number lower than the latest known.
+                // Source must be publisher.
+                final VerificationNotification notification = new VerificationNotification(
+                        false, expectedLatestBlockNumber - 1L, null, null, BlockSource.PUBLISHER);
+                // Call
+                toTest.handleVerification(notification);
+                // Assert that only an Acknowledgement response has been sent,
+                // this is because of the persisted notification. No other
+                // responses should be sent.
+                assertThat(responsePipeline.getOnNextCalls()).isEmpty();
+                // Assert no other responses sent
+                assertThat(responsePipeline.getOnErrorCalls()).isEmpty();
+                assertThat(responsePipeline.getOnSubscriptionCalls()).isEmpty();
+                assertThat(responsePipeline.getOnCompleteCalls().get()).isEqualTo(0);
+                assertThat(responsePipeline.getClientEndStreamCalls().get()).isEqualTo(0);
+            }
+
+            /**
+             * This test aims to assert that the
+             * {@link LiveStreamPublisherManager#handleVerification(VerificationNotification)}
              * will produce a {@link PublishStreamResponse.EndOfStream} response with
              * {@link Code#BAD_BLOCK_PROOF} to the response pipeline of the handler
              * that supplied the block with invalid proof.

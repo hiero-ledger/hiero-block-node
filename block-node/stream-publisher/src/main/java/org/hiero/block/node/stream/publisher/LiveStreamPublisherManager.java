@@ -284,17 +284,20 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
      */
     @Override
     public void handleVerification(@NonNull final VerificationNotification notification) {
-        if (BlockSource.PUBLISHER == notification.source() && !notification.success()) {
-            final long blockNumber = notification.blockNumber();
+        final long blockNumber = notification.blockNumber();
+        final boolean shouldHandle = BlockSource.PUBLISHER == notification.source()
+                && !notification.success()
+                && blockNumber > getLatestBlockNumber();
+        if (shouldHandle) {
             // use a copy of the handlers to avoid concurrent modification exceptions
             // even though we are using concurrent maps/collections.
             Set.copyOf(handlers.values()).parallelStream().unordered().forEach(handler -> {
                 final long handlerId = handler.handleFailedVerification(blockNumber);
                 final String qId = getQueueNameForHandlerId(handlerId);
-                final BlockingQueue<BlockItemSetUnparsed> q = transferQueueMap.get(qId);
-                if (q != null) {
+                final BlockingQueue<BlockItemSetUnparsed> queue = transferQueueMap.get(qId);
+                if (queue != null) {
                     // If a queue exists for the handler, we need to flush it
-                    q.clear();
+                    queue.clear();
                 }
             });
             nextUnstreamedBlockNumber.set(blockNumber);
