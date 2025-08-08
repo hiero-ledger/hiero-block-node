@@ -189,4 +189,20 @@ class PublishClientManagerTest {
         assertTrue(
                 blockStreamManager.getNextBlock().getItems(0).getBlockHeader().getNumber() > 5L);
     }
+
+    @Test
+    void handleResendBlock() throws Exception {
+        Block nextBlock = createBlocks(0, 1);
+        PublishStreamResponse response = mock(PublishStreamResponse.class);
+        PublishStreamResponse.ResendBlock resendBlock = mock(PublishStreamResponse.ResendBlock.class);
+
+        when(response.getResendBlock()).thenReturn(resendBlock);
+        when(response.hasResendBlock()).thenReturn(true);
+        when(resendBlock.getBlockNumber()).thenReturn(1L);
+
+        publishClientManager.handleResponse(nextBlock, response);
+
+        assertTrue(
+                blockStreamManager.getNextBlock().getItems(0).getBlockHeader().getNumber() > 1L);
+    }
 }

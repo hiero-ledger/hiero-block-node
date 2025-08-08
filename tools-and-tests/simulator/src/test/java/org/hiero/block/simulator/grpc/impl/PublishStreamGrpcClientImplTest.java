@@ -25,10 +25,13 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 import org.hiero.block.api.protoc.BlockItemSet;
-import org.hiero.block.api.protoc.BlockStreamPublishServiceGrpc;
+import org.hiero.block.api.protoc.BlockStreamPublishServiceGrpc.BlockStreamPublishServiceImplBase;
 import org.hiero.block.api.protoc.PublishStreamRequest;
 import org.hiero.block.api.protoc.PublishStreamResponse;
+import org.hiero.block.api.protoc.PublishStreamResponse.BlockAcknowledgement;
+import org.hiero.block.api.protoc.PublishStreamResponse.EndOfStream;
 import org.hiero.block.api.protoc.PublishStreamResponse.EndOfStream.Code;
+import org.hiero.block.api.protoc.PublishStreamResponse.ResendBlock;
 import org.hiero.block.simulator.config.data.BlockStreamConfig;
 import org.hiero.block.simulator.config.data.GrpcConfig;
 import org.hiero.block.simulator.config.types.EndStreamMode;
@@ -59,6 +62,8 @@ class PublishStreamGrpcClientImplTest {
     private AtomicBoolean streamEnabled;
     private Server server;
 
+    private boolean isResendBlockEnabled = false;
+
     @BeforeEach
     void setUp() throws IOException {
         MockitoAnnotations.openMocks(this);
@@ -67,7 +72,7 @@ class PublishStreamGrpcClientImplTest {
 
         final int serverPort = findFreePort();
         server = ServerBuilder.forPort(serverPort)
-                .addService(new BlockStreamPublishServiceGrpc.BlockStreamPublishServiceImplBase() {
+                .addService(new BlockStreamPublishServiceImplBase() {
                     @Override
                     public StreamObserver<PublishStreamRequest> publishBlockStream(
                             StreamObserver<PublishStreamResponse> responseObserver) {
@@ -78,6 +83,15 @@ class PublishStreamGrpcClientImplTest {
                             public void onNext(PublishStreamRequest request) {
                                 BlockItemSet blockItems = request.getBlockItems();
                                 List<BlockItem> items = blockItems.getBlockItemsList();
+
+                                if (isResendBlockEnabled) {
+                                    responseObserver.onNext(PublishStreamResponse.newBuilder()
+                                            .setResendBlock(ResendBlock.newBuilder()
+                                                    .setBlockNumber(1)
+                                                    .build())
+                                            .build());
+                                    return;
+                                }
 
                                 if (request.hasEndStream()) {
                                     server.shutdown();
@@ -91,10 +105,9 @@ class PublishStreamGrpcClientImplTest {
                                     // Assume that the last BlockItem is a BlockProof
                                     if (item.hasBlockProof()) {
                                         // Send BlockAcknowledgement
-                                        PublishStreamResponse.BlockAcknowledgement acknowledgement =
-                                                PublishStreamResponse.BlockAcknowledgement.newBuilder()
-                                                        .setBlockNumber(lastBlockNumber)
-                                                        .build();
+                                        BlockAcknowledgement acknowledgement = BlockAcknowledgement.newBuilder()
+                                                .setBlockNumber(lastBlockNumber)
+                                                .build();
                                         responseObserver.onNext(PublishStreamResponse.newBuilder()
                                                 .setAcknowledgement(acknowledgement)
                                                 .build());
@@ -109,11 +122,10 @@ class PublishStreamGrpcClientImplTest {
 
                             @Override
                             public void onCompleted() {
-                                PublishStreamResponse.EndOfStream endOfStream =
-                                        PublishStreamResponse.EndOfStream.newBuilder()
-                                                .setStatus(Code.SUCCESS)
-                                                .setBlockNumber(lastBlockNumber)
-                                                .build();
+                                EndOfStream endOfStream = EndOfStream.newBuilder()
+                                        .setStatus(Code.SUCCESS)
+                                        .setBlockNumber(lastBlockNumber)
+                                        .build();
                                 responseObserver.onNext(PublishStreamResponse.newBuilder()
                                         .setEndStream(endOfStream)
                                         .build());
@@ -146,6 +158,7 @@ class PublishStreamGrpcClientImplTest {
         if (server != null) {
             server.shutdown();
         }
+        isResendBlockEnabled = false;
     }
 
     @Test
@@ -232,6 +245,33 @@ class PublishStreamGrpcClientImplTest {
                 IllegalStateException.class,
                 () -> publishStreamGrpcClient.streamBlock(block, publishStreamResponseConsumer));
         assertEquals("Stream is already completed, no further calls are allowed", exception.getMessage());
+    }
+
+    @Test
+    public void testSteamBlockWithResendBlock() throws InterruptedException {
+        isResendBlockEnabled = true;
+        publishStreamGrpcClient.init();
+        final AtomicReference<PublishStreamResponse> publishStreamResponseAtomicReference = new AtomicReference<>();
+        final Consumer<PublishStreamResponse> publishStreamResponseConsumer = publishStreamResponseAtomicReference::set;
+
+        Block block = constructBlock(0, true);
+        publishStreamGrpcClient.streamBlock(block, publishStreamResponseConsumer);
+
+        // we use simple retry mechanism here, because sometimes server takes some time to receive the stream
+        long retryNumber = 1;
+        long waitTime = 500;
+
+        while (retryNumber < 3) {
+            if (!publishStreamGrpcClient.getLastKnownStatuses().isEmpty()) {
+                break;
+            }
+            Thread.sleep(retryNumber * waitTime);
+            retryNumber++;
+        }
+
+        assertTrue(
+                publishStreamGrpcClient.getLastKnownStatuses().getFirst().contains("resend_block"),
+                "lastKnownStatuses should contain the resend block message");
     }
 
     @Test

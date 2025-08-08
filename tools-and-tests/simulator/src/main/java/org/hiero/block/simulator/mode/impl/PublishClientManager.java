@@ -69,6 +69,8 @@ public class PublishClientManager implements SimulatorModeHandler {
             throws BlockSimulatorParsingException, IOException, InterruptedException {
         if (publishStreamResponse.hasEndStream()) {
             handleEndStream(nextBlock, publishStreamResponse);
+        } else if (publishStreamResponse.hasResendBlock()) {
+            handleResendBlock(publishStreamResponse);
         }
     }
 
@@ -82,6 +84,12 @@ public class PublishClientManager implements SimulatorModeHandler {
         adjustStreamManager(nextBlock, publishStreamResponse);
         initializeNewClientAndHandler();
 
+        start();
+    }
+
+    private void handleResendBlock(PublishStreamResponse publishStreamResponse)
+            throws BlockSimulatorParsingException, IOException, InterruptedException {
+        blockStreamManager.resetToBlock(publishStreamResponse.getResendBlock().getBlockNumber());
         start();
     }
 

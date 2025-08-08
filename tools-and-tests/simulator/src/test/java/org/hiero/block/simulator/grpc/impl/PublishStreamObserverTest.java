@@ -8,6 +8,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import java.util.ArrayDeque;
 import java.util.concurrent.atomic.AtomicBoolean;
 import org.hiero.block.api.protoc.PublishStreamResponse;
+import org.hiero.block.api.protoc.PublishStreamResponse.ResendBlock;
 import org.hiero.block.simulator.startup.SimulatorStartupData;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -31,6 +32,24 @@ class PublishStreamObserverTest {
         publishStreamObserver.onNext(response);
         assertTrue(streamEnabled.get(), "streamEnabled should remain true after onCompleted");
         assertEquals(1, lastKnownStatuses.size(), "lastKnownStatuses should have one element after onNext");
+    }
+
+    @Test
+    void onNextResendBlock() {
+        PublishStreamResponse response = PublishStreamResponse.newBuilder()
+                .setResendBlock(ResendBlock.newBuilder().setBlockNumber(1).build())
+                .build();
+        AtomicBoolean streamEnabled = new AtomicBoolean(true);
+        ArrayDeque<String> lastKnownStatuses = new ArrayDeque<>();
+        final int lastKnownStatusesCapacity = 10;
+        PublishStreamObserver publishStreamObserver =
+                new PublishStreamObserver(startupDataMock, streamEnabled, lastKnownStatuses, lastKnownStatusesCapacity);
+
+        publishStreamObserver.onNext(response);
+        assertEquals(1, lastKnownStatuses.size(), "lastKnownStatuses should have one element after onNext");
+        assertTrue(
+                lastKnownStatuses.getFirst().contains("resend_block"),
+                "lastKnownStatuses should contain the resend block message");
     }
 
     @Test

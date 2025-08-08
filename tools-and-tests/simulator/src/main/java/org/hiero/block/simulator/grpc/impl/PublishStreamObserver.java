@@ -72,7 +72,7 @@ public class PublishStreamObserver implements StreamObserver<PublishStreamRespon
                 throw new UncheckedIOException(e);
             }
         } else if (publishStreamResponse.hasResendBlock()) {
-            // TODO handle resend block response
+            this.publishStreamResponse.set(publishStreamResponse);
         } else if (publishStreamResponse.hasSkipBlock()) {
             // TODO handle skip block response
         } else if (publishStreamResponse.hasEndStream()) {
@@ -90,6 +90,15 @@ public class PublishStreamObserver implements StreamObserver<PublishStreamRespon
      */
     public PublishStreamResponse getPublishStreamResponse() {
         return publishStreamResponse.get();
+    }
+
+    /**
+     * Clears the last received PublishStreamResponse by setting it to null.
+     * This method is useful for resetting the state of the observer when
+     * the previously received response is no longer needed.
+     */
+    public void clearPublishStreamResponse() {
+        this.publishStreamResponse.set(null);
     }
 
     /**
