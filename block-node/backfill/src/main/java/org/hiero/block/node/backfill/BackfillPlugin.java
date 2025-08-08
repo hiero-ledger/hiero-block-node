@@ -438,12 +438,6 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
             return;
         }
 
-        // Skip if Autonomous backfill is running
-        if (isAutonomousBackfillRunning()) {
-            LOGGER.log(INFO, "Autonomous backfill is running, skipping on-demand backfill");
-            return;
-        }
-
         // Skip if another On-Demand backfill is already running
         if (isOnDemandBackfillRunning()) {
             LOGGER.log(INFO, "On-Demand backfill is already running, skipping new on-demand backfill");
