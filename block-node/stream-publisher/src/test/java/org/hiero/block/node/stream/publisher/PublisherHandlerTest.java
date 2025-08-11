@@ -1956,6 +1956,93 @@ class PublisherHandlerTest {
             // @todo(1416) add tests for sendAcknowledgement, not finished yet
         }
 
+        /**
+         * Tests for the {@link PublisherHandler#handleFailedVerification(long)}method.
+         */
+        @Nested
+        @DisplayName("handleFailedVerification() Tests")
+        class HandleVerificationTests {
+            /**
+             * This test aims to assert that the
+             * {@link PublisherHandler#handleFailedVerification(long)} will
+             * correctly handle a failed verification by sending a
+             * {@link org.hiero.block.api.PublishStreamResponse.ResendBlock}
+             * response with the next block number to be resent, when the
+             * publisher has not sent the block that failed verification.
+             */
+            @Test
+            @DisplayName(
+                    "handleFailedVerification() - ResendBlock response when handler did not send the block that failed verification")
+            void testHandleVerificationResend() {
+                // Train the manager to return the expected latest block number
+                final long latestBlockNumber = 10L; // Example latest block number
+                final long expectedResponseBlockNumber = latestBlockNumber + 1L;
+                manager.setLatestBlockNumber(latestBlockNumber);
+                // Call
+                toTest.handleFailedVerification(0);
+                // Assert single response is ResentBlock with block number same as streamed
+                assertThat(repliesPipeline.getOnNextCalls())
+                        .hasSize(1)
+                        .first()
+                        .returns(ResponseOneOfType.RESEND_BLOCK, responseKindExtractor)
+                        .returns(expectedResponseBlockNumber, resendBlockNumberExtractor);
+                // Assert no other responses sent
+                assertThat(repliesPipeline.getOnErrorCalls()).isEmpty();
+                assertThat(repliesPipeline.getOnSubscriptionCalls()).isEmpty();
+                assertThat(repliesPipeline.getOnCompleteCalls().get()).isEqualTo(0);
+                assertThat(repliesPipeline.getClientEndStreamCalls().get()).isEqualTo(0);
+            }
+
+            /**
+             * This test aims to assert that the
+             * {@link PublisherHandler#handleFailedVerification(long)} will
+             * correctly handle a failed verification by sending a
+             * {@link org.hiero.block.api.PublishStreamResponse.EndOfStream}
+             * response with code
+             * {@link org.hiero.block.api.PublishStreamResponse.EndOfStream.Code#BAD_BLOCK_PROOF}
+             * when the publisher has sent the block that failed verification.
+             */
+            @Test
+            @DisplayName(
+                    "handleFailedVerification() - EndOfStream response with Code BAD_BLOCK_PROOF when handler sent the block that failed verification")
+            void testHandleVerificationBadProof() {
+                // Generate any block, we do not have an actual verification, we will simulate a failure
+                final long expectedBlockNumber = 0L;
+                final BlockItemUnparsed[] block = SimpleTestBlockItemBuilder.createNumberOfVerySimpleBlocksUnparsed(
+                        (int) expectedBlockNumber, (int) (expectedBlockNumber + 1));
+                // Send a request to the handler with the block, this will update
+                // the internal state of the handler and will flag that the block has been sent
+                // by the handler under test. This will be important when we simulate the failed
+                // verification.
+                final BlockItemSetUnparsed blockItemSet =
+                        BlockItemSetUnparsed.newBuilder().blockItems(block).build();
+                final PublishStreamRequestUnparsed request = PublishStreamRequestUnparsed.newBuilder()
+                        .blockItems(blockItemSet)
+                        .build();
+                // Train the manager to expect return ACCEPT
+                manager.setBlockAction(BlockAction.ACCEPT);
+                // Call onNext with the request, this will update the internal state of the handler
+                toTest.onNext(request);
+                // Train the manager to return the expected latest block number
+                final long latestBlockNumber = expectedBlockNumber - 1L;
+                manager.setLatestBlockNumber(latestBlockNumber);
+                // Call
+                toTest.handleFailedVerification(expectedBlockNumber);
+                // Assert single response is EndOfStream with Code BAD_BLOCK_PROOF
+                assertThat(repliesPipeline.getOnNextCalls())
+                        .hasSize(1)
+                        .first()
+                        .returns(ResponseOneOfType.END_STREAM, responseKindExtractor)
+                        .returns(Code.BAD_BLOCK_PROOF, endStreamResponseCodeExtractor)
+                        .returns(latestBlockNumber, endStreamBlockNumberExtractor);
+                // Assert no other responses sent
+                assertThat(repliesPipeline.getOnErrorCalls()).isEmpty();
+                assertThat(repliesPipeline.getOnSubscriptionCalls()).isEmpty();
+                assertThat(repliesPipeline.getOnCompleteCalls().get()).isEqualTo(0);
+                assertThat(repliesPipeline.getClientEndStreamCalls().get()).isEqualTo(0);
+            }
+        }
+
         // @todo(1416)
         // @todo(1263)
         //    tests to add:

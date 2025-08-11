@@ -257,11 +257,65 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
         return lastPersistedBlockNumber.get();
     }
 
+    /**
+     * {@inheritDoc}
+     * <p>
+     * This method handles verification notifications from the block messaging
+     * facility. It checks if the notification is from a publisher and if the
+     * verification was unsuccessful. If so, it forks each handler and calls
+     * the {@link PublisherHandler#handleFailedVerification(long)} on each.
+     * After each invocation, it clears the transfer queue for that handler
+     * if it exists.
+     * <blockquote>
+     * NOTE: The handler that was responsible for sending the block that failed
+     * verification will proceed to send an {@link PublishStreamResponse.EndOfStream}
+     * with {@link PublishStreamResponse.EndOfStream.Code#BAD_BLOCK_PROOF}. The
+     * handler will then shut down. All other handlers will send
+     * a {@link PublishStreamResponse.ResendBlock}, if the resend was
+     * successfully sent, then the handlers will continue to operate normally.
+     * Otherwise, the handlers will also shut down.
+     * <br>
+     * After we exit from the fork, we will clear all transfer queues.
+     * Naturally, handlers that have shut down will not have the queue
+     * available, i.e. it will be {@code null}.
+     * </blockquote>
+     * We will handle only if the verification has failed, notification block
+     * number is greater than the {@link #lastPersistedBlockNumber}
+     * (which has also passed verification naturally), and less than the
+     * {@link #nextUnstreamedBlockNumber} Blocks will not be known unless they have
+     * passed verification and have been persisted. There is always expected
+     * to be a gap between the {@link #lastPersistedBlockNumber} and the
+     * {@link #nextUnstreamedBlockNumber} because a block cannot start
+     * verification until streamed in full, and the
+     * {@link #nextUnstreamedBlockNumber} is incremented at the moment we start
+     * * streaming the block.
+     * <br>
+     * In practice, if the {@link #lastPersistedBlockNumber} is 100, the
+     * {@link #nextUnstreamedBlockNumber} will be at least 101. When we start
+     * streaming block 101, the {@link #nextUnstreamedBlockNumber} will be
+     * incremented to 102, and the {@link #lastPersistedBlockNumber} will be
+     * 100. If the block 101 fails verification, it will be captured by
+     * (block greater than 100 and block lower than 102).
+     */
     @Override
     public void handleVerification(@NonNull final VerificationNotification notification) {
-        // Need to check, but should only handle the "failed" case.
-        // on success we should probably do nothing.
-        // @todo(1422) implement
+        final long blockNumber = notification.blockNumber();
+        final boolean shouldHandle = !notification.success()
+                && blockNumber > lastPersistedBlockNumber.get()
+                && blockNumber < nextUnstreamedBlockNumber.get();
+        if (shouldHandle) {
+            nextUnstreamedBlockNumber.set(blockNumber);
+            currentStreamingBlockNumber.set(blockNumber);
+            handlers.values().parallelStream().unordered().forEach(handler -> {
+                final long handlerId = handler.handleFailedVerification(blockNumber);
+                final String qId = getQueueNameForHandlerId(handlerId);
+                final BlockingQueue<BlockItemSetUnparsed> queue = transferQueueMap.get(qId);
+                if (queue != null) {
+                    // If a queue exists for the handler, we need to flush it
+                    queue.clear();
+                }
+            });
+        }
     }
 
     /**
