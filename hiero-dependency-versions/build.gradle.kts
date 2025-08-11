@@ -7,7 +7,7 @@ plugins {
 }
 
 dependencies {
-    api(platform("io.netty:netty-bom:4.2.2.Final"))
+    api(platform("io.netty:netty-bom:4.2.3.Final"))
     api(platform("com.google.cloud:libraries-bom:26.63.0"))
 }
 
