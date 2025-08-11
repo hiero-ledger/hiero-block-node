@@ -71,10 +71,8 @@ public class PublishStreamObserver implements StreamObserver<PublishStreamRespon
             } catch (final IOException e) {
                 throw new UncheckedIOException(e);
             }
-        } else if (publishStreamResponse.hasResendBlock()) {
+        } else if (publishStreamResponse.hasResendBlock() || publishStreamResponse.hasSkipBlock()) {
             this.publishStreamResponse.set(publishStreamResponse);
-        } else if (publishStreamResponse.hasSkipBlock()) {
-            // TODO handle skip block response
         } else if (publishStreamResponse.hasEndStream()) {
             streamEnabled.set(false);
             this.publishStreamResponse.set(publishStreamResponse);
