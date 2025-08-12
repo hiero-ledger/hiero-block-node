@@ -44,6 +44,9 @@ public class TestBlockMessagingFacility implements BlockMessagingFacility {
     private final List<VerificationNotification> sentVerificationNotifications = new CopyOnWriteArrayList<>();
     /** list of all sent block persistence notifications */
     private final List<PersistedNotification> sentPersistedNotifications = new CopyOnWriteArrayList<>();
+    /** List of all sent backfilled block notifications */
+    private final List<NewestBlockKnownToNetworkNotification> sentNewestBlockKnownToNetworkNotifications =
+            new CopyOnWriteArrayList<>();
     /** Set of handlers for which we must simulate a handler that is behind and producing backpressure. */
     private final Set<BlockItemHandler> handlersWithBackpressure =
             new ConcurrentSkipListSet<>(Comparator.comparingInt(Object::hashCode));
@@ -73,6 +76,15 @@ public class TestBlockMessagingFacility implements BlockMessagingFacility {
      */
     public List<PersistedNotification> getSentPersistedNotifications() {
         return sentPersistedNotifications;
+    }
+
+    /**
+     * Get all backfilled block notifications sent to the block messaging facility.
+     *
+     * @return the list of sent backfilled block notifications
+     */
+    public List<NewestBlockKnownToNetworkNotification> getSentNewestBlockKnownToNetworkNotifications() {
+        return sentNewestBlockKnownToNetworkNotifications;
     }
 
     /**
@@ -229,6 +241,7 @@ public class TestBlockMessagingFacility implements BlockMessagingFacility {
     @Override
     public void sendNewestBlockKnownToNetwork(NewestBlockKnownToNetworkNotification notification) {
         LOGGER.log(Level.TRACE, "Sending NewestBlockKnownToNetworkNotification block notification " + notification);
+        sentNewestBlockKnownToNetworkNotifications.add(notification);
         for (BlockNotificationHandler handler : blockNotificationHandlers) {
             handler.handleNewestBlockKnownToNetwork(notification);
         }

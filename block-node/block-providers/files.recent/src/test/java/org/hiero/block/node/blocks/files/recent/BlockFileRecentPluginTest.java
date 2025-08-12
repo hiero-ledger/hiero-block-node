@@ -122,6 +122,37 @@ class BlockFileRecentPluginTest {
         }
 
         /**
+         * Test that the plugin does not store a block if verification has
+         * failed.
+         */
+        @SuppressWarnings("DataFlowIssue")
+        @Test
+        @DisplayName("Test send/retrieve failed verification")
+        void testSendingBlockAndReadingBackFailedVerification() {
+            // create sample block of block items
+            final BlockItem[] blockBlockItems = createNumberOfVerySimpleBlocks(1);
+            final long blockNumber = blockBlockItems[0].blockHeader().number();
+            // check the block is not stored yet
+            assertNull(plugin.block(blockNumber));
+            assertEquals(UNKNOWN_BLOCK_NUMBER, plugin.availableBlocks().max());
+            assertEquals(UNKNOWN_BLOCK_NUMBER, plugin.availableBlocks().min());
+            // check if we try to read we get null as nothing is verified yet
+            assertNull(plugin.block(blockNumber));
+            assertEquals(UNKNOWN_BLOCK_NUMBER, plugin.availableBlocks().max());
+            assertEquals(UNKNOWN_BLOCK_NUMBER, plugin.availableBlocks().min());
+            // send verified block notification with failure
+            blockMessaging.sendBlockVerification(new VerificationNotification(
+                    false,
+                    blockNumber,
+                    Bytes.EMPTY,
+                    new BlockUnparsed(toBlockItemsUnparsed(blockBlockItems)),
+                    BlockSource.PUBLISHER));
+            assertNull(plugin.block(blockNumber));
+            assertEquals(UNKNOWN_BLOCK_NUMBER, plugin.availableBlocks().max());
+            assertEquals(UNKNOWN_BLOCK_NUMBER, plugin.availableBlocks().min());
+        }
+
+        /**
          * Test that the plugin works to store and retrieve a block but receive
          * verification first.
          */

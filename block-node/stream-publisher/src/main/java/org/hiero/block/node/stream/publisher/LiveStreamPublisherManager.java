@@ -2,6 +2,7 @@
 package org.hiero.block.node.stream.publisher;
 
 import static java.lang.System.Logger.Level.TRACE;
+import static java.lang.System.Logger.Level.WARNING;
 import static java.util.concurrent.locks.LockSupport.parkNanos;
 import static org.hiero.block.node.spi.BlockNodePlugin.METRICS_CATEGORY;
 import static org.hiero.block.node.spi.BlockNodePlugin.UNKNOWN_BLOCK_NUMBER;
@@ -16,13 +17,14 @@ import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.concurrent.BlockingDeque;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.ConcurrentSkipListMap;
 import java.util.concurrent.Future;
-import java.util.concurrent.LinkedTransferQueue;
+import java.util.concurrent.LinkedBlockingDeque;
 import java.util.concurrent.atomic.AtomicLong;
 import org.hiero.block.api.PublishStreamResponse;
 import org.hiero.block.internal.BlockItemSetUnparsed;
@@ -46,8 +48,8 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
     private final ThreadPoolManager threadManager;
     private final Map<Long, PublisherHandler> handlers;
     private final AtomicLong nextHandlerId;
-    private final ConcurrentMap<String, BlockingQueue<BlockItemSetUnparsed>> transferQueueMap;
-    private final ConcurrentMap<Long, BlockingQueue<BlockItemSetUnparsed>> queueByBlockMap;
+    private final ConcurrentMap<String, BlockingDeque<BlockItemSetUnparsed>> transferQueueMap;
+    private final ConcurrentMap<Long, BlockingDeque<BlockItemSetUnparsed>> queueByBlockMap;
 
     /**
      * Future tracking the queue forwarder task.
@@ -100,13 +102,36 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
     public void removeHandler(final long handlerId) {
         handlers.remove(handlerId);
         final String queueId = getQueueNameForHandlerId(handlerId);
-        var queueRemoved = transferQueueMap.remove(queueId);
+        final BlockingDeque<BlockItemSetUnparsed> queueRemoved = transferQueueMap.remove(queueId);
+        // Note: for queueByBlockMap, we need to remove an entry only if the
+        // block contained in the queue is incomplete!
         // It takes just as long to loop the map as to call `containsValue`.
         // so just loop through and remove the entry if it's found.
-        for (final var nextEntry : queueByBlockMap.entrySet()) {
-            if (nextEntry.getValue() == queueRemoved) {
-                // Remove the entry from the Map
-                queueByBlockMap.remove(nextEntry.getKey());
+        for (final Map.Entry<Long, BlockingDeque<BlockItemSetUnparsed>> nextEntry : queueByBlockMap.entrySet()) {
+            final BlockingDeque<BlockItemSetUnparsed> queueByBlock = nextEntry.getValue();
+            // Note: we are using ConcurrentMap which does not allow any null
+            // values in order to unambiguously assert that a value is not
+            // present when queried, as specified in the javadoc. This being
+            // said, if queueByBlock is null, we need not take any action, as it
+            // means the queue was never present in the first place.
+            if (queueByBlock == queueRemoved) {
+                // Remove the entry from the Map if the queue is incomplete.
+                // We can afford to be naive for now and check if the last item
+                // is not a proof, which means the queue is incomplete.
+                if (queueByBlock != null) {
+                    // We should remove the queue only if it holds an incomplete
+                    // block, i.e. the last item in the queue is not a block
+                    // proof, or the queue is empty (if there are no items,
+                    // obviously there is no block supplied). Also, we can
+                    // assert that block item sets will not be empty because
+                    // that check is done when the request was received and if
+                    // the item set was empty, that would have been an invalid
+                    // request.
+                    final BlockItemSetUnparsed last = queueByBlock.peekLast();
+                    if (last == null || !last.blockItems().getLast().hasBlockProof()) {
+                        queueByBlockMap.remove(nextEntry.getKey());
+                    }
+                }
                 break; // There will only be one entry with this queue.
             }
         }
@@ -153,21 +178,30 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
      * todo(1420) add documentation
      */
     private BlockAction addHandlerQueueForBlock(final long blockNumber, final long handlerId) {
-        if (nextUnstreamedBlockNumber.compareAndSet(blockNumber, blockNumber + 1)) {
+        if (nextUnstreamedBlockNumber.compareAndSet(blockNumber, blockNumber + 1L)) {
             final String handlerQueueName = getQueueNameForHandlerId(handlerId);
             // Exception, using var here for an expected null value to avoid excessive wrapping.
-            final var previousValue = queueByBlockMap.put(blockNumber, transferQueueMap.get(handlerQueueName));
-            if (previousValue != null) {
-                // Another handler jumped in front of the calling handler.
-                // Undo the change
-                queueByBlockMap.put(blockNumber, previousValue);
-            } else {
-                // special case, we just started a new block, so make sure we
-                // have a queue forwarder thread.
-                if (queueForwarderResult == null) {
-                    queueForwarderResult = launchQueueForwarder();
+            final BlockingDeque<BlockItemSetUnparsed> previousTransferQueueOfHandler =
+                    transferQueueMap.get(handlerQueueName);
+            if (previousTransferQueueOfHandler != null) {
+                final var previousValue = queueByBlockMap.put(blockNumber, previousTransferQueueOfHandler);
+                if (previousValue != null) {
+                    // Another handler jumped in front of the calling handler.
+                    // Undo the change
+                    queueByBlockMap.put(blockNumber, previousValue);
+                } else {
+                    // special case, we just started a new block, so make sure we
+                    // have a queue forwarder thread.
+                    if (queueForwarderResult == null) {
+                        queueForwarderResult = launchQueueForwarder();
+                    }
+                    return BlockAction.ACCEPT;
                 }
-                return BlockAction.ACCEPT;
+            } else {
+                // This should not happen, an active handler should always
+                // have a transfer queue registered.
+                LOGGER.log(WARNING, "No transfer queue found for handler %d".formatted(handlerId));
+                return BlockAction.END_ERROR;
             }
         }
         // Return the correct action if another handler jumped in front of the caller.
@@ -253,14 +287,10 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
                 .submit(new MessagingForwarderTask(serverContext, this, queueByBlockMap));
     }
 
-    /***
-     * todo(1236) Temporal method to handle end of stream specifically to test On-Demand backfill.
-     * This should be improved and completed by 1236.
-     */
     @Override
     public void notifyTooFarBehind(final long newestKnownBlockNumber) {
         // create a NewestBlockKnownToNetwork and sent it to the messaging facility
-        NewestBlockKnownToNetworkNotification notification =
+        final NewestBlockKnownToNetworkNotification notification =
                 new NewestBlockKnownToNetworkNotification(newestKnownBlockNumber);
         // send the notification
         serverContext.blockMessaging().sendNewestBlockKnownToNetwork(notification);
@@ -269,6 +299,42 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
     @Override
     public long getLatestBlockNumber() {
         return lastPersistedBlockNumber.get();
+    }
+
+    @Override
+    public void handlerIsEnding(final long blockNumber, final long handlerId) {
+        // Preserve the initial state of current and next streaming in order to
+        // ensure correct logging as these atomic longs can be asynchronously
+        // updated. Any other query of these values needs to be made again!
+        final long currentStreaming = currentStreamingBlockNumber.get();
+        final long nextUnstreamed = nextUnstreamedBlockNumber.get();
+        if (blockNumber >= currentStreaming && blockNumber < nextUnstreamed) {
+            if (blockNumber + 1L == nextUnstreamedBlockNumber.get()) {
+                nextUnstreamedBlockNumber.decrementAndGet();
+                final BlockingQueue<BlockItemSetUnparsed> queue =
+                        transferQueueMap.get(getQueueNameForHandlerId(handlerId));
+                if (queue != null) {
+                    // Clearing this queue will essentially mark it for removal
+                    // from the queueByBlockMap, as it will be in an incomplete
+                    // state when the handler shuts down, which happens on the
+                    // same thread that called this method immediately after.
+                    // It is important that this queue is removed from the
+                    // queueByBlockMap, because it is not guaranteed that the
+                    // same publisher will supply the next unstreamed block we
+                    // just decremented.
+                    queue.clear();
+                }
+            }
+            // if the above check did not pass, we need not do anything because
+            // the handler is shutting down, which will either preserve the
+            // queue if it is complete, or clear it if it is incomplete.
+        } else {
+            // this should never happen
+            final String message =
+                    "Invalid state detected for handler %d when ending mid-block %d. Current Streaming Block Number: %d, Next Unstreamed Block Number: %d"
+                            .formatted(handlerId, blockNumber, currentStreaming, nextUnstreamed);
+            LOGGER.log(WARNING, message);
+        }
     }
 
     /**
@@ -381,7 +447,7 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
      */
     private BlockingQueue<BlockItemSetUnparsed> registerTransferQueue(final long handlerId) {
         final String queueId = getQueueNameForHandlerId(handlerId);
-        transferQueueMap.put(queueId, new LinkedTransferQueue<>());
+        transferQueueMap.put(queueId, new LinkedBlockingDeque<>());
         LOGGER.log(TRACE, "Registered new transfer queue: {0}", queueId);
         return transferQueueMap.get(queueId);
     }
@@ -429,7 +495,7 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
         private final System.Logger LOGGER = System.getLogger(MessagingForwarderTask.class.getName());
         private final BlockNodeContext serverContext;
         private final LiveStreamPublisherManager publisherManager;
-        private final ConcurrentMap<Long, BlockingQueue<BlockItemSetUnparsed>> queueByBlockMap;
+        private final ConcurrentMap<Long, BlockingDeque<BlockItemSetUnparsed>> queueByBlockMap;
         private final BlockMessagingFacility messaging;
         private final PublisherConfig publisherConfiguration;
 
@@ -439,7 +505,7 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
         public MessagingForwarderTask(
                 final BlockNodeContext serverContext,
                 final LiveStreamPublisherManager liveStreamPublisherManager,
-                final ConcurrentMap<Long, BlockingQueue<BlockItemSetUnparsed>> queueByBlockMap) {
+                final ConcurrentMap<Long, BlockingDeque<BlockItemSetUnparsed>> queueByBlockMap) {
             this.serverContext = Objects.requireNonNull(serverContext);
             this.publisherManager = Objects.requireNonNull(liveStreamPublisherManager);
             this.queueByBlockMap = Objects.requireNonNull(queueByBlockMap);
@@ -458,11 +524,11 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
             boolean forwardingLimitReached = false;
             while (!forwardingLimitReached) {
                 final long currentBlockNumber = publisherManager.currentStreamingBlockNumber.get();
-                BlockingQueue<BlockItemSetUnparsed> queueToForward = queueByBlockMap.get(currentBlockNumber);
+                final BlockingQueue<BlockItemSetUnparsed> queueToForward = queueByBlockMap.get(currentBlockNumber);
                 if (queueToForward != null) {
                     List<BlockItemSetUnparsed> availableBatches = new LinkedList<>();
                     queueToForward.drainTo(availableBatches);
-                    for (BlockItemSetUnparsed currentBatch : availableBatches) {
+                    for (final BlockItemSetUnparsed currentBatch : availableBatches) {
                         // log the batch being forwarded to messaging facility from publisher plugin
                         LOGGER.log(
                                 TRACE,
@@ -476,7 +542,9 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
                         forwardingLimitReached = batchesSent >= publisherConfiguration.batchForwardLimit();
                         if (currentBatch.blockItems().getLast().hasBlockProof()) {
                             // If the last item in the batch is a block proof,
-                            // then potentially increment the current streaming
+                            // we need to remove the queue from the queueByBlockMap.
+                            queueByBlockMap.remove(currentBlockNumber);
+                            // Then potentially increment the current streaming
                             // block number.
                             publisherManager.currentStreamingBlockNumber.compareAndSet(
                                     currentBlockNumber, currentBlockNumber + 1);

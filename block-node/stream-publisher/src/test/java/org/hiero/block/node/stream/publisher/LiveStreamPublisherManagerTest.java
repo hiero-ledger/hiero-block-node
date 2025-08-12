@@ -13,10 +13,12 @@ import com.swirlds.metrics.api.LongGauge;
 import com.swirlds.metrics.api.Metrics;
 import com.swirlds.metrics.impl.DefaultCounter;
 import com.swirlds.metrics.impl.DefaultLongGauge;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.function.Function;
+import org.hiero.block.api.PublishStreamRequest.EndStream;
 import org.hiero.block.api.PublishStreamResponse;
 import org.hiero.block.api.PublishStreamResponse.EndOfStream.Code;
 import org.hiero.block.api.PublishStreamResponse.ResponseOneOfType;
@@ -135,6 +137,8 @@ class LiveStreamPublisherManagerTest {
                 response -> response.response().kind();
         private final Function<PublishStreamResponse, Long> acknowledgementBlockNumberExtractor =
                 response -> Objects.requireNonNull(response.acknowledgement()).blockNumber();
+        private final Function<PublishStreamResponse, Long> skipBlockNumberExtractor =
+                response -> Objects.requireNonNull(response.skipBlock()).blockNumber();
         private final Function<PublishStreamResponse, Code> endStreamResponseCodeExtractor =
                 response -> Objects.requireNonNull(response.endStream()).status();
         private final Function<PublishStreamResponse, Long> endStreamBlockNumberExtractor =
@@ -732,7 +736,7 @@ class LiveStreamPublisherManagerTest {
                 // Call
                 toTest.handleVerification(notification);
                 // Assert that the response pipeline has received a BAD_BLOCK_PROOF response, because the
-                // publisher we used has sent a block with invalid proof.
+                // publisher we used has sent a block with invalid proof and handler shutdown (onComplete called).
                 assertThat(responsePipeline.getOnNextCalls())
                         .hasSize(1)
                         .first()
@@ -740,10 +744,10 @@ class LiveStreamPublisherManagerTest {
                         .returns(Code.BAD_BLOCK_PROOF, endStreamResponseCodeExtractor)
                         // below block number in the response is the latest known, -1L because none are stored
                         .returns(-1L, endStreamBlockNumberExtractor);
+                assertThat(responsePipeline.getOnCompleteCalls().get()).isEqualTo(1);
                 // Assert no other responses sent
                 assertThat(responsePipeline.getOnErrorCalls()).isEmpty();
                 assertThat(responsePipeline.getOnSubscriptionCalls()).isEmpty();
-                assertThat(responsePipeline.getOnCompleteCalls().get()).isEqualTo(0);
                 assertThat(responsePipeline.getClientEndStreamCalls().get()).isEqualTo(0);
             }
 
@@ -797,7 +801,8 @@ class LiveStreamPublisherManagerTest {
                 assertThat(responsePipeline.getOnSubscriptionCalls()).isEmpty();
                 assertThat(responsePipeline.getOnCompleteCalls().get()).isEqualTo(0);
                 assertThat(responsePipeline.getClientEndStreamCalls().get()).isEqualTo(0);
-                // Now assert that the second publisher handler has received the response for BAD_BLOCK_PROOF.
+                // Now assert that the second publisher handler has received the response for BAD_BLOCK_PROOF
+                // and is shut down (onComplete called).
                 assertThat(responsePipeline2.getOnNextCalls())
                         .hasSize(1)
                         .first()
@@ -805,10 +810,10 @@ class LiveStreamPublisherManagerTest {
                         .returns(Code.BAD_BLOCK_PROOF, endStreamResponseCodeExtractor)
                         // below block number in the response is the latest known, -1L because none are stored
                         .returns(-1L, endStreamBlockNumberExtractor);
+                assertThat(responsePipeline2.getOnCompleteCalls().get()).isEqualTo(1);
                 // Assert no other responses sent
                 assertThat(responsePipeline2.getOnErrorCalls()).isEmpty();
                 assertThat(responsePipeline2.getOnSubscriptionCalls()).isEmpty();
-                assertThat(responsePipeline2.getOnCompleteCalls().get()).isEqualTo(0);
                 assertThat(responsePipeline2.getClientEndStreamCalls().get()).isEqualTo(0);
             }
 
@@ -865,7 +870,8 @@ class LiveStreamPublisherManagerTest {
                 assertThat(responsePipeline.getOnCompleteCalls().get()).isEqualTo(0);
                 assertThat(responsePipeline.getClientEndStreamCalls().get()).isEqualTo(0);
                 // Now assert that the second publisher handler has received the response for BAD_BLOCK_PROOF
-                // because it was responsible for sending the block with invalid proof.
+                // because it was responsible for sending the block with invalid proof and is shut down (onComplete
+                // called).
                 assertThat(responsePipeline2.getOnNextCalls())
                         .hasSize(1)
                         .first()
@@ -873,10 +879,10 @@ class LiveStreamPublisherManagerTest {
                         .returns(Code.BAD_BLOCK_PROOF, endStreamResponseCodeExtractor)
                         // below block number in the response is the latest known, -1L because none are stored
                         .returns(-1L, endStreamBlockNumberExtractor);
+                assertThat(responsePipeline2.getOnCompleteCalls().get()).isEqualTo(1);
                 // Assert no other responses sent
                 assertThat(responsePipeline2.getOnErrorCalls()).isEmpty();
                 assertThat(responsePipeline2.getOnSubscriptionCalls()).isEmpty();
-                assertThat(responsePipeline2.getOnCompleteCalls().get()).isEqualTo(0);
                 assertThat(responsePipeline2.getClientEndStreamCalls().get()).isEqualTo(0);
                 // Now, we clear the first handler's pipeline
                 responsePipeline.clear();
@@ -959,6 +965,138 @@ class LiveStreamPublisherManagerTest {
                 toTest.handlePersisted(notification);
                 // Assert that the latest known block number is now set to the notification's end block number.
                 assertThat(toTest.getLatestBlockNumber()).isEqualTo(expectedLatestBlockNumber);
+            }
+        }
+
+        /**
+         * Tests for {@link LiveStreamPublisherManager#handlerIsEnding(long, long)}.
+         */
+        @Nested
+        @DisplayName("handleIsEnding() Tests")
+        class HandlerIsEndingTests {
+            /**
+             * This test aims to assert that the
+             * {@link LiveStreamPublisherManager#handlerIsEnding(long, long)}
+             * will correctly handle an end stream request when the handler
+             * has completed it's current streaming block.
+             */
+            @ParameterizedTest()
+            @EnumSource(EndStream.Code.class)
+            @DisplayName("Test handleIsEnding() with complete block")
+            void testHandlerIsEndingWithCompleteBlock(final EndStream.Code code) {
+                // First, we build a valid request and send it to the publisher.
+                // This will query for block action which will update the state
+                // of the manager to have a next unstreamed block number of 1L.
+                final long streamedBlockNumber = 0L;
+                final BlockItemUnparsed[] block = SimpleTestBlockItemBuilder.createNumberOfVerySimpleBlocksUnparsed(1);
+                // Now we build the request
+                final BlockItemSetUnparsed itemSet =
+                        BlockItemSetUnparsed.newBuilder().blockItems(block).build();
+                final PublishStreamRequestUnparsed request = PublishStreamRequestUnparsed.newBuilder()
+                        .blockItems(itemSet)
+                        .build();
+                // We send the request to the publisher handler.
+                publisherHandler.onNext(request);
+                // Now we need to build an end stream request
+                final EndStream endStream = EndStream.newBuilder()
+                        .endCode(code)
+                        .earliestBlockNumber(0L)
+                        .latestBlockNumber(0L)
+                        .build();
+                // Build a PublishStreamRequest with the EndStream
+                final PublishStreamRequestUnparsed endStreamRequest = PublishStreamRequestUnparsed.newBuilder()
+                        .endStream(endStream)
+                        .build();
+                // Now we send the end stream request to the publisher handler.
+                publisherHandler.onNext(endStreamRequest);
+                // Now we must assert that the publisher has shutdown
+                assertThat(responsePipeline.getOnCompleteCalls().get()).isEqualTo(1);
+                // Assert no other responses sent
+                assertThat(responsePipeline.getOnNextCalls()).isEmpty();
+                assertThat(responsePipeline.getOnErrorCalls()).isEmpty();
+                assertThat(responsePipeline.getOnSubscriptionCalls()).isEmpty();
+                assertThat(responsePipeline.getClientEndStreamCalls().get()).isEqualTo(0);
+                // Now if we try to get the action for the same block, we should
+                // we expect to get a SKIP, the block was complete, next expected is +1L.
+                // We use the second publisher as the first one is already shut down.
+                publisherHandler2.onNext(request);
+                assertThat(responsePipeline2.getOnNextCalls())
+                        .hasSize(1)
+                        .first()
+                        .returns(ResponseOneOfType.SKIP_BLOCK, responseKindExtractor)
+                        .returns(streamedBlockNumber, skipBlockNumberExtractor);
+                // Assert no other responses sent
+                assertThat(responsePipeline2.getOnErrorCalls()).isEmpty();
+                assertThat(responsePipeline2.getOnSubscriptionCalls()).isEmpty();
+                assertThat(responsePipeline2.getOnCompleteCalls().get()).isEqualTo(0);
+                assertThat(responsePipeline2.getClientEndStreamCalls().get()).isEqualTo(0);
+            }
+
+            /**
+             * This test aims to assert that the
+             * {@link LiveStreamPublisherManager#handlerIsEnding(long, long)}
+             * will correctly handle an end stream request when the handler
+             * has not completed it's current streaming block.
+             */
+            @ParameterizedTest()
+            @EnumSource(EndStream.Code.class)
+            @DisplayName("Test handleIsEnding() with incomplete block")
+            void testHandlerIsEndingWithIncompleteBlock(final EndStream.Code code) {
+                // First, we build a valid request and send it to the publisher.
+                // This will query for block action which will update the state
+                // of the manager to have a next unstreamed block number of 1L.
+                final long streamedBlockNumber = 0L;
+                final BlockItemUnparsed[] block = SimpleTestBlockItemBuilder.createNumberOfVerySimpleBlocksUnparsed(1);
+                // Make the block incomplete
+                final BlockItemUnparsed[] incompleteBlock = Arrays.copyOfRange(block, 0, block.length / 2);
+                // Now we build the request
+                final BlockItemSetUnparsed itemSet = BlockItemSetUnparsed.newBuilder()
+                        .blockItems(incompleteBlock)
+                        .build();
+                final PublishStreamRequestUnparsed request = PublishStreamRequestUnparsed.newBuilder()
+                        .blockItems(itemSet)
+                        .build();
+                // We send the request to the publisher handler.
+                publisherHandler.onNext(request);
+                // Now we need to build an end stream request
+                final EndStream endStream = EndStream.newBuilder()
+                        .endCode(code)
+                        .earliestBlockNumber(streamedBlockNumber)
+                        .latestBlockNumber(streamedBlockNumber)
+                        .build();
+                // Build a PublishStreamRequest with the EndStream
+                final PublishStreamRequestUnparsed endStreamRequest = PublishStreamRequestUnparsed.newBuilder()
+                        .endStream(endStream)
+                        .build();
+                // Now we send the end stream request to the publisher handler.
+                publisherHandler.onNext(endStreamRequest);
+                // Now we must assert that the publisher has shutdown
+                assertThat(responsePipeline.getOnCompleteCalls().get()).isEqualTo(1);
+                // Assert no other responses sent
+                assertThat(responsePipeline.getOnNextCalls()).isEmpty();
+                assertThat(responsePipeline.getOnErrorCalls()).isEmpty();
+                assertThat(responsePipeline.getOnSubscriptionCalls()).isEmpty();
+                assertThat(responsePipeline.getClientEndStreamCalls().get()).isEqualTo(0);
+                // Now if we try to get the action for the same block, we should
+                // we expect to get an ACCEPT, the block was incomplete, next expected
+                // is the one we streamed incomplete.
+                // We use the second publisher as the first one is already shut down.
+                final BlockItemSetUnparsed fullBlockSet =
+                        BlockItemSetUnparsed.newBuilder().blockItems(block).build();
+                final PublishStreamRequestUnparsed requestFullBlock = PublishStreamRequestUnparsed.newBuilder()
+                        .blockItems(fullBlockSet)
+                        .build();
+                publisherHandler2.onNext(requestFullBlock);
+                // We run the queued messaging forwarder to update the current streaming block number.
+                // We need to run the task async, because the loop (managed by config) is way too big to block on.
+                // We will however wait for one second to ensure the task is run.
+                threadPoolManager.executor().executeAsync(1_000L, false);
+                // Assert that the second request has been accepted and the block items were sent.
+                assertThat(messagingFacility.getSentBlockItems().getFirst().blockItems())
+                        .isNotNull()
+                        .isNotEmpty()
+                        .hasSize(block.length)
+                        .containsExactly(block);
             }
         }
     }
