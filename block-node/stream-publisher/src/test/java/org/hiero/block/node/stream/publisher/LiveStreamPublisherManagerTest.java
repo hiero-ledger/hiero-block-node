@@ -18,6 +18,7 @@ import java.util.Objects;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.function.Function;
 import org.hiero.block.api.PublishStreamResponse;
+import org.hiero.block.api.PublishStreamResponse.EndOfStream.Code;
 import org.hiero.block.api.PublishStreamResponse.ResponseOneOfType;
 import org.hiero.block.internal.BlockItemSetUnparsed;
 import org.hiero.block.internal.BlockItemUnparsed;
@@ -30,6 +31,7 @@ import org.hiero.block.node.app.fixtures.plugintest.TestBlockMessagingFacility;
 import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.ServiceLoaderFunction;
 import org.hiero.block.node.spi.blockmessaging.BlockItems;
+import org.hiero.block.node.spi.blockmessaging.BlockMessagingFacility;
 import org.hiero.block.node.spi.blockmessaging.BlockSource;
 import org.hiero.block.node.spi.blockmessaging.PersistedNotification;
 import org.hiero.block.node.spi.blockmessaging.VerificationNotification;
@@ -105,14 +107,26 @@ class LiveStreamPublisherManagerTest {
         private SimpleInMemoryHistoricalBlockFacility historicalBlockFacility;
         /** The thread pool manager to use when testing */
         private TestThreadPoolManager<BlockingExecutor> threadPoolManager;
-        /** The context to use when testing */
-        private BlockNodeContext context;
+        /** The messaging facility to use when testing */
+        private TestBlockMessagingFacility messagingFacility;
+
+        // PUBLISHER 1
         /** The response pipeline to use when testing */
         private TestResponsePipeline responsePipeline;
         /** The publisher handler to use when testing */
         private PublisherHandler publisherHandler;
         /** The ID of the publisher handler, used to identify it in the manager */
         private long publisherHandlerId;
+
+        // PUBLISHER 2
+        /** The second response pipeline to use when testing */
+        private TestResponsePipeline responsePipeline2;
+        /** The second publisher handler to use when testing */
+        private PublisherHandler publisherHandler2;
+        /** The ID of the second publisher handler, used to identify it in the manager */
+        private long publisherHandlerId2;
+
+        // INSTANCE UNDER TEST
         /** The instance under test */
         private LiveStreamPublisherManager toTest;
 
@@ -121,6 +135,12 @@ class LiveStreamPublisherManagerTest {
                 response -> response.response().kind();
         private final Function<PublishStreamResponse, Long> acknowledgementBlockNumberExtractor =
                 response -> Objects.requireNonNull(response.acknowledgement()).blockNumber();
+        private final Function<PublishStreamResponse, Code> endStreamResponseCodeExtractor =
+                response -> Objects.requireNonNull(response.endStream()).status();
+        private final Function<PublishStreamResponse, Long> endStreamBlockNumberExtractor =
+                response -> Objects.requireNonNull(response.endStream()).blockNumber();
+        private final Function<PublishStreamResponse, Long> resendBlockNumberExtractor =
+                response -> Objects.requireNonNull(response.resendBlock()).blockNumber();
 
         /**
          * Environment setup called before each test.
@@ -130,7 +150,9 @@ class LiveStreamPublisherManagerTest {
             // Initialize the historical block facility and the context.
             historicalBlockFacility = new SimpleInMemoryHistoricalBlockFacility();
             threadPoolManager = new TestThreadPoolManager<>(new BlockingExecutor(new LinkedBlockingQueue<>()));
-            final BlockNodeContext context = generateContext(historicalBlockFacility, threadPoolManager);
+            messagingFacility = new TestBlockMessagingFacility();
+            final BlockNodeContext context =
+                    generateContext(historicalBlockFacility, threadPoolManager, messagingFacility);
             // Initialize the historical block facility with the context.
             historicalBlockFacility.init(context, null);
             // Create the metrics hodler for the manager.
@@ -141,13 +163,18 @@ class LiveStreamPublisherManagerTest {
             // The manager does not register itself.
             context.blockMessaging()
                     .registerBlockNotificationHandler(toTest, false, LiveStreamPublisherManager.class.getSimpleName());
-            // Initialize the response pipeline and the publisher handler.
-            final PublisherHandler.MetricsHolder handlerMetrics = generateHandlerMetrics();
-            // Create a response pipeline to handle the responses from the publisher handler.
+            // Initialize the shared metrics holder for the publisher handlers.
+            final PublisherHandler.MetricsHolder sharedHandlerMetrics = generateHandlerMetrics();
+            // Create a response pipeline to handle the responses from the first publisher handler.
             responsePipeline = new TestResponsePipeline();
-            // Create a publisher handler using the manager's addHandler method.
-            publisherHandler = toTest.addHandler(responsePipeline, handlerMetrics);
+            // Create the first publisher handler and add it to the manager.
+            publisherHandler = toTest.addHandler(responsePipeline, sharedHandlerMetrics);
             publisherHandlerId = 0L; // This should be set by the addHandler method, first call will use id 0L.
+            // Create a second response pipeline to handle the responses from the second publisher handler.
+            responsePipeline2 = new TestResponsePipeline();
+            // Create the second publisher handler and add it to the manager.
+            publisherHandler2 = toTest.addHandler(responsePipeline2, sharedHandlerMetrics);
+            publisherHandlerId2 = 1L; // This should be set by the addHandler method, second call will use id 1L.
         }
 
         /**
@@ -453,7 +480,426 @@ class LiveStreamPublisherManagerTest {
         @Nested
         @DisplayName("handleVerification() Tests")
         class HandleVerificationTests {
-            // @todo(1422) cannot test this yet, because the method is not implemented.
+            /**
+             * This test aims to assert that the
+             * {@link LiveStreamPublisherManager#handleVerification(VerificationNotification)}
+             * does nothing when the notification states that the block has passed verification.
+             * We expect that no responses are sent.
+             */
+            @Test
+            @DisplayName("handleVerification() does nothing when block has passed verification, no responses sent")
+            void testHandleVerificationPassed() {
+                // We need to send a request via the publisher handler first,
+                // This will properly update the internal state of the manager
+                // so we can assert correctly. We aim to increment the next
+                // unstreamed block number to 1L so we have a gap between
+                // latest persisted (which should be -1L) and next unstreamed.
+                // This is an expected condition during normal operation.
+                final long streamedBlockNumber = 0L;
+                final BlockItemUnparsed[] block = SimpleTestBlockItemBuilder.createNumberOfVerySimpleBlocksUnparsed(1);
+                // Now we build the request
+                final BlockItemSetUnparsed itemSet =
+                        BlockItemSetUnparsed.newBuilder().blockItems(block).build();
+                final PublishStreamRequestUnparsed request = PublishStreamRequestUnparsed.newBuilder()
+                        .blockItems(itemSet)
+                        .build();
+                // We send the request to the publisher handler.
+                // This will update the next unstreamed block number to 1L as
+                // soon as we start streaming, i.e. a handler has queried the
+                // manager for a block action for block 0L and at that point it
+                // was the next expected block.
+                publisherHandler.onNext(request);
+                // Build a verification notification with passed verification.
+                // Source must be publisher.
+                final VerificationNotification notification =
+                        new VerificationNotification(true, streamedBlockNumber, null, null, BlockSource.PUBLISHER);
+                // Call
+                toTest.handleVerification(notification);
+                // Assert that no responses have been sent.
+                assertThat(responsePipeline.getOnNextCalls()).isEmpty();
+                // Assert no other responses sent
+                assertThat(responsePipeline.getOnErrorCalls()).isEmpty();
+                assertThat(responsePipeline.getOnSubscriptionCalls()).isEmpty();
+                assertThat(responsePipeline.getOnCompleteCalls().get()).isEqualTo(0);
+                assertThat(responsePipeline.getClientEndStreamCalls().get()).isEqualTo(0);
+            }
+
+            /**
+             * This test aims to assert that the
+             * {@link LiveStreamPublisherManager#handleVerification(VerificationNotification)}
+             * does nothing when the failed block's number is equal the
+             * latest know block in the manager.
+             * We expect that no responses are sent.
+             */
+            @Test
+            @DisplayName(
+                    "handleVerification() does nothing when block number of failed block is equal to the latest known")
+            void testHandleVerificationEqualToLatest() {
+                // We need to send a request via the publisher handler first,
+                // This will properly update the internal state of the manager
+                // so we can assert correctly. We aim to increment the next
+                // unstreamed block number to 1L so we have a gap between
+                // latest persisted (which should be -1L) and next unstreamed.
+                // This is an expected condition during normal operation.
+                final long streamedBlockNumber = 0L;
+                final BlockItemUnparsed[] block = SimpleTestBlockItemBuilder.createNumberOfVerySimpleBlocksUnparsed(1);
+                // Now we build the request
+                final BlockItemSetUnparsed itemSet =
+                        BlockItemSetUnparsed.newBuilder().blockItems(block).build();
+                final PublishStreamRequestUnparsed request = PublishStreamRequestUnparsed.newBuilder()
+                        .blockItems(itemSet)
+                        .build();
+                // We send the request to the publisher handler.
+                // This will update the next unstreamed block number to 1L as
+                // soon as we start streaming, i.e. a handler has queried the
+                // manager for a block action for block 0L and at that point it
+                // was the next expected block.
+                publisherHandler.onNext(request);
+                // Now we need to send a PersistedNotification, so that the
+                // latest known block number will be updated to 0L.
+                final PersistedNotification persistedNotification =
+                        new PersistedNotification(streamedBlockNumber, streamedBlockNumber, 0, BlockSource.PUBLISHER);
+                // Send the persisted notification to the manager.
+                toTest.handlePersisted(persistedNotification);
+                // Assert that the latest known block number is now 0L.
+                assertThat(toTest.getLatestBlockNumber()).isEqualTo(streamedBlockNumber);
+                // Clear the pipeline because an acknowledgement response has been sent due to the
+                // persisted notification.
+                responsePipeline.clear();
+                // Build a verification notification with block number equal to the latest known.
+                // Source must be publisher.
+                final VerificationNotification notification =
+                        new VerificationNotification(false, streamedBlockNumber, null, null, BlockSource.PUBLISHER);
+                // Call
+                toTest.handleVerification(notification);
+                // Assert that only an Acknowledgement response has been sent,
+                // this is because of the persisted notification. No other
+                // responses should be sent.
+                assertThat(responsePipeline.getOnNextCalls()).isEmpty();
+                // Assert no other responses sent
+                assertThat(responsePipeline.getOnErrorCalls()).isEmpty();
+                assertThat(responsePipeline.getOnSubscriptionCalls()).isEmpty();
+                assertThat(responsePipeline.getOnCompleteCalls().get()).isEqualTo(0);
+                assertThat(responsePipeline.getClientEndStreamCalls().get()).isEqualTo(0);
+            }
+
+            /**
+             * This test aims to assert that the
+             * {@link LiveStreamPublisherManager#handleVerification(VerificationNotification)}
+             * does nothing when the failed block's number is lower than the
+             * latest know block in the manager.
+             * We expect that no responses are sent.
+             */
+            @Test
+            @DisplayName(
+                    "handleVerification() does nothing when block number of failed block is lower than the latest known")
+            void testHandleVerificationLowerThanLatest() {
+                // We need to send a request via the publisher handler first,
+                // This will properly update the internal state of the manager
+                // so we can assert correctly. We aim to increment the next
+                // unstreamed block number to 1L so we have a gap between
+                // latest persisted (which should be -1L) and next unstreamed.
+                // This is an expected condition during normal operation.
+                final long streamedBlockNumber = 0L;
+                final BlockItemUnparsed[] block = SimpleTestBlockItemBuilder.createNumberOfVerySimpleBlocksUnparsed(1);
+                // Now we build the request
+                final BlockItemSetUnparsed itemSet =
+                        BlockItemSetUnparsed.newBuilder().blockItems(block).build();
+                final PublishStreamRequestUnparsed request = PublishStreamRequestUnparsed.newBuilder()
+                        .blockItems(itemSet)
+                        .build();
+                // We send the request to the publisher handler.
+                // This will update the next unstreamed block number to 1L as
+                // soon as we start streaming, i.e. a handler has queried the
+                // manager for a block action for block 0L and at that point it
+                // was the next expected block.
+                publisherHandler.onNext(request);
+                // We need to send a PersistedNotification first, so that the latest known block number will be updated
+                // to 0L.
+                final PersistedNotification persistedNotification =
+                        new PersistedNotification(streamedBlockNumber, streamedBlockNumber, 0, BlockSource.PUBLISHER);
+                // Send the persisted notification to the manager.
+                toTest.handlePersisted(persistedNotification);
+                // Assert that the latest known block number is now 0L.
+                assertThat(toTest.getLatestBlockNumber()).isEqualTo(streamedBlockNumber);
+                // Clear the pipeline because an acknowledgement response has been sent due to the
+                // persisted notification.
+                responsePipeline.clear();
+                // Build a verification notification with block number lower than the latest known.
+                // Source must be publisher.
+                final VerificationNotification notification = new VerificationNotification(
+                        false, streamedBlockNumber - 1L, null, null, BlockSource.PUBLISHER);
+                // Call
+                toTest.handleVerification(notification);
+                // Assert that only an Acknowledgement response has been sent,
+                // this is because of the persisted notification. No other
+                // responses should be sent.
+                assertThat(responsePipeline.getOnNextCalls()).isEmpty();
+                // Assert no other responses sent
+                assertThat(responsePipeline.getOnErrorCalls()).isEmpty();
+                assertThat(responsePipeline.getOnSubscriptionCalls()).isEmpty();
+                assertThat(responsePipeline.getOnCompleteCalls().get()).isEqualTo(0);
+                assertThat(responsePipeline.getClientEndStreamCalls().get()).isEqualTo(0);
+            }
+
+            /**
+             * This test aims to assert that the
+             * {@link LiveStreamPublisherManager#handleVerification(VerificationNotification)}
+             * does nothing when the failed block's number is equal the
+             * next unstreamed block in the manager.
+             * We expect that no responses are sent.
+             */
+            @Test
+            @DisplayName(
+                    "handleVerification() does nothing when block number of failed block is equal to the next unstreamed")
+            void testHandleVerificationEqualToNext() {
+                // Initially, the next unstreamed block number is 0L.
+                final long streamedBlockNumber = 0L;
+                final VerificationNotification notification =
+                        new VerificationNotification(false, streamedBlockNumber, null, null, BlockSource.PUBLISHER);
+                // Call
+                toTest.handleVerification(notification);
+                // Assert that no responses have been sent.
+                assertThat(responsePipeline.getOnNextCalls()).isEmpty();
+                // Assert no other responses sent
+                assertThat(responsePipeline.getOnErrorCalls()).isEmpty();
+                assertThat(responsePipeline.getOnSubscriptionCalls()).isEmpty();
+                assertThat(responsePipeline.getOnCompleteCalls().get()).isEqualTo(0);
+                assertThat(responsePipeline.getClientEndStreamCalls().get()).isEqualTo(0);
+            }
+
+            /**
+             * This test aims to assert that the
+             * {@link LiveStreamPublisherManager#handleVerification(VerificationNotification)}
+             * does nothing when the failed block's number is higher than the
+             * next unstreamed block in the manager.
+             * We expect that no responses are sent.
+             */
+            @Test
+            @DisplayName(
+                    "handleVerification() does nothing when block number of failed block is higher than the next unstreamed")
+            void testHandleVerificationHigherThanNext() {
+                // Initially, the next unstreamed block number is 0L.
+                final long streamedBlockNumber = 1L;
+                final VerificationNotification notification =
+                        new VerificationNotification(false, streamedBlockNumber, null, null, BlockSource.PUBLISHER);
+                // Call
+                toTest.handleVerification(notification);
+                // Assert that no responses have been sent.
+                assertThat(responsePipeline.getOnNextCalls()).isEmpty();
+                // Assert no other responses sent
+                assertThat(responsePipeline.getOnErrorCalls()).isEmpty();
+                assertThat(responsePipeline.getOnSubscriptionCalls()).isEmpty();
+                assertThat(responsePipeline.getOnCompleteCalls().get()).isEqualTo(0);
+                assertThat(responsePipeline.getClientEndStreamCalls().get()).isEqualTo(0);
+            }
+
+            /**
+             * This test aims to assert that the
+             * {@link LiveStreamPublisherManager#handleVerification(VerificationNotification)}
+             * will produce a {@link PublishStreamResponse.EndOfStream} response with
+             * {@link Code#BAD_BLOCK_PROOF} to the response pipeline of the handler
+             * that supplied the block with invalid proof.
+             */
+            @Test
+            @DisplayName(
+                    "handleVerification() BAD_BLOCK_PROOF response is sent by the handler that supplied a block with invalid proof when verification fails")
+            void testHandleVerificationBadBlockProof() {
+                // We need to send a request via the publisher handler first,
+                // This will properly update the internal state of the manager
+                // so we can assert correctly. We aim to increment the next
+                // unstreamed block number to 1L so we have a gap between
+                // latest persisted (which should be -1L) and next unstreamed.
+                // This is an expected condition during normal operation.
+                final long streamedBlockNumber = 0L;
+                final BlockItemUnparsed[] block = SimpleTestBlockItemBuilder.createNumberOfVerySimpleBlocksUnparsed(1);
+                // Now we build the request
+                final BlockItemSetUnparsed itemSet =
+                        BlockItemSetUnparsed.newBuilder().blockItems(block).build();
+                final PublishStreamRequestUnparsed request = PublishStreamRequestUnparsed.newBuilder()
+                        .blockItems(itemSet)
+                        .build();
+                // We send the request to the publisher handler.
+                // This will update the next unstreamed block number to 1L as
+                // soon as we start streaming, i.e. a handler has queried the
+                // manager for a block action for block 0L and at that point it
+                // was the next expected block.
+                publisherHandler.onNext(request);
+                // Now, the publisher has sent the targeted block with broken proof.
+                // We can now build a verification notification with failed verification.
+                final VerificationNotification notification =
+                        new VerificationNotification(false, streamedBlockNumber, null, null, BlockSource.PUBLISHER);
+                // Call
+                toTest.handleVerification(notification);
+                // Assert that the response pipeline has received a BAD_BLOCK_PROOF response, because the
+                // publisher we used has sent a block with invalid proof.
+                assertThat(responsePipeline.getOnNextCalls())
+                        .hasSize(1)
+                        .first()
+                        .returns(ResponseOneOfType.END_STREAM, responseKindExtractor)
+                        .returns(Code.BAD_BLOCK_PROOF, endStreamResponseCodeExtractor)
+                        // below block number in the response is the latest known, -1L because none are stored
+                        .returns(-1L, endStreamBlockNumberExtractor);
+                // Assert no other responses sent
+                assertThat(responsePipeline.getOnErrorCalls()).isEmpty();
+                assertThat(responsePipeline.getOnSubscriptionCalls()).isEmpty();
+                assertThat(responsePipeline.getOnCompleteCalls().get()).isEqualTo(0);
+                assertThat(responsePipeline.getClientEndStreamCalls().get()).isEqualTo(0);
+            }
+
+            /**
+             * This test aims to assert that the
+             * {@link LiveStreamPublisherManager#handleVerification(VerificationNotification)}
+             * will produce a {@link PublishStreamResponse.ResendBlock} response to the response
+             * pipelines of all handlers that did not supplied the block with
+             * invalid proof that failed verification.
+             */
+            @Test
+            @DisplayName(
+                    "handleVerification() RESEND response is sent by all handlers that did not supply the block with invalid proof that failed verification")
+            void testHandleVerificationResend() {
+                // We need to send a request via the publisher handler first,
+                // This will properly update the internal state of the manager
+                // so we can assert correctly. We aim to increment the next
+                // unstreamed block number to 1L so we have a gap between
+                // latest persisted (which should be -1L) and next unstreamed.
+                // This is an expected condition during normal operation.
+                final long streamedBlockNumber = 0L;
+                final BlockItemUnparsed[] block = SimpleTestBlockItemBuilder.createNumberOfVerySimpleBlocksUnparsed(1);
+                // Now we build the request
+                final BlockItemSetUnparsed itemSet =
+                        BlockItemSetUnparsed.newBuilder().blockItems(block).build();
+                final PublishStreamRequestUnparsed request = PublishStreamRequestUnparsed.newBuilder()
+                        .blockItems(itemSet)
+                        .build();
+                // We send the request to the second publisher handler.
+                // This will update the next unstreamed block number to 1L as
+                // soon as we start streaming, i.e. a handler has queried the
+                // manager for a block action for block 0L and at that point it
+                // was the next expected block.
+                publisherHandler2.onNext(request);
+                // Build a verification notification with failed verification.
+                final VerificationNotification notification =
+                        new VerificationNotification(false, streamedBlockNumber, null, null, BlockSource.PUBLISHER);
+                // Call
+                toTest.handleVerification(notification);
+                // Assert that the response pipeline has received a RESEND response, because the
+                // publisher we used has not sent the block with invalid proof.
+                assertThat(responsePipeline.getOnNextCalls())
+                        .hasSize(1)
+                        .first()
+                        .returns(ResponseOneOfType.RESEND_BLOCK, responseKindExtractor)
+                        // below block number in the response is the latest known +1, i.e. 0L because none are stored
+                        // which is -1L + 1L = 0L
+                        .returns(0L, resendBlockNumberExtractor);
+                // Assert no other responses sent
+                assertThat(responsePipeline.getOnErrorCalls()).isEmpty();
+                assertThat(responsePipeline.getOnSubscriptionCalls()).isEmpty();
+                assertThat(responsePipeline.getOnCompleteCalls().get()).isEqualTo(0);
+                assertThat(responsePipeline.getClientEndStreamCalls().get()).isEqualTo(0);
+                // Now assert that the second publisher handler has received the response for BAD_BLOCK_PROOF.
+                assertThat(responsePipeline2.getOnNextCalls())
+                        .hasSize(1)
+                        .first()
+                        .returns(ResponseOneOfType.END_STREAM, responseKindExtractor)
+                        .returns(Code.BAD_BLOCK_PROOF, endStreamResponseCodeExtractor)
+                        // below block number in the response is the latest known, -1L because none are stored
+                        .returns(-1L, endStreamBlockNumberExtractor);
+                // Assert no other responses sent
+                assertThat(responsePipeline2.getOnErrorCalls()).isEmpty();
+                assertThat(responsePipeline2.getOnSubscriptionCalls()).isEmpty();
+                assertThat(responsePipeline2.getOnCompleteCalls().get()).isEqualTo(0);
+                assertThat(responsePipeline2.getClientEndStreamCalls().get()).isEqualTo(0);
+            }
+
+            /**
+             * This test aims to assert that the
+             * {@link LiveStreamPublisherManager#handleVerification(VerificationNotification)}
+             * will does not stop the normal operation of the publisher manager
+             * and subsequent items received by handlers will be processed
+             * accordingly.
+             */
+            @Test
+            @DisplayName(
+                    "handleVerification() continues normal operation of the publisher manager after a failed verification")
+            void testHandleVerificationNormalOperation() {
+                // We need to send a request via the publisher handler first,
+                // This will properly update the internal state of the manager
+                // so we can assert correctly. We aim to increment the next
+                // unstreamed block number to 1L so we have a gap between
+                // latest persisted (which should be -1L) and next unstreamed.
+                // This is an expected condition during normal operation.
+                final long streamedBlockNumber = 0L;
+                final BlockItemUnparsed[] block = SimpleTestBlockItemBuilder.createNumberOfVerySimpleBlocksUnparsed(1);
+                // Now we build the request
+                final BlockItemSetUnparsed itemSet =
+                        BlockItemSetUnparsed.newBuilder().blockItems(block).build();
+                final PublishStreamRequestUnparsed request = PublishStreamRequestUnparsed.newBuilder()
+                        .blockItems(itemSet)
+                        .build();
+                // We send the request to the second publisher handler.
+                // This will update the next unstreamed block number to 1L as
+                // soon as we start streaming, i.e. a handler has queried the
+                // manager for a block action for block 0L and at that point it
+                // was the next expected block.
+                publisherHandler2.onNext(request);
+                // Then, we need to simulate that the publisher has sent a block with invalid proof, i.e. call
+                // handleVerification with failed verification.
+                // Build a verification notification with failed verification.
+                final VerificationNotification notification =
+                        new VerificationNotification(false, streamedBlockNumber, null, null, BlockSource.PUBLISHER);
+                // Call
+                toTest.handleVerification(notification);
+                // Assert that the response pipeline has received a RESEND response, because the
+                // publisher we check for here used has not sent the block with invalid proof.
+                assertThat(responsePipeline.getOnNextCalls())
+                        .hasSize(1)
+                        .first()
+                        .returns(ResponseOneOfType.RESEND_BLOCK, responseKindExtractor)
+                        // below block number in the response is latest known +1, i.e. 0L because none are stored
+                        // which is -1L + 1L = 0L
+                        .returns(0L, resendBlockNumberExtractor);
+                // Assert no other responses sent
+                assertThat(responsePipeline.getOnErrorCalls()).isEmpty();
+                assertThat(responsePipeline.getOnSubscriptionCalls()).isEmpty();
+                assertThat(responsePipeline.getOnCompleteCalls().get()).isEqualTo(0);
+                assertThat(responsePipeline.getClientEndStreamCalls().get()).isEqualTo(0);
+                // Now assert that the second publisher handler has received the response for BAD_BLOCK_PROOF
+                // because it was responsible for sending the block with invalid proof.
+                assertThat(responsePipeline2.getOnNextCalls())
+                        .hasSize(1)
+                        .first()
+                        .returns(ResponseOneOfType.END_STREAM, responseKindExtractor)
+                        .returns(Code.BAD_BLOCK_PROOF, endStreamResponseCodeExtractor)
+                        // below block number in the response is the latest known, -1L because none are stored
+                        .returns(-1L, endStreamBlockNumberExtractor);
+                // Assert no other responses sent
+                assertThat(responsePipeline2.getOnErrorCalls()).isEmpty();
+                assertThat(responsePipeline2.getOnSubscriptionCalls()).isEmpty();
+                assertThat(responsePipeline2.getOnCompleteCalls().get()).isEqualTo(0);
+                assertThat(responsePipeline2.getClientEndStreamCalls().get()).isEqualTo(0);
+                // Now, we clear the first handler's pipeline
+                responsePipeline.clear();
+                // Before we send the request (we can reuse from above), we assert that the messaging
+                // facility has no items received.
+                assertThat(messagingFacility.getSentBlockItems()).isNotNull().isEmpty();
+                // We send the request to the publisher handler.
+                publisherHandler.onNext(request);
+                // We run the queued messaging forwarder to update the current streaming block number.
+                // We need to run the task async, because the loop (managed by config) is way too big to block on.
+                // We will however wait for one second to ensure the task is run.
+                threadPoolManager.executor().executeAsync(1_000L, false);
+                // Assert that items were propagated to the publisher handler.
+                assertThat(messagingFacility.getSentBlockItems())
+                        .isNotNull()
+                        .isNotEmpty()
+                        .hasSize(1);
+                assertThat(messagingFacility.getSentBlockItems().getFirst().blockItems())
+                        .isNotNull()
+                        .isNotEmpty()
+                        .hasSize(block.length)
+                        .containsExactly(block);
+            }
         }
 
         /**
@@ -487,6 +933,11 @@ class LiveStreamPublisherManagerTest {
                         .first()
                         .returns(ResponseOneOfType.ACKNOWLEDGEMENT, responseKindExtractor)
                         .returns(expectedLatestBlockNumber, acknowledgementBlockNumberExtractor);
+                // Assert no other responses sent
+                assertThat(responsePipeline.getOnErrorCalls()).isEmpty();
+                assertThat(responsePipeline.getOnSubscriptionCalls()).isEmpty();
+                assertThat(responsePipeline.getOnCompleteCalls().get()).isEqualTo(0);
+                assertThat(responsePipeline.getClientEndStreamCalls().get()).isEqualTo(0);
             }
 
             /**
@@ -528,7 +979,8 @@ class LiveStreamPublisherManagerTest {
     private BlockNodeContext generateContext(final HistoricalBlockFacility historicalBlockFacility) {
         final TestThreadPoolManager<BlockingExecutor> threadPoolManager =
                 new TestThreadPoolManager<>(new BlockingExecutor(new LinkedBlockingQueue<>()));
-        return generateContext(historicalBlockFacility, threadPoolManager);
+        final TestBlockMessagingFacility messagingFacility = new TestBlockMessagingFacility();
+        return generateContext(historicalBlockFacility, threadPoolManager, messagingFacility);
     }
 
     /**
@@ -537,13 +989,14 @@ class LiveStreamPublisherManagerTest {
      */
     @SuppressWarnings("all")
     private BlockNodeContext generateContext(
-            final HistoricalBlockFacility historicalBlockFacility, final ThreadPoolManager threadPoolManager) {
+            final HistoricalBlockFacility historicalBlockFacility,
+            final ThreadPoolManager threadPoolManager,
+            final BlockMessagingFacility blockMessagingFacility) {
         final Configuration configuration = ConfigurationBuilder.create()
                 .withConfigDataType(PublisherConfig.class)
                 .build();
         final Metrics metrics = null;
         final HealthFacility serverHealth = null;
-        final TestBlockMessagingFacility blockMessagingFacility = new TestBlockMessagingFacility();
         final ServiceLoaderFunction serviceLoader = null;
         return new BlockNodeContext(
                 configuration,

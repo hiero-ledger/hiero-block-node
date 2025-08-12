@@ -125,7 +125,8 @@ public class BlockingExecutor extends ThreadPoolExecutor {
      * <p>
      * Timeout is {@value TASK_TIMEOUT_MILLIS} milliseconds, blocking is enabled,
      * and exceptions will be thrown on exceptional completion.
-     * @see #executeAsync(boolean, long, boolean)
+     * Logging on exceptional completion is disabled.
+     * @see #executeAsync(boolean, long, boolean, boolean)
      */
     public List<CompletableFuture<Void>> executeAsync() {
         return executeAsync(true);
@@ -136,8 +137,8 @@ public class BlockingExecutor extends ThreadPoolExecutor {
      * asynchronously.
      * <p>
      * Timeout is {@value TASK_TIMEOUT_MILLIS} milliseconds and blocking is
-     * enabled.
-     * @see #executeAsync(boolean, long, boolean)
+     * enabled. Logging on exceptional completion is disabled.
+     * @see #executeAsync(boolean, long, boolean, boolean)
      */
     public List<CompletableFuture<Void>> executeAsync(final boolean throwOnExceptionalCompletion) {
         return executeAsync(TASK_TIMEOUT_MILLIS, throwOnExceptionalCompletion);
@@ -148,8 +149,8 @@ public class BlockingExecutor extends ThreadPoolExecutor {
      * asynchronously.
      * <p>
      * Blocking is enabled and exceptions will be thrown on exceptional
-     * completion.
-     * @see #executeAsync(boolean, long, boolean)
+     * completion. Logging on exceptional completion is disabled.
+     * @see #executeAsync(boolean, long, boolean, boolean)
      */
     public List<CompletableFuture<Void>> executeAsync(final long timeoutMillis) {
         return executeAsync(timeoutMillis, true);
@@ -159,12 +160,26 @@ public class BlockingExecutor extends ThreadPoolExecutor {
      * This method executes all tasks that were submitted to this executor
      * asynchronously.
      * <p>
-     * Blocking is enabled.
-     * @see #executeAsync(boolean, long, boolean)
+     * Blocking is enabled. Logging on exceptional completion is disabled.
+     * @see #executeAsync(boolean, long, boolean, boolean)
      */
     public List<CompletableFuture<Void>> executeAsync(
             final long blockTimeoutMillis, final boolean throwOnExceptionalCompletion) {
-        return executeAsync(true, blockTimeoutMillis, throwOnExceptionalCompletion);
+        return executeAsync(blockTimeoutMillis, throwOnExceptionalCompletion, false);
+    }
+
+    /**
+     * This method executes all tasks that were submitted to this executor
+     * asynchronously.
+     * <p>
+     * Blocking is enabled.
+     * @see #executeAsync(boolean, long, boolean, boolean)
+     */
+    public List<CompletableFuture<Void>> executeAsync(
+            final long blockTimeoutMillis,
+            final boolean throwOnExceptionalCompletion,
+            final boolean logOnExceptionalCompletion) {
+        return executeAsync(true, blockTimeoutMillis, throwOnExceptionalCompletion, logOnExceptionalCompletion);
     }
 
     /**
@@ -177,7 +192,8 @@ public class BlockingExecutor extends ThreadPoolExecutor {
      * calling {@link CompletableFuture#runAsync(Runnable, java.util.concurrent.Executor)}
      * on each task in the internal worker queue. Depending on the parameters
      * described below, this method will either block or not, throw an
-     * exception or not, and will use a timeout for each task or not.
+     * exception or not, log an exceptional execution or not, and will use a
+     * timeout for each task or not.
      *
      * @param blockUntilDone boolean value indicating if the method should
      * block until all tasks are done or not. If true, the method will
@@ -199,7 +215,10 @@ public class BlockingExecutor extends ThreadPoolExecutor {
      * number of tasks submitted to the executor.
      */
     public List<CompletableFuture<Void>> executeAsync(
-            final boolean blockUntilDone, final long blockTimeoutMillis, final boolean throwOnExceptionalCompletion) {
+            final boolean blockUntilDone,
+            final long blockTimeoutMillis,
+            final boolean throwOnExceptionalCompletion,
+            final boolean logOnExceptionalCompletion) {
         if (blockTimeoutMillis <= 0) {
             throw new IllegalArgumentException("Timeout per task must be greater than 0");
         } else {
@@ -225,9 +244,10 @@ public class BlockingExecutor extends ThreadPoolExecutor {
                     final String message = "Exception occurred while running task in [%s]: %s"
                             .formatted(getClass().getCanonicalName(), e.getMessage());
                     if (throwOnExceptionalCompletion) {
+                        // Throw an exception if configured to do so
                         throw new RuntimeException(message, e);
-                    } else {
-                        // Log the timeout but do not throw
+                    } else if (logOnExceptionalCompletion) {
+                        // Log if configured to do so
                         LOGGER.log(Logger.Level.ERROR, message, e);
                     }
                 }
