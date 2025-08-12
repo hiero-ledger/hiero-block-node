@@ -182,7 +182,7 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
                     blockNodeSourcesPath,
                     backfillConfiguration.maxRetries(),
                     this.backfillRetries,
-                    backfillConfiguration.initialRetryDelayMs());
+                    backfillConfiguration.initialRetryDelay());
             LOGGER.log(TRACE, "Initialized gRPC client with sources path: {0}", blockNodeSourcesPath);
         } catch (Exception e) {
             LOGGER.log(INFO, "Failed to initialize gRPC client: {0}", e.getMessage());
@@ -207,12 +207,12 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
         LOGGER.log(
                 TRACE,
                 "Scheduling backfill process to start in {0} milliseconds",
-                backfillConfiguration.initialDelayMs());
+                backfillConfiguration.initialDelay());
         scheduler = Executors.newSingleThreadScheduledExecutor();
         scheduler.scheduleAtFixedRate(
                 this::detectGaps,
-                backfillConfiguration.initialDelayMs(),
-                backfillConfiguration.scanIntervalMs(),
+                backfillConfiguration.initialDelay(),
+                backfillConfiguration.scanInterval(),
                 TimeUnit.MILLISECONDS);
     }
 
@@ -344,8 +344,9 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
             }
 
             // Wait for verification and persistence to complete
-            // give about 1 second for each block to be processed (should be much faster)
-            boolean backfillFinished = getLatch(backfillType).get().await(batchOfBlocks.size(), TimeUnit.SECONDS);
+            // Timeout is set using a configuration config as multiplier of the per-block processing timeout
+            long timeout = (long) backfillConfiguration.perBlockProcessingTimeout() * batchOfBlocks.size();
+            boolean backfillFinished = getLatch(backfillType).get().await(timeout, TimeUnit.MILLISECONDS);
 
             // Check if the backfill finished successfully
             if (!backfillFinished) {
@@ -358,7 +359,7 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
             }
 
             // Cooldown between batches
-            Thread.sleep(backfillConfiguration.delayBetweenBatchesMs());
+            Thread.sleep(backfillConfiguration.delayBetweenBatches());
         }
 
         LOGGER.log(

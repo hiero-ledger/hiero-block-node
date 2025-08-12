@@ -5,7 +5,6 @@ import com.hedera.hapi.block.stream.BlockProof;
 import com.hedera.pbj.runtime.grpc.Pipeline;
 import edu.umd.cs.findbugs.annotations.NonNull;
 import edu.umd.cs.findbugs.annotations.Nullable;
-import org.hiero.block.api.PublishStreamRequest;
 import org.hiero.block.api.PublishStreamResponse;
 import org.hiero.block.node.spi.blockmessaging.BlockNotificationHandler;
 
@@ -58,7 +57,15 @@ public interface StreamPublisherManager extends BlockNotificationHandler {
      */
     long getLatestBlockNumber();
 
-    void handleEndStreamRequest(PublishStreamRequest.EndStream endStream);
+    /**
+     * Notify the publisher manager that they are too far behind the latest block number.
+     * <p>
+     * This is used to notify the system that they are too far behind the latest
+     * block number and should take appropriate action.
+     *
+     * @param newestKnownBlockNumber the newest known block number
+     */
+    void notifyTooFarBehind(final long newestKnownBlockNumber);
 
     /**
      * The action to take within the PublisherHandler for a block.

@@ -24,7 +24,6 @@ import java.util.concurrent.ConcurrentSkipListMap;
 import java.util.concurrent.Future;
 import java.util.concurrent.LinkedTransferQueue;
 import java.util.concurrent.atomic.AtomicLong;
-import org.hiero.block.api.PublishStreamRequest;
 import org.hiero.block.api.PublishStreamResponse;
 import org.hiero.block.internal.BlockItemSetUnparsed;
 import org.hiero.block.node.spi.BlockNodeContext;
@@ -259,40 +258,12 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
      * This should be improved and completed by 1236.
      */
     @Override
-    public void handleEndStreamRequest(final PublishStreamRequest.EndStream endStream) {
-        PublishStreamRequest.EndStream.Code endStreamCode = endStream.endCode();
-        long endStreamLatestBlockNumber = endStream.latestBlockNumber();
-        long endStreamEarliestBlockNumber = endStream.earliestBlockNumber();
-
-        // log the end stream received
-        LOGGER.log(
-                TRACE,
-                "Received end stream request with code: {0}, latest block number: {1}, earliest block number: {2}",
-                endStreamCode,
-                endStreamLatestBlockNumber,
-                endStreamEarliestBlockNumber);
-
-        // Handle too far behind case
-        if (endStreamCode.equals(PublishStreamRequest.EndStream.Code.TOO_FAR_BEHIND)) {
-            // make sure we are really behind?
-            if (endStreamLatestBlockNumber <= getLatestBlockNumber()) {
-                // No need to do anything, we are not really behind.
-                return;
-            }
-
-            // create a NewestBlockKnownToNetwork and sent it to the messaging facility
-            NewestBlockKnownToNetworkNotification notification =
-                    new NewestBlockKnownToNetworkNotification(endStreamLatestBlockNumber);
-
-            // send the notification
-            serverContext.blockMessaging().sendNewestBlockKnownToNetwork(notification);
-
-            // log the newest block known to network
-            LOGGER.log(
-                    TRACE,
-                    "Attempted to recover from TOO_FAR_BEHIND end stream request, latest block number: {0}, sending NewestBlockKnownToNetworkNotification",
-                    endStreamLatestBlockNumber);
-        }
+    public void notifyTooFarBehind(final long newestKnownBlockNumber) {
+        // create a NewestBlockKnownToNetwork and sent it to the messaging facility
+        NewestBlockKnownToNetworkNotification notification =
+                new NewestBlockKnownToNetworkNotification(newestKnownBlockNumber);
+        // send the notification
+        serverContext.blockMessaging().sendNewestBlockKnownToNetwork(notification);
     }
 
     @Override

@@ -3,6 +3,7 @@ package org.hiero.block.node.stream.publisher;
 
 import static java.lang.System.Logger.Level.DEBUG;
 import static java.lang.System.Logger.Level.INFO;
+import static java.lang.System.Logger.Level.TRACE;
 import static org.hiero.block.node.spi.BlockNodePlugin.METRICS_CATEGORY;
 import static org.hiero.block.node.spi.BlockNodePlugin.UNKNOWN_BLOCK_NUMBER;
 
@@ -22,6 +23,7 @@ import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.ConcurrentSkipListSet;
 import java.util.concurrent.Flow.Subscription;
 import java.util.concurrent.atomic.AtomicLong;
+import org.hiero.block.api.PublishStreamRequest;
 import org.hiero.block.api.PublishStreamResponse;
 import org.hiero.block.api.PublishStreamResponse.BlockAcknowledgement;
 import org.hiero.block.api.PublishStreamResponse.EndOfStream;
@@ -156,7 +158,7 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
             // @todo(1236) handle an endStream potentially received from publisher, for now we simply shutdown
 
             // handle end stream request
-            publisherManager.handleEndStreamRequest(request.endStream());
+            handleEndStreamRequest(request.endStream());
 
             shutdown();
         } else {
@@ -168,6 +170,34 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
             } finally {
                 shutdown();
             }
+        }
+    }
+
+    // @todo(1236) this ticket will complete this method, temporarily adding the bare minimum just for integration
+    // with backfill plugin, but this will be replaced with a proper implementation on another PR that is a WIP.
+    private void handleEndStreamRequest(PublishStreamRequest.EndStream endStream) {
+        PublishStreamRequest.EndStream.Code endStreamCode = endStream.endCode();
+        long endStreamLatestBlockNumber = endStream.latestBlockNumber();
+        long endStreamEarliestBlockNumber = endStream.earliestBlockNumber();
+
+        // log the end stream received
+        LOGGER.log(
+                TRACE,
+                "Received end stream request with code: {0}, latest block number: {1}, earliest block number: {2}",
+                endStreamCode,
+                endStreamLatestBlockNumber,
+                endStreamEarliestBlockNumber);
+
+        // Handle too far behind case
+        if (endStreamCode.equals(PublishStreamRequest.EndStream.Code.TOO_FAR_BEHIND)) {
+            // make sure we are really behind?
+            if (endStreamLatestBlockNumber <= publisherManager.getLatestBlockNumber()) {
+                // No need to do anything, we are not really behind.
+                return;
+            }
+
+            // create a NewestBlockKnownToNetwork and sent it to the messaging facility
+            publisherManager.notifyTooFarBehind(endStreamLatestBlockNumber);
         }
     }
 
