@@ -1,0 +1,5 @@
+{
+  "nodes": [
+    { "address": "localhost", "port": 40840, "priority": 1 }
+  ]
+}
