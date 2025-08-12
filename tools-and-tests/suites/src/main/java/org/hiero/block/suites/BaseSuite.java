@@ -3,6 +3,7 @@ package org.hiero.block.suites;
 
 import io.grpc.ManagedChannel;
 import io.grpc.ManagedChannelBuilder;
+import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -192,7 +193,13 @@ public abstract class BaseSuite {
                         DockerImageName.parse("block-node-server:" + blockNodeVersion))
                 .withExposedPorts(blockNodePort)
                 .withEnv("VERSION", blockNodeVersion)
+                .withEnv("BACKFILL_BLOCK_NODE_SOURCES_PATH", config.backfillSourcePath())
                 .withEnv("SERVER_PORT", String.valueOf(blockNodePort))
+                .withFileSystemBind(
+                        Paths.get("src/main/resources/block-nodes.json")
+                                .toAbsolutePath()
+                                .toString(),
+                        "/resources/block-nodes.json")
                 .waitingFor(Wait.forListeningPort());
 
         container.setPortBindings(portBindings);

@@ -21,6 +21,7 @@ import org.hiero.block.api.protoc.BlockResponse;
 import org.hiero.block.api.protoc.BlockResponse.Code;
 import org.hiero.block.simulator.BlockStreamSimulatorApp;
 import org.hiero.block.suites.BaseSuite;
+import org.hiero.block.suites.BlockNodeContainerConfig;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.DisplayName;
@@ -60,6 +61,63 @@ public class PositiveMultiplePublishersTests extends BaseSuite {
         simulatorAppsRef.clear();
         simulators.forEach(simulator -> simulator.cancel(true));
         simulators.clear();
+    }
+
+    @Test
+    @DisplayName("testMultipleBlockNodes")
+    //    @Timeout(value = 30, unit = SECONDS)
+    public void testMultipleBlockNodes() throws IOException, InterruptedException {
+        launchBlockNodes(List.of(new BlockNodeContainerConfig(8082, 9989, "/resources/block-nodes.json")));
+        final Map<String, String> firstSimulatorConfiguration = Map.of(
+                "blockStream.streamingMode",
+                "MILLIS_PER_BLOCK",
+                "blockStream.millisecondsPerBlock",
+                "250",
+                "generator.endBlockNumber",
+                "6",
+                "grpc.port",
+                "40840");
+        final Map<String, String> secondSimulatorConfiguration = Map.of(
+                "blockStream.streamingMode",
+                "MILLIS_PER_BLOCK",
+                "blockStream.millisecondsPerBlock",
+                "250",
+                "generator.endBlockNumber",
+                "3",
+                "grpc.port",
+                "8082");
+
+        final BlockStreamSimulatorApp firstSimulator = createBlockSimulator(firstSimulatorConfiguration);
+        final BlockStreamSimulatorApp secondSimulator = createBlockSimulator(secondSimulatorConfiguration);
+        simulatorAppsRef.add(firstSimulator);
+        simulatorAppsRef.add(secondSimulator);
+        // ===== Start first simulator and make sure it's streaming ==================================
+        final Future<?> firstSimulatorThread = startSimulatorInstance(firstSimulator);
+        simulators.add(firstSimulatorThread);
+        // ===== Start second simulator and make sure it's streaming ==================================
+        final Future<?> secondSimulatorThread = startSimulatorInstanceWithErrorResponse(secondSimulator);
+        simulators.add(secondSimulatorThread);
+        Thread.sleep(5000);
+
+        final Map<String, String> thirdSimulatorConfiguration = Map.of(
+                "blockStream.streamingMode",
+                "MILLIS_PER_BLOCK",
+                "blockStream.millisecondsPerBlock",
+                "250",
+                "generator.startBlockNumber",
+                "20",
+                "blockStream.endStreamMode",
+                "TOO_FAR_BEHIND",
+                "grpc.port",
+                "8082");
+        final BlockStreamSimulatorApp thirdSimulator = createBlockSimulator(thirdSimulatorConfiguration);
+        simulatorAppsRef.add(thirdSimulator);
+        final Future<?> thirdSimulatorThread = startSimulatorInstanceWithErrorResponse(thirdSimulator);
+        simulators.add(thirdSimulatorThread);
+
+        Thread.sleep(100000);
+
+        teardownBlockNodes();
     }
 
     @Test

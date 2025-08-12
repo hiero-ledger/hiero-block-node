@@ -80,6 +80,7 @@ public class PublishClientManager implements SimulatorModeHandler {
             throws InterruptedException, BlockSimulatorParsingException, IOException {
         if (publishStreamResponse.getEndStream().getStatus() == Code.BEHIND) {
             currentClient.handleEndStreamModeIfSet();
+            return;
         }
 
         stop();
