@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.node.stream.publisher;
 
+import static java.lang.System.Logger.Level.DEBUG;
 import static java.lang.System.Logger.Level.INFO;
 import static org.hiero.block.node.spi.BlockNodePlugin.METRICS_CATEGORY;
 import static org.hiero.block.node.spi.BlockNodePlugin.UNKNOWN_BLOCK_NUMBER;
@@ -15,8 +16,10 @@ import com.swirlds.metrics.api.Metrics;
 import edu.umd.cs.findbugs.annotations.NonNull;
 import java.lang.System.Logger;
 import java.util.List;
+import java.util.NavigableSet;
 import java.util.Objects;
 import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.ConcurrentSkipListSet;
 import java.util.concurrent.Flow.Subscription;
 import java.util.concurrent.atomic.AtomicLong;
 import org.hiero.block.api.PublishStreamResponse;
@@ -63,8 +66,13 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
     private final long handlerId;
     /** The current streaming block number. This is used to track the current block being streamed. */
     private final AtomicLong currentStreamingBlockNumber;
-    /** The current block action. This is tracked to help the manager determine
-     * what to do with the current block. */
+    /** The unacknowledged yet blocks that were streamed to completion by this handler. */
+    private final NavigableSet<Long> unacknowledgedStreamedBlocks;
+    /**
+     * The current block action.
+     * This is tracked to help the manager determine what to do with the current
+     * block.
+     */
     private BlockAction blockAction;
 
     /**
@@ -88,6 +96,7 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
         publisherManager = Objects.requireNonNull(manager);
         blockItemsQueue = Objects.requireNonNull(transferQueue);
         currentStreamingBlockNumber = new AtomicLong(UNKNOWN_BLOCK_NUMBER);
+        unacknowledgedStreamedBlocks = new ConcurrentSkipListSet<>();
     }
 
     // ==== Flow Methods =======================================================
@@ -245,16 +254,25 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
                     case END_DUPLICATE -> handleEndDuplicate();
                     case END_ERROR -> handleEndError();
                 };
+        handleBlockActionResult(handleResult);
+        // we must now check if the last item in the set is a proof.
+        final BlockItemUnparsed last = blockItems.getLast();
+        if (last.hasBlockProof()) {
+            handleBlockProof(last.blockProof(), blockNumber);
+        }
+    }
+
+    /**
+     * This method handles the result of a block action handle.
+     *
+     * @param handleResult the result to handle
+     */
+    private void handleBlockActionResult(final BatchHandleResult handleResult) {
         if (handleResult.shouldReset()) {
             resetState();
         }
         if (handleResult.shouldShutdown()) {
             shutdown();
-        }
-        // we must now check if the last item in the set is a proof.
-        final BlockItemUnparsed last = blockItems.getLast();
-        if (last.hasBlockProof()) {
-            handleBlockProof(last.blockProof());
         }
     }
 
@@ -272,14 +290,18 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
      * initiated.
      *
      * @param blockProofBytes the bytes of the block proof to handle
+     * @param blockNumber the block number that this proof is for
      */
-    private void handleBlockProof(final Bytes blockProofBytes) {
+    private void handleBlockProof(final Bytes blockProofBytes, final long blockNumber) {
         try {
             publisherManager.closeBlock(BlockProof.PROTOBUF.parse(blockProofBytes), handlerId);
-        } catch (ParseException e) {
+        } catch (final ParseException e) {
+            // If parsing failed here, items will still be propagated as if
+            // the block is complete. Verification later might succeed.
             publisherManager.closeBlock(null, handlerId);
             LOGGER.log(INFO, "Failed to parse block proof: {}", e.getMessage());
         }
+        unacknowledgedStreamedBlocks.add(blockNumber);
         resetState();
     }
 
@@ -305,8 +327,17 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
                 .build();
         final PublishStreamResponse response =
                 PublishStreamResponse.newBuilder().acknowledgement(ack).build();
-        replies.onNext(response);
-        metrics.blockAcknowledgementsSent.increment(); // @todo(1415) add label
+        if (sendResponse(response)) {
+            // if response was sent successfully, we can remove
+            // all unacknowledged blocks that are less than or equal to the
+            // new last acknowledged block number.
+            unacknowledgedStreamedBlocks
+                    .headSet(newLastAcknowledgedBlockNumber, true)
+                    .clear();
+            metrics.blockAcknowledgementsSent.increment(); // @todo(1415) add label
+        } else {
+            // todo(1416) we can add metric for failed sending response
+        }
     }
 
     private void sendEndOfStream(final EndOfStream.Code codeToSend) {
@@ -316,9 +347,60 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
                 .build();
         final PublishStreamResponse response =
                 PublishStreamResponse.newBuilder().endStream(endOfStream).build();
-        replies.onNext(response);
-        // @todo(1416) handle additional metrics outside of this method
-        metrics.endOfStreamsSent.increment(); // @todo(1415) add label
+        if (sendResponse(response)) {
+            // @todo(1416) handle additional metrics outside of this method
+            metrics.endOfStreamsSent.increment(); // @todo(1415) add label
+        } else {
+            // todo(1416) we can add metric for failed sending response
+        }
+    }
+
+    /**
+     * Everytime we interact with the response pipeline we need to make sure we
+     * catch all exceptions, as it is very possible that the pipeline will throw.
+     * In such cases, the method will call {@link #shutdown()} before returning.
+     *
+     * @param response to be sent to the pipeline
+     * @return boolean value if the response was successfully sent
+     */
+    private boolean sendResponse(final PublishStreamResponse response) {
+        try {
+            replies.onNext(response);
+            return true;
+        } catch (final Exception e) {
+            shutdown(); // this method is idempotent and can be called multiple times
+            final String message = "Failed to send response for handler %d: %s".formatted(handlerId, e.getMessage());
+            LOGGER.log(DEBUG, message, e);
+            return false;
+        }
+    }
+
+    /**
+     * This method must be called when a verification fails for a given block.
+     * If this handler was the one that streamed the block, we will attempt to
+     * send an {@link EndOfStream} with a {@link Code#BAD_BLOCK_PROOF} and
+     * proceed to shut down the handler.
+     * Otherwise, we will send a {@link ResendBlock} response to the publisher.
+     * If the response fails to send, we will shut down the handler.
+     *
+     * @param blockNumber of the block that failed verification
+     * @return the id of this handler
+     */
+    public long handleFailedVerification(final long blockNumber) {
+        if (unacknowledgedStreamedBlocks.remove(blockNumber)) {
+            // If the block number that failed verification was sent by this
+            // handler, we need to send an EndOfStream with BAD_BLOCK_PROOF code.
+            try {
+                sendEndOfStream(Code.BAD_BLOCK_PROOF);
+            } finally {
+                shutdown();
+            }
+        } else {
+            // Else we need to send a RESEND response, if sending the response
+            // fails, we will shut down the handler.
+            handleBlockActionResult(handleResend());
+        }
+        return handlerId;
     }
 
     // ==== Block Action Handling Methods ======================================
@@ -359,9 +441,13 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
                 SkipBlock.newBuilder().blockNumber(blockNumber).build();
         final PublishStreamResponse response =
                 PublishStreamResponse.newBuilder().skipBlock(skipBlock).build();
-        replies.onNext(response);
-        metrics.blockSkipsSent.increment(); // @todo(1415) add label
-        return new BatchHandleResult(false, true);
+        if (sendResponse(response)) {
+            metrics.blockSkipsSent.increment(); // @todo(1415) add label
+            return new BatchHandleResult(false, true);
+        } else {
+            // todo(1416) we can add metric for failed sending response
+            return new BatchHandleResult(true, true);
+        }
     }
 
     /**
@@ -375,9 +461,13 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
                 .build();
         final PublishStreamResponse response =
                 PublishStreamResponse.newBuilder().resendBlock(resendBlock).build();
-        replies.onNext(response);
-        metrics.blockResendsSent.increment(); // @todo(1415) add label
-        return new BatchHandleResult(false, true);
+        if (sendResponse(response)) {
+            metrics.blockResendsSent.increment(); // @todo(1415) add label
+            return new BatchHandleResult(false, true);
+        } else {
+            // todo(1416) we can add metric for failed sending response
+            return new BatchHandleResult(true, true);
+        }
     }
 
     /**
