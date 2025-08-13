@@ -16,6 +16,7 @@ import org.hiero.block.simulator.BlockStreamSimulatorApp;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.testcontainers.containers.GenericContainer;
+import org.testcontainers.containers.Network;
 import org.testcontainers.containers.wait.strategy.Wait;
 import org.testcontainers.utility.DockerImageName;
 
@@ -68,6 +69,8 @@ public abstract class BaseSuite {
 
     private static final String PORT_BINDING_FORMAT = "%d:%d";
 
+    private static Network network;
+
     /**
      * Default constructor for the BaseSuite class.
      *
@@ -75,7 +78,7 @@ public abstract class BaseSuite {
      * BaseSuite. It does not perform any additional setup.
      */
     public BaseSuite() {
-        // No additional setup required
+        network = Network.newNetwork();
     }
 
     /**
@@ -174,6 +177,8 @@ public abstract class BaseSuite {
         portBindings.add(String.format("%d:%2d", blockNodeMetricsPort, blockNodeMetricsPort));
         blockNodeContainer = new GenericContainer<>(DockerImageName.parse("block-node-server:" + blockNodeVersion))
                 .withExposedPorts(blockNodePort)
+                .withNetworkAliases("block-node-source")
+                .withNetwork(network)
                 .withEnv("VERSION", blockNodeVersion)
                 .waitingFor(Wait.forListeningPort())
                 .waitingFor(Wait.forHealthcheck());
@@ -192,6 +197,7 @@ public abstract class BaseSuite {
         GenericContainer<?> container = new GenericContainer<>(
                         DockerImageName.parse("block-node-server:" + blockNodeVersion))
                 .withExposedPorts(blockNodePort)
+                .withNetwork(network)
                 .withEnv("VERSION", blockNodeVersion)
                 .withEnv("BACKFILL_BLOCK_NODE_SOURCES_PATH", config.backfillSourcePath())
                 .withEnv("SERVER_PORT", String.valueOf(blockNodePort))
