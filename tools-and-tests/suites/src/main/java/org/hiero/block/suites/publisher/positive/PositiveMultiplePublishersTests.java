@@ -105,9 +105,13 @@ public class PositiveMultiplePublishersTests extends BaseSuite {
                 "blockStream.millisecondsPerBlock",
                 "250",
                 "generator.startBlockNumber",
-                "20",
+                "6",
                 "blockStream.endStreamMode",
                 "TOO_FAR_BEHIND",
+                "blockStream.endStreamEarliestBlockNumber",
+                "0",
+                "blockStream.endStreamLatestBlockNumber",
+                "6",
                 "grpc.port",
                 "8082");
         final BlockStreamSimulatorApp thirdSimulator = createBlockSimulator(thirdSimulatorConfiguration);
@@ -115,9 +119,19 @@ public class PositiveMultiplePublishersTests extends BaseSuite {
         final Future<?> thirdSimulatorThread = startSimulatorInstanceWithErrorResponse(thirdSimulator);
         simulators.add(thirdSimulatorThread);
 
-        Thread.sleep(100000);
+        Thread.sleep(50000);
+
+        final BlockResponse latestPublishedBlockAfter = getLatestBlock(blockAccessStubs.get(8082));
+
+        final long latestBlockNodeBlockNumber = latestPublishedBlockAfter
+                .getBlock()
+                .getItemsList()
+                .getFirst()
+                .getBlockHeader()
+                .getNumber();
 
         teardownBlockNodes();
+        assertEquals(6, latestBlockNodeBlockNumber);
     }
 
     @Test
