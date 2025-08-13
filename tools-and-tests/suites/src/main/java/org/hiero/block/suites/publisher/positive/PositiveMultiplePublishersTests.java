@@ -64,9 +64,9 @@ public class PositiveMultiplePublishersTests extends BaseSuite {
     }
 
     @Test
-    @DisplayName("testMultipleBlockNodes")
+    @DisplayName("Publisher should send TOO_FAR_BEHIND to activate backfill on demand")
     @Timeout(30)
-    public void testMultipleBlockNodes() throws IOException, InterruptedException {
+    public void testBackfillOnDemand() throws IOException, InterruptedException {
         launchBlockNodes(List.of(new BlockNodeContainerConfig(8082, 9989, "/resources/block-nodes.json")));
         final Map<String, String> firstSimulatorConfiguration = Map.of(
                 "blockStream.streamingMode",
