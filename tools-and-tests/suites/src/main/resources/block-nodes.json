@@ -1,5 +1,5 @@
 {
   "nodes": [
-    { "address": "localhost", "port": 40840, "priority": 1 }
+    { "address": "host.docker.internal", "port": 40840, "priority": 1 }
   ]
 }

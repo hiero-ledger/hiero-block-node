@@ -34,7 +34,9 @@ public record BlockStreamConfig(
         @Loggable @ConfigProperty(defaultValue = "1000") int blockItemsBatchSize,
         @Loggable @ConfigProperty(defaultValue = "NONE") MidBlockFailType midBlockFailType,
         @Loggable @ConfigProperty(defaultValue = "0") long midBlockFailOffset,
-        @Loggable @ConfigProperty(defaultValue = "NONE") EndStreamMode endStreamMode) {
+        @Loggable @ConfigProperty(defaultValue = "TOO_FAR_BEHIND") EndStreamMode endStreamMode,
+        @Loggable @ConfigProperty(defaultValue = "0") long endStreamEarliestBlockNumber,
+        @Loggable @ConfigProperty(defaultValue = "0") long endStreamLatestBlockNumber) {
 
     /**
      * Creates a new {@link Builder} instance for constructing a {@code BlockStreamConfig}.
@@ -58,7 +60,9 @@ public record BlockStreamConfig(
         private int blockItemsBatchSize = 1000;
         private MidBlockFailType midBlockFailType = MidBlockFailType.NONE;
         private long midBlockFailOffset = 0;
-        EndStreamMode endStreamMode = EndStreamMode.NONE;
+        private EndStreamMode endStreamMode = EndStreamMode.NONE;
+        private long endStreamEarliestBlockNumber = 0;
+        private long endStreamLatestBlockNumber = 0;
 
         /**
          * Creates a new instance of the {@code Builder} class with default configuration values.
@@ -171,6 +175,16 @@ public record BlockStreamConfig(
             return this;
         }
 
+        public Builder endStreamEarliestBlockNumber(long endStreamEarliestBlockNumber) {
+            this.endStreamEarliestBlockNumber = endStreamEarliestBlockNumber;
+            return this;
+        }
+
+        public Builder endStreamLatestBlockNumber(long endStreamLatestBlockNumber) {
+            this.endStreamLatestBlockNumber = endStreamLatestBlockNumber;
+            return this;
+        }
+
         /**
          * Builds a new {@link BlockStreamConfig} instance with the configured values.
          *
@@ -187,7 +201,9 @@ public record BlockStreamConfig(
                     blockItemsBatchSize,
                     midBlockFailType,
                     midBlockFailOffset,
-                    endStreamMode);
+                    endStreamMode,
+                    endStreamEarliestBlockNumber,
+                    endStreamLatestBlockNumber);
         }
     }
 }

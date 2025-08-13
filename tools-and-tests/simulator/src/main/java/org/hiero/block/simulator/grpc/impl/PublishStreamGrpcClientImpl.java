@@ -213,8 +213,8 @@ public class PublishStreamGrpcClientImpl implements PublishStreamGrpcClient {
             requestStreamObserver.onNext(PublishStreamRequest.newBuilder()
                     .setEndStream(EndStream.newBuilder()
                             .setEndCode(Code.TOO_FAR_BEHIND)
-                            .setEarliestBlockNumber(0)
-                            .setLatestBlockNumber(6)
+                            .setEarliestBlockNumber(blockStreamConfig.endStreamEarliestBlockNumber())
+                            .setLatestBlockNumber(blockStreamConfig.endStreamLatestBlockNumber())
                             .build())
                     .build());
         }
