@@ -9,7 +9,6 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
-import org.hiero.block.api.PublishStreamRequest;
 import org.hiero.block.api.PublishStreamResponse;
 import org.hiero.block.node.spi.blockmessaging.PersistedNotification;
 import org.hiero.block.node.spi.blockmessaging.VerificationNotification;
@@ -77,7 +76,7 @@ public class TestStreamPublisherManager implements StreamPublisherManager {
     }
 
     @Override
-    public void handleEndStreamRequest(PublishStreamRequest.EndStream endStream) {
+    public void notifyTooFarBehind(long newestKnownBlockNumber) {
         // Do nothing.
     }
 
