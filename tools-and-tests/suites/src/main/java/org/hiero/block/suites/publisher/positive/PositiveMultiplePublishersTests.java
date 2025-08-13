@@ -91,7 +91,7 @@ public class PositiveMultiplePublishersTests extends BaseSuite {
         final BlockStreamSimulatorApp secondSimulator = createBlockSimulator(secondSimulatorConfiguration);
         startSimulatorInstance(firstSimulator);
         startSimulatorInstanceWithErrorResponse(secondSimulator);
-        Thread.sleep(5000);
+        Thread.sleep(7000);
 
         final Map<String, String> thirdSimulatorConfiguration = Map.of(
                 "blockStream.streamingMode",
@@ -110,7 +110,7 @@ public class PositiveMultiplePublishersTests extends BaseSuite {
                 "8082");
         final BlockStreamSimulatorApp thirdSimulator = createBlockSimulator(thirdSimulatorConfiguration);
         startSimulatorInstanceWithErrorResponse(thirdSimulator);
-        Thread.sleep(5000);
+        Thread.sleep(7000);
 
         final BlockResponse latestPublishedBlockAfter = getLatestBlock(blockAccessStubs.get(8082));
         final long latestBlockNodeBlockNumber = latestPublishedBlockAfter
