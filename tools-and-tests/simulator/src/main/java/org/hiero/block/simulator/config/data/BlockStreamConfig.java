@@ -22,6 +22,8 @@ import org.hiero.block.simulator.config.types.StreamingMode;
  * @param midBlockFailType the type of failure to occur while streaming
  * @param midBlockFailOffset the index of the failing block
  * @param endStreamMode the mode for ending the stream
+ * @param endStreamEarliestBlockNumber the earliest block number for EndStream
+ * @param endStreamLatestBlockNumber the latest block number for EndStream
  */
 @ConfigData("blockStream")
 public record BlockStreamConfig(
@@ -34,7 +36,7 @@ public record BlockStreamConfig(
         @Loggable @ConfigProperty(defaultValue = "1000") int blockItemsBatchSize,
         @Loggable @ConfigProperty(defaultValue = "NONE") MidBlockFailType midBlockFailType,
         @Loggable @ConfigProperty(defaultValue = "0") long midBlockFailOffset,
-        @Loggable @ConfigProperty(defaultValue = "TOO_FAR_BEHIND") EndStreamMode endStreamMode,
+        @Loggable @ConfigProperty(defaultValue = "NONE") EndStreamMode endStreamMode,
         @Loggable @ConfigProperty(defaultValue = "0") long endStreamEarliestBlockNumber,
         @Loggable @ConfigProperty(defaultValue = "0") long endStreamLatestBlockNumber) {
 

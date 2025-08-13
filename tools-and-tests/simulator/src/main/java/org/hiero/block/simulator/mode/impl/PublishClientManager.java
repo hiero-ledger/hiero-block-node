@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.simulator.mode.impl;
 
+import static org.hiero.block.simulator.config.types.EndStreamMode.TOO_FAR_BEHIND;
+
 import com.hedera.hapi.block.stream.protoc.Block;
 import edu.umd.cs.findbugs.annotations.NonNull;
 import java.io.IOException;
@@ -79,8 +81,10 @@ public class PublishClientManager implements SimulatorModeHandler {
     private void handleEndStream(Block nextBlock, PublishStreamResponse publishStreamResponse)
             throws InterruptedException, BlockSimulatorParsingException, IOException {
         if (publishStreamResponse.getEndStream().getStatus() == Code.BEHIND) {
-            currentClient.handleEndStreamModeIfSet();
-            return;
+            if (blockStreamConfig.endStreamMode() == TOO_FAR_BEHIND) {
+                currentClient.handleEndStreamModeIfSet();
+                return;
+            }
         }
 
         stop();
