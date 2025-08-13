@@ -29,6 +29,7 @@ import org.hiero.block.internal.BlockItemSetUnparsed;
 import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.blockmessaging.BlockItems;
 import org.hiero.block.node.spi.blockmessaging.BlockMessagingFacility;
+import org.hiero.block.node.spi.blockmessaging.NewestBlockKnownToNetworkNotification;
 import org.hiero.block.node.spi.blockmessaging.PersistedNotification;
 import org.hiero.block.node.spi.blockmessaging.VerificationNotification;
 import org.hiero.block.node.spi.threading.ThreadPoolManager;
@@ -250,6 +251,19 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
         return threadManager
                 .getVirtualThreadExecutor()
                 .submit(new MessagingForwarderTask(serverContext, this, queueByBlockMap));
+    }
+
+    /***
+     * todo(1236) Temporal method to handle end of stream specifically to test On-Demand backfill.
+     * This should be improved and completed by 1236.
+     */
+    @Override
+    public void notifyTooFarBehind(final long newestKnownBlockNumber) {
+        // create a NewestBlockKnownToNetwork and sent it to the messaging facility
+        NewestBlockKnownToNetworkNotification notification =
+                new NewestBlockKnownToNetworkNotification(newestKnownBlockNumber);
+        // send the notification
+        serverContext.blockMessaging().sendNewestBlockKnownToNetwork(notification);
     }
 
     @Override

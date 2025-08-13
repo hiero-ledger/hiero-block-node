@@ -58,6 +58,16 @@ public interface StreamPublisherManager extends BlockNotificationHandler {
     long getLatestBlockNumber();
 
     /**
+     * Notify the publisher manager that they are too far behind the latest block number.
+     * <p>
+     * This is used to notify the system that they are too far behind the latest
+     * block number and should take appropriate action.
+     *
+     * @param newestKnownBlockNumber the newest known block number
+     */
+    void notifyTooFarBehind(final long newestKnownBlockNumber);
+
+    /**
      * The action to take within the PublisherHandler for a block.
      */
     enum BlockAction {

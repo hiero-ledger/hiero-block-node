@@ -76,6 +76,11 @@ public class TestStreamPublisherManager implements StreamPublisherManager {
     }
 
     @Override
+    public void notifyTooFarBehind(long newestKnownBlockNumber) {
+        // Do nothing.
+    }
+
+    @Override
     public void handleVerification(final VerificationNotification notification) {
         throw new UnsupportedOperationException("implement handleVerification in test class");
     }

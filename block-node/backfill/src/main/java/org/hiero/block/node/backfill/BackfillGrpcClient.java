@@ -81,20 +81,27 @@ public class BackfillGrpcClient {
      * Checks if the specified block range is available in the given block node.
      * @param node the block node to check
      * @param blockRange the block range to check
-     * @return true if the range is available in the node, false otherwise
+     * @return a LongRange representing the intersection of the block range and the available blocks in the node.
      */
-    private boolean isRangeAvailableInNode(BlockNodeClient node, LongRange blockRange) {
+    private LongRange getAvailableRangeInNode(BlockNodeClient node, LongRange blockRange) {
         long firstAvailableBlock =
                 node.getBlockNodeServerStatusClient().getServerStatus().firstAvailableBlock();
         long lastAvailableBlock =
                 node.getBlockNodeServerStatusClient().getServerStatus().lastAvailableBlock();
 
-        return blockRange.start() >= firstAvailableBlock && blockRange.end() <= lastAvailableBlock;
+        long start = blockRange.start();
+        long end = blockRange.end();
 
-        // @todo(1411): there might be some cases when BlockGap is available between more than 1 node.
-        // ie: Gap from 0 to 100, 0-50 is available in node A, 51-100 is available in node B.
-        // in this case we should return the available gap in the node instead and null when not a single block of given
-        // gap is available.
+        // Compute the intersection
+        long intersectionStart = Math.max(start, firstAvailableBlock);
+        long intersectionEnd = Math.min(end, lastAvailableBlock);
+
+        // If there's no overlap, return null
+        if (intersectionStart > intersectionEnd) {
+            return null;
+        }
+
+        return new LongRange(intersectionStart, intersectionEnd);
     }
 
     /**
@@ -127,7 +134,8 @@ public class BackfillGrpcClient {
                 try {
                     BlockNodeClient currentNodeClient = getNodeClient(node);
                     // Check if the node has the blocks we need
-                    if (!isRangeAvailableInNode(currentNodeClient, blockRange)) {
+                    LongRange actualRange = getAvailableRangeInNode(currentNodeClient, blockRange);
+                    if (actualRange == null) {
                         LOGGER.log(
                                 INFO,
                                 "Block range not available in node {0}:{1}, trying next node",
@@ -141,7 +149,7 @@ public class BackfillGrpcClient {
                     // Try to fetch blocks from this node
                     return currentNodeClient
                             .getBlockNodeSubscribeClient()
-                            .getBatchOfBlocks(blockRange.start(), blockRange.end());
+                            .getBatchOfBlocks(actualRange.start(), actualRange.end());
                 } catch (Exception e) {
                     if (attempt == maxRetries) {
                         // If we reach the max retries, mark the node as UNAVAILABLE
