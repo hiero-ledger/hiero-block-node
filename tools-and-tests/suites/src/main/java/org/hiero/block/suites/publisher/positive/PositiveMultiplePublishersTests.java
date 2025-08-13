@@ -65,7 +65,7 @@ public class PositiveMultiplePublishersTests extends BaseSuite {
 
     @Test
     @DisplayName("testMultipleBlockNodes")
-    //    @Timeout(value = 30, unit = SECONDS)
+    @Timeout(30)
     public void testMultipleBlockNodes() throws IOException, InterruptedException {
         launchBlockNodes(List.of(new BlockNodeContainerConfig(8082, 9989, "/resources/block-nodes.json")));
         final Map<String, String> firstSimulatorConfiguration = Map.of(
@@ -89,14 +89,8 @@ public class PositiveMultiplePublishersTests extends BaseSuite {
 
         final BlockStreamSimulatorApp firstSimulator = createBlockSimulator(firstSimulatorConfiguration);
         final BlockStreamSimulatorApp secondSimulator = createBlockSimulator(secondSimulatorConfiguration);
-        simulatorAppsRef.add(firstSimulator);
-        simulatorAppsRef.add(secondSimulator);
-        // ===== Start first simulator and make sure it's streaming ==================================
-        final Future<?> firstSimulatorThread = startSimulatorInstance(firstSimulator);
-        simulators.add(firstSimulatorThread);
-        // ===== Start second simulator and make sure it's streaming ==================================
-        final Future<?> secondSimulatorThread = startSimulatorInstanceWithErrorResponse(secondSimulator);
-        simulators.add(secondSimulatorThread);
+        startSimulatorInstance(firstSimulator);
+        startSimulatorInstanceWithErrorResponse(secondSimulator);
         Thread.sleep(5000);
 
         final Map<String, String> thirdSimulatorConfiguration = Map.of(
@@ -115,14 +109,10 @@ public class PositiveMultiplePublishersTests extends BaseSuite {
                 "grpc.port",
                 "8082");
         final BlockStreamSimulatorApp thirdSimulator = createBlockSimulator(thirdSimulatorConfiguration);
-        simulatorAppsRef.add(thirdSimulator);
-        final Future<?> thirdSimulatorThread = startSimulatorInstanceWithErrorResponse(thirdSimulator);
-        simulators.add(thirdSimulatorThread);
-
-        Thread.sleep(50000);
+        startSimulatorInstanceWithErrorResponse(thirdSimulator);
+        Thread.sleep(5000);
 
         final BlockResponse latestPublishedBlockAfter = getLatestBlock(blockAccessStubs.get(8082));
-
         final long latestBlockNodeBlockNumber = latestPublishedBlockAfter
                 .getBlock()
                 .getItemsList()
