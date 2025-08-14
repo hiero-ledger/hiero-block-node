@@ -76,12 +76,12 @@ blockNode:
         - sh
         - -c
         - |
-          mkdir -p /live-pvc/live-storage && \
-          chown 2000:2000 /live-pvc/live-storage && \
-          chmod 700 /live-pvc/live-storage && \
-          mkdir -p /archive-pvc/archive-storage && \
-          chown 2000:2000 /archive-pvc/archive-storage && \
-          chmod 700 /archive-pvc/archive-storage && \
+          mkdir -p /live-pvc/live-data && \
+          chown 2000:2000 /live-pvc/live-data && \
+          chmod 700 /live-pvc/live-data && \
+          mkdir -p /archive-pvc/archive-data && \
+          chown 2000:2000 /archive-pvc/archive-data && \
+          chmod 700 /archive-pvc/archive-data && \
           mkdir -p /logging-pvc/logging-data && \
           chown 2000:2000 /logging-pvc/logging-data && \
           chmod 700 /logging-pvc/logging-data
@@ -107,6 +107,9 @@ blockNode:
     PROMETHEUS_ENDPOINT_ENABLED: true
     PROMETHEUS_ENDPOINT_PORT_NUMBER: "16007"
     SERVER_PORT: "40840"
+    # The path to the block-node-sources.json file must match the path property in the backfill.sources.path
+    # if using the backfill sources created with this helm chart
+    # BACKFILL_BLOCK_NODE_SOURCES_PATH: "/opt/hiero/block-node/backfill/block-node-sources.json"
   persistence:
     archive:
       # name of the volume within the deploymeent
@@ -175,7 +178,6 @@ blockNode:
     level: "INFO"
     configMountPath: "/opt/hiero/block-node/logs/config"
     loggingProperties:
-      # com.hedera.block.server.producer.ProducerBlockItemObserver.level: "FINE"
       io.helidon.webserver.level: "INFO"
       io.helidon.webserver.access.level: "INFO"
       io.helidon.config.level: "SEVERE"
@@ -202,6 +204,16 @@ blockNode:
       #   %5$ - log message
       #   %6$ - throwable trace
       java.util.logging.SimpleFormatter.format: "%TF %<TT.%<TL%<Tz %4$-7s [%2$s] %5$s%6$s%n"
+  backfill:
+    # The path to the block-node-sources.json file must match the path property in blockNode.config.BACKFILL_BLOCK_NODE_SOURCES_PATH
+    path: "/opt/hiero/block-node/backfill"
+    filename: "block-node-sources.json"
+   # uncomment or override the sources to enable backfilling
+   # see backfill.yaml override for an explicit example.
+   # sources:
+   #   - address: "source-block-node-helm-chart.default.svc.cluster.local"
+   #     port: 40840
+   #     priority: 1
 
 kubepromstack:
   enabled: true
