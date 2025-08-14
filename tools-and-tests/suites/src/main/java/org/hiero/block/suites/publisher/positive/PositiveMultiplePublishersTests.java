@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.suites.publisher.positive;
 
+import static org.hiero.block.api.protoc.BlockResponse.Code.NOT_FOUND;
 import static org.hiero.block.suites.utils.BlockAccessUtils.getBlock;
 import static org.hiero.block.suites.utils.BlockAccessUtils.getLatestBlock;
 import static org.hiero.block.suites.utils.BlockSimulatorUtils.createBlockSimulator;
@@ -122,6 +123,73 @@ public class PositiveMultiplePublishersTests extends BaseSuite {
 
         teardownBlockNodes();
         assertEquals(6, latestBlockNodeBlockNumber);
+    }
+
+    @Test
+    @DisplayName("Autonomous backfill should fill the gaps")
+    @Timeout(30)
+    public void testAutonomousBackfill() throws IOException, InterruptedException {
+        launchBlockNodes(List.of(new BlockNodeContainerConfig(8082, 9989, "/resources/block-nodes.json")));
+        final Map<String, String> firstSimulatorConfiguration = Map.of(
+                "blockStream.streamingMode",
+                "MILLIS_PER_BLOCK",
+                "blockStream.millisecondsPerBlock",
+                "250",
+                "generator.endBlockNumber",
+                "6",
+                "grpc.port",
+                "40840");
+        final Map<String, String> secondSimulatorConfiguration = Map.of(
+                "blockStream.streamingMode",
+                "MILLIS_PER_BLOCK",
+                "blockStream.millisecondsPerBlock",
+                "250",
+                "generator.endBlockNumber",
+                "6",
+                "grpc.port",
+                "8082");
+
+        final BlockStreamSimulatorApp firstSimulator = createBlockSimulator(firstSimulatorConfiguration);
+        final BlockStreamSimulatorApp secondSimulator = createBlockSimulator(secondSimulatorConfiguration);
+        startSimulatorInstance(firstSimulator);
+        startSimulatorInstanceWithErrorResponse(secondSimulator);
+        Thread.sleep(3000);
+        deleteBlocks(0, 3);
+        BlockResponse block0Deleted = getBlock(blockAccessStubs.get(8082), 0);
+        BlockResponse block1Deleted = getBlock(blockAccessStubs.get(8082), 1);
+        BlockResponse block2Deleted = getBlock(blockAccessStubs.get(8082), 2);
+        assertEquals(NOT_FOUND, block0Deleted.getStatus());
+        assertEquals(NOT_FOUND, block1Deleted.getStatus());
+        assertEquals(NOT_FOUND, block2Deleted.getStatus());
+
+        restartBlockNode(0);
+        Thread.sleep(6000);
+
+        long block0 = getBlock(blockAccessStubs.get(8082), 0)
+                .getBlock()
+                .getItemsList()
+                .getFirst()
+                .getBlockHeader()
+                .getNumber();
+
+        long block1 = getBlock(blockAccessStubs.get(8082), 1)
+                .getBlock()
+                .getItemsList()
+                .getFirst()
+                .getBlockHeader()
+                .getNumber();
+
+        long block2 = getBlock(blockAccessStubs.get(8082), 2)
+                .getBlock()
+                .getItemsList()
+                .getFirst()
+                .getBlockHeader()
+                .getNumber();
+        ;
+        teardownBlockNodes();
+        assertEquals(0, block0);
+        assertEquals(1, block1);
+        assertEquals(2, block2);
     }
 
     @Test

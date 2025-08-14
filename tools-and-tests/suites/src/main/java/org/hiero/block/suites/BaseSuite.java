@@ -3,6 +3,7 @@ package org.hiero.block.suites;
 
 import io.grpc.ManagedChannel;
 import io.grpc.ManagedChannelBuilder;
+import java.io.IOException;
 import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -152,6 +153,24 @@ public abstract class BaseSuite {
         }
     }
 
+    protected void deleteBlocks(int blockNode, long blocks) throws IOException, InterruptedException {
+        GenericContainer<?> genericContainer = blockNodeContainers.get(blockNode);
+
+        for (long block = 0; block < blocks; block++) {
+            String blockFileName =
+                    String.format("/opt/hiero/block-node/data/live/000/000/000/000/000/0/%019d.blk.zstd", block);
+            genericContainer.execInContainer("rm", "-f", blockFileName);
+        }
+    }
+
+    protected void restartBlockNode(int blockNode) {
+        GenericContainer<?> genericContainer = blockNodeContainers.get(blockNode);
+        genericContainer
+                .getDockerClient()
+                .restartContainerCmd(genericContainer.getContainerId())
+                .exec();
+    }
+
     /**
      * Initialize container with the default configuration and returns it.
      *
@@ -200,6 +219,7 @@ public abstract class BaseSuite {
                 .withNetwork(network)
                 .withEnv("VERSION", blockNodeVersion)
                 .withEnv("BACKFILL_BLOCK_NODE_SOURCES_PATH", config.backfillSourcePath())
+                .withEnv("BACKFILL_INITIAL_DELAY", "5")
                 .withEnv("SERVER_PORT", String.valueOf(blockNodePort))
                 .withFileSystemBind(
                         Paths.get("src/main/resources/block-nodes.json")
