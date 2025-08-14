@@ -185,7 +185,7 @@ public class PositiveMultiplePublishersTests extends BaseSuite {
                 .getFirst()
                 .getBlockHeader()
                 .getNumber();
-        ;
+
         teardownBlockNodes();
         assertEquals(0, block0);
         assertEquals(1, block1);
