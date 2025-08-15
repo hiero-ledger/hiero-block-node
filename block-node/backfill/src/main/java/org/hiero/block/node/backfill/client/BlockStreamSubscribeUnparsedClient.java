@@ -15,7 +15,6 @@ import com.hedera.pbj.runtime.grpc.ServiceInterface;
 import edu.umd.cs.findbugs.annotations.NonNull;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Objects;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Flow;
 import java.util.concurrent.atomic.AtomicLong;
@@ -129,10 +128,8 @@ public class BlockStreamSubscribeUnparsedClient implements Pipeline<SubscribeStr
      * If the last item is a block proof, it finalizes the current block,
      * adds it to the reply list,
      * and resets the current block items and number for the next block.
-     * If the response contains a status code,
-     * it sets the error reference if the code indicates an error.
-     * If the response does not contain block items or a status code,
-     * it sets an error indicating an unexpected response.
+     * If the response contains a status code, different from SUCCESS,
+     * it sets the error reference accordingly.
      * @param subscribeStreamResponse the response to process
      */
     @Override
@@ -213,7 +210,7 @@ public class BlockStreamSubscribeUnparsedClient implements Pipeline<SubscribeStr
 
     private static Codec<SubscribeStreamRequest> getSubscribeStreamRequestCodec(
             @NonNull final ServiceInterface.RequestOptions options) {
-        Objects.requireNonNull(options);
+        requireNonNull(options);
 
         // Default to protobuf, and don't error out if both are set:
         if (options.isJson() && !options.isProtobuf()) {
@@ -226,7 +223,7 @@ public class BlockStreamSubscribeUnparsedClient implements Pipeline<SubscribeStr
     @NonNull
     private static Codec<SubscribeStreamResponseUnparsed> getSubscribeStreamResponseUnparsedCodec(
             @NonNull final ServiceInterface.RequestOptions options) {
-        Objects.requireNonNull(options);
+        requireNonNull(options);
 
         // Default to protobuf, and don't error out if both are set:
         if (options.isJson() && !options.isProtobuf()) {
