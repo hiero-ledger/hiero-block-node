@@ -4,6 +4,7 @@ open module org.hiero.block.node.suites {
     requires com.swirlds.config.extensions;
     requires org.hiero.block.protobuf.protoc;
     requires org.hiero.block.simulator;
+    requires com.github.dockerjava.api;
     requires io.grpc;
     requires java.net.http;
     requires org.junit.jupiter.api;
