@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 plugins {
     id("org.hiero.gradle.module.library")
-    id("com.hedera.pbj.pbj-compiler") version "0.11.13"
+    id("com.hedera.pbj.pbj-compiler") version "0.11.14"
 }
 
 description = "Hiero Block Node Backfill Plugin"
@@ -25,6 +25,8 @@ mainModuleInfo {
     runtimeOnly("org.apache.logging.log4j.slf4j2.impl")
     runtimeOnly("io.helidon.logging.jul")
     runtimeOnly("com.hedera.pbj.grpc.helidon.config")
+    runtimeOnly("com.hedera.pbj.grpc.client.helidon")
+    runtimeOnly("com.hedera.pbj.grpc.helidon")
 }
 
 testModuleInfo {

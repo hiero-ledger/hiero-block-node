@@ -24,6 +24,7 @@ module org.hiero.block.node.backfill {
     requires transitive io.grpc;
     requires transitive io.helidon.grpc.core;
     requires transitive io.helidon.webclient.grpc;
+    requires com.hedera.pbj.grpc.client.helidon;
     requires org.hiero.block.node.base;
     requires io.helidon.common.tls;
     requires io.helidon.webclient.api;

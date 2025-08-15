@@ -17,7 +17,7 @@ dependencies.constraints {
     val helidonVersion = "4.2.3"
     // When Upgrading pbjVersion, also need to update pbjCompiler version on
     // block-node/protobuf-pbj/build.gradle.kts
-    val pbjVersion = "0.11.13"
+    val pbjVersion = "0.11.14"
     val protobufVersion = "4.31.1"
     val swirldsVersion = "0.61.3"
     val mockitoVersion = "5.19.0"
@@ -36,6 +36,9 @@ dependencies.constraints {
         because("com.google.protobuf.util")
     }
     api("com.google.protobuf:protoc:$protobufVersion") { because("google.proto") }
+    api("com.hedera.pbj:pbj-grpc-client-helidon:${pbjVersion}") {
+        because("com.hedera.pbj.grpc.client.helidon")
+    }
     api("com.hedera.pbj:pbj-grpc-helidon:${pbjVersion}") { because("com.hedera.pbj.grpc.helidon") }
     api("com.hedera.pbj:pbj-grpc-helidon-config:${pbjVersion}") {
         because("com.hedera.pbj.grpc.helidon.config")
