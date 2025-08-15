@@ -12,18 +12,20 @@
 
 Uses the prefix `blockStream` so all properties should start with `blockStream.`
 
-| Key                         | Description                                                                                                                         |      Default Value |
-|:----------------------------|:------------------------------------------------------------------------------------------------------------------------------------|-------------------:|
-| `simulatorMode`             | The desired simulator mode to use, it can be `CONSUMER`, `PUBLISHER_CLIENT` or `PUBLISHER_SERVER`.                                  | `PUBLISHER_SERVER` |
-| `lastKnownStatusesCapacity` | The store capacity for the last known statuses.                                                                                     |               `10` |
-| `delayBetweenBlockItems`    | The delay between each block item in nanoseconds, only applicable when streamingMode is `CONSTANT_RATE`                             |        `1_500_000` |
-| `maxBlockItemsToStream`     | The maximum number of block items to stream before stopping                                                                         |          `100_000` |
-| `streamingMode`             | Can either be `CONSTANT_RATE` or `MILLIS_PER_BLOCK`                                                                                 | `MILLIS_PER_BLOCK` |
-| `millisecondsPerBlock`      | If streamingMode is `MILLIS_PER_BLOCK` this will be the time to wait between blocks in milliseconds                                 |            `1_000` |
-| `blockItemsBatchSize`       | The number of block items to send in a single batch, however if a block has less block items, it will send all the items in a block |            `1_000` |
-| `midBlockFailType`          | The type of failure to occur while streaming. It can be `NONE`, `ABRUPT` or `EOS`                                                   |             `NONE` |
-| `midBlockFailOffset`        | The index where the failure will occur, only applicable if midBlockFailType is not `NONE`                                           |                `0` |
-| `endStreamMode`             | The mode to use when ending the stream                                                                                              |             `NONE` |
+| Key                            | Description                                                                                                                         |      Default Value |
+|:-------------------------------|:------------------------------------------------------------------------------------------------------------------------------------|-------------------:|
+| `simulatorMode`                | The desired simulator mode to use, it can be `CONSUMER`, `PUBLISHER_CLIENT` or `PUBLISHER_SERVER`.                                  | `PUBLISHER_SERVER` |
+| `lastKnownStatusesCapacity`    | The store capacity for the last known statuses.                                                                                     |               `10` |
+| `delayBetweenBlockItems`       | The delay between each block item in nanoseconds, only applicable when streamingMode is `CONSTANT_RATE`                             |        `1_500_000` |
+| `maxBlockItemsToStream`        | The maximum number of block items to stream before stopping                                                                         |          `100_000` |
+| `streamingMode`                | Can either be `CONSTANT_RATE` or `MILLIS_PER_BLOCK`                                                                                 | `MILLIS_PER_BLOCK` |
+| `millisecondsPerBlock`         | If streamingMode is `MILLIS_PER_BLOCK` this will be the time to wait between blocks in milliseconds                                 |            `1_000` |
+| `blockItemsBatchSize`          | The number of block items to send in a single batch, however if a block has less block items, it will send all the items in a block |            `1_000` |
+| `midBlockFailType`             | The type of failure to occur while streaming. It can be `NONE`, `ABRUPT` or `EOS`                                                   |             `NONE` |
+| `midBlockFailOffset`           | The index where the failure will occur, only applicable if midBlockFailType is not `NONE`                                           |                `0` |
+| `endStreamMode`                | The mode to use when ending the stream                                                                                              |             `NONE` |
+| `endStreamEarliestBlockNumber` | The earliest block number for EndStream                                                                                             |                `0` |
+| `endStreamLatestBlockNumber`   | The latest block number for EndStream                                                                                               |                `0` |
 
 ## BlockGeneratorConfig
 

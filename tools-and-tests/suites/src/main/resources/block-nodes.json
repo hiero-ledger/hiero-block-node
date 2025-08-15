@@ -1,0 +1,5 @@
+{
+  "nodes": [
+    { "address": "block-node-source", "port": 40840, "priority": 1 }
+  ]
+}

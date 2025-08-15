@@ -21,6 +21,7 @@ import org.hiero.block.api.protoc.BlockResponse;
 import org.hiero.block.api.protoc.BlockResponse.Code;
 import org.hiero.block.simulator.BlockStreamSimulatorApp;
 import org.hiero.block.suites.BaseSuite;
+import org.hiero.block.suites.BlockNodeContainerConfig;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.DisplayName;
@@ -60,6 +61,67 @@ public class PositiveMultiplePublishersTests extends BaseSuite {
         simulatorAppsRef.clear();
         simulators.forEach(simulator -> simulator.cancel(true));
         simulators.clear();
+    }
+
+    @Test
+    @DisplayName("Publisher should send TOO_FAR_BEHIND to activate backfill on demand")
+    @Timeout(30)
+    public void testBackfillOnDemand() throws IOException, InterruptedException {
+        launchBlockNodes(List.of(new BlockNodeContainerConfig(8082, 9989, "/resources/block-nodes.json")));
+        final Map<String, String> firstSimulatorConfiguration = Map.of(
+                "blockStream.streamingMode",
+                "MILLIS_PER_BLOCK",
+                "blockStream.millisecondsPerBlock",
+                "250",
+                "generator.endBlockNumber",
+                "6",
+                "grpc.port",
+                "40840");
+        final Map<String, String> secondSimulatorConfiguration = Map.of(
+                "blockStream.streamingMode",
+                "MILLIS_PER_BLOCK",
+                "blockStream.millisecondsPerBlock",
+                "250",
+                "generator.endBlockNumber",
+                "3",
+                "grpc.port",
+                "8082");
+
+        final BlockStreamSimulatorApp firstSimulator = createBlockSimulator(firstSimulatorConfiguration);
+        final BlockStreamSimulatorApp secondSimulator = createBlockSimulator(secondSimulatorConfiguration);
+        startSimulatorInstance(firstSimulator);
+        startSimulatorInstanceWithErrorResponse(secondSimulator);
+        Thread.sleep(3000);
+
+        final Map<String, String> thirdSimulatorConfiguration = Map.of(
+                "blockStream.streamingMode",
+                "MILLIS_PER_BLOCK",
+                "blockStream.millisecondsPerBlock",
+                "250",
+                "generator.startBlockNumber",
+                "6",
+                "blockStream.endStreamMode",
+                "TOO_FAR_BEHIND",
+                "blockStream.endStreamEarliestBlockNumber",
+                "0",
+                "blockStream.endStreamLatestBlockNumber",
+                "6",
+                "grpc.port",
+                "8082");
+        final BlockStreamSimulatorApp thirdSimulator = createBlockSimulator(thirdSimulatorConfiguration);
+        startSimulatorInstanceWithErrorResponse(thirdSimulator);
+        Thread.sleep(3000);
+
+        final BlockResponse latestPublishedBlockAfter = getLatestBlock(blockAccessStubs.get(8082));
+        final long latestBlockNodeBlockNumber = latestPublishedBlockAfter
+                .getBlock()
+                .getItemsList()
+                .getFirst()
+                .getBlockHeader()
+                .getNumber();
+
+        teardownBlockNodes();
+        assertEquals(6, latestBlockNodeBlockNumber);
     }
 
     @Test
