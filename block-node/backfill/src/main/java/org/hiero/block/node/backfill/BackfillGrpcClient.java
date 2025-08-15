@@ -15,6 +15,7 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
+import org.hiero.block.api.ServerStatusRequest;
 import org.hiero.block.internal.BlockUnparsed;
 import org.hiero.block.node.backfill.client.BackfillSource;
 import org.hiero.block.node.backfill.client.BackfillSourceConfig;
@@ -84,10 +85,12 @@ public class BackfillGrpcClient {
      * @return a LongRange representing the intersection of the block range and the available blocks in the node.
      */
     private LongRange getAvailableRangeInNode(BlockNodeClient node, LongRange blockRange) {
-        long firstAvailableBlock =
-                node.getBlockNodeServerStatusClient().getServerStatus().firstAvailableBlock();
-        long lastAvailableBlock =
-                node.getBlockNodeServerStatusClient().getServerStatus().lastAvailableBlock();
+        long firstAvailableBlock = node.getBlockNodeServiceClient()
+                .serverStatus(new ServerStatusRequest())
+                .firstAvailableBlock();
+        long lastAvailableBlock = node.getBlockNodeServiceClient()
+                .serverStatus(new ServerStatusRequest())
+                .lastAvailableBlock();
 
         long start = blockRange.start();
         long end = blockRange.end();
@@ -148,7 +151,7 @@ public class BackfillGrpcClient {
 
                     // Try to fetch blocks from this node
                     return currentNodeClient
-                            .getBlockNodeSubscribeClient()
+                            .getBlockstreamSubscribeUnparsedClient()
                             .getBatchOfBlocks(actualRange.start(), actualRange.end());
                 } catch (Exception e) {
                     if (attempt == maxRetries) {
