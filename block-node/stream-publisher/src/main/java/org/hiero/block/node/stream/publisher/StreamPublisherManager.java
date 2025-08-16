@@ -68,6 +68,11 @@ public interface StreamPublisherManager extends BlockNotificationHandler {
     void notifyTooFarBehind(final long newestKnownBlockNumber);
 
     /**
+     * Shut down the publisher manager and all of its handlers.
+     */
+    void shutdown();
+
+    /**
      * The action to take within the PublisherHandler for a block.
      */
     enum BlockAction {

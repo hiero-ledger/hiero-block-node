@@ -70,6 +70,7 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
     private final AtomicLong currentStreamingBlockNumber;
     /** The unacknowledged yet blocks that were streamed to completion by this handler. */
     private final NavigableSet<Long> unacknowledgedStreamedBlocks;
+
     /**
      * The current block action.
      * This is tracked to help the manager determine what to do with the current
@@ -109,7 +110,6 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
         // occurs. No other methods will be called by the Helidon layer after this.
         try {
             sendEndOfStream(Code.ERROR); // this might not succeed...
-            // @todo(1416) update metrics
         } finally {
             // Shut down this handler, even if sending the message failed
             // or metrics failed.
@@ -121,60 +121,75 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
     public void onComplete() {
         // This is mostly a cleanup method, called when the stream is complete
         // and `onNext` will not be called again.
-        shutdown(); // @todo(1416) is this all the handling we need to do here?
+        shutdown();
     }
 
     @Override
     public void clientEndStreamReceived() {
         // called when the _gRPC layer_ receives an HTTP end stream from the client.
         // THIS IS NOT the same as the `EndStream` message in the API.
-        shutdown(); // @todo(1416) is this all the handling we need to do here?
+        shutdown();
     }
 
     @Override
     public void onSubscribe(@NonNull final Subscription subscription) {
-        // Check javadoc, this "starts" the subscription for this handler.
-        // mostly we need to call subscription.request to start the flow of items.
-        // @todo(1416) should we do something here?
+        // This "starts" the subscription for this handler.
+        // not really anything to do here.
     }
 
     @Override
     public void onNext(@NonNull final PublishStreamRequestUnparsed request) {
+        try {
+            processNextRequestUnparsed(request);
+        } catch (final InterruptedException | RuntimeException e) {
+            // If we reach here, it means that the handler was interrupted or
+            // an unexpected error occurred. We should log the error and shut down.
+            LOGGER.log(INFO, "Error processing request: %s", e);
+            sendEndAndReset(Code.ERROR);
+        }
+    }
+
+    /**
+     * todo(1420) add documentation
+     */
+    private void processNextRequestUnparsed(final PublishStreamRequestUnparsed request) throws InterruptedException {
         if (request.hasBlockItems()) {
             final BlockItemSetUnparsed itemSetUnparsed = Objects.requireNonNull(request.blockItems());
             final List<BlockItemUnparsed> blockItems = itemSetUnparsed.blockItems();
             if (blockItems.isEmpty()) {
-                try {
-                    sendEndOfStream(Code.INVALID_REQUEST);
-                    // @todo(1416) add metrics
-                    resetState();
-                } finally {
-                    shutdown();
-                }
+                sendEndAndReset(Code.INVALID_REQUEST);
             } else {
                 handleBlockItemsRequest(itemSetUnparsed, blockItems);
             }
         } else if (request.hasEndStream()) {
             // @todo(1236) handle an endStream potentially received from publisher, for now we simply shutdown
-
             // handle end stream request
             handleEndStreamRequest(request.endStream());
-
             shutdown();
         } else {
             // this should never happen
-            try {
-                sendEndOfStream(Code.ERROR);
-                // @todo(1416) add metrics
-                resetState();
-            } finally {
-                shutdown();
-            }
+            sendEndAndReset(Code.ERROR);
+        }
+    }
+
+    /**
+     * todo(1420) add documentation
+     */
+    private void sendEndAndReset(final Code endOfStreamCode) {
+        try {
+            sendEndOfStream(endOfStreamCode);
+            // @todo(1416) add metrics
+            resetState();
+        } finally {
+            shutdown();
         }
     }
 
     // @todo(1236) this ticket will complete this method, temporarily adding the bare minimum just for integration
     // with backfill plugin, but this will be replaced with a proper implementation on another PR that is a WIP.
+    /**
+     * todo(1420) add documentation
+     */
     private void handleEndStreamRequest(PublishStreamRequest.EndStream endStream) {
         PublishStreamRequest.EndStream.Code endStreamCode = endStream.endCode();
         long endStreamLatestBlockNumber = endStream.latestBlockNumber();
@@ -201,8 +216,20 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
         }
     }
 
+    /**
+     * This method is called when the manager is shutting down and needs
+     * to force all handlers to close their publisher communication channels.
+     */
+    public void closeCommunication() {
+        sendEndOfStream(Code.SUCCESS);
+    }
+
+    /**
+     * todo(1420) add documentation
+     */
     private void handleBlockItemsRequest(
-            final BlockItemSetUnparsed itemSetUnparsed, final List<BlockItemUnparsed> blockItems) {
+            final BlockItemSetUnparsed itemSetUnparsed, final List<BlockItemUnparsed> blockItems)
+            throws InterruptedException {
         long blockNumber = currentStreamingBlockNumber.get();
         final BlockItemUnparsed first = blockItems.getFirst();
         // every time we receive an item set, we need to check if we have
@@ -220,24 +247,12 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
                     } catch (final ParseException e) {
                         // if we have reached this block, this means that the
                         // request is invalid
-                        try {
-                            sendEndOfStream(Code.INVALID_REQUEST);
-                            // @todo(1416) add metrics
-                            resetState();
-                        } finally {
-                            shutdown();
-                        }
+                        sendEndAndReset(Code.INVALID_REQUEST);
                         return;
                     }
                 } else {
                     // this should never happen
-                    try {
-                        sendEndOfStream(Code.ERROR);
-                        // @todo(1416) add metrics
-                        resetState();
-                    } finally {
-                        shutdown();
-                    }
+                    sendEndAndReset(Code.ERROR);
                     return;
                 }
                 blockNumber = header.number();
@@ -251,13 +266,7 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
                 // full. Having a block header indicates that this request
                 // starts streaming a new block, which should not be the case
                 // if the previous block has not been streamed in full.
-                try {
-                    sendEndOfStream(Code.INVALID_REQUEST);
-                    // @todo(1416) add metrics
-                    resetState();
-                } finally {
-                    shutdown();
-                }
+                sendEndAndReset(Code.INVALID_REQUEST);
                 return;
             }
         } else if (UNKNOWN_BLOCK_NUMBER == blockNumber) {
@@ -324,14 +333,12 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
      * initiated.
      *
      * @param blockProofBytes the bytes of the block proof to handle
-     * @param blockNumber the block number that this proof is for
+     * @param blockNumber the block number that this proof verifies
      */
     private void handleBlockProof(final Bytes blockProofBytes, final long blockNumber) {
         try {
             publisherManager.closeBlock(BlockProof.PROTOBUF.parse(blockProofBytes), handlerId);
         } catch (final ParseException e) {
-            // If parsing failed here, items will still be propagated as if
-            // the block is complete. Verification later might succeed.
             publisherManager.closeBlock(null, handlerId);
             LOGGER.log(INFO, "Failed to parse block proof: {}", e.getMessage());
         }
@@ -369,11 +376,12 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
                     .headSet(newLastAcknowledgedBlockNumber, true)
                     .clear();
             metrics.blockAcknowledgementsSent.increment(); // @todo(1415) add label
-        } else {
-            // todo(1416) we can add metric for failed sending response
         }
     }
 
+    /**
+     * todo(1420) add documentation
+     */
     private void sendEndOfStream(final EndOfStream.Code codeToSend) {
         final EndOfStream endOfStream = EndOfStream.newBuilder()
                 .status(codeToSend)
@@ -382,10 +390,7 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
         final PublishStreamResponse response =
                 PublishStreamResponse.newBuilder().endStream(endOfStream).build();
         if (sendResponse(response)) {
-            // @todo(1416) handle additional metrics outside of this method
             metrics.endOfStreamsSent.increment(); // @todo(1415) add label
-        } else {
-            // todo(1416) we can add metric for failed sending response
         }
     }
 
@@ -401,10 +406,11 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
         try {
             replies.onNext(response);
             return true;
-        } catch (final Exception e) {
+        } catch (final RuntimeException e) {
             shutdown(); // this method is idempotent and can be called multiple times
             final String message = "Failed to send response for handler %d: %s".formatted(handlerId, e.getMessage());
             LOGGER.log(DEBUG, message, e);
+            metrics.sendResponseFailed.increment(); // @todo(1415) add label
             return false;
         }
     }
@@ -452,14 +458,11 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
      * Handle the ACCEPT action for a block.
      */
     private BatchHandleResult handleAccept(
-            final BlockItemSetUnparsed itemSetUnparsed, final List<BlockItemUnparsed> blockItems) {
+            final BlockItemSetUnparsed itemSetUnparsed, final List<BlockItemUnparsed> blockItems)
+            throws InterruptedException {
         // If the action is ACCEPT, we can safely propagate the items
         // to the manager.
-        // @todo(1416) Ignoring this return value can result in lost data.
-        //   An alternative is to use `put`, which might block, but won't
-        //   just fail to add the item set.
-        // @todo(1416) need to check if the item was added and handle "not added".
-        blockItemsQueue.offer(itemSetUnparsed);
+        blockItemsQueue.put(itemSetUnparsed);
         final int itemsReceived = blockItems.size();
         metrics.liveBlockItemsReceived.add(itemsReceived); // @todo(1415) add label
         return new BatchHandleResult(false, false);
@@ -479,7 +482,6 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
             metrics.blockSkipsSent.increment(); // @todo(1415) add label
             return new BatchHandleResult(false, true);
         } else {
-            // todo(1416) we can add metric for failed sending response
             return new BatchHandleResult(true, true);
         }
     }
@@ -499,7 +501,6 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
             metrics.blockResendsSent.increment(); // @todo(1415) add label
             return new BatchHandleResult(false, true);
         } else {
-            // todo(1416) we can add metric for failed sending response
             return new BatchHandleResult(true, true);
         }
     }
@@ -579,6 +580,7 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
             Counter blockSkipsSent,
             Counter blockResendsSent,
             Counter endOfStreamsSent,
+            Counter sendResponseFailed,
             Counter endStreamsReceived) {
         /**
          * Factory method.
@@ -605,6 +607,9 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
             final Counter endOfStreamsSent =
                     metrics.getOrCreate(new Counter.Config(METRICS_CATEGORY, "publisher_block_endofstream_sent")
                             .withDescription("Block End-of-Stream messages sent"));
+            final Counter sendResponseFailed =
+                    metrics.getOrCreate(new Counter.Config(METRICS_CATEGORY, "publisher_block_send_response_failed")
+                            .withDescription("Count of failures to send responses to a publisher"));
             final Counter endStreamsReceived =
                     metrics.getOrCreate(new Counter.Config(METRICS_CATEGORY, "publisher_block_endstream_received")
                             .withDescription("Block End-Stream messages received"));
@@ -615,6 +620,7 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
                     blockSkipsSent,
                     blockResendsSent,
                     endOfStreamsSent,
+                    sendResponseFailed,
                     endStreamsReceived);
         }
     }
