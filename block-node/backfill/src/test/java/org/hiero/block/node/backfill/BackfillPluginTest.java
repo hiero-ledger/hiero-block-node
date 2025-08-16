@@ -293,6 +293,8 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, BlockingExecutor
         // config override for test
         final Map<String, String> configOverride = BackfillConfigBuilder.NewBuilder()
                 .backfillSourcePath(backfillSourcePath)
+                .initialDelay(100) // start quickly
+                .scanInterval(500000) // scan every 500 seconds
                 .build();
 
         // create a historical block facility for the plugin (should have a GAP)
@@ -335,8 +337,8 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, BlockingExecutor
                 false,
                 "test-backfill-handler");
 
-        boolean startOnDemand = latch1.await(1, TimeUnit.MINUTES); // Wait until latch1.countDown() is called
-        assertTrue(startOnDemand, "Should have started on-demand backfill while autonomous backfill is running");
+        boolean startAutonomous = latch1.await(1, TimeUnit.MINUTES); // Wait until latch1.countDown() is called
+        assertTrue(startAutonomous, "Should have started on-demand backfill while autonomous backfill is running");
         // Trigger the on-demand backfill by sending a NewestBlockKnownToNetworkNotification
         NewestBlockKnownToNetworkNotification newestBlockNotification = new NewestBlockKnownToNetworkNotification(200L);
         this.blockMessaging.sendNewestBlockKnownToNetwork(newestBlockNotification);

@@ -75,6 +75,17 @@ public class BlockStreamSubscribeUnparsedClient implements Pipeline<SubscribeStr
         if (startBlockNumber < 0 || endBlockNumber < 0 || startBlockNumber > endBlockNumber) {
             throw new IllegalArgumentException("Invalid block range: " + startBlockNumber + " to " + endBlockNumber);
         }
+        // only start a new request if previous one is not in progress
+        if (latch != null && latch.getCount() > 0) {
+            // wait for response or error
+            try {
+                latch.await();
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw new RuntimeException("Interrupted while waiting for blocks", e);
+            }
+        }
+
         // reset state for the request
         currentBlockItems = new ArrayList<>();
         currentBlockNumber = new AtomicLong(startBlockNumber);
