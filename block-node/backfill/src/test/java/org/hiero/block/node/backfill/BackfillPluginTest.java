@@ -58,16 +58,20 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, BlockingExecutor
         // Config Override
         Map<String, String> configOverride = BackfillConfigBuilder.NewBuilder()
                 .backfillSourcePath(blockNodeSourcesPath)
-                .fetchBatchSize(20)
+                .fetchBatchSize(100)
+                .initialDelay(500) // start quickly
                 .build();
 
         // create a historical block facility for the plugin (should have a GAP)
-        final HistoricalBlockFacility historicalBlockFacilityForPlugin = getHistoricalBlockFacility(10, 20);
+        final HistoricalBlockFacility historicalBlockFacilityForPlugin = getHistoricalBlockFacility(200, 210);
 
         // start the plugin
         start(new BackfillPlugin(), historicalBlockFacilityForPlugin, configOverride);
 
-        CountDownLatch countDownLatch = new CountDownLatch(10); // 0 to 9 inclusive, so 10 blocks
+        // expected blocks to backfill
+        int expectedBlocksToBackfill = 200; // from 0 to 199 inclusive, so 200 blocks
+
+        CountDownLatch countDownLatch = new CountDownLatch(expectedBlocksToBackfill); // 0 to 9 inclusive, so 10 blocks
         // register the backfill handler
         registerDefaultTestBackfillHandler();
         // register the verification handler
@@ -82,11 +86,11 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, BlockingExecutor
 
         // Verify sent verifications
         assertEquals(
-                10,
+                expectedBlocksToBackfill,
                 blockMessaging.getSentPersistedNotifications().size(),
                 "Should have sent 11 persisted notifications");
         assertEquals(
-                10,
+                expectedBlocksToBackfill,
                 blockMessaging.getSentVerificationNotifications().size(),
                 "Should have sent 11 verification notifications");
 
@@ -126,7 +130,7 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, BlockingExecutor
         Map<String, String> configOverride = BackfillConfigBuilder.NewBuilder()
                 .backfillSourcePath(backfillSourcePath)
                 .maxRetries(2)
-                .initialDelayMs(600) // start quickly
+                .initialDelay(500) // start quickly
                 .build();
 
         // create a historical block facility for the plugin (should have a GAP)
@@ -289,6 +293,8 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, BlockingExecutor
         // config override for test
         final Map<String, String> configOverride = BackfillConfigBuilder.NewBuilder()
                 .backfillSourcePath(backfillSourcePath)
+                .initialDelay(100) // start quickly
+                .scanInterval(500000) // scan every 500 seconds
                 .build();
 
         // create a historical block facility for the plugin (should have a GAP)
@@ -331,8 +337,8 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, BlockingExecutor
                 false,
                 "test-backfill-handler");
 
-        boolean startOnDemand = latch1.await(1, TimeUnit.MINUTES); // Wait until latch1.countDown() is called
-        assertTrue(startOnDemand, "Should have started on-demand backfill while autonomous backfill is running");
+        boolean startAutonomous = latch1.await(1, TimeUnit.MINUTES); // Wait until latch1.countDown() is called
+        assertTrue(startAutonomous, "Should have started on-demand backfill while autonomous backfill is running");
         // Trigger the on-demand backfill by sending a NewestBlockKnownToNetworkNotification
         NewestBlockKnownToNetworkNotification newestBlockNotification = new NewestBlockKnownToNetworkNotification(200L);
         this.blockMessaging.sendNewestBlockKnownToNetwork(newestBlockNotification);
@@ -400,8 +406,8 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, BlockingExecutor
         // config override
         Map<String, String> config = BackfillConfigBuilder.NewBuilder()
                 .backfillSourcePath(backfillSourcePath)
-                .initialDelayMs(100) // start quickly
-                .scanIntervalMs(500000) // scan every 500 seconds
+                .initialDelay(100) // start quickly
+                .scanInterval(500000) // scan every 500 seconds
                 .build();
 
         // create a historical block facility for the plugin (should have a GAP from 0 to 124)
@@ -526,13 +532,14 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, BlockingExecutor
         // Fields with default valuess
         private String backfillSourcePath;
         private int fetchBatchSize = 10;
-        private int delayBetweenBatchesMs = 100;
-        private int initialDelayMs = 1000;
-        private int initialRetryDelayMs = 1000;
+        private int delayBetweenBatches = 100;
+        private int initialDelay = 500;
+        private int initialRetryDelay = 500;
         private int maxRetries = 3;
         private int scanIntervalMs = 60000; // 60 seconds
         private long startBlock = 0L;
         private long endBlock = -1L; // -1 means no end block, backfill until the latest block
+        private int perBlockProcessingTimeout = 500; // half second
 
         private BackfillConfigBuilder() {
             // private to force use of NewBuilder()
@@ -552,18 +559,18 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, BlockingExecutor
             return this;
         }
 
-        public BackfillConfigBuilder delayBetweenBatchesMs(int value) {
-            this.delayBetweenBatchesMs = value;
+        public BackfillConfigBuilder delayBetweenBatches(int value) {
+            this.delayBetweenBatches = value;
             return this;
         }
 
-        public BackfillConfigBuilder initialDelayMs(int value) {
-            this.initialDelayMs = value;
+        public BackfillConfigBuilder initialDelay(int value) {
+            this.initialDelay = value;
             return this;
         }
 
-        public BackfillConfigBuilder initialRetryDelayMs(int value) {
-            this.initialRetryDelayMs = value;
+        public BackfillConfigBuilder initialRetryDelay(int value) {
+            this.initialRetryDelay = value;
             return this;
         }
 
@@ -572,7 +579,7 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, BlockingExecutor
             return this;
         }
 
-        public BackfillConfigBuilder scanIntervalMs(int value) {
+        public BackfillConfigBuilder scanInterval(int value) {
             this.scanIntervalMs = value;
             return this;
         }
@@ -587,6 +594,11 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, BlockingExecutor
             return this;
         }
 
+        public BackfillConfigBuilder perBlockProcessingTimeout(int value) {
+            this.perBlockProcessingTimeout = value;
+            return this;
+        }
+
         public Map<String, String> build() {
             if (backfillSourcePath == null || backfillSourcePath.isBlank()) {
                 throw new IllegalStateException("backfillSourcePath is required");
@@ -595,13 +607,14 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, BlockingExecutor
             return Map.of(
                     "backfill.blockNodeSourcesPath", backfillSourcePath,
                     "backfill.fetchBatchSize", String.valueOf(fetchBatchSize),
-                    "backfill.delayBetweenBatchesMs", String.valueOf(delayBetweenBatchesMs),
-                    "backfill.initialDelayMs", String.valueOf(initialDelayMs),
-                    "backfill.initialRetryDelayMs", String.valueOf(initialRetryDelayMs),
+                    "backfill.delayBetweenBatches", String.valueOf(delayBetweenBatches),
+                    "backfill.initialDelay", String.valueOf(initialDelay),
+                    "backfill.initialRetryDelay", String.valueOf(initialRetryDelay),
                     "backfill.maxRetries", String.valueOf(maxRetries),
-                    "backfill.scanIntervalMs", String.valueOf(scanIntervalMs),
+                    "backfill.scanInterval", String.valueOf(scanIntervalMs),
                     "backfill.startBlock", String.valueOf(startBlock),
-                    "backfill.endBlock", String.valueOf(endBlock));
+                    "backfill.endBlock", String.valueOf(endBlock),
+                    "backfill.perBlockProcessingTimeout", String.valueOf(perBlockProcessingTimeout));
         }
     }
 }
