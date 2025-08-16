@@ -3,7 +3,7 @@ package org.hiero.block.node.stream.publisher;
 
 import static java.lang.System.Logger.Level.DEBUG;
 import static java.lang.System.Logger.Level.INFO;
-import static java.lang.System.Logger.Level.TRACE;
+import static java.lang.System.Logger.Level.WARNING;
 import static org.hiero.block.node.spi.BlockNodePlugin.METRICS_CATEGORY;
 import static org.hiero.block.node.spi.BlockNodePlugin.UNKNOWN_BLOCK_NUMBER;
 
@@ -16,6 +16,7 @@ import com.swirlds.metrics.api.Counter;
 import com.swirlds.metrics.api.Metrics;
 import edu.umd.cs.findbugs.annotations.NonNull;
 import java.lang.System.Logger;
+import java.lang.System.Logger.Level;
 import java.util.List;
 import java.util.NavigableSet;
 import java.util.Objects;
@@ -23,7 +24,7 @@ import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.ConcurrentSkipListSet;
 import java.util.concurrent.Flow.Subscription;
 import java.util.concurrent.atomic.AtomicLong;
-import org.hiero.block.api.PublishStreamRequest;
+import org.hiero.block.api.PublishStreamRequest.EndStream;
 import org.hiero.block.api.PublishStreamResponse;
 import org.hiero.block.api.PublishStreamResponse.BlockAcknowledgement;
 import org.hiero.block.api.PublishStreamResponse.EndOfStream;
@@ -155,12 +156,11 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
                 handleBlockItemsRequest(itemSetUnparsed, blockItems);
             }
         } else if (request.hasEndStream()) {
-            // @todo(1236) handle an endStream potentially received from publisher, for now we simply shutdown
-
-            // handle end stream request
-            handleEndStreamRequest(request.endStream());
-
-            shutdown();
+            try {
+                handleEndStreamRequest(Objects.requireNonNull(request.endStream()));
+            } finally {
+                shutdown();
+            }
         } else {
             // this should never happen
             try {
@@ -170,34 +170,6 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
             } finally {
                 shutdown();
             }
-        }
-    }
-
-    // @todo(1236) this ticket will complete this method, temporarily adding the bare minimum just for integration
-    // with backfill plugin, but this will be replaced with a proper implementation on another PR that is a WIP.
-    private void handleEndStreamRequest(PublishStreamRequest.EndStream endStream) {
-        PublishStreamRequest.EndStream.Code endStreamCode = endStream.endCode();
-        long endStreamLatestBlockNumber = endStream.latestBlockNumber();
-        long endStreamEarliestBlockNumber = endStream.earliestBlockNumber();
-
-        // log the end stream received
-        LOGGER.log(
-                TRACE,
-                "Received end stream request with code: {0}, latest block number: {1}, earliest block number: {2}",
-                endStreamCode,
-                endStreamLatestBlockNumber,
-                endStreamEarliestBlockNumber);
-
-        // Handle too far behind case
-        if (endStreamCode.equals(PublishStreamRequest.EndStream.Code.TOO_FAR_BEHIND)) {
-            // make sure we are really behind?
-            if (endStreamLatestBlockNumber <= publisherManager.getLatestBlockNumber()) {
-                // No need to do anything, we are not really behind.
-                return;
-            }
-
-            // create a NewestBlockKnownToNetwork and sent it to the messaging facility
-            publisherManager.notifyTooFarBehind(endStreamLatestBlockNumber);
         }
     }
 
@@ -296,50 +268,84 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
         }
     }
 
-    /**
-     * This method handles the result of a block action handle.
-     *
-     * @param handleResult the result to handle
-     */
-    private void handleBlockActionResult(final BatchHandleResult handleResult) {
-        if (handleResult.shouldReset()) {
-            resetState();
-        }
-        if (handleResult.shouldShutdown()) {
-            shutdown();
+    private void handleEndStreamRequest(final EndStream endStream) {
+        final EndStream.Code code = endStream.endCode();
+        final long endStreamEarliestBlockNumber = endStream.earliestBlockNumber();
+        final long endStreamLatestBlockNumber = endStream.latestBlockNumber();
+        final String earliestAndLatestBlockNumbers =
+                "Earliest publisher block number: %d, Latest publisher block number: %d"
+                        .formatted(endStreamEarliestBlockNumber, endStreamLatestBlockNumber);
+        // We need to validate the request's values, ERROR is not obliged to
+        // have earliest and latest block numbers. For ERROR, we do not use
+        // the earliest and latest block numbers.
+        if (isEndStreamRequestValid(code, endStreamEarliestBlockNumber, endStreamLatestBlockNumber)) {
+            // We can ignore the returned result below, we need it mainly for
+            // the switch expression so that we are forced at compile time to
+            // handle all possible end stream codes.
+            handleValidEndStreamRequest(code, earliestAndLatestBlockNumbers, endStreamLatestBlockNumber);
+        } else {
+            // @todo(1416) is this the correct log or action we need to take if the request is invalid?
+            LOGGER.log(
+                    INFO,
+                    "Handler %d received an invalid EndStream request with code %s. %s"
+                            .formatted(handlerId, code, earliestAndLatestBlockNumbers));
         }
     }
 
-    /**
-     * Handle a block proof received from the publisher.
-     * <p>
-     * This method is called when a block proof is received from the publisher.
-     * It will parse the block proof and close the block in the publisher manager.
-     * If parsing fails, it will log an error and close the block with a null proof.
-     * <p>
-     * It is important to note that a null proof sent to the close block method
-     * does not prevent sending the proof into messaging, it just means the
-     * publisher manager won't have the proof for metrics, logging, and
-     * calculating whether other handlers are too slow and a resend must be
-     * initiated.
-     *
-     * @param blockProofBytes the bytes of the block proof to handle
-     * @param blockNumber the block number that this proof is for
-     */
-    private void handleBlockProof(final Bytes blockProofBytes, final long blockNumber) {
-        try {
-            publisherManager.closeBlock(BlockProof.PROTOBUF.parse(blockProofBytes), handlerId);
-        } catch (final ParseException e) {
-            // If parsing failed here, items will still be propagated as if
-            // the block is complete. Verification later might succeed.
-            publisherManager.closeBlock(null, handlerId);
-            LOGGER.log(INFO, "Failed to parse block proof: {}", e.getMessage());
+    private boolean isEndStreamRequestValid(
+            final EndStream.Code code, final long endStreamEarliestBlockNumber, final long endStreamLatestBlockNumber) {
+        boolean isRequestValid = false;
+        if (EndStream.Code.ERROR != code) {
+            if (endStreamEarliestBlockNumber >= 0 && endStreamLatestBlockNumber >= endStreamEarliestBlockNumber) {
+                // The request is valid because both earliest and latest are
+                // greater than or equal to 0, and latest is greater than or
+                // equal to earliest.
+                isRequestValid = true;
+            }
+        } else {
+            // If the code is ERROR, we do not need to validate the earliest and
+            // latest block numbers, because in the ERROR case, they are not
+            // expected based on the proto API.
+            isRequestValid = true;
         }
-        unacknowledgedStreamedBlocks.add(blockNumber);
-        resetState();
+        return isRequestValid;
+    }
+
+    @SuppressWarnings("UnusedReturnValue")
+    private EndStreamResult handleValidEndStreamRequest(
+            final EndStream.Code code,
+            final String earliestAndLatestBlockNumbers,
+            final long endStreamLatestBlockNumber) {
+        return switch (code) {
+            case EndStream.Code.UNKNOWN -> {
+                final String message = "Handler %d received EndStream with UNKNOWN. %s"
+                        .formatted(handlerId, earliestAndLatestBlockNumbers);
+                yield handleEndStream(WARNING, message);
+            }
+            case EndStream.Code.RESET -> {
+                final String message = "Handler %d received EndStream with RESET. %s"
+                        .formatted(handlerId, earliestAndLatestBlockNumbers);
+                yield handleEndStream(DEBUG, message);
+            }
+            case EndStream.Code.TIMEOUT -> {
+                final String message = "Handler %d received EndStream with TIMEOUT. %s"
+                        .formatted(handlerId, earliestAndLatestBlockNumbers);
+                yield handleEndStream(DEBUG, message);
+            }
+            case EndStream.Code.ERROR -> {
+                final String message = "Handler %d received EndStream with ERROR.".formatted(handlerId);
+                yield handleEndStream(DEBUG, message);
+            }
+            case EndStream.Code.TOO_FAR_BEHIND -> {
+                final String message = "Handler %d received EndStream with TOO_FAR_BEHIND. %s"
+                        .formatted(handlerId, earliestAndLatestBlockNumbers);
+                yield handleEndStreamBehind(DEBUG, message, endStreamLatestBlockNumber);
+            }
+        };
     }
 
     // ==== Publisher Response Methods =========================================
+
     /**
      * Send an acknowledgement for the last block number that was persisted.
      * <p>
@@ -449,6 +455,49 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
     private record BatchHandleResult(boolean shouldShutdown, boolean shouldReset) {}
 
     /**
+     * This method handles the result of a block action handle.
+     *
+     * @param handleResult the result to handle
+     */
+    private void handleBlockActionResult(final BatchHandleResult handleResult) {
+        if (handleResult.shouldReset()) {
+            resetState();
+        }
+        if (handleResult.shouldShutdown()) {
+            shutdown();
+        }
+    }
+
+    /**
+     * Handle a block proof received from the publisher.
+     * <p>
+     * This method is called when a block proof is received from the publisher.
+     * It will parse the block proof and close the block in the publisher manager.
+     * If parsing fails, it will log an error and close the block with a null proof.
+     * <p>
+     * It is important to note that a null proof sent to the close block method
+     * does not prevent sending the proof into messaging, it just means the
+     * publisher manager won't have the proof for metrics, logging, and
+     * calculating whether other handlers are too slow and a resend must be
+     * initiated.
+     *
+     * @param blockProofBytes the bytes of the block proof to handle
+     * @param blockNumber the block number that this proof is for
+     */
+    private void handleBlockProof(final Bytes blockProofBytes, final long blockNumber) {
+        try {
+            publisherManager.closeBlock(BlockProof.PROTOBUF.parse(blockProofBytes), handlerId);
+        } catch (final ParseException e) {
+            // If parsing failed here, items will still be propagated as if
+            // the block is complete. Verification later might succeed.
+            publisherManager.closeBlock(null, handlerId);
+            LOGGER.log(INFO, "Failed to parse block proof: {}", e.getMessage());
+        }
+        unacknowledgedStreamedBlocks.add(blockNumber);
+        resetState();
+    }
+
+    /**
      * Handle the ACCEPT action for a block.
      */
     private BatchHandleResult handleAccept(
@@ -535,6 +584,51 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
         return new BatchHandleResult(true, true);
     }
 
+    // ==== EndStream Handling Methods =========================================
+
+    /**
+     * Simple record to hold the result of an end stream request handling.
+     *
+     * @param shouldShutdown boolean value indicating whether the handler should
+     * shut down after handling the end stream request.
+     */
+    private record EndStreamResult(boolean shouldShutdown) {}
+
+    /**
+     * This method handles an {@link EndStream} requests with codes
+     * <pre>
+     *     {@link EndStream.Code#UNKNOWN}
+     *     {@link EndStream.Code#RESET}
+     *     {@link EndStream.Code#TIMEOUT}
+     *     {@link EndStream.Code#ERROR}
+     * </pre>
+     */
+    private EndStreamResult handleEndStream(final Level logLevel, final String message) {
+        LOGGER.log(logLevel, message);
+        final long blockNumber = currentStreamingBlockNumber.get();
+        if ((blockAction != null) && (UNKNOWN_BLOCK_NUMBER != blockNumber)) {
+            // This should generally not happen, we expect an end stream request
+            // from a publisher after it has completely streamed a full block.
+            LOGGER.log(INFO, "Handler %d is ending mid-block %d".formatted(handlerId, blockNumber));
+            publisherManager.handlerIsEnding(blockNumber, handlerId);
+        }
+        return new EndStreamResult(true);
+    }
+
+    /**
+     * This method handles an {@link EndStream} request with
+     * {@link EndStream.Code#TOO_FAR_BEHIND}.
+     */
+    private EndStreamResult handleEndStreamBehind(
+            final Level logLevel, final String message, final long endStreamLatestBlockNumber) {
+        if (endStreamLatestBlockNumber > publisherManager.getLatestBlockNumber()) {
+            publisherManager.notifyTooFarBehind(endStreamLatestBlockNumber);
+        }
+        return handleEndStream(logLevel, message);
+    }
+
+    // ==== Private Methods ====================================================
+
     /**
      * This method will reset the state of the handler. Block action will be
      * set to null, and the current streaming block number will be set to
@@ -552,11 +646,23 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
      * Any cleanup that is needed should be done here.
      */
     private void shutdown() {
-        // reset the block action
-        blockAction = null;
-        // This method is called when the handler is removed from the manager.
-        // We should clean up any resources that are no longer needed.
-        publisherManager.removeHandler(handlerId);
+        // reset state
+        resetState();
+        try {
+            // This method is called when the handler is removed from the manager.
+            // We should clean up any resources that are no longer needed.
+            publisherManager.removeHandler(handlerId);
+        } catch (final RuntimeException e) {
+            // this should not happen
+            LOGGER.log(WARNING, "Exception during removal of handler %d from manager".formatted(handlerId), e);
+        } finally {
+            try {
+                // onComplete call in finally block to ensure it is called
+                replies.onComplete();
+            } catch (final RuntimeException e) {
+                LOGGER.log(DEBUG, "Exception during calling onComplete for handler %d".formatted(handlerId), e);
+            }
+        }
     }
 
     // ==== Metrics ============================================================

@@ -10,6 +10,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import org.hiero.block.api.PublishStreamResponse;
+import org.hiero.block.node.app.fixtures.plugintest.TestBlockMessagingFacility;
+import org.hiero.block.node.spi.blockmessaging.NewestBlockKnownToNetworkNotification;
 import org.hiero.block.node.spi.blockmessaging.PersistedNotification;
 import org.hiero.block.node.spi.blockmessaging.VerificationNotification;
 import org.hiero.block.node.stream.publisher.PublisherHandler;
@@ -34,10 +36,16 @@ public class TestStreamPublisherManager implements StreamPublisherManager {
     final Map<Long, Integer> nullCloseBlockCalls = new LinkedHashMap<>();
     /** The list of publisher handlers managed by this manager. This could be a map with handler id as key if needed */
     private final List<PublisherHandler> publisherHandlers = new ArrayList<>();
+    /** The test block messaging facility used by this manager. */
+    private final TestBlockMessagingFacility blockMessagingFacility;
     /** The BlockAction to return when querying for next action for a block. */
     private BlockAction blockAction;
     /** The latest block number to be returned. */
     private long latestBlockNumber = -1L;
+
+    public TestStreamPublisherManager(final TestBlockMessagingFacility testBlockMessagingFacility) {
+        this.blockMessagingFacility = Objects.requireNonNull(testBlockMessagingFacility);
+    }
 
     @Override
     public PublisherHandler addHandler(
@@ -77,12 +85,19 @@ public class TestStreamPublisherManager implements StreamPublisherManager {
 
     @Override
     public void notifyTooFarBehind(long newestKnownBlockNumber) {
-        // Do nothing.
+        final NewestBlockKnownToNetworkNotification notification =
+                new NewestBlockKnownToNetworkNotification(newestKnownBlockNumber);
+        blockMessagingFacility.sendNewestBlockKnownToNetwork(notification);
+    }
+
+    @Override
+    public void handlerIsEnding(final long blockNumber, final long handlerId) {
+        throw new UnsupportedOperationException("implement handlerIsEnding in test fixture if needed");
     }
 
     @Override
     public void handleVerification(final VerificationNotification notification) {
-        throw new UnsupportedOperationException("implement handleVerification in test class");
+        throw new UnsupportedOperationException("implement handleVerification in test fixture if needed");
     }
 
     /**
@@ -167,5 +182,14 @@ public class TestStreamPublisherManager implements StreamPublisherManager {
      */
     public void setLatestBlockNumber(final long latestBlockNumber) {
         this.latestBlockNumber = latestBlockNumber;
+    }
+
+    /**
+     * Fixture method. Returns the internal block messaging facility used.
+     *
+     * @return the test block messaging facility used by this manager.
+     */
+    public TestBlockMessagingFacility getBlockMessagingFacility() {
+        return blockMessagingFacility;
     }
 }

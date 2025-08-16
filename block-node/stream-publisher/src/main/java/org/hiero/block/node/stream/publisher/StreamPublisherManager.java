@@ -68,6 +68,16 @@ public interface StreamPublisherManager extends BlockNotificationHandler {
     void notifyTooFarBehind(final long newestKnownBlockNumber);
 
     /**
+     * This method is called when a handler is ending in an unfinished state.
+     * This means that the block, currently streamed by this handler is not yet
+     * streamed in full.
+     *
+     * @param blockNumber the block number that has not finished streaming
+     * @param handlerId the id of the handler that is ending
+     */
+    void handlerIsEnding(final long blockNumber, final long handlerId);
+
+    /**
      * The action to take within the PublisherHandler for a block.
      */
     enum BlockAction {

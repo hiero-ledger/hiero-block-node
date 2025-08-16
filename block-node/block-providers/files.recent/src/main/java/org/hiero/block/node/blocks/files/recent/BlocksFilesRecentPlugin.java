@@ -247,23 +247,25 @@ public final class BlocksFilesRecentPlugin implements BlockProviderPlugin, Block
      */
     @Override
     public void handleVerification(VerificationNotification notification) {
-        // write the block to the live path and send notification of block persisted
-        writeBlockToLivePath(notification.block(), notification.blockNumber(), notification.source());
-        // we do a round of retention only if the retention threshold is set to
-        // a positive value, otherwise we do not run it
-        if (blockRetentionThreshold > 0L) {
-            // after writing the block, we need to trigger the retention policy
-            // calculate excess
-            final long excess = availableBlocks.size() - blockRetentionThreshold;
-            final long firstBlockToDelete = availableBlocks.min();
-            // determine how many blocks to delete, up to the retention round limit
-            final long blocksToDelete = Math.min(excess, RETENTION_ROUND_LIMIT);
-            // delete the blocks from the lowest block number up to calculated max
-            // gaps will be retried on subsequent retention runs, which are very
-            // frequent
-            final long lastBlockToDelete = firstBlockToDelete + blocksToDelete;
-            for (long i = firstBlockToDelete; i < lastBlockToDelete; i++) {
-                delete(i);
+        if (notification.success()) {
+            // write the block to the live path and send notification of block persisted
+            writeBlockToLivePath(notification.block(), notification.blockNumber(), notification.source());
+            // we do a round of retention only if the retention threshold is set to
+            // a positive value, otherwise we do not run it
+            if (blockRetentionThreshold > 0L) {
+                // after writing the block, we need to trigger the retention policy
+                // calculate excess
+                final long excess = availableBlocks.size() - blockRetentionThreshold;
+                final long firstBlockToDelete = availableBlocks.min();
+                // determine how many blocks to delete, up to the retention round limit
+                final long blocksToDelete = Math.min(excess, RETENTION_ROUND_LIMIT);
+                // delete the blocks from the lowest block number up to calculated max
+                // gaps will be retried on subsequent retention runs, which are very
+                // frequent
+                final long lastBlockToDelete = firstBlockToDelete + blocksToDelete;
+                for (long i = firstBlockToDelete; i < lastBlockToDelete; i++) {
+                    delete(i);
+                }
             }
         }
     }

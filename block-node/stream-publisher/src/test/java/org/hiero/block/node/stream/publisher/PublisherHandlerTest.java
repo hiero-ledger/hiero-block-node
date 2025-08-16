@@ -17,6 +17,7 @@ import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.LinkedTransferQueue;
 import java.util.concurrent.TransferQueue;
 import java.util.function.Function;
+import org.hiero.block.api.PublishStreamRequest.EndStream;
 import org.hiero.block.api.PublishStreamResponse;
 import org.hiero.block.api.PublishStreamResponse.EndOfStream.Code;
 import org.hiero.block.api.PublishStreamResponse.ResponseOneOfType;
@@ -24,7 +25,9 @@ import org.hiero.block.internal.BlockItemSetUnparsed;
 import org.hiero.block.internal.BlockItemUnparsed;
 import org.hiero.block.internal.PublishStreamRequestUnparsed;
 import org.hiero.block.node.app.fixtures.blocks.SimpleTestBlockItemBuilder;
+import org.hiero.block.node.app.fixtures.plugintest.TestBlockMessagingFacility;
 import org.hiero.block.node.spi.blockmessaging.BlockSource;
+import org.hiero.block.node.spi.blockmessaging.NewestBlockKnownToNetworkNotification;
 import org.hiero.block.node.spi.blockmessaging.PersistedNotification;
 import org.hiero.block.node.stream.publisher.PublisherHandler.MetricsHolder;
 import org.hiero.block.node.stream.publisher.StreamPublisherManager.BlockAction;
@@ -68,7 +71,7 @@ class PublisherHandlerTest {
             validNextId = 1L;
             validReplyPipeline = new TestResponsePipeline();
             validMetricsHodler = createMetrics();
-            validPublisherManager = new TestStreamPublisherManager();
+            validPublisherManager = new TestStreamPublisherManager(new TestBlockMessagingFacility());
             validTranserQueue = new LinkedBlockingQueue<>();
         }
 
@@ -175,7 +178,7 @@ class PublisherHandlerTest {
             handlerId = 1L;
             repliesPipeline = new TestResponsePipeline();
             metrics = createMetrics();
-            manager = new TestStreamPublisherManager();
+            manager = new TestStreamPublisherManager(new TestBlockMessagingFacility());
             transferQueue = new LinkedTransferQueue<>();
             toTest = new PublisherHandler(handlerId, repliesPipeline, metrics, manager, transferQueue);
             manager.addHandler(toTest);
@@ -710,7 +713,7 @@ class PublisherHandlerTest {
                 manager.setLatestBlockNumber(latestBlockNumber);
                 // Call
                 toTest.onNext(request);
-                // Assert single response is ResentBlock with block number same as streamed
+                // Assert single response is ResendBlock with block number same as streamed
                 assertThat(repliesPipeline.getOnNextCalls())
                         .hasSize(1)
                         .first()
@@ -833,17 +836,18 @@ class PublisherHandlerTest {
                 manager.setLatestBlockNumber(expectedLatestBlockNumber);
                 // Call
                 toTest.onNext(request);
-                // Assert single response is ResentBlock with block number same as streamed
+                // Assert single response is DUPLICATE_BLOCK with block number latest known and onComplete is called
+                // (shutdown)
                 assertThat(repliesPipeline.getOnNextCalls())
                         .hasSize(1)
                         .first()
                         .returns(ResponseOneOfType.END_STREAM, responseKindExtractor)
                         .returns(Code.DUPLICATE_BLOCK, endStreamResponseCodeExtractor)
                         .returns(expectedLatestBlockNumber, endStreamBlockNumberExtractor);
+                assertThat(repliesPipeline.getOnCompleteCalls().get()).isEqualTo(1);
                 // Assert no other responses sent
                 assertThat(repliesPipeline.getOnErrorCalls()).isEmpty();
                 assertThat(repliesPipeline.getOnSubscriptionCalls()).isEmpty();
-                assertThat(repliesPipeline.getOnCompleteCalls().get()).isEqualTo(0);
                 assertThat(repliesPipeline.getClientEndStreamCalls().get()).isEqualTo(0);
             }
 
@@ -957,17 +961,17 @@ class PublisherHandlerTest {
                 manager.setLatestBlockNumber(expectedLatestBlockNumber);
                 // Call
                 toTest.onNext(request);
-                // Assert single response is ResentBlock with block number same as streamed
+                // Assert single response is BEHIND with block number same as latest known
                 assertThat(repliesPipeline.getOnNextCalls())
                         .hasSize(1)
                         .first()
                         .returns(ResponseOneOfType.END_STREAM, responseKindExtractor)
                         .returns(Code.BEHIND, endStreamResponseCodeExtractor)
                         .returns(expectedLatestBlockNumber, endStreamBlockNumberExtractor);
+                assertThat(repliesPipeline.getOnCompleteCalls().get()).isEqualTo(1);
                 // Assert no other responses sent
                 assertThat(repliesPipeline.getOnErrorCalls()).isEmpty();
                 assertThat(repliesPipeline.getOnSubscriptionCalls()).isEmpty();
-                assertThat(repliesPipeline.getOnCompleteCalls().get()).isEqualTo(0);
                 assertThat(repliesPipeline.getClientEndStreamCalls().get()).isEqualTo(0);
             }
 
@@ -1081,17 +1085,17 @@ class PublisherHandlerTest {
                 manager.setLatestBlockNumber(expectedLatestBlockNumber);
                 // Call
                 toTest.onNext(request);
-                // Assert single response is ResentBlock with block number same as streamed
+                // Assert single response is ERROR and onComplete is called (shutdown)
                 assertThat(repliesPipeline.getOnNextCalls())
                         .hasSize(1)
                         .first()
                         .returns(ResponseOneOfType.END_STREAM, responseKindExtractor)
                         .returns(Code.ERROR, endStreamResponseCodeExtractor)
                         .returns(expectedLatestBlockNumber, endStreamBlockNumberExtractor);
+                assertThat(repliesPipeline.getOnCompleteCalls().get()).isEqualTo(1);
                 // Assert no other responses sent
                 assertThat(repliesPipeline.getOnErrorCalls()).isEmpty();
                 assertThat(repliesPipeline.getOnSubscriptionCalls()).isEmpty();
-                assertThat(repliesPipeline.getOnCompleteCalls().get()).isEqualTo(0);
                 assertThat(repliesPipeline.getClientEndStreamCalls().get()).isEqualTo(0);
             }
 
@@ -1498,17 +1502,17 @@ class PublisherHandlerTest {
                 // because the request would be invalid, we are sending a header, but the
                 // current block is not yet streamed in full as we sent only half of the items.
                 toTest.onNext(request);
-                // Assert single response is EndOfStream with Code INVALID_REQUEST
+                // Assert single response is EndOfStream with Code INVALID_REQUEST and onComplete is called (shutdown)
                 assertThat(repliesPipeline.getOnNextCalls())
                         .hasSize(1)
                         .first()
                         .returns(ResponseOneOfType.END_STREAM, responseKindExtractor)
                         .returns(Code.INVALID_REQUEST, endStreamResponseCodeExtractor)
                         .returns(manager.getLatestBlockNumber(), endStreamBlockNumberExtractor);
+                assertThat(repliesPipeline.getOnCompleteCalls().get()).isEqualTo(1);
                 // Assert no other responses sent
                 assertThat(repliesPipeline.getOnErrorCalls()).isEmpty();
                 assertThat(repliesPipeline.getOnSubscriptionCalls()).isEmpty();
-                assertThat(repliesPipeline.getOnCompleteCalls().get()).isEqualTo(0);
                 assertThat(repliesPipeline.getClientEndStreamCalls().get()).isEqualTo(0);
             }
 
@@ -1616,17 +1620,17 @@ class PublisherHandlerTest {
                         .build();
                 // Call
                 toTest.onNext(request);
-                // Assert single response is EndOfStream with Code INVALID_REQUEST
+                // Assert single response is EndOfStream with Code INVALID_REQUEST and onComplete is called (shutdown)
                 assertThat(repliesPipeline.getOnNextCalls())
                         .hasSize(1)
                         .first()
                         .returns(ResponseOneOfType.END_STREAM, responseKindExtractor)
                         .returns(Code.INVALID_REQUEST, endStreamResponseCodeExtractor)
                         .returns(manager.getLatestBlockNumber(), endStreamBlockNumberExtractor);
+                assertThat(repliesPipeline.getOnCompleteCalls().get()).isEqualTo(1);
                 // Assert no other responses sent
                 assertThat(repliesPipeline.getOnErrorCalls()).isEmpty();
                 assertThat(repliesPipeline.getOnSubscriptionCalls()).isEmpty();
-                assertThat(repliesPipeline.getOnCompleteCalls().get()).isEqualTo(0);
                 assertThat(repliesPipeline.getClientEndStreamCalls().get()).isEqualTo(0);
             }
 
@@ -1716,17 +1720,17 @@ class PublisherHandlerTest {
                         .build();
                 // Call
                 toTest.onNext(request);
-                // Assert single response is EndOfStream with Code ERROR
+                // Assert single response is EndOfStream with Code ERROR and onComplete is called (shutdown)
                 assertThat(repliesPipeline.getOnNextCalls())
                         .hasSize(1)
                         .first()
                         .returns(ResponseOneOfType.END_STREAM, responseKindExtractor)
                         .returns(Code.ERROR, endStreamResponseCodeExtractor)
                         .returns(manager.getLatestBlockNumber(), endStreamBlockNumberExtractor);
+                assertThat(repliesPipeline.getOnCompleteCalls().get()).isEqualTo(1);
                 // Assert no other responses sent
                 assertThat(repliesPipeline.getOnErrorCalls()).isEmpty();
                 assertThat(repliesPipeline.getOnSubscriptionCalls()).isEmpty();
-                assertThat(repliesPipeline.getOnCompleteCalls().get()).isEqualTo(0);
                 assertThat(repliesPipeline.getClientEndStreamCalls().get()).isEqualTo(0);
             }
 
@@ -1781,7 +1785,7 @@ class PublisherHandlerTest {
                         .build();
                 // Send the request to the pipeline
                 toTest.onNext(request);
-                // Assert response
+                // Assert response and onComplete is called (shutdown)
                 assertThat(repliesPipeline.getOnNextCalls())
                         .hasSize(1)
                         .first()
@@ -1789,10 +1793,10 @@ class PublisherHandlerTest {
                         .returns(ResponseOneOfType.END_STREAM, responseKindExtractor)
                         .returns(Code.INVALID_REQUEST, endStreamResponseCodeExtractor)
                         .returns(manager.getLatestBlockNumber(), endStreamBlockNumberExtractor);
+                assertThat(repliesPipeline.getOnCompleteCalls().get()).isEqualTo(1);
                 // Assert no other responses sent
                 assertThat(repliesPipeline.getOnErrorCalls()).isEmpty();
                 assertThat(repliesPipeline.getOnSubscriptionCalls()).isEmpty();
-                assertThat(repliesPipeline.getOnCompleteCalls().get()).isEqualTo(0);
                 assertThat(repliesPipeline.getClientEndStreamCalls().get()).isEqualTo(0);
             }
 
@@ -1822,10 +1826,10 @@ class PublisherHandlerTest {
                         .returns(ResponseOneOfType.END_STREAM, responseKindExtractor)
                         .returns(Code.INVALID_REQUEST, endStreamResponseCodeExtractor)
                         .returns(manager.getLatestBlockNumber(), endStreamBlockNumberExtractor);
+                assertThat(repliesPipeline.getOnCompleteCalls().get()).isEqualTo(1);
                 // Assert no other responses sent
                 assertThat(repliesPipeline.getOnErrorCalls()).isEmpty();
                 assertThat(repliesPipeline.getOnSubscriptionCalls()).isEmpty();
-                assertThat(repliesPipeline.getOnCompleteCalls().get()).isEqualTo(0);
                 assertThat(repliesPipeline.getClientEndStreamCalls().get()).isEqualTo(0);
             }
 
@@ -1852,11 +1856,141 @@ class PublisherHandlerTest {
                         .returns(ResponseOneOfType.END_STREAM, responseKindExtractor)
                         .returns(Code.ERROR, endStreamResponseCodeExtractor)
                         .returns(manager.getLatestBlockNumber(), endStreamBlockNumberExtractor);
+                assertThat(repliesPipeline.getOnCompleteCalls().get()).isEqualTo(1);
                 // Assert no other responses sent
                 assertThat(repliesPipeline.getOnErrorCalls()).isEmpty();
                 assertThat(repliesPipeline.getOnSubscriptionCalls()).isEmpty();
-                assertThat(repliesPipeline.getOnCompleteCalls().get()).isEqualTo(0);
                 assertThat(repliesPipeline.getClientEndStreamCalls().get()).isEqualTo(0);
+            }
+
+            /**
+             * This test aims to verify that the
+             * {@link PublisherHandler#onNext(PublishStreamRequestUnparsed)}
+             * correctly handles a request with EndStream shutdown. We expect
+             * that {@link PublishStreamResponse.EndOfStream}
+             * response is returned with any code to shut down the handler.
+             */
+            @ParameterizedTest()
+            @EnumSource(EndStream.Code.class)
+            @DisplayName("Test onNext() with EndStream shutdown - Code {code}")
+            void testOnNextEndStreamShutdown(final EndStream.Code code) {
+                final EndStream endStream = EndStream.newBuilder()
+                        .endCode(code)
+                        .earliestBlockNumber(0L)
+                        .latestBlockNumber(0L)
+                        .build();
+                // Build a PublishStreamRequest with an unset oneOf
+                final PublishStreamRequestUnparsed request = PublishStreamRequestUnparsed.newBuilder()
+                        .endStream(endStream)
+                        .build();
+                // Send the request to the pipeline
+                toTest.onNext(request);
+                // Assert response
+                assertThat(repliesPipeline.getOnCompleteCalls().get()).isEqualTo(1);
+                // Assert no other responses sent
+                assertThat(repliesPipeline.getOnNextCalls()).isEmpty();
+                assertThat(repliesPipeline.getOnErrorCalls()).isEmpty();
+                assertThat(repliesPipeline.getOnSubscriptionCalls()).isEmpty();
+                assertThat(repliesPipeline.getClientEndStreamCalls().get()).isEqualTo(0);
+            }
+
+            /**
+             * This test aims to verify that the
+             * {@link PublisherHandler#onNext(PublishStreamRequestUnparsed)}
+             * correctly handles a request with EndStream shutdown. We expect
+             * that {@link PublishStreamResponse.EndOfStream}
+             * response is returned with any code to shut down the handler even
+             * if the request is invalid as specified by
+             * {@link PublisherHandler#isEndStreamRequestValid(EndStream.Code, long, long)}.
+             */
+            @ParameterizedTest()
+            @EnumSource(EndStream.Code.class)
+            @DisplayName("Test onNext() with EndStream shutdown - Code {code}")
+            void testOnNextEndStreamShutdownInvalidRequest(final EndStream.Code code) {
+                // Make an invalid end stream request
+                final EndStream endStream = EndStream.newBuilder()
+                        .endCode(code)
+                        .earliestBlockNumber(100L)
+                        .latestBlockNumber(50L)
+                        .build();
+                // Build a PublishStreamRequest with an unset oneOf
+                final PublishStreamRequestUnparsed request = PublishStreamRequestUnparsed.newBuilder()
+                        .endStream(endStream)
+                        .build();
+                // Send the request to the pipeline
+                toTest.onNext(request);
+                // Assert response
+                assertThat(repliesPipeline.getOnCompleteCalls().get()).isEqualTo(1);
+                // Assert no other responses sent
+                assertThat(repliesPipeline.getOnNextCalls()).isEmpty();
+                assertThat(repliesPipeline.getOnErrorCalls()).isEmpty();
+                assertThat(repliesPipeline.getOnSubscriptionCalls()).isEmpty();
+                assertThat(repliesPipeline.getClientEndStreamCalls().get()).isEqualTo(0);
+            }
+
+            /**
+             * This test aims to verify that the
+             * {@link PublisherHandler#onNext(PublishStreamRequestUnparsed)}
+             * correctly handles a request with EndStream shutdown with code
+             * {@link EndStream.Code#TOO_FAR_BEHIND}. We expect that the handler
+             * will send a notification with the latest block known to the network
+             * if the node is truly behind.
+             */
+            @Test
+            @DisplayName("Test onNext() with EndStream TOO_FAR_BEHIND sends newest block known to network notification")
+            void testOnNextEndStreamTooFarBehind() {
+                // Set the latest block number in the manager
+                final long managerLatestKnownBlock = 50L;
+                manager.setLatestBlockNumber(managerLatestKnownBlock);
+                // Create an EndStream with TOO_FAR_BEHIND code
+                final EndStream endStream = EndStream.newBuilder()
+                        .endCode(EndStream.Code.TOO_FAR_BEHIND)
+                        .earliestBlockNumber(0L)
+                        .latestBlockNumber(100L)
+                        .build();
+                // Build a PublishStreamRequest with the EndStream
+                final PublishStreamRequestUnparsed request = PublishStreamRequestUnparsed.newBuilder()
+                        .endStream(endStream)
+                        .build();
+                // Send the request to the pipeline
+                toTest.onNext(request);
+                // Assert notification sent
+                final List<NewestBlockKnownToNetworkNotification> sentNotifications =
+                        manager.getBlockMessagingFacility().getSentNewestBlockKnownToNetworkNotifications();
+                assertThat(sentNotifications).hasSize(1);
+            }
+
+            /**
+             * This test aims to verify that the
+             * {@link PublisherHandler#onNext(PublishStreamRequestUnparsed)}
+             * correctly handles a request with EndStream shutdown with code
+             * {@link EndStream.Code#TOO_FAR_BEHIND}. We expect that the handler
+             * will not send a notification with the latest block known to the
+             * network if the node is not truly behind.
+             */
+            @Test
+            @DisplayName(
+                    "Test onNext() with EndStream TOO_FAR_BEHIND does not send newest block known to network notification")
+            void testOnNextEndStreamTooFarBehindNoNotification() {
+                // Set the latest block number in the manager
+                final long managerLatestKnownBlock = 100L;
+                manager.setLatestBlockNumber(managerLatestKnownBlock);
+                // Create an EndStream with TOO_FAR_BEHIND code
+                final EndStream endStream = EndStream.newBuilder()
+                        .endCode(EndStream.Code.TOO_FAR_BEHIND)
+                        .earliestBlockNumber(0L)
+                        .latestBlockNumber(50L)
+                        .build();
+                // Build a PublishStreamRequest with the EndStream
+                final PublishStreamRequestUnparsed request = PublishStreamRequestUnparsed.newBuilder()
+                        .endStream(endStream)
+                        .build();
+                // Send the request to the pipeline
+                toTest.onNext(request);
+                // Assert no notifications sent
+                final List<NewestBlockKnownToNetworkNotification> sentNotifications =
+                        manager.getBlockMessagingFacility().getSentNewestBlockKnownToNetworkNotifications();
+                assertThat(sentNotifications).hasSize(0);
             }
         }
 
@@ -1881,17 +2015,17 @@ class PublisherHandlerTest {
                 manager.setLatestBlockNumber(expectedLatestStreamedBlockNumber);
                 // Call onError with an arbitrary Throwable
                 toTest.onError(new RuntimeException());
-                // Assert single response is EndOfStream with Code ERROR
+                // Assert single response is EndOfStream with Code ERROR and onComplete is called (shutdown)
                 assertThat(repliesPipeline.getOnNextCalls())
                         .hasSize(1)
                         .first()
                         .returns(ResponseOneOfType.END_STREAM, responseKindExtractor)
                         .returns(Code.ERROR, endStreamResponseCodeExtractor)
                         .returns(expectedLatestStreamedBlockNumber, endStreamBlockNumberExtractor);
+                assertThat(repliesPipeline.getOnCompleteCalls().get()).isEqualTo(1);
                 // Assert no other responses sent
                 assertThat(repliesPipeline.getOnErrorCalls()).isEmpty();
                 assertThat(repliesPipeline.getOnSubscriptionCalls()).isEmpty();
-                assertThat(repliesPipeline.getOnCompleteCalls().get()).isEqualTo(0);
                 assertThat(repliesPipeline.getClientEndStreamCalls().get()).isEqualTo(0);
             }
 
@@ -2028,17 +2162,17 @@ class PublisherHandlerTest {
                 manager.setLatestBlockNumber(latestBlockNumber);
                 // Call
                 toTest.handleFailedVerification(expectedBlockNumber);
-                // Assert single response is EndOfStream with Code BAD_BLOCK_PROOF
+                // Assert single response is EndOfStream with Code BAD_BLOCK_PROOF and onComplete is called (shutdown)
                 assertThat(repliesPipeline.getOnNextCalls())
                         .hasSize(1)
                         .first()
                         .returns(ResponseOneOfType.END_STREAM, responseKindExtractor)
                         .returns(Code.BAD_BLOCK_PROOF, endStreamResponseCodeExtractor)
                         .returns(latestBlockNumber, endStreamBlockNumberExtractor);
+                assertThat(repliesPipeline.getOnCompleteCalls().get()).isEqualTo(1);
                 // Assert no other responses sent
                 assertThat(repliesPipeline.getOnErrorCalls()).isEmpty();
                 assertThat(repliesPipeline.getOnSubscriptionCalls()).isEmpty();
-                assertThat(repliesPipeline.getOnCompleteCalls().get()).isEqualTo(0);
                 assertThat(repliesPipeline.getClientEndStreamCalls().get()).isEqualTo(0);
             }
         }
