@@ -15,6 +15,7 @@ import org.hiero.block.api.BlockNodeServiceInterface;
 public class BlockNodeClient {
     // Options definition for all gRPC services in the block node client
     private record Options(Optional<String> authority, String contentType) implements ServiceInterface.RequestOptions {}
+
     private static final BlockNodeClient.Options OPTIONS =
             new BlockNodeClient.Options(Optional.empty(), ServiceInterface.RequestOptions.APPLICATION_GRPC);
 
