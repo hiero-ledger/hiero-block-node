@@ -20,14 +20,11 @@ module org.hiero.block.node.backfill {
     requires transitive com.swirlds.metrics.api;
     requires transitive org.hiero.block.node.spi;
     requires transitive org.hiero.block.protobuf.pbj;
-    requires transitive io.grpc.stub;
-    requires transitive io.grpc;
-    requires transitive io.helidon.grpc.core;
-    requires transitive io.helidon.webclient.grpc;
     requires com.hedera.pbj.grpc.client.helidon;
     requires org.hiero.block.node.base;
     requires io.helidon.common.tls;
     requires io.helidon.webclient.api;
+    requires io.helidon.webclient.grpc;
     requires org.antlr.antlr4.runtime;
     requires static transitive com.github.spotbugs.annotations;
 
