@@ -180,7 +180,8 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
                     blockNodeSourcesPath,
                     backfillConfiguration.maxRetries(),
                     this.backfillRetries,
-                    backfillConfiguration.initialRetryDelay());
+                    backfillConfiguration.initialRetryDelay(),
+                    backfillConfiguration.grpcOverallTimeout());
             LOGGER.log(TRACE, "Initialized gRPC client with sources path: {0}", blockNodeSourcesPath);
         } catch (Exception e) {
             LOGGER.log(INFO, "Failed to initialize gRPC client: {0}", e.getMessage());
@@ -368,7 +369,7 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
 
         LOGGER.log(
                 TRACE,
-                "Completed backfilling task (does not mean success or failure, just completion) of type {0} gap from {1} to {2} ",
+                "Completed backfilling task (completion only) of type {0} gap from {1} to {2} ",
                 backfillType,
                 gap.start(),
                 gap.end());

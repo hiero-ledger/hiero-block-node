@@ -20,7 +20,6 @@ public class BlockNodeClient {
             new BlockNodeClient.Options(Optional.empty(), ServiceInterface.RequestOptions.APPLICATION_GRPC);
 
     // block node services
-
     private final BlockStreamSubscribeUnparsedClient blockStreamSubscribeUnparsedClient;
     private final BlockNodeServiceInterface.BlockNodeServiceClient blockNodeServiceClient;
 
@@ -29,20 +28,22 @@ public class BlockNodeClient {
      *
      * @param blockNodeConfig the configuration for the block node, including address and port
      */
-    public BlockNodeClient(BackfillSourceConfig blockNodeConfig) {
+    public BlockNodeClient(BackfillSourceConfig blockNodeConfig, int timeoutMs) {
+
+        final Duration timeoutDuration = Duration.ofMillis(timeoutMs);
 
         final Tls tls = Tls.builder().enabled(false).build();
         final PbjGrpcClientConfig grpcConfig =
-                new PbjGrpcClientConfig(Duration.ofSeconds(30), tls, Optional.of(""), "application/grpc");
+                new PbjGrpcClientConfig(timeoutDuration, tls, Optional.of(""), "application/grpc");
 
         final WebClient webClient = WebClient.builder()
                 .baseUri("http://" + blockNodeConfig.address() + ":" + blockNodeConfig.port())
                 .tls(tls)
                 .protocolConfigs(List.of(GrpcClientProtocolConfig.builder()
                         .abortPollTimeExpired(false)
-                        .pollWaitTime(Duration.ofSeconds(30))
+                        .pollWaitTime(timeoutDuration)
                         .build()))
-                .connectTimeout(Duration.ofSeconds(30))
+                .connectTimeout(timeoutDuration)
                 .build();
 
         PbjGrpcClient pbjGrpcClient = new PbjGrpcClient(webClient, grpcConfig);

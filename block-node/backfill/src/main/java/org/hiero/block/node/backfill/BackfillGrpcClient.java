@@ -53,6 +53,9 @@ public class BackfillGrpcClient {
      */
     private final int initialRetryDelayMs;
 
+    /** Connection timeout in milliseconds for gRPC calls to block nodes. */
+    private final int connectionTimeoutSeconds;
+
     /** Current status of the Block Node Clients */
     private ConcurrentHashMap<BackfillSourceConfig, Status> nodeStatusMap = new ConcurrentHashMap<>();
     /**
@@ -67,12 +70,17 @@ public class BackfillGrpcClient {
      * @param blockNodePreferenceFilePath the path to the block node preference file
      */
     public BackfillGrpcClient(
-            Path blockNodePreferenceFilePath, int maxRetries, Counter backfillRetriesCounter, int retryInitialDelayMs)
+            Path blockNodePreferenceFilePath,
+            int maxRetries,
+            Counter backfillRetriesCounter,
+            int retryInitialDelayMs,
+            int connectionTimeoutSeconds)
             throws IOException, ParseException {
         this.blockNodeSource = BackfillSource.JSON.parse(Bytes.wrap(Files.readAllBytes(blockNodePreferenceFilePath)));
         this.maxRetries = maxRetries;
         this.initialRetryDelayMs = retryInitialDelayMs;
         this.backfillRetries = backfillRetriesCounter;
+        this.connectionTimeoutSeconds = connectionTimeoutSeconds;
 
         for (BackfillSourceConfig node : blockNodeSource.nodes()) {
             LOGGER.log(INFO, "Address: {0}, Port: {1}, Priority: {2}", node.address(), node.port(), node.priority());
@@ -198,7 +206,8 @@ public class BackfillGrpcClient {
      * @return a BlockNodeClient for the specified node
      */
     private BlockNodeClient getNodeClient(BackfillSourceConfig node) {
-        return nodeClientMap.computeIfAbsent(node, BlockNodeClient::new);
+        return nodeClientMap.computeIfAbsent(
+                node, BlockNodeClient -> new BlockNodeClient(node, connectionTimeoutSeconds));
     }
 
     /**

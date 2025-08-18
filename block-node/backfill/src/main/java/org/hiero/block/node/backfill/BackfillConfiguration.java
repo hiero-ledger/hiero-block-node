@@ -21,6 +21,7 @@ import org.hiero.block.node.base.Loggable;
  * @param initialDelay Initial delay in seconds before starting the backfill process, to give time for the system to stabilize
  * @param perBlockProcessingTimeout Timeout in milliseconds for processing each block, to avoid blocking the backfill
  *                                  process indefinitely in case something unexpected happens, this would allow for self-recovery
+ * @param grpcOverallTimeout single timeout configuration for gRPC Client construction, connectTimeout, readTimeout and pollWaitTime
  */
 @ConfigData("backfill")
 public record BackfillConfiguration(
@@ -33,4 +34,5 @@ public record BackfillConfiguration(
         @Loggable @ConfigProperty(defaultValue = "25") @Min(1) @Max(10_000) int fetchBatchSize,
         @Loggable @ConfigProperty(defaultValue = "1000") @Min(100) int delayBetweenBatches,
         @Loggable @ConfigProperty(defaultValue = "15000") @Min(5) int initialDelay,
-        @Loggable @ConfigProperty(defaultValue = "1000") @Min(500) int perBlockProcessingTimeout) {}
+        @Loggable @ConfigProperty(defaultValue = "1000") @Min(500) int perBlockProcessingTimeout,
+        @Loggable @ConfigProperty(defaultValue = "30000") @Min(10000) int grpcOverallTimeout) {}
