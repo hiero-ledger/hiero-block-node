@@ -39,8 +39,6 @@ import org.hiero.block.node.spi.historicalblocks.LongRange;
  */
 public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler {
 
-    private static final String METRICS_CATEGORY = "backfill";
-
     /** The logger for this class. */
     private final System.Logger LOGGER = System.getLogger(getClass().getName());
 

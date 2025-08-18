@@ -1,35 +1,137 @@
-# Server Configuration
+# Hiero Block Node Configuration Document
 
-The components of the Hiero Block Node all support loading configuration via the
-environment.
+## Table of Contents
 
-## Default Values
+- [Overview](#overview)
+- [Core Configuration Options](#core-configuration-options)
+- [Server Configuration](#server-configuration)
+- [Metrics Endpoint Configuration](#metrics-endpoint-configuration)
+- [Configurations By Plugin](#configurations-by-plugin)
+  - [Backfill Plugin Configuration](#backfill-plugin-configuration)
+  - [Block Access Plugin Configuration](#block-access-plugin-configuration)
+  - [Files Historic Plugin Configuration](#files-historic-plugin-configuration)
+  - [Files Recent Plugin Configuration](#files-recent-plugin-configuration)
+  - [Health Plugin Configuration](#health-plugin-configuration)
+  - [Messaging Plugin Configuration](#messaging-plugin-configuration)
+  - [Archive Plugin Configuration (S3 Archive)](#archive-plugin-configuration-s3-archive)
+  - [Server Status Plugin Configuration](#server-status-plugin-configuration)
+  - [Publisher Plugin Configuration](#publisher-plugin-configuration)
+  - [Subscriber Plugin Configuration](#subscriber-plugin-configuration)
+  - [Verification Plugin Configuration](#verification-plugin-configuration)
 
-The default configuration allows users to quickly get up and running without having to configure anything. This provides
-ease of use at the trade-off of some insecure default configuration. Most configuration settings have appropriate
-defaults and can be left unchanged. It is recommended to browse the properties below and adjust to your needs.
+## Overview
 
-| Environment Variable                       | Description                                                                                  | Default Value                     |
-|:-------------------------------------------|:---------------------------------------------------------------------------------------------|:----------------------------------|
-| PERSISTENCE_STORAGE_LIVE_ROOT_PATH         | The root path for the live storage.                                                          | /opt/heiro/blocknode/data/live    |
-| PERSISTENCE_STORAGE_ARCHIVE_ROOT_PATH      | The root path for the archive storage.                                                       | /opt/hiero/blocknode/data/archive |
-| PERSISTENCE_STORAGE_TYPE                   | Type of the persistence storage                                                              | BLOCK_AS_LOCAL_FILE               |
-| PERSISTENCE_STORAGE_COMPRESSION            | Compression algorithm used during persistence (could be none as well)                        | ZSTD                              |
-| PERSISTENCE_STORAGE_COMPRESSION_LEVEL      | Compression level to be used by the compression algorithm                                    | 3                                 |
-| PERSISTENCE_STORAGE_ARCHIVE_ENABLED        | Whether to enable archiving of blocks                                                        | true                              |
-| PERSISTENCE_STORAGE_ARCHIVE_GROUP_SIZE     | The size of the group of blocks to be archived at once                                       | 1_000                             |
-| PERSISTENCE_STORAGE_EXECUTOR_TYPE          | Type of executor for async writers (THREAD_POOL, SINGLE_THREAD, FORK_JOIN)                   | THREAD_POOL                       |
-| PERSISTENCE_STORAGE_THREAD_COUNT           | Number of threads for thread pool executor (1-16)                                            | 6                                 |
-| PERSISTENCE_STORAGE_THREAD_KEEP_ALIVE_TIME | Keep-alive time in seconds for idle threads in thread pool                                   | 60                                |
-| PERSISTENCE_STORAGE_USE_VIRTUAL_THREADS    | Whether to use virtual threads (Java 21 feature) instead of platform threads                 | false                             |
-| PERSISTENCE_STORAGE_EXECUTION_QUEUE_LIMIT  | Maximum queue size for pending tasks (64-2048)                                               | 1024                              |
-| CONSUMER_MAX_BLOCK_ITEM_BATCH_SIZE         | Maximum size of block item batches streamed to a client for closed-range historical requests | 250                               |
-| CONSUMER_TIMEOUT_THRESHOLD_MILLIS          | Time to wait for subscribers before disconnecting in milliseconds                            | 1500                              |
-| SERVICE_DELAY_MILLIS                       | Service shutdown delay in milliseconds                                                       | 500                               |
-| MEDIATOR_RING_BUFFER_SIZE                  | Size of the ring buffer used by the mediator (must be a power of 2)                          | 4096                              |
-| NOTIFIER_RING_BUFFER_SIZE                  | Size of the ring buffer used by the notifier (must be a power of 2)                          | 2048                              |
-| SERVER_PORT                                | The port the server will listen on                                                           | 40840                             |
-| SERVER_MAX_MESSAGE_SIZE_BYTES              | The maximum size of a message frame in bytes                                                 | 1048576                           |
-| VERIFICATION_ENABLED                       | Enables or disables the block verification process                                           | true                              |
-| VERIFICATION_SESSION_TYPE                  | The type of BlockVerificationSession to use, either `ASYNC` or `SYNC`                        | ASYNC                             |
-| VERIFICATION_HASH_COMBINE_BATCH_SIZE       | The number of hashes to combine into a single hash during verification                       | 32                                |
+This document outlines configuration options for the Hiero Block Node. Most settings are controlled via environment variables for flexible deployment.
+
+Each plugin has its own properties, but this focuses on core options and core plugins.
+
+## Core Configuration Options
+
+| ENV Variable                      | Description                                                                                 | Default |
+|:----------------------------------|:--------------------------------------------------------------------------------------------|:-------:|
+| BLOCK_NODE_EARLIEST_MANAGED_BLOCK | Earliest block managed by this node. Older blocks may exist but won’t be fetched or stored. |    0    |
+
+### Server Configuration
+
+| ENV Variable                            | Description                          |  Default  |
+|:----------------------------------------|:-------------------------------------|:---------:|
+| SERVER_MAX_MESSAGE_SIZE_BYTES           | Max message size (bytes) for HTTP/2. | 4,194,304 |
+| SERVER_SOCKET_SEND_BUFFER_SIZE_BYTES    | Send buffer size (bytes).            |   32768   |
+| SERVER_SOCKET_RECEIVE_BUFFER_SIZE_BYTES | Receive buffer size (bytes).         |   32768   |
+| SERVER_PORT                             | Server listening port.               |   40840   |
+| SERVER_SHUTDOWN_DELAY_MILLIS            | Delay before shutdown (ms).          |    500    |
+
+### Metrics Endpoint Configuration
+
+| ConfigKey                 | Description                          | Default |
+|:--------------------------|:-------------------------------------|--------:|
+| enableEndpoint            | Enable/disable Prometheus endpoint.  |    true |
+| endpointPortNumber        | Prometheus endpoint port.            |   16007 |
+| endpointMaxBacklogAllowed | Max queued incoming TCP connections. |       1 |
+
+## Configurations By Plugin
+
+### Backfill Plugin Configuration
+
+| ENV Variable                          | Description                                   | Default |
+|:--------------------------------------|:----------------------------------------------|:-------:|
+| BACKFILL_START_BLOCK                  | First block this BN deploy wants.             |    0    |
+| BACKFILL_END_BLOCK                    | Max block number, -1 means no limit.          |   -1    |
+| BACKFILL_BLOCK_NODE_SOURCES_PATH      | File path for BN sources (yaml).              |   ""    |
+| BACKFILL_SCAN_INTERVAL                | Scan interval for gaps (minutes).             |   60    |
+| BACKFILL_MAX_RETRIES                  | Max retries to fetch a block.                 |    3    |
+| BACKFILL_INITIAL_RETRY_DELAY          | Initial retry delay (ms), grows linearly.     |  5000   |
+| BACKFILL_FETCH_BATCH_SIZE             | Number of blocks per gRPC call.               |   25    |
+| BACKFILL_DELAY_BETWEEN_BATCHES        | Delay (ms) between block batches.             |  1000   |
+| BACKFILL_INITIAL_DELAY                | Initial delay (s) before starting backfill.   |   15    |
+| BACKFILL_PER_BLOCK_PROCESSING_TIMEOUT | Timeout (ms) per block to allow recovery.     |  1000   |
+| BACKFILL_GRPC_OVERALL_TIMEOUT         | Overall gRPC timeout (connect, read, poll).   |  30000  |
+| BACKFILL_ENABLE_TLS                   | Enable TLS if supported by block-node client. |  false  |
+
+### Block Access Plugin Configuration
+
+Currently, no specific options.
+
+### Files Historic Plugin Configuration
+
+| ENV Variable                             | Description                                                   |               Default               |
+|:-----------------------------------------|:--------------------------------------------------------------|:-----------------------------------:|
+| FILES_HISTORIC_ROOT_PATH                 | Root path for saving historic blocks.                         | /opt/hiero/block-node/data/historic |
+| FILES_HISTORIC_COMPRESSION               | Compression type (e.g., ZSTD).                                |                                     |
+| FILES_HISTORIC_POWERS_OF_TEN             | Files per zip in powers of ten (1=10, 2=100, …, 6=1,000,000). |                  4                  |
+| FILES_HISTORIC_BLOCK_RETENTION_THRESHOLD | Number of zips to retain. 0 means keep indefinitely.          |                  0                  |
+
+### Files Recent Plugin Configuration
+
+| ENV Variable                           | Description                                         |             Default             |
+|:---------------------------------------|:----------------------------------------------------|:-------------------------------:|
+| FILES_RECENT_LIVE_ROOT_PATH            | Root path for saving live blocks.                   | /opt/hiero/block-node/data/live |
+| FILES_RECENT_COMPRESSION               | Compression type (e.g., ZSTD).                      |              ZSTD               |
+| FILES_RECENT_MAX_FILES_PER_DIR         | Max files per directory to avoid filesystem issues. |                3                |
+| FILES_RECENT_BLOCK_RETENTION_THRESHOLD | Block retention count. `0` means keep indefinitely. |             96,000              |
+
+### Health Plugin Configuration
+
+Currently, no specific options.
+
+### Messaging Plugin Configuration
+
+| ENV Variable                            | Description                                                                               | Default |
+|:----------------------------------------|:------------------------------------------------------------------------------------------|:-------:|
+| MESSAGING_BLOCK_ITEM_QUEUE_SIZE         | Max messages in block item queue. Each batch ~100 items. Must be power of 2.              |  1024   |
+| MESSAGING_BLOCK_NOTIFICATION_QUEUE_SIZE | Max block notifications queued. Each may hold a full block in memory. Must be power of 2. |   256   |
+
+### Archive Plugin Configuration (S3 Archive)
+
+| ENV Variable            | Description                                                                 |      Default       |
+|:------------------------|:----------------------------------------------------------------------------|:------------------:|
+| ARCHIVE_BLOCKS_PER_FILE | Number of blocks per archive file. Must be a positive power of 10.          |       100000       |
+| ARCHIVE_ENDPOINT_URL    | Endpoint URL for the archive service (e.g., `https://s3.amazonaws.com/`).   |         ""         |
+| ARCHIVE_BUCKET_NAME     | Bucket name where archive files are stored.                                 | block-node-archive |
+| ARCHIVE_BASE_PATH       | Base path inside the bucket for archive files.                              |       blocks       |
+| ARCHIVE_STORAGE_CLASS   | Storage class (e.g., STANDARD, INTELLIGENT_TIERING, GLACIER, DEEP_ARCHIVE). |      STANDARD      |
+| ARCHIVE_REGION_NAME     | Region for the archive service (e.g., `us-east-1`).                         |     us-east-1      |
+| ARCHIVE_ACCESS_KEY      | Access key for the archive service.                                         |         ""         |
+| ARCHIVE_SECRET_KEY      | Secret key for the archive service.                                         |         ""         |
+
+### Server Status Plugin Configuration
+
+Currently, no specific options.
+
+### Publisher Plugin Configuration
+
+| ENV Variable                 | Description                                                    |          Default          |
+|:-----------------------------|:---------------------------------------------------------------|:-------------------------:|
+| PRODUCER_BATCH_FORWARD_LIMIT | Max number of blocks to forward in a batch. Must be ≥ 100,000. | 9,223,372,036,854,775,807 |
+
+### Subscriber Plugin Configuration
+
+| ENV Variable                           | Description                                                                                            | Default |
+|:---------------------------------------|:-------------------------------------------------------------------------------------------------------|:-------:|
+| SUBSCRIBER_LIVE_QUEUE_SIZE             | Queue size (in batches) for transferring live data between messaging and client threads. Must be ≥100. |  4000   |
+| SUBSCRIBER_MAXIMUM_FUTURE_REQUEST      | Max blocks ahead of latest "live" block a request can start from. Must be ≥10.                         |  4000   |
+| SUBSCRIBER_MINIMUM_LIVE_QUEUE_CAPACITY | Minimum free capacity in the live queue before dropping oldest blocks. Typically ~10% of queue size.   |   400   |
+
+### Verification Plugin Configuration
+
+Currently, no specific options.

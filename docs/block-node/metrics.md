@@ -17,6 +17,7 @@
    8. [files.historic](#fileshistoric)
    9. [s3-archive](#s3-archive)
    10. [Server Status API](#server-status-api)
+   11. [Backfill](#backfill)
 
 ## Summary
 
@@ -95,15 +96,17 @@ Observes the block access service that serves requests for blocks.
 **Plugin:** `messaging [facility-messaging]`
 Observes the messaging system that connects the publisher with subscribers and the rest of the system.
 
-|  Type   |                     Name                     |                Description                |
-|---------|----------------------------------------------|-------------------------------------------|
-| Counter | `messaging_block_items_received`             | Incoming block items seen by the mediator |
-| Counter | `messaging_block_verification_notifications` | Notifications issued after verification   |
-| Counter | `messaging_block_persisted_notifications`    | Notifications issued after persistence    |
-| Gauge   | `messaging_no_of_item_listeners`             | Active item listeners                     |
-| Gauge   | `messaging_no_of_notification_listeners`     | Active notification listeners             |
-| Gauge   | `messaging_item_queue_percent_used`          | Percent of item queue utilised            |
-| Gauge   | `messaging_notification_queue_percent_used`  | Percent of notification queue utilised    |
+|  Type   |                          Name                           |                 Description                 |
+|---------|---------------------------------------------------------|---------------------------------------------|
+| Counter | `messaging_block_items_received`                        | Incoming block items seen by the mediator   |
+| Counter | `messaging_block_verification_notifications`            | Notifications issued after verification     |
+| Counter | `messaging_block_persisted_notifications`               | Notifications issued after persistence      |
+| Gauge   | `messaging_no_of_item_listeners`                        | Active item listeners                       |
+| Gauge   | `messaging_no_of_notification_listeners`                | Active notification listeners               |
+| Gauge   | `messaging_item_queue_percent_used`                     | Percent of item queue utilised              |
+| Gauge   | `messaging_notification_queue_percent_used`             | Percent of notification queue utilised      |
+| Counter | `messaging_block_backfilled_notifications`              | Notifications issues for backfilling blocks |
+| Counter | `messaging_newest_block_known_to_network_notifications` | Notifications issued for newest block known |
 
 ---
 
@@ -213,3 +216,18 @@ Observes the server status API that provides information about the node.
 |  Type   |           Name            |           Description            |
 |---------|---------------------------|----------------------------------|
 | Counter | `server_status_requests ` | Number of server status requests |
+
+### Backfill
+
+**Plugin:** `backfill [block-node-backfill]`
+Provides metrics related to the backfill process, including On-Demand and Historical backfills.
+
+|  Type   |             Name             |                                            Description                                            |
+|---------|------------------------------|---------------------------------------------------------------------------------------------------|
+| Counter | `backfill_gaps_detected`     | Total number of gaps detected at start-up                                                         |
+| Counter | `backfill_blocks_fetched`    | Total number of blocks fetched during backfill                                                    |
+| Counter | `backfill_blocks_backfilled` | Total number of blocks successfully backfilled                                                    |
+| Counter | `backfill_fetch_errors`      | Total number of errors encountered while fetching blocks                                          |
+| Counter | `backfill_retries`           | Total number of retries attempted during backfill                                                 |
+| Gauge   | `backfill_status`            | Current status of the backfill process (0=Idle, 1=Running, 2=Error, 3=On-Demand Error, 4=Unknown) |
+| Gauge   | `backfill_pending_blocks`    | Number of blocks pending to be backfilled                                                         |
