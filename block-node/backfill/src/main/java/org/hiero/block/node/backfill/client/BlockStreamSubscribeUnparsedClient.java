@@ -11,7 +11,6 @@ import com.hedera.pbj.runtime.ParseException;
 import com.hedera.pbj.runtime.grpc.GrpcCall;
 import com.hedera.pbj.runtime.grpc.GrpcClient;
 import com.hedera.pbj.runtime.grpc.Pipeline;
-import com.hedera.pbj.runtime.grpc.ServiceInterface;
 import edu.umd.cs.findbugs.annotations.NonNull;
 import java.util.ArrayList;
 import java.util.List;
@@ -44,10 +43,13 @@ public class BlockStreamSubscribeUnparsedClient {
     // From constructor
     private final GrpcClient grpcClient;
 
-    public BlockStreamSubscribeUnparsedClient(
-            @NonNull final GrpcClient grpcClient, @NonNull final ServiceInterface.RequestOptions requestOptions) {
+    /**
+     * Constructs a new client for subscribing to block streams.
+     *
+     * @param grpcClient the gRPC client to use for communication
+     */
+    public BlockStreamSubscribeUnparsedClient(@NonNull final GrpcClient grpcClient) {
         this.grpcClient = requireNonNull(grpcClient);
-        ServiceInterface.RequestOptions requestOptions1 = requireNonNull(requestOptions);
     }
 
     /**
@@ -134,9 +136,19 @@ public class BlockStreamSubscribeUnparsedClient {
         }
     }
 
+    /**
+     * Pipeline implementation for handling responses from the block stream subscription.
+     * It processes incoming {@link SubscribeStreamResponseUnparsed} messages and manages
+     * the state of the request context.
+     */
     private static final class SubscribePipeline implements Pipeline<SubscribeStreamResponseUnparsed> {
         private final RequestContext ctx;
 
+        /**
+         * Constructs a new pipeline for processing block stream subscription responses.
+         *
+         * @param ctx the request context to manage state across callbacks
+         */
         SubscribePipeline(RequestContext ctx) {
             this.ctx = ctx;
         }
