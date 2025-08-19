@@ -14,7 +14,8 @@ import org.hiero.block.api.BlockNodeServiceInterface;
 
 public class BlockNodeClient {
     // Options definition for all gRPC services in the block node client
-    private record Options(Optional<String> authority, String contentType) implements ServiceInterface.RequestOptions {}
+    private static record Options(Optional<String> authority, String contentType)
+            implements ServiceInterface.RequestOptions {}
 
     private static final BlockNodeClient.Options OPTIONS =
             new BlockNodeClient.Options(Optional.empty(), ServiceInterface.RequestOptions.APPLICATION_GRPC);
@@ -28,11 +29,11 @@ public class BlockNodeClient {
      *
      * @param blockNodeConfig the configuration for the block node, including address and port
      */
-    public BlockNodeClient(BackfillSourceConfig blockNodeConfig, int timeoutMs) {
+    public BlockNodeClient(BackfillSourceConfig blockNodeConfig, int timeoutMs, boolean enableTls) {
 
         final Duration timeoutDuration = Duration.ofMillis(timeoutMs);
 
-        final Tls tls = Tls.builder().enabled(false).build();
+        final Tls tls = Tls.builder().enabled(enableTls).build();
         final PbjGrpcClientConfig grpcConfig =
                 new PbjGrpcClientConfig(timeoutDuration, tls, Optional.of(""), "application/grpc");
 

@@ -1,14 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.node.backfill.client;
 
+import static java.lang.System.Logger.Level.DEBUG;
 import static java.lang.System.Logger.Level.TRACE;
 import static java.util.Objects.requireNonNull;
 import static org.hiero.block.api.BlockStreamSubscribeServiceInterface.FULL_NAME;
 
 import com.hedera.hapi.block.stream.output.BlockHeader;
-import com.hedera.pbj.runtime.Codec;
 import com.hedera.pbj.runtime.ParseException;
-import com.hedera.pbj.runtime.UncheckedParseException;
 import com.hedera.pbj.runtime.grpc.GrpcCall;
 import com.hedera.pbj.runtime.grpc.GrpcClient;
 import com.hedera.pbj.runtime.grpc.Pipeline;
@@ -44,12 +43,11 @@ public class BlockStreamSubscribeUnparsedClient {
 
     // From constructor
     private final GrpcClient grpcClient;
-    private final ServiceInterface.RequestOptions requestOptions;
 
     public BlockStreamSubscribeUnparsedClient(
             @NonNull final GrpcClient grpcClient, @NonNull final ServiceInterface.RequestOptions requestOptions) {
         this.grpcClient = requireNonNull(grpcClient);
-        this.requestOptions = requireNonNull(requestOptions);
+        ServiceInterface.RequestOptions requestOptions1 = requireNonNull(requestOptions);
     }
 
     /**
@@ -77,72 +75,13 @@ public class BlockStreamSubscribeUnparsedClient {
                 .build();
 
         // Create a per-request pipeline that closes over `ctx`
-        final Pipeline<SubscribeStreamResponseUnparsed> pipeline = new Pipeline<>() {
-            @Override
-            public void onSubscribe(Flow.Subscription subscription) {
-                LOGGER.log(TRACE, "received onSubscribe confirmation");
-                // No backpressure negotiation needed for this pattern.
-            }
-
-            @Override
-            public void onNext(SubscribeStreamResponseUnparsed subscribeStreamResponse) {
-                if (subscribeStreamResponse.hasBlockItems()) {
-                    final List<BlockItemUnparsed> blockItems =
-                            subscribeStreamResponse.blockItems().blockItems();
-
-                    // Start of a new block
-                    if (blockItems.getFirst().hasBlockHeader()) {
-                        final long expected = ctx.expectedBlockNumber;
-                        final long actual = extractBlockNumberFromBlockHeader(blockItems.getFirst());
-                        if (actual != expected) {
-                            ctx.fail(new IllegalStateException(
-                                    "Expected block number " + expected + " but received " + actual));
-                            return;
-                        }
-                        // Begin a new block with the header and following items in this frame
-                        ctx.currentBlockItems = new ArrayList<>(blockItems);
-                    } else {
-                        // Continuation of the current block
-                        ctx.currentBlockItems.addAll(blockItems);
-                    }
-
-                    // End of block
-                    if (blockItems.getLast().hasBlockProof()) {
-                        ctx.blocks.add(BlockUnparsed.newBuilder()
-                                .blockItems(ctx.currentBlockItems)
-                                .build());
-                        ctx.currentBlockItems = new ArrayList<>();
-                        ctx.expectedBlockNumber++;
-                    }
-
-                } else if (subscribeStreamResponse.hasStatus()) {
-                    final SubscribeStreamResponse.Code code = subscribeStreamResponse.status();
-                    if (code != SubscribeStreamResponse.Code.SUCCESS) {
-                        ctx.fail(new RuntimeException("Received error code: " + code));
-                    }
-                } else {
-                    ctx.fail(new RuntimeException("Received unexpected response without block items or code"));
-                }
-            }
-
-            @Override
-            public void onError(Throwable throwable) {
-                LOGGER.log(TRACE, "received onError", throwable);
-                ctx.fail(throwable);
-            }
-
-            @Override
-            public void onComplete() {
-                LOGGER.log(TRACE, "received onComplete");
-                ctx.complete();
-            }
-        };
+        final Pipeline<SubscribeStreamResponseUnparsed> pipeline = new SubscribePipeline(ctx);
 
         // Issue the call using the per-request pipeline
         final GrpcCall<SubscribeStreamRequest, SubscribeStreamResponseUnparsed> call = grpcClient.createCall(
                 FULL_NAME + "/subscribeBlockStream",
-                getSubscribeStreamRequestCodec(requestOptions),
-                getSubscribeStreamResponseUnparsedCodec(requestOptions),
+                SubscribeStreamRequest.PROTOBUF,
+                SubscribeStreamResponseUnparsed.PROTOBUF,
                 pipeline);
 
         call.sendRequest(request, true);
@@ -154,35 +93,8 @@ public class BlockStreamSubscribeUnparsedClient {
     /**
      * Extracts the block number from a block header item.
      */
-    private static long extractBlockNumberFromBlockHeader(BlockItemUnparsed itemUnparsed) {
-        try {
-            return BlockHeader.PROTOBUF.parse(itemUnparsed.blockHeaderOrThrow()).number();
-        } catch (ParseException e) {
-            throw new UncheckedParseException(e);
-        }
-    }
-
-    private static Codec<SubscribeStreamRequest> getSubscribeStreamRequestCodec(
-            @NonNull final ServiceInterface.RequestOptions options) {
-        requireNonNull(options);
-        // Default to protobuf, and don't error out if both are set:
-        if (options.isJson() && !options.isProtobuf()) {
-            return SubscribeStreamRequest.JSON;
-        } else {
-            return SubscribeStreamRequest.PROTOBUF;
-        }
-    }
-
-    @NonNull
-    private static Codec<SubscribeStreamResponseUnparsed> getSubscribeStreamResponseUnparsedCodec(
-            @NonNull final ServiceInterface.RequestOptions options) {
-        requireNonNull(options);
-        // Default to protobuf, and don't error out if both are set:
-        if (options.isJson() && !options.isProtobuf()) {
-            return SubscribeStreamResponseUnparsed.JSON;
-        } else {
-            return SubscribeStreamResponseUnparsed.PROTOBUF;
-        }
+    private static long extractBlockNumberFromBlockHeader(BlockItemUnparsed itemUnparsed) throws ParseException {
+        return BlockHeader.PROTOBUF.parse(itemUnparsed.blockHeaderOrThrow()).number();
     }
 
     /**
@@ -214,12 +126,85 @@ public class BlockStreamSubscribeUnparsedClient {
                 done.await();
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
-                throw new RuntimeException("Interrupted while waiting for blocks", e);
             }
             if (error != null) {
                 throw new RuntimeException("Error fetching blocks", error);
             }
             return blocks;
+        }
+    }
+
+    private static final class SubscribePipeline implements Pipeline<SubscribeStreamResponseUnparsed> {
+        private final RequestContext ctx;
+
+        SubscribePipeline(RequestContext ctx) {
+            this.ctx = ctx;
+        }
+
+        @Override
+        public void onSubscribe(Flow.Subscription subscription) {
+            LOGGER.log(TRACE, "received onSubscribe confirmation");
+            // No backpressure negotiation needed for this pattern.
+        }
+
+        @Override
+        public void onNext(SubscribeStreamResponseUnparsed resp) {
+            try {
+                if (resp.hasBlockItems()) {
+                    final List<BlockItemUnparsed> frame = resp.blockItems().blockItems();
+
+                    if (frame.getFirst().hasBlockHeader()) {
+                        final long expected = ctx.expectedBlockNumber;
+                        final long actual = extractBlockNumberFromBlockHeader(frame.getFirst());
+                        if (actual != expected) {
+                            ctx.fail(new IllegalStateException(
+                                    "Expected block number " + expected + " but received " + actual));
+                            return;
+                        }
+                        // Start a new block: reuse the buffer and populate it.
+                        ctx.currentBlockItems.clear();
+                        ctx.currentBlockItems.addAll(frame);
+                    } else {
+                        // Continuation: append to the same buffer.
+                        ctx.currentBlockItems.addAll(frame);
+                    }
+
+                    if (frame.getLast().hasBlockProof()) {
+                        // Snapshot the current items to avoid retaining the large buffer in the finished block.
+                        final List<BlockItemUnparsed> snapshot = List.copyOf(ctx.currentBlockItems);
+                        ctx.blocks.add(
+                                BlockUnparsed.newBuilder().blockItems(snapshot).build());
+                        ctx.currentBlockItems.clear();
+                        ctx.expectedBlockNumber++;
+                    }
+
+                } else if (resp.hasStatus()) {
+                    final SubscribeStreamResponse.Code code = resp.status();
+                    if (code != SubscribeStreamResponse.Code.SUCCESS) {
+                        ctx.fail(new RuntimeException("Received error code: " + code));
+                    }
+                } else {
+                    ctx.fail(new RuntimeException("Received unexpected response without block items or code"));
+                }
+            } catch (ParseException e) {
+                LOGGER.log(DEBUG, "Parse error in block item", e);
+                ctx.fail(e);
+            } catch (RuntimeException e) {
+                LOGGER.log(DEBUG, "Runtime error processing SubscribeStreamResponseUnparsed", e);
+                ctx.fail(e);
+            }
+        }
+
+        @Override
+        public void onError(Throwable throwable) {
+            LOGGER.log(TRACE, "received onError", throwable);
+            ctx.fail(throwable);
+        }
+
+        @Override
+        public void onComplete() {
+            LOGGER.log(TRACE, "received onComplete");
+            ctx.complete();
         }
     }
 }

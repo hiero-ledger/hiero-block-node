@@ -52,10 +52,10 @@ public class BackfillGrpcClient {
      * This is used for exponential backoff in case of failures.
      */
     private final int initialRetryDelayMs;
-
     /** Connection timeout in milliseconds for gRPC calls to block nodes. */
     private final int connectionTimeoutSeconds;
-
+    /** Enable TLS for secure connections to block nodes. */
+    private final boolean enableTls;
     /** Current status of the Block Node Clients */
     private ConcurrentHashMap<BackfillSourceConfig, Status> nodeStatusMap = new ConcurrentHashMap<>();
     /**
@@ -74,13 +74,15 @@ public class BackfillGrpcClient {
             int maxRetries,
             Counter backfillRetriesCounter,
             int retryInitialDelayMs,
-            int connectionTimeoutSeconds)
+            int connectionTimeoutSeconds,
+            boolean enableTls)
             throws IOException, ParseException {
         this.blockNodeSource = BackfillSource.JSON.parse(Bytes.wrap(Files.readAllBytes(blockNodePreferenceFilePath)));
         this.maxRetries = maxRetries;
         this.initialRetryDelayMs = retryInitialDelayMs;
         this.backfillRetries = backfillRetriesCounter;
         this.connectionTimeoutSeconds = connectionTimeoutSeconds;
+        this.enableTls = enableTls;
 
         for (BackfillSourceConfig node : blockNodeSource.nodes()) {
             LOGGER.log(INFO, "Address: {0}, Port: {1}, Priority: {2}", node.address(), node.port(), node.priority());
@@ -207,7 +209,7 @@ public class BackfillGrpcClient {
      */
     private BlockNodeClient getNodeClient(BackfillSourceConfig node) {
         return nodeClientMap.computeIfAbsent(
-                node, BlockNodeClient -> new BlockNodeClient(node, connectionTimeoutSeconds));
+                node, BlockNodeClient -> new BlockNodeClient(node, connectionTimeoutSeconds, enableTls));
     }
 
     /**

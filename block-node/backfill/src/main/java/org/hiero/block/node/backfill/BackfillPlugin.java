@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.node.backfill;
 
+import static java.lang.System.Logger.Level.DEBUG;
 import static java.lang.System.Logger.Level.INFO;
 import static java.lang.System.Logger.Level.TRACE;
 
@@ -181,7 +182,8 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
                     backfillConfiguration.maxRetries(),
                     this.backfillRetries,
                     backfillConfiguration.initialRetryDelay(),
-                    backfillConfiguration.grpcOverallTimeout());
+                    backfillConfiguration.grpcOverallTimeout(),
+                    backfillConfiguration.enableTLS());
             LOGGER.log(TRACE, "Initialized gRPC client with sources path: {0}", blockNodeSourcesPath);
         } catch (Exception e) {
             LOGGER.log(INFO, "Failed to initialize gRPC client: {0}", e.getMessage());
@@ -334,7 +336,7 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
             getLatch(backfillType).set(new CountDownLatch(batchOfBlocks.size()));
 
             if (batchOfBlocks.isEmpty()) {
-                LOGGER.log(TRACE, "No blocks fetched for gap {0}, skipping", chunk);
+                LOGGER.log(DEBUG, "No blocks fetched for gap {0}, skipping", chunk);
                 continue; // Skip empty batches
             }
 
