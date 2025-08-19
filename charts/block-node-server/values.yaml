@@ -175,9 +175,10 @@ blockNode:
   logs:
     # Available Levels are (from most verbose to least verbose):
     # ALL FINEST FINER FINE CONFIG INFO WARNING SEVERE OFF
-    level: "INFO"
+    level: "FINEST"
     configMountPath: "/opt/hiero/block-node/logs/config"
     loggingProperties:
+      io.helidon.level: "INFO"
       io.helidon.webserver.level: "INFO"
       io.helidon.webserver.access.level: "INFO"
       io.helidon.config.level: "SEVERE"
@@ -192,6 +193,10 @@ blockNode:
       java.util.logging.FileHandler.count: "5"
       java.util.logging.FileHandler.level: "FINE"
       java.util.logging.FileHandler.formatter: "java.util.logging.SimpleFormatter"
+      # Override the chatty HTTP server internals
+      com.sun.net.httpserver.level: "WARNING"
+      com.sun.net.httpserver.ServerImpl.level: "WARNING"
+      com.sun.net.httpserver.ExchangeImpl.level: "WARNING"
       ################################################################################
       # SimpleFormatter single-line format configuration
       ################################################################################
