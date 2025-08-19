@@ -64,9 +64,7 @@ public class PositiveMultiplePublishersTests extends BaseSuite {
         simulators.clear();
     }
 
-    // @todo(1498)
     @Test
-    @Disabled("@todo(1498) - the test is disabled because failure is seen after block node closes connection correctly")
     @DisplayName("Publisher should send TOO_FAR_BEHIND to activate backfill on demand")
     @Timeout(30)
     public void testBackfillOnDemand() throws IOException, InterruptedException {
