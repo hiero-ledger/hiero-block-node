@@ -80,17 +80,15 @@ public class PublishClientManager implements SimulatorModeHandler {
 
     private void handleEndStream(Block nextBlock, PublishStreamResponse publishStreamResponse)
             throws InterruptedException, BlockSimulatorParsingException, IOException {
+        stop();
+        adjustStreamManager(nextBlock, publishStreamResponse);
+        initializeNewClientAndHandler();
         if (publishStreamResponse.getEndStream().getStatus() == Code.BEHIND) {
             if (blockStreamConfig.endStreamMode() == TOO_FAR_BEHIND) {
                 currentClient.handleEndStreamModeIfSet();
                 return;
             }
         }
-
-        stop();
-        adjustStreamManager(nextBlock, publishStreamResponse);
-        initializeNewClientAndHandler();
-
         start();
     }
 
