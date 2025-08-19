@@ -86,6 +86,7 @@ public abstract class PluginTestBase<P extends BlockNodePlugin, E extends Execut
         //noinspection unchecked
         ConfigurationBuilder configurationBuilder = ConfigurationBuilder.create()
                 .withConfigDataType(com.swirlds.common.metrics.config.MetricsConfig.class)
+                .withConfigDataType(org.hiero.block.node.app.config.node.NodeConfig.class)
                 .withConfigDataTypes(plugin.configDataTypes().toArray(new Class[0]))
                 .withConfigDataType(com.swirlds.common.metrics.platform.prometheus.PrometheusConfig.class);
         if (configOverrides != null) {

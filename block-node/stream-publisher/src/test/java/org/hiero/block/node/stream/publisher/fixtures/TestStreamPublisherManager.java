@@ -96,6 +96,11 @@ public class TestStreamPublisherManager implements StreamPublisherManager {
     }
 
     @Override
+    public void shutdown() {
+        throw new UnsupportedOperationException("implement shutdown in test fixture if needed");
+    }
+
+    @Override
     public void handleVerification(final VerificationNotification notification) {
         throw new UnsupportedOperationException("implement handleVerification in test fixture if needed");
     }

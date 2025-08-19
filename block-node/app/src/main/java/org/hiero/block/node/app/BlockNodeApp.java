@@ -28,6 +28,7 @@ import java.util.logging.LogManager;
 import java.util.stream.Collectors;
 import org.hiero.block.node.app.config.AutomaticEnvironmentVariableConfigSource;
 import org.hiero.block.node.app.config.ServerConfig;
+import org.hiero.block.node.app.config.node.NodeConfig;
 import org.hiero.block.node.app.logging.CleanColorfulFormatter;
 import org.hiero.block.node.app.logging.ConfigLogger;
 import org.hiero.block.node.spi.BlockNodeContext;
@@ -128,6 +129,7 @@ public class BlockNodeApp implements HealthFacility {
         // Collect all the config data types from the plugins and global server level
         final List<Class<? extends Record>> allConfigDataTypes = new ArrayList<>();
         allConfigDataTypes.add(ServerConfig.class);
+        allConfigDataTypes.add(NodeConfig.class);
         loadedPlugins.forEach(plugin -> allConfigDataTypes.addAll(plugin.configDataTypes()));
         // Init BlockNode Configuration
         String appProperties = getClass().getClassLoader().getResource(APPLICATION_TEST_PROPERTIES) != null

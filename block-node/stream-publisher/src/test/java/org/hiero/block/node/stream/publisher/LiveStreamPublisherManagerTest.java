@@ -25,6 +25,7 @@ import org.hiero.block.api.PublishStreamResponse.ResponseOneOfType;
 import org.hiero.block.internal.BlockItemSetUnparsed;
 import org.hiero.block.internal.BlockItemUnparsed;
 import org.hiero.block.internal.PublishStreamRequestUnparsed;
+import org.hiero.block.node.app.config.node.NodeConfig;
 import org.hiero.block.node.app.fixtures.async.BlockingExecutor;
 import org.hiero.block.node.app.fixtures.async.TestThreadPoolManager;
 import org.hiero.block.node.app.fixtures.blocks.SimpleTestBlockItemBuilder;
@@ -1132,6 +1133,7 @@ class LiveStreamPublisherManagerTest {
             final BlockMessagingFacility blockMessagingFacility) {
         final Configuration configuration = ConfigurationBuilder.create()
                 .withConfigDataType(PublisherConfig.class)
+                .withConfigDataType(NodeConfig.class)
                 .build();
         final Metrics metrics = null;
         final HealthFacility serverHealth = null;
@@ -1157,7 +1159,9 @@ class LiveStreamPublisherManagerTest {
                 new DefaultLongGauge(new LongGauge.Config("category", "name")),
                 new DefaultLongGauge(new LongGauge.Config("category", "name")),
                 new DefaultLongGauge(new LongGauge.Config("category", "name")),
-                new DefaultLongGauge(new LongGauge.Config("category", "name")));
+                new DefaultLongGauge(new LongGauge.Config("category", "name")),
+                new DefaultCounter(new Config("category", "name")),
+                new DefaultCounter(new Config("category", "name")));
     }
 
     /**
@@ -1166,6 +1170,7 @@ class LiveStreamPublisherManagerTest {
      */
     private PublisherHandler.MetricsHolder generateHandlerMetrics() {
         return new PublisherHandler.MetricsHolder(
+                new DefaultCounter(new Config("category", "name")),
                 new DefaultCounter(new Config("category", "name")),
                 new DefaultCounter(new Config("category", "name")),
                 new DefaultCounter(new Config("category", "name")),
