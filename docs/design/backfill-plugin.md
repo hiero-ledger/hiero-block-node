@@ -184,63 +184,28 @@ flowchart TD
 
 ```
 
-## Configuration
-
-|     Configuration Property      |                                               Description                                               | Default |
-|---------------------------------|---------------------------------------------------------------------------------------------------------|---------|
-| `backfill.firstBlockAvailable`  | The first block that this BN deploy wants to have available                                             | 0       |
-| `backfill.lastBlockToStore`     | For some historical-purpose–specific BNs, there could be a maximum number of blocks, -1 means no limit. | -1      |
-| `backfill.blockNodeSourcesPath` | File path for a yaml configuration for the BN sources.                                                  | —       |
-| `backfill.scanIntervalMins`     | Interval in minutes to scan for missing gaps (skips if the previous task is running)                    | 60      |
-| `backfill.maxRetries`           | Maximum number of retries to fetch a missing block (with exponential back-off)                          | 3       |
-| `backfill.fetchBatchSize`       | Number of blocks to fetch in a single gRPC call                                                         | 100     |
-
 ### BlockNode Sources Configuration File Structure
 
-```yaml
-# backfill_sources.yaml
-sources:
-  - priority: 1
-    nodes:
-      - name: "node 1"
-        nodeId: 102
-      - name: "node 2"
-        address: "245.87.34.52"
-        port: 35629
-
-  - priority: 5
-    nodes:
-      - name: "node 10"
-        nodeId: 263
-
-  - priority: 20
-    nodes:
-      - name: "node 23"
-        nodeId: 317
-      - name: "node 28"
-        address: "252.19.45.182"
-        port: 33182
-
-  - priority: 100
-    nodes:
-      - name: "node 192"
-        nodeId: 1726
+```json
+{
+  "nodes": [
+    {
+      "address": "localhost",
+      "port": 40800,
+      "priority": 1
+    },
+    {
+      "address": "node2.example.com",
+      "port": 40902,
+      "priority": 2
+    }
+  ]
+}
 ```
 
 ** Initial implementations will only support `address`:`port` that could be a hostname or an IP address, and `port` as a number, once BlockNode supports Address Book, we can use `nodeId` as well.
 
 ** Name is the internal label for the node given by the operator, is only used for observability (logging and tracking) purposes.
-
-## Metrics
-
-|          Metric           |                             Description                              |  Type   |
-|---------------------------|----------------------------------------------------------------------|---------|
-| `backfill_gaps_detected`  | Number of gaps detected during the backfill process.                 | Counter |
-| `backfill_blocks_fetched` | Number of blocks fetched during the backfill process.                | Counter |
-| `backfill_blocks_stored`  | Number of blocks successfully stored in the local storage.           | Counter |
-| `backfill_fetch_errors`   | Number of errors encountered while fetching blocks.                  | Counter |
-| `backfill_status`         | Current status of the backfill process (e.g., idle, running, error). | Gauge   |
-| `backfill_queue_size`     | Current amount of blocks pending to be backfilled.                   | Gauge   |
 
 ## Exceptions
 
@@ -248,11 +213,31 @@ Since the whole process is asynchronous, the plugin will not throw exceptions di
 
 ## Acceptance Tests
 
-- **Test 1:** Verify that the plugin detects gaps correctly on start-up. (initial backfill)
-  - We need 2 BNs, one with a full block range.
-  - Start a BN with a missing block range.
-  - Verify that the plugin detects the missing blocks and initiates the backfill process using the configured BN1 as the source.
-- **Test 2:** Verify that the plugin detects gaps while running. (ongoing backfill)
-  - Start two BNs with a full block range.
-  - While the BNs is running, remove some blocks from the local storage of the second BN.
-  - Verify that the plugin detects the missing blocks and initiates the backfill process using the configured BN1 as the source.
+This section of the design document will be removed once there is a E2E Test Plan in place.
+
+As part of the initial implementation, the following test scenarios will be covered as Unit Tests.
+
+- Autonomous Backfill Happy Test
+- Priority 1 BN is unavailable, fallback to 2nd priority BN
+- Backfill found no available block-nodes, should not backfill
+- On-Demand Backfill Happy Test
+- Combined Autonomous and On-Demand Happy Test at the same time
+- Backfill Autonomous, GAP available within 2 different backfill sources
+
+And the following scenarios will be covered using the E2E Tests Suite:
+
+**Autonomous Happy-Path:** 2 BNs, one with a full block range (source), the other with some missing blocks.
+- Start both BNs.
+- Verify that the BN with missing blocks detects the gaps and backfills them from the other BN
+- Verify that the missing blocks are stored in the local storage.
+
+**On-Demand Happy-Path:** 2 BNs, one with a full block range (source), the other with less blocks than the full range (source).
+- Start both BNs.
+- While both BNs are running, send a `NewestBlockKnownToNetwork` message to the BN with a newer blocks.
+- Verify that the BN with missing blocks backfills the missing blocks from the other BN.
+
+** Combined Autonomous and On-Demand:** 2 BNs, one with a full block range (source), the other with some missing blocks at the start and some at the end.
+- Start both BNs.
+- Verify that the BN with missing blocks detects the initial gaps and backfills them from the other BN.
+- While historical backfill is running, send a `NewestBlockKnownToNetwork` message to the BN indicating newer blocks.
+- Verify that the BN with missing blocks backfills the missing blocks from the other BN.
