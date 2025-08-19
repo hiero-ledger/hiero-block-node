@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.node.backfill;
 
+import static java.lang.System.Logger.Level.DEBUG;
 import static java.lang.System.Logger.Level.INFO;
 import static java.lang.System.Logger.Level.TRACE;
 
@@ -180,7 +181,9 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
                     blockNodeSourcesPath,
                     backfillConfiguration.maxRetries(),
                     this.backfillRetries,
-                    backfillConfiguration.initialRetryDelay());
+                    backfillConfiguration.initialRetryDelay(),
+                    backfillConfiguration.grpcOverallTimeout(),
+                    backfillConfiguration.enableTLS());
             LOGGER.log(TRACE, "Initialized gRPC client with sources path: {0}", blockNodeSourcesPath);
         } catch (Exception e) {
             LOGGER.log(INFO, "Failed to initialize gRPC client: {0}", e.getMessage());
@@ -206,7 +209,8 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
                 TRACE,
                 "Scheduling backfill process to start in {0} milliseconds",
                 backfillConfiguration.initialDelay());
-        scheduler = Executors.newSingleThreadScheduledExecutor();
+        scheduler = Executors.newScheduledThreadPool(
+                2); // Two threads: one for autonomous backfill, one for on-demand backfill
         scheduler.scheduleAtFixedRate(
                 this::detectGaps,
                 backfillConfiguration.initialDelay(),
@@ -331,6 +335,11 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
             // to avoid deadlocks, since blocks that fail verification are not persisted
             getLatch(backfillType).set(new CountDownLatch(batchOfBlocks.size()));
 
+            if (batchOfBlocks.isEmpty()) {
+                LOGGER.log(DEBUG, "No blocks fetched for gap {0}, skipping", chunk);
+                continue; // Skip empty batches
+            }
+
             // Process each fetched block
             for (BlockUnparsed blockUnparsed : batchOfBlocks) {
                 long blockNumber = extractBlockNumber(blockUnparsed);
@@ -347,13 +356,13 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
             boolean backfillFinished = getLatch(backfillType).get().await(timeout, TimeUnit.MILLISECONDS);
 
             // Check if the backfill finished successfully
-            if (!backfillFinished) {
+            if (backfillFinished) {
+                // just log a victory message for each chunk
+                LOGGER.log(TRACE, "Successfully backfilled gap {0}", chunk);
+            } else {
                 LOGGER.log(TRACE, "Backfill for gap {0} did not finish in time", chunk);
                 backfillFetchErrors.increment();
                 // If it didn't finish, we will retry it later but move on to next chunk
-            } else {
-                // just log a victory message for each chunk
-                LOGGER.log(TRACE, "Successfully backfilled gap {0}", chunk);
             }
 
             // Cooldown between batches
@@ -361,7 +370,11 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
         }
 
         LOGGER.log(
-                TRACE, "Completed backfilling of type {0} gap from {1} to {2}", backfillType, gap.start(), gap.end());
+                TRACE,
+                "Completed backfilling task (completion only) of type {0} gap from {1} to {2} ",
+                backfillType,
+                gap.start(),
+                gap.end());
         if (backfillType.equals(BackfillType.ON_DEMAND)) {
             onDemandBackfillStartBlock.set(-1); // Reset on-demand start block after backfill
         }
