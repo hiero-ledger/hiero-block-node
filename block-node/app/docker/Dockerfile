@@ -90,9 +90,6 @@ RUN mkdir -p ${BN_WORKDIR}/logs/config
 # Copy the logging properties file
 COPY logging.properties ${BN_WORKDIR}/logs/config/logging.properties
 
-# Copy Backfill sources file
-COPY backfill-sources.json ${BN_WORKDIR}/backfill/backfill-sources.json
-
 WORKDIR /
 
 # Ensure proper file permissions
