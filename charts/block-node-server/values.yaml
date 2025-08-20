@@ -175,9 +175,11 @@ blockNode:
   logs:
     # Available Levels are (from most verbose to least verbose):
     # ALL FINEST FINER FINE CONFIG INFO WARNING SEVERE OFF
-    level: "FINEST"
+    level: "INFO"
     configMountPath: "/opt/hiero/block-node/logs/config"
     loggingProperties:
+      # logs for Block Node components FINEST temporarily while testing is ongoing
+      org.hiero.block.level: "FINEST"
       io.helidon.level: "INFO"
       io.helidon.webserver.level: "INFO"
       io.helidon.webserver.access.level: "INFO"
