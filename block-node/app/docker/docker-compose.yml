@@ -4,6 +4,7 @@ services:
     image: block-node-server:${VERSION}
     volumes:
       - ./logging.properties:/opt/hiero/block-node/logs/config/logging.properties
+      - ./backfill-sources.json:/opt/hiero/block-node/backfill/backfill-sources.json
     env_file:
       - .env
     ports:

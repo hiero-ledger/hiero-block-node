@@ -20,6 +20,8 @@ echo "REGISTRY_PREFIX=" >> .env
 # Storage root path, this is temporary until we have a proper .properties file for all configs
 echo "BLOCKNODE_STORAGE_ROOT_PATH=/opt/hiero/block-node/storage" >> .env
 
+echo "BACKFILL_BLOCK_NODE_SOURCES_PATH=/opt/hiero/block-node/backfill/backfill-sources.json" >> .env
+
 if [ true = "$is_smoke_test" ]; then
   # add smoke test variables
   echo "MEDIATOR_RING_BUFFER_SIZE=1024" >> .env
@@ -37,7 +39,7 @@ if [ true = "$is_debug" ]; then
 else
   # we set normally the JAVA_TOOL_OPTIONS
   # file is mounted in the docker-compose.yml, changes to the file will be reflected in the container by simply restarting it
-  echo "JAVA_TOOL_OPTIONS='-Djava.util.logging.config.file=/opt/hiero/block-node/logs/config/logging.properties '" >> .env
+  echo "JAVA_TOOL_OPTIONS='-Djava.util.logging.manager=java.util.logging.LogManager -Djava.util.logging.config.file=/opt/hiero/block-node/logs/config/logging.properties '" >> .env
 fi
 # Output the values
 echo ".env properties:"
