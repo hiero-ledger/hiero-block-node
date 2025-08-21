@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.simulator.generator.itemhandler;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -26,7 +25,6 @@ class EventHeaderHandlerTest {
 
         EventCore core = header.getEventCore();
         assertTrue(core.getCreatorNodeId() >= 1 && core.getCreatorNodeId() < 32);
-        assertNotNull(core.getVersion());
     }
 
     @Test
@@ -36,15 +34,5 @@ class EventHeaderHandlerTest {
         BlockItem item2 = handler.getItem();
 
         assertSame(item1, item2, "getItem should return cached instance");
-    }
-
-    @Test
-    void testSemanticVersion() {
-        EventHeaderHandler handler = new EventHeaderHandler();
-        EventCore core = handler.getItem().getEventHeader().getEventCore();
-
-        assertEquals(0, core.getVersion().getMajor());
-        assertEquals(1, core.getVersion().getMinor());
-        assertEquals(0, core.getVersion().getPatch());
     }
 }

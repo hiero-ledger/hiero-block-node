@@ -5,27 +5,27 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import com.google.protobuf.ByteString;
 import com.hedera.hapi.block.stream.protoc.BlockItem;
-import com.hedera.hapi.platform.event.legacy.EventTransaction;
 import org.junit.jupiter.api.Test;
 
-class EventTransactionHandlerTest {
+class SignedTransactionHandlerTest {
 
     @Test
     void testGetItem() {
-        EventTransactionHandler handler = new EventTransactionHandler();
+        SignedTransactionHandler handler = new SignedTransactionHandler();
         BlockItem item = handler.getItem();
 
         assertNotNull(item);
-        assertTrue(item.hasEventTransaction());
+        assertTrue(item.hasSignedTransaction());
 
-        EventTransaction transaction = item.getEventTransaction();
+        ByteString transaction = item.getSignedTransaction();
         assertNotNull(transaction);
     }
 
     @Test
     void testGetItemCaching() {
-        EventTransactionHandler handler = new EventTransactionHandler();
+        SignedTransactionHandler handler = new SignedTransactionHandler();
         BlockItem item1 = handler.getItem();
         BlockItem item2 = handler.getItem();
 

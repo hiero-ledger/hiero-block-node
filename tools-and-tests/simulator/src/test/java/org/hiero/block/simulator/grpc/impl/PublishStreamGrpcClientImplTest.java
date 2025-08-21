@@ -10,15 +10,20 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.when;
 
+import com.google.protobuf.ByteString;
 import com.hedera.hapi.block.stream.output.protoc.BlockHeader;
 import com.hedera.hapi.block.stream.protoc.Block;
 import com.hedera.hapi.block.stream.protoc.BlockItem;
 import com.hedera.hapi.block.stream.protoc.BlockProof;
-import com.hedera.hapi.platform.event.legacy.EventTransaction;
+import com.hedera.hapi.node.transaction.SignedTransaction;
+import com.hedera.pbj.runtime.Codec;
+import com.hedera.pbj.runtime.io.WritableSequentialData;
+import com.hedera.pbj.runtime.io.stream.WritableStreamingData;
 import com.swirlds.config.api.Configuration;
 import io.grpc.Server;
 import io.grpc.ServerBuilder;
 import io.grpc.stub.StreamObserver;
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -418,16 +423,16 @@ class PublishStreamGrpcClientImplTest {
                 .setBlockProof(BlockProof.newBuilder().setBlock(number).build())
                 .build();
         if (withItems) {
-            BlockItem blockItemEventTransaction1 = BlockItem.newBuilder()
-                    .setEventTransaction(EventTransaction.newBuilder().build())
+            BlockItem blockItemSignedTransaction1 = BlockItem.newBuilder()
+                    .setSignedTransaction(asBytes(SignedTransaction.newBuilder().build(), SignedTransaction.PROTOBUF))
                     .build();
-            BlockItem blockItemEventTransaction2 = BlockItem.newBuilder()
-                    .setEventTransaction(EventTransaction.newBuilder().build())
+            BlockItem blockItemSignedTransaction2 = BlockItem.newBuilder()
+                    .setSignedTransaction(asBytes(SignedTransaction.newBuilder().build(), SignedTransaction.PROTOBUF))
                     .build();
             return Block.newBuilder()
                     .addItems(blockItemHeader)
-                    .addItems(blockItemEventTransaction1)
-                    .addItems(blockItemEventTransaction2)
+                    .addItems(blockItemSignedTransaction1)
+                    .addItems(blockItemSignedTransaction2)
                     .addItems(blockItemProof)
                     .build();
         } else {
@@ -435,6 +440,18 @@ class PublishStreamGrpcClientImplTest {
                     .addItems(blockItemHeader)
                     .addItems(blockItemProof)
                     .build();
+        }
+    }
+
+    // Converts a transaction to bytes using the provided codec.
+    private <T> ByteString asBytes(T tx, Codec<T> codec) {
+        final var out = new ByteArrayOutputStream();
+        WritableSequentialData data = new WritableStreamingData(out);
+        try {
+            codec.write(tx, data);
+            return ByteString.copyFrom(out.toByteArray());
+        } catch (IOException e) {
+            throw new AssertionError("Failed to get transaction bytes", e);
         }
     }
 }
