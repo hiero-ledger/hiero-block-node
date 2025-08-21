@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.simulator.generator.itemhandler;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -9,6 +8,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import com.hedera.hapi.block.stream.input.protoc.EventHeader;
 import com.hedera.hapi.block.stream.protoc.BlockItem;
 import com.hedera.hapi.platform.event.legacy.EventCore;
+import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 
 class EventHeaderHandlerTest {
@@ -26,7 +26,6 @@ class EventHeaderHandlerTest {
 
         EventCore core = header.getEventCore();
         assertTrue(core.getCreatorNodeId() >= 1 && core.getCreatorNodeId() < 32);
-        assertNotNull(core.getVersion());
     }
 
     @Test
@@ -38,13 +37,11 @@ class EventHeaderHandlerTest {
         assertSame(item1, item2, "getItem should return cached instance");
     }
 
+    // @todo(12345) need to make sense with new BlockStream protobuf Spec
+    @Disabled
     @Test
     void testSemanticVersion() {
         EventHeaderHandler handler = new EventHeaderHandler();
         EventCore core = handler.getItem().getEventHeader().getEventCore();
-
-        assertEquals(0, core.getVersion().getMajor());
-        assertEquals(1, core.getVersion().getMinor());
-        assertEquals(0, core.getVersion().getPatch());
     }
 }

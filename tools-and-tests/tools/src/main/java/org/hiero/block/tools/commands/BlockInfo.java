@@ -262,7 +262,7 @@ public class BlockInfo implements Runnable {
     public String blockInfo(Block block, long parseTimeMs, long originalFileSizeBytes, long uncompressedFileSizeBytes) {
         final StringBuffer output = new StringBuffer();
         long numOfTransactions =
-                block.items().stream().filter(BlockItem::hasEventTransaction).count();
+                block.items().stream().filter(BlockItem::hasSignedTransaction).count();
         totalBlocks.incrementAndGet();
         totalTransactions.addAndGet(numOfTransactions);
         totalItems.addAndGet(block.items().size());
@@ -292,21 +292,20 @@ public class BlockInfo implements Runnable {
         Map<String, Long> transactionTypeCounts = new HashMap<>();
         List<String> unknownTransactionInfo = new ArrayList<>();
         long numOfSystemTransactions = block.items().stream()
-                .filter(BlockItem::hasEventTransaction)
-                .filter(item -> item.eventTransaction().hasStateSignatureTransaction())
+                .filter(BlockItem::hasSignedTransaction)
+                .filter(item -> item.signedTransaction().length() == 0)
                 .count();
         if (numOfSystemTransactions > 0) {
             transactionTypeCounts.put("SystemSignature", numOfTransactions);
         }
         block.items().stream()
-                .filter(BlockItem::hasEventTransaction)
+                .filter(BlockItem::hasSignedTransaction)
                 .map(item -> {
-                    if (item.eventTransaction().hasStateSignatureTransaction()) {
+                    if (item.signedTransaction().length() == 0) {
                         return "SystemSignature";
-                    } else if (item.eventTransaction().hasApplicationTransaction()) {
+                    } else if (item.signedTransaction().length() > 0) {
                         try {
-                            final Transaction transaction = Transaction.PROTOBUF.parse(
-                                    item.eventTransaction().applicationTransaction());
+                            final Transaction transaction = Transaction.PROTOBUF.parse(item.signedTransaction());
                             final TransactionBody transactionBody;
                             if (transaction.signedTransactionBytes().length() > 0) {
                                 transactionBody = TransactionBody.PROTOBUF.parse(SignedTransaction.PROTOBUF
@@ -319,8 +318,8 @@ public class BlockInfo implements Runnable {
                             if (kind == DataOneOfType.UNSET) { // should never happen, unless there is a bug somewhere
                                 unknownTransactionInfo.add("    " + TransactionBody.JSON.toJSON(transactionBody));
                                 unknownTransactionInfo.add("    "
-                                        + Transaction.JSON.toJSON(Transaction.PROTOBUF.parse(
-                                                item.eventTransaction().applicationTransaction())));
+                                        + Transaction.JSON.toJSON(
+                                                Transaction.PROTOBUF.parse(item.signedTransaction())));
                                 unknownTransactionInfo.add("    " + BlockItem.JSON.toJSON(item));
                             }
                             return kind.toString();

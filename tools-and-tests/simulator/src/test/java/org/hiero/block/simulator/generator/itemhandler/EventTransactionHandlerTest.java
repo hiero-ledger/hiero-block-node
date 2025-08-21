@@ -6,7 +6,8 @@ import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.hedera.hapi.block.stream.protoc.BlockItem;
-import com.hedera.hapi.platform.event.legacy.EventTransaction;
+import com.hedera.hapi.node.transaction.SignedTransaction;
+import com.hedera.pbj.runtime.io.buffer.Bytes;
 import org.junit.jupiter.api.Test;
 
 class EventTransactionHandlerTest {
@@ -17,9 +18,11 @@ class EventTransactionHandlerTest {
         BlockItem item = handler.getItem();
 
         assertNotNull(item);
-        assertTrue(item.hasEventTransaction());
+        assertTrue(item.hasSignedTransaction());
 
-        EventTransaction transaction = item.getEventTransaction();
+        SignedTransaction transaction = SignedTransaction.newBuilder()
+                .bodyBytes(Bytes.wrap(item.getSignedTransaction().toByteArray()))
+                .build();
         assertNotNull(transaction);
     }
 

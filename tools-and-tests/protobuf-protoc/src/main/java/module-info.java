@@ -14,6 +14,8 @@ open module org.hiero.block.protobuf.protoc {
     exports com.hedera.hapi.platform.state.legacy;
     exports org.hiero.block.api.protoc;
     exports org.hiero.block.internal.protoc;
+    exports com.hedera.hapi.node.state.hooks.legacy;
+    exports com.hedera.hapi.node.hooks.legacy;
 
     requires transitive com.google.common;
     requires transitive com.google.protobuf;

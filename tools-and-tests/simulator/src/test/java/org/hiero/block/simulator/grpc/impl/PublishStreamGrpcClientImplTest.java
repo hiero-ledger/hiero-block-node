@@ -10,11 +10,12 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.when;
 
+import com.google.protobuf.ByteString;
 import com.hedera.hapi.block.stream.output.protoc.BlockHeader;
 import com.hedera.hapi.block.stream.protoc.Block;
 import com.hedera.hapi.block.stream.protoc.BlockItem;
 import com.hedera.hapi.block.stream.protoc.BlockProof;
-import com.hedera.hapi.platform.event.legacy.EventTransaction;
+import com.hedera.hapi.node.transaction.SignedTransaction;
 import com.swirlds.config.api.Configuration;
 import io.grpc.Server;
 import io.grpc.ServerBuilder;
@@ -419,10 +420,12 @@ class PublishStreamGrpcClientImplTest {
                 .build();
         if (withItems) {
             BlockItem blockItemEventTransaction1 = BlockItem.newBuilder()
-                    .setEventTransaction(EventTransaction.newBuilder().build())
+                    .setSignedTransaction(ByteString.copyFrom(
+                            SignedTransaction.newBuilder().build().bodyBytes().toByteArray()))
                     .build();
             BlockItem blockItemEventTransaction2 = BlockItem.newBuilder()
-                    .setEventTransaction(EventTransaction.newBuilder().build())
+                    .setSignedTransaction(ByteString.copyFrom(
+                            SignedTransaction.newBuilder().build().bodyBytes().toByteArray()))
                     .build();
             return Block.newBuilder()
                     .addItems(blockItemHeader)
