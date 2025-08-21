@@ -17,6 +17,7 @@ import com.hedera.hapi.block.stream.protoc.BlockItem;
 import com.hedera.hapi.block.stream.protoc.BlockProof;
 import com.hedera.hapi.node.transaction.SignedTransaction;
 import com.hedera.pbj.runtime.Codec;
+import com.hedera.pbj.runtime.io.WritableSequentialData;
 import com.hedera.pbj.runtime.io.stream.WritableStreamingData;
 import com.swirlds.config.api.Configuration;
 import io.grpc.Server;
@@ -443,28 +444,14 @@ class PublishStreamGrpcClientImplTest {
     }
 
     // Converts a transaction to bytes using the provided codec.
-    // Inspired by hiero-ledger/hiero-consensus-node testFixtures TransactionHelper.java
-    <T> ByteString asBytes(T tx, Codec<T> codec) {
+    private <T> ByteString asBytes(T tx, Codec<T> codec) {
+        final var out = new ByteArrayOutputStream();
+        WritableSequentialData data = new WritableStreamingData(out);
         try {
-            final var out = new ByteArrayOutputStream();
-            final var dataOut = new ByteArrayDataOutput(out);
-            codec.write(tx, dataOut);
-            return ByteString.copyFrom(dataOut.getByteArray());
+            codec.write(tx, data);
+            return ByteString.copyFrom(out.toByteArray());
         } catch (IOException e) {
             throw new AssertionError("Failed to get transaction bytes", e);
-        }
-    }
-
-    static final class ByteArrayDataOutput extends WritableStreamingData {
-        private final ByteArrayOutputStream out;
-
-        public ByteArrayDataOutput(ByteArrayOutputStream out) {
-            super(out);
-            this.out = out;
-        }
-
-        public byte[] getByteArray() {
-            return out.toByteArray();
         }
     }
 }
