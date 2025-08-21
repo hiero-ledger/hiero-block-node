@@ -24,14 +24,30 @@ permissions:
   packages: write
 
 jobs:
-  check-gradle:
-    name: Gradle
-    if: ${{ github.base_ref == 'main' || startsWith(github.base_ref, 'release/') }}
-    uses: ./.github/workflows/zxc-verify-gradle-build-determinism.yaml
-    with:
-      ref: ${{ github.event.inputs.ref || '' }}
-      java-distribution: ${{ inputs.java-distribution || 'temurin' }}
-      java-version: ${{ inputs.java-version || '21.0.6' }}
+  package-protobuf-source:
+    timeout-minutes: 5
+    runs-on: hiero-block-node-linux-medium
+
+    steps:
+      - name: Harden Runner
+        uses: step-security/harden-runner@ec9f2d5744a09debf3a187a3f4f675c53b671911 # v2.13.0
+        with:
+          egress-policy: audit
+
+      - name: Checkout repository
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+        with:
+          fetch-depth: 0
+
+      - name: Extract version
+        id: extract_version
+        run: |
+          VERSION=$(cat version.txt)
+          echo "VERSION=${VERSION}" >> $GITHUB_ENV
+
+      - name: Produce artifact
+        working-directory: protobuf-sources
+        run: scripts/build-bn-proto.sh -t "efb0134e921b32ed6302da9c93874d65492e876f" -v ${{ env.VERSION }} -o "block-node-protobuf" -i true -b "../src/main/proto/" # CN 0.62.2
 
   compile:
     timeout-minutes: 20
@@ -62,19 +78,9 @@ jobs:
           distribution: "temurin"
           java-version: "21.0.6"
 
-      - name: Cache Gradle packages
-        uses: actions/cache@0400d5f644dc74513175e3cd8d07132dd4860809 # v4.2.4
-        with:
-          path: |
-            ~/.gradle/caches
-            ~/.gradle/wrapper
-          key: ${{ runner.os }}-gradle-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties') }}
-          restore-keys: |
-            ${{ runner.os }}-gradle-
-
       - name: Build
         id: gradle-build
-        run: ${GRADLE_EXEC} assemble
+        run: ${GRADLE_EXEC} clean assemble
 
       - name: Style Check
         id: spotless-check
