@@ -6,7 +6,6 @@ import com.hedera.hapi.block.stream.protoc.BlockItem;
 import com.hedera.hapi.node.transaction.SignedTransaction;
 import com.hedera.pbj.runtime.io.WritableSequentialData;
 import com.hedera.pbj.runtime.io.stream.WritableStreamingData;
-
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 
