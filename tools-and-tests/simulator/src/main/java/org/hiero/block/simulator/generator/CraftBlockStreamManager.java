@@ -36,8 +36,8 @@ import org.hiero.block.simulator.exception.BlockSimulatorParsingException;
 import org.hiero.block.simulator.generator.itemhandler.BlockHeaderHandler;
 import org.hiero.block.simulator.generator.itemhandler.BlockProofHandler;
 import org.hiero.block.simulator.generator.itemhandler.EventHeaderHandler;
-import org.hiero.block.simulator.generator.itemhandler.EventTransactionHandler;
 import org.hiero.block.simulator.generator.itemhandler.ItemHandler;
+import org.hiero.block.simulator.generator.itemhandler.SignedTransactionHandler;
 import org.hiero.block.simulator.generator.itemhandler.TransactionResultHandler;
 import org.hiero.block.simulator.startup.SimulatorStartupData;
 
@@ -202,7 +202,7 @@ public class CraftBlockStreamManager implements BlockStreamManager {
 
             final int transactionsNumber = random.nextInt(minTransactionsPerEvent, maxTransactionsPerEvent);
             for (int j = 0; j < transactionsNumber; j++) {
-                final ItemHandler eventTransactionHandler = new EventTransactionHandler();
+                final ItemHandler eventTransactionHandler = new SignedTransactionHandler();
                 items.add(eventTransactionHandler);
                 blockItemsUnparsed.add(eventTransactionHandler.unparseBlockItem());
 

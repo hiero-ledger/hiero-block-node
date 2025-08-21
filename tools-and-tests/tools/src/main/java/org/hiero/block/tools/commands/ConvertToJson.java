@@ -107,7 +107,7 @@ public class ConvertToJson implements Runnable {
             final Block block = Block.PROTOBUF.parse(Bytes.wrap(uncompressedData));
             writeJsonBlock(block, outputFile);
             final long numOfTransactions = block.items().stream()
-                    .filter(BlockItem::hasEventTransaction)
+                    .filter(BlockItem::hasSignedTransaction)
                     .count();
             final String blockNumber =
                     block.items().size() > 1 && block.items().getFirst().hasBlockHeader()
@@ -135,16 +135,14 @@ public class ConvertToJson implements Runnable {
             String blockJson = Block.JSON.toJSON(block);
             // get iterator over all transactions
             final Iterator<String> transactionBodyJsonIterator = block.items().stream()
-                    .filter(BlockItem::hasEventTransaction)
-                    .filter(item -> item.eventTransaction().hasApplicationTransaction())
+                    .filter(BlockItem::hasSignedTransaction)
                     .map(item -> {
                         try {
                             return "          "
                                     + TransactionBody.JSON
                                             .toJSON(TransactionBody.PROTOBUF.parse(SignedTransaction.PROTOBUF
                                                     .parse(Transaction.PROTOBUF
-                                                            .parse(item.eventTransaction()
-                                                                    .applicationTransaction())
+                                                            .parse(item.signedTransaction())
                                                             .signedTransactionBytes())
                                                     .bodyBytes()))
                                             .replaceAll("\n", "\n          ");
