@@ -10,6 +10,7 @@ open module org.hiero.block.protobuf.protoc {
     exports com.hedera.hapi.block.stream.protoc;
     exports com.hedera.hapi.block.stream.input.protoc;
     exports com.hedera.hapi.block.stream.output.protoc;
+    exports com.hedera.hapi.block.stream.trace.protoc;
     exports com.hedera.hapi.platform.event.legacy;
     exports com.hedera.hapi.platform.state.legacy;
     exports org.hiero.block.api.protoc;
