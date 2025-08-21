@@ -4,8 +4,6 @@ module org.hiero.block.protobuf.pbj {
     exports com.hedera.hapi.block.stream.input;
     exports com.hedera.hapi.block.stream.output;
     exports com.hedera.hapi.block.stream.trace;
-    exports com.hedera.hapi.block.stream.trace.codec;
-    exports com.hedera.hapi.block.stream.trace.schema;
     exports com.hedera.hapi.platform.event;
     exports com.hedera.hapi.node.base;
     exports com.hedera.hapi.node.base.codec;
