@@ -26,7 +26,6 @@ public class EventHeaderHandler extends AbstractBlockItemHandler {
     private EventCore createEventCore() {
         return EventCore.newBuilder()
                 .setCreatorNodeId(generateRandomValue(1, 32))
-                .setVersion(getSemanticVersion())
                 .build();
     }
 }

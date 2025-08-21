@@ -26,6 +26,9 @@ module org.hiero.block.protobuf.pbj {
     exports com.hedera.hapi.node.scheduled;
     exports com.hedera.hapi.node.scheduled.codec;
     exports com.hedera.hapi.node.scheduled.schema;
+    exports com.hedera.hapi.node.state.hooks;
+    exports com.hedera.hapi.node.state.hooks.codec;
+    exports com.hedera.hapi.node.state.hooks.schema;
     exports com.hedera.hapi.node.token;
     exports com.hedera.hapi.node.token.codec;
     exports com.hedera.hapi.node.token.schema;

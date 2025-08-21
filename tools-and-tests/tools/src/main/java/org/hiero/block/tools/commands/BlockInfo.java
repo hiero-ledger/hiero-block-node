@@ -262,7 +262,7 @@ public class BlockInfo implements Runnable {
     public String blockInfo(Block block, long parseTimeMs, long originalFileSizeBytes, long uncompressedFileSizeBytes) {
         final StringBuffer output = new StringBuffer();
         long numOfTransactions =
-                block.items().stream().filter(BlockItem::hasEventTransaction).count();
+                block.items().stream().filter(BlockItem::hasSignedTransaction).count();
         totalBlocks.incrementAndGet();
         totalTransactions.addAndGet(numOfTransactions);
         totalItems.addAndGet(block.items().size());
@@ -291,49 +291,42 @@ public class BlockInfo implements Runnable {
         }
         Map<String, Long> transactionTypeCounts = new HashMap<>();
         List<String> unknownTransactionInfo = new ArrayList<>();
-        long numOfSystemTransactions = block.items().stream()
-                .filter(BlockItem::hasEventTransaction)
-                .filter(item -> item.eventTransaction().hasStateSignatureTransaction())
-                .count();
-        if (numOfSystemTransactions > 0) {
-            transactionTypeCounts.put("SystemSignature", numOfTransactions);
-        }
+        AtomicLong numOfSystemTransactions = new AtomicLong();
         block.items().stream()
-                .filter(BlockItem::hasEventTransaction)
+                .filter(BlockItem::hasSignedTransaction)
                 .map(item -> {
-                    if (item.eventTransaction().hasStateSignatureTransaction()) {
-                        return "SystemSignature";
-                    } else if (item.eventTransaction().hasApplicationTransaction()) {
-                        try {
-                            final Transaction transaction = Transaction.PROTOBUF.parse(
-                                    item.eventTransaction().applicationTransaction());
-                            final TransactionBody transactionBody;
-                            if (transaction.signedTransactionBytes().length() > 0) {
-                                transactionBody = TransactionBody.PROTOBUF.parse(SignedTransaction.PROTOBUF
-                                        .parse(transaction.signedTransactionBytes())
-                                        .bodyBytes());
-                            } else {
-                                transactionBody = TransactionBody.PROTOBUF.parse(transaction.bodyBytes());
-                            }
-                            final DataOneOfType kind = transactionBody.data().kind();
-                            if (kind == DataOneOfType.UNSET) { // should never happen, unless there is a bug somewhere
-                                unknownTransactionInfo.add("    " + TransactionBody.JSON.toJSON(transactionBody));
-                                unknownTransactionInfo.add("    "
-                                        + Transaction.JSON.toJSON(Transaction.PROTOBUF.parse(
-                                                item.eventTransaction().applicationTransaction())));
-                                unknownTransactionInfo.add("    " + BlockItem.JSON.toJSON(item));
-                            }
-                            return kind.toString();
-                        } catch (ParseException e) {
-                            System.err.println("Error parsing transaction body : " + e.getMessage());
-                            throw new RuntimeException(e);
+                    try {
+                        final Transaction transaction = Transaction.PROTOBUF.parse(item.signedTransaction());
+                        final TransactionBody transactionBody;
+                        if (transaction.signedTransactionBytes().length() > 0) {
+                            transactionBody = TransactionBody.PROTOBUF.parse(SignedTransaction.PROTOBUF
+                                    .parse(transaction.signedTransactionBytes())
+                                    .bodyBytes());
+                        } else {
+                            transactionBody = TransactionBody.PROTOBUF.parse(transaction.bodyBytes());
                         }
-                    } else {
-                        unknownTransactionInfo.add("    " + BlockItem.JSON.toJSON(item));
-                        return "Unknown";
+                        final DataOneOfType kind = transactionBody.data().kind();
+                        if (kind == DataOneOfType.UNSET) { // should never happen, unless there is a bug somewhere
+                            unknownTransactionInfo.add("    " + TransactionBody.JSON.toJSON(transactionBody));
+                            unknownTransactionInfo.add("    "
+                                    + Transaction.JSON.toJSON(Transaction.PROTOBUF.parse(item.signedTransaction())));
+                            unknownTransactionInfo.add("    " + BlockItem.JSON.toJSON(item));
+                        } else if (kind == DataOneOfType.STATE_SIGNATURE_TRANSACTION) {
+                            numOfSystemTransactions.getAndIncrement();
+                        }
+                        return kind.toString();
+                    } catch (ParseException e) {
+                        System.err.println("Error parsing transaction body : " + e.getMessage());
+                        throw new RuntimeException(e);
                     }
                 })
                 .forEach(kind -> transactionTypeCounts.put(kind, transactionTypeCounts.getOrDefault(kind, 0L) + 1));
+
+        // add system transactions to the counts
+        if (numOfSystemTransactions.get() > 0) {
+            transactionTypeCounts.put("SystemSignature", numOfSystemTransactions.get());
+        }
+
         if (!csvMode) {
             transactionTypeCounts.forEach((k, v) -> output.append(String.format("    %s = %,d transactions\n", k, v)));
             if (!unknownTransactionInfo.isEmpty()) {
