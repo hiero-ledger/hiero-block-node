@@ -45,9 +45,14 @@ jobs:
           VERSION=$(cat version.txt)
           echo "VERSION=${VERSION}" >> $GITHUB_ENV
 
+      - name: Set up JDK 21
+        uses: actions/setup-java@c5195efecf7bdfc987ee8bae7a71cb8b11521c00 # v4.7.1
+        with:
+          distribution: "temurin"
+          java-version: "21.0.6"
+
       - name: Produce artifact
-        working-directory: protobuf-sources
-        run: scripts/build-bn-proto.sh -t "efb0134e921b32ed6302da9c93874d65492e876f" -v ${{ env.VERSION }} -o "block-node-protobuf" -i true -b "../src/main/proto/" # CN 0.62.2
+        run: ${GRADLE_EXEC} :block-node-protobuf-sources:generateBlockNodeProtoArtifact
 
   compile:
     timeout-minutes: 20
