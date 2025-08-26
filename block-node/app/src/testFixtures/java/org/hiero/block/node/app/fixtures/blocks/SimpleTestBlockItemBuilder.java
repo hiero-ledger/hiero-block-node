@@ -41,6 +41,9 @@ public final class SimpleTestBlockItemBuilder {
         RANDOM_HALF_MB = Bytes.wrap(randomBytes);
     }
 
+    // Required to quiet warnings.
+    private SimpleTestBlockItemBuilder() {}
+
     public static BlockHeader createBlockHeader(final long blockNumber) {
         return new BlockHeader(
                 new SemanticVersion(1, 2, 3, "a", "b"),
@@ -263,17 +266,7 @@ public final class SimpleTestBlockItemBuilder {
                 .mapToObj(bn -> {
                     BlockItem[] blockItems = createNumberOfVerySimpleBlocks(bn, bn);
                     Block block = new Block(Arrays.asList(blockItems));
-                    return new BlockAccessor() {
-                        @Override
-                        public long blockNumber() {
-                            return bn;
-                        }
-
-                        @Override
-                        public Block block() {
-                            return block;
-                        }
-                    };
+                    return new MinimalBlockAccessor(bn, block);
                 })
                 .toArray(BlockAccessor[]::new);
     }
@@ -382,6 +375,4 @@ public final class SimpleTestBlockItemBuilder {
         blockItems[2] = sampleBlockProofUnparsed(blockNumber);
         return blockItems;
     }
-
-    private SimpleTestBlockItemBuilder() {}
 }

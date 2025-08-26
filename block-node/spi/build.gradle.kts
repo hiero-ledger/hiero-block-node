@@ -17,4 +17,5 @@ mainModuleInfo {
 testModuleInfo {
     requires("org.junit.jupiter.api")
     requires("org.junit.jupiter.params")
+    requires("com.github.luben.zstd_jni")
 }

@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.node.spi.historicalblocks;
 
-import com.github.luben.zstd.Zstd;
+import static java.lang.System.Logger.Level.WARNING;
+
 import com.hedera.hapi.block.stream.Block;
 import com.hedera.pbj.runtime.ParseException;
 import com.hedera.pbj.runtime.io.WritableSequentialData;
@@ -9,9 +10,9 @@ import com.hedera.pbj.runtime.io.buffer.Bytes;
 import com.hedera.pbj.runtime.io.stream.WritableStreamingData;
 import java.io.IOException;
 import java.io.OutputStream;
+import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.List;
 import org.hiero.block.internal.BlockUnparsed;
 
 /**
@@ -32,21 +33,6 @@ public interface BlockAccessor {
     }
 
     /**
-     * The unmodifiable list of all available formats.
-     */
-    List<Format> ALL_FORMATS = List.of(Format.values());
-
-    /**
-     * Get the list of available formats from this BlockAccessor. This allows the producer to tell the consumer what
-     * formats it has available in an efficient manner.
-     *
-     * @return  list of one or more of the available formats in the Format enum.
-     */
-    default List<Format> availableFormats() {
-        return ALL_FORMATS;
-    }
-
-    /**
      * Get the block number of the block.
      *
      * @return the block number
@@ -57,48 +43,67 @@ public interface BlockAccessor {
      * Get the block as parsed {@code Block} Java object. This is the simplest but usually the least efficient way to
      * get the block.
      *
-     * @return the block as a {@code Block} Java object
+     * @return the block as a {@code Block} Java object, or null if parsing failed.
+     *     Also returns null if the data cannot be read from a source.
      */
-    Block block();
+    default Block block() {
+        try {
+            final Bytes rawData = blockBytes(Format.PROTOBUF);
+            return rawData == null ? null : Block.PROTOBUF.parse(rawData);
+        } catch (final UncheckedIOException | ParseException e) {
+            final System.Logger LOGGER = System.getLogger(getClass().getName());
+            LOGGER.log(WARNING, "Failed to parse block", e);
+            return null;
+        }
+    }
 
     /**
      * Get the block as unparsed {@code BlockUnparsed} Java object.
      *
-     * @return the block as a {@code BlockUnparsed} Java object
+     * @return the block as a {@code BlockUnparsed} Java object, or null if parsing failed.
+     *     Also returns null if the data cannot be read from a source.
      */
     default BlockUnparsed blockUnparsed() {
         try {
-            return BlockUnparsed.PROTOBUF.parse(blockBytes(Format.PROTOBUF));
-        } catch (ParseException e) {
-            throw new RuntimeException(e);
+            final Bytes rawData = blockBytes(Format.PROTOBUF);
+            return rawData == null ? null : BlockUnparsed.PROTOBUF.parse(rawData);
+        } catch (final ParseException e) {
+            final System.Logger LOGGER = System.getLogger(getClass().getName());
+            LOGGER.log(WARNING, "Failed to parse block", e);
+            return null;
         }
     }
 
     /**
      * Get the block as Bytes in the specified encoded format. This allows the consumer to choose the most efficient
      * format for them.
+     *
+     * @param format the desired format of the serialized bytes
+     * @return the block as a Bytes object in the specified format, or null if the block cannot be read.
+     *     Also returns null if the data cannot be read from a source.
+     */
+    Bytes blockBytes(Format format);
+
+    /**
+     * Write the block in the specified format to the given output stream. This allows the consumer to choose the most
+     * efficient format for them.
      * <p>
-     * The default implementation uses the {@link #block()} method to get the block and then encodes it in the specified
-     * format.
+     * The default implementation uses the {@link #blockBytes(Format)} method to get the block and then writes it encoded to
+     * the output stream.
      * </p>
      *
-     * @param format the format to get the block in, has to be one of the available formats returned by {@link #availableFormats()}
-     * @return the block as a Bytes object in the specified format
-     * @throws IllegalArgumentException if the format is not one of the available formats
+     * @param format the desired format to use to serialize the bytes
+     * @param output the output stream to write the block to
+     * @throws IOException if there was an error writing the block to given path
      */
-    default Bytes blockBytes(Format format) throws IllegalArgumentException {
-        if (format == null || !availableFormats().contains(format)) {
-            throw new IllegalArgumentException("Format " + format + " not supported");
+    default void writeBytesTo(Format format, WritableSequentialData output) throws IOException {
+        final Bytes bytes = blockBytes(format);
+        if (bytes != null) {
+            bytes.writeTo(output);
+        } else {
+            final System.Logger LOGGER = System.getLogger(getClass().getName());
+            LOGGER.log(WARNING, "Failed to get bytes in writeBytesTo, no data written");
         }
-        return switch (format) {
-            case JSON -> Block.JSON.toBytes(block());
-            case PROTOBUF -> Block.PROTOBUF.toBytes(block());
-            case ZSTD_PROTOBUF -> {
-                final Bytes protobufBytes = Block.PROTOBUF.toBytes(block());
-                final byte[] compressedBytes = Zstd.compress(protobufBytes.toByteArray());
-                yield Bytes.wrap(compressedBytes);
-            }
-        };
     }
 
     /**
@@ -109,28 +114,18 @@ public interface BlockAccessor {
      * the output stream.
      * </p>
      *
-     * @param format the format to write the block in, has to be one of the available formats returned by {@link #availableFormats()}
+     * @param format the desired format to use to serialize the bytes
      * @param output the output stream to write the block to
-     * @throws IllegalArgumentException if the format is not one of the available formats
+     * @throws IOException if there was an error writing the block to given path
      */
-    default void writeBytesTo(Format format, WritableSequentialData output) throws IllegalArgumentException {
-        blockBytes(format).writeTo(output);
-    }
-
-    /**
-     * Write the block in the specified format to the given output stream. This allows the consumer to choose the most
-     * efficient format for them.
-     * <p>
-     * The default implementation uses the {@link #blockBytes(Format)} method to get the block and then writes it encoded to
-     * the output stream.
-     * </p>
-     *
-     * @param format the format to write the block in, has to be one of the available formats returned by {@link #availableFormats()}
-     * @param output the output stream to write the block to
-     * @throws IllegalArgumentException if the format is not one of the available formats
-     */
-    default void writeBytesTo(Format format, OutputStream output) throws IllegalArgumentException {
-        blockBytes(format).writeTo(output);
+    default void writeBytesTo(Format format, OutputStream output) throws IOException {
+        final Bytes bytes = blockBytes(format);
+        if (bytes != null) {
+            bytes.writeTo(output);
+        } else {
+            final System.Logger LOGGER = System.getLogger(getClass().getName());
+            LOGGER.log(WARNING, "Failed to get bytes in writeBytesTo, no data written");
+        }
     }
 
     /**
@@ -142,7 +137,7 @@ public interface BlockAccessor {
      * encoded to the file.
      * </p>
      *
-     * @param format the format to write the block in, has to be one of the available formats returned by {@link #availableFormats()}
+     * @param format the desired format to use to serialize the bytes
      * @param path to the file to write the block to
      * @throws IOException if there was an error writing the block to given path
      */

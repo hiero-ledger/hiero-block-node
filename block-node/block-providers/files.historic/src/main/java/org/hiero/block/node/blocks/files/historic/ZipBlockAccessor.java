@@ -4,21 +4,16 @@ package org.hiero.block.node.blocks.files.historic;
 import static java.lang.System.Logger.Level.ERROR;
 
 import com.hedera.hapi.block.stream.Block;
-import com.hedera.pbj.runtime.ParseException;
-import com.hedera.pbj.runtime.UncheckedParseException;
-import com.hedera.pbj.runtime.io.WritableSequentialData;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import edu.umd.cs.findbugs.annotations.NonNull;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
-import java.io.UncheckedIOException;
 import java.nio.file.FileSystem;
 import java.nio.file.FileSystems;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Objects;
-import org.hiero.block.internal.BlockUnparsed;
 import org.hiero.block.node.base.CompressionType;
 import org.hiero.block.node.spi.historicalblocks.BlockAccessor;
 
@@ -53,33 +48,7 @@ final class ZipBlockAccessor implements BlockAccessor {
      * {@inheritDoc}
      */
     @Override
-    public Block block() {
-        try {
-            return Block.PROTOBUF.parse(blockBytes(Format.PROTOBUF));
-        } catch (final ParseException e) {
-            LOGGER.log(ERROR, "Failed to parse block", e);
-            throw new UncheckedParseException(e);
-        }
-    }
-
-    /**
-     * {@inheritDoc}
-     */
-    @Override
-    public BlockUnparsed blockUnparsed() {
-        try {
-            return BlockUnparsed.PROTOBUF.parse(blockBytes(Format.PROTOBUF));
-        } catch (final ParseException e) {
-            LOGGER.log(ERROR, "Failed to parse block", e);
-            throw new UncheckedParseException(e);
-        }
-    }
-
-    /**
-     * {@inheritDoc}
-     */
-    @Override
-    public Bytes blockBytes(@NonNull final Format format) throws IllegalArgumentException {
+    public Bytes blockBytes(@NonNull final Format format) {
         Objects.requireNonNull(format);
         return switch (format) {
             case JSON -> Block.JSON.toBytes(block());
@@ -91,7 +60,7 @@ final class ZipBlockAccessor implements BlockAccessor {
                     yield Bytes.wrap(wrappedInputStream.readAllBytes());
                 } catch (final IOException e) {
                     LOGGER.log(ERROR, "Failed to read block from zip file", e);
-                    throw new UncheckedIOException(e);
+                    yield null;
                 }
             }
             case ZSTD_PROTOBUF -> {
@@ -113,7 +82,7 @@ final class ZipBlockAccessor implements BlockAccessor {
                     }
                 } catch (final IOException e) {
                     LOGGER.log(ERROR, "Failed to read block from zip file", e);
-                    throw new UncheckedIOException(e);
+                    yield null;
                 }
             }
         };
@@ -123,18 +92,7 @@ final class ZipBlockAccessor implements BlockAccessor {
      * {@inheritDoc}
      */
     @Override
-    public void writeBytesTo(@NonNull final Format format, @NonNull final WritableSequentialData output)
-            throws IllegalArgumentException {
-        // This could be more efficient and require less RAM but for now this is fine
-        output.writeBytes(blockBytes(format));
-    }
-
-    /**
-     * {@inheritDoc}
-     */
-    @Override
-    public void writeBytesTo(@NonNull final Format format, @NonNull final OutputStream output)
-            throws IllegalArgumentException {
+    public void writeBytesTo(@NonNull final Format format, @NonNull final OutputStream output) {
         Objects.requireNonNull(format);
         Objects.requireNonNull(output);
         switch (format) {
@@ -147,7 +105,6 @@ final class ZipBlockAccessor implements BlockAccessor {
                     wrappedInputStream.transferTo(output);
                 } catch (final IOException e) {
                     LOGGER.log(ERROR, "Failed to read block from zip file", e);
-                    throw new UncheckedIOException(e);
                 }
             }
             case ZSTD_PROTOBUF -> {
@@ -170,7 +127,6 @@ final class ZipBlockAccessor implements BlockAccessor {
                     }
                 } catch (final IOException e) {
                     LOGGER.log(ERROR, "Failed to read block from zip file", e);
-                    throw new UncheckedIOException(e);
                 }
             }
         }
