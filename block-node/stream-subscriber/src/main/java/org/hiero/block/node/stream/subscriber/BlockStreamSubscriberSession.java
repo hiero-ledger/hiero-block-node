@@ -10,6 +10,7 @@ import com.hedera.pbj.runtime.OneOf;
 import com.hedera.pbj.runtime.ParseException;
 import com.hedera.pbj.runtime.grpc.Pipeline;
 import edu.umd.cs.findbugs.annotations.NonNull;
+import java.io.UncheckedIOException;
 import java.lang.System.Logger;
 import java.lang.System.Logger.Level;
 import java.util.List;
@@ -539,10 +540,17 @@ public class BlockStreamSubscriberSession implements Callable<BlockStreamSubscri
         final OneOf<ResponseOneOfType> responseOneOf = new OneOf<>(ResponseOneOfType.BLOCK_ITEMS, dataToSend);
         try {
             responsePipeline.onNext(new SubscribeStreamResponseUnparsed(responseOneOf));
-        } catch (RuntimeException e) {
-            // If the pipeline is in an error state; close this session.
+        } catch (UncheckedIOException e) {
             // Unfortunately this is the "standard" way to end a stream, so log
             // at debug rather than emitting noise in the logs.
+            // Also, this confuses everyone, they all see this debug log and
+            // assume the node crashed, so we must not print a stack trace.
+            final String messageFormat = "Client closed the connection when sending block items for client %d: %s";
+            final String message = messageFormat.formatted(clientId, e.getMessage());
+            LOGGER.log(Level.DEBUG, message);
+            close(null); // cannot send the end stream response, just close the stream.
+        } catch (RuntimeException e) {
+            // If the pipeline is in an error state; close this session.
             final String message =
                     "Client error sending block items for client %d: %s".formatted(clientId, e.getMessage());
             LOGGER.log(Level.DEBUG, message, e);
