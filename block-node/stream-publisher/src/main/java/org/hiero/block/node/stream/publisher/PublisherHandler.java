@@ -15,6 +15,7 @@ import com.hedera.pbj.runtime.io.buffer.Bytes;
 import com.swirlds.metrics.api.Counter;
 import com.swirlds.metrics.api.Metrics;
 import edu.umd.cs.findbugs.annotations.NonNull;
+import java.io.UncheckedIOException;
 import java.lang.System.Logger;
 import java.lang.System.Logger.Level;
 import java.util.List;
@@ -416,6 +417,18 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
         try {
             replies.onNext(response);
             return true;
+        } catch (UncheckedIOException e) {
+            shutdown(); // this method is idempotent and can be called multiple times
+            // Unfortunately this is the "standard" way to end a stream, so log
+            // at debug rather than emitting noise in the logs.
+            // Also, this confuses everyone, they all see this debug log and
+            // assume the node crashed, so we must not print a stack trace.
+            final String messageFormat = "Publisher closed the connection unexpectedly for client %d: %s";
+            final String exceptionMessage = e.getCause() != null ? e.getCause().getMessage() : e.getMessage();
+            final String message = messageFormat.formatted(handlerId, exceptionMessage);
+            LOGGER.log(Level.DEBUG, message);
+            metrics.sendResponseFailed.increment(); // @todo(1415) add label
+            return false;
         } catch (final RuntimeException e) {
             shutdown(); // this method is idempotent and can be called multiple times
             final String message = "Failed to send response for handler %d: %s".formatted(handlerId, e.getMessage());
