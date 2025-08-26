@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.server.messaging;
 
-import static org.hiero.block.server.messaging.BlockMessagingServiceDynamicBlockItemTest.intToBytes;
+import static org.hiero.block.server.messaging.DynamicBlockItemTest.intToBytes;
 import static org.hiero.block.server.messaging.TestConfig.BLOCK_NODE_CONTEXT;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -31,7 +31,7 @@ import org.junit.jupiter.params.provider.ValueSource;
 /**
  * Tests for the Block Item functionality of the MessagingService.
  */
-public class BlockMessagingServiceBlockItemTest {
+public class BlockItemTest {
     /**
      * The number of items to send to the messaging service. This is twice the size of the ring buffer, so that we can
      * test the back pressure and the slow handler.

@@ -2,7 +2,9 @@
 package org.hiero.block.node.blocks.files.recent;
 
 import static java.lang.System.Logger.Level.DEBUG;
+import static java.lang.System.Logger.Level.ERROR;
 import static java.lang.System.Logger.Level.INFO;
+import static java.lang.System.Logger.Level.TRACE;
 import static java.lang.System.Logger.Level.WARNING;
 import static org.hiero.block.node.base.BlockFile.nestedDirectoriesAllBlockNumbers;
 
@@ -14,7 +16,6 @@ import edu.umd.cs.findbugs.annotations.NonNull;
 import java.io.BufferedOutputStream;
 import java.io.IOException;
 import java.io.UncheckedIOException;
-import java.lang.System.Logger.Level;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
@@ -136,7 +137,7 @@ public final class BlocksFilesRecentPlugin implements BlockProviderPlugin, Block
         try {
             Files.createDirectories(config.liveRootPath());
         } catch (final IOException e) {
-            LOGGER.log(Level.ERROR, "Could not create root directory", e);
+            LOGGER.log(ERROR, "Could not create root directory", e);
             context.serverHealth().shutdown(name(), "Could not create root directory");
         }
         // we want to listen to block notifications and to know when blocks are verified
@@ -154,7 +155,7 @@ public final class BlocksFilesRecentPlugin implements BlockProviderPlugin, Block
                             totalBytesStored.addAndGet(Files.size(blockFilePath));
                         }
                     } catch (IOException e) {
-                        LOGGER.log(WARNING, "Failed to get size of block file for block " + blockNumber, e);
+                        LOGGER.log(INFO, "Failed to get size of block file for block " + blockNumber, e);
                     }
                 });
 
@@ -222,7 +223,7 @@ public final class BlocksFilesRecentPlugin implements BlockProviderPlugin, Block
                 return new BlockFileBlockAccessor(verifiedBlockPath, config.compression(), blockNumber);
             } else {
                 LOGGER.log(
-                        Level.WARNING,
+                        WARNING,
                         "Failed to find verified block file: {0}",
                         verifiedBlockPath.toAbsolutePath().toString());
             }
@@ -281,17 +282,14 @@ public final class BlocksFilesRecentPlugin implements BlockProviderPlugin, Block
     private void writeBlockToLivePath(final BlockUnparsed block, final long blockNumber, final BlockSource source) {
         final Path verifiedBlockPath = BlockFile.nestedDirectoriesBlockFilePath(
                 config.liveRootPath(), blockNumber, config.compression(), config.maxFilesPerDir());
-        try {
-            // create parent directory if it does not exist
-            Files.createDirectories(verifiedBlockPath.getParent());
-        } catch (final IOException e) {
-            LOGGER.log(
-                    System.Logger.Level.ERROR,
-                    "Failed to create directories for path: {0} error: {1}",
-                    verifiedBlockPath.toAbsolutePath().toString(),
-                    e);
-            throw new UncheckedIOException(e);
+        createDirectoryOrFail(verifiedBlockPath);
+        if (block != null && block.blockItems() != null && !block.blockItems().isEmpty()) {
+            writeBlockOrFail(block, blockNumber, source, verifiedBlockPath);
         }
+    }
+
+    private void writeBlockOrFail(
+            final BlockUnparsed block, final long blockNumber, final BlockSource source, final Path verifiedBlockPath) {
         try (final WritableStreamingData streamingData = new WritableStreamingData(new BufferedOutputStream(
                 config.compression().wrapStream(Files.newOutputStream(verifiedBlockPath)), 1024 * 1024))) {
             BlockUnparsed.PROTOBUF.write(block, streamingData);
@@ -301,7 +299,7 @@ public final class BlocksFilesRecentPlugin implements BlockProviderPlugin, Block
             totalBytesStored.addAndGet(Files.size(verifiedBlockPath));
 
             LOGGER.log(
-                    Level.DEBUG,
+                    DEBUG,
                     "Wrote verified block: {0} to file: {1}",
                     blockNumber,
                     verifiedBlockPath.toAbsolutePath().toString());
@@ -313,10 +311,20 @@ public final class BlocksFilesRecentPlugin implements BlockProviderPlugin, Block
             // Increment blocks written counter
             blocksWrittenCounter.increment();
         } catch (final IOException e) {
+            LOGGER.log(WARNING, "Failed to create verified file for block: {0}, error: {1}", blockNumber, e);
+            throw new UncheckedIOException(e);
+        }
+    }
+
+    private void createDirectoryOrFail(final Path verifiedBlockPath) {
+        try {
+            // create parent directory if it does not exist
+            Files.createDirectories(verifiedBlockPath.getParent());
+        } catch (final IOException e) {
             LOGGER.log(
-                    System.Logger.Level.ERROR,
-                    "Failed to create verified file for block: {0}, error: {1}",
-                    blockNumber,
+                    WARNING,
+                    "Failed to create directories for path: {0} error: {1}",
+                    verifiedBlockPath.toAbsolutePath().toString(),
                     e);
             throw new UncheckedIOException(e);
         }
@@ -331,37 +339,45 @@ public final class BlocksFilesRecentPlugin implements BlockProviderPlugin, Block
                 config.liveRootPath(), blockNumber, config.compression(), config.maxFilesPerDir());
         if (Files.exists(blockFilePath)) {
             // log we are deleting the block file
-            LOGGER.log(DEBUG, "Deleting block file: " + blockFilePath);
-            try {
-                // Get file size before deleting to update total bytes stored
-                final long fileSize = Files.size(blockFilePath);
-                // delete the block file and update counters
-                Files.delete(blockFilePath);
-                LOGGER.log(DEBUG, "Successfully deleted block file: " + blockFilePath);
-                availableBlocks.remove(blockNumber);
-                blocksDeletedCounter.increment();
-                totalBytesStored.addAndGet(-fileSize);
-            } catch (final IOException e) {
-                LOGGER.log(INFO, "Failed to delete block file: " + blockFilePath, e);
-                blocksDeletedFailedCounter.increment();
-            }
+            deleteBlockCleanly(blockNumber, blockFilePath);
             // clean up any empty parent directories up to the base directory
             Path parentDir = blockFilePath.getParent();
             while (parentDir != null && !parentDir.equals(config.liveRootPath())) {
-                try (final Stream<Path> filesList = Files.list(parentDir)) {
-                    if (filesList.findAny().isPresent()) {
-                        break;
-                    } else {
-                        // we did not find any files in the directory, so delete it
-                        Files.deleteIfExists(parentDir);
-                        // move up to the parent directory
-                        parentDir = parentDir.getParent();
-                    }
-                } catch (final IOException e) {
-                    LOGGER.log(INFO, "Failed remove parent directory: " + parentDir, e);
-                    break; // If we cannot list, we cannot assert an empty parent directory
-                }
+                parentDir = removeFolderAndGetParent(parentDir);
             }
+        }
+    }
+
+    private Path removeFolderAndGetParent(Path parentDir) {
+        try (final Stream<Path> filesList = Files.list(parentDir)) {
+            if (filesList.findAny().isEmpty()) {
+                // we did not find any files in the directory, so delete it
+                Files.deleteIfExists(parentDir);
+                // move up to the parent directory
+                return parentDir.getParent();
+            }
+        } catch (final IOException e) {
+            final String messageFormat = "Failed to remove parent directory `%s`";
+            LOGGER.log(INFO, messageFormat.formatted(parentDir), e);
+        }
+        return null;
+    }
+
+    private static final String DELETE_MESSAGE = "%s deleting block file %s";
+
+    private void deleteBlockCleanly(final long blockNumber, final Path blockFilePath) {
+        try {
+            // Get file size before deleting to update total bytes stored
+            final long fileSize = Files.size(blockFilePath);
+            // delete the block file and update counters
+            Files.delete(blockFilePath);
+            LOGGER.log(TRACE, DELETE_MESSAGE.formatted("Success", blockFilePath));
+            availableBlocks.remove(blockNumber);
+            blocksDeletedCounter.increment();
+            totalBytesStored.addAndGet(-fileSize);
+        } catch (final IOException e) {
+            LOGGER.log(INFO, DELETE_MESSAGE.formatted("Failure", blockFilePath), e);
+            blocksDeletedFailedCounter.increment();
         }
     }
 }

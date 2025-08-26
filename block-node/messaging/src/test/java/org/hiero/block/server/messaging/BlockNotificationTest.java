@@ -31,7 +31,7 @@ import org.junit.jupiter.api.Test;
  * Test class for the MessagingService to verify that it can handle block notifications and back pressure. All these
  * tests are super hard to get right as they are highly concurrent. So makes it very hard to not be timing dependent.
  */
-public class BlockMessagingServiceBlockNotificationTest {
+public class BlockNotificationTest {
 
     /**
      * The number of items to send to the messaging service. This is twice the size of the ring buffer, so that we can
@@ -167,7 +167,7 @@ public class BlockMessagingServiceBlockNotificationTest {
         // enough notifications should have been sent to the messaging service, avoid fixed numbers
         // because that breaks if the config changes.
         final String tooFewMessage = "sentCounter should be at least %d, but is %d.";
-        assertTrue(amountSent > MAX_NOTIFICATION_COUNT, tooFewMessage.formatted(MAX_NOTIFICATION_COUNT, amountSent));
+        assertTrue(amountSent >= MAX_NOTIFICATION_COUNT, tooFewMessage.formatted(MAX_NOTIFICATION_COUNT, amountSent));
         final String tooManyMessage = "sentCounter should be less than %d, but is %d.";
         assertTrue(amountSent < TEST_DATA_COUNT, tooManyMessage.formatted(TEST_DATA_COUNT, amountSent));
         // mark sending finished and release the slow handler

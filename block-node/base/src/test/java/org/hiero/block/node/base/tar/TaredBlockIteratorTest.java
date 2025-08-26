@@ -18,6 +18,7 @@ import java.nio.file.Path;
 import java.util.NoSuchElementException;
 import java.util.stream.LongStream;
 import java.util.stream.Stream;
+import org.hiero.block.node.app.fixtures.blocks.MinimalBlockAccessor;
 import org.hiero.block.node.spi.historicalblocks.BlockAccessor;
 import org.hiero.block.node.spi.historicalblocks.BlockAccessor.Format;
 import org.junit.jupiter.api.DisplayName;
@@ -59,17 +60,7 @@ public class TaredBlockIteratorTest {
                 .mapToObj(bn -> {
                     BlockItem[] blockItems = createNumberOfLargeBlocks(bn, bn);
                     Block block = new Block(java.util.Arrays.asList(blockItems));
-                    return new BlockAccessor() {
-                        @Override
-                        public long blockNumber() {
-                            return bn;
-                        }
-
-                        @Override
-                        public Block block() {
-                            return block;
-                        }
-                    };
+                    return new MinimalBlockAccessor(bn, block);
                 })
                 .toArray(BlockAccessor[]::new);
 
