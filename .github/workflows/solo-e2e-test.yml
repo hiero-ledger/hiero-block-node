@@ -7,7 +7,7 @@ on:
       BLOCK_NODE_HELM_CHART_VERSION:
         description: "Block Node Helm Chart Version"
         required: true
-        default: "V0.17.0"
+        default: "v0.17.0"
       CONSENSUS_NODE_RELEASE_TAG:
         description: "Consensus Node Release Tag"
         required: true
