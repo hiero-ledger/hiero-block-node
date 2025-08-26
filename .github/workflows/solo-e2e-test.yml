@@ -1,0 +1,194 @@
+# SPDX-License-Identifier: Apache-2.0
+name: solo-e2e-test.yml
+
+on:
+  workflow_dispatch:
+    inputs:
+      BLOCK_NODE_HELM_CHART_VERSION:
+        description: "Block Node Helm Chart Version"
+        required: true
+        default: "V0.17.0"
+      CONSENSUS_NODE_RELEASE_TAG:
+        description: "Consensus Node Release Tag"
+        required: true
+        default: "v0.65.0-rc.4"
+      MIRROR_NODE_RELEASE_TAG:
+        description: "Mirror Node Release Tag (for now ignored since using XIN Image)"
+        required: true
+        default: "v0.137.0"
+      SOLO_NETWORK_SIZE:
+        description: "Solo Network Size"
+        required: true
+        default: "1"
+
+defaults:
+  run:
+    shell: bash
+
+permissions:
+  checks: write
+  contents: read
+  actions: write
+  statuses: write
+  id-token: write
+
+concurrency:
+  group: solo-network
+  cancel-in-progress: true
+
+  env:
+    # Hardcoded
+    NODE_IDENTIFIERS: "node1"
+    DEPLOYMENT: "deployment-network-with-block-node"
+    NAMESPACE: "namespace-network-with-block-node"
+    CLUSTER_NAME: "solo-cluster"
+    CONTEXT: "kind-solo-cluster"
+    CLUSTER_REFERENCE: "kind-solo-cluster"
+    # from Inputs
+    BLOCK_NODE_HELM_CHART_VERSION: ${{ inputs.BLOCK_NODE_HELM_CHART_VERSION }}
+    CONSENSUS_NODE_RELEASE_TAG: ${{ inputs.CONSENSUS_NODE_RELEASE_TAG }}
+    SOLO_NETWORK_SIZE: ${{ inputs.SOLO_NETWORK_SIZE }}
+
+jobs:
+  deploy:
+    runs-on: hiero-block-node-linux-medium
+    steps:
+      - name: Harden Runner
+        uses: step-security/harden-runner@ec9f2d5744a09debf3a187a3f4f675c53b671911 # v2.13.0
+        with:
+          egress-policy: audit
+
+      - name: Setup Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 20
+
+      - name: Install Helm
+        uses: azure/setup-helm@b9e51907a09c216f16ebe8536097933489208112 # v4.3.0
+
+      - name: Setup Kind
+        uses: helm/kind-action@a1b0e391336a6ee6713a0583f8c6240d70863de3 # v1.12.0
+        with:
+          kubectl_version: v1.32.3
+
+      - name: Install JDK
+        uses: actions/setup-java@c5195efecf7bdfc987ee8bae7a71cb8b11521c00 # v4.7.1
+        with:
+          distribution: "temurin"
+          java-version: 21
+
+      # install solo cli
+      - name: Install Solo CLI via npm
+        run: |
+          npm i @hashgraph/solo@latest
+
+      # create kind cluster
+      - name: Create Kind Cluster
+        run: |
+          kind create cluster -n "${CLUSTER_NAME}"
+          # wait for control plane
+          sleep 10
+
+      # set kubectl context
+      - name: Set kubectl context
+        run: |
+          kubectl config set-context "${CONTEXT}"
+
+      # solo init
+      - name: Solo Init
+        run: |
+          npm run solo -- init
+
+      # solo cluster-ref    config connect
+      - name: Solo Cluster Ref Config Connect
+        run: |
+          npm run solo -- cluster-ref config connect --cluster-ref "${CLUSTER_REFERENCE}" --context "${CONTEXT}"
+
+      # solo deployment    config create
+      - name: Solo Deployment Config Create
+        run: |
+          npm run solo -- deployment config create --deployment "${DEPLOYMENT}" --namespace "${NAMESPACE}"
+
+      # solo deployment    cluster attach
+      - name: Solo Deployment Cluster Attach
+        run: |
+          npm run solo -- deployment cluster attach --deployment "${DEPLOYMENT}" --cluster-ref "${CLUSTER_REFERENCE}" \
+          --num-consensus-nodes "${SOLO_NETWORK_SIZE}"
+
+      - name: Solo Cluster Ref Config Setup
+        run: |
+          npm run solo -- cluster-ref config setup --cluster-ref "${CLUSTER_REFERENCE}"
+
+      - name: Solo Block Node Add
+        run: |
+          npm run solo -- block node add --deployment "${DEPLOYMENT}" --release-tag "${CONSENSUS_NODE_RELEASE_TAG}" \
+          --cluster-ref "${CLUSTER_REFERENCE}" --chart-version "${BLOCK_NODE_HELM_CHART_VERSION}"
+
+      - name: Solo Node Keys
+        run: |
+          npm run solo -- keys consensus generate --gossip-keys --tls-keys --deployment "${DEPLOYMENT}" \
+          --node-aliases "${NODE_IDENTIFIERS}"
+
+      - name: Solo Network Deploy
+        run: |
+          npm run solo -- consensus network deploy --deployment "${DEPLOYMENT}" --pvcs true --node-aliases "${NODE_IDENTIFIERS}" --release-tag "${CONSENSUS_NODE_RELEASE_TAG}"
+
+      - name: Solo Node Setup
+        run: |
+          npm run solo -- consensus node setup --node-aliases "${NODE_IDENTIFIERS}" --deployment "${DEPLOYMENT}" --release-tag "${CONSENSUS_NODE_RELEASE_TAG}"
+
+      - name: Solo Node Start
+        run: |
+          npm run solo -- consensus node start --deployment "${DEPLOYMENT}" --node-aliases "${NODE_IDENTIFIERS}"
+
+      # create values file override
+      - name: Create Mirror Values Override File
+        run: |
+          cat <<EOF > mirror-bn-values.yaml
+          importer:
+              image:
+              registry: docker.io
+              repository: xinatswirlds/importer
+              tag: e741ea2b2
+              config:
+              hiero:
+                  mirror:
+                  importer:
+                      block:
+                      enabled: true
+                      nodes:
+                          - host: block-node-0.${NAMESPACE}.svc.cluster.local
+                          port: 40840
+                      sourceType: BLOCK_NODE
+                  downloader:
+                      record:
+                      enabled: false
+                  startDate: 1970-01-01T00:00:00Z
+                  stream:
+                      maxSubscribeAttempts: 10
+                      responseTimeout: 10s
+          EOF
+
+      # verify file created
+      - name: Verify Mirror Values Override File Created
+        run: |
+          cat mirror-bn-values.yaml
+
+      # Solo Mirror Node Add
+      - name: Solo Mirror Node Add
+        run: |
+          npm run solo -- mirror node add --deployment "${DEPLOYMENT}" --pinger --cluster-ref "${CLUSTER_REFERENCE}" --enable-ingress -f mirror-bn-values.yaml
+
+      # Solo Relay Node Add
+      - name: Solo Relay Node Add
+        run: |
+          npm run solo -- relay node add --deployment "${DEPLOYMENT}" --node-alias "${NODE_IDENTIFIERS}" --cluster-ref "${CLUSTER_REFERENCE}"
+
+      # Solo Explorer Node Add
+      - name: Solo Explorer Node Add
+        run: |
+          npm run solo -- explorer node add --deployment "${DEPLOYMENT}" --cluster-ref "${CLUSTER_REFERENCE}"
+
+      # TODO: Verify using BN using grpcurl
+
+      # TODO: Verify MN using curl
