@@ -24,12 +24,10 @@ echo "BACKFILL_BLOCK_NODE_SOURCES_PATH=/opt/hiero/block-node/backfill/backfill-s
 
 if [ true = "$is_smoke_test" ]; then
   # add smoke test variables
-  echo "MEDIATOR_RING_BUFFER_SIZE=1024" >> .env
-  echo "NOTIFIER_RING_BUFFER_SIZE=1024" >> .env
   echo "JAVA_OPTS='-Xms4G -Xmx4G'" >> .env
 else
   # Set the production default values
-  echo "JAVA_OPTS='-Xms16G -Xmx16G'" >> .env
+  echo "JAVA_OPTS='-Xms16G -Xmx16G -XX:+HeapDumpOnOutOfMemoryError -XX:HeapDumpPath=/tmp/dump.hprof'" >> .env
 fi
 
 if [ true = "$is_debug" ]; then

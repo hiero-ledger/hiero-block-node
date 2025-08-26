@@ -1,4 +1,18 @@
 resources:
   requests:
-    cpu: "4"
+    cpu: "8"
     memory: "12Gi"
+
+blockNode:
+  config:
+    JAVA_OPTS: '-Xms8G -Xmx8G -XX:+HeapDumpOnOutOfMemoryError -XX:HeapDumpPath="/tmp/dump.hprof"'
+    MESSAGING_BLOCK_ITEM_QUEUE_SIZE: "256"
+    MESSAGING_BLOCK_NOTIFICATION_QUEUE_SIZE: "16"
+    BACKFILL_FETCH_BATCH_SIZE: "8"
+  persistence:
+    archive:
+      size: 16Gi
+    live:
+      size: 4Gi
+    logging:
+      size: 2Gi
