@@ -11,7 +11,7 @@ resources:
 
 blockNode:
   config:
-    JAVA_OPTS: "-Xms4G -Xmx4G"
+    JAVA_OPTS: '-Xms4G -Xmx4G  -XX:+HeapDumpOnOutOfMemoryError -XX:HeapDumpPath="/tmp/dump.hprof"'
     MEDIATOR_RING_BUFFER_SIZE: "64"
     MESSAGING_BLOCK_NOTIFICATION_QUEUE_SIZE: "8"
     BACKFILL_FETCH_BATCH_SIZE: "4"
