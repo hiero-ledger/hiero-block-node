@@ -24,8 +24,8 @@ echo "BACKFILL_BLOCK_NODE_SOURCES_PATH=/opt/hiero/block-node/backfill/backfill-s
 
 if [ true = "$is_smoke_test" ]; then
   # add smoke test variables
-  echo "MEDIATOR_RING_BUFFER_SIZE=1024" >> .env
-  echo "NOTIFIER_RING_BUFFER_SIZE=1024" >> .env
+  echo "MEDIATOR_RING_BUFFER_SIZE=512" >> .env
+  echo "NOTIFIER_RING_BUFFER_SIZE=16" >> .env
   echo "JAVA_OPTS='-Xms4G -Xmx4G'" >> .env
 else
   # Set the production default values
@@ -39,7 +39,7 @@ if [ true = "$is_debug" ]; then
 else
   # we set normally the JAVA_TOOL_OPTIONS
   # file is mounted in the docker-compose.yml, changes to the file will be reflected in the container by simply restarting it
-  echo "JAVA_TOOL_OPTIONS='-Djava.util.logging.manager=java.util.logging.LogManager -Djava.util.logging.config.file=/opt/hiero/block-node/logs/config/logging.properties '" >> .env
+  echo "JAVA_TOOL_OPTIONS='-Djava.util.logging.manager=java.util.logging.LogManager' '-Djava.util.logging.config.file=/opt/hiero/block-node/logs/config/logging.properties' '-XX:+HeapDumpOnOutOfMemoryError' '-XX:HeapDumpPath=/tmp/dump.hprof' " >> .env
 fi
 # Output the values
 echo ".env properties:"
