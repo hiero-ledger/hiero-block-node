@@ -36,18 +36,18 @@ concurrency:
   group: solo-network
   cancel-in-progress: true
 
-  env:
-    # Hardcoded
-    NODE_IDENTIFIERS: "node1"
-    DEPLOYMENT: "deployment-network-with-block-node"
-    NAMESPACE: "namespace-network-with-block-node"
-    CLUSTER_NAME: "solo-cluster"
-    CONTEXT: "kind-solo-cluster"
-    CLUSTER_REFERENCE: "kind-solo-cluster"
-    # from Inputs
-    BLOCK_NODE_HELM_CHART_VERSION: ${{ inputs.BLOCK_NODE_HELM_CHART_VERSION }}
-    CONSENSUS_NODE_RELEASE_TAG: ${{ inputs.CONSENSUS_NODE_RELEASE_TAG }}
-    SOLO_NETWORK_SIZE: ${{ inputs.SOLO_NETWORK_SIZE }}
+env:
+  # Hardcoded
+  NODE_IDENTIFIERS: "node1"
+  DEPLOYMENT: "deployment-network-with-block-node"
+  NAMESPACE: "namespace-network-with-block-node"
+  CLUSTER_NAME: "solo-cluster"
+  CONTEXT: "kind-solo-cluster"
+  CLUSTER_REFERENCE: "kind-solo-cluster"
+  # from Inputs
+  BLOCK_NODE_HELM_CHART_VERSION: ${{ inputs.BLOCK_NODE_HELM_CHART_VERSION }}
+  CONSENSUS_NODE_RELEASE_TAG: ${{ inputs.CONSENSUS_NODE_RELEASE_TAG }}
+  SOLO_NETWORK_SIZE: ${{ inputs.SOLO_NETWORK_SIZE }}
 
 jobs:
   deploy:
