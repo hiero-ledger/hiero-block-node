@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-name: solo-e2e-test.yml
+name: Solo E2E Test
 
 on:
   workflow_dispatch:
@@ -17,11 +17,11 @@ on:
         required: true
         default: "v0.137.0"
       solo-network-size:
-        description: "Solo Network Size"
+        description: "Solo Network Size (Number of Consensus Nodes)"
         required: true
         default: "1"
       solo-version:
-        description: "Solo CLI Version (for now ignored since always using latest)"
+        description: "Solo CLI Version"
         required: false
         default: "latest"
 
@@ -48,7 +48,7 @@ env:
   CLUSTER_REFERENCE: "kind-solo-cluster"
 
 jobs:
-  deploy:
+  solo-test-deploy:
     runs-on: hiero-block-node-linux-medium
     steps:
       - name: Harden Runner
@@ -65,7 +65,7 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
-          node-version: 20
+          node-version: "20.19.4"
 
       - name: Install Helm
         uses: azure/setup-helm@b9e51907a09c216f16ebe8536097933489208112 # v4.3.0
@@ -73,7 +73,12 @@ jobs:
       - name: Setup Kind
         uses: helm/kind-action@a1b0e391336a6ee6713a0583f8c6240d70863de3 # v1.12.0
         with:
-          kubectl_version: v1.32.3
+          install_only: true
+          node_image: kindest/node:v1.31.4@sha256:2cb39f7295fe7eafee0842b1052a599a4fb0f8bcf3f83d96c7f4864c357c6c30
+          version: v0.26.0
+          kubectl_version: v1.31.4
+          verbosity: 3
+          wait: 120s
 
       - name: Install JDK
         uses: actions/setup-java@c5195efecf7bdfc987ee8bae7a71cb8b11521c00 # v4.7.1
@@ -81,14 +86,28 @@ jobs:
           distribution: "temurin"
           java-version: 21
 
-      # produce protobuf source artifact (for grpcurl later on)
-      - name: Produce artifact
-        run: ${GRADLE_EXEC} :block-node-protobuf-sources:generateBlockNodeProtoArtifact
-
       # install solo cli
-      - name: Install Solo CLI via npm
+      #- name: Install Solo CLI via npm
+      #  run: |
+      #    npm i @hashgraph/solo@${{ inputs.solo-version }} -g
+
+      # Temporary workaround to use specific solo cli version from build
+      # install solo cli (from branch)
+      - name: Install Solo from branch
         run: |
-          npm i @hashgraph/solo@${{ inputs.solo-version }}
+          git clone --depth 1 --branch cn-65-bn-16 https://github.com/hiero-ledger/solo.git /tmp/solo
+          cd /tmp/solo
+          npm install typescript
+          npx tsc
+          node resources/post-build-script.js
+          npm ci
+          npm install -g .
+          npm run solo -- --version
+
+      - name: Check Solo version and path
+        run: |
+          which solo
+          solo --version
 
       # create kind cluster
       - name: Create Kind Cluster
@@ -105,50 +124,47 @@ jobs:
       # solo init
       - name: Solo Init
         run: |
-          npm run solo -- init
+          solo init
 
-      # solo cluster-ref config connect
+      # solo cluster-ref connect
       - name: Solo Cluster Ref Config Connect
         run: |
-          npm run solo -- cluster-ref config connect --cluster-ref "${CLUSTER_REFERENCE}" --context "${CONTEXT}"
+          solo cluster-ref config connect --cluster-ref "${CLUSTER_REFERENCE}" --context "${CONTEXT}"
 
-      # solo deployment config create
+      # solo deployment create
       - name: Solo Deployment Config Create
         run: |
-          npm run solo -- deployment config create --deployment "${DEPLOYMENT}" --namespace "${NAMESPACE}"
+          solo deployment config create --deployment "${DEPLOYMENT}" --namespace "${NAMESPACE}"
 
-      # solo deployment cluster attach
-      - name: Solo Deployment Cluster Attach
+      # solo deployment add-cluster (former attach)
+      - name: Solo Deployment Add Cluster
         run: |
-          npm run solo -- deployment cluster attach --deployment "${DEPLOYMENT}" --cluster-ref "${CLUSTER_REFERENCE}" \
-          --num-consensus-nodes "${{ inputs.solo-network-size }}"
+          solo deployment cluster attach --deployment "${DEPLOYMENT}" --cluster-ref "${CLUSTER_REFERENCE}" --num-consensus-nodes "${{ inputs.solo-network-size }}"
 
       - name: Solo Cluster Ref Config Setup
         run: |
-          npm run solo -- cluster-ref config setup --cluster-ref "${CLUSTER_REFERENCE}"
+          solo cluster-ref config setup -s "${CLUSTER_REFERENCE}"
 
       # Solo Block Node Add
       - name: Solo Block Node Add
         run: |
-          npm run solo -- block node add --deployment "${DEPLOYMENT}" --release-tag "${{ inputs.consensus-node-release-tag }}" \
-          --cluster-ref "${CLUSTER_REFERENCE}" --chart-version "${{ inputs.block-node-helm-chart-version }}"
+          solo block node add --deployment "${DEPLOYMENT}" --release-tag "${{ inputs.consensus-node-release-tag }}" --cluster-ref "${CLUSTER_REFERENCE}" --chart-version "${{ inputs.block-node-helm-chart-version }}"
 
       - name: Solo Node Keys
         run: |
-          npm run solo -- keys consensus generate --gossip-keys --tls-keys --deployment "${DEPLOYMENT}" \
-          --node-aliases "${NODE_IDENTIFIERS}"
+          solo keys consensus generate --gossip-keys --tls-keys --deployment "${DEPLOYMENT}" --node-aliases "${NODE_IDENTIFIERS}"
 
       - name: Solo Network Deploy
         run: |
-          npm run solo -- consensus network deploy --deployment "${DEPLOYMENT}" --pvcs true --node-aliases "${NODE_IDENTIFIERS}" --release-tag "${{ inputs.consensus-node-release-tag }}"
+          solo consensus network deploy --deployment "${DEPLOYMENT}" --pvcs true --node-aliases "${NODE_IDENTIFIERS}" --release-tag "${{ inputs.consensus-node-release-tag }}"
 
       - name: Solo Node Setup
         run: |
-          npm run solo -- consensus node setup --node-aliases "${NODE_IDENTIFIERS}" --deployment "${DEPLOYMENT}" --release-tag "${{ inputs.consensus-node-release-tag }}"
+          solo consensus node setup --node-aliases "${NODE_IDENTIFIERS}" --deployment "${DEPLOYMENT}" --release-tag "${{ inputs.consensus-node-release-tag }}"
 
       - name: Solo Node Start
         run: |
-          npm run solo -- consensus node start --deployment "${DEPLOYMENT}" --node-aliases "${NODE_IDENTIFIERS}"
+          solo consensus node start --deployment "${DEPLOYMENT}" --node-aliases "${NODE_IDENTIFIERS}"
 
       # Create Mirror Values Override File (uses BN service)
       - name: Create Mirror Values Override File
@@ -184,17 +200,21 @@ jobs:
 
       - name: Solo Mirror Node Add
         run: |
-          npm run solo -- mirror node add --deployment "${DEPLOYMENT}" --pinger --cluster-ref "${CLUSTER_REFERENCE}" --enable-ingress -f mirror-bn-values.yaml
+          solo mirror node add --deployment "${DEPLOYMENT}" --pinger --cluster-ref "${CLUSTER_REFERENCE}" --enable-ingress -f mirror-bn-values.yaml
 
       - name: Solo Relay Node Add
         run: |
-          npm run solo -- relay node add --deployment "${DEPLOYMENT}" --node-alias "${NODE_IDENTIFIERS}" --cluster-ref "${CLUSTER_REFERENCE}"
+          solo relay node add --deployment "${DEPLOYMENT}" --node-aliases "${NODE_IDENTIFIERS}" --cluster-ref "${CLUSTER_REFERENCE}"
 
       - name: Solo Explorer Node Add
         run: |
-          npm run solo -- explorer node add --deployment "${DEPLOYMENT}" --cluster-ref "${CLUSTER_REFERENCE}"
+          solo explorer node add --deployment "${DEPLOYMENT}" --cluster-ref "${CLUSTER_REFERENCE}"
 
       # ---- BN verification with grpcurl ----
+
+      # produce protobuf source artifact
+      - name: Produce Protobuf proto artifact
+        run: ${GRADLE_EXEC} :block-node-protobuf-sources:generateBlockNodeProtoArtifact
 
       - name: Install grpcurl
         run: |
