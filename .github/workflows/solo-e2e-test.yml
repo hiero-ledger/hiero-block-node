@@ -30,10 +30,7 @@ defaults:
     shell: bash
 
 permissions:
-  checks: write
   contents: read
-  actions: write
-  statuses: write
   id-token: write
 
 concurrency:
