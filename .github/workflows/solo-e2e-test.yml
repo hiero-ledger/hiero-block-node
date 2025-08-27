@@ -4,22 +4,26 @@ name: solo-e2e-test.yml
 on:
   workflow_dispatch:
     inputs:
-      BLOCK_NODE_HELM_CHART_VERSION:
+      block-node-helm-chart-version:
         description: "Block Node Helm Chart Version"
         required: true
         default: "v0.17.0"
-      CONSENSUS_NODE_RELEASE_TAG:
+      consensus-node-release-tag:
         description: "Consensus Node Release Tag"
         required: true
         default: "v0.65.0-rc.4"
-      MIRROR_NODE_RELEASE_TAG:
+      mirror-node-release-tag:
         description: "Mirror Node Release Tag (for now ignored since using XIN Image)"
         required: true
         default: "v0.137.0"
-      SOLO_NETWORK_SIZE:
+      solo-network-size:
         description: "Solo Network Size"
         required: true
         default: "1"
+      solo-version:
+        description: "Solo CLI Version (for now ignored since always using latest)"
+        required: false
+        default: "latest"
 
 defaults:
   run:
@@ -37,17 +41,14 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  # Hardcoded
+  GRADLE_EXEC: "ionice -c 2 -n 2 nice -n 19 ./gradlew "
+  # Solo ENV Hardcoded
   NODE_IDENTIFIERS: "node1"
   DEPLOYMENT: "deployment-network-with-block-node"
   NAMESPACE: "namespace-network-with-block-node"
   CLUSTER_NAME: "solo-cluster"
   CONTEXT: "kind-solo-cluster"
   CLUSTER_REFERENCE: "kind-solo-cluster"
-  # from Inputs
-  BLOCK_NODE_HELM_CHART_VERSION: ${{ inputs.BLOCK_NODE_HELM_CHART_VERSION }}
-  CONSENSUS_NODE_RELEASE_TAG: ${{ inputs.CONSENSUS_NODE_RELEASE_TAG }}
-  SOLO_NETWORK_SIZE: ${{ inputs.SOLO_NETWORK_SIZE }}
 
 jobs:
   deploy:
@@ -57,6 +58,12 @@ jobs:
         uses: step-security/harden-runner@ec9f2d5744a09debf3a187a3f4f675c53b671911 # v2.13.0
         with:
           egress-policy: audit
+
+      # TODO, checkout the same tag as block-node-helm-chart-version
+      - name: Checkout repository
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+        with:
+          fetch-depth: 0
 
       - name: Setup Node
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
@@ -77,10 +84,14 @@ jobs:
           distribution: "temurin"
           java-version: 21
 
+      # produce protobuf source artifact (for grpcurl later on)
+      - name: Produce artifact
+        run: ${GRADLE_EXEC} :block-node-protobuf-sources:generateBlockNodeProtoArtifact
+
       # install solo cli
       - name: Install Solo CLI via npm
         run: |
-          npm i @hashgraph/solo@latest
+          npm i @hashgraph/solo@${{ inputs.solo-version }}
 
       # create kind cluster
       - name: Create Kind Cluster
@@ -89,40 +100,41 @@ jobs:
           # wait for control plane
           sleep 10
 
-      # set kubectl context
-      - name: Set kubectl context
+      # use kubectl context
+      - name: Use kubectl context
         run: |
-          kubectl config set-context "${CONTEXT}"
+          kubectl config use-context "${CONTEXT}"
 
       # solo init
       - name: Solo Init
         run: |
           npm run solo -- init
 
-      # solo cluster-ref    config connect
+      # solo cluster-ref config connect
       - name: Solo Cluster Ref Config Connect
         run: |
           npm run solo -- cluster-ref config connect --cluster-ref "${CLUSTER_REFERENCE}" --context "${CONTEXT}"
 
-      # solo deployment    config create
+      # solo deployment config create
       - name: Solo Deployment Config Create
         run: |
           npm run solo -- deployment config create --deployment "${DEPLOYMENT}" --namespace "${NAMESPACE}"
 
-      # solo deployment    cluster attach
+      # solo deployment cluster attach
       - name: Solo Deployment Cluster Attach
         run: |
           npm run solo -- deployment cluster attach --deployment "${DEPLOYMENT}" --cluster-ref "${CLUSTER_REFERENCE}" \
-          --num-consensus-nodes "${SOLO_NETWORK_SIZE}"
+          --num-consensus-nodes "${{ inputs.solo-network-size }}"
 
       - name: Solo Cluster Ref Config Setup
         run: |
           npm run solo -- cluster-ref config setup --cluster-ref "${CLUSTER_REFERENCE}"
 
+      # Solo Block Node Add
       - name: Solo Block Node Add
         run: |
-          npm run solo -- block node add --deployment "${DEPLOYMENT}" --release-tag "${CONSENSUS_NODE_RELEASE_TAG}" \
-          --cluster-ref "${CLUSTER_REFERENCE}" --chart-version "${BLOCK_NODE_HELM_CHART_VERSION}"
+          npm run solo -- block node add --deployment "${DEPLOYMENT}" --release-tag "${{ inputs.consensus-node-release-tag }}" \
+          --cluster-ref "${CLUSTER_REFERENCE}" --chart-version "${{ inputs.block-node-helm-chart-version }}"
 
       - name: Solo Node Keys
         run: |
@@ -131,64 +143,92 @@ jobs:
 
       - name: Solo Network Deploy
         run: |
-          npm run solo -- consensus network deploy --deployment "${DEPLOYMENT}" --pvcs true --node-aliases "${NODE_IDENTIFIERS}" --release-tag "${CONSENSUS_NODE_RELEASE_TAG}"
+          npm run solo -- consensus network deploy --deployment "${DEPLOYMENT}" --pvcs true --node-aliases "${NODE_IDENTIFIERS}" --release-tag "${{ inputs.consensus-node-release-tag }}"
 
       - name: Solo Node Setup
         run: |
-          npm run solo -- consensus node setup --node-aliases "${NODE_IDENTIFIERS}" --deployment "${DEPLOYMENT}" --release-tag "${CONSENSUS_NODE_RELEASE_TAG}"
+          npm run solo -- consensus node setup --node-aliases "${NODE_IDENTIFIERS}" --deployment "${DEPLOYMENT}" --release-tag "${{ inputs.consensus-node-release-tag }}"
 
       - name: Solo Node Start
         run: |
           npm run solo -- consensus node start --deployment "${DEPLOYMENT}" --node-aliases "${NODE_IDENTIFIERS}"
 
-      # create values file override
+      # Create Mirror Values Override File (uses BN service)
       - name: Create Mirror Values Override File
         run: |
           cat <<EOF > mirror-bn-values.yaml
           importer:
-              image:
+            image:
               registry: docker.io
               repository: xinatswirlds/importer
               tag: e741ea2b2
-              config:
+            config:
               hiero:
-                  mirror:
+                mirror:
                   importer:
-                      block:
+                    block:
                       enabled: true
                       nodes:
-                          - host: block-node-0.${NAMESPACE}.svc.cluster.local
+                        - host: block-node-0.${NAMESPACE}.svc.cluster.local
                           port: 40840
                       sourceType: BLOCK_NODE
                   downloader:
-                      record:
+                    record:
                       enabled: false
                   startDate: 1970-01-01T00:00:00Z
                   stream:
-                      maxSubscribeAttempts: 10
-                      responseTimeout: 10s
+                    maxSubscribeAttempts: 10
+                    responseTimeout: 10s
           EOF
 
-      # verify file created
       - name: Verify Mirror Values Override File Created
         run: |
           cat mirror-bn-values.yaml
 
-      # Solo Mirror Node Add
       - name: Solo Mirror Node Add
         run: |
           npm run solo -- mirror node add --deployment "${DEPLOYMENT}" --pinger --cluster-ref "${CLUSTER_REFERENCE}" --enable-ingress -f mirror-bn-values.yaml
 
-      # Solo Relay Node Add
       - name: Solo Relay Node Add
         run: |
           npm run solo -- relay node add --deployment "${DEPLOYMENT}" --node-alias "${NODE_IDENTIFIERS}" --cluster-ref "${CLUSTER_REFERENCE}"
 
-      # Solo Explorer Node Add
       - name: Solo Explorer Node Add
         run: |
           npm run solo -- explorer node add --deployment "${DEPLOYMENT}" --cluster-ref "${CLUSTER_REFERENCE}"
 
-      # TODO: Verify using BN using grpcurl
+      # ---- BN verification with grpcurl ----
 
-      # TODO: Verify MN using curl
+      - name: Install grpcurl
+        run: |
+          curl -L https://github.com/fullstorydev/grpcurl/releases/download/v1.8.7/grpcurl_1.8.7_linux_x86_64.tar.gz -o grpcurl.tar.gz
+          sudo tar -xzf grpcurl.tar.gz -C /usr/local/bin grpcurl
+          rm grpcurl.tar.gz
+
+      - name: Install jq
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y jq
+
+      - name: Port Forward to Block Node
+        run: |
+          kubectl port-forward --namespace "${NAMESPACE}" svc/block-node-0 40840:40840 &
+          echo $! > /tmp/pf.pid
+          # wait for port-forward to be established
+          sleep 10
+
+      - name: Get lastAvailableBlock
+        run: |
+          BLOCK=$(grpcurl \
+            -plaintext \
+            -import-path protobuf-sources/src/main/proto \
+            -import-path protobuf-sources/block-node-protobuf \
+            -proto block-node/api/node_service.proto \
+            -d '{}' \
+            localhost:40840 \
+            org.hiero.block.api.BlockNodeService/serverStatus \
+            | jq -r '.lastAvailableBlock')
+          echo "Block is $BLOCK"
+          echo "BLOCK=$BLOCK" >> $GITHUB_ENV
+
+      # TODO verify MN using curl and REST API
