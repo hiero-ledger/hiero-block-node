@@ -260,4 +260,40 @@ jobs:
           echo "Block is $BLOCK"
           echo "BLOCK=$BLOCK" >> $GITHUB_ENV
 
-      # TODO verify MN using curl and REST API
+      - name: Get firstBlock
+        run: |
+          FIRSTBLOCK=$(grpcurl \
+            -plaintext \
+            -import-path protobuf-sources/src/main/proto \
+            -import-path protobuf-sources/block-node-protobuf \
+            -proto block-node/api/block_access_service.proto \
+            -d '{"block_number": "0"}' \
+            localhost:40840 \
+            org.hiero.block.api.BlockNodeService/getBlock \
+            | jq -r '.block.items[0].block_header.number')
+          
+          if [ -z "$FIRSTBLOCK" ]; then
+            echo "Error: FIRSTBLOCK is empty"
+            exit 1
+          fi
+          
+          echo "FirstBlock is $FIRSTBLOCK"
+          echo "FIRSTBLOCK=$FIRSTBLOCK" >> $GITHUB_ENV
+
+      - name: Port Forward to Mirror Node
+        run: |
+          kubectl port-forward --namespace "${NAMESPACE}" svc/mirror-rest  5551:80
+          # wait for port-forward to be established
+          sleep 10
+
+      - name: Get lastAvailableBlock mirror node
+        run: |
+          BLOCKMIRROR=$(curl -s "http://127.0.0.1:5551/api/v1/blocks?limit=1&order=desc" | jq -r '.name')
+          
+          if [ -z "$BLOCKMIRROR" ]; then
+            echo "Error: BLOCKMIRROR is empty"
+            exit 1
+          fi
+          
+          echo "BlockMirror is $BLOCKMIRROR"
+          echo "BLOCKMIRROR=$BLOCKMIRROR" >> $GITHUB_ENV
