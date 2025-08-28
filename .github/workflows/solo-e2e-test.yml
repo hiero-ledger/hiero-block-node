@@ -271,12 +271,12 @@ jobs:
             localhost:40840 \
             org.hiero.block.api.BlockNodeService/getBlock \
             | jq -r '.block.items[0].block_header.number')
-          
+
           if [ -z "$FIRSTBLOCK" ]; then
             echo "Error: FIRSTBLOCK is empty"
             exit 1
           fi
-          
+
           echo "FirstBlock is $FIRSTBLOCK"
           echo "FIRSTBLOCK=$FIRSTBLOCK" >> $GITHUB_ENV
 
@@ -289,11 +289,11 @@ jobs:
       - name: Get lastAvailableBlock mirror node
         run: |
           BLOCKMIRROR=$(curl -s "http://127.0.0.1:5551/api/v1/blocks?limit=1&order=desc" | jq -r '.name')
-          
+
           if [ -z "$BLOCKMIRROR" ]; then
             echo "Error: BLOCKMIRROR is empty"
             exit 1
           fi
-          
+
           echo "BlockMirror is $BLOCKMIRROR"
           echo "BLOCKMIRROR=$BLOCKMIRROR" >> $GITHUB_ENV
