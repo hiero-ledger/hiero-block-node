@@ -44,8 +44,7 @@ import org.hiero.block.node.spi.threading.ThreadPoolManager;
  */
 public final class LiveStreamPublisherManager implements StreamPublisherManager {
     private static final String QUEUE_ID_FORMAT = "Q%016d";
-    private static final int DATA_READY_WAIT_MICROSECONDS = 500;
-    // @todo(1413) utilize the logger
+    private static final int DATA_READY_WAIT_MICROSECONDS = 5000;
     private final System.Logger LOGGER = System.getLogger(LiveStreamPublisherManager.class.getName());
     private final MetricsHolder metrics;
     private final BlockNodeContext serverContext;
