@@ -248,7 +248,6 @@ jobs:
 
       # Verify the BN is getting blocks
       - name: Get ServerStatus from Block Node
-        working-directory: block-node
         run: |
           FIRST_AVAILABLE_BLOCK=$(grpcurl \
             -plaintext \
