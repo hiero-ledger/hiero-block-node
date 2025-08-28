@@ -139,7 +139,7 @@ jobs:
       # Solo Block Node Add (unchanged)
       - name: Solo Block Node Add
         run: |
-          solo block node add --deployment "${DEPLOYMENT}" --release-tag "${{ inputs.consensus-node-release-tag }}" --cluster-ref "${CLUSTER_REFERENCE}" --chart-version "${{ inputs.block-node-helm-chart-version }}"
+          solo block node add --deployment "${DEPLOYMENT}" --cluster-ref "${CLUSTER_REFERENCE}" --chart-version "${{ inputs.block-node-helm-chart-version }}"
 
       # solo node keys (formerly `keys consensus generate`)
       - name: Solo Node Keys
@@ -246,9 +246,21 @@ jobs:
           # wait for port-forward to be established
           sleep 10
 
-      - name: Get lastAvailableBlock
+      # Verify the BN is getting blocks
+      - name: Get ServerStatus from Block Node
+        working-directory: block-node
         run: |
-          BLOCK=$(grpcurl \
+          FIRST_AVAILABLE_BLOCK=$(grpcurl \
+            -plaintext \
+            -import-path protobuf-sources/src/main/proto \
+            -import-path protobuf-sources/block-node-protobuf \
+            -proto block-node/api/node_service.proto \
+            -d '{}' \
+            localhost:40840 \
+            org.hiero.block.api.BlockNodeService/serverStatus \
+            | jq -r '.firstAvailableBlock')
+          echo "First available block is $FIRST_AVAILABLE_BLOCK"
+          LAST_AVAILABLE_BLOCK=$(grpcurl \
             -plaintext \
             -import-path protobuf-sources/src/main/proto \
             -import-path protobuf-sources/block-node-protobuf \
@@ -257,7 +269,15 @@ jobs:
             localhost:40840 \
             org.hiero.block.api.BlockNodeService/serverStatus \
             | jq -r '.lastAvailableBlock')
-          echo "Block is $BLOCK"
-          echo "BLOCK=$BLOCK" >> $GITHUB_ENV
+          echo "Last available block is $LAST_AVAILABLE_BLOCK"
+          # check first is equal to 0 and last is greater than 1
+            if [[ "$FIRST_AVAILABLE_BLOCK" != "0" ]]; then
+                echo "First available block is not 0"
+                exit 1
+            fi
+            if (( LAST_AVAILABLE_BLOCK < 1 )); then
+                echo "Last available block is less than 1"
+                exit 1
+            fi          
 
       # TODO verify MN using curl and REST API
