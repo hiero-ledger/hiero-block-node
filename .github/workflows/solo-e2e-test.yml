@@ -279,6 +279,58 @@ jobs:
             if (( LAST_AVAILABLE_BLOCK < 1 )); then
                 echo "Last available block is less than 1"
                 exit 1
-            fi      
+            fi
+          echo "FIRST_AVAILABLE_BLOCK=$FIRST_AVAILABLE_BLOCK" >> $GITHUB_ENV
+          echo "LAST_AVAILABLE_BLOCK=$LAST_AVAILABLE_BLOCK" >> $GITHUB_ENV
 
-      # TODO verify MN using curl and REST API
+      - name: Get first block from Block Node
+        run: |
+          FIRSTBLOCK=$(grpcurl \
+            -plaintext \
+            -emit-defaults \
+            -import-path protobuf-sources/src/main/proto \
+            -import-path protobuf-sources/block-node-protobuf \
+            -proto block-node/api/block_access_service.proto \
+            -d "{\"block_number\": $FIRST_AVAILABLE_BLOCK}" \
+            localhost:40840 \
+            org.hiero.block.api.BlockAccessService/getBlock \
+            | jq -r '.block.items[0].blockHeader.number')
+          if [ -z "$FIRSTBLOCK" ]; then
+            echo "Error: FIRSTBLOCK is empty"
+            exit 1
+          fi
+          echo "FirstBlock is $FIRSTBLOCK"
+
+      - name: Get last block from Block Node
+        run: |
+          LASTBLOCK=$(grpcurl \
+            -plaintext \
+            -emit-defaults \
+            -import-path protobuf-sources/src/main/proto \
+            -import-path protobuf-sources/block-node-protobuf \
+            -proto block-node/api/block_access_service.proto \
+            -d "{\"block_number\": $LAST_AVAILABLE_BLOCK}" \
+            localhost:40840 \
+            org.hiero.block.api.BlockAccessService/getBlock \
+            | jq -r '.block.items[0].blockHeader.number')
+          if [ -z "$LASTBLOCK" ]; then
+            echo "Error: LASTBLOCK is empty"
+            exit 1
+          fi
+          echo "LastBlock is $LASTBLOCK"
+
+      - name: Port Forward to Mirror Node
+        run: |
+          kubectl port-forward --namespace "${NAMESPACE}" svc/mirror-rest  5551:80 &
+          echo $! > /tmp/pf.pid
+          # wait for port-forward to be established
+          sleep 10
+
+      - name: Get first block from Mirror Node
+        run: |
+          FIRSTBLOCKMIRROR=$(curl -s "http://127.0.0.1:5551/api/v1/blocks/$FIRST_AVAILABLE_BLOCK" | jq -r '.number')
+          if [ -z "$FIRSTBLOCKMIRROR" ]; then
+            echo "Error: FIRSTBLOCKMIRROR is empty"
+            exit 1
+          fi
+          echo "FIRSTBLOCKMIRROR is $FIRSTBLOCKMIRROR"
