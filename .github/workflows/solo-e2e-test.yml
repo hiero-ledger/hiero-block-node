@@ -283,7 +283,7 @@ jobs:
 
       - name: Get first block from Block Node
         run: |
-          FIRSTBLOCK=$(grpcurl \
+          FIRST_BLOCK=$(grpcurl \
             -plaintext \
             -emit-defaults \
             -import-path protobuf-sources/src/main/proto \
@@ -293,15 +293,15 @@ jobs:
             localhost:40840 \
             org.hiero.block.api.BlockAccessService/getBlock \
             | jq -r '.block.items[0].blockHeader.number')
-          if [ -z "$FIRSTBLOCK" ]; then
-            echo "Error: FIRSTBLOCK is empty"
+          if [ -z "FIRST_BLOCK" ]; then
+            echo "Error: FIRST_BLOCK is empty"
             exit 1
           fi
-          echo "FirstBlock is $FIRSTBLOCK"
+          echo "FirstBlock is FIRST_BLOCK"
 
       - name: Get last block from Block Node
         run: |
-          LASTBLOCK=$(grpcurl \
+          LAST_BLOCK=$(grpcurl \
             -plaintext \
             -emit-defaults \
             -import-path protobuf-sources/src/main/proto \
@@ -311,11 +311,11 @@ jobs:
             localhost:40840 \
             org.hiero.block.api.BlockAccessService/getBlock \
             | jq -r '.block.items[0].blockHeader.number')
-          if [ -z "$LASTBLOCK" ]; then
-            echo "Error: LASTBLOCK is empty"
+          if [ -z "LAST_BLOCK" ]; then
+            echo "Error: LAST_BLOCK is empty"
             exit 1
           fi
-          echo "LastBlock is $LASTBLOCK"
+          echo "LastBlock is LAST_BLOCK"
 
       - name: Port Forward to Mirror Node
         run: |
