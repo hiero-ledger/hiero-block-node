@@ -140,6 +140,7 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
                     final BlockItemSetUnparsed last = queueByBlock.peekLast();
                     if (last == null || !last.blockItems().getLast().hasBlockProof()) {
                         queueByBlockMap.remove(nextEntry.getKey());
+                        discardIncompleteTrailingBlock(queueByBlock);
                     }
                 }
                 break; // There will only be one entry with this queue.
@@ -147,6 +148,26 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
         }
         LOGGER.log(TRACE, "Removed handler {0} and its transfer queue {1}", handlerId, queueId);
         metrics.currentPublisherCount().set(handlers.size());
+    }
+
+    /**
+     * Discard an incomplete trailing block from the given queue, if present.
+     *
+     * @param queue the queue to check and clean up.
+     * @return true if and only if items were discarded.
+     */
+    private boolean discardIncompleteTrailingBlock(final BlockingDeque<BlockItemSetUnparsed> queue) {
+        int itemsRemoved = 0;
+        // use peek to non-destructively check the last item.
+        BlockItemSetUnparsed last = queue.peekLast();
+        // Remove items until we find a block proof or the queue is empty.
+        while (last != null && !(last.blockItems().getLast().hasBlockProof())) {
+            queue.removeLast();
+            itemsRemoved++;
+            last = queue.peekLast();
+        }
+        // @todo(1416) add an "items discarded" metric.
+        return itemsRemoved > 0;
     }
 
     @Override
@@ -395,23 +416,18 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
         final long currentStreaming = currentStreamingBlockNumber.get();
         final long nextUnstreamed = nextUnstreamedBlockNumber.get();
         if (blockNumber >= currentStreaming && blockNumber < nextUnstreamed) {
+            // decrement the next unstreamed value, but only if the block number
+            // provided by the ending handler is the latest started block.
             nextUnstreamedBlockNumber.compareAndSet(blockNumber + 1, blockNumber);
-            final BlockingQueue<BlockItemSetUnparsed> queue =
-                    transferQueueMap.remove(getQueueNameForHandlerId(handlerId));
-            // @todo instead of clearing the queue, we really only want to
-            //    remove any partial block at the end of the queue and,
-            //    if a partial block is removed, remove the entry in the
-            //    queueByBlockMap for that partial block.
+            transferQueueMap.remove(getQueueNameForHandlerId(handlerId));
+            // Also (potentially) remove this block from the queueByBlockMap.
+            // and clear the queue if it is removed here.
+            // Note, we know the last block must be incomplete _if_ it was started
+            // because the handler would not have passed a valid block number in
+            // here if it wasn't currently streaming a block.
+            final BlockingDeque<BlockItemSetUnparsed> queue = queueByBlockMap.remove(blockNumber);
             if (queue != null) {
-                // Clearing this queue will essentially mark it for removal
-                // from the queueByBlockMap, as it will be in an incomplete
-                // state when the handler shuts down, which happens on the
-                // same thread that called this method immediately after.
-                // It is important that this queue is removed from the
-                // queueByBlockMap, because it is not guaranteed that the
-                // same publisher will supply the next unstreamed block we
-                // just decremented.
-                queue.clear();
+                discardIncompleteTrailingBlock(queue);
             }
         } else {
             // this should never happen
