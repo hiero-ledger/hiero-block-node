@@ -251,6 +251,7 @@ jobs:
         run: |
           FIRST_AVAILABLE_BLOCK=$(grpcurl \
             -plaintext \
+            -emit-defaults \
             -import-path protobuf-sources/src/main/proto \
             -import-path protobuf-sources/block-node-protobuf \
             -proto block-node/api/node_service.proto \
@@ -261,6 +262,7 @@ jobs:
           echo "First available block is $FIRST_AVAILABLE_BLOCK"
           LAST_AVAILABLE_BLOCK=$(grpcurl \
             -plaintext \
+            -emit-defaults \
             -import-path protobuf-sources/src/main/proto \
             -import-path protobuf-sources/block-node-protobuf \
             -proto block-node/api/node_service.proto \
@@ -277,6 +279,6 @@ jobs:
             if (( LAST_AVAILABLE_BLOCK < 1 )); then
                 echo "Last available block is less than 1"
                 exit 1
-            fi          
+            fi      
 
       # TODO verify MN using curl and REST API
