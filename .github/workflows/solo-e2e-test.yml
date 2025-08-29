@@ -11,7 +11,7 @@ on:
       consensus-node-release-tag:
         description: "Consensus Node Release Tag"
         required: true
-        default: "v0.65.0-rc.4"
+        default: "v0.65.0"
       mirror-node-release-tag:
         description: "Mirror Node Release Tag (for now ignored since using XIN Image)"
         required: true
