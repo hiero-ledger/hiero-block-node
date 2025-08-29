@@ -330,17 +330,17 @@ jobs:
           FIRST_BLOCK_MIRROR=$(curl -s "http://127.0.0.1:5551/api/v1/blocks/$FIRST_AVAILABLE_BLOCK" | jq -r '.number')
 
           # Check if we got a value
-          if [ -z "FIRST_BLOCK_MIRROR" ]; then
+          if [ -z "$FIRST_BLOCK_MIRROR" ]; then
             echo "Error: FIRST_BLOCK_MIRROR is empty"
             exit 1
           fi
 
-          echo "FIRST_BLOCK_MIRROR is FIRST_BLOCK_MIRROR"
+          echo "FIRST_BLOCK_MIRROR is $FIRST_BLOCK_MIRROR"
           echo "FIRST_AVAILABLE_BLOCK is $FIRST_AVAILABLE_BLOCK"
 
           # Validate that the Mirror Node block matches the Block Node first block
-          if [ "FIRST_BLOCK_MIRROR" != "$FIRST_AVAILABLE_BLOCK" ]; then
-            echo "Error: Mirror Node first block (FIRST_BLOCK_MIRROR) does not match Block Node first block ($FIRST_AVAILABLE_BLOCK)"
+          if [ "$FIRST_BLOCK_MIRROR" != "$FIRST_AVAILABLE_BLOCK" ]; then
+            echo "Error: Mirror Node first block ($FIRST_BLOCK_MIRROR) does not match Block Node first block ($FIRST_AVAILABLE_BLOCK)"
             exit 1
           fi
 
