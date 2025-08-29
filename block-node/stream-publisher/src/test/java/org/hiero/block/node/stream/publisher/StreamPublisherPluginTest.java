@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.node.stream.publisher;
 
+import static java.util.concurrent.locks.LockSupport.parkNanos;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hiero.block.node.app.fixtures.TestUtils.enableDebugLogging;
 
@@ -14,7 +15,6 @@ import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
-import java.util.concurrent.TimeUnit;
 import java.util.function.Function;
 import org.assertj.core.api.InstanceOfAssertFactories;
 import org.hiero.block.api.BlockItemSet;
@@ -179,7 +179,7 @@ class StreamPublisherPluginTest {
          */
         @Test
         @DisplayName("Test publish a valid block as items")
-        void testPublishValidBlock() throws InterruptedException {
+        void testPublishValidBlock() {
             final BlockItemUnparsed[] block = SimpleTestBlockItemBuilder.createNumberOfVerySimpleBlocksUnparsed(0, 1);
             // Build a PublishStreamRequest with a valid block as items
             final BlockItemSetUnparsed blockItems =
@@ -189,7 +189,7 @@ class StreamPublisherPluginTest {
                     .build();
             // Send the request to the pipeline
             toPluginPipe.onNext(PublishStreamRequestUnparsed.PROTOBUF.toBytes(request));
-            TimeUnit.MILLISECONDS.sleep(500L);
+            parkNanos(500_000_000L);
             // Await to ensure async execution and assert response
             assertThat(fromPluginBytes)
                     .hasSize(1)
