@@ -259,14 +259,14 @@ jobs:
             -d '{}' \
             localhost:40840 \
             org.hiero.block.api.BlockNodeService/serverStatus)
-          
+
           # Extract values
           FIRST_AVAILABLE_BLOCK=$(echo "$STATUS_JSON" | jq -r '.firstAvailableBlock')
           LAST_AVAILABLE_BLOCK=$(echo "$STATUS_JSON" | jq -r '.lastAvailableBlock')
-          
+
           echo "First available block is $FIRST_AVAILABLE_BLOCK"
           echo "Last available block is $LAST_AVAILABLE_BLOCK"
-          
+
           # Validate
           if [[ "$FIRST_AVAILABLE_BLOCK" != "0" ]]; then
               echo "First available block is not 0"
@@ -276,7 +276,7 @@ jobs:
               echo "Last available block is less than 1"
               exit 1
           fi
-          
+
           # Export for later steps
           echo "FIRST_AVAILABLE_BLOCK=$FIRST_AVAILABLE_BLOCK" >> $GITHUB_ENV
           echo "LAST_AVAILABLE_BLOCK=$LAST_AVAILABLE_BLOCK" >> $GITHUB_ENV
@@ -345,4 +345,3 @@ jobs:
           fi
 
           echo "Mirror Node first block matches Block Node first block ✅"
-      
