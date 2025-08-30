@@ -351,7 +351,7 @@ jobs:
         run: |
           # Get BN Logs
           kubectl logs -n "${NAMESPACE}" -l "app.kubernetes.io/name=block-node-0" --all-containers --since=24h --timestamps --prefix --tail=-1 > bn0-logs.log
-          
+
           # Get MN Logs
           kubectl logs -n "${NAMESPACE}" -l "app.kubernetes.io/instance=mirror,app.kubernetes.io/component=importer" --all-containers --since=24h --timestamps --prefix --tail=-1 > mn0-logs.log
 
@@ -372,7 +372,7 @@ jobs:
         with:
           name: run-logs
           path: |
-            bn0-logs.log            
+            bn0-logs.log
             mn0-logs.log
             ${{ env.CN_LOG_FOLDER }}
 
