@@ -228,6 +228,15 @@ jobs:
       - name: Produce Protobuf proto artifact
         run: ${GRADLE_EXEC} :block-node-protobuf-sources:generateBlockNodeProtoArtifact
 
+      # untar protobuf sources
+      - name: Untar Protobuf Sources
+        working-directory: protobuf-sources
+        run: |
+          mkdir -p proto
+          PROTO_TAG="${{ inputs.block-node-helm-chart-version }}"
+          PROTO_TAG="${TAG#v}"
+          tar -xzf block-node-protobuf-${{ env.PROTO_TAG }}.tgz -C proto
+
       - name: Install grpcurl
         run: |
           curl -L https://github.com/fullstorydev/grpcurl/releases/download/v1.8.7/grpcurl_1.8.7_linux_x86_64.tar.gz -o grpcurl.tar.gz
@@ -253,8 +262,7 @@ jobs:
           STATUS_JSON=$(grpcurl \
             -plaintext \
             -emit-defaults \
-            -import-path protobuf-sources/src/main/proto \
-            -import-path protobuf-sources/block-node-protobuf \
+            -import-path protobuf-sources/proto \
             -proto block-node/api/node_service.proto \
             -d '{}' \
             localhost:40840 \
