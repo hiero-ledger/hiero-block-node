@@ -235,7 +235,7 @@ jobs:
           mkdir -p proto
           PROTO_TAG="${{ inputs.block-node-helm-chart-version }}"
           PROTO_TAG="${PROTO_TAG#v}"
-          tar -xzf block-node-protobuf-${{ env.PROTO_TAG }}.tgz -C proto
+          tar -xzf block-node-protobuf-${PROTO_TAG}.tgz -C proto
 
       - name: Install grpcurl
         run: |
