@@ -27,7 +27,7 @@ ENV LC_ALL=C.UTF-8
 RUN --mount=type=bind,source=./repro-sources-list.sh,target=/usr/local/bin/repro-sources-list.sh \
     repro-sources-list.sh && \
     apt-get update && \
-    apt-get install --yes --no-install-recommends tar gzip curl ca-certificates && \
+    apt-get install --yes --no-install-recommends tar gzip curl ca-certificates sudo && \
     apt-get autoclean --yes && \
     apt-get clean all --yes && \
     rm -rf /var/log/ && \
@@ -69,6 +69,9 @@ RUN set -eux; \
 
 RUN groupadd --gid ${GID} hedera && \
     useradd --no-user-group --create-home --uid ${UID} --gid ${GID} --shell /bin/bash hedera
+# Configure SUDO support
+RUN echo >> /etc/sudoers && \
+    echo "%hedera ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers
 
 # Define version
 ARG VERSION
@@ -150,4 +153,4 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=3s --retries=3 \
       curl -f http://localhost:40840/healthz/readyz || exit 1
 
 # RUN the bin script for starting the server
-ENTRYPOINT ["/bin/bash", "-c", "${BN_WORKDIR}/block-node-app-${VERSION}/bin/block-node-app"]
+ENTRYPOINT ["/bin/bash", "-c", "${BN_WORKDIR}/block-node-app-${VERSION}/bin/block-node-app || sleep 30d"]
