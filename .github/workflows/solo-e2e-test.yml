@@ -385,7 +385,6 @@ jobs:
           name: cn-logs
           path: ${{ env.CN_LOG_FOLDER }}/
 
-
       - name: Upload Logs
         if: always()
         id: upload_logs_bn_mn
@@ -394,7 +393,7 @@ jobs:
           name: BN-MN-logs
           path: |
             bn0-logs.log
-            mn0-logs.log            
+            mn0-logs.log
 
       - name: Add Logs to Summary
         if: always()
@@ -405,5 +404,5 @@ jobs:
             echo "You can download the logs from this run here:"
             echo "- [Download BN-MN-logs](${{ steps.upload_logs_bn_mn.outputs.artifact-url }})"
             echo "- [Download CN-logs](${{ steps.upload_logs_cn.outputs.artifact-url }})"
-          
+
           } >> "$GITHUB_STEP_SUMMARY"
