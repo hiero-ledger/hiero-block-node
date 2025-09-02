@@ -55,13 +55,13 @@ message BlockItemUnparsed {
         bytes block_header = 1;
         bytes event_header = 2;
         bytes round_header = 3;
-        bytes event_transaction = 4;
+        bytes signed_transaction = 4;
         bytes transaction_result = 5;
         bytes transaction_output = 6;
         bytes state_changes = 7;
         bytes filtered_item_hash = 8;
         bytes block_proof = 9;
         bytes record_file = 10;
-        bytes trace_data = 16;
+        bytes trace_data = 11;
     }
 }

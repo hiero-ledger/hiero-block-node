@@ -131,7 +131,7 @@ public final class HashingUtilities {
             final BlockItemUnparsed.ItemOneOfType kind = item.item().kind();
             switch (kind) {
                 case ROUND_HEADER, EVENT_HEADER -> numConsensusHeaders++;
-                case EVENT_TRANSACTION -> numInputs++;
+                case SIGNED_TRANSACTION -> numInputs++;
                 case TRANSACTION_RESULT, TRANSACTION_OUTPUT, BLOCK_HEADER -> numOutputs++;
                 case STATE_CHANGES -> numStateChanges++;
                 case TRACE_DATA -> numTraceData++;
@@ -152,7 +152,7 @@ public final class HashingUtilities {
                 case ROUND_HEADER, EVENT_HEADER ->
                     consensusHeaderHashes.put(digest.digest(
                             BlockItemUnparsed.PROTOBUF.toBytes(item).toByteArray()));
-                case EVENT_TRANSACTION ->
+                case SIGNED_TRANSACTION ->
                     inputHashes.put(digest.digest(
                             BlockItemUnparsed.PROTOBUF.toBytes(item).toByteArray()));
                 case TRANSACTION_RESULT, TRANSACTION_OUTPUT, BLOCK_HEADER ->
