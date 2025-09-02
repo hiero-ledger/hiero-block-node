@@ -6,13 +6,15 @@
 
 resources:
   requests:
-    cpu: "3"
+    cpu: "4"
     memory: "8Gi"
 
 blockNode:
   config:
-    JAVA_OPTS: "-Xms5G -Xmx5G"
-    MEDIATOR_RING_BUFFER_SIZE: "2048"
+    JAVA_OPTS: '-Xms4G -Xmx4G  -XX:+HeapDumpOnOutOfMemoryError -XX:HeapDumpPath="/tmp/dump.hprof"'
+    MESSAGING_BLOCK_ITEM_QUEUE_SIZE: "64"
+    MESSAGING_BLOCK_NOTIFICATION_QUEUE_SIZE: "8"
+    BACKFILL_FETCH_BATCH_SIZE: "4"
   persistence:
     archive:
       size: 6Gi

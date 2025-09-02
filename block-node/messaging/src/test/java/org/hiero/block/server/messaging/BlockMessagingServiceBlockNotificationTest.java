@@ -37,8 +37,11 @@ public class BlockMessagingServiceBlockNotificationTest {
      * The number of items to send to the messaging service. This is twice the size of the ring buffer, so that we can
      * test the back pressure and the slow handler.
      */
-    public static final int TEST_DATA_COUNT =
+    private static final int TEST_DATA_COUNT =
             TestConfig.getConfig().getConfigData(MessagingConfig.class).blockItemQueueSize() * 2;
+
+    private static final int MAX_NOTIFICATION_COUNT =
+            TestConfig.getConfig().getConfigData(MessagingConfig.class).blockNotificationQueueSize();
 
     /**
      * Simple test to verify that the messaging service can handle multiple block notification handlers and that
@@ -161,9 +164,10 @@ public class BlockMessagingServiceBlockNotificationTest {
         assertNotEquals(State.RUNNABLE, stateAfter, "Sender thread should not be runnable.");
         assertNotEquals(State.TERMINATED, stateAfter, "Sender thread should not be terminated.");
         int amountSent = sentCounter.get();
-        // roughly 250 ish notifications should have been sent to the messaging service
+        // enough notifications should have been sent to the messaging service, avoid fixed numbers
+        // because that breaks if the config changes.
         final String tooFewMessage = "sentCounter should be at least %d, but is %d.";
-        assertTrue(amountSent > 100, tooFewMessage.formatted(100, amountSent));
+        assertTrue(amountSent > MAX_NOTIFICATION_COUNT, tooFewMessage.formatted(MAX_NOTIFICATION_COUNT, amountSent));
         final String tooManyMessage = "sentCounter should be less than %d, but is %d.";
         assertTrue(amountSent < TEST_DATA_COUNT, tooManyMessage.formatted(TEST_DATA_COUNT, amountSent));
         // mark sending finished and release the slow handler

@@ -44,8 +44,7 @@ import org.hiero.block.node.spi.threading.ThreadPoolManager;
  */
 public final class LiveStreamPublisherManager implements StreamPublisherManager {
     private static final String QUEUE_ID_FORMAT = "Q%016d";
-    private static final int DATA_READY_WAIT_MICROSECONDS = 500;
-    // @todo(1413) utilize the logger
+    private static final int DATA_READY_WAIT_MICROSECONDS = 5000;
     private final System.Logger LOGGER = System.getLogger(LiveStreamPublisherManager.class.getName());
     private final MetricsHolder metrics;
     private final BlockNodeContext serverContext;
@@ -115,6 +114,9 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
         // block contained in the queue is incomplete!
         // It takes just as long to loop the map as to call `containsValue`.
         // so just loop through and remove the entry if it's found.
+        // @todo(1239): we need to redo the loop below. We could walk the
+        //    queueByBlockMap in reverse order and only remove the first
+        //    time we encounter an incomplete block that matches this handler.
         for (final Map.Entry<Long, BlockingDeque<BlockItemSetUnparsed>> nextEntry : queueByBlockMap.entrySet()) {
             final BlockingDeque<BlockItemSetUnparsed> queueByBlock = nextEntry.getValue();
             // Note: we are using ConcurrentMap which does not allow any null
@@ -138,6 +140,7 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
                     final BlockItemSetUnparsed last = queueByBlock.peekLast();
                     if (last == null || !last.blockItems().getLast().hasBlockProof()) {
                         queueByBlockMap.remove(nextEntry.getKey());
+                        discardIncompleteTrailingBlock(queueByBlock);
                     }
                 }
                 break; // There will only be one entry with this queue.
@@ -145,6 +148,26 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
         }
         LOGGER.log(TRACE, "Removed handler {0} and its transfer queue {1}", handlerId, queueId);
         metrics.currentPublisherCount().set(handlers.size());
+    }
+
+    /**
+     * Discard an incomplete trailing block from the given queue, if present.
+     *
+     * @param queue the queue to check and clean up.
+     * @return true if and only if items were discarded.
+     */
+    private boolean discardIncompleteTrailingBlock(final BlockingDeque<BlockItemSetUnparsed> queue) {
+        int itemsRemoved = 0;
+        // use peek to non-destructively check the last item.
+        BlockItemSetUnparsed last = queue.peekLast();
+        // Remove items until we find a block proof or the queue is empty.
+        while (last != null && !(last.blockItems().getLast().hasBlockProof())) {
+            queue.removeLast();
+            itemsRemoved++;
+            last = queue.peekLast();
+        }
+        // @todo(1416) add an "items discarded" metric.
+        return itemsRemoved > 0;
     }
 
     @Override
@@ -393,25 +416,19 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
         final long currentStreaming = currentStreamingBlockNumber.get();
         final long nextUnstreamed = nextUnstreamedBlockNumber.get();
         if (blockNumber >= currentStreaming && blockNumber < nextUnstreamed) {
-            if (blockNumber + 1L == nextUnstreamedBlockNumber.get()) {
-                nextUnstreamedBlockNumber.decrementAndGet();
-                final BlockingQueue<BlockItemSetUnparsed> queue =
-                        transferQueueMap.get(getQueueNameForHandlerId(handlerId));
-                if (queue != null) {
-                    // Clearing this queue will essentially mark it for removal
-                    // from the queueByBlockMap, as it will be in an incomplete
-                    // state when the handler shuts down, which happens on the
-                    // same thread that called this method immediately after.
-                    // It is important that this queue is removed from the
-                    // queueByBlockMap, because it is not guaranteed that the
-                    // same publisher will supply the next unstreamed block we
-                    // just decremented.
-                    queue.clear();
-                }
+            // decrement the next unstreamed value, but only if the block number
+            // provided by the ending handler is the latest started block.
+            nextUnstreamedBlockNumber.compareAndSet(blockNumber + 1, blockNumber);
+            transferQueueMap.remove(getQueueNameForHandlerId(handlerId));
+            // Also (potentially) remove this block from the queueByBlockMap.
+            // and clear the queue if it is removed here.
+            // Note, we know the last block must be incomplete _if_ it was started
+            // because the handler would not have passed a valid block number in
+            // here if it wasn't currently streaming a block.
+            final BlockingDeque<BlockItemSetUnparsed> queue = queueByBlockMap.remove(blockNumber);
+            if (queue != null) {
+                discardIncompleteTrailingBlock(queue);
             }
-            // if the above check did not pass, we need not do anything because
-            // the handler is shutting down, which will either preserve the
-            // queue if it is complete, or clear it if it is incomplete.
         } else {
             // this should never happen
             final String message =
@@ -470,6 +487,12 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
         if (shouldHandle) {
             nextUnstreamedBlockNumber.set(blockNumber);
             currentStreamingBlockNumber.set(blockNumber);
+            // @todo(1514): We have an extremely rare race condition here.
+            //    We need a condition wait to prevent one publisher from
+            //    starting to resend before all handler have been notified.
+            // We need to clear the queueByBlockMap because we are discarding
+            // all blocks due to failed verification.
+            queueByBlockMap.clear();
             handlers.values().parallelStream().unordered().forEach(handler -> {
                 final long handlerId = handler.handleFailedVerification(blockNumber);
                 final String qId = getQueueNameForHandlerId(handlerId);
