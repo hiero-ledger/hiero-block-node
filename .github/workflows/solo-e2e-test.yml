@@ -294,8 +294,7 @@ jobs:
           FIRST_BLOCK=$(grpcurl \
             -plaintext \
             -emit-defaults \
-            -import-path protobuf-sources/src/main/proto \
-            -import-path protobuf-sources/block-node-protobuf \
+            -import-path protobuf-sources/proto \
             -proto block-node/api/block_access_service.proto \
             -d "{\"block_number\": $FIRST_AVAILABLE_BLOCK}" \
             localhost:40840 \
@@ -312,8 +311,7 @@ jobs:
           LAST_BLOCK=$(grpcurl \
             -plaintext \
             -emit-defaults \
-            -import-path protobuf-sources/src/main/proto \
-            -import-path protobuf-sources/block-node-protobuf \
+            -import-path protobuf-sources/proto \
             -proto block-node/api/block_access_service.proto \
             -d "{\"block_number\": $LAST_AVAILABLE_BLOCK}" \
             localhost:40840 \
