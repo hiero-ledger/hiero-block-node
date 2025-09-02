@@ -16,7 +16,11 @@ val generateBlockNodeProtoArtifact: TaskProvider<Exec> =
         group = "protobuf"
 
         workingDir(layout.projectDirectory)
-        val cnTagHash = "437d131d67d9ca60ba60fff5ae59692c45bc44cd" // v0.65.0-rc1
+        // When upgrading the CN proto version, always check that the file:
+        // proto/internal/unparsed.proto matches structure for
+        // block-node-protobuf/block/stream/block_item.proto after update otherwise Verification
+        // might fail
+        val cnTagHash = "d7cb85ac7384f809a15489635122504661131af4" // v0.65.0
 
         // run build-bn-proto.sh skipping inclusion of BN API as it messes up proto considerations
         commandLine(

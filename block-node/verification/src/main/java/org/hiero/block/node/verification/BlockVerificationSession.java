@@ -81,7 +81,7 @@ public class BlockVerificationSession {
             final ByteBuffer hash = getBlockItemHash(item);
             switch (kind) {
                 case ROUND_HEADER, EVENT_HEADER -> consensusHeaderHasher.addLeaf(hash);
-                case EVENT_TRANSACTION -> inputTreeHasher.addLeaf(hash);
+                case SIGNED_TRANSACTION -> inputTreeHasher.addLeaf(hash);
                 case TRANSACTION_RESULT, TRANSACTION_OUTPUT, BLOCK_HEADER -> outputTreeHasher.addLeaf(hash);
                 case STATE_CHANGES -> stateChangesHasher.addLeaf(hash);
                 case TRACE_DATA -> traceDataHasher.addLeaf(hash);
