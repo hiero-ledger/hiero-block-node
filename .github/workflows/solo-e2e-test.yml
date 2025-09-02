@@ -383,7 +383,7 @@ jobs:
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: cn-logs
-          path: ${{ env.CN_LOG_FOLDER }}/
+          path: ${{ env.CN_LOG_FOLDER }}/*.zip
 
       - name: Upload Logs
         if: always()
