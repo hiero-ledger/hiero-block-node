@@ -188,13 +188,13 @@ jobs:
                         - host: block-node-0.${NAMESPACE}.svc.cluster.local
                           port: 40840
                       sourceType: BLOCK_NODE
-                  downloader:
-                    record:
-                      enabled: false
-                  startDate: 1970-01-01T00:00:00Z
-                  stream:
-                    maxSubscribeAttempts: 10
-                    responseTimeout: 10s
+                    downloader:
+                      record:
+                        enabled: false
+                    startDate: 1970-01-01T00:00:00Z
+                    stream:
+                      maxSubscribeAttempts: 10
+                      responseTimeout: 10s
           EOF
 
       - name: Verify Mirror Values Override File Created
@@ -288,6 +288,9 @@ jobs:
           # Export for later steps
           echo "FIRST_AVAILABLE_BLOCK=$FIRST_AVAILABLE_BLOCK" >> $GITHUB_ENV
           echo "LAST_AVAILABLE_BLOCK=$LAST_AVAILABLE_BLOCK" >> $GITHUB_ENV
+
+      - name: Give some time to produce more blocks
+        run: sleep 500
 
       - name: Get first block from Block Node
         run: |
