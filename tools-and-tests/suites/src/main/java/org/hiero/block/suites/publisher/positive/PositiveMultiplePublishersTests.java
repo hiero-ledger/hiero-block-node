@@ -193,6 +193,82 @@ public class PositiveMultiplePublishersTests extends BaseSuite {
     }
 
     @Test
+    @DisplayName(
+            "Autonomous backfill should fill the gaps and Publisher should send TOO_FAR_BEHIND to activate backfill on demand")
+    //    @Timeout(30)
+    public void testBackfillOnDemandAndAutonomousBackfill() throws IOException, InterruptedException {
+        launchBlockNodes(List.of(new BlockNodeContainerConfig(8082, 9989, "/resources/block-nodes.json")));
+        final Map<String, String> firstSimulatorConfiguration = Map.of(
+                "blockStream.streamingMode",
+                "MILLIS_PER_BLOCK",
+                "blockStream.millisecondsPerBlock",
+                "250",
+                "generator.endBlockNumber",
+                "18",
+                "grpc.port",
+                "40840");
+        final Map<String, String> secondSimulatorConfiguration = Map.of(
+                "blockStream.streamingMode",
+                "MILLIS_PER_BLOCK",
+                "blockStream.millisecondsPerBlock",
+                "250",
+                "generator.endBlockNumber",
+                "16",
+                "grpc.port",
+                "8082");
+
+        final BlockStreamSimulatorApp firstSimulator = createBlockSimulator(firstSimulatorConfiguration);
+        final BlockStreamSimulatorApp secondSimulator = createBlockSimulator(secondSimulatorConfiguration);
+        startSimulatorInstance(firstSimulator);
+        startSimulatorInstanceWithErrorResponse(secondSimulator);
+        Thread.sleep(6000);
+
+        deleteBlocks(0, 15);
+        BlockResponse block0Deleted = getBlock(blockAccessStubs.get(8082), 0);
+        BlockResponse block1Deleted = getBlock(blockAccessStubs.get(8082), 1);
+        BlockResponse block2Deleted = getBlock(blockAccessStubs.get(8082), 2);
+        assertEquals(NOT_FOUND, block0Deleted.getStatus());
+        assertEquals(NOT_FOUND, block1Deleted.getStatus());
+        assertEquals(NOT_FOUND, block2Deleted.getStatus());
+
+        restartBlockNode(0);
+        Thread.sleep(1000);
+
+        final Map<String, String> thirdSimulatorConfiguration = Map.of(
+                "blockStream.streamingMode",
+                "MILLIS_PER_BLOCK",
+                "blockStream.millisecondsPerBlock",
+                "250",
+                "generator.startBlockNumber",
+                "18",
+                "blockStream.endStreamMode",
+                "TOO_FAR_BEHIND",
+                "blockStream.endStreamEarliestBlockNumber",
+                "0",
+                "blockStream.endStreamLatestBlockNumber",
+                "18",
+                "grpc.port",
+                "8082");
+        final BlockStreamSimulatorApp thirdSimulator = createBlockSimulator(thirdSimulatorConfiguration);
+        startSimulatorInstanceWithErrorResponse(thirdSimulator);
+
+        // This sleep is for debugging purposes, to be able to see the state of the block node after backfilling in
+        // container
+        Thread.sleep(300000);
+
+        final BlockResponse latestPublishedBlockAfter = getLatestBlock(blockAccessStubs.get(8082));
+        final long latestBlockNodeBlockNumber = latestPublishedBlockAfter
+                .getBlock()
+                .getItemsList()
+                .getFirst()
+                .getBlockHeader()
+                .getNumber();
+
+        teardownBlockNodes();
+        assertEquals(18, latestBlockNodeBlockNumber);
+    }
+
+    @Test
     @DisplayName("Publisher should handle BEHIND and send TOO_FAR_BEHIND")
     @Timeout(30)
     public void publisherShouldSendTooFarBehindAfterBehind() throws IOException, InterruptedException {
