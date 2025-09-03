@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-name: solo-e2e-test.yml
+name: Solo E2E Test
 
 on:
   workflow_dispatch:
@@ -7,21 +7,21 @@ on:
       block-node-helm-chart-version:
         description: "Block Node Helm Chart Version"
         required: true
-        default: "v0.17.0"
+        default: "v0.17.1"
       consensus-node-release-tag:
         description: "Consensus Node Release Tag"
         required: true
-        default: "v0.65.0-rc.4"
+        default: "v0.65.0"
       mirror-node-release-tag:
         description: "Mirror Node Release Tag (for now ignored since using XIN Image)"
         required: true
         default: "v0.137.0"
       solo-network-size:
-        description: "Solo Network Size"
+        description: "Solo Network Size (Number of Consensus Nodes)"
         required: true
         default: "1"
       solo-version:
-        description: "Solo CLI Version (for now ignored since always using latest)"
+        description: "Solo CLI Version"
         required: false
         default: "latest"
 
@@ -48,7 +48,7 @@ env:
   CLUSTER_REFERENCE: "kind-solo-cluster"
 
 jobs:
-  deploy:
+  solo-test-deploy:
     runs-on: hiero-block-node-linux-medium
     steps:
       - name: Harden Runner
@@ -56,16 +56,16 @@ jobs:
         with:
           egress-policy: audit
 
-      # TODO, checkout the same tag as block-node-helm-chart-version
       - name: Checkout repository
         uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
         with:
           fetch-depth: 0
+          ref: ${{ inputs.block-node-helm-chart-version }}
 
       - name: Setup Node
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
-          node-version: 20
+          node-version: "20.19.4"
 
       - name: Install Helm
         uses: azure/setup-helm@1a275c3b69536ee54be43f2070a358922e12c8d4 # v4.3.1
@@ -73,7 +73,12 @@ jobs:
       - name: Setup Kind
         uses: helm/kind-action@a1b0e391336a6ee6713a0583f8c6240d70863de3 # v1.12.0
         with:
-          kubectl_version: v1.32.3
+          install_only: true
+          node_image: kindest/node:v1.31.4@sha256:2cb39f7295fe7eafee0842b1052a599a4fb0f8bcf3f83d96c7f4864c357c6c30
+          version: v0.26.0
+          kubectl_version: v1.31.4
+          verbosity: 3
+          wait: 120s
 
       - name: Install JDK
         uses: actions/setup-java@c5195efecf7bdfc987ee8bae7a71cb8b11521c00 # v4.7.1
@@ -81,14 +86,10 @@ jobs:
           distribution: "temurin"
           java-version: 21
 
-      # produce protobuf source artifact (for grpcurl later on)
-      - name: Produce artifact
-        run: ${GRADLE_EXEC} :block-node-protobuf-sources:generateBlockNodeProtoArtifact
-
       # install solo cli
       - name: Install Solo CLI via npm
         run: |
-          npm i @hashgraph/solo@${{ inputs.solo-version }}
+          npm i @hashgraph/solo@${{ inputs.solo-version }} -g
 
       # create kind cluster
       - name: Create Kind Cluster
@@ -105,50 +106,68 @@ jobs:
       # solo init
       - name: Solo Init
         run: |
-          npm run solo -- init
+          solo init
 
-      # solo cluster-ref config connect
-      - name: Solo Cluster Ref Config Connect
+      # solo cluster-ref connect (formerly `cluster-ref config connect`)
+      - name: Solo Cluster Ref Connect
         run: |
-          npm run solo -- cluster-ref config connect --cluster-ref "${CLUSTER_REFERENCE}" --context "${CONTEXT}"
+          solo cluster-ref connect --cluster-ref "${CLUSTER_REFERENCE}" --context "${CONTEXT}"
+          #v0.44.0/main
+          # solo cluster-ref config connect --cluster-ref "${CLUSTER_REFERENCE}" --context "${CONTEXT}"
 
-      # solo deployment config create
-      - name: Solo Deployment Config Create
+      # solo deployment create (formerly `deployment config create`)
+      - name: Solo Deployment Create
         run: |
-          npm run solo -- deployment config create --deployment "${DEPLOYMENT}" --namespace "${NAMESPACE}"
+          solo deployment create --deployment "${DEPLOYMENT}" --namespace "${NAMESPACE}"
+          #v0.44.0/main
+          # solo deployment config create --deployment "${DEPLOYMENT}" --namespace "${NAMESPACE}"
 
-      # solo deployment cluster attach
-      - name: Solo Deployment Cluster Attach
+      # solo deployment add-cluster (formerly `deployment cluster attach`)
+      - name: Solo Deployment Add Cluster
         run: |
-          npm run solo -- deployment cluster attach --deployment "${DEPLOYMENT}" --cluster-ref "${CLUSTER_REFERENCE}" \
-          --num-consensus-nodes "${{ inputs.solo-network-size }}"
+          solo deployment add-cluster --deployment "${DEPLOYMENT}" --cluster-ref "${CLUSTER_REFERENCE}" --num-consensus-nodes "${{ inputs.solo-network-size }}"
+          #v0.44.0/main
+          # solo deployment cluster attach --deployment "${DEPLOYMENT}" --cluster-ref "${CLUSTER_REFERENCE}" --num-consensus-nodes "${{ inputs.solo-network-size }}"
 
-      - name: Solo Cluster Ref Config Setup
+      # solo cluster-ref setup (formerly `cluster-ref config setup`)
+      - name: Solo Cluster Ref Setup
         run: |
-          npm run solo -- cluster-ref config setup --cluster-ref "${CLUSTER_REFERENCE}"
+          solo cluster-ref setup --cluster-ref "${CLUSTER_REFERENCE}"
+          #v0.44.0/main
+          # solo cluster-ref config setup -s "${CLUSTER_REFERENCE}"
 
-      # Solo Block Node Add
+      # Solo Block Node Add (unchanged)
       - name: Solo Block Node Add
         run: |
-          npm run solo -- block node add --deployment "${DEPLOYMENT}" --release-tag "${{ inputs.consensus-node-release-tag }}" \
-          --cluster-ref "${CLUSTER_REFERENCE}" --chart-version "${{ inputs.block-node-helm-chart-version }}"
+          solo block node add --deployment "${DEPLOYMENT}" --release-tag "${{ inputs.consensus-node-release-tag }}" --cluster-ref "${CLUSTER_REFERENCE}" --chart-version "${{ inputs.block-node-helm-chart-version }}"
 
+      # solo node keys (formerly `keys consensus generate`)
       - name: Solo Node Keys
         run: |
-          npm run solo -- keys consensus generate --gossip-keys --tls-keys --deployment "${DEPLOYMENT}" \
-          --node-aliases "${NODE_IDENTIFIERS}"
+          solo node keys --gossip-keys --tls-keys --deployment "${DEPLOYMENT}" --node-aliases "${NODE_IDENTIFIERS}"
+          #v0.44.0/main
+          # solo keys consensus generate --gossip-keys --tls-keys --deployment "${DEPLOYMENT}" --node-aliases "${NODE_IDENTIFIERS}"
 
+      # solo network deploy (formerly `consensus network deploy`)
       - name: Solo Network Deploy
         run: |
-          npm run solo -- consensus network deploy --deployment "${DEPLOYMENT}" --pvcs true --node-aliases "${NODE_IDENTIFIERS}" --release-tag "${{ inputs.consensus-node-release-tag }}"
+          solo network deploy --deployment "${DEPLOYMENT}" --pvcs true --node-aliases "${NODE_IDENTIFIERS}" --release-tag "${{ inputs.consensus-node-release-tag }}"
+          #v0.44.0/main
+          # solo consensus network deploy --deployment "${DEPLOYMENT}" --pvcs true --node-aliases "${NODE_IDENTIFIERS}" --release-tag "${{ inputs.consensus-node-release-tag }}"
 
+      # solo node setup (formerly `consensus node setup`)
       - name: Solo Node Setup
         run: |
-          npm run solo -- consensus node setup --node-aliases "${NODE_IDENTIFIERS}" --deployment "${DEPLOYMENT}" --release-tag "${{ inputs.consensus-node-release-tag }}"
+          solo node setup --node-aliases "${NODE_IDENTIFIERS}" --deployment "${DEPLOYMENT}" --release-tag "${{ inputs.consensus-node-release-tag }}"
+          #v0.44.0/main
+          # solo consensus node setup --node-aliases "${NODE_IDENTIFIERS}" --deployment "${DEPLOYMENT}" --release-tag "${{ inputs.consensus-node-release-tag }}"
 
+      # solo node start (formerly `consensus node start`)
       - name: Solo Node Start
         run: |
-          npm run solo -- consensus node start --deployment "${DEPLOYMENT}" --node-aliases "${NODE_IDENTIFIERS}"
+          solo node start --deployment "${DEPLOYMENT}" --node-aliases "${NODE_IDENTIFIERS}"
+          #v0.44.0/main
+          # solo consensus node start --deployment "${DEPLOYMENT}" --node-aliases "${NODE_IDENTIFIERS}"
 
       # Create Mirror Values Override File (uses BN service)
       - name: Create Mirror Values Override File
@@ -169,32 +188,54 @@ jobs:
                         - host: block-node-0.${NAMESPACE}.svc.cluster.local
                           port: 40840
                       sourceType: BLOCK_NODE
-                  downloader:
-                    record:
-                      enabled: false
-                  startDate: 1970-01-01T00:00:00Z
-                  stream:
-                    maxSubscribeAttempts: 10
-                    responseTimeout: 10s
+                    downloader:
+                      record:
+                        enabled: false
+                    startDate: 1970-01-01T00:00:00Z
+                    stream:
+                      maxSubscribeAttempts: 10
+                      responseTimeout: 10s
           EOF
 
       - name: Verify Mirror Values Override File Created
         run: |
           cat mirror-bn-values.yaml
 
-      - name: Solo Mirror Node Add
+      # solo mirror-node deploy (formerly `mirror node add`)
+      - name: Solo Mirror Node Deploy
         run: |
-          npm run solo -- mirror node add --deployment "${DEPLOYMENT}" --pinger --cluster-ref "${CLUSTER_REFERENCE}" --enable-ingress -f mirror-bn-values.yaml
+          solo mirror-node deploy --deployment "${DEPLOYMENT}" --pinger --cluster-ref "${CLUSTER_REFERENCE}" --enable-ingress -f mirror-bn-values.yaml
+          #v0.44.0/main
+          # solo mirror node add --deployment "${DEPLOYMENT}" --pinger --cluster-ref "${CLUSTER_REFERENCE}" --enable-ingress -f mirror-bn-values.yaml
 
-      - name: Solo Relay Node Add
+      # solo relay deploy (formerly `relay node add`)
+      - name: Solo Relay Deploy
         run: |
-          npm run solo -- relay node add --deployment "${DEPLOYMENT}" --node-alias "${NODE_IDENTIFIERS}" --cluster-ref "${CLUSTER_REFERENCE}"
+          solo relay deploy --deployment "${DEPLOYMENT}" --node-aliases "${NODE_IDENTIFIERS}" --cluster-ref "${CLUSTER_REFERENCE}"
+          #v0.44.0/main
+          # solo relay node add --deployment "${DEPLOYMENT}" --node-aliases "${NODE_IDENTIFIERS}" --cluster-ref "${CLUSTER_REFERENCE}"
 
-      - name: Solo Explorer Node Add
+      # solo explorer deploy (formerly `explorer node add`)
+      - name: Solo Explorer Deploy
         run: |
-          npm run solo -- explorer node add --deployment "${DEPLOYMENT}" --cluster-ref "${CLUSTER_REFERENCE}"
+          solo explorer deploy --deployment "${DEPLOYMENT}" --cluster-ref "${CLUSTER_REFERENCE}"
+          #v0.44.0/main
+          # solo explorer node add --deployment "${DEPLOYMENT}" --cluster-ref "${CLUSTER_REFERENCE}"
 
       # ---- BN verification with grpcurl ----
+
+      # produce protobuf source artifact
+      - name: Produce Protobuf proto artifact
+        run: ${GRADLE_EXEC} :block-node-protobuf-sources:generateBlockNodeProtoArtifact
+
+      # untar protobuf sources
+      - name: Untar Protobuf Sources
+        working-directory: protobuf-sources
+        run: |
+          mkdir -p proto
+          PROTO_TAG="${{ inputs.block-node-helm-chart-version }}"
+          PROTO_TAG="${PROTO_TAG#v}"
+          tar -xzf block-node-protobuf-${PROTO_TAG}.tgz -C proto
 
       - name: Install grpcurl
         run: |
@@ -214,18 +255,156 @@ jobs:
           # wait for port-forward to be established
           sleep 10
 
-      - name: Get lastAvailableBlock
+      # Verify the BN is getting blocks
+      - name: Get ServerStatus from Block Node
         run: |
-          BLOCK=$(grpcurl \
+          # Call serverStatus once
+          STATUS_JSON=$(grpcurl \
             -plaintext \
-            -import-path protobuf-sources/src/main/proto \
-            -import-path protobuf-sources/block-node-protobuf \
+            -emit-defaults \
+            -import-path protobuf-sources/proto \
             -proto block-node/api/node_service.proto \
             -d '{}' \
             localhost:40840 \
-            org.hiero.block.api.BlockNodeService/serverStatus \
-            | jq -r '.lastAvailableBlock')
-          echo "Block is $BLOCK"
-          echo "BLOCK=$BLOCK" >> $GITHUB_ENV
+            org.hiero.block.api.BlockNodeService/serverStatus)
 
-      # TODO verify MN using curl and REST API
+          # Extract values
+          FIRST_AVAILABLE_BLOCK=$(echo "$STATUS_JSON" | jq -r '.firstAvailableBlock')
+          LAST_AVAILABLE_BLOCK=$(echo "$STATUS_JSON" | jq -r '.lastAvailableBlock')
+
+          echo "First available block is $FIRST_AVAILABLE_BLOCK"
+          echo "Last available block is $LAST_AVAILABLE_BLOCK"
+
+          # Validate
+          if [[ "$FIRST_AVAILABLE_BLOCK" != "0" ]]; then
+              echo "First available block is not 0"
+              exit 1
+          fi
+          if (( LAST_AVAILABLE_BLOCK < 1 )); then
+              echo "Last available block is less than 1"
+              exit 1
+          fi
+
+          # Export for later steps
+          echo "FIRST_AVAILABLE_BLOCK=$FIRST_AVAILABLE_BLOCK" >> $GITHUB_ENV
+          echo "LAST_AVAILABLE_BLOCK=$LAST_AVAILABLE_BLOCK" >> $GITHUB_ENV
+
+      - name: Give some time to produce more blocks
+        run: sleep 500
+
+      - name: Get first block from Block Node
+        run: |
+          FIRST_BLOCK=$(grpcurl \
+            -plaintext \
+            -emit-defaults \
+            -import-path protobuf-sources/proto \
+            -proto block-node/api/block_access_service.proto \
+            -d "{\"block_number\": $FIRST_AVAILABLE_BLOCK}" \
+            localhost:40840 \
+            org.hiero.block.api.BlockAccessService/getBlock \
+            | jq -r '.block.items[0].blockHeader.number')
+          if [ -z "FIRST_BLOCK" ]; then
+            echo "Error: FIRST_BLOCK is empty"
+            exit 1
+          fi
+          echo "FirstBlock is ${FIRST_BLOCK}"
+
+      - name: Get last block from Block Node
+        run: |
+          LAST_BLOCK=$(grpcurl \
+            -plaintext \
+            -emit-defaults \
+            -import-path protobuf-sources/proto \
+            -proto block-node/api/block_access_service.proto \
+            -d "{\"block_number\": $LAST_AVAILABLE_BLOCK}" \
+            localhost:40840 \
+            org.hiero.block.api.BlockAccessService/getBlock \
+            | jq -r '.block.items[0].blockHeader.number')
+          if [ -z "LAST_BLOCK" ]; then
+            echo "Error: LAST_BLOCK is empty"
+            exit 1
+          fi
+          echo "LastBlock is ${LAST_BLOCK}"
+
+      - name: Port Forward to Mirror Node
+        run: |
+          kubectl port-forward --namespace "${NAMESPACE}" svc/mirror-rest  5551:80 &
+          echo $! > /tmp/pf.pid
+          # wait for port-forward to be established
+          sleep 10
+
+      - name: Validate first block on Mirror Node
+        run: |
+          # Fetch the block number from Mirror Node
+          FIRST_BLOCK_MIRROR=$(curl -s "http://127.0.0.1:5551/api/v1/blocks/$FIRST_AVAILABLE_BLOCK" | jq -r '.number')
+
+          # Check if we got a value
+          if [ -z "$FIRST_BLOCK_MIRROR" ]; then
+            echo "Error: FIRST_BLOCK_MIRROR is empty"
+            exit 1
+          fi
+
+          echo "FIRST_BLOCK_MIRROR is $FIRST_BLOCK_MIRROR"
+          echo "FIRST_AVAILABLE_BLOCK is $FIRST_AVAILABLE_BLOCK"
+
+          # Validate that the Mirror Node block matches the Block Node first block
+          if [ "$FIRST_BLOCK_MIRROR" != "$FIRST_AVAILABLE_BLOCK" ]; then
+            echo "Error: Mirror Node first block ($FIRST_BLOCK_MIRROR) does not match Block Node first block ($FIRST_AVAILABLE_BLOCK)"
+            exit 1
+          fi
+
+          echo "Mirror Node first block matches Block Node first block ✅"
+
+      - name: Collect BN and MN Logs
+        if: always()
+        run: |
+          # Get BN Logs
+          kubectl logs -n "${NAMESPACE}" -l "app.kubernetes.io/name=block-node-0" --all-containers --since=24h --timestamps --prefix --tail=-1 > bn0-logs.log
+
+          # Get MN Logs
+          kubectl logs -n "${NAMESPACE}" -l "app.kubernetes.io/instance=mirror,app.kubernetes.io/component=importer" --all-containers --since=24h --timestamps --prefix --tail=-1 > mn0-logs.log
+
+      - name: Collect CN Logs
+        if: always()
+        run: |
+          # Get CN Logs
+          solo node logs -d "${DEPLOYMENT}" --dev -q
+          BASE="${HOME}/.solo/logs/${NAMESPACE}"
+          LOG_FOLDER=$(ls -1d "$BASE"/* | sort -r | head -n1)
+          echo "Latest log folder is $LOG_FOLDER"
+          echo "CN_LOG_FOLDER=$LOG_FOLDER" >> $GITHUB_ENV
+          ls -lR "$LOG_FOLDER"
+
+      - name: List CN logs
+        if: always()
+        run: ls -lR "${{ env.CN_LOG_FOLDER }}"
+
+      - name: Upload CN Logs
+        if: always()
+        id: upload_logs_cn
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: cn-logs
+          path: ${{ env.CN_LOG_FOLDER }}/*.zip
+
+      - name: Upload Logs
+        if: always()
+        id: upload_logs_bn_mn
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: BN-MN-logs
+          path: |
+            bn0-logs.log
+            mn0-logs.log
+
+      - name: Add Logs to Summary
+        if: always()
+        run: |
+          {
+            echo "### 📜 Logs"
+            echo ""
+            echo "You can download the logs from this run here:"
+            echo "- [Download BN-MN-logs](${{ steps.upload_logs_bn_mn.outputs.artifact-url }})"
+            echo "- [Download CN-logs](${{ steps.upload_logs_cn.outputs.artifact-url }})"
+
+          } >> "$GITHUB_STEP_SUMMARY"
