@@ -3,13 +3,14 @@ SPDX-License-Identifier: Apache-2.0
 */}}
 
 apiVersion: apps/v1
-kind: Deployment
+kind: StatefulSet
 metadata:
   name: {{ include "hiero-block-node.fullname" . }}
   labels:
     {{- include "hiero-block-node.labels" . | nindent 4 }}
 spec:
   replicas: 1
+  serviceName: {{ include "hiero-block-node.fullname" . }}
   selector:
     matchLabels:
       {{- include "hiero-block-node.selectorLabels" . | nindent 6 }}
@@ -33,15 +34,6 @@ spec:
         - name: logging-config
           configMap:
             name: {{ include "hiero-block-node.fullname" . }}-logging-config
-        - name: {{ default "logging-storage" .Values.blockNode.persistence.logging.volumeName }}
-          persistentVolumeClaim:
-            claimName: {{ if .Values.blockNode.persistence.logging.create }}{{ include "hiero-block-node.fullname" . }}-logging{{ else }}{{ .Values.blockNode.persistence.logging.existingClaim }}{{ end }}
-        - name: {{ default "archive-storage" .Values.blockNode.persistence.archive.volumeName }}
-          persistentVolumeClaim:
-            claimName: {{ if .Values.blockNode.persistence.archive.create }}{{ include "hiero-block-node.fullname" . }}-archive{{ else }}{{ .Values.blockNode.persistence.archive.existingClaim }}{{ end }}
-        - name: {{ default "live-storage" .Values.blockNode.persistence.live.volumeName }}
-          persistentVolumeClaim:
-            claimName: {{ if .Values.blockNode.persistence.live.create }}{{ include "hiero-block-node.fullname" . }}-live{{ else }}{{ .Values.blockNode.persistence.live.existingClaim }}{{ end }}
         {{- if and .Values.blockNode.backfill .Values.blockNode.backfill.sources }}
         - name: block-node-sources
           configMap:
@@ -67,18 +59,18 @@ spec:
         envFrom:
           - configMapRef:
               name: {{ include "hiero-block-node.fullname" . }}-config
-          {{ if .Values.blockNode.secret }}
+          {{- if .Values.blockNode.secret }}
           - secretRef:
-             name: {{ include "hiero-block-node.fullname" . }}-secret
-          {{ else if .Values.blockNode.secretRef }}
+              name: {{ include "hiero-block-node.fullname" . }}-secret
+          {{- else if .Values.blockNode.secretRef }}
           - secretRef:
               name: {{ .Values.blockNode.secretRef }}
-          {{ end }}
+          {{- end }}
         volumeMounts:
           - name: logging-config
             mountPath: {{ .Values.blockNode.logs.configMountPath }}
             readOnly: true
-          - name: {{ default "logging-storage" .Values.blockNode.persistence.logging.volumeName }}
+          - name: {{ default "logging-data" .Values.blockNode.persistence.logging.volumeName }}
             mountPath: {{ .Values.blockNode.persistence.logging.mountPath }}
           - name: {{ default "archive-storage" .Values.blockNode.persistence.archive.volumeName }}
             mountPath: {{ .Values.blockNode.persistence.archive.mountPath }}
@@ -93,9 +85,7 @@ spec:
           {{- end }}
         {{- with  .Values.resources }}
         resources:
-          requests:
-            memory: {{ .requests.memory }}
-            cpu: {{ .requests.cpu }}
+          {{- toYaml . | nindent 12 }}
         {{- end }}
         livenessProbe:
           httpGet:
@@ -122,4 +112,37 @@ spec:
       tolerations:
         {{- toYaml . | nindent 8 }}
       {{- end }}
-
+  volumeClaimTemplates:
+    - metadata:
+        name: {{ default "logging-data" .Values.blockNode.persistence.logging.volumeName }}
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: {{ .Values.blockNode.persistence.logging.size }}
+        {{- if .Values.blockNode.persistence.logging.storageClass }}
+        storageClassName: {{ .Values.blockNode.persistence.logging.storageClass }}
+        {{- end }}
+    - metadata:
+        name: {{ default "archive-storage" .Values.blockNode.persistence.archive.volumeName }}
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: {{ .Values.blockNode.persistence.archive.size }}
+        {{- if .Values.blockNode.persistence.archive.storageClass }}
+        storageClassName: {{ .Values.blockNode.persistence.archive.storageClass }}
+        {{- end }}
+    - metadata:
+        name: {{ default "live-storage" .Values.blockNode.persistence.live.volumeName }}
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: {{ .Values.blockNode.persistence.live.size }}
+        {{- if .Values.blockNode.persistence.live.storageClass }}
+        storageClassName: {{ .Values.blockNode.persistence.live.storageClass }}
+        {{- end }}
