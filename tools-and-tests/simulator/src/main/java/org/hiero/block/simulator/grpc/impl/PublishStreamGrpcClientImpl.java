@@ -29,7 +29,6 @@ import org.hiero.block.api.protoc.PublishStreamResponse;
 import org.hiero.block.common.utils.ChunkUtils;
 import org.hiero.block.simulator.config.data.BlockStreamConfig;
 import org.hiero.block.simulator.config.data.GrpcConfig;
-import org.hiero.block.simulator.config.types.EndStreamMode;
 import org.hiero.block.simulator.config.types.MidBlockFailType;
 import org.hiero.block.simulator.grpc.PublishStreamGrpcClient;
 import org.hiero.block.simulator.metrics.MetricsService;
@@ -208,15 +207,14 @@ public class PublishStreamGrpcClientImpl implements PublishStreamGrpcClient {
         requestStreamObserver.onError(new Exception("Configured failure occurred, calling onError()"));
     }
 
-    public void handleEndStreamModeIfSet() {
-        if (blockStreamConfig.endStreamMode() == EndStreamMode.TOO_FAR_BEHIND) {
-            requestStreamObserver.onNext(PublishStreamRequest.newBuilder()
-                    .setEndStream(EndStream.newBuilder()
-                            .setEndCode(Code.TOO_FAR_BEHIND)
-                            .setEarliestBlockNumber(blockStreamConfig.endStreamEarliestBlockNumber())
-                            .setLatestBlockNumber(blockStreamConfig.endStreamLatestBlockNumber())
-                            .build())
-                    .build());
-        }
+    @Override
+    public void handleEndStreamModeIfSet(Code code) {
+        requestStreamObserver.onNext(PublishStreamRequest.newBuilder()
+                .setEndStream(EndStream.newBuilder()
+                        .setEndCode(code)
+                        .setEarliestBlockNumber(blockStreamConfig.endStreamEarliestBlockNumber())
+                        .setLatestBlockNumber(blockStreamConfig.endStreamLatestBlockNumber())
+                        .build())
+                .build());
     }
 }

@@ -4,6 +4,7 @@ package org.hiero.block.simulator.grpc;
 import com.hedera.hapi.block.stream.protoc.Block;
 import java.util.List;
 import java.util.function.Consumer;
+import org.hiero.block.api.protoc.PublishStreamRequest.EndStream.Code;
 import org.hiero.block.api.protoc.PublishStreamResponse;
 
 /**
@@ -57,6 +58,8 @@ public interface PublishStreamGrpcClient {
      * Handles the EndStream mode if it is set.
      * This method is responsible for performing any necessary actions
      * when the EndStream mode is enabled.
+     *
+     * @param code the EndStream code indicating the reason for ending the stream
      */
-    void handleEndStreamModeIfSet();
+    void handleEndStreamModeIfSet(Code code);
 }

@@ -24,6 +24,7 @@ import org.hiero.block.simulator.config.types.StreamingMode;
  * @param endStreamMode the mode for ending the stream
  * @param endStreamEarliestBlockNumber the earliest block number for EndStream
  * @param endStreamLatestBlockNumber the latest block number for EndStream
+ * @param endStreamEveryNBlocks the frequency of EndStream in terms of number of blocks
  */
 @ConfigData("blockStream")
 public record BlockStreamConfig(
@@ -38,7 +39,8 @@ public record BlockStreamConfig(
         @Loggable @ConfigProperty(defaultValue = "0") long midBlockFailOffset,
         @Loggable @ConfigProperty(defaultValue = "NONE") EndStreamMode endStreamMode,
         @Loggable @ConfigProperty(defaultValue = "0") long endStreamEarliestBlockNumber,
-        @Loggable @ConfigProperty(defaultValue = "0") long endStreamLatestBlockNumber) {
+        @Loggable @ConfigProperty(defaultValue = "0") long endStreamLatestBlockNumber,
+        @Loggable @ConfigProperty(defaultValue = "0") long endStreamEveryNBlocks) {
 
     /**
      * Creates a new {@link Builder} instance for constructing a {@code BlockStreamConfig}.
@@ -65,6 +67,7 @@ public record BlockStreamConfig(
         private EndStreamMode endStreamMode = EndStreamMode.NONE;
         private long endStreamEarliestBlockNumber = 0;
         private long endStreamLatestBlockNumber = 0;
+        private long endStreamEveryNBlocks = 0;
 
         /**
          * Creates a new instance of the {@code Builder} class with default configuration values.
@@ -187,6 +190,11 @@ public record BlockStreamConfig(
             return this;
         }
 
+        public Builder endStreamEveryNBlocks(long endStreamEveryNBlocks) {
+            this.endStreamEveryNBlocks = endStreamEveryNBlocks;
+            return this;
+        }
+
         /**
          * Builds a new {@link BlockStreamConfig} instance with the configured values.
          *
@@ -205,7 +213,8 @@ public record BlockStreamConfig(
                     midBlockFailOffset,
                     endStreamMode,
                     endStreamEarliestBlockNumber,
-                    endStreamLatestBlockNumber);
+                    endStreamLatestBlockNumber,
+                    endStreamEveryNBlocks);
         }
     }
 }
