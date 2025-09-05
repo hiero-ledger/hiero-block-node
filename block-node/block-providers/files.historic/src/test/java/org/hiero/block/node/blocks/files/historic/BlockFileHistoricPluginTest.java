@@ -49,10 +49,10 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 /**
- * Tests for {@link BlocksFilesHistoricPlugin}.
+ * Tests for {@link BlockFileHistoricPlugin}.
  */
-@DisplayName("BlocksFilesHistoricPlugin Tests")
-class BlocksFilesHistoricPluginTest {
+@DisplayName("BlockFileHistoricPlugin Tests")
+class BlockFileHistoricPluginTest {
     /** TempDir for the current test */
     private final Path testTempDir;
     /** The test block messaging facility to use for testing. */
@@ -60,12 +60,12 @@ class BlocksFilesHistoricPluginTest {
     /** The test config to use for the plugin, overridable. */
     private FilesHistoricConfig testConfig;
     /** The instance under test. */
-    private final BlocksFilesHistoricPlugin toTest;
+    private final BlockFileHistoricPlugin toTest;
 
     /**
      * Construct test environment.
      */
-    BlocksFilesHistoricPluginTest(@TempDir final Path tempDir) {
+    BlockFileHistoricPluginTest(@TempDir final Path tempDir) {
         this.testTempDir = Objects.requireNonNull(tempDir);
         // generate test config, for the purposes of this test, we will always
         // use 10 blocks per zip, assuming that the first zip file will contain
@@ -73,7 +73,7 @@ class BlocksFilesHistoricPluginTest {
         // also we will not use compression, and we will use the jUnit temp dir
         testConfig = new FilesHistoricConfig(this.testTempDir, CompressionType.NONE, 1, 10L);
         // build the plugin using the test environment
-        toTest = new BlocksFilesHistoricPlugin();
+        toTest = new BlockFileHistoricPlugin();
         // initialize an in memory historical block facility to use for testing
         testHistoricalBlockFacility = new SimpleInMemoryHistoricalBlockFacility();
     }
@@ -86,29 +86,29 @@ class BlocksFilesHistoricPluginTest {
     final class ConstructorAndInitTests {
         /**
          * This test aims to verify that the no args constructor of
-         * {@link BlocksFilesHistoricPlugin} does not throw any exceptions.
+         * {@link BlockFileHistoricPlugin} does not throw any exceptions.
          */
         @Test
         @DisplayName("Test no args constructor does not throw any exceptions")
         void testNoArgsConstructor() {
-            assertThatNoException().isThrownBy(BlocksFilesHistoricPlugin::new);
+            assertThatNoException().isThrownBy(BlockFileHistoricPlugin::new);
         }
 
         /**
          * This test aims to verify that the
-         * {@link BlocksFilesHistoricPlugin#init(BlockNodeContext, ServiceBuilder)}
+         * {@link BlockFileHistoricPlugin#init(BlockNodeContext, ServiceBuilder)}
          * method throws a {@link NullPointerException} if the context is null.
          */
         @Test
         @DisplayName("Test init throws null pointer when supplied with null context")
         void testInitNullContext() {
-            final BlocksFilesHistoricPlugin toTest = new BlocksFilesHistoricPlugin();
+            final BlockFileHistoricPlugin toTest = new BlockFileHistoricPlugin();
             assertThatNullPointerException().isThrownBy(() -> toTest.init(null, new NoOpServiceBuilder()));
         }
 
         /**
          * This test aims to verify that the
-         * {@link BlocksFilesHistoricPlugin#init(BlockNodeContext, ServiceBuilder)}
+         * {@link BlockFileHistoricPlugin#init(BlockNodeContext, ServiceBuilder)}
          * method throws a {@link NullPointerException} if the context is null.
          */
         @Test
@@ -130,7 +130,7 @@ class BlocksFilesHistoricPluginTest {
                     null,
                     new TestThreadPoolManager<>(new BlockingExecutor(new LinkedBlockingQueue<>())));
             // call
-            final BlocksFilesHistoricPlugin toTest = new BlocksFilesHistoricPlugin();
+            final BlockFileHistoricPlugin toTest = new BlockFileHistoricPlugin();
             assertThatNoException().isThrownBy(() -> toTest.init(testContext, null));
         }
     }
@@ -140,7 +140,7 @@ class BlocksFilesHistoricPluginTest {
      */
     @Nested
     @DisplayName("Plugin Tests")
-    final class PluginTests extends PluginTestBase<BlocksFilesHistoricPlugin, BlockingExecutor> {
+    final class PluginTests extends PluginTestBase<BlockFileHistoricPlugin, BlockingExecutor> {
         /** The test block serial executor service to use for the plugin. */
         private final BlockingExecutor pluginExecutor;
 

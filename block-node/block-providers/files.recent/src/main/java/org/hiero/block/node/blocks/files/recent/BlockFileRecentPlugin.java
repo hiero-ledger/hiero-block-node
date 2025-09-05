@@ -7,6 +7,7 @@ import static java.lang.System.Logger.Level.INFO;
 import static java.lang.System.Logger.Level.TRACE;
 import static java.lang.System.Logger.Level.WARNING;
 import static org.hiero.block.node.base.BlockFile.nestedDirectoriesAllBlockNumbers;
+import static org.hiero.block.node.spi.blockmessaging.BlockSource.UNKNOWN;
 
 import com.hedera.pbj.runtime.io.stream.WritableStreamingData;
 import com.swirlds.metrics.api.Counter;
@@ -66,7 +67,7 @@ import org.hiero.block.node.spi.historicalblocks.BlockRangeSet;
  * format so they are ready to just be moved to the live directory when they are verified. The compression type is
  * configured and can be changed at any time. The compression level is also configured and can be changed at any time.
  */
-public final class BlocksFilesRecentPlugin implements BlockProviderPlugin, BlockNotificationHandler {
+public final class BlockFileRecentPlugin implements BlockProviderPlugin, BlockNotificationHandler {
     /** The maximum limit of blocks to be deleted in a single retention run. */
     private static final int RETENTION_ROUND_LIMIT = 1_000;
     /** The logger for this class. */
@@ -98,14 +99,14 @@ public final class BlocksFilesRecentPlugin implements BlockProviderPlugin, Block
     /**
      * Default constructor for the plugin. This is used for normal service loading.
      */
-    public BlocksFilesRecentPlugin() {}
+    public BlockFileRecentPlugin() {}
 
     /**
      * Constructor for the plugin. This is used for testing.
      *
      * @param config the config to use
      */
-    BlocksFilesRecentPlugin(FilesRecentConfig config) {
+    BlockFileRecentPlugin(FilesRecentConfig config) {
         this.config = config;
     }
 
@@ -248,26 +249,31 @@ public final class BlocksFilesRecentPlugin implements BlockProviderPlugin, Block
      */
     @Override
     public void handleVerification(VerificationNotification notification) {
-        if (notification.success()) {
-            // write the block to the live path and send notification of block persisted
-            writeBlockToLivePath(notification.block(), notification.blockNumber(), notification.source());
-            // we do a round of retention only if the retention threshold is set to
-            // a positive value, otherwise we do not run it
-            if (blockRetentionThreshold > 0L) {
-                // after writing the block, we need to trigger the retention policy
-                // calculate excess
-                final long excess = availableBlocks.size() - blockRetentionThreshold;
-                final long firstBlockToDelete = availableBlocks.min();
-                // determine how many blocks to delete, up to the retention round limit
-                final long blocksToDelete = Math.min(excess, RETENTION_ROUND_LIMIT);
-                // delete the blocks from the lowest block number up to calculated max
-                // gaps will be retried on subsequent retention runs, which are very
-                // frequent
-                final long lastBlockToDelete = firstBlockToDelete + blocksToDelete;
-                for (long i = firstBlockToDelete; i < lastBlockToDelete; i++) {
-                    delete(i);
+        try {
+            if (notification != null && notification.success()) {
+                // write the block to the live path and send notification of block persisted
+                writeBlockToLivePath(notification.block(), notification.blockNumber(), notification.source());
+                // we do a round of retention only if the retention threshold is set to
+                // a positive value, otherwise we do not run it
+                if (blockRetentionThreshold > 0L) {
+                    // after writing the block, we need to trigger the retention policy
+                    // calculate excess
+                    final long excess = availableBlocks.size() - blockRetentionThreshold;
+                    final long firstBlockToDelete = availableBlocks.min();
+                    // determine how many blocks to delete, up to the retention round limit
+                    final long blocksToDelete = Math.min(excess, RETENTION_ROUND_LIMIT);
+                    // delete the blocks from the lowest block number up to calculated max
+                    // gaps will be retried on subsequent retention runs, which are very
+                    // frequent
+                    final long lastBlockToDelete = firstBlockToDelete + blocksToDelete;
+                    for (long i = firstBlockToDelete; i < lastBlockToDelete; i++) {
+                        delete(i);
+                    }
                 }
             }
+        } catch (final RuntimeException e) {
+            final String message = "Failed to handle verification notification due to %s".formatted(e);
+            LOGGER.log(WARNING, message, e);
         }
     }
 
@@ -280,10 +286,10 @@ public final class BlocksFilesRecentPlugin implements BlockProviderPlugin, Block
      * @param blockNumber the block number of the block to write
      */
     private void writeBlockToLivePath(final BlockUnparsed block, final long blockNumber, final BlockSource source) {
-        final Path verifiedBlockPath = BlockFile.nestedDirectoriesBlockFilePath(
-                config.liveRootPath(), blockNumber, config.compression(), config.maxFilesPerDir());
-        createDirectoryOrFail(verifiedBlockPath);
         if (block != null && block.blockItems() != null && !block.blockItems().isEmpty()) {
+            final Path verifiedBlockPath = BlockFile.nestedDirectoriesBlockFilePath(
+                    config.liveRootPath(), blockNumber, config.compression(), config.maxFilesPerDir());
+            createDirectoryOrFail(verifiedBlockPath);
             writeBlockOrFail(block, blockNumber, source, verifiedBlockPath);
         }
     }
@@ -306,8 +312,9 @@ public final class BlocksFilesRecentPlugin implements BlockProviderPlugin, Block
             // update the oldest and newest verified block numbers
             availableBlocks.add(blockNumber);
             // Send block persisted notification
+            final BlockSource effectiveSource = source == null ? UNKNOWN : source;
             blockMessaging.sendBlockPersisted(
-                    new PersistedNotification(blockNumber, blockNumber, defaultPriority(), source));
+                    new PersistedNotification(blockNumber, blockNumber, defaultPriority(), effectiveSource));
             // Increment blocks written counter
             blocksWrittenCounter.increment();
         } catch (final IOException e) {
@@ -370,8 +377,12 @@ public final class BlocksFilesRecentPlugin implements BlockProviderPlugin, Block
             // Get file size before deleting to update total bytes stored
             final long fileSize = Files.size(blockFilePath);
             // delete the block file and update counters
-            Files.delete(blockFilePath);
-            LOGGER.log(TRACE, DELETE_MESSAGE.formatted("Success", blockFilePath));
+            final boolean deleted = Files.deleteIfExists(blockFilePath);
+            if (deleted) {
+                LOGGER.log(TRACE, DELETE_MESSAGE.formatted("Success", blockFilePath));
+            } else {
+                LOGGER.log(INFO, DELETE_MESSAGE.formatted("File missing", blockFilePath));
+            }
             availableBlocks.remove(blockNumber);
             blocksDeletedCounter.increment();
             totalBytesStored.addAndGet(-fileSize);

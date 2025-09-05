@@ -17,12 +17,7 @@ import com.hedera.hapi.node.base.SemanticVersion;
 import com.hedera.hapi.node.base.Timestamp;
 import com.hedera.pbj.runtime.OneOf;
 import com.hedera.pbj.runtime.ParseException;
-import com.hedera.pbj.runtime.io.buffer.BufferedData;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
-import java.io.ByteArrayOutputStream;
-import java.io.IOException;
-import java.nio.file.Files;
-import java.nio.file.Path;
 import java.util.Collections;
 import java.util.List;
 import org.hiero.block.internal.BlockUnparsed;
@@ -95,63 +90,6 @@ public class BlockAccessorTest {
         assertEquals(SAMPLE_BLOCK_PROTOBUF_BYTES, accessor.blockBytes(Format.PROTOBUF));
         assertEquals(SAMPLE_BLOCK_ZSTD_PROTOBUF_BYTES, accessor.blockBytes(Format.ZSTD_PROTOBUF));
         assertEquals(SAMPLE_BLOCK_JSON_BYTES, accessor.blockBytes(Format.JSON));
-    }
-
-    @Test
-    @DisplayName("Test writeBytesTo WritableSequentialData method")
-    void testWriteBytesToWritableSequentialData() throws IOException {
-        BlockAccessor accessor = new TestBlockAccessor();
-        // Format.PROTOBUF
-        BufferedData protobufOut = BufferedData.allocate((int) SAMPLE_BLOCK_PROTOBUF_BYTES.length());
-        accessor.writeBytesTo(Format.PROTOBUF, protobufOut);
-        assertEquals(SAMPLE_BLOCK_PROTOBUF_BYTES, protobufOut.getBytes(0, protobufOut.length()));
-        // Format.ZSTD_PROTOBUF
-        BufferedData zstdProtobufOut = BufferedData.allocate((int) SAMPLE_BLOCK_ZSTD_PROTOBUF_BYTES.length());
-        accessor.writeBytesTo(Format.ZSTD_PROTOBUF, zstdProtobufOut);
-        assertEquals(SAMPLE_BLOCK_ZSTD_PROTOBUF_BYTES, zstdProtobufOut.getBytes(0, zstdProtobufOut.length()));
-        // Format.JSON
-        BufferedData jsonOut = BufferedData.allocate((int) SAMPLE_BLOCK_JSON_BYTES.length());
-        accessor.writeBytesTo(Format.JSON, jsonOut);
-        assertEquals(SAMPLE_BLOCK_JSON_BYTES, jsonOut.getBytes(0, jsonOut.length()));
-    }
-
-    @Test
-    @DisplayName("Test writeBytesTo OutputStream method")
-    void testWriteBytesToOutputStream() throws IOException {
-        BlockAccessor accessor = new TestBlockAccessor();
-        // Format.PROTOBUF
-        ByteArrayOutputStream protobufOut = new ByteArrayOutputStream();
-        accessor.writeBytesTo(Format.PROTOBUF, protobufOut);
-        assertEquals(SAMPLE_BLOCK_PROTOBUF_BYTES, Bytes.wrap(protobufOut.toByteArray()));
-        // Format.ZSTD_PROTOBUF
-        ByteArrayOutputStream zstdProtobufOut = new ByteArrayOutputStream();
-        accessor.writeBytesTo(Format.ZSTD_PROTOBUF, zstdProtobufOut);
-        assertEquals(SAMPLE_BLOCK_ZSTD_PROTOBUF_BYTES, Bytes.wrap(zstdProtobufOut.toByteArray()));
-        // Format.JSON
-        ByteArrayOutputStream jsonOut = new ByteArrayOutputStream();
-        accessor.writeBytesTo(Format.JSON, jsonOut);
-        assertEquals(SAMPLE_BLOCK_JSON_BYTES, Bytes.wrap(jsonOut.toByteArray()));
-    }
-
-    @Test
-    @DisplayName("Test writeTo Path method")
-    void testWriteToPath() throws IOException {
-        BlockAccessor accessor = new TestBlockAccessor();
-        // Format.PROTOBUF
-        Path tempFileProtobuf = Files.createTempFile("protobuf", ".tmp");
-        accessor.writeTo(Format.PROTOBUF, tempFileProtobuf);
-        assertEquals(SAMPLE_BLOCK_PROTOBUF_BYTES, Bytes.wrap(Files.readAllBytes(tempFileProtobuf)));
-        Files.delete(tempFileProtobuf);
-        // Format.ZSTD_PROTOBUF
-        Path tempFileZstdProtobuf = Files.createTempFile("zstd_protobuf", ".tmp");
-        accessor.writeTo(Format.ZSTD_PROTOBUF, tempFileZstdProtobuf);
-        assertEquals(SAMPLE_BLOCK_ZSTD_PROTOBUF_BYTES, Bytes.wrap(Files.readAllBytes(tempFileZstdProtobuf)));
-        Files.delete(tempFileZstdProtobuf);
-        // Format.JSON
-        Path tempFileJson = Files.createTempFile("json", ".tmp");
-        accessor.writeTo(Format.JSON, tempFileJson);
-        assertEquals(SAMPLE_BLOCK_JSON_BYTES, Bytes.wrap(Files.readAllBytes(tempFileJson)));
-        Files.delete(tempFileJson);
     }
 
     private static class ParseFailureBlockAccessor implements BlockAccessor {

@@ -4,16 +4,13 @@ package org.hiero.block.node.blocks.files.recent;
 import static java.lang.System.Logger.Level.WARNING;
 
 import com.github.luben.zstd.Zstd;
-import com.github.luben.zstd.ZstdOutputStream;
 import com.hedera.hapi.block.stream.Block;
 import com.hedera.pbj.runtime.ParseException;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import edu.umd.cs.findbugs.annotations.NonNull;
 import java.io.BufferedInputStream;
-import java.io.BufferedOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
-import java.io.OutputStream;
 import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -148,45 +145,6 @@ final class BlockFileBlockAccessor implements BlockAccessor {
             }
         } else {
             return null;
-        }
-    }
-
-    /**
-     * {@inheritDoc}
-     */
-    @Override
-    public void writeTo(@NonNull final Format format, @NonNull final Path path) throws IOException {
-        Objects.requireNonNull(format);
-        Objects.requireNonNull(path);
-        try (final InputStream in = Files.newInputStream(blockFilePath);
-                final InputStream buffered = new BufferedInputStream(in, BUFFER_SIZE);
-                final InputStream wrapped = compressionType.wrapStream(buffered)) {
-            switch (format) {
-                case JSON -> {
-                    try (final OutputStream out = Files.newOutputStream(path)) {
-                        final Bytes input = Bytes.wrap(wrapped.readAllBytes());
-                        final Bytes jsonBytes = getJsonBytesFromProtobufBytes(input);
-                        if (jsonBytes != null) {
-                            jsonBytes.writeTo(out);
-                        }
-                    }
-                }
-                case PROTOBUF -> {
-                    try (final OutputStream out = Files.newOutputStream(path)) {
-                        in.transferTo(out);
-                    }
-                }
-                case ZSTD_PROTOBUF -> {
-                    if (compressionType == CompressionType.ZSTD) {
-                        Files.copy(blockFilePath, path);
-                    } else {
-                        try (final OutputStream out = new BufferedOutputStream(
-                                new ZstdOutputStream(Files.newOutputStream(path)), BUFFER_SIZE)) {
-                            wrapped.transferTo(out);
-                        }
-                    }
-                }
-            }
         }
     }
 }
