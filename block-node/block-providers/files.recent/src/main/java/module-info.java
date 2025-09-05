@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-import org.hiero.block.node.blocks.files.recent.BlocksFilesRecentPlugin;
+import org.hiero.block.node.blocks.files.recent.BlockFileRecentPlugin;
 
 // SPDX-License-Identifier: Apache-2.0
 module org.hiero.block.node.blocks.files.recent {
@@ -22,5 +22,5 @@ module org.hiero.block.node.blocks.files.recent {
     requires com.github.spotbugs.annotations;
 
     provides org.hiero.block.node.spi.historicalblocks.BlockProviderPlugin with
-            BlocksFilesRecentPlugin;
+            BlockFileRecentPlugin;
 }

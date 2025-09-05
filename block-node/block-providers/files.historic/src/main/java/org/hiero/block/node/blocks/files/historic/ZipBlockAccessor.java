@@ -8,7 +8,6 @@ import com.hedera.pbj.runtime.io.buffer.Bytes;
 import edu.umd.cs.findbugs.annotations.NonNull;
 import java.io.IOException;
 import java.io.InputStream;
-import java.io.OutputStream;
 import java.nio.file.FileSystem;
 import java.nio.file.FileSystems;
 import java.nio.file.Files;
@@ -86,49 +85,5 @@ final class ZipBlockAccessor implements BlockAccessor {
                 }
             }
         };
-    }
-
-    /**
-     * {@inheritDoc}
-     */
-    @Override
-    public void writeBytesTo(@NonNull final Format format, @NonNull final OutputStream output) {
-        Objects.requireNonNull(format);
-        Objects.requireNonNull(output);
-        switch (format) {
-            case JSON -> blockBytes(format).writeTo(output);
-            case PROTOBUF -> {
-                try (final FileSystem zipFs = FileSystems.newFileSystem(blockPath.zipFilePath());
-                        final InputStream wrappedInputStream = blockPath
-                                .compressionType()
-                                .wrapStream(Files.newInputStream(zipFs.getPath(blockPath.blockFileName())))) {
-                    wrappedInputStream.transferTo(output);
-                } catch (final IOException e) {
-                    LOGGER.log(ERROR, "Failed to read block from zip file", e);
-                }
-            }
-            case ZSTD_PROTOBUF -> {
-                try (final FileSystem zipFs = FileSystems.newFileSystem(blockPath.zipFilePath())) {
-                    final Path entry = zipFs.getPath(blockPath.blockFileName());
-                    try (final InputStream in = Files.newInputStream(entry)) {
-                        // if the compression type of the block is ZSTD then we
-                        // simply need to return the bytes
-                        if (blockPath.compressionType() == CompressionType.ZSTD) {
-                            in.transferTo(output);
-                        } else {
-                            // else we need to wrap the stream to read the decompressed
-                            // data and then to compress with ZSTD
-                            try (final InputStream wrappedIn =
-                                            blockPath.compressionType().wrapStream(Files.newInputStream(entry));
-                                    final OutputStream wrappedOut = CompressionType.ZSTD.wrapStream(output)) {
-                                wrappedIn.transferTo(wrappedOut);
-                            }
-                        }
-                    }
-                } catch (final IOException e) {
-                    LOGGER.log(ERROR, "Failed to read block from zip file", e);
-                }
-            }
-        }
     }
 }

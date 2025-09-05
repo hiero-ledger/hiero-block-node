@@ -36,7 +36,7 @@ import org.hiero.block.node.spi.historicalblocks.LongRange;
  * This plugin provides a block provider that stores historical blocks in file. It is designed to store them in the
  * most compressed optimal way possible. It is designed to be used with the
  */
-public final class BlocksFilesHistoricPlugin implements BlockProviderPlugin, BlockNotificationHandler {
+public final class BlockFileHistoricPlugin implements BlockProviderPlugin, BlockNotificationHandler {
     /** The logger for this class. */
     private final System.Logger LOGGER = System.getLogger(getClass().getName());
     /** The executor service for moving blocks to zip files in a background thread. */
