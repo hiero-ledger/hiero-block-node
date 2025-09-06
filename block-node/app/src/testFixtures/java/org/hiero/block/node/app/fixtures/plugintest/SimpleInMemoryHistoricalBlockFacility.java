@@ -13,6 +13,7 @@ import java.util.Objects;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
+import org.hiero.block.node.app.fixtures.blocks.MinimalBlockAccessor;
 import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.ServiceBuilder;
 import org.hiero.block.node.spi.blockmessaging.BlockItemHandler;
@@ -92,19 +93,7 @@ public class SimpleInMemoryHistoricalBlockFacility implements HistoricalBlockFac
     public BlockAccessor block(final long blockNumber) {
         final Block block = blockStorage.get(blockNumber);
         while (delayResponses.get()) parkNanos(500_000L);
-        return block == null
-                ? null
-                : new BlockAccessor() {
-                    @Override
-                    public long blockNumber() {
-                        return blockNumber;
-                    }
-
-                    @Override
-                    public Block block() {
-                        return block;
-                    }
-                };
+        return block == null ? null : new MinimalBlockAccessor(blockNumber, block);
     }
 
     public void setDelayResponses() {

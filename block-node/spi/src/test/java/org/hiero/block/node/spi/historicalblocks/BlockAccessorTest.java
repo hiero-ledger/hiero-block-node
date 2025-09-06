@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.node.spi.historicalblocks;
 
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertNull;
 
 import com.github.luben.zstd.Zstd;
 import com.hedera.hapi.block.stream.Block;
@@ -16,12 +17,7 @@ import com.hedera.hapi.node.base.SemanticVersion;
 import com.hedera.hapi.node.base.Timestamp;
 import com.hedera.pbj.runtime.OneOf;
 import com.hedera.pbj.runtime.ParseException;
-import com.hedera.pbj.runtime.io.buffer.BufferedData;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
-import java.io.ByteArrayOutputStream;
-import java.io.IOException;
-import java.nio.file.Files;
-import java.nio.file.Path;
 import java.util.Collections;
 import java.util.List;
 import org.hiero.block.internal.BlockUnparsed;
@@ -46,7 +42,7 @@ public class BlockAccessorTest {
             new BlockItem(new OneOf<>(
                     ItemOneOfType.BLOCK_PROOF,
                     new BlockProof(
-                            890,
+                            0,
                             Bytes.wrap("previousBlockRootHash".getBytes()),
                             Bytes.wrap("startOfBlockStateRootHash".getBytes()),
                             Bytes.wrap("block_signature".getBytes()),
@@ -54,15 +50,10 @@ public class BlockAccessorTest {
                             new OneOf<>(
                                     BlockProof.VerificationReferenceOneOfType.VERIFICATION_KEY,
                                     Bytes.wrap("verificationKey".getBytes())))))));
-    private static final Bytes SAMPLE_BLOCK_PROTOBUF_BYTES;
-    private static final Bytes SAMPLE_BLOCK_ZSTD_PROTOBUF_BYTES;
-    private static final Bytes SAMPLE_BLOCK_JSON_BYTES;
-
-    static {
-        SAMPLE_BLOCK_PROTOBUF_BYTES = Block.PROTOBUF.toBytes(SAMPLE_BLOCK);
-        SAMPLE_BLOCK_ZSTD_PROTOBUF_BYTES = Bytes.wrap(Zstd.compress(SAMPLE_BLOCK_PROTOBUF_BYTES.toByteArray()));
-        SAMPLE_BLOCK_JSON_BYTES = Block.JSON.toBytes(SAMPLE_BLOCK);
-    }
+    private static final Bytes SAMPLE_BLOCK_PROTOBUF_BYTES = Block.PROTOBUF.toBytes(SAMPLE_BLOCK);
+    private static final Bytes SAMPLE_BLOCK_ZSTD_PROTOBUF_BYTES =
+            Bytes.wrap(Zstd.compress(Block.PROTOBUF.toBytes(SAMPLE_BLOCK).toByteArray()));
+    private static final Bytes SAMPLE_BLOCK_JSON_BYTES = Block.JSON.toBytes(SAMPLE_BLOCK);
 
     private static class TestBlockAccessor implements BlockAccessor {
         @Override
@@ -71,17 +62,13 @@ public class BlockAccessorTest {
         }
 
         @Override
-        public Block block() {
-            return SAMPLE_BLOCK;
+        public Bytes blockBytes(final Format format) {
+            return switch (format) {
+                case JSON -> SAMPLE_BLOCK_JSON_BYTES;
+                case PROTOBUF -> SAMPLE_BLOCK_PROTOBUF_BYTES;
+                case ZSTD_PROTOBUF -> SAMPLE_BLOCK_ZSTD_PROTOBUF_BYTES;
+            };
         }
-    }
-
-    @Test
-    @DisplayName("Test availableFormats method")
-    void testAvailableFormats() {
-        BlockAccessor accessor = new TestBlockAccessor();
-        List<Format> formats = accessor.availableFormats();
-        assertEquals(BlockAccessor.ALL_FORMATS, formats);
     }
 
     @Test
@@ -91,30 +78,9 @@ public class BlockAccessorTest {
         BlockUnparsed blockUnparsed = BlockUnparsed.PROTOBUF.parse(SAMPLE_BLOCK_PROTOBUF_BYTES);
         assertEquals(blockUnparsed, accessor.blockUnparsed());
         // create a parsing failure
-        BlockAccessor emptyAccessor = new BlockAccessor() {
-            @Override
-            public long blockNumber() {
-                return 0;
-            }
-
-            @Override
-            public Block block() {
-                return null;
-            }
-
-            @Override
-            public Bytes blockBytes(Format format) throws IllegalArgumentException {
-                return Bytes.wrap(new byte[] {1, 2, 3, 4, 5});
-            }
-        };
-        assertThrows(RuntimeException.class, emptyAccessor::blockUnparsed);
-    }
-
-    @Test
-    @DisplayName("Test blockBytes method with unsupported format")
-    void testBlockBytesUnsupportedFormat() {
-        BlockAccessor accessor = new TestBlockAccessor();
-        assertThrows(IllegalArgumentException.class, () -> accessor.blockBytes(null));
+        BlockAccessor emptyAccessor = new ParseFailureBlockAccessor();
+        assertDoesNotThrow(emptyAccessor::blockUnparsed);
+        assertNull(emptyAccessor.blockUnparsed());
     }
 
     @Test
@@ -126,60 +92,15 @@ public class BlockAccessorTest {
         assertEquals(SAMPLE_BLOCK_JSON_BYTES, accessor.blockBytes(Format.JSON));
     }
 
-    @Test
-    @DisplayName("Test writeBytesTo WritableSequentialData method")
-    void testWriteBytesToWritableSequentialData() {
-        BlockAccessor accessor = new TestBlockAccessor();
-        // Format.PROTOBUF
-        BufferedData protobufOut = BufferedData.allocate((int) SAMPLE_BLOCK_PROTOBUF_BYTES.length());
-        accessor.writeBytesTo(Format.PROTOBUF, protobufOut);
-        assertEquals(SAMPLE_BLOCK_PROTOBUF_BYTES, protobufOut.getBytes(0, protobufOut.length()));
-        // Format.ZSTD_PROTOBUF
-        BufferedData zstdProtobufOut = BufferedData.allocate((int) SAMPLE_BLOCK_ZSTD_PROTOBUF_BYTES.length());
-        accessor.writeBytesTo(Format.ZSTD_PROTOBUF, zstdProtobufOut);
-        assertEquals(SAMPLE_BLOCK_ZSTD_PROTOBUF_BYTES, zstdProtobufOut.getBytes(0, zstdProtobufOut.length()));
-        // Format.JSON
-        BufferedData jsonOut = BufferedData.allocate((int) SAMPLE_BLOCK_JSON_BYTES.length());
-        accessor.writeBytesTo(Format.JSON, jsonOut);
-        assertEquals(SAMPLE_BLOCK_JSON_BYTES, jsonOut.getBytes(0, jsonOut.length()));
-    }
+    private static class ParseFailureBlockAccessor implements BlockAccessor {
+        @Override
+        public long blockNumber() {
+            return 0;
+        }
 
-    @Test
-    @DisplayName("Test writeBytesTo OutputStream method")
-    void testWriteBytesToOutputStream() {
-        BlockAccessor accessor = new TestBlockAccessor();
-        // Format.PROTOBUF
-        ByteArrayOutputStream protobufOut = new ByteArrayOutputStream();
-        accessor.writeBytesTo(Format.PROTOBUF, protobufOut);
-        assertEquals(SAMPLE_BLOCK_PROTOBUF_BYTES, Bytes.wrap(protobufOut.toByteArray()));
-        // Format.ZSTD_PROTOBUF
-        ByteArrayOutputStream zstdProtobufOut = new ByteArrayOutputStream();
-        accessor.writeBytesTo(Format.ZSTD_PROTOBUF, zstdProtobufOut);
-        assertEquals(SAMPLE_BLOCK_ZSTD_PROTOBUF_BYTES, Bytes.wrap(zstdProtobufOut.toByteArray()));
-        // Format.JSON
-        ByteArrayOutputStream jsonOut = new ByteArrayOutputStream();
-        accessor.writeBytesTo(Format.JSON, jsonOut);
-        assertEquals(SAMPLE_BLOCK_JSON_BYTES, Bytes.wrap(jsonOut.toByteArray()));
-    }
-
-    @Test
-    @DisplayName("Test writeTo Path method")
-    void testWriteToPath() throws IOException {
-        BlockAccessor accessor = new TestBlockAccessor();
-        // Format.PROTOBUF
-        Path tempFileProtobuf = Files.createTempFile("protobuf", ".tmp");
-        accessor.writeTo(Format.PROTOBUF, tempFileProtobuf);
-        assertEquals(SAMPLE_BLOCK_PROTOBUF_BYTES, Bytes.wrap(Files.readAllBytes(tempFileProtobuf)));
-        Files.delete(tempFileProtobuf);
-        // Format.ZSTD_PROTOBUF
-        Path tempFileZstdProtobuf = Files.createTempFile("zstd_protobuf", ".tmp");
-        accessor.writeTo(Format.ZSTD_PROTOBUF, tempFileZstdProtobuf);
-        assertEquals(SAMPLE_BLOCK_ZSTD_PROTOBUF_BYTES, Bytes.wrap(Files.readAllBytes(tempFileZstdProtobuf)));
-        Files.delete(tempFileZstdProtobuf);
-        // Format.JSON
-        Path tempFileJson = Files.createTempFile("json", ".tmp");
-        accessor.writeTo(Format.JSON, tempFileJson);
-        assertEquals(SAMPLE_BLOCK_JSON_BYTES, Bytes.wrap(Files.readAllBytes(tempFileJson)));
-        Files.delete(tempFileJson);
+        @Override
+        public Bytes blockBytes(Format format) {
+            return Bytes.wrap(new byte[] {1, 2, 3, 4, 5});
+        }
     }
 }

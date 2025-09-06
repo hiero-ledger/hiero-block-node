@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-import org.hiero.block.node.blocks.files.historic.BlocksFilesHistoricPlugin;
+import org.hiero.block.node.blocks.files.historic.BlockFileHistoricPlugin;
 
 // SPDX-License-Identifier: Apache-2.0
 module org.hiero.block.node.blocks.files.historic {
@@ -21,5 +21,5 @@ module org.hiero.block.node.blocks.files.historic {
     requires com.github.spotbugs.annotations;
 
     provides org.hiero.block.node.spi.historicalblocks.BlockProviderPlugin with
-            BlocksFilesHistoricPlugin;
+            BlockFileHistoricPlugin;
 }

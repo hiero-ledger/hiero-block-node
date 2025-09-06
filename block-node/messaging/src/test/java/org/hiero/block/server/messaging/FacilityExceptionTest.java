@@ -26,7 +26,7 @@ import org.junit.jupiter.api.Test;
  * Unit tests for the {@link BlockMessagingFacilityImpl} class.
  */
 @SuppressWarnings("BusyWait")
-public class BlockMessagingFacilityExceptionTest {
+public class FacilityExceptionTest {
 
     /** The logger used for logging messages. */
     private java.util.logging.Logger logger;

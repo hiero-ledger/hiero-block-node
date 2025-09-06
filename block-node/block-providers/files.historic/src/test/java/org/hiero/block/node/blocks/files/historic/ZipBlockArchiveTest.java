@@ -474,7 +474,7 @@ class ZipBlockArchiveTest {
             final byte[] fromZipEntry = Files.readAllBytes(entry);
             assertThat(fromZipEntry).isEqualTo(bytesToWrite);
         }
-        return new ZipBlockAccessor(blockPath);
+        return new ZipBlockAccessor(blockPath, CompressionType.NONE);
     }
 
     private FilesHistoricConfig createTestConfiguration(final Path basePath, final int powersOfTenPerZipFileContents) {
