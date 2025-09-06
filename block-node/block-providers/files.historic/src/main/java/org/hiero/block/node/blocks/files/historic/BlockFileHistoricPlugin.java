@@ -213,18 +213,26 @@ public final class BlockFileHistoricPlugin implements BlockProviderPlugin, Block
      */
     @Override
     public void handlePersisted(PersistedNotification notification) {
-        // all operations are queued up here until we release the caller thread
-        // by the block messaging facility, so we can safely perform
-        // calculations and decide if we will submit a task or not
-        if (notification.blockProviderPriority() > defaultPriority()) {
-            attemptZipping();
-            cleanup();
+        try {
+            // all operations are queued up here until we release the caller thread
+            // by the block messaging facility, so we can safely perform
+            // calculations and decide if we will submit a task or not
+            if (notification != null && notification.blockProviderPriority() > defaultPriority()) {
+                attemptZipping();
+                cleanup();
+            }
+            // @todo(1069) this is not enough of an assertion that the blocks
+            //     will be coming from the right place as notifications are
+            //     async and things can happen, when we get the accessors later,
+            //     we should be able to get accessors only from places that have
+            //     higher priority than us. We should probably have that as a
+            //     feature in the block accessor api. (meaning we should be able
+            //     to query the historical block facility for blocks that are
+            //     coming from higher priority plugins)
+        } catch (final RuntimeException e) {
+            final String message = "Failed to handle persistence notification due to %s".formatted(e);
+            LOGGER.log(WARNING, message, e);
         }
-        // @todo(1069) this is not enough of an assertion that the blocks will be coming from the right place
-        //     as notifications are async and things can happen, when we get the accessors later, we should
-        //     be able to get accessors only from places that have higher priority than us. We should probably
-        //     have that as a feature in the block accessor api. (meaning we should be able to query the
-        //     historical block facility for blocks that are coming from higher priority plugins)
     }
 
     // ==== Private Methods ============================================================================================

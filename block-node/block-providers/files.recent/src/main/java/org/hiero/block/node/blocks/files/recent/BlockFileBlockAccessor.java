@@ -3,12 +3,10 @@ package org.hiero.block.node.blocks.files.recent;
 
 import static java.lang.System.Logger.Level.WARNING;
 
-import com.github.luben.zstd.Zstd;
 import com.hedera.hapi.block.stream.Block;
 import com.hedera.pbj.runtime.ParseException;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import edu.umd.cs.findbugs.annotations.NonNull;
-import java.io.BufferedInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.UncheckedIOException;
@@ -101,27 +99,44 @@ final class BlockFileBlockAccessor implements BlockAccessor {
     @Override
     public Bytes blockBytes(@NonNull final Format format) {
         Objects.requireNonNull(format);
-        try (final InputStream in = new BufferedInputStream(Files.newInputStream(blockFilePath), BUFFER_SIZE);
-                final InputStream wrapped = compressionType.wrapStream(in)) {
+        try {
+            return getBytesFromPath(format, blockFilePath, compressionType);
+        } catch (final UncheckedIOException | IOException e) {
+            LOGGER.log(WARNING, FAILED_TO_READ_MESSAGE.formatted(blockFilePath), e);
+            return null;
+        }
+    }
+
+    /**
+     * Get the bytes from the specified path, converting to the desired format if necessary.
+     *
+     * @param responseFormat the desired format of the data
+     * @param sourcePath the path to the source file
+     * @param sourceCompression the compression type of the source data
+     * @return the bytes of the block in the desired format, or null if the block cannot be read
+     * @throws IOException if unable to read or decompress the data.
+     */
+    private Bytes getBytesFromPath(
+            final Format responseFormat, final Path sourcePath, final CompressionType sourceCompression)
+            throws IOException {
+        try (final InputStream in = Files.newInputStream(sourcePath);
+                final InputStream wrapped = sourceCompression.wrapStream(in)) {
             Bytes sourceData =
-                    switch (format) {
+                    switch (responseFormat) {
                         case JSON, PROTOBUF -> Bytes.wrap(wrapped.readAllBytes());
                         case ZSTD_PROTOBUF -> {
-                            if (compressionType == CompressionType.ZSTD) {
+                            if (sourceCompression == CompressionType.ZSTD) {
                                 yield Bytes.wrap(in.readAllBytes());
                             } else {
-                                yield Bytes.wrap(Zstd.compress(wrapped.readAllBytes()));
+                                yield Bytes.wrap(CompressionType.ZSTD.compress(wrapped.readAllBytes()));
                             }
                         }
                     };
-            if (Format.JSON == format) {
+            if (Format.JSON == responseFormat) {
                 return getJsonBytesFromProtobufBytes(sourceData);
             } else {
                 return sourceData;
             }
-        } catch (final UncheckedIOException | IOException e) {
-            LOGGER.log(WARNING, FAILED_TO_READ_MESSAGE.formatted(blockFilePath), e);
-            return null;
         }
     }
 

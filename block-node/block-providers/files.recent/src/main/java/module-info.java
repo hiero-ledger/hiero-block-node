@@ -18,7 +18,6 @@ module org.hiero.block.node.blocks.files.recent {
     requires com.swirlds.metrics.api;
     requires org.hiero.block.common;
     requires org.hiero.block.protobuf.pbj;
-    requires com.github.luben.zstd_jni;
     requires com.github.spotbugs.annotations;
 
     provides org.hiero.block.node.spi.historicalblocks.BlockProviderPlugin with
