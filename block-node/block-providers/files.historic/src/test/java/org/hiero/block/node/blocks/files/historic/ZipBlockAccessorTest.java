@@ -85,7 +85,7 @@ class ZipBlockAccessorTest {
         @DisplayName("Test constructor throws no exception when input is valid")
         void testValidConstructor() {
             final BlockPath blockPath = BlockPath.computeBlockPath(defaultConfig, 1L);
-            assertThatNoException().isThrownBy(() -> new ZipBlockAccessor(blockPath));
+            assertThatNoException().isThrownBy(() -> new ZipBlockAccessor(blockPath, defaultConfig.compression()));
         }
 
         /**
@@ -97,7 +97,7 @@ class ZipBlockAccessorTest {
         @DisplayName("Test constructor throws NullPointerException when blockPath is null")
         @SuppressWarnings("all")
         void testNullBlockPath() {
-            assertThatNullPointerException().isThrownBy(() -> new ZipBlockAccessor(null));
+            assertThatNullPointerException().isThrownBy(() -> new ZipBlockAccessor(null, CompressionType.NONE));
         }
     }
 
@@ -286,7 +286,7 @@ class ZipBlockAccessorTest {
             final byte[] fromZipEntry = Files.readAllBytes(entry);
             assertThat(fromZipEntry).isEqualTo(bytesToWrite);
         }
-        return new ZipBlockAccessor(blockPath);
+        return new ZipBlockAccessor(blockPath, testConfig.compression());
     }
 
     private FilesHistoricConfig createTestConfiguration(final Path basePath, final CompressionType compressionType) {

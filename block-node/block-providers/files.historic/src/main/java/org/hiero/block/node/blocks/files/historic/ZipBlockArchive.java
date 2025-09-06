@@ -123,7 +123,7 @@ class ZipBlockArchive {
         try {
             // get existing block path or null if we cannot find it
             final BlockPath blockPath = computeExistingBlockPath(config, blockNumber);
-            return blockPath == null ? null : new ZipBlockAccessor(blockPath);
+            return blockPath == null ? null : new ZipBlockAccessor(blockPath, blockPath.compressionType());
         } catch (final IOException e) {
             throw new UncheckedIOException(e);
         }

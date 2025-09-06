@@ -3,7 +3,6 @@ package org.hiero.block.node.blocks.files.recent;
 
 import static java.lang.System.Logger.Level.WARNING;
 
-import com.github.luben.zstd.Zstd;
 import com.hedera.hapi.block.stream.Block;
 import com.hedera.pbj.runtime.ParseException;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
@@ -110,7 +109,7 @@ final class BlockFileBlockAccessor implements BlockAccessor {
                             if (compressionType == CompressionType.ZSTD) {
                                 yield Bytes.wrap(in.readAllBytes());
                             } else {
-                                yield Bytes.wrap(Zstd.compress(wrapped.readAllBytes()));
+                                yield Bytes.wrap(CompressionType.ZSTD.compress(wrapped.readAllBytes()));
                             }
                         }
                     };
