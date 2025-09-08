@@ -12,7 +12,7 @@ keywords:
 maintainers:
   - name: Hiero Block Node Team
     email: blocknode@hashgraph.com
-name: block-node-helm-chart
+name: block-node-server
 sources:
   - https://github.com/hiero-ledger/hiero-block-node
 version: 0.19.0-SNAPSHOT
