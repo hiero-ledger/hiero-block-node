@@ -125,6 +125,8 @@ blockNode:
       size: 800Gi
       # Optionally add a storage class name if needed
       # storageClass: "your-storage-class"
+      # Optionally specify an existing PVC name instead of creating via volumeClaimTemplate
+      # existingClaim: "my-archive-pvc"
     logging:
       # name of the volume within the statefulset
       volumeName: "logging-data"
@@ -132,6 +134,8 @@ blockNode:
       size: 2Gi
       # Optionally add a storage class name if needed
       # storageClass: "your-storage-class"
+      # Optionally specify an existing PVC name instead of creating via volumeClaimTemplate
+      # existingClaim: "my-logging-pvc"
     live:
       # name of the volume within the statefulset
       volumeName: "live-storage"
@@ -142,6 +146,8 @@ blockNode:
       size: 20Gi
       # Optionally add a storage class name if needed
       # storageClass: "your-storage-class"
+      # Optionally specify an existing PVC name instead of creating via volumeClaimTemplate
+      # existingClaim: "my-live-pvc"
   # For secrets, is recommended to use a secretRef to an existing secret on the cluster.
   # secretRef: secret-name-reference
   # not recommended to use this, but for testing purposes you can use the following collection for secrets auto-creation

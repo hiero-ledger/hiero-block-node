@@ -112,7 +112,27 @@ spec:
       tolerations:
         {{- toYaml . | nindent 8 }}
       {{- end }}
+      {{- if or .Values.blockNode.persistence.logging.existingClaim .Values.blockNode.persistence.archive.existingClaim .Values.blockNode.persistence.live.existingClaim }}
+      volumes:
+        {{- if .Values.blockNode.persistence.logging.existingClaim }}
+        - name: {{ default "logging-data" .Values.blockNode.persistence.logging.volumeName }}
+          persistentVolumeClaim:
+            claimName: {{ .Values.blockNode.persistence.logging.existingClaim }}
+        {{- end }}
+        {{- if .Values.blockNode.persistence.archive.existingClaim }}
+        - name: {{ default "archive-storage" .Values.blockNode.persistence.archive.volumeName }}
+          persistentVolumeClaim:
+            claimName: {{ .Values.blockNode.persistence.archive.existingClaim }}
+        {{- end }}
+        {{- if .Values.blockNode.persistence.live.existingClaim }}
+        - name: {{ default "live-storage" .Values.blockNode.persistence.live.volumeName }}
+          persistentVolumeClaim:
+            claimName: {{ .Values.blockNode.persistence.live.existingClaim }}
+        {{- end }}
+      {{- end }}
+{{- if not (or .Values.blockNode.persistence.logging.existingClaim .Values.blockNode.persistence.archive.existingClaim .Values.blockNode.persistence.live.existingClaim) }}
   volumeClaimTemplates:
+    {{- if not .Values.blockNode.persistence.logging.existingClaim }}
     - metadata:
         name: {{ default "logging-data" .Values.blockNode.persistence.logging.volumeName }}
       spec:
@@ -124,6 +144,8 @@ spec:
         {{- if .Values.blockNode.persistence.logging.storageClass }}
         storageClassName: {{ .Values.blockNode.persistence.logging.storageClass }}
         {{- end }}
+    {{- end }}
+    {{- if not .Values.blockNode.persistence.archive.existingClaim }}
     - metadata:
         name: {{ default "archive-storage" .Values.blockNode.persistence.archive.volumeName }}
       spec:
@@ -135,6 +157,8 @@ spec:
         {{- if .Values.blockNode.persistence.archive.storageClass }}
         storageClassName: {{ .Values.blockNode.persistence.archive.storageClass }}
         {{- end }}
+    {{- end }}
+    {{- if not .Values.blockNode.persistence.live.existingClaim }}
     - metadata:
         name: {{ default "live-storage" .Values.blockNode.persistence.live.volumeName }}
       spec:
@@ -146,3 +170,5 @@ spec:
         {{- if .Values.blockNode.persistence.live.storageClass }}
         storageClassName: {{ .Values.blockNode.persistence.live.storageClass }}
         {{- end }}
+    {{- end }}
+{{- end }}
