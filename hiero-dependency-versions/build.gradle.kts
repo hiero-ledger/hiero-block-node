@@ -8,7 +8,7 @@ plugins {
 
 dependencies {
     api(platform("io.netty:netty-bom:4.2.4.Final"))
-    api(platform("com.google.cloud:libraries-bom:26.63.0"))
+    api(platform("com.google.cloud:libraries-bom:26.67.0"))
 }
 
 dependencies.constraints {
