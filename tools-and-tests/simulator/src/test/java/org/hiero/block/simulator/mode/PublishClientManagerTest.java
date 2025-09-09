@@ -235,7 +235,7 @@ class PublishClientManagerTest {
 
     @ParameterizedTest
     @MethodSource("provideEndStreamMode")
-    void sendEndStreamReset(EndStreamMode endStreamMode, EndStream.Code endStreamCode) throws Exception {
+    void sendEndStream(EndStreamMode endStreamMode, EndStream.Code endStreamCode) throws Exception {
         publishClientManager.sendEndStream(endStreamMode);
         verify(publishStreamGrpcClient).handleEndStreamModeIfSet(endStreamCode);
     }
