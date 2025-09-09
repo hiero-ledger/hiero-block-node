@@ -16,6 +16,7 @@ import java.lang.System.Logger.Level;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletionService;
 import java.util.concurrent.ConcurrentSkipListMap;
 import java.util.concurrent.CountDownLatch;
@@ -258,12 +259,16 @@ public class SubscriberServicePlugin implements BlockNodePlugin, BlockStreamSubs
                     // Otherwise, log that the session completed successfully.
                     LOGGER.log(Level.TRACE, "Subscriber session %(,d completed successfully.".formatted(clientId));
                 }
-            } catch (ExecutionException e) {
+            } catch (final ExecutionException e) {
                 // Note, this only happens if something truly unexpected (i.e. an Error) caused
                 // the session to fail, so the error is significant.
                 final String message = "Subscriber session failed due to unhandled %s:%n{0}.".formatted(e.getCause());
                 LOGGER.log(Level.ERROR, message, e);
                 subscriberErrorsCounter.increment();
+            } catch (final CancellationException e) {
+                // This will happen if the future was cancelled
+                final String message = "Subscriber session was cancelled: {0}.";
+                LOGGER.log(Level.INFO, message, e.getMessage());
             }
             // Decrement the session count and update the metric.
             numberOfSubscribers.set(sessionCount.decrementAndGet());
