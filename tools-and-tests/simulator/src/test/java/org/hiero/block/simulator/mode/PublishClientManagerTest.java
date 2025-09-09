@@ -1,17 +1,24 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.simulator.mode;
 
+import static org.hiero.block.simulator.config.types.EndStreamMode.ERROR;
+import static org.hiero.block.simulator.config.types.EndStreamMode.RESET;
+import static org.hiero.block.simulator.config.types.EndStreamMode.TIMEOUT;
+import static org.hiero.block.simulator.config.types.EndStreamMode.TOO_FAR_BEHIND;
 import static org.hiero.block.simulator.fixtures.TestUtils.getTestConfiguration;
 import static org.hiero.block.simulator.fixtures.TestUtils.getTestMetrics;
 import static org.hiero.block.simulator.fixtures.blocks.BlockBuilder.createBlocks;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.hedera.hapi.block.stream.protoc.Block;
 import com.swirlds.config.api.Configuration;
 import java.io.IOException;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.stream.Stream;
+import org.hiero.block.api.protoc.PublishStreamRequest.EndStream;
 import org.hiero.block.api.protoc.PublishStreamResponse;
 import org.hiero.block.api.protoc.PublishStreamResponse.EndOfStream.Code;
 import org.hiero.block.simulator.config.data.BlockGeneratorConfig;
@@ -19,6 +26,7 @@ import org.hiero.block.simulator.config.data.BlockStreamConfig;
 import org.hiero.block.simulator.config.data.GrpcConfig;
 import org.hiero.block.simulator.config.data.SimulatorStartupDataConfig;
 import org.hiero.block.simulator.config.data.UnorderedStreamConfig;
+import org.hiero.block.simulator.config.types.EndStreamMode;
 import org.hiero.block.simulator.generator.BlockStreamManager;
 import org.hiero.block.simulator.generator.CraftBlockStreamManager;
 import org.hiero.block.simulator.grpc.PublishStreamGrpcClient;
@@ -30,6 +38,9 @@ import org.hiero.block.simulator.startup.SimulatorStartupData;
 import org.hiero.block.simulator.startup.impl.SimulatorStartupDataImpl;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.MethodSource;
 import org.mockito.Mock;
 import org.mockito.MockitoAnnotations;
 
@@ -220,5 +231,20 @@ class PublishClientManagerTest {
 
         assertTrue(
                 blockStreamManager.getNextBlock().getItems(0).getBlockHeader().getNumber() > 1L);
+    }
+
+    @ParameterizedTest
+    @MethodSource("provideEndStreamMode")
+    void sendEndStreamReset(EndStreamMode endStreamMode, EndStream.Code endStreamCode) throws Exception {
+        publishClientManager.sendEndStream(endStreamMode);
+        verify(publishStreamGrpcClient).handleEndStreamModeIfSet(endStreamCode);
+    }
+
+    private static Stream<Arguments> provideEndStreamMode() {
+        return Stream.of(
+                Arguments.of(RESET, EndStream.Code.RESET),
+                Arguments.of(TIMEOUT, EndStream.Code.TIMEOUT),
+                Arguments.of(ERROR, EndStream.Code.ERROR),
+                Arguments.of(TOO_FAR_BEHIND, EndStream.Code.TOO_FAR_BEHIND));
     }
 }
