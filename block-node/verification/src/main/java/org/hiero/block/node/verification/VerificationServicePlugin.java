@@ -134,7 +134,7 @@ public class VerificationServicePlugin implements BlockNodePlugin, BlockItemHand
             if (blockItems.isStartOfNewBlock()) {
                 verificationBlocksReceived.increment();
                 // we already checked that firstItem has blockHeader
-                currentBlockNumber = blockItems.newBlockNumber();
+                currentBlockNumber = blockItems.blockNumber();
                 // start working time
                 blockWorkStartTime = System.nanoTime();
                 // start new session and set it as current
