@@ -149,7 +149,7 @@ public class TestBlockMessagingFacility implements BlockMessagingFacility {
         LOGGER.log(
                 Level.TRACE,
                 "Sending next %d block items for block %d to %d handlers."
-                        .formatted(blockItems.blockItems().size(), blockItems.newBlockNumber(), handlerCount));
+                        .formatted(blockItems.blockItems().size(), blockItems.blockNumber(), handlerCount));
         sentBlockBlockItems.add(blockItems);
         boolean handlerHasBackpressure = false;
         for (BlockItemHandler handler : blockItemHandlers) {

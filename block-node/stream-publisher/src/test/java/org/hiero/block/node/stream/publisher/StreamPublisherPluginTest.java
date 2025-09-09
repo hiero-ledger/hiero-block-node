@@ -42,7 +42,7 @@ class StreamPublisherPluginTest {
      * Enable debug logging for each test.
      */
     @BeforeEach
-    protected void setup() {
+    void setup() {
         enableDebugLogging();
     }
 
