@@ -1,0 +1,42 @@
+# SPDX-License-Identifier: Apache-2.0
+
+# This override values for the block-node-server chart to deploy a mini version of the block-node-server.
+# This is useful for testing and development purposes with limited resources.
+# ie: minikube
+
+resources:
+  requests:
+    cpu: "2"
+    memory: "4Gi"
+
+blockNode:
+  config:
+    JAVA_OPTS: '-Xms4G -Xmx4G  -XX:+HeapDumpOnOutOfMemoryError -XX:HeapDumpPath="/tmp/dump.hprof"'
+    MESSAGING_BLOCK_ITEM_QUEUE_SIZE: "64"
+    MESSAGING_BLOCK_NOTIFICATION_QUEUE_SIZE: "8"
+    BACKFILL_FETCH_BATCH_SIZE: "4"
+  persistence:
+    archive:
+      size: 1Gi
+      # Optionally specify an existing PVC name instead of creating via volumeClaimTemplate
+      existingClaim: "nano-archive-storage"
+    live:
+      size: 1Gi
+      # Optionally specify an existing PVC name instead of creating via volumeClaimTemplate
+      # existingClaim: "nano-live-pvc"
+    logging:
+      size: 1Gi
+      # Optionally specify an existing PVC name instead of creating via volumeClaimTemplate
+      # existingClaim: "nano-logging-pvc"
+
+# Setting the PVC size for the Observability stack to mini claims of 1 Gigabyte
+kubepromstack:
+  enabled: false
+
+loki:
+  enabled: false
+
+promtail:
+  enabled: false
+
+
