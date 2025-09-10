@@ -26,7 +26,7 @@ Uses the prefix `blockStream` so all properties should start with `blockStream.`
 | `endStreamMode`                | The mode to use when ending the stream                                                                                              |             `NONE` |
 | `endStreamEarliestBlockNumber` | The earliest block number for EndStream                                                                                             |                `0` |
 | `endStreamLatestBlockNumber`   | The latest block number for EndStream                                                                                               |                `0` |
-| `endStreamEveryNBlocks`        | The frequency of EndStream in terms of number of blocks                                                                             |                `0` |
+| `endStreamFrequency`           | The frequency of EndStream in terms of number of blocks                                                                             |                `0` |
 
 ## BlockGeneratorConfig
 

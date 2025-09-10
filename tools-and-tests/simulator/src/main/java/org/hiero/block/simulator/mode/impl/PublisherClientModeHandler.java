@@ -114,7 +114,7 @@ public class PublisherClientModeHandler implements SimulatorModeHandler {
         final long secondsPerBlockNanos = (long) millisecondsPerBlock * NANOS_PER_MILLI;
         PublishStreamResponse[] responseHolder = new PublishStreamResponse[1];
         long blockCount = 0;
-        long endStreamInterval = blockStreamConfig.endStreamEveryNBlocks();
+        long endStreamInterval = blockStreamConfig.endStreamFrequency();
 
         Block nextBlock = blockStreamManager.getNextBlock();
         while (nextBlock != null && shouldPublish.get()) {
@@ -166,7 +166,7 @@ public class PublisherClientModeHandler implements SimulatorModeHandler {
         int blockItemsStreamed = 0;
         PublishStreamResponse[] responseHolder = new PublishStreamResponse[1];
         long blockCount = 0;
-        long endStreamInterval = blockStreamConfig.endStreamEveryNBlocks();
+        long endStreamInterval = blockStreamConfig.endStreamFrequency();
 
         while (shouldPublish.get()) {
             // get block

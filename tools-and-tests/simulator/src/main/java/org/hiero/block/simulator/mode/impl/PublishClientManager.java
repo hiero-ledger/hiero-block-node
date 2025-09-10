@@ -102,7 +102,7 @@ public class PublishClientManager implements SimulatorModeHandler {
                     case TIMEOUT -> EndStream.Code.TIMEOUT;
                     case ERROR -> EndStream.Code.ERROR;
                     case TOO_FAR_BEHIND -> EndStream.Code.TOO_FAR_BEHIND;
-                    default -> null;
+                    case NONE -> null;
                 };
 
         if (code != null) {
