@@ -84,17 +84,12 @@ blockNode:
           chmod 700 /live-pvc/live-data && \
           mkdir -p /archive-pvc/archive-data && \
           chown 2000:2000 /archive-pvc/archive-data && \
-          chmod 700 /archive-pvc/archive-data && \
-          mkdir -p /logging-pvc/logging-data && \
-          chown 2000:2000 /logging-pvc/logging-data && \
-          chmod 700 /logging-pvc/logging-data
+          chmod 700 /archive-pvc/archive-data
       volumeMounts:
         - name: live-storage
           mountPath: /live-pvc
         - name: archive-storage
           mountPath: /archive-pvc
-        - name: logging-storage
-          mountPath: /logging-pvc
   # if blank will use same as AppVersion of chart.
   version: ""
   config:
@@ -129,7 +124,7 @@ blockNode:
       # existingClaim: "my-archive-pvc"
     logging:
       # name of the volume within the statefulset
-      volumeName: "logging-data"
+      volumeName: "logging-storage"
       mountPath: "/opt/hiero/block-node/logs"
       size: 2Gi
       # Optionally add a storage class name if needed
