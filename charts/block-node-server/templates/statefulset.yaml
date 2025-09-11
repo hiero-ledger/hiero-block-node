@@ -9,7 +9,7 @@ metadata:
   labels:
     {{- include "hiero-block-node.labels" . | nindent 4 }}
 spec:
-  replicas: 1
+  replicas: {{ .Values.replicaCount | default 1 }}
   serviceName: {{ include "hiero-block-node.fullname" . }}
   selector:
     matchLabels:
