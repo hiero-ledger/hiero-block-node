@@ -8,10 +8,12 @@ import edu.umd.cs.findbugs.annotations.NonNull;
 import java.io.IOException;
 import java.util.concurrent.atomic.AtomicBoolean;
 import javax.inject.Inject;
+import org.hiero.block.api.protoc.PublishStreamRequest.EndStream;
 import org.hiero.block.api.protoc.PublishStreamResponse;
 import org.hiero.block.api.protoc.PublishStreamResponse.EndOfStream.Code;
 import org.hiero.block.simulator.config.data.BlockStreamConfig;
 import org.hiero.block.simulator.config.data.GrpcConfig;
+import org.hiero.block.simulator.config.types.EndStreamMode;
 import org.hiero.block.simulator.exception.BlockSimulatorParsingException;
 import org.hiero.block.simulator.generator.BlockStreamManager;
 import org.hiero.block.simulator.grpc.PublishStreamGrpcClient;
@@ -70,7 +72,7 @@ public class PublishClientManager implements SimulatorModeHandler {
     public void handleResponse(Block nextBlock, PublishStreamResponse publishStreamResponse)
             throws BlockSimulatorParsingException, IOException, InterruptedException {
         if (publishStreamResponse.hasEndStream()) {
-            handleEndStream(nextBlock, publishStreamResponse);
+            handleEndOfStream(nextBlock, publishStreamResponse);
         } else if (publishStreamResponse.hasResendBlock()) {
             handleResendBlock(publishStreamResponse);
         } else if (publishStreamResponse.hasSkipBlock()) {
@@ -78,17 +80,37 @@ public class PublishClientManager implements SimulatorModeHandler {
         }
     }
 
-    private void handleEndStream(Block nextBlock, PublishStreamResponse publishStreamResponse)
+    private void handleEndOfStream(Block nextBlock, PublishStreamResponse publishStreamResponse)
             throws InterruptedException, BlockSimulatorParsingException, IOException {
         stop();
         adjustStreamManager(nextBlock, publishStreamResponse);
         initializeNewClientAndHandler();
         if (publishStreamResponse.getEndStream().getStatus() == Code.BEHIND) {
             if (blockStreamConfig.endStreamMode() == TOO_FAR_BEHIND) {
-                currentClient.handleEndStreamModeIfSet();
+                currentClient.handleEndStreamModeIfSet(EndStream.Code.TOO_FAR_BEHIND);
                 return;
             }
         }
+        start();
+    }
+
+    public void sendEndStream(EndStreamMode endStreamMode)
+            throws BlockSimulatorParsingException, IOException, InterruptedException {
+        EndStream.Code code =
+                switch (endStreamMode) {
+                    case RESET -> EndStream.Code.RESET;
+                    case TIMEOUT -> EndStream.Code.TIMEOUT;
+                    case ERROR -> EndStream.Code.ERROR;
+                    case TOO_FAR_BEHIND -> EndStream.Code.TOO_FAR_BEHIND;
+                    case NONE -> null;
+                };
+
+        if (code != null) {
+            currentClient.handleEndStreamModeIfSet(code);
+        }
+
+        stop();
+        initializeNewClientAndHandler();
         start();
     }
 

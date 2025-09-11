@@ -14,6 +14,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import javax.inject.Inject;
 import org.hiero.block.api.protoc.PublishStreamResponse;
 import org.hiero.block.simulator.config.data.BlockStreamConfig;
+import org.hiero.block.simulator.config.types.EndStreamMode;
 import org.hiero.block.simulator.config.types.StreamingMode;
 import org.hiero.block.simulator.exception.BlockSimulatorParsingException;
 import org.hiero.block.simulator.generator.BlockStreamManager;
@@ -112,9 +113,18 @@ public class PublisherClientModeHandler implements SimulatorModeHandler {
     private void millisPerBlockStreaming() throws IOException, InterruptedException, BlockSimulatorParsingException {
         final long secondsPerBlockNanos = (long) millisecondsPerBlock * NANOS_PER_MILLI;
         PublishStreamResponse[] responseHolder = new PublishStreamResponse[1];
+        long blockCount = 0;
+        long endStreamInterval = blockStreamConfig.endStreamFrequency();
 
         Block nextBlock = blockStreamManager.getNextBlock();
         while (nextBlock != null && shouldPublish.get()) {
+            blockCount++;
+            if (blockStreamConfig.endStreamMode() != EndStreamMode.NONE
+                    && endStreamInterval > 0
+                    && blockCount % endStreamInterval == 0) {
+                publishClientManager.sendEndStream(blockStreamConfig.endStreamMode());
+                break;
+            }
             long startTime = System.nanoTime();
             if (!publishStreamGrpcClient.streamBlock(nextBlock, response -> responseHolder[0] = response)) {
                 PublishStreamResponse publishStreamResponse = responseHolder[0];
@@ -155,6 +165,8 @@ public class PublisherClientModeHandler implements SimulatorModeHandler {
         int delayNSBetweenBlockItems = delayBetweenBlockItems % NANOS_PER_MILLI;
         int blockItemsStreamed = 0;
         PublishStreamResponse[] responseHolder = new PublishStreamResponse[1];
+        long blockCount = 0;
+        long endStreamInterval = blockStreamConfig.endStreamFrequency();
 
         while (shouldPublish.get()) {
             // get block
@@ -162,6 +174,13 @@ public class PublisherClientModeHandler implements SimulatorModeHandler {
 
             if (block == null) {
                 LOGGER.log(INFO, "Block Stream Simulator has reached the end of the block items");
+                break;
+            }
+            blockCount++;
+            if (blockStreamConfig.endStreamMode() != EndStreamMode.NONE
+                    && endStreamInterval > 0
+                    && blockCount % endStreamInterval == 0) {
+                publishClientManager.sendEndStream(blockStreamConfig.endStreamMode());
                 break;
             }
             if (!publishStreamGrpcClient.streamBlock(block, response -> responseHolder[0] = response)) {

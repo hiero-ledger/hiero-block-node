@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.simulator.grpc.impl;
 
+import static org.hiero.block.simulator.config.types.EndStreamMode.NONE;
+import static org.hiero.block.simulator.config.types.EndStreamMode.TOO_FAR_BEHIND;
 import static org.hiero.block.simulator.fixtures.TestUtils.findFreePort;
 import static org.hiero.block.simulator.fixtures.TestUtils.getTestMetrics;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
@@ -32,6 +34,7 @@ import java.util.function.Consumer;
 import org.hiero.block.api.protoc.BlockItemSet;
 import org.hiero.block.api.protoc.BlockStreamPublishServiceGrpc.BlockStreamPublishServiceImplBase;
 import org.hiero.block.api.protoc.PublishStreamRequest;
+import org.hiero.block.api.protoc.PublishStreamRequest.EndStream;
 import org.hiero.block.api.protoc.PublishStreamResponse;
 import org.hiero.block.api.protoc.PublishStreamResponse.BlockAcknowledgement;
 import org.hiero.block.api.protoc.PublishStreamResponse.EndOfStream;
@@ -39,7 +42,6 @@ import org.hiero.block.api.protoc.PublishStreamResponse.EndOfStream.Code;
 import org.hiero.block.api.protoc.PublishStreamResponse.ResendBlock;
 import org.hiero.block.simulator.config.data.BlockStreamConfig;
 import org.hiero.block.simulator.config.data.GrpcConfig;
-import org.hiero.block.simulator.config.types.EndStreamMode;
 import org.hiero.block.simulator.config.types.MidBlockFailType;
 import org.hiero.block.simulator.fixtures.TestUtils;
 import org.hiero.block.simulator.grpc.PublishStreamGrpcClient;
@@ -392,25 +394,22 @@ class PublishStreamGrpcClientImplTest {
 
     @Test
     public void handleEndStreamTooFarBehind() throws InterruptedException {
-        blockStreamConfig = BlockStreamConfig.builder()
-                .endStreamMode(EndStreamMode.TOO_FAR_BEHIND)
-                .build();
+        blockStreamConfig =
+                BlockStreamConfig.builder().endStreamMode(TOO_FAR_BEHIND).build();
         publishStreamGrpcClient = new PublishStreamGrpcClientImpl(
                 grpcConfig, blockStreamConfig, metricsService, streamEnabled, startupDataMock);
         publishStreamGrpcClient.init();
-        publishStreamGrpcClient.handleEndStreamModeIfSet();
+        publishStreamGrpcClient.handleEndStreamModeIfSet(EndStream.Code.TOO_FAR_BEHIND);
         Thread.sleep(200);
         assertTrue(server.isShutdown());
     }
 
     @Test
     public void handleEndStreamNone() throws InterruptedException {
-        blockStreamConfig =
-                BlockStreamConfig.builder().endStreamMode(EndStreamMode.NONE).build();
+        blockStreamConfig = BlockStreamConfig.builder().endStreamMode(NONE).build();
         publishStreamGrpcClient = new PublishStreamGrpcClientImpl(
                 grpcConfig, blockStreamConfig, metricsService, streamEnabled, startupDataMock);
         publishStreamGrpcClient.init();
-        publishStreamGrpcClient.handleEndStreamModeIfSet();
         Thread.sleep(200);
         assertFalse(server.isShutdown());
     }
