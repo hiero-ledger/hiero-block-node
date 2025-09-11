@@ -6,8 +6,11 @@
 
 resources:
   requests:
-    cpu: "2"
-    memory: "4Gi"
+    cpu: "500m"
+    memory: "1Gi"
+  limits:
+    cpu: "1"
+    memory: "1.5Gi"
 
 blockNode:
   config:

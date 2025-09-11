@@ -99,6 +99,9 @@ spec:
             readOnly: true
           {{- end }}
         {{- with  .Values.resources }}
+        {{- if not (and .limits .requests) }}
+          {{- fail "Both resource requests and limits must be specified for containers" }}
+        {{- end }}
         resources:
           {{- toYaml . | nindent 10 }}
         {{- end }}
