@@ -10,6 +10,24 @@ public enum EndStreamMode {
      */
     NONE,
     /**
+     * Indicates that RESET will be sent.
+     * Occasionally resetting the stream increases stability and allows for routine network configuration changes.
+     */
+    RESET,
+
+    /**
+     * Indicates that TIMEOUT will be sent.
+     * The delay between items was too long. The destination system did not timely acknowledge a block.
+     */
+    TIMEOUT,
+
+    /**
+     * Indicates that ERROR will be sent.
+     * The Publisher encountered an error.
+     */
+    ERROR,
+
+    /**
      * Indicates that TOO_FAR_BEHIND will be sent.
      * This is used to simulate when the block node is too far behind with blocks.
      */

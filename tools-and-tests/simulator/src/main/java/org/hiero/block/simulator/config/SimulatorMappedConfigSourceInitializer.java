@@ -30,6 +30,7 @@ public final class SimulatorMappedConfigSourceInitializer {
             new ConfigMapping(
                     "blockStream.endStreamEarliestBlockNumber", "BLOCK_STREAM_END_STREAM_EARLIEST_BLOCK_NUMBER"),
             new ConfigMapping("blockStream.endStreamLatestBlockNumber", "BLOCK_STREAM_END_STREAM_LATEST_BLOCK_NUMBER"),
+            new ConfigMapping("blockStream.endStreamFrequency", "BLOCK_STREAM_END_STREAM_FREQUENCY"),
 
             // Block consumer configuration
             new ConfigMapping("consumer.startBlockNumber", "CONSUMER_START_BLOCK_NUMBER"),
