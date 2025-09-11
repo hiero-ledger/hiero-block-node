@@ -93,7 +93,7 @@ blockNode:
           mountPath: /live-pvc
         - name: archive-storage
           mountPath: /archive-pvc
-        - name: logging-data
+        - name: logging-storage
           mountPath: /logging-pvc
   # if blank will use same as AppVersion of chart.
   version: ""

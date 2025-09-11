@@ -40,7 +40,7 @@ spec:
             name: {{ include "hiero-block-node.fullname" . }}-block-node-sources
         {{- end }}
         {{- if .Values.blockNode.persistence.logging.existingClaim }}
-        - name: {{ default "logging-data" .Values.blockNode.persistence.logging.volumeName }}
+        - name: {{ default "logging-storage" .Values.blockNode.persistence.logging.volumeName }}
           persistentVolumeClaim:
             claimName: {{ .Values.blockNode.persistence.logging.existingClaim }}
         {{- end }}
@@ -85,7 +85,7 @@ spec:
           - name: logging-config
             mountPath: {{ .Values.blockNode.logs.configMountPath }}
             readOnly: true
-          - name: {{ default "logging-data" .Values.blockNode.persistence.logging.volumeName }}
+          - name: {{ default "logging-storage" .Values.blockNode.persistence.logging.volumeName }}
             mountPath: {{ .Values.blockNode.persistence.logging.mountPath }}
           - name: {{ default "archive-storage" .Values.blockNode.persistence.archive.volumeName }}
             mountPath: {{ .Values.blockNode.persistence.archive.mountPath }}
@@ -130,7 +130,7 @@ spec:
   volumeClaimTemplates:
     {{- if not .Values.blockNode.persistence.logging.existingClaim }}
     - metadata:
-        name: {{ default "logging-data" .Values.blockNode.persistence.logging.volumeName }}
+        name: {{ default "logging-storage" .Values.blockNode.persistence.logging.volumeName }}
       spec:
         accessModes:
           - ReadWriteOnce
