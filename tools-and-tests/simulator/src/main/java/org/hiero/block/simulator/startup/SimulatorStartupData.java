@@ -58,4 +58,16 @@ public interface SimulatorStartupData {
     byte[] getLatestAckBlockHash();
 
     boolean isEnabled();
+
+    /**
+     * Adds a block hash associated with a specific block number to the startup data.
+     * This method is used to record the hash of a block, which can later be retrieved
+     * or used for initialization purposes. The association between block number and
+     * block hash helps maintain the integrity and traceability of block data during
+     * simulator startup.
+     *
+     * @param blockNumber the block number to associate with the given block hash
+     * @param blockHash the hash of the block as a byte array
+     */
+    void addBlockHash(Long blockNumber, byte[] blockHash);
 }
