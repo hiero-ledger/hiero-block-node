@@ -38,5 +38,3 @@ loki:
 
 promtail:
   enabled: false
-
-
