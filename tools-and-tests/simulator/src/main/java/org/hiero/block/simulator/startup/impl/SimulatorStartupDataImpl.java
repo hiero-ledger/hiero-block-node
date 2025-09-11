@@ -55,6 +55,8 @@ public final class SimulatorStartupDataImpl implements SimulatorStartupData {
                         // state. We must investigate why this is happening.
                         // Generally we never ever expect to enter here, but
                         // we cannot continue to initialize the simulator
+                        throw new IllegalStateException(
+                                "Failed to initialize Simulator Startup Data, only one startup data file exists!");
                     }
                     case 2 -> {
                         // entering here means that both files exist, so now we
