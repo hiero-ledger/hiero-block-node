@@ -8,6 +8,8 @@ import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 import javax.inject.Inject;
 import org.hiero.block.common.hasher.StreamingTreeHasher;
 import org.hiero.block.common.utils.FileUtilities;
@@ -23,6 +25,7 @@ public final class SimulatorStartupDataImpl implements SimulatorStartupData {
     private final Path latestAckBlockHashPath;
     private final long startupDataBlockNumber;
     private final byte[] startupDataBlockHash;
+    private final Map<Long, byte[]> blockHashStore = new ConcurrentHashMap<>();
 
     @Inject
     public SimulatorStartupDataImpl(
@@ -104,13 +107,15 @@ public final class SimulatorStartupDataImpl implements SimulatorStartupData {
     }
 
     @Override
-    public void updateLatestAckBlockStartupData(final long blockNumber, final byte[] blockHash) throws IOException {
+    public void addBlockHash(Long blockNumber, byte[] blockHash) {
+        blockHashStore.put(blockNumber, blockHash);
+    }
+
+    @Override
+    public void updateLatestAckBlockStartupData(final long blockNumber) throws IOException {
         if (enabled) {
-            // @todo(904) we need the correct response code, currently it seems that
-            //   the response code is not being set correctly? The if check should
-            //   be different and based on the response code, only saving
             Files.write(latestAckBlockNumberPath, String.valueOf(blockNumber).getBytes());
-            Files.write(latestAckBlockHashPath, blockHash);
+            Files.write(latestAckBlockHashPath, blockHashStore.get(blockNumber));
             LOGGER.log(DEBUG, "Updated startup data for latest ack block with number: {0}", blockNumber);
         }
     }
