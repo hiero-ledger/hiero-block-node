@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 
-# Default values for a production hiero block-node-server deployment
+# Default values for a production hiero block-node-server StatefulSet
 # This is a YAML-formatted file.
 # Declare variables to be passed into your templates.
 
@@ -58,8 +58,11 @@ ingress:
 
 resources:
   requests:
-    cpu: "8"
-    memory: "24Gi"
+    cpu: "4"
+    memory: "12Gi"
+  limits:
+    cpu: "4"
+    memory: "15Gi"
 
 nodeSelector: {}
 
@@ -81,17 +84,12 @@ blockNode:
           chmod 700 /live-pvc/live-data && \
           mkdir -p /archive-pvc/archive-data && \
           chown 2000:2000 /archive-pvc/archive-data && \
-          chmod 700 /archive-pvc/archive-data && \
-          mkdir -p /logging-pvc/logging-data && \
-          chown 2000:2000 /logging-pvc/logging-data && \
-          chmod 700 /logging-pvc/logging-data
+          chmod 700 /archive-pvc/archive-data
       volumeMounts:
         - name: live-storage
           mountPath: /live-pvc
         - name: archive-storage
           mountPath: /archive-pvc
-        - name: logging-data
-          mountPath: /logging-pvc
   # if blank will use same as AppVersion of chart.
   version: ""
   config:
@@ -113,54 +111,38 @@ blockNode:
     # BACKFILL_FETCH_BATCH_SIZE: "25"
   persistence:
     archive:
-      # name of the volume within the deploymeent
+      # name of the volume within the statefulset
       volumeName: "archive-storage"
-      # If false, the chart expects an externally provided PVC
-      create: true
-      # Name of the externally provided PVC
-      existingClaim: ""
-      # Name of the subPath in the PVC to mount to mountPath in the container
+      # Name of the subPath in the volume to mount to mountPath in the container
       subPath: "archive-data"
-      # If create is true, the following values are used to create the PVC
       # should match PERSISTENCE_STORAGE_ARCHIVE_ROOT_PATH, leave as is for default.
       mountPath: "/opt/hiero/block-node/data/historic"
       size: 800Gi
       # Optionally add a storage class name if needed
       # storageClass: "your-storage-class"
+      # Optionally specify an existing PVC name instead of creating via volumeClaimTemplate
+      # existingClaim: "my-archive-pvc"
     logging:
-      # name of the volume within the deploymeent
-      volumeName: "logging-data"
-      # If false, the chart expects an externally provided PVC
-      create: true
-      # Name of the externally provided PVC
-      existingClaim: ""
-      # Name of the subPath in the PVC to mount to mountPath in the container
-      subPath: "logging-data"
-      # If create is true, the following values are used to create the PVC
+      # name of the volume within the statefulset
+      volumeName: "logging-storage"
       mountPath: "/opt/hiero/block-node/logs"
       size: 2Gi
       # Optionally add a storage class name if needed
       # storageClass: "your-storage-class"
+      # Optionally specify an existing PVC name instead of creating via volumeClaimTemplate
+      # existingClaim: "my-logging-pvc"
     live:
-      # name of the volume within the deploymeent
+      # name of the volume within the statefulset
       volumeName: "live-storage"
-      # If false, the chart expects an externally provided PVC
-      create: true
-      # Name of the externally provided PVC
-      existingClaim: ""
-      # Name of the subPath in the PVC to mount to mountPath in the container
+      # Name of the subPath in the volume to mount to mountPath in the container
       subPath: "live-data"
-      # If create is true, the following values are used to create the PVC
       # should match PERSISTENCE_STORAGE_LIVE_ROOT_PATH, leave as is for default.
       mountPath: "/opt/hiero/block-node/data/live"
       size: 20Gi
       # Optionally add a storage class name if needed
       # storageClass: "your-storage-class"
-    unverified:
-      # unverified does a hard-coded emptyDir and is ephemeral, however needs to be mounted
-      # this does not create a PVC.
-      # should match PERSISTENCE_STORAGE_UNVERIFIED_ROOT_PATH, leave as is for default.
-      mountPath: "/opt/hiero/block-node/data/unverified"
+      # Optionally specify an existing PVC name instead of creating via volumeClaimTemplate
+      # existingClaim: "my-live-pvc"
   # For secrets, is recommended to use a secretRef to an existing secret on the cluster.
   # secretRef: secret-name-reference
   # not recommended to use this, but for testing purposes you can use the following collection for secrets auto-creation
@@ -216,12 +198,12 @@ blockNode:
     # The path to the block-node-sources.json file must match the path property in blockNode.config.BACKFILL_BLOCK_NODE_SOURCES_PATH
     path: "/opt/hiero/block-node/backfill"
     filename: "block-node-sources.json"
-   # uncomment or override the sources to enable backfilling
-   # see backfill.yaml override for an explicit example.
-   # sources:
-   #   - address: "source-block-node-helm-chart.default.svc.cluster.local"
-   #     port: 40840
-   #     priority: 1
+    # uncomment or override the sources to enable backfilling
+    # see backfill.yaml override for an explicit example.
+    # sources:
+    #   - address: "source-block-node-helm-chart.default.svc.cluster.local"
+    #     port: 40840
+    #     priority: 1
 
 kubepromstack:
   enabled: true
