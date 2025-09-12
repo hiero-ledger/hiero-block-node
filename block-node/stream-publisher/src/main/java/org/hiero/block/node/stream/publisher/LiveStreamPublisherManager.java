@@ -12,8 +12,6 @@ import com.swirlds.metrics.api.Counter;
 import com.swirlds.metrics.api.LongGauge;
 import com.swirlds.metrics.api.Metrics;
 import edu.umd.cs.findbugs.annotations.NonNull;
-import java.util.LinkedList;
-import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.BlockingDeque;
@@ -631,9 +629,7 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
                 final long currentBlockNumber = publisherManager.currentStreamingBlockNumber.get();
                 final BlockingQueue<BlockItemSetUnparsed> queueToForward = queueByBlockMap.get(currentBlockNumber);
                 if (queueToForward != null) {
-                    List<BlockItemSetUnparsed> availableBatches = new LinkedList<>();
-                    queueToForward.drainTo(availableBatches);
-                    for (final BlockItemSetUnparsed currentBatch : availableBatches) {
+                    for (final BlockItemSetUnparsed currentBatch : queueToForward) {
                         // log the batch being forwarded to messaging facility from publisher plugin
                         LOGGER.log(
                                 TRACE,
@@ -653,15 +649,21 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
                             // block number.
                             publisherManager.currentStreamingBlockNumber.compareAndSet(
                                     currentBlockNumber, currentBlockNumber + 1);
+                            break; // exit the inner loop so we don't accidentally send
+                            // a block out of order.
                         }
                     }
                     // If the current block number has no batches to send, then
                     // block on a condition variable until more data is
-                    // _probably_ available, or 500 microseconds elapses.
+                    // _probably_ available, or until a timeout elapses.
                     if (publisherManager.currentStreamingBlockNumber.get() == currentBlockNumber
-                            && availableBatches.isEmpty()) {
+                            && queueToForward.isEmpty()) {
                         publisherManager.waitForDataReady();
                     }
+                } else {
+                    // We have no queue for this block, so wait for an
+                    // indication that more data might be available.
+                    publisherManager.waitForDataReady();
                 }
             }
             return batchesSent;

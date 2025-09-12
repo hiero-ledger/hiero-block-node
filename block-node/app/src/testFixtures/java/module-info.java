@@ -15,6 +15,7 @@ module org.hiero.block.node.app.test.fixtures {
     requires org.hiero.block.node.app.config;
     requires org.hiero.block.node.spi;
     requires org.hiero.block.protobuf.pbj;
+    requires com.github.luben.zstd_jni;
     requires io.helidon.webserver;
     requires java.logging;
     requires org.junit.jupiter.api;

@@ -26,7 +26,7 @@ import org.hiero.block.node.spi.blockmessaging.BlockMessagingFacility;
 import org.hiero.block.node.spi.blockmessaging.NoBackPressureBlockItemHandler;
 import org.junit.jupiter.api.Test;
 
-public class BlockMessagingServiceDynamicBlockItemTest {
+public class DynamicBlockItemTest {
 
     /**
      * The number of items to send to the messaging service. This is twice the size of the ring buffer, so that we can

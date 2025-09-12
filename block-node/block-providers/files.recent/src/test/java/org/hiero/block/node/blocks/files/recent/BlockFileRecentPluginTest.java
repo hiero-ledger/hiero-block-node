@@ -36,7 +36,7 @@ import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 
 /**
- * Complete plugin test for the {@link BlocksFilesRecentPlugin} plugin.
+ * Complete plugin test for the {@link BlockFileRecentPlugin} plugin.
  */
 class BlockFileRecentPluginTest {
     /** The testing file system. */
@@ -46,7 +46,7 @@ class BlockFileRecentPluginTest {
     /** The plugin configuration, customized with testing file system. */
     private final FilesRecentConfig filesRecentConfig;
     /** The plugin under test. */
-    private final BlocksFilesRecentPlugin blocksFilesRecentPlugin;
+    private final BlockFileRecentPlugin blockFileRecentPlugin;
     /** The historical block facility. */
     private final SimpleInMemoryHistoricalBlockFacility historicalBlockFacility;
 
@@ -57,7 +57,7 @@ class BlockFileRecentPluginTest {
         this.fileSystem = Jimfs.newFileSystem(Configuration.unix());
         this.testPath = fileSystem.getPath("/live");
         this.filesRecentConfig = new FilesRecentConfig(testPath, CompressionType.ZSTD, 3, 100);
-        this.blocksFilesRecentPlugin = new BlocksFilesRecentPlugin(this.filesRecentConfig);
+        this.blockFileRecentPlugin = new BlockFileRecentPlugin(this.filesRecentConfig);
         this.historicalBlockFacility = new SimpleInMemoryHistoricalBlockFacility();
     }
 
@@ -66,14 +66,14 @@ class BlockFileRecentPluginTest {
      */
     @Nested
     @DisplayName("Plugin Tests")
-    final class PluginTest extends PluginTestBase<BlocksFilesRecentPlugin, BlockingExecutor> {
+    final class PluginTest extends PluginTestBase<BlockFileRecentPlugin, BlockingExecutor> {
 
         /**
          * Test Constructor.
          */
         PluginTest() {
             super(new BlockingExecutor(new LinkedBlockingQueue<>()));
-            start(blocksFilesRecentPlugin, historicalBlockFacility);
+            start(blockFileRecentPlugin, historicalBlockFacility);
         }
 
         /**
@@ -230,10 +230,10 @@ class BlockFileRecentPluginTest {
             // override the plugin under test to disable the retention policy
             final FilesRecentConfig filesRecentConfigOverride =
                     new FilesRecentConfig(testPath, CompressionType.ZSTD, 3, 0L);
-            final BlocksFilesRecentPlugin toTest = new BlocksFilesRecentPlugin(filesRecentConfigOverride);
+            final BlockFileRecentPlugin toTest = new BlockFileRecentPlugin(filesRecentConfigOverride);
             final HistoricalBlockFacility localHistoricalBlockFacility = new SimpleInMemoryHistoricalBlockFacility();
             // unregister the original plugin from the messaging queue
-            blockMessaging.unregisterBlockNotificationHandler(blocksFilesRecentPlugin);
+            blockMessaging.unregisterBlockNotificationHandler(blockFileRecentPlugin);
             // start the plugin with the overridden config
             start(toTest, localHistoricalBlockFacility);
             // pre-check that there are no blocks stored
