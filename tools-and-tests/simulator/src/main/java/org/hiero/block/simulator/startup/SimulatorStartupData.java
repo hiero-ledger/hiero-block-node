@@ -23,10 +23,9 @@ public interface SimulatorStartupData {
      * response. At the next startup of the application, values based on the
      * last update will be used for initialization.
      * @param blockNumber the block number to update the startup data with
-     * @param blockHash the block hash to update the startup data with
      * @throws IOException if an error occurs while updating the startup data
      */
-    void updateLatestAckBlockStartupData(final long blockNumber, final byte[] blockHash) throws IOException;
+    void updateLatestAckBlockStartupData(final long blockNumber) throws IOException;
 
     /**
      * This method returns the latest acknowledged block number based on startup
@@ -59,4 +58,16 @@ public interface SimulatorStartupData {
     byte[] getLatestAckBlockHash();
 
     boolean isEnabled();
+
+    /**
+     * Adds a block hash associated with a specific block number to the startup data.
+     * This method is used to record the hash of a block, which can later be retrieved
+     * or used for initialization purposes. The association between block number and
+     * block hash helps maintain the integrity and traceability of block data during
+     * simulator startup.
+     *
+     * @param blockNumber the block number to associate with the given block hash
+     * @param blockHash the hash of the block as a byte array
+     */
+    void addBlockHash(Long blockNumber, byte[] blockHash);
 }

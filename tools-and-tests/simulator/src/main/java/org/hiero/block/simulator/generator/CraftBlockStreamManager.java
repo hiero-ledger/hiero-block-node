@@ -76,6 +76,7 @@ public class CraftBlockStreamManager implements BlockStreamManager {
     private Iterator<Block> unorderedStreamIterator;
 
     private final BlockGeneratorConfig blockGeneratorConfig;
+    private final SimulatorStartupData simulatorStartupData;
 
     /**
      * Constructs a new CraftBlockStreamManager with the specified configuration.
@@ -105,6 +106,7 @@ public class CraftBlockStreamManager implements BlockStreamManager {
         this.consensusHeaderHasher = new NaiveStreamingTreeHasher();
         this.stateChangesHasher = new NaiveStreamingTreeHasher();
         this.traceDataHasher = new NaiveStreamingTreeHasher();
+        this.simulatorStartupData = simulatorStartupData;
         this.currentBlockNumber = simulatorStartupData.getLatestAckBlockNumber() + 1L;
         this.previousBlockHash = simulatorStartupData.getLatestAckBlockHash();
         LOGGER.log(INFO, "Block Stream Simulator will use Craft mode for block management");
@@ -216,6 +218,7 @@ public class CraftBlockStreamManager implements BlockStreamManager {
 
         processBlockItems(blockItemsUnparsed);
         updateCurrentBlockHash();
+        simulatorStartupData.addBlockHash(currentBlockNumber, currentBlockHash);
 
         // if the block hash is invalid, generate a random hash and overwrite the legitimate one
         if (invalidBlockHash) {

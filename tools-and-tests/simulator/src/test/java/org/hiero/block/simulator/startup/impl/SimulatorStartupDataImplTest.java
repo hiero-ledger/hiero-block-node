@@ -199,7 +199,7 @@ class SimulatorStartupDataImplTest {
 
     /**
      * This test aims to verify that the
-     * {@link SimulatorStartupDataImpl#updateLatestAckBlockStartupData(long, byte[])}
+     * {@link SimulatorStartupDataImpl#updateLatestAckBlockStartupData(long)}
      * will correctly not update the startup data if the functionality is disabled.
      */
     @Test
@@ -208,14 +208,14 @@ class SimulatorStartupDataImplTest {
         assertThat(latestAckBlockNumberPath).doesNotExist();
         final SimulatorStartupDataImpl toTest = newInstanceToTest(false);
         assertThat(toTest.isEnabled()).isFalse();
-        toTest.updateLatestAckBlockStartupData(1L, validSimulatedBlockHash);
+        toTest.updateLatestAckBlockStartupData(1L);
         assertThat(latestAckBlockHashPath).doesNotExist();
         assertThat(latestAckBlockNumberPath).doesNotExist();
     }
 
     /**
      * This test aims to verify that the
-     * {@link SimulatorStartupDataImpl#updateLatestAckBlockStartupData(long, byte[])}
+     * {@link SimulatorStartupDataImpl#updateLatestAckBlockStartupData(long)}
      * will correctly update the startup data if the functionality is enabled.
      */
     @Test
@@ -224,6 +224,7 @@ class SimulatorStartupDataImplTest {
         assertThat(latestAckBlockNumberPath).doesNotExist();
         final SimulatorStartupDataImpl toTest = newInstanceToTest(true);
         assertThat(toTest.isEnabled()).isTrue();
+        toTest.addBlockHash(1L, validSimulatedBlockHash);
         assertThat(latestAckBlockNumberPath)
                 .exists()
                 .isRegularFile()
@@ -237,7 +238,7 @@ class SimulatorStartupDataImplTest {
                 .isWritable()
                 .isEmptyFile();
         // @todo(904) we need the correct response code
-        toTest.updateLatestAckBlockStartupData(1L, validSimulatedBlockHash);
+        toTest.updateLatestAckBlockStartupData(1L);
         assertThat(latestAckBlockNumberPath)
                 .exists()
                 .isRegularFile()
