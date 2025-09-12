@@ -439,7 +439,7 @@ public class SubscriberTest extends GrpcPluginTestBase<SubscriberServicePlugin, 
                     final BlockItem expectedItem = toBlockItem(sent.get(j));
                     final BlockItem actualItem = returned.get(j);
                     softly.assertThat(actualItem)
-                            .as("Failed to match batch %d, block %d, Item %d.".formatted(i, next.newBlockNumber(), j))
+                            .as("Failed to match batch %d, block %d, Item %d.".formatted(i, next.blockNumber(), j))
                             .isEqualTo(expectedItem);
                 }
             }
