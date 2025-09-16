@@ -21,6 +21,7 @@ import java.util.stream.Stream;
 import org.hiero.block.api.protoc.BlockResponse;
 import org.hiero.block.api.protoc.BlockResponse.Code;
 import org.hiero.block.simulator.BlockStreamSimulatorApp;
+import org.hiero.block.simulator.config.data.StreamStatus;
 import org.hiero.block.suites.BaseSuite;
 import org.hiero.block.suites.BlockNodeContainerConfig;
 import org.junit.jupiter.api.AfterEach;
@@ -328,6 +329,98 @@ public class PositiveMultiplePublishersTests extends BaseSuite {
         assertTrue(slowerSimulatorPublishedBlocksBefore > fasterSimulatorPublishedBlocksBefore);
         assertTrue(fasterSimulatorPublishedBlocksAfter > slowerSimulatorPublishedBlocksAfter);
         assertFalse(lastFasterSimulatorStatusAfter.contains("DUPLICATE_BLOCK"));
+    }
+
+    @Test
+    @DisplayName("Verify Single Publisher Acknowledgements")
+    @Timeout(30)
+    public void testAcknowledgements() throws IOException, InterruptedException {
+        final BlockStreamSimulatorApp firstSimulator = createBlockSimulator();
+        startSimulatorInThread(firstSimulator);
+        simulatorAppsRef.add(firstSimulator);
+        Thread.sleep(5000);
+
+        StreamStatus firstStreamStatus = simulatorAppsRef.getFirst().getStreamStatus();
+        assertTrue(firstStreamStatus.publishedBlocks() > 0);
+        firstStreamStatus
+                .lastKnownPublisherClientStatuses()
+                .forEach(status -> assertTrue(status.toLowerCase().contains("acknowledgement")));
+    }
+
+    @Test
+    @DisplayName("Verify Multi Publisher Acknowledgements")
+    @Timeout(30)
+    public void testMultiPublisherAcknowledgements() throws IOException, InterruptedException {
+        final Map<String, String> firstSimulatorConfiguration = Map.of("blockStream.millisecondsPerBlock", "5000");
+        final BlockStreamSimulatorApp firstSimulator = createBlockSimulator();
+        final BlockStreamSimulatorApp secondSimulator = createBlockSimulator(firstSimulatorConfiguration);
+        startSimulatorInThread(firstSimulator);
+        startSimulatorInThread(secondSimulator);
+        simulatorAppsRef.add(firstSimulator);
+        simulatorAppsRef.add(secondSimulator);
+        Thread.sleep(5000);
+
+        StreamStatus firstStreamStatus = simulatorAppsRef.get(0).getStreamStatus();
+        StreamStatus secondStreamStatus = simulatorAppsRef.get(1).getStreamStatus();
+        assertTrue(firstStreamStatus.publishedBlocks() > 0);
+        assertTrue(secondStreamStatus.publishedBlocks() > 0);
+        firstStreamStatus.lastKnownPublisherClientStatuses().stream()
+                .filter(status -> status.toLowerCase().contains("acknowledgement"))
+                .forEach(ackStatus -> assertTrue(
+                        secondStreamStatus.lastKnownPublisherClientStatuses().stream()
+                                .anyMatch(s -> s.equalsIgnoreCase(ackStatus)),
+                        "Acknowledgement from firstStreamStatus not found in secondStreamStatus: " + ackStatus));
+    }
+
+    @Test
+    @DisplayName("Verify Multi Publisher Skip")
+    @Timeout(30)
+    public void testMultiPublisherSkip() throws IOException, InterruptedException {
+        final Map<String, String> firstSimulatorConfiguration =
+                Map.of("generator.minEventsPerBlock", "100", "generator.maxEventsPerBlock", "200");
+        final Map<String, String> secondSimulatorConfiguration =
+                Map.of("generator.minEventsPerBlock", "100", "generator.maxEventsPerBlock", "200");
+        final BlockStreamSimulatorApp firstSimulator = createBlockSimulator(firstSimulatorConfiguration);
+        final BlockStreamSimulatorApp secondSimulator = createBlockSimulator(secondSimulatorConfiguration);
+        startSimulatorInThread(firstSimulator);
+        startSimulatorInThread(secondSimulator);
+        simulatorAppsRef.add(firstSimulator);
+        simulatorAppsRef.add(secondSimulator);
+        Thread.sleep(5000);
+
+        StreamStatus firstStreamStatus = simulatorAppsRef.get(0).getStreamStatus();
+        StreamStatus secondStreamStatus = simulatorAppsRef.get(1).getStreamStatus();
+        assertTrue(firstStreamStatus.publishedBlocks() > 0);
+        assertTrue(secondStreamStatus.publishedBlocks() > 0);
+        assertTrue(
+                firstStreamStatus.lastKnownPublisherClientStatuses().stream()
+                                .anyMatch(status -> status.toLowerCase().contains("skip_block"))
+                        || secondStreamStatus.lastKnownPublisherClientStatuses().stream()
+                                .anyMatch(status -> status.toLowerCase().contains("skip_block")),
+                "Neither firstStreamStatus nor secondStreamStatus contains 'skip_block'");
+    }
+
+    @Test
+    @DisplayName("Verify Multi Publisher Duplicate Block")
+    @Timeout(30)
+    public void testMultiPublisherDuplicateBlock() throws IOException, InterruptedException {
+        final BlockStreamSimulatorApp firstSimulator = createBlockSimulator();
+        final BlockStreamSimulatorApp secondSimulator = createBlockSimulator();
+        startSimulatorInThread(firstSimulator);
+        simulatorAppsRef.add(firstSimulator);
+        simulatorAppsRef.add(secondSimulator);
+        Thread.sleep(3000);
+        startSimulatorInThread(secondSimulator);
+        Thread.sleep(1000);
+
+        StreamStatus firstStreamStatus = simulatorAppsRef.get(0).getStreamStatus();
+        StreamStatus secondStreamStatus = simulatorAppsRef.get(1).getStreamStatus();
+        assertTrue(firstStreamStatus.publishedBlocks() > 0);
+        assertTrue(secondStreamStatus.publishedBlocks() > 0);
+        assertTrue(
+                secondStreamStatus.lastKnownPublisherClientStatuses().stream()
+                        .anyMatch(status -> status.toLowerCase().contains("duplicate_block")),
+                "secondStreamStatus does not contain 'duplicate_block'");
     }
 
     /**
