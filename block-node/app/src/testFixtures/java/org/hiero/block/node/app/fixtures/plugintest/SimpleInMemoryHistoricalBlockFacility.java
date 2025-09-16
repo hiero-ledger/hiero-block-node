@@ -77,7 +77,7 @@ public class SimpleInMemoryHistoricalBlockFacility implements HistoricalBlockFac
                 if (sendNotification) {
                     blockNodeContext
                             .blockMessaging()
-                            .sendBlockPersisted(new PersistedNotification(blockNumber, blockNumber, priority, source));
+                            .sendBlockPersisted(new PersistedNotification(blockNumber, true, priority, source));
                 }
             }
         }

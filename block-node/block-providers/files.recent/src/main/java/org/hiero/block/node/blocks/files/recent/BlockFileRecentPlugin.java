@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.node.blocks.files.recent;
 
-import static java.lang.System.Logger.Level.DEBUG;
 import static java.lang.System.Logger.Level.ERROR;
 import static java.lang.System.Logger.Level.INFO;
 import static java.lang.System.Logger.Level.TRACE;
@@ -9,6 +8,9 @@ import static java.lang.System.Logger.Level.WARNING;
 import static org.hiero.block.node.base.BlockFile.nestedDirectoriesAllBlockNumbers;
 import static org.hiero.block.node.spi.blockmessaging.BlockSource.UNKNOWN;
 
+import com.hedera.hapi.block.stream.output.BlockHeader;
+import com.hedera.pbj.runtime.ParseException;
+import com.hedera.pbj.runtime.io.buffer.Bytes;
 import com.hedera.pbj.runtime.io.stream.WritableStreamingData;
 import com.swirlds.metrics.api.Counter;
 import com.swirlds.metrics.api.LongGauge;
@@ -282,44 +284,72 @@ public final class BlockFileRecentPlugin implements BlockProviderPlugin, BlockNo
     /**
      * Directly write a block to verified storage. This is used when the block is already verified when we receive it.
      *
-     * @param block       the block to write
+     * @param block the block to write
      * @param blockNumber the block number of the block to write
      */
     private void writeBlockToLivePath(final BlockUnparsed block, final long blockNumber, final BlockSource source) {
+        final BlockSource effectiveSource = source == null ? UNKNOWN : source;
         if (block != null && block.blockItems() != null && !block.blockItems().isEmpty()) {
-            final Path verifiedBlockPath = BlockFile.nestedDirectoriesBlockFilePath(
-                    config.liveRootPath(), blockNumber, config.compression(), config.maxFilesPerDir());
-            createDirectoryOrFail(verifiedBlockPath);
-            writeBlockOrFail(block, blockNumber, source, verifiedBlockPath);
+            if (block.blockItems().getFirst().hasBlockHeader()) {
+                final BlockHeader header = getBlockHeader(block);
+                final long headerNumber = header == null ? -1 : header.number();
+                if (headerNumber != blockNumber) {
+                    LOGGER.log(
+                            WARNING,
+                            "Block number mismatch between notification {0} and block header {1}, not writing block",
+                            blockNumber,
+                            headerNumber);
+                    sendBlockNotification(blockNumber, false, effectiveSource);
+                } else {
+                    final Path verifiedBlockPath = BlockFile.nestedDirectoriesBlockFilePath(
+                            config.liveRootPath(), blockNumber, config.compression(), config.maxFilesPerDir());
+                    createDirectoryOrFail(verifiedBlockPath);
+                    writeBlockOrFail(block, blockNumber, effectiveSource, verifiedBlockPath);
+                }
+            } else {
+                LOGGER.log(INFO, "Block {0} has no block header, cannot write to live path", blockNumber);
+                sendBlockNotification(blockNumber, false, effectiveSource);
+            }
+        } else {
+            sendBlockNotification(blockNumber, false, effectiveSource);
+        }
+    }
+
+    private void sendBlockNotification(final long number, final boolean succeeded, final BlockSource source) {
+        blockMessaging.sendBlockPersisted(new PersistedNotification(number, succeeded, defaultPriority(), source));
+    }
+
+    private BlockHeader getBlockHeader(final BlockUnparsed block) {
+        Bytes headerBytes = block.blockItems().getFirst().blockHeader();
+        try {
+            return BlockHeader.PROTOBUF.parse(headerBytes);
+        } catch (final ParseException e) {
+            LOGGER.log(INFO, "Failed to parse block header", e);
+            return null;
         }
     }
 
     private void writeBlockOrFail(
             final BlockUnparsed block, final long blockNumber, final BlockSource source, final Path verifiedBlockPath) {
         try (final WritableStreamingData streamingData = new WritableStreamingData(new BufferedOutputStream(
-                config.compression().wrapStream(Files.newOutputStream(verifiedBlockPath)), 1024 * 1024))) {
+                config.compression().wrapStream(Files.newOutputStream(verifiedBlockPath)), 16384))) {
             BlockUnparsed.PROTOBUF.write(block, streamingData);
             streamingData.flush();
-
+            streamingData.close();
             // Add the size of the newly written file to our total bytes counter
             totalBytesStored.addAndGet(Files.size(verifiedBlockPath));
-
-            LOGGER.log(
-                    DEBUG,
-                    "Wrote verified block: {0} to file: {1}",
-                    blockNumber,
-                    verifiedBlockPath.toAbsolutePath().toString());
+            LOGGER.log(TRACE, "Wrote verified block {0} to file {1}", blockNumber, verifiedBlockPath.toAbsolutePath());
             // update the oldest and newest verified block numbers
             availableBlocks.add(blockNumber);
             // Send block persisted notification
             final BlockSource effectiveSource = source == null ? UNKNOWN : source;
-            blockMessaging.sendBlockPersisted(
-                    new PersistedNotification(blockNumber, blockNumber, defaultPriority(), effectiveSource));
+            sendBlockNotification(blockNumber, true, effectiveSource);
             // Increment blocks written counter
             blocksWrittenCounter.increment();
         } catch (final IOException e) {
-            LOGGER.log(WARNING, "Failed to create verified file for block: {0}, error: {1}", blockNumber, e);
-            throw new UncheckedIOException(e);
+            final String message = "Failed to write file for block %d due to %s".formatted(blockNumber, e);
+            LOGGER.log(WARNING, message, e);
+            sendBlockNotification(blockNumber, false, source);
         }
     }
 
@@ -328,11 +358,9 @@ public final class BlockFileRecentPlugin implements BlockProviderPlugin, BlockNo
             // create parent directory if it does not exist
             Files.createDirectories(verifiedBlockPath.getParent());
         } catch (final IOException e) {
-            LOGGER.log(
-                    WARNING,
-                    "Failed to create directories for path: {0} error: {1}",
-                    verifiedBlockPath.toAbsolutePath().toString(),
-                    e);
+            final String message = "Failed to create directories for path %s due to %s"
+                    .formatted(verifiedBlockPath.toAbsolutePath(), e);
+            LOGGER.log(WARNING, message, e);
             throw new UncheckedIOException(e);
         }
     }

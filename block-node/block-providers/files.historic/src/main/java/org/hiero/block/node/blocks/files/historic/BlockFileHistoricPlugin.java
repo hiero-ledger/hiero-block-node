@@ -406,7 +406,7 @@ public final class BlockFileHistoricPlugin implements BlockProviderPlugin, Block
                 // now all the blocks are in the zip file and accessible, send notification
                 context.blockMessaging()
                         .sendBlockPersisted(new PersistedNotification(
-                                batchFirstBlockNumber, batchLastBlockNumber, defaultPriority(), BlockSource.HISTORY));
+                                batchLastBlockNumber, true, defaultPriority(), BlockSource.HISTORY));
             }
         } finally {
             // always make sure to remove the batch of blocks from in progress ranges

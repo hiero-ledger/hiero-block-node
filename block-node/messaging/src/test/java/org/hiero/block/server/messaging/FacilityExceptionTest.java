@@ -140,7 +140,7 @@ public class FacilityExceptionTest {
             throw new RuntimeException(e);
         }
         service.sendBlockVerification(new VerificationNotification(true, 1, null, null, BlockSource.PUBLISHER));
-        service.sendBlockPersisted(new PersistedNotification(1, 1, 1, BlockSource.PUBLISHER));
+        service.sendBlockPersisted(new PersistedNotification(1, true, 1, BlockSource.PUBLISHER));
         service.sendBackfilledBlockNotification(
                 new BackfilledBlockNotification(1, BlockUnparsed.newBuilder().build()));
         service.stop();
