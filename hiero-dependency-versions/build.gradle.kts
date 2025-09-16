@@ -31,7 +31,6 @@ dependencies.constraints {
         because("com.google.auto.service")
     }
     api("com.google.guava:guava:33.4.8-jre") { because("com.google.common") }
-    api("com.google.j2objc:j2objc-annotations:3.1") { because("com.google.j2objc.annotations") }
     api("com.google.protobuf:protobuf-java-util:$protobufVersion") {
         because("com.google.protobuf.util")
     }
