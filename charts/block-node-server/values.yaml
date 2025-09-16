@@ -206,7 +206,7 @@ blockNode:
     #     priority: 1
 
 kubepromstack:
-  enabled: true
+  enabled: false
   prometheus:
     prometheusSpec:
       retention: 90d
@@ -240,12 +240,11 @@ kubepromstack:
       enabled: true
       type: pvc
       size: 10Gi
-
   nodeExporter:
     enabled: true
 
 loki:
-  enabled: true
+  enabled: false
   isDefault: true
   url: http://{{(include "loki.serviceName" .)}}:{{ .Values.loki.service.port }}
   readinessProbe:
@@ -267,7 +266,7 @@ loki:
     # storageClassName: ""
 
 promtail:
-  enabled: true
+  enabled: false
   config:
     logLevel: info
     serverPort: 3101
