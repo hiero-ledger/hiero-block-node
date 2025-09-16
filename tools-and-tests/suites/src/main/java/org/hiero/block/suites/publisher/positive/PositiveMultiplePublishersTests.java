@@ -423,6 +423,33 @@ public class PositiveMultiplePublishersTests extends BaseSuite {
                 "secondStreamStatus does not contain 'duplicate_block'");
     }
 
+    @Test
+    @DisplayName("Verify Failed Verification Handling")
+    @Timeout(30)
+    public void testMultiPublisherBadBlockProof() throws IOException, InterruptedException {
+        final Map<String, String> firstSimulatorConfiguration = Map.of("generator.invalidBlockHash", "true");
+        final Map<String, String> secondSimulatorConfiguration = Map.of("generator.startBlockNumber", Long.toString(2));
+        final BlockStreamSimulatorApp firstSimulator = createBlockSimulator(firstSimulatorConfiguration);
+        final BlockStreamSimulatorApp secondSimulator = createBlockSimulator(secondSimulatorConfiguration);
+        startSimulatorInThread(firstSimulator);
+        simulatorAppsRef.add(firstSimulator);
+        simulatorAppsRef.add(secondSimulator);
+        Thread.sleep(3000);
+        startSimulatorInThread(secondSimulator);
+        Thread.sleep(1000);
+
+        StreamStatus firstStreamStatus = simulatorAppsRef.get(0).getStreamStatus();
+        StreamStatus secondStreamStatus = simulatorAppsRef.get(1).getStreamStatus();
+        assertTrue(firstStreamStatus.publishedBlocks() > 0);
+        assertTrue(secondStreamStatus.publishedBlocks() > 0);
+        assertTrue(
+                firstStreamStatus.lastKnownPublisherClientStatuses().stream()
+                                .anyMatch(status -> status.toLowerCase().contains("bad_block_proof"))
+                        || secondStreamStatus.lastKnownPublisherClientStatuses().stream()
+                                .anyMatch(status -> status.toLowerCase().contains("bad_block_proof")),
+                "Neither firstStreamStatus nor secondStreamStatus contains 'bad_block_proof'");
+    }
+
     /**
      * Verifies that the block-node correctly prioritizes publishers that are streaming current blocks
      * over publishers that are streaming future blocks. This test asserts that the block-node maintains
