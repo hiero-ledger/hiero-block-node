@@ -32,7 +32,6 @@ blockNode:
       # Optionally specify an existing PVC name instead of creating via volumeClaimTemplate
       # existingClaim: "nano-logging-pvc"
 
-# Setting the PVC size for the Observability stack to mini claims of 1 Gigabyte
 kubepromstack:
   enabled: false
 
