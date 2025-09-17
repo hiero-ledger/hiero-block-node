@@ -49,10 +49,10 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 /**
- * Tests for {@link BlocksFilesHistoricPlugin}.
+ * Tests for {@link BlockFileHistoricPlugin}.
  */
-@DisplayName("BlocksFilesHistoricPlugin Tests")
-class BlocksFilesHistoricPluginTest {
+@DisplayName("BlockFileHistoricPlugin Tests")
+class BlockFileHistoricPluginTest {
     /** TempDir for the current test */
     private final Path testTempDir;
     /** The test block messaging facility to use for testing. */
@@ -60,12 +60,12 @@ class BlocksFilesHistoricPluginTest {
     /** The test config to use for the plugin, overridable. */
     private FilesHistoricConfig testConfig;
     /** The instance under test. */
-    private final BlocksFilesHistoricPlugin toTest;
+    private final BlockFileHistoricPlugin toTest;
 
     /**
      * Construct test environment.
      */
-    BlocksFilesHistoricPluginTest(@TempDir final Path tempDir) {
+    BlockFileHistoricPluginTest(@TempDir final Path tempDir) {
         this.testTempDir = Objects.requireNonNull(tempDir);
         // generate test config, for the purposes of this test, we will always
         // use 10 blocks per zip, assuming that the first zip file will contain
@@ -73,7 +73,7 @@ class BlocksFilesHistoricPluginTest {
         // also we will not use compression, and we will use the jUnit temp dir
         testConfig = new FilesHistoricConfig(this.testTempDir, CompressionType.NONE, 1, 10L);
         // build the plugin using the test environment
-        toTest = new BlocksFilesHistoricPlugin();
+        toTest = new BlockFileHistoricPlugin();
         // initialize an in memory historical block facility to use for testing
         testHistoricalBlockFacility = new SimpleInMemoryHistoricalBlockFacility();
     }
@@ -86,29 +86,29 @@ class BlocksFilesHistoricPluginTest {
     final class ConstructorAndInitTests {
         /**
          * This test aims to verify that the no args constructor of
-         * {@link BlocksFilesHistoricPlugin} does not throw any exceptions.
+         * {@link BlockFileHistoricPlugin} does not throw any exceptions.
          */
         @Test
         @DisplayName("Test no args constructor does not throw any exceptions")
         void testNoArgsConstructor() {
-            assertThatNoException().isThrownBy(BlocksFilesHistoricPlugin::new);
+            assertThatNoException().isThrownBy(BlockFileHistoricPlugin::new);
         }
 
         /**
          * This test aims to verify that the
-         * {@link BlocksFilesHistoricPlugin#init(BlockNodeContext, ServiceBuilder)}
+         * {@link BlockFileHistoricPlugin#init(BlockNodeContext, ServiceBuilder)}
          * method throws a {@link NullPointerException} if the context is null.
          */
         @Test
         @DisplayName("Test init throws null pointer when supplied with null context")
         void testInitNullContext() {
-            final BlocksFilesHistoricPlugin toTest = new BlocksFilesHistoricPlugin();
+            final BlockFileHistoricPlugin toTest = new BlockFileHistoricPlugin();
             assertThatNullPointerException().isThrownBy(() -> toTest.init(null, new NoOpServiceBuilder()));
         }
 
         /**
          * This test aims to verify that the
-         * {@link BlocksFilesHistoricPlugin#init(BlockNodeContext, ServiceBuilder)}
+         * {@link BlockFileHistoricPlugin#init(BlockNodeContext, ServiceBuilder)}
          * method throws a {@link NullPointerException} if the context is null.
          */
         @Test
@@ -130,7 +130,7 @@ class BlocksFilesHistoricPluginTest {
                     null,
                     new TestThreadPoolManager<>(new BlockingExecutor(new LinkedBlockingQueue<>())));
             // call
-            final BlocksFilesHistoricPlugin toTest = new BlocksFilesHistoricPlugin();
+            final BlockFileHistoricPlugin toTest = new BlockFileHistoricPlugin();
             assertThatNoException().isThrownBy(() -> toTest.init(testContext, null));
         }
     }
@@ -140,7 +140,7 @@ class BlocksFilesHistoricPluginTest {
      */
     @Nested
     @DisplayName("Plugin Tests")
-    final class PluginTests extends PluginTestBase<BlocksFilesHistoricPlugin, BlockingExecutor> {
+    final class PluginTests extends PluginTestBase<BlockFileHistoricPlugin, BlockingExecutor> {
         /** The test block serial executor service to use for the plugin. */
         private final BlockingExecutor pluginExecutor;
 
@@ -193,7 +193,7 @@ class BlocksFilesHistoricPluginTest {
             }
             // send a block persisted notification for the range we just created
             blockMessaging.sendBlockPersisted(
-                    new PersistedNotification(0, 9, toTest.defaultPriority() + 1, BlockSource.PUBLISHER));
+                    new PersistedNotification(9, true, toTest.defaultPriority() + 1, BlockSource.PUBLISHER));
             // execute serially to ensure all tasks are completed
             pluginExecutor.executeSerially();
             // assert that the first 10 blocks are zipped now
@@ -228,7 +228,7 @@ class BlocksFilesHistoricPluginTest {
             }
             // send a block persisted notification for the range we just created
             blockMessaging.sendBlockPersisted(
-                    new PersistedNotification(0, 19, toTest.defaultPriority() + 1, BlockSource.PUBLISHER));
+                    new PersistedNotification(19, true, toTest.defaultPriority() + 1, BlockSource.PUBLISHER));
             // execute serially to ensure all tasks are completed
             pluginExecutor.executeSerially();
             // assert that the first 20 blocks are zipped now
@@ -263,7 +263,7 @@ class BlocksFilesHistoricPluginTest {
             }
             // send a block persisted notification for the range we just created
             blockMessaging.sendBlockPersisted(
-                    new PersistedNotification(0, 14, toTest.defaultPriority() + 1, BlockSource.PUBLISHER));
+                    new PersistedNotification(14, true, toTest.defaultPriority() + 1, BlockSource.PUBLISHER));
             // execute serially to ensure all tasks are completed
             pluginExecutor.executeSerially();
             // assert that the first 10 blocks are zipped now
@@ -304,7 +304,7 @@ class BlocksFilesHistoricPluginTest {
             }
             // send a block persisted notification for the range we just created
             blockMessaging.sendBlockPersisted(
-                    new PersistedNotification(0, 9, toTest.defaultPriority() + 1, BlockSource.PUBLISHER));
+                    new PersistedNotification(9, true, toTest.defaultPriority() + 1, BlockSource.PUBLISHER));
             // execute serially to ensure all tasks are completed
             pluginExecutor.executeSerially();
             // assert the contents of the zip file
@@ -354,7 +354,7 @@ class BlocksFilesHistoricPluginTest {
             }
             // send a block persisted notification for the range we just created
             blockMessaging.sendBlockPersisted(
-                    new PersistedNotification(0, 4, toTest.defaultPriority() + 1, BlockSource.PUBLISHER));
+                    new PersistedNotification(4, true, toTest.defaultPriority() + 1, BlockSource.PUBLISHER));
             // assert that no task has been submitted to the pool because we have
             // not yet reached the desired amount of blocks we want to archive
             final boolean anyTaskSubmitted = pluginExecutor.wasAnyTaskSubmitted();
@@ -375,7 +375,7 @@ class BlocksFilesHistoricPluginTest {
             }
             // send a block persisted notification for the range we just created
             blockMessaging.sendBlockPersisted(
-                    new PersistedNotification(5, 9, toTest.defaultPriority() + 1, BlockSource.PUBLISHER));
+                    new PersistedNotification(9, true, toTest.defaultPriority() + 1, BlockSource.PUBLISHER));
             // execute serially to ensure all tasks are completed
             pluginExecutor.executeSerially();
             // assert that the first 10 blocks are zipped now
@@ -406,7 +406,7 @@ class BlocksFilesHistoricPluginTest {
             }
             // send a block persisted notification for the range we just created
             blockMessaging.sendBlockPersisted(
-                    new PersistedNotification(0, 9, toTest.defaultPriority() - 1, BlockSource.PUBLISHER));
+                    new PersistedNotification(9, true, toTest.defaultPriority() - 1, BlockSource.PUBLISHER));
             // assert that no zipping task was submitted
             final boolean anyTaskSubmitted = pluginExecutor.wasAnyTaskSubmitted();
             assertThat(anyTaskSubmitted).isFalse();
@@ -438,7 +438,7 @@ class BlocksFilesHistoricPluginTest {
             }
             // send a block persisted notification for the range we just created
             blockMessaging.sendBlockPersisted(
-                    new PersistedNotification(0, 9, toTest.defaultPriority(), BlockSource.PUBLISHER));
+                    new PersistedNotification(9, true, toTest.defaultPriority(), BlockSource.PUBLISHER));
             // assert that no zipping task was submitted
             final boolean anyTaskSubmitted = pluginExecutor.wasAnyTaskSubmitted();
             assertThat(anyTaskSubmitted).isFalse();
@@ -482,7 +482,7 @@ class BlocksFilesHistoricPluginTest {
             }
             // send a block persisted notification for the range we last created
             blockMessaging.sendBlockPersisted(
-                    new PersistedNotification(5, 9, toTest.defaultPriority() + 1, BlockSource.PUBLISHER));
+                    new PersistedNotification(9, true, toTest.defaultPriority() + 1, BlockSource.PUBLISHER));
             // assert that no zipping task was submitted
             final boolean anyTaskSubmitted = pluginExecutor.wasAnyTaskSubmitted();
             assertThat(anyTaskSubmitted).isFalse();
@@ -532,7 +532,7 @@ class BlocksFilesHistoricPluginTest {
             testHistoricalBlockFacility.setTemporaryAvailableBlocks(temporaryAvailableBlocks);
             // send a block persisted notification for the range we last created
             blockMessaging.sendBlockPersisted(
-                    new PersistedNotification(5, 9, toTest.defaultPriority() + 1, BlockSource.PUBLISHER));
+                    new PersistedNotification(9, true, toTest.defaultPriority() + 1, BlockSource.PUBLISHER));
             // assert that no zipping task was submitted
             final boolean anyTaskSubmitted = pluginExecutor.wasAnyTaskSubmitted();
             assertThat(anyTaskSubmitted).isTrue();
@@ -573,7 +573,7 @@ class BlocksFilesHistoricPluginTest {
             Files.setPosixFilePermissions(targetZipFilePath, Collections.emptySet()); // no permissions
             // send a block persisted notification for the range we just created
             blockMessaging.sendBlockPersisted(
-                    new PersistedNotification(0, 9, toTest.defaultPriority() + 1, BlockSource.PUBLISHER));
+                    new PersistedNotification(9, true, toTest.defaultPriority() + 1, BlockSource.PUBLISHER));
             // execute serially to ensure all tasks are completed
             pluginExecutor.executeSerially();
             // assert that no blocks are zipped/available
@@ -602,7 +602,7 @@ class BlocksFilesHistoricPluginTest {
             }
             // send a block persisted notification for the range we just created
             blockMessaging.sendBlockPersisted(
-                    new PersistedNotification(0, 9, toTest.defaultPriority() + 1, BlockSource.PUBLISHER));
+                    new PersistedNotification(9, true, toTest.defaultPriority() + 1, BlockSource.PUBLISHER));
             // execute serially to ensure all tasks are completed
             pluginExecutor.executeSerially();
             // assert that the first 10 blocks will have an accessor
@@ -633,7 +633,7 @@ class BlocksFilesHistoricPluginTest {
             }
             // send a block persisted notification for the range we just created
             blockMessaging.sendBlockPersisted(
-                    new PersistedNotification(0, 9, toTest.defaultPriority() + 1, BlockSource.PUBLISHER));
+                    new PersistedNotification(9, true, toTest.defaultPriority() + 1, BlockSource.PUBLISHER));
             // execute serially to ensure all tasks are completed
             pluginExecutor.executeSerially();
             // assert the contents of the now available block accessors
@@ -664,7 +664,7 @@ class BlocksFilesHistoricPluginTest {
             }
             // send a block persisted notification for the range we just created
             blockMessaging.sendBlockPersisted(
-                    new PersistedNotification(0, 9, toTest.defaultPriority() + 1, BlockSource.PUBLISHER));
+                    new PersistedNotification(9, true, toTest.defaultPriority() + 1, BlockSource.PUBLISHER));
             // execute serially to ensure all tasks are completed
             pluginExecutor.executeSerially();
             // assert that a persistence notification was sent, we expect 2
@@ -676,8 +676,8 @@ class BlocksFilesHistoricPluginTest {
                     .isNotEmpty()
                     .hasSize(2)
                     .element(1)
-                    .returns(0L, PersistedNotification::startBlockNumber)
-                    .returns(9L, PersistedNotification::endBlockNumber)
+                    .returns(9L, PersistedNotification::blockNumber)
+                    .returns(true, PersistedNotification::succeeded)
                     .returns(toTest.defaultPriority(), PersistedNotification::blockProviderPriority);
         }
 
@@ -700,7 +700,7 @@ class BlocksFilesHistoricPluginTest {
             }
             // send a block persisted notification for the range we just created
             blockMessaging.sendBlockPersisted(
-                    new PersistedNotification(0, 9, toTest.defaultPriority() + 1, BlockSource.PUBLISHER));
+                    new PersistedNotification(9, true, toTest.defaultPriority() + 1, BlockSource.PUBLISHER));
             // execute serially to ensure all tasks are completed
             pluginExecutor.executeSerially();
             // assert that the first 10 blocks now appear in the available range
@@ -731,7 +731,7 @@ class BlocksFilesHistoricPluginTest {
             }
             // send a block persisted notification for the range we just created
             blockMessaging.sendBlockPersisted(
-                    new PersistedNotification(0, 9, toTest.defaultPriority() + 1, BlockSource.PUBLISHER));
+                    new PersistedNotification(9, true, toTest.defaultPriority() + 1, BlockSource.PUBLISHER));
             // calculate the target zip path that we expect the plugin to create
             final Path targetZipPath = BlockPath.computeBlockPath(testConfig, 0).zipFilePath();
             Files.createDirectories(targetZipPath.getParent());
@@ -764,7 +764,7 @@ class BlocksFilesHistoricPluginTest {
             }
             // send a block persisted notification for the range we just created
             blockMessaging.sendBlockPersisted(
-                    new PersistedNotification(0, 9, toTest.defaultPriority() + 1, BlockSource.PUBLISHER));
+                    new PersistedNotification(9, true, toTest.defaultPriority() + 1, BlockSource.PUBLISHER));
             // calculate the target zip path that we expect the plugin to create
             final Path targetZipPath = BlockPath.computeBlockPath(testConfig, 0).zipFilePath();
             Files.createDirectories(targetZipPath.getParent());
@@ -799,7 +799,7 @@ class BlocksFilesHistoricPluginTest {
             }
             // send a block persisted notification for the range we just created
             blockMessaging.sendBlockPersisted(
-                    new PersistedNotification(0, 9, toTest.defaultPriority() + 1, BlockSource.PUBLISHER));
+                    new PersistedNotification(9, true, toTest.defaultPriority() + 1, BlockSource.PUBLISHER));
             // calculate the target zip path that we expect the plugin to create
             final Path targetZipPath = BlockPath.computeBlockPath(testConfig, 0).zipFilePath();
             Files.createDirectories(targetZipPath.getParent());
@@ -833,7 +833,7 @@ class BlocksFilesHistoricPluginTest {
             }
             // send a block persisted notification for the range we just created
             blockMessaging.sendBlockPersisted(
-                    new PersistedNotification(0, 9, toTest.defaultPriority() + 1, BlockSource.PUBLISHER));
+                    new PersistedNotification(9, true, toTest.defaultPriority() + 1, BlockSource.PUBLISHER));
             // calculate the target zip path that we expect the plugin to create
             final Path targetZipPath = BlockPath.computeBlockPath(testConfig, 0).zipFilePath();
             Files.createDirectories(targetZipPath.getParent());
@@ -903,7 +903,7 @@ class BlocksFilesHistoricPluginTest {
             }
             // send a block persisted notification for the range we just created
             blockMessaging.sendBlockPersisted(
-                    new PersistedNotification(0, 149, toTest.defaultPriority() + 1, BlockSource.PUBLISHER));
+                    new PersistedNotification(149, true, toTest.defaultPriority() + 1, BlockSource.PUBLISHER));
             // execute serially to ensure all tasks are completed
             pluginExecutor.executeSerially();
             // assert that all blocks are now zipped and the available blocks
@@ -916,7 +916,7 @@ class BlocksFilesHistoricPluginTest {
             // send another notification to trigger the retention policy, we do
             // not need to actually persist the block
             blockMessaging.sendBlockPersisted(
-                    new PersistedNotification(150, 150, toTest.defaultPriority() + 1, BlockSource.PUBLISHER));
+                    new PersistedNotification(150, true, toTest.defaultPriority() + 1, BlockSource.PUBLISHER));
             // assert that the size of the available blocks is now 100 (post retention policy cleanup)
             assertThat(plugin.availableBlocks().size()).isEqualTo(100);
             // assert that the first 50 blocks were cleaned up and that the
@@ -960,7 +960,7 @@ class BlocksFilesHistoricPluginTest {
             }
             // send a block persisted notification for the range we just created
             blockMessaging.sendBlockPersisted(
-                    new PersistedNotification(0, 149, toTest.defaultPriority() + 1, BlockSource.PUBLISHER));
+                    new PersistedNotification(149, true, toTest.defaultPriority() + 1, BlockSource.PUBLISHER));
             // execute serially to ensure all tasks are completed
             pluginExecutor.executeSerially();
             // assert that all blocks are now zipped and the available blocks
@@ -973,7 +973,7 @@ class BlocksFilesHistoricPluginTest {
             // send another notification to trigger the retention policy, we do
             // not need to actually persist the block
             blockMessaging.sendBlockPersisted(
-                    new PersistedNotification(150, 150, toTest.defaultPriority() + 1, BlockSource.PUBLISHER));
+                    new PersistedNotification(150, true, toTest.defaultPriority() + 1, BlockSource.PUBLISHER));
             // assert that the size of the available blocks is still 150 (post retention policy cleanup)
             assertThat(plugin.availableBlocks().size()).isEqualTo(150);
             // assert that all the blocks are still zipped and that

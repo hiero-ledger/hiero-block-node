@@ -322,10 +322,7 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, BlockingExecutor
                         blockNodeContext
                                 .blockMessaging()
                                 .sendBlockPersisted(new PersistedNotification(
-                                        notification.blockNumber(),
-                                        notification.blockNumber(),
-                                        10,
-                                        notification.source()));
+                                        notification.blockNumber(), true, 10, notification.source()));
                         latch1.countDown();
                         if (notification.blockNumber() < 50) {
                             latchHistorical.countDown(); // Count down for historical blocks
@@ -428,10 +425,7 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, BlockingExecutor
                         blockNodeContext
                                 .blockMessaging()
                                 .sendBlockPersisted(new PersistedNotification(
-                                        notification.blockNumber(),
-                                        notification.blockNumber(),
-                                        10,
-                                        notification.source()));
+                                        notification.blockNumber(), true, 10, notification.source()));
                         backfillLatch.countDown();
 
                         // Add the block number to the historical block facility's available blocks
@@ -516,10 +510,7 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, BlockingExecutor
                         blockNodeContext
                                 .blockMessaging()
                                 .sendBlockPersisted(new PersistedNotification(
-                                        notification.blockNumber(),
-                                        notification.blockNumber(),
-                                        10,
-                                        notification.source()));
+                                        notification.blockNumber(), true, 10, notification.source()));
                         countDownLatch.countDown();
                     }
                 },

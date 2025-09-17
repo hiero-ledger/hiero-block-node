@@ -343,8 +343,8 @@ class PublisherHandlerTest {
                 assertThat(repliesPipeline.getOnCompleteCalls().get()).isEqualTo(0);
                 assertThat(repliesPipeline.getClientEndStreamCalls().get()).isEqualTo(0);
                 // Publish the persisted notification for the streamed block
-                manager.handlePersisted(new PersistedNotification(
-                        expectedStreamedBlockNumber, expectedStreamedBlockNumber, 0, BlockSource.PUBLISHER));
+                manager.handlePersisted(
+                        new PersistedNotification(expectedStreamedBlockNumber, true, 0, BlockSource.PUBLISHER));
                 // Assert the acknowledgement response is sent to the pipeline
                 // Assert that an acknowledgement was sent for the valid request
                 assertThat(repliesPipeline.getOnNextCalls())
@@ -1352,8 +1352,8 @@ class PublisherHandlerTest {
                 // Call with valid request
                 toTest.onNext(validRequest);
                 // Send a PersistedNotification for the streamed block number
-                manager.handlePersisted(new PersistedNotification(
-                        expectedStreamedBlockNumber, expectedStreamedBlockNumber, 0, BlockSource.PUBLISHER));
+                manager.handlePersisted(
+                        new PersistedNotification(expectedStreamedBlockNumber, true, 0, BlockSource.PUBLISHER));
                 // Assert that an acknowledgement was sent for the valid request
                 assertThat(repliesPipeline.getOnNextCalls())
                         .hasSize(1)
@@ -1418,8 +1418,8 @@ class PublisherHandlerTest {
                 // Call with valid request
                 toTest.onNext(validRequest);
                 // Send a PersistedNotification for the streamed block number
-                manager.handlePersisted(new PersistedNotification(
-                        expectedStreamedBlockNumber, expectedStreamedBlockNumber, 0, BlockSource.PUBLISHER));
+                manager.handlePersisted(
+                        new PersistedNotification(expectedStreamedBlockNumber, true, 0, BlockSource.PUBLISHER));
                 // Assert live items received updated and acknowledgement sent updated
                 assertThat(metrics.liveBlockItemsReceived().get()).isEqualTo(blockItems.length);
                 assertThat(metrics.blockAcknowledgementsSent().get()).isEqualTo(1);

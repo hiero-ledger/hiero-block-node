@@ -58,7 +58,7 @@ class BlockNotificationRingEventTest {
     @DisplayName("Should set and get persisted notification correctly")
     void shouldSetAndGetPersistedNotification() {
         final BlockNotificationRingEvent event = new BlockNotificationRingEvent();
-        final PersistedNotification notification = new PersistedNotification(1, 2, 10, BlockSource.PUBLISHER);
+        final PersistedNotification notification = new PersistedNotification(2, true, 10, BlockSource.PUBLISHER);
 
         event.set(notification);
 
@@ -114,7 +114,8 @@ class BlockNotificationRingEventTest {
     @DisplayName("Setting verification notification should clear persisted notification")
     void settingVerificationNotificationShouldClearPersistedNotification() {
         final BlockNotificationRingEvent event = new BlockNotificationRingEvent();
-        final PersistedNotification persistedNotification = new PersistedNotification(1, 2, 10, BlockSource.PUBLISHER);
+        final PersistedNotification persistedNotification =
+                new PersistedNotification(2, true, 10, BlockSource.PUBLISHER);
         final VerificationNotification verificationNotification =
                 new VerificationNotification(true, 1, null, null, BlockSource.PUBLISHER);
 
@@ -138,7 +139,8 @@ class BlockNotificationRingEventTest {
         final BlockNotificationRingEvent event = new BlockNotificationRingEvent();
         final VerificationNotification verificationNotification =
                 new VerificationNotification(true, 1, null, null, BlockSource.PUBLISHER);
-        final PersistedNotification persistedNotification = new PersistedNotification(1, 2, 10, BlockSource.PUBLISHER);
+        final PersistedNotification persistedNotification =
+                new PersistedNotification(2, true, 10, BlockSource.PUBLISHER);
 
         // First set verification notification
         event.set(verificationNotification);
@@ -179,8 +181,8 @@ class BlockNotificationRingEventTest {
     @DisplayName("Should allow reuse with different persisted notifications")
     void shouldAllowReuseWithDifferentPersistedNotifications() {
         final BlockNotificationRingEvent event = new BlockNotificationRingEvent();
-        final PersistedNotification notification1 = new PersistedNotification(1, 2, 10, BlockSource.PUBLISHER);
-        final PersistedNotification notification2 = new PersistedNotification(1, 2, 10, BlockSource.PUBLISHER);
+        final PersistedNotification notification1 = new PersistedNotification(2, true, 10, BlockSource.PUBLISHER);
+        final PersistedNotification notification2 = new PersistedNotification(2, true, 10, BlockSource.PUBLISHER);
 
         event.set(notification1);
         assertEquals(notification1, event.getPersistedNotification());

@@ -152,7 +152,7 @@ public class S3ArchivePlugin implements BlockNodePlugin, BlockNotificationHandle
     @Override
     public void handlePersisted(final PersistedNotification notification) {
         // get the latest persisted block number from the notification
-        final long latestPersisted = notification.endBlockNumber();
+        final long latestPersisted = notification.blockNumber();
         // compute what should be the start of the next batch to archive
         long nextStart = lastArchivedBlockNumber.get() + 1;
         // compute the end of the next batch to archive
