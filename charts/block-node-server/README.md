@@ -18,7 +18,7 @@ Replacing the values with the appropriate values for your environment: bn-releas
 
 ```bash
 export RELEASE="bn-release"
-export VERSION="0.15.0-SNAPSHOT"
+export VERSION="0.19.0-rc1"
 ```
 
 ## Template
@@ -40,13 +40,13 @@ helm pull oci://ghcr.io/hiero-ledger/hiero-block-node/block-node-helm-chart --ve
 To install the chart with default values:
 
 ```bash
-helm install "${RELEASE}" block-node-server/charts/block-node-helm-chart-$VERSION.tgz
+helm install "${RELEASE}" block-node-server/charts/block-node-server-$VERSION.tgz
 ```
 
 To install the chart with custom values:
 
 ```bash
-helm install "${RELEASE}" block-node-server/charts/block-node-helm-chart-$VERSION.tgz -f <path-to-custom-values-file>
+helm install "${RELEASE}" block-node-server/charts/block-node-server-$VERSION.tgz -f <path-to-custom-values-file>
 ```
 
 *Note:* If using the chart directly after cloning the github repo, there is no need to add the repo. and install can be directly.
