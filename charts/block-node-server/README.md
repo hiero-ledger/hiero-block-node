@@ -40,13 +40,13 @@ helm pull oci://ghcr.io/hiero-ledger/hiero-block-node/block-node-helm-chart --ve
 To install the chart with default values:
 
 ```bash
-helm install "${RELEASE}" block-node-server/charts/block-node-server-$VERSION.tgz
+helm install "${RELEASE}" block-node-server/charts/block-node-helm-chart-$VERSION.tgz
 ```
 
 To install the chart with custom values:
 
 ```bash
-helm install "${RELEASE}" block-node-server/charts/block-node-server-$VERSION.tgz -f <path-to-custom-values-file>
+helm install "${RELEASE}" block-node-server/charts/block-node-helm-chart-$VERSION.tgz -f <path-to-custom-values-file>
 ```
 
 *Note:* If using the chart directly after cloning the github repo, there is no need to add the repo. and install can be directly.

@@ -317,7 +317,7 @@ jobs:
       - name: Push helm chart
         if: "${{ github.event_name != 'workflow_dispatch' || github.event.inputs.publish == 'true' }}"
         run: |
-          helm push block-node-server-${{ env.VERSION }}.tgz oci://ghcr.io/hiero-ledger/hiero-block-node
+          helm push block-node-helm-chart-${{ env.VERSION }}.tgz oci://ghcr.io/hiero-ledger/hiero-block-node
 
   helm-chart-release-simulator:
     timeout-minutes: 15
