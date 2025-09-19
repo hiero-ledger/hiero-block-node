@@ -40,6 +40,7 @@ import org.junit.jupiter.params.provider.MethodSource;
  * Node.
  */
 @DisplayName("Positive Multiple Publishers Tests")
+@Timeout(30)
 public class PositiveMultiplePublishersTests extends BaseSuite {
 
     private final List<Future<?>> simulators = new ArrayList<>();
@@ -67,7 +68,6 @@ public class PositiveMultiplePublishersTests extends BaseSuite {
 
     @Test
     @DisplayName("Publisher should send TOO_FAR_BEHIND to activate backfill on demand")
-    @Timeout(30)
     public void testBackfillOnDemand() throws IOException, InterruptedException {
         launchBlockNodes(List.of(new BlockNodeContainerConfig(8082, 9989, "/resources/block-nodes.json")));
         final Map<String, String> firstSimulatorConfiguration = Map.of(
@@ -128,7 +128,6 @@ public class PositiveMultiplePublishersTests extends BaseSuite {
 
     @Test
     @DisplayName("Autonomous backfill should fill the gaps")
-    @Timeout(30)
     public void testAutonomousBackfill() throws IOException, InterruptedException {
         launchBlockNodes(List.of(new BlockNodeContainerConfig(8082, 9989, "/resources/block-nodes.json")));
         final Map<String, String> firstSimulatorConfiguration = Map.of(
@@ -195,7 +194,6 @@ public class PositiveMultiplePublishersTests extends BaseSuite {
 
     @Test
     @DisplayName("Publisher should handle BEHIND and send TOO_FAR_BEHIND")
-    @Timeout(30)
     public void publisherShouldSendTooFarBehindAfterBehind() throws IOException, InterruptedException {
         // ===== Prepare and Start first simulator and make sure it's streaming ======================
         final Map<String, String> firstSimulatorConfiguration = Map.of("generator.startBlockNumber", "0");
@@ -262,7 +260,6 @@ public class PositiveMultiplePublishersTests extends BaseSuite {
     @Disabled("Temporarily disabled whiles publisher plugin is being rewritten. Currently produces a false positive")
     @Test
     @DisplayName("Should switch to faster publisher when it catches up with current block number")
-    @Timeout(30)
     public void shouldSwitchToFasterPublisherWhenCaughtUp() throws IOException, InterruptedException {
         // ===== Prepare environment =================================================================
         final Map<String, String> slowerSimulatorConfiguration = Map.of("blockStream.millisecondsPerBlock", "1000");
@@ -333,7 +330,6 @@ public class PositiveMultiplePublishersTests extends BaseSuite {
 
     @Test
     @DisplayName("Verify Single Publisher Acknowledgements")
-    @Timeout(30)
     public void testAcknowledgements() throws IOException, InterruptedException {
         final BlockStreamSimulatorApp firstSimulator = createBlockSimulator();
         startSimulatorInThread(firstSimulator);
@@ -349,7 +345,6 @@ public class PositiveMultiplePublishersTests extends BaseSuite {
 
     @Test
     @DisplayName("Verify Multi Publisher Acknowledgements")
-    @Timeout(30)
     public void testMultiPublisherAcknowledgements() throws IOException, InterruptedException {
         final Map<String, String> firstSimulatorConfiguration = Map.of("blockStream.millisecondsPerBlock", "5000");
         final BlockStreamSimulatorApp firstSimulator = createBlockSimulator();
@@ -374,7 +369,6 @@ public class PositiveMultiplePublishersTests extends BaseSuite {
 
     @Test
     @DisplayName("Verify Multi Publisher Skip")
-    @Timeout(30)
     public void testMultiPublisherSkip() throws IOException, InterruptedException {
         final Map<String, String> firstSimulatorConfiguration =
                 Map.of("generator.minEventsPerBlock", "100", "generator.maxEventsPerBlock", "200");
@@ -402,7 +396,6 @@ public class PositiveMultiplePublishersTests extends BaseSuite {
 
     @Test
     @DisplayName("Verify Multi Publisher Duplicate Block")
-    @Timeout(30)
     public void testMultiPublisherDuplicateBlock() throws IOException, InterruptedException {
         final BlockStreamSimulatorApp firstSimulator = createBlockSimulator();
         final BlockStreamSimulatorApp secondSimulator = createBlockSimulator();
@@ -425,7 +418,6 @@ public class PositiveMultiplePublishersTests extends BaseSuite {
 
     @Test
     @DisplayName("Verify Failed Verification Handling")
-    @Timeout(30)
     public void testMultiPublisherBadBlockProof() throws IOException, InterruptedException {
         final Map<String, String> firstSimulatorConfiguration = Map.of("generator.invalidBlockHash", "true");
         final Map<String, String> secondSimulatorConfiguration = Map.of("generator.startBlockNumber", Long.toString(2));
@@ -459,7 +451,6 @@ public class PositiveMultiplePublishersTests extends BaseSuite {
     @Disabled("Temporarily disabled whiles publisher plugin is being rewritten.")
     @Test
     @DisplayName("Should prefer publisher with current blocks over future blocks")
-    @Timeout(30)
     public void shouldPreferCurrentBlockPublisher() throws IOException {
         // ===== Prepare environment =================================================================
         final Map<String, String> currentSimulatorConfiguration = Map.of("generator.startBlockNumber", "0");
@@ -492,7 +483,6 @@ public class PositiveMultiplePublishersTests extends BaseSuite {
     @ParameterizedTest
     @DisplayName("Publisher should handle error responses and resume streaming")
     @MethodSource("provideDataForErrorResponses")
-    @Timeout(30)
     public void publisherShouldResumeAfterError(Map<String, String> config, String errorStatus)
             throws IOException, InterruptedException {
         // ===== Prepare and Start first simulator and make sure it's streaming ======================
@@ -561,7 +551,6 @@ public class PositiveMultiplePublishersTests extends BaseSuite {
     @Disabled("Temporarily disabled whiles publisher plugin is being rewritten. Currently hangs after duplicate block")
     @Test
     @DisplayName("Should resume block streaming from new publisher after primary publisher disconnects")
-    @Timeout(30)
     public void shouldResumeFromNewPublisherAfterPrimaryDisconnects() throws IOException, InterruptedException {
         // ===== Prepare and Start first simulator and make sure it's streaming ======================
         final Map<String, String> firstSimulatorConfiguration = Map.of("generator.startBlockNumber", "0");
