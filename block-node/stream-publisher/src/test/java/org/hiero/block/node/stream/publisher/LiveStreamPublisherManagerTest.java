@@ -24,6 +24,7 @@ import org.hiero.block.node.app.fixtures.TestUtils;
 import org.hiero.block.node.app.fixtures.async.BlockingExecutor;
 import org.hiero.block.node.app.fixtures.async.TestThreadPoolManager;
 import org.hiero.block.node.app.fixtures.blocks.SimpleTestBlockItemBuilder;
+import org.hiero.block.node.app.fixtures.pipeline.TestResponsePipeline;
 import org.hiero.block.node.app.fixtures.plugintest.SimpleInMemoryHistoricalBlockFacility;
 import org.hiero.block.node.app.fixtures.plugintest.TestBlockMessagingFacility;
 import org.hiero.block.node.spi.BlockNodeContext;
@@ -38,7 +39,6 @@ import org.hiero.block.node.spi.historicalblocks.HistoricalBlockFacility;
 import org.hiero.block.node.spi.threading.ThreadPoolManager;
 import org.hiero.block.node.stream.publisher.LiveStreamPublisherManager.MetricsHolder;
 import org.hiero.block.node.stream.publisher.StreamPublisherManager.BlockAction;
-import org.hiero.block.node.stream.publisher.fixtures.TestResponsePipeline;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -110,7 +110,7 @@ class LiveStreamPublisherManagerTest {
 
         // PUBLISHER 1
         /** The response pipeline to use when testing */
-        private TestResponsePipeline responsePipeline;
+        private TestResponsePipeline<PublishStreamResponse> responsePipeline;
         /** The publisher handler to use when testing */
         private PublisherHandler publisherHandler;
         /** The ID of the publisher handler, used to identify it in the manager */
@@ -118,7 +118,7 @@ class LiveStreamPublisherManagerTest {
 
         // PUBLISHER 2
         /** The second response pipeline to use when testing */
-        private TestResponsePipeline responsePipeline2;
+        private TestResponsePipeline<PublishStreamResponse> responsePipeline2;
         /** The second publisher handler to use when testing */
         private PublisherHandler publisherHandler2;
         /** The ID of the second publisher handler, used to identify it in the manager */
