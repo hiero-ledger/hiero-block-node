@@ -52,12 +52,12 @@ produces.
 |            Test Case ID | Test Name                                                                     | Implemented ( :white_check_mark: / :x: ) |
 |------------------------:|:------------------------------------------------------------------------------|:----------------------------------------:|
 |                         | _**<br/>[Happy Path Tests](#happy-path-tests)<br/>&nbsp;**_                   |                                          |
-| [TC-HP-001](#tc-hp-001) | Verify Single Publisher Acknowledgements                                      |                   :x:                    |
-| [TC-HP-002](#tc-hp-002) | Verify Multi Publisher Acknowledgements                                       |                   :x:                    |
-| [TC-HP-003](#tc-hp-003) | Verify Multi Publisher Skip                                                   |                   :x:                    |
-| [TC-HP-004](#tc-hp-004) | Verify Multi Publisher Duplicate Block                                        |                   :x:                    |
-| [TC-HP-005](#tc-hp-005) | Verify Block Node Behind                                                      |                   :x:                    |
-| [TC-HP-006](#tc-hp-006) | Verify Publisher EndStream                                                    |                   :x:                    |
+| [TC-HP-001](#tc-hp-001) | Verify Single Publisher Acknowledgements                                      |            :white_check_mark:            |
+| [TC-HP-002](#tc-hp-002) | Verify Multi Publisher Acknowledgements                                       |            :white_check_mark:            |
+| [TC-HP-003](#tc-hp-003) | Verify Multi Publisher Skip                                                   |            :white_check_mark:            |
+| [TC-HP-004](#tc-hp-004) | Verify Multi Publisher Duplicate Block                                        |            :white_check_mark:            |
+| [TC-HP-005](#tc-hp-005) | Verify Block Node Behind                                                      |            :white_check_mark:            |
+| [TC-HP-006](#tc-hp-006) | Verify Publisher EndStream                                                    |            :white_check_mark:            |
 |                         | _**<br/>[Failed Verification Tests](#failed-verification-tests)<br/>&nbsp;**_ |                                          |
 | [TC-FV-001](#tc-fv-001) | Verify Failed Verification Handling                                           |                   :x:                    |
 |                         | _**<br/>[Error Tests](#error-tests)<br/>&nbsp;**_                             |                                          |
