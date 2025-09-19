@@ -51,7 +51,8 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
 
     // Backfill state
     private List<LongRange> detectedGaps = new ArrayList<>();
-    private BackfillGrpcClient backfillGrpcClient;
+    private BackfillGrpcClient backfillGrpcClientAutonomous;
+    private BackfillGrpcClient backfillGrpcClientOnDemand;
 
     // State touched by multiple threads
     private final AtomicReference<CountDownLatch> autonomousLatch = new AtomicReference<>(new CountDownLatch(0));
@@ -177,13 +178,22 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
 
         // Initialize the gRPC client
         try {
-            backfillGrpcClient = new BackfillGrpcClient(
+            backfillGrpcClientAutonomous = new BackfillGrpcClient(
                     blockNodeSourcesPath,
                     backfillConfiguration.maxRetries(),
                     this.backfillRetries,
                     backfillConfiguration.initialRetryDelay(),
                     backfillConfiguration.grpcOverallTimeout(),
                     backfillConfiguration.enableTLS());
+
+            backfillGrpcClientOnDemand = new BackfillGrpcClient(
+                    blockNodeSourcesPath,
+                    backfillConfiguration.maxRetries(),
+                    this.backfillRetries,
+                    backfillConfiguration.initialRetryDelay(),
+                    backfillConfiguration.grpcOverallTimeout(),
+                    backfillConfiguration.enableTLS());
+
             LOGGER.log(TRACE, "Initialized gRPC client with sources path: {0}", blockNodeSourcesPath);
         } catch (Exception e) {
             LOGGER.log(INFO, "Failed to initialize gRPC client: {0}", e.getMessage());
@@ -322,6 +332,13 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
      */
     private void backfillGap(LongRange gap, BackfillType backfillType) throws InterruptedException, ParseException {
         // Reset client status to retry previously unavailable nodes
+        BackfillGrpcClient backfillGrpcClient;
+
+        if (backfillType.equals(BackfillType.AUTONOMOUS)) {
+            backfillGrpcClient = backfillGrpcClientAutonomous;
+        } else {
+            backfillGrpcClient = backfillGrpcClientOnDemand;
+        }
         backfillGrpcClient.resetStatus();
 
         // Process gap in smaller chunks
