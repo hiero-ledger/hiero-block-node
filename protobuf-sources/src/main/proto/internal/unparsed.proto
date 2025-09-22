@@ -10,11 +10,13 @@ option java_multiple_files = true;
 import "block-node/api/block_access_service.proto";
 import "block-node/api/block_stream_subscribe_service.proto";
 import "block-node/api/block_stream_publish_service.proto";
+import "block-node/api/shared_message_types.proto";
 
 message PublishStreamRequestUnparsed {
     oneof request {
         BlockItemSetUnparsed block_items = 1;
         org.hiero.block.api.PublishStreamRequest.EndStream end_stream = 2;
+        org.hiero.block.api.BlockEnd end_of_block = 3;
     }
 }
 
@@ -34,6 +36,7 @@ message SubscribeStreamResponseUnparsed {
          * followed by a single `status` message.
          */
         BlockItemSetUnparsed block_items = 2;
+        org.hiero.block.api.BlockEnd end_of_block = 3;
     }
 }
 

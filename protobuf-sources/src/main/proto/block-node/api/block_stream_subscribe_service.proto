@@ -156,6 +156,16 @@ message SubscribeStreamResponse {
          * followed by a single `status` message.
          */
         BlockItemSet block_items = 2;
+
+        /**
+         * A message indicating the end of a block.
+         * <p>
+         * This message SHALL be sent exactly once for each block.
+         * The next message after a `BlockEnd` SHALL be either a
+         * status message to indicate the stream is closed, or a
+         * `BlockItemSet` message starting with a `BlockHeader`.
+         */
+        BlockEnd end_of_block = 3;
     }
 }
 

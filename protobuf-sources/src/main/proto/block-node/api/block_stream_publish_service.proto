@@ -50,6 +50,11 @@ message PublishStreamRequest {
          * when sending this message for any non-error condition.
          */
         EndStream end_stream = 2;
+
+        /**
+         * A message indicating the end of a block.
+         */
+        BlockEnd end_of_block = 3;
     }
 
     /**
