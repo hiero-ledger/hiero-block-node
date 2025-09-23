@@ -13,6 +13,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import edu.umd.cs.findbugs.annotations.NonNull;
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -68,7 +69,8 @@ public class PositiveMultiplePublishersTests extends BaseSuite {
     @DisplayName("Publisher should send TOO_FAR_BEHIND to activate backfill on demand")
     @Timeout(30)
     public void testBackfillOnDemand() throws IOException, InterruptedException {
-        launchBlockNodes(List.of(new BlockNodeContainerConfig(8082, 9989, "/resources/block-nodes.json")));
+        launchBlockNodes(
+                List.of(new BlockNodeContainerConfig(8082, 9989, "/resources/block-nodes.json", new HashMap<>())));
         final Map<String, String> firstSimulatorConfiguration = Map.of(
                 "blockStream.streamingMode",
                 "MILLIS_PER_BLOCK",
@@ -129,7 +131,8 @@ public class PositiveMultiplePublishersTests extends BaseSuite {
     @DisplayName("Autonomous backfill should fill the gaps")
     @Timeout(30)
     public void testAutonomousBackfill() throws IOException, InterruptedException {
-        launchBlockNodes(List.of(new BlockNodeContainerConfig(8082, 9989, "/resources/block-nodes.json")));
+        launchBlockNodes(
+                List.of(new BlockNodeContainerConfig(8082, 9989, "/resources/block-nodes.json", new HashMap<>())));
         final Map<String, String> firstSimulatorConfiguration = Map.of(
                 "blockStream.streamingMode",
                 "MILLIS_PER_BLOCK",
@@ -197,7 +200,20 @@ public class PositiveMultiplePublishersTests extends BaseSuite {
             "Autonomous backfill should fill the gaps and Publisher should send TOO_FAR_BEHIND to activate backfill on demand")
     //    @Timeout(30)
     public void testBackfillOnDemandAndAutonomousBackfill() throws IOException, InterruptedException {
-        launchBlockNodes(List.of(new BlockNodeContainerConfig(8082, 9989, "/resources/block-nodes.json")));
+
+        //  2 Block Nodes, 1 Source (40840), Subject BN: Backfill will happen here. (8082)
+        // We only launch 8082 cause the source is already in BASE class.
+        // delayBetweenBatches
+        Map<String, String> bnSubjectConfigOverride = Map.of(
+                "BACKFILL_PER_BLOCK_PROCESSING_TIMEOUT",
+                "2000",
+                "BACKFILL_FETCH_BATCH_SIZE",
+                "3",
+                "BACKFILL_DELAY_BETWEEN_BATCHES",
+                "2000");
+        launchBlockNodes(List.of(
+                new BlockNodeContainerConfig(8082, 9989, "/resources/block-nodes.json", bnSubjectConfigOverride)));
+        // Simulator config for Source up to block 18
         final Map<String, String> firstSimulatorConfiguration = Map.of(
                 "blockStream.streamingMode",
                 "MILLIS_PER_BLOCK",
@@ -207,6 +223,7 @@ public class PositiveMultiplePublishersTests extends BaseSuite {
                 "18",
                 "grpc.port",
                 "40840");
+        // Simulator config for Subject up to block 16
         final Map<String, String> secondSimulatorConfiguration = Map.of(
                 "blockStream.streamingMode",
                 "MILLIS_PER_BLOCK",
@@ -216,14 +233,19 @@ public class PositiveMultiplePublishersTests extends BaseSuite {
                 "16",
                 "grpc.port",
                 "8082");
-
+        // Create Simulators
         final BlockStreamSimulatorApp firstSimulator = createBlockSimulator(firstSimulatorConfiguration);
         final BlockStreamSimulatorApp secondSimulator = createBlockSimulator(secondSimulatorConfiguration);
-        startSimulatorInstance(firstSimulator);
-        startSimulatorInstanceWithErrorResponse(secondSimulator);
+        // Start Simulators
+        startSimulatorInstance(firstSimulator); // Source
+        startSimulatorInstance(secondSimulator); // Subject
+        // wait to be sure the blocks are processed
         Thread.sleep(6000);
-
+        // Delete 15 blocks to create a gap that needs to be backfilled on Subject BN (8082)
+        // Subject is the only one we created on demand, hence 0 index on the list.  (0-14)
         deleteBlocks(0, 15);
+
+        // Verify that the first 3 blocks are deleted
         BlockResponse block0Deleted = getBlock(blockAccessStubs.get(8082), 0);
         BlockResponse block1Deleted = getBlock(blockAccessStubs.get(8082), 1);
         BlockResponse block2Deleted = getBlock(blockAccessStubs.get(8082), 2);
@@ -231,9 +253,11 @@ public class PositiveMultiplePublishersTests extends BaseSuite {
         assertEquals(NOT_FOUND, block1Deleted.getStatus());
         assertEquals(NOT_FOUND, block2Deleted.getStatus());
 
+        // Restart the BN to trigger autonomous backfill for the deleted blocks
         restartBlockNode(0);
-        Thread.sleep(1000);
+        Thread.sleep(6000); // wait for container to start and Backfill to kick in
 
+        // Simulator for Trigger Backfill on Demand from BN Subject (8082)
         final Map<String, String> thirdSimulatorConfiguration = Map.of(
                 "blockStream.streamingMode",
                 "MILLIS_PER_BLOCK",
@@ -249,13 +273,16 @@ public class PositiveMultiplePublishersTests extends BaseSuite {
                 "18",
                 "grpc.port",
                 "8082");
+        // create and start third simulator
         final BlockStreamSimulatorApp thirdSimulator = createBlockSimulator(thirdSimulatorConfiguration);
         startSimulatorInstanceWithErrorResponse(thirdSimulator);
 
         // This sleep is for debugging purposes, to be able to see the state of the block node after backfilling in
         // container
-        Thread.sleep(300000);
+        // Thread.sleep(600000);
+        Thread.sleep(32000); // Autonomous Timeout is 2 x 15 = 30 secs + some margin
 
+        // Verify that Backfill on Demand Worked.
         final BlockResponse latestPublishedBlockAfter = getLatestBlock(blockAccessStubs.get(8082));
         final long latestBlockNodeBlockNumber = latestPublishedBlockAfter
                 .getBlock()
@@ -263,9 +290,15 @@ public class PositiveMultiplePublishersTests extends BaseSuite {
                 .getFirst()
                 .getBlockHeader()
                 .getNumber();
-
-        teardownBlockNodes();
         assertEquals(18, latestBlockNodeBlockNumber);
+
+        // Verify that Autonomous Backfill Worked for the deleted blocks
+        BlockResponse block0 = getBlock(blockAccessStubs.get(8082), 0);
+        assertEquals(
+                0, block0.getBlock().getItemsList().getFirst().getBlockHeader().getNumber());
+
+        // After all Assertion pass we can teardown
+        teardownBlockNodes();
     }
 
     @Test
