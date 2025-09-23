@@ -238,7 +238,8 @@ public class PositiveMultiplePublishersTests extends BaseSuite {
         final BlockStreamSimulatorApp secondSimulator = createBlockSimulator(secondSimulatorConfiguration);
         // Start Simulators
         startSimulatorInstance(firstSimulator); // Source
-        startSimulatorInstance(secondSimulator); // Subject
+        startSimulatorInstanceWithErrorResponse(secondSimulator);
+        //startSimulatorInstance(secondSimulator); // Subject
         // wait to be sure the blocks are processed
         Thread.sleep(6000);
         // Delete 15 blocks to create a gap that needs to be backfilled on Subject BN (8082)
