@@ -39,6 +39,7 @@ import org.junit.jupiter.params.provider.MethodSource;
  * <p>Inherits from {@link BaseSuite} to reuse the container setup and teardown logic for the Block
  * Node.
  */
+// TODO(#1665) Verify simulator's connection has been closed for multi-publisher scenarios
 @DisplayName("Positive Multiple Publishers Tests")
 @Timeout(30)
 public class PositiveMultiplePublishersTests extends BaseSuite {
@@ -416,6 +417,8 @@ public class PositiveMultiplePublishersTests extends BaseSuite {
                 "secondStreamStatus does not contain 'duplicate_block'");
     }
 
+    // TODO(#1663) We must assert that one of simulators receives the bad block proof, the other one should receive a
+    // resend.
     @Test
     @DisplayName("Verify Failed Verification Handling")
     public void testMultiPublisherBadBlockProof() throws IOException, InterruptedException {
