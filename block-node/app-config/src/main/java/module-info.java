@@ -4,7 +4,8 @@ module org.hiero.block.node.app.config {
     exports org.hiero.block.node.app.config to
             com.swirlds.config.impl,
             com.swirlds.config.extensions,
-            org.hiero.block.node.app;
+            org.hiero.block.node.app,
+            org.hiero.block.node.app.test.fixtures;
     // export the node-wide configuration to everything.
     exports org.hiero.block.node.app.config.node;
 

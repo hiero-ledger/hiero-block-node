@@ -7,8 +7,8 @@ plugins {
 }
 
 dependencies {
-    api(platform("io.netty:netty-bom:4.2.4.Final"))
-    api(platform("com.google.cloud:libraries-bom:26.63.0"))
+    api(platform("io.netty:netty-bom:4.2.6.Final"))
+    api(platform("com.google.cloud:libraries-bom:26.68.0"))
 }
 
 dependencies.constraints {
@@ -24,14 +24,13 @@ dependencies.constraints {
     val testContainersVersion = "1.21.3"
 
     api("com.github.luben:zstd-jni:1.5.7-4") { because("com.github.luben.zstd_jni") }
-    api("com.github.spotbugs:spotbugs-annotations:4.9.3") {
+    api("com.github.spotbugs:spotbugs-annotations:4.9.5") {
         because("com.github.spotbugs.annotations")
     }
     api("com.google.auto.service:auto-service-annotations:1.1.1") {
         because("com.google.auto.service")
     }
     api("com.google.guava:guava:33.4.8-jre") { because("com.google.common") }
-    api("com.google.j2objc:j2objc-annotations:3.0.0") { because("com.google.j2objc.annotations") }
     api("com.google.protobuf:protobuf-java-util:$protobufVersion") {
         because("com.google.protobuf.util")
     }
@@ -79,7 +78,7 @@ dependencies.constraints {
     api("com.google.dagger:dagger-compiler:$daggerVersion") { because("dagger.compiler") }
 
     // Testing only versions
-    api("com.github.docker-java:docker-java-api:3.5.3") { because("com.github.dockerjava.api") }
+    api("com.github.docker-java:docker-java-api:3.6.0") { because("com.github.dockerjava.api") }
     api("org.assertj:assertj-core:3.27.4") { because("org.assertj.core") }
     api("org.junit.jupiter:junit-jupiter-api:5.13.4") { because("org.junit.jupiter.api") }
     api("org.mockito:mockito-core:${mockitoVersion}") { because("org.mockito") }

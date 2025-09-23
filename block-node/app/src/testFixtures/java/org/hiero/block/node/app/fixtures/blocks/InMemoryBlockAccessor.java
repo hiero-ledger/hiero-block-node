@@ -1,9 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.node.app.fixtures.blocks;
 
+import com.github.luben.zstd.Zstd;
 import com.hedera.hapi.block.stream.Block;
 import com.hedera.hapi.block.stream.BlockItem;
 import com.hedera.hapi.block.stream.output.BlockHeader;
+import com.hedera.pbj.runtime.io.buffer.Bytes;
 import java.util.List;
 import org.hiero.block.node.spi.historicalblocks.BlockAccessor;
 
@@ -71,11 +73,16 @@ public final class InMemoryBlockAccessor implements BlockAccessor {
         return blockNumber;
     }
 
-    /**
-     * {@inheritDoc}
-     */
     @Override
-    public Block block() {
-        return block;
+    public Bytes blockBytes(final Format format) {
+        return switch (format) {
+            case JSON -> Block.JSON.toBytes(block);
+            case PROTOBUF -> Block.PROTOBUF.toBytes(block);
+            case ZSTD_PROTOBUF -> zstdCompressBytes(Block.PROTOBUF.toBytes(block));
+        };
+    }
+
+    private Bytes zstdCompressBytes(final Bytes bytes) {
+        return Bytes.wrap(Zstd.compress(bytes.toByteArray()));
     }
 }

@@ -118,7 +118,7 @@ public class TestStreamPublisherManager implements StreamPublisherManager {
      */
     @Override
     public void handlePersisted(final PersistedNotification notification) {
-        final long newLastPersistedBlock = notification.endBlockNumber();
+        final long newLastPersistedBlock = notification.blockNumber();
         if (newLastPersistedBlock > latestBlockNumber) {
             publisherHandlers.forEach(h -> h.sendAcknowledgement(newLastPersistedBlock));
         } else {

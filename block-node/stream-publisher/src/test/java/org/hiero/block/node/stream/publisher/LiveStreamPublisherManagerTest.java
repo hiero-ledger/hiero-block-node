@@ -7,12 +7,7 @@ import static org.assertj.core.api.Assertions.assertThatNullPointerException;
 
 import com.hedera.hapi.block.stream.BlockProof;
 import com.swirlds.config.api.Configuration;
-import com.swirlds.config.api.ConfigurationBuilder;
-import com.swirlds.metrics.api.Counter.Config;
-import com.swirlds.metrics.api.LongGauge;
 import com.swirlds.metrics.api.Metrics;
-import com.swirlds.metrics.impl.DefaultCounter;
-import com.swirlds.metrics.impl.DefaultLongGauge;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Objects;
@@ -25,7 +20,7 @@ import org.hiero.block.api.PublishStreamResponse.ResponseOneOfType;
 import org.hiero.block.internal.BlockItemSetUnparsed;
 import org.hiero.block.internal.BlockItemUnparsed;
 import org.hiero.block.internal.PublishStreamRequestUnparsed;
-import org.hiero.block.node.app.config.node.NodeConfig;
+import org.hiero.block.node.app.fixtures.TestUtils;
 import org.hiero.block.node.app.fixtures.async.BlockingExecutor;
 import org.hiero.block.node.app.fixtures.async.TestThreadPoolManager;
 import org.hiero.block.node.app.fixtures.blocks.SimpleTestBlockItemBuilder;
@@ -563,7 +558,7 @@ class LiveStreamPublisherManagerTest {
                 // Now we need to send a PersistedNotification, so that the
                 // latest known block number will be updated to 0L.
                 final PersistedNotification persistedNotification =
-                        new PersistedNotification(streamedBlockNumber, streamedBlockNumber, 0, BlockSource.PUBLISHER);
+                        new PersistedNotification(streamedBlockNumber, true, 0, BlockSource.PUBLISHER);
                 // Send the persisted notification to the manager.
                 toTest.handlePersisted(persistedNotification);
                 // Assert that the latest known block number is now 0L.
@@ -622,7 +617,7 @@ class LiveStreamPublisherManagerTest {
                 // We need to send a PersistedNotification first, so that the latest known block number will be updated
                 // to 0L.
                 final PersistedNotification persistedNotification =
-                        new PersistedNotification(streamedBlockNumber, streamedBlockNumber, 0, BlockSource.PUBLISHER);
+                        new PersistedNotification(streamedBlockNumber, true, 0, BlockSource.PUBLISHER);
                 // Send the persisted notification to the manager.
                 toTest.handlePersisted(persistedNotification);
                 // Assert that the latest known block number is now 0L.
@@ -920,7 +915,7 @@ class LiveStreamPublisherManagerTest {
              * {@link LiveStreamPublisherManager#handlePersisted(PersistedNotification)}
              * will send acknowledgement to registered publisher handlers
              * with the latest block number, i.e.
-             * {@link PersistedNotification#endBlockNumber()}.
+             * {@link PersistedNotification#blockNumber()}.
              */
             @Test
             @DisplayName("handlePersisted() sends acknowledgement with latest block number to all registered handlers")
@@ -930,7 +925,7 @@ class LiveStreamPublisherManagerTest {
                 // Build the notification with end block number 10L.
                 final long expectedLatestBlockNumber = 10L;
                 final PersistedNotification notification =
-                        new PersistedNotification(0L, expectedLatestBlockNumber, 0, BlockSource.PUBLISHER);
+                        new PersistedNotification(10L, true, 0, BlockSource.PUBLISHER);
                 // Call
                 toTest.handlePersisted(notification);
                 // Assert that the response pipeline has received a response with the expected latest block number.
@@ -951,7 +946,7 @@ class LiveStreamPublisherManagerTest {
              * This test aims to assert that the
              * {@link LiveStreamPublisherManager#handlePersisted(PersistedNotification)}
              * will set the latest known block number to the
-             * {@link PersistedNotification#endBlockNumber()}.
+             * {@link PersistedNotification#blockNumber()}.
              */
             @Test
             @DisplayName("handlePersisted() sets latest known block number to notification's endBlockNumber")
@@ -961,7 +956,7 @@ class LiveStreamPublisherManagerTest {
                 // Build the notification with end block number 10L.
                 final long expectedLatestBlockNumber = 10L;
                 final PersistedNotification notification =
-                        new PersistedNotification(0L, expectedLatestBlockNumber, 0, BlockSource.PUBLISHER);
+                        new PersistedNotification(10L, true, 0, BlockSource.PUBLISHER);
                 // Call
                 toTest.handlePersisted(notification);
                 // Assert that the latest known block number is now set to the notification's end block number.
@@ -1116,9 +1111,9 @@ class LiveStreamPublisherManagerTest {
      * facilities that can be used in tests.
      */
     private BlockNodeContext generateContext(final HistoricalBlockFacility historicalBlockFacility) {
-        final TestThreadPoolManager<BlockingExecutor> threadPoolManager =
+        final ThreadPoolManager threadPoolManager =
                 new TestThreadPoolManager<>(new BlockingExecutor(new LinkedBlockingQueue<>()));
-        final TestBlockMessagingFacility messagingFacility = new TestBlockMessagingFacility();
+        final BlockMessagingFacility messagingFacility = new TestBlockMessagingFacility();
         return generateContext(historicalBlockFacility, threadPoolManager, messagingFacility);
     }
 
@@ -1131,11 +1126,8 @@ class LiveStreamPublisherManagerTest {
             final HistoricalBlockFacility historicalBlockFacility,
             final ThreadPoolManager threadPoolManager,
             final BlockMessagingFacility blockMessagingFacility) {
-        final Configuration configuration = ConfigurationBuilder.create()
-                .withConfigDataType(PublisherConfig.class)
-                .withConfigDataType(NodeConfig.class)
-                .build();
-        final Metrics metrics = null;
+        final Configuration configuration = createTestConfiguration();
+        final Metrics metrics = TestUtils.createMetrics();
         final HealthFacility serverHealth = null;
         final ServiceLoaderFunction serviceLoader = null;
         return new BlockNodeContext(
@@ -1148,20 +1140,18 @@ class LiveStreamPublisherManagerTest {
                 threadPoolManager);
     }
 
+    private static Configuration createTestConfiguration() {
+        return TestUtils.createTestConfiguration()
+                .withConfigDataType(PublisherConfig.class)
+                .build();
+    }
+
     /**
      * This method generates a {@link MetricsHolder} instance with default
      * metrics that can be used in tests.
      */
     private MetricsHolder generateManagerMetrics() {
-        return new MetricsHolder(
-                new DefaultCounter(new Config("category", "name")),
-                new DefaultLongGauge(new LongGauge.Config("category", "name")),
-                new DefaultLongGauge(new LongGauge.Config("category", "name")),
-                new DefaultLongGauge(new LongGauge.Config("category", "name")),
-                new DefaultLongGauge(new LongGauge.Config("category", "name")),
-                new DefaultLongGauge(new LongGauge.Config("category", "name")),
-                new DefaultCounter(new Config("category", "name")),
-                new DefaultCounter(new Config("category", "name")));
+        return MetricsHolder.createMetrics(TestUtils.createMetrics());
     }
 
     /**
@@ -1169,14 +1159,6 @@ class LiveStreamPublisherManagerTest {
      * These counters could be queried to verify the metrics' states.
      */
     private PublisherHandler.MetricsHolder generateHandlerMetrics() {
-        return new PublisherHandler.MetricsHolder(
-                new DefaultCounter(new Config("category", "name")),
-                new DefaultCounter(new Config("category", "name")),
-                new DefaultCounter(new Config("category", "name")),
-                new DefaultCounter(new Config("category", "name")),
-                new DefaultCounter(new Config("category", "name")),
-                new DefaultCounter(new Config("category", "name")),
-                new DefaultCounter(new Config("category", "name")),
-                new DefaultCounter(new Config("category", "name")));
+        return PublisherHandler.MetricsHolder.createMetrics(TestUtils.createMetrics());
     }
 }

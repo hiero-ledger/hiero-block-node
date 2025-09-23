@@ -418,14 +418,14 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
     @Override
     public void handlePersisted(PersistedNotification notification) {
         if (notification.blockSource() == BlockSource.BACKFILL) {
-            BackfillType backfillType = getBackfillTypeForBlock(notification.endBlockNumber());
+            BackfillType backfillType = getBackfillTypeForBlock(notification.blockNumber());
 
             // Add more detailed logging for persistence notifications
             LOGGER.log(
                     TRACE,
                     "Received {0} persisted notification for block {1}",
                     backfillType,
-                    notification.endBlockNumber());
+                    notification.blockNumber());
 
             backfillBlocksBackfilled.increment();
             // decrement the latch for the backfill type

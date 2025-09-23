@@ -49,7 +49,7 @@ mainModuleInfo {
     runtimeOnly("com.swirlds.config.impl")
     runtimeOnly("io.helidon.logging.jul")
     runtimeOnly("com.hedera.pbj.grpc.helidon.config")
-    // List of all "plugin modules" we need at runtime.
+    // List of all "plugin modules" we might someday need at runtime.
     // In the future, we may get Gradle to automatically infer this block
     //   https://github.com/gradlex-org/java-module-dependencies/issues/174
     runtimeOnly("org.hiero.block.node.archive.s3cloud")
@@ -67,6 +67,7 @@ mainModuleInfo {
 
 testModuleInfo {
     requires("org.hiero.block.node.app.test.fixtures")
+
     requires("org.junit.jupiter.api")
     requires("org.junit.jupiter.params")
     requires("org.mockito")
