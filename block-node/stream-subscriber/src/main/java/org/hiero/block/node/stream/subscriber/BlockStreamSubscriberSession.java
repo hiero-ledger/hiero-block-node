@@ -2,8 +2,8 @@
 package org.hiero.block.node.stream.subscriber;
 
 import static java.lang.System.Logger.Level.DEBUG;
+import static java.lang.System.Logger.Level.INFO;
 import static java.lang.System.Logger.Level.TRACE;
-import static java.lang.System.Logger.Level.WARNING;
 import static java.util.Objects.requireNonNull;
 import static java.util.concurrent.locks.LockSupport.parkNanos;
 import static org.hiero.block.node.spi.BlockNodePlugin.UNKNOWN_BLOCK_NUMBER;
@@ -26,6 +26,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import org.hiero.block.api.SubscribeStreamRequest;
 import org.hiero.block.api.SubscribeStreamResponse;
+import org.hiero.block.api.SubscribeStreamResponse.Code;
 import org.hiero.block.internal.BlockItemSetUnparsed;
 import org.hiero.block.internal.BlockItemUnparsed;
 import org.hiero.block.internal.BlockUnparsed;
@@ -48,13 +49,43 @@ import org.hiero.block.node.spi.historicalblocks.BlockRangeSet;
  * This class is called from many threads from web server, the block messaging system and its own background historical
  * fetching thread. To make its state thread safe it uses synchronized methods around all entry points from other
  * threads (which are minimized to avoid potential for deadlock or contention). Currently only the close method is
- * synchronized.
+ * synchronized.<p>
+ * #### Request Validity<br/>
+ * The request is validated when the session starts, if it is invalid, the session is closed immediately with an
+ * appropriate error code.<br/>
+ * A valid request is one where:
+ * <ul>
+ *     <li>The request start and end are both equal to -1L: request is for livestream, wherever it may be.</li>
+ *     <li>The request start is -1L, and the end is greater or equal to 0L: request is for all blocks from the first available up to and including the end block.</li>
+ *     <li>The request start is greater or equal to 0L, and the end is -1L: request is for all blocks from the start block onwards indefinitely.</li>
+ *     <li>The request start is greater or equal to 0L, and the end is greater or equal to start: request is for all blocks from the start block up to and including the end block.</li>
+ * </ul>
+ * #### Fulfilling the Request<br/>
+ * After validating the request, the session determines if it can fulfill the request. If it cannot, it closes
+ * immediately with an appropriate error code.<br/>
+ * In most cases, we need to know which is the first available block (this means a block that the node can provide
+ * historically) and also the latest known block (the latest block the node can provide, be that from history, or
+ * available in the live stream).<br/>
+ * The first available block is needed mostly because we need to have a reference point as to what we can supply,
+ * because if a request starts with block 10 for instance, and we have no blocks historically available, we cannot
+ * determine if the first block available will be less than or equal to 10, thus we cannot determine if we can
+ * fulfill the request. Such cases should be very rare.<br/>
+ * The latest known block is mostly needed because a request might be with a start of a future block. This means that
+ * the block node does not yet have the block available, be that in history or live stream. A request that is too far
+ * into the future cannot be fulfilled.<br/>
+ * A request can be fulfilled if:
+ * <ul>
+ *     <li>The request is for live blocks (start and end equal to -1L). This can always be fulfilled.</li>
+ *     <li>The request is for start of -1L (first available), and end greater or equal to 0L, and the first available block is less than or equal to end.</li>
+ *     <li>The request is for start greater or equal to 0L, and end equal to -1L, and the first available block is less than or equal to start, and start is within the permitted future range.</li>
+ *     <li>The request is for start greater or equal to 0L, and end greater or equal to start, and the first available block is less than or equal to start, and start is within the permitted future range.</li>
+ * </ul>
  */
 public class BlockStreamSubscriberSession implements Callable<BlockStreamSubscriberSession> {
     /** The logger for this class. */
     private final Logger LOGGER = System.getLogger(getClass().getName());
 
-    /** The sentinel value for the initial state of the next block to send and latest live stream*/
+    /** The sentinel value for the initial state of the next block to send and latest live stream */
     private static final long INITIAL_STATE_SENTINEL = UNKNOWN_BLOCK_NUMBER - 1L;
     /** The maximum time units to wait for a live block to be available */
     private static final long MAX_LIVE_POLL_DELAY = 500;
@@ -65,16 +96,16 @@ public class BlockStreamSubscriberSession implements Callable<BlockStreamSubscri
 
     /** The pipeline to send responses to the client */
     private final Pipeline<? super SubscribeStreamResponseUnparsed> responsePipeline;
-    /** The configuration for the "owning" plugin */
-    private final SubscriberConfig pluginConfiguration;
-    /** The name of this handler, used in toString and for testing */
-    private final String handlerName;
     /** A blocking queue to send blocks from the live handler to the session. */
     private final BlockingQueue<BlockItems> liveBlockQueue;
     /** A lock to hold the pipeline thread until this session is ready */
     private final CountDownLatch sessionReadyLatch;
     /** A flag indicating if the session should be interrupted */
     private final AtomicBoolean interruptedStream = new AtomicBoolean(false);
+    /** The latest block number seen in the live stream */
+    private final AtomicLong latestLiveStreamBlock;
+    /** The next block number to send to the client */
+    private final AtomicLong nextBlockToSend;
     /** The context for this session */
     private final SessionContext sessionContext;
     /** The context of the block node */
@@ -95,30 +126,23 @@ public class BlockStreamSubscriberSession implements Callable<BlockStreamSubscri
     /**
      * Constructor for the BlockStreamSubscriberSession class.
      *
-     * @param clientId The client id for this session
+     * @param sessionContext The context for this session
      * @param responsePipeline The pipeline to send responses to the client
      * @param context The context for the block node
      */
     public BlockStreamSubscriberSession(
-            final long clientId,
-            @NonNull final SubscribeStreamRequest request,
+            @NonNull final SessionContext sessionContext,
             @NonNull final Pipeline<? super SubscribeStreamResponseUnparsed> responsePipeline,
             @NonNull final BlockNodeContext context,
             @NonNull final CountDownLatch sessionReadyLatch) {
-        this.handlerName = "Live stream client " + clientId;
         this.responsePipeline = requireNonNull(responsePipeline);
         this.sessionReadyLatch = requireNonNull(sessionReadyLatch);
         this.blockNodeContext = requireNonNull(context);
-        this.pluginConfiguration = context.configuration().getConfigData(SubscriberConfig.class);
-        this.sessionContext = new SessionContext(
-                clientId,
-                request.startBlockNumber(),
-                request.endBlockNumber(),
-                new AtomicLong(INITIAL_STATE_SENTINEL),
-                new AtomicLong(INITIAL_STATE_SENTINEL));
-        this.liveBlockQueue = new ArrayBlockingQueue<>(pluginConfiguration.liveQueueSize());
-        this.liveBlockHandler =
-                new LiveBlockHandler(liveBlockQueue, this.sessionContext.latestLiveStreamBlock, handlerName);
+        this.sessionContext = requireNonNull(sessionContext);
+        this.latestLiveStreamBlock = new AtomicLong(INITIAL_STATE_SENTINEL);
+        this.nextBlockToSend = new AtomicLong(INITIAL_STATE_SENTINEL);
+        this.liveBlockQueue = new ArrayBlockingQueue<>(sessionContext.subscriberConfig.liveQueueSize());
+        this.liveBlockHandler = new LiveBlockHandler(liveBlockQueue, latestLiveStreamBlock, sessionContext.handlerName);
     }
 
     /**
@@ -126,23 +150,37 @@ public class BlockStreamSubscriberSession implements Callable<BlockStreamSubscri
      * request values and state values that are updated as the session
      * progresses.
      */
-    private record SessionContext(
+    record SessionContext(
+            @NonNull SubscriberConfig subscriberConfig,
+            @NonNull String handlerName,
             long clientId,
             long firstRequestedBlock,
-            long lastRequestedBlock,
-            AtomicLong latestLiveStreamBlock,
-            AtomicLong nextBlockToSend) {
-        private SessionContext(
+            long lastRequestedBlock) {
+        SessionContext(
+                @NonNull final SubscriberConfig subscriberConfig,
+                @NonNull final String handlerName,
                 final long clientId,
                 final long firstRequestedBlock,
-                final long lastRequestedBlock,
-                @NonNull final AtomicLong latestLiveStreamBlock,
-                @NonNull final AtomicLong nextBlockToSend) {
+                final long lastRequestedBlock) {
+            this.subscriberConfig = requireNonNull(subscriberConfig);
+            this.handlerName = requireNonNull(handlerName);
             this.clientId = clientId;
             this.firstRequestedBlock = firstRequestedBlock;
             this.lastRequestedBlock = lastRequestedBlock;
-            this.latestLiveStreamBlock = requireNonNull(latestLiveStreamBlock);
-            this.nextBlockToSend = requireNonNull(nextBlockToSend);
+        }
+
+        /**
+         * This method creates a valid SessionContext from the provided
+         * arguments.
+         */
+        static SessionContext create(
+                final long clientId,
+                @NonNull final SubscribeStreamRequest request,
+                @NonNull final BlockNodeContext context) {
+            final String handlerName = "Live stream client " + clientId;
+            final SubscriberConfig subscriberConfig = context.configuration().getConfigData(SubscriberConfig.class);
+            return new SessionContext(
+                    subscriberConfig, handlerName, clientId, request.startBlockNumber(), request.endBlockNumber());
         }
     }
 
@@ -156,21 +194,22 @@ public class BlockStreamSubscriberSession implements Callable<BlockStreamSubscri
                 // register us to listen to block items from the block messaging system
                 blockNodeContext
                         .blockMessaging()
-                        .registerNoBackpressureBlockItemHandler(liveBlockHandler, false, handlerName);
+                        .registerNoBackpressureBlockItemHandler(liveBlockHandler, false, sessionContext.handlerName);
                 if (canFulfillRequest()) {
                     // the request can be fulfilled, so we can start sending blocks
                     sessionReadyLatch.countDown();
                     // Send blocks forever if requested, otherwise send until we reach the requested end block
                     // or the stream is interrupted.
                     while (!(interruptedStream.get() || allRequestedBlocksSent())) {
-                        if (sessionContext.nextBlockToSend.get() < UNKNOWN_BLOCK_NUMBER) {
+                        if (nextBlockToSend.get() < UNKNOWN_BLOCK_NUMBER) {
                             // This should never happen, if it does, this means that we have failed to set
                             // a value for the next block to send, this is most likely a failure in handling.
                             // Throwing will result in a catch and the session will be closed with the cause.
-                            final String message = "Unexpected nextBlockToSend sentinel value: %d"
-                                    .formatted(sessionContext.nextBlockToSend.get());
-                            throw new IllegalStateException(message);
-                        } else if (sessionContext.nextBlockToSend.get() == UNKNOWN_BLOCK_NUMBER) {
+                            final String message = "Unexpected nextBlockToSend sentinel value: %d for session: %s"
+                                    .formatted(nextBlockToSend.get(), sessionContext);
+                            LOGGER.log(INFO, message);
+                            close(Code.ERROR);
+                        } else if (nextBlockToSend.get() == UNKNOWN_BLOCK_NUMBER) {
                             // In this case, we want to start live, the request
                             // was start and end = -1 and -1
                             // We expect that the next block to send will be set
@@ -191,12 +230,12 @@ public class BlockStreamSubscriberSession implements Callable<BlockStreamSubscri
                     close(SubscribeStreamResponse.Code.SUCCESS);
                 } else {
                     // We've failed to send all requested blocks.
-                    close(SubscribeStreamResponse.Code.SUCCESS); // todo Need an "INCOMPLETE" code...
+                    close(SubscribeStreamResponse.Code.ERROR);
                 }
             }
         } catch (final InterruptedException e) {
             sessionFailedCause = e;
-            close(SubscribeStreamResponse.Code.SUCCESS); // todo Need an "INCOMPLETE" code...
+            close(SubscribeStreamResponse.Code.SUCCESS);
             Thread.currentThread().interrupt();
         } catch (final RuntimeException | ParseException e) {
             sessionFailedCause = e;
@@ -223,7 +262,7 @@ public class BlockStreamSubscriberSession implements Callable<BlockStreamSubscri
      * determining that the request is for live blocks only!
      */
     private void resolveLiveNextBlockToSend() {
-        while (sessionContext.nextBlockToSend.get() == UNKNOWN_BLOCK_NUMBER) {
+        while (nextBlockToSend.get() == UNKNOWN_BLOCK_NUMBER) {
             final BlockItems head = liveBlockQueue.peek();
             if (head != null) {
                 if (!head.isStartOfNewBlock()) {
@@ -236,10 +275,11 @@ public class BlockStreamSubscriberSession implements Callable<BlockStreamSubscri
                     // We have found the start of a new block,
                     // so we can set the next block to send
                     // to this block number.
-                    sessionContext.nextBlockToSend.set(head.blockNumber());
+                    final long nextBlock = head.blockNumber();
+                    nextBlockToSend.set(nextBlock);
                     final String message =
                             "Resolved next block to send for client %d which requested the live stream to %d";
-                    LOGGER.log(TRACE, message);
+                    LOGGER.log(TRACE, message.formatted(sessionContext.clientId, nextBlock));
                 }
             } else {
                 awaitNewLiveEntries();
@@ -248,7 +288,7 @@ public class BlockStreamSubscriberSession implements Callable<BlockStreamSubscri
     }
 
     private long getLatestKnownBlock() {
-        return Math.max(getLatestHistoricalBlock(), this.sessionContext.latestLiveStreamBlock.get());
+        return Math.max(getLatestHistoricalBlock(), latestLiveStreamBlock.get());
     }
 
     private long getLatestHistoricalBlock() {
@@ -288,6 +328,12 @@ public class BlockStreamSubscriberSession implements Callable<BlockStreamSubscri
     }
 
     /**
+     * A message to be logged when a request cannot be fulfilled.
+     */
+    private static final String CANNOT_FULFILL_MESSAGE =
+            "Request of client %d: {start=%d, end=%d, firstAvailableBlock=%d, latestKnownBlock=%d, lastPermittedStart=%d} cannot be fulfilled";
+
+    /**
      * Verify if we can fulfill the request.
      * To be called only after validating the request if the request is valid!
      * After validating the request, we need to determine if we can fulfill it.
@@ -315,23 +361,20 @@ public class BlockStreamSubscriberSession implements Callable<BlockStreamSubscri
                 blockNodeContext.historicalBlockProvider().availableBlocks();
         final long firstAvailableBlock = availableBlocks.min();
         final long latestKnownBlock = getLatestKnownBlock();
-        final long lastPermittedStart = latestKnownBlock + pluginConfiguration.maximumFutureRequest();
+        final long lastPermittedStart = latestKnownBlock + sessionContext.subscriberConfig.maximumFutureRequest();
         Logger.Level logLevel = TRACE;
-        String logMessage = ("Request of client %d: "
-                        + "{start=%d, end=%d, firstAvailableBlock=%d, latestKnownBlock=%d, lastPermittedStart=%d} "
-                        + "cannot be fulfilled")
-                .formatted(
-                        clientId,
-                        firstRequestedBlock,
-                        lastRequestedBlock,
-                        firstAvailableBlock,
-                        latestKnownBlock,
-                        lastPermittedStart);
+        String logMessage = CANNOT_FULFILL_MESSAGE.formatted(
+                clientId,
+                firstRequestedBlock,
+                lastRequestedBlock,
+                firstAvailableBlock,
+                latestKnownBlock,
+                lastPermittedStart);
         boolean canFulfillRequest = false;
         if (firstRequestedBlock == UNKNOWN_BLOCK_NUMBER && firstRequestedBlock == lastRequestedBlock) {
             // stream everything live, as soon as it arrives
             // set the next block to send to the UNKNOWN_BLOCK_NUMBER
-            sessionContext.nextBlockToSend.set(UNKNOWN_BLOCK_NUMBER);
+            nextBlockToSend.set(UNKNOWN_BLOCK_NUMBER);
             canFulfillRequest = true;
             logMessage = "Client %d has started streaming live blocks".formatted(clientId);
         } else if (firstRequestedBlock == UNKNOWN_BLOCK_NUMBER && lastRequestedBlock > UNKNOWN_BLOCK_NUMBER) {
@@ -339,7 +382,7 @@ public class BlockStreamSubscriberSession implements Callable<BlockStreamSubscri
             // if the block node has no blocks, or the first available block is
             // greater than lastRequestedBlock, then we cannot fulfill this request
             if (firstAvailableBlock > UNKNOWN_BLOCK_NUMBER && firstAvailableBlock <= lastRequestedBlock) {
-                sessionContext.nextBlockToSend.set(firstAvailableBlock);
+                nextBlockToSend.set(firstAvailableBlock);
                 canFulfillRequest = true;
                 logMessage = "Client %d has started streaming blocks from firstAvailable=%d up to %d"
                         .formatted(clientId, firstAvailableBlock, lastRequestedBlock);
@@ -354,7 +397,7 @@ public class BlockStreamSubscriberSession implements Callable<BlockStreamSubscri
             // if the block node has no blocks, or the first available block is
             // greater than firstRequestedBlock, then we cannot fulfill this request
             if (firstAvailableBlock > UNKNOWN_BLOCK_NUMBER && firstAvailableBlock <= firstRequestedBlock) {
-                sessionContext.nextBlockToSend.set(firstRequestedBlock);
+                nextBlockToSend.set(firstRequestedBlock);
                 canFulfillRequest = true;
                 logMessage = "Client %d has started streaming blocks from firstRequested=%d indefinitely"
                         .formatted(clientId, firstRequestedBlock);
@@ -366,12 +409,12 @@ public class BlockStreamSubscriberSession implements Callable<BlockStreamSubscri
             // we will supply them live as they arrive
             if (firstRequestedBlock > lastRequestedBlock) {
                 // this should never happen as the request should have been rejected in validation
-                logLevel = WARNING;
+                logLevel = INFO;
                 logMessage =
                         "Client %d requested start=%d and end=%d, but start cannot be less than end when both are specified"
                                 .formatted(clientId, firstRequestedBlock, lastRequestedBlock);
             } else if (firstAvailableBlock > UNKNOWN_BLOCK_NUMBER && firstAvailableBlock <= firstRequestedBlock) {
-                sessionContext.nextBlockToSend.set(firstRequestedBlock);
+                nextBlockToSend.set(firstRequestedBlock);
                 canFulfillRequest = true;
                 logMessage =
                         "Client %d has started streaming blocks in range from firstRequested=%d to lastRequested=%d"
@@ -379,10 +422,10 @@ public class BlockStreamSubscriberSession implements Callable<BlockStreamSubscri
             }
         } else {
             // this should never happen as the request should have been rejected in validation
-            logLevel = WARNING;
+            logLevel = INFO;
             logMessage = "Unexpected case in canFulfillRequest: %s, firstAvailableBlock=%d"
                     .formatted(sessionContext, firstAvailableBlock);
-            // @todo(1374) consider to set the code to close with to ERROR here instead of NOT_AVAILABLE
+            // @todo(1673) consider to set the code to close with to ERROR here instead of NOT_AVAILABLE
         }
         if (!canFulfillRequest) {
             close(SubscribeStreamResponse.Code.NOT_AVAILABLE);
@@ -398,7 +441,6 @@ public class BlockStreamSubscriberSession implements Callable<BlockStreamSubscri
             // We need to send historical blocks.
             // We will only send one block at a time to keep things "smooth".
             // Start by getting a block accessor for the next block to send from the historical provider.
-            final AtomicLong nextBlockToSend = sessionContext.nextBlockToSend;
             final BlockAccessor nextBlockAccessor =
                     blockNodeContext.historicalBlockProvider().block(nextBlockToSend.get());
             if (nextBlockAccessor != null) {
@@ -451,15 +493,15 @@ public class BlockStreamSubscriberSession implements Callable<BlockStreamSubscri
      * and the latest live block higher than the UNKNOWN_BLOCK_NUMBER sentinel.
      */
     private boolean hasRunPastLatestLive() {
-        return sessionContext.latestLiveStreamBlock.get() < sessionContext.nextBlockToSend.get()
-                && sessionContext.latestLiveStreamBlock.get() > UNKNOWN_BLOCK_NUMBER;
+        return latestLiveStreamBlock.get() < nextBlockToSend.get()
+                && latestLiveStreamBlock.get() > UNKNOWN_BLOCK_NUMBER;
     }
 
     private boolean nextBatchIsLive() {
         final BlockItems queueHead = liveBlockQueue.peek();
-        if (queueHead != null && sessionContext.latestLiveStreamBlock.get() >= sessionContext.nextBlockToSend.get()) {
-            // @todo(1374) is the below expression correct?
-            return !queueHead.isStartOfNewBlock() || queueHead.blockNumber() == sessionContext.nextBlockToSend.get();
+        if (queueHead != null && latestLiveStreamBlock.get() >= nextBlockToSend.get()) {
+            // @todo(1673) is the below expression correct?
+            return !queueHead.isStartOfNewBlock() || queueHead.blockNumber() == nextBlockToSend.get();
         } else {
             return false;
         }
@@ -475,7 +517,7 @@ public class BlockStreamSubscriberSession implements Callable<BlockStreamSubscri
 
     private boolean allRequestedBlocksSent() {
         return sessionContext.lastRequestedBlock != UNKNOWN_BLOCK_NUMBER
-                && sessionContext.nextBlockToSend.get() > sessionContext.lastRequestedBlock;
+                && nextBlockToSend.get() > sessionContext.lastRequestedBlock;
     }
 
     /**
@@ -501,7 +543,6 @@ public class BlockStreamSubscriberSession implements Callable<BlockStreamSubscri
             // the requested start block is in the future), don't send this block, in that case.
             // If behind, remove that item from the queue; if ahead leave it in the queue.
             final long clientId = sessionContext.clientId;
-            final AtomicLong nextBlockToSend = sessionContext.nextBlockToSend;
             if (blockItems.isStartOfNewBlock() && blockItems.blockNumber() < nextBlockToSend.get()) {
                 LOGGER.log(Level.TRACE, "Skipping block {0} for client {1}", blockItems.blockNumber(), clientId);
                 skipCurrentBlockInQueue(blockItems);
@@ -560,7 +601,7 @@ public class BlockStreamSubscriberSession implements Callable<BlockStreamSubscri
             if (queueHead != null && queueHead.isStartOfNewBlock()) {
                 // After this loop, the head of the queue must be the start of a
                 // new block or empty (and it really _should_ never be empty).
-                while (queueHead.blockNumber() > nextBlockNumber && queueFull()) {
+                while (queueHead != null && queueHead.blockNumber() > nextBlockNumber && queueFull()) {
                     removeHeadBlockFromQueue();
                     queueHead = liveBlockQueue.peek();
                 }
@@ -569,7 +610,7 @@ public class BlockStreamSubscriberSession implements Callable<BlockStreamSubscri
     }
 
     private boolean queueFull() {
-        return liveBlockQueue.remainingCapacity() <= pluginConfiguration.minimumLiveQueueCapacity();
+        return liveBlockQueue.remainingCapacity() <= sessionContext.subscriberConfig.minimumLiveQueueCapacity();
     }
 
     /**
@@ -625,7 +666,6 @@ public class BlockStreamSubscriberSession implements Callable<BlockStreamSubscri
 
     /**
      * Get the exception that caused this session to fail.
-     *
      * This is package scope so that the plugin can read it.
      *
      * @return The exception that caused this session to fail
@@ -645,12 +685,12 @@ public class BlockStreamSubscriberSession implements Callable<BlockStreamSubscri
 
     @Override
     public String toString() {
-        return handlerName;
+        return sessionContext.handlerName;
     }
 
     // Visible for testing.
     long getNextBlockToSend() {
-        return sessionContext.nextBlockToSend.longValue();
+        return nextBlockToSend.longValue();
     }
 
     /**
@@ -667,15 +707,28 @@ public class BlockStreamSubscriberSession implements Callable<BlockStreamSubscri
         blockNodeContext.blockMessaging().unregisterBlockItemHandler(liveBlockHandler);
         // send an end stream response, if we have a code to set and are not interrupted.
         if (!interruptedStream.get() && endStreamResponseCode != null) {
-            final Builder response =
-                    SubscribeStreamResponseUnparsed.newBuilder().status(endStreamResponseCode);
-            responsePipeline.onNext(response.build());
-            // @todo(1374) extract onNext calls into a method and handle exceptions, closing if needed, because
-            //   subscriber might have abruptly ended stream
+            try {
+                // attempt to send the end stream response
+                final Builder response =
+                        SubscribeStreamResponseUnparsed.newBuilder().status(endStreamResponseCode);
+                responsePipeline.onNext(response.build());
+            } catch (final UncheckedIOException e) {
+                // Unfortunately this is the "standard" way to end a stream, so log
+                // at debug rather than emitting noise in the logs.
+                // Also, this confuses everyone, they all see this debug log and
+                // assume the node crashed, so we must not print a stack trace.
+                final String messageFormat = "Client connection is already closed %d: %s";
+                final String message = messageFormat.formatted(sessionContext.clientId, e.getMessage());
+                LOGGER.log(Level.DEBUG, message);
+            } catch (final RuntimeException e) {
+                // If the response cannot be sent, log and suppress this exception.
+                final String message = "Suppressed client error when sending end stream response for client %d%n%s";
+                LOGGER.log(Level.DEBUG, message.formatted(sessionContext.clientId, e.getMessage()), e);
+            }
         }
         try {
             responsePipeline.onComplete();
-        } catch (RuntimeException e) {
+        } catch (final RuntimeException e) {
             // If the pipeline cannot be completed, log and suppress this exception.
             final String message = "Suppressed client error when \"completing\" stream for client %d%n%s";
             LOGGER.log(Level.DEBUG, message.formatted(sessionContext.clientId, e.getMessage()), e);
@@ -687,7 +740,6 @@ public class BlockStreamSubscriberSession implements Callable<BlockStreamSubscri
     private void sendOneBlockItemSet(final BlockUnparsed nextBlock) throws ParseException {
         final BlockHeader header =
                 BlockHeader.PROTOBUF.parse(nextBlock.blockItems().getFirst().blockHeader());
-        final AtomicLong nextBlockToSend = sessionContext.nextBlockToSend;
         if (header.number() == nextBlockToSend.get()) {
             sendOneBlockItemSet(nextBlock.blockItems());
         } else {
@@ -758,6 +810,13 @@ public class BlockStreamSubscriberSession implements Callable<BlockStreamSubscri
 
         @Override
         public void handleBlockItemsReceived(@NonNull final BlockItems blockItems) {
+            // @todo(1673) consider to also add a check for:
+            //    blockItems.blockNumber() > latestLiveStreamBlock.get() && blockItems.isStartOfNewBlock()
+            //    because if this is not the start of a new block, the queue will be trimmed
+            //    this should improve accuracy when determining if we can fulfill the request, but
+            //    we should also be careful and think about how this change would affect the session
+            //    as a whole and we need to ensure that such a check is correct and make amends
+            //    elsewhere if needed.
             if (blockItems.blockNumber() > latestLiveStreamBlock.get()) {
                 latestLiveStreamBlock.set(blockItems.blockNumber());
             }

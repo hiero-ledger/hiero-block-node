@@ -26,7 +26,7 @@ public class TestResponsePipeline<R> implements Pipeline<R> {
     }
 
     @Override
-    public void onNext(final R item) throws RuntimeException {
+    public void onNext(final R item) {
         onNextCalls.add(Objects.requireNonNull(item));
     }
 

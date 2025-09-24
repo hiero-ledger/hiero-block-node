@@ -12,8 +12,8 @@ import org.hiero.block.internal.BlockItemUnparsed;
  * This is used to send block items throughout the server.The parsed block number for the start of a new block, is
  * included to avoid every consumer having to parse the block number from the block items.
  *
- * @param blockItems the immutable list of block items to handle
- * @param blockNumber of the block the items are of
+ * @param blockItems an immutable list of block items to handle.
+ * @param blockNumber the number of the block containing these items.
  */
 public record BlockItems(List<BlockItemUnparsed> blockItems, long blockNumber) {
     public BlockItems {
@@ -21,7 +21,7 @@ public record BlockItems(List<BlockItemUnparsed> blockItems, long blockNumber) {
         if (blockItems.isEmpty()) {
             throw new IllegalArgumentException("Block items cannot be empty");
         }
-        if (blockNumber != UNKNOWN_BLOCK_NUMBER && blockNumber < 0) {
+        if (blockNumber < 0 && blockNumber != UNKNOWN_BLOCK_NUMBER) {
             throw new IllegalArgumentException("Block number cannot be negative unless it is UNKNOWN_BLOCK_NUMBER");
         }
     }

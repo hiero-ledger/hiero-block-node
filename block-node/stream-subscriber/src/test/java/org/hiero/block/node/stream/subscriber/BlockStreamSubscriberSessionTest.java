@@ -21,6 +21,7 @@ import org.hiero.block.node.app.fixtures.plugintest.TestBlockMessagingFacility;
 import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.BlockNodePlugin;
 import org.hiero.block.node.spi.historicalblocks.BlockRangeSet;
+import org.hiero.block.node.stream.subscriber.BlockStreamSubscriberSession.SessionContext;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -34,9 +35,6 @@ import org.junit.jupiter.params.provider.ValueSource;
  */
 @DisplayName("BlockStreamSubscriberSession Tests")
 class BlockStreamSubscriberSessionTest {
-    // PARAMETER SOURCES
-    private static final String INVALID_REQUESTS_SOURCE =
-            "org.hiero.block.node.stream.subscriber.BlockStreamSubscriberSessionTest#invalidRequests";
     // EXTRACTORS
     private static final Function<SubscribeStreamResponseUnparsed, ResponseOneOfType> responseTypeExtractor =
             response -> response.response().kind();
@@ -48,8 +46,6 @@ class BlockStreamSubscriberSessionTest {
     private long clientId;
     /** Response pipeline for the session. */
     private TestResponsePipeline<SubscribeStreamResponseUnparsed> responsePipeline;
-    /** Messaging facility for the block node context. */
-    private TestBlockMessagingFacility messagingFacility;
     /** Historical block facility for the block node context. */
     private SimpleInMemoryHistoricalBlockFacility historicalBlockFacility;
     /** Default subscriber configuration for the block node context. */
@@ -66,12 +62,12 @@ class BlockStreamSubscriberSessionTest {
     void setup() {
         clientId = 0L;
         responsePipeline = new TestResponsePipeline<>();
-        messagingFacility = new TestBlockMessagingFacility();
         historicalBlockFacility = new SimpleInMemoryHistoricalBlockFacility();
         final Configuration configuration = ConfigurationBuilder.create()
                 .withConfigDataType(SubscriberConfig.class)
                 .build();
         defaultSubscriberConfig = configuration.getConfigData(SubscriberConfig.class);
+        final TestBlockMessagingFacility messagingFacility = new TestBlockMessagingFacility();
         blockNodeContext = generateContext(configuration, messagingFacility, historicalBlockFacility);
         sessionReadyLatch = new CountDownLatch(1);
     }
@@ -79,21 +75,23 @@ class BlockStreamSubscriberSessionTest {
     /**
      * Tests for the constructor of {@link BlockStreamSubscriberSession}.
      */
+    @SuppressWarnings("all")
     @Nested
     @DisplayName("Constructor Tests")
     class ConstructorTests {
-        /** Valid request. */
-        private SubscribeStreamRequest validRequest;
+        /** Valid session context. */
+        private SessionContext sessionContext;
 
         /**
          * Environment setup before each test.
          */
         @BeforeEach
         void setup() {
-            validRequest = SubscribeStreamRequest.newBuilder()
+            final SubscribeStreamRequest validRequest = SubscribeStreamRequest.newBuilder()
                     .startBlockNumber(-1L)
                     .endBlockNumber(-1L)
                     .build();
+            sessionContext = SessionContext.create(clientId, validRequest, blockNodeContext);
         }
 
         /**
@@ -105,19 +103,20 @@ class BlockStreamSubscriberSessionTest {
         void testValidParameters() {
             assertThatNoException()
                     .isThrownBy(() -> new BlockStreamSubscriberSession(
-                            clientId, validRequest, responsePipeline, blockNodeContext, sessionReadyLatch));
+                            sessionContext, responsePipeline, blockNodeContext, sessionReadyLatch));
         }
 
         /**
          * This test aims to assert that the constructor throws a
-         * {@link NullPointerException} when provided with a null request.
+         * {@link NullPointerException} when provided with a null session
+         * context.
          */
         @Test
-        @DisplayName("Test Constructor with Null Request")
+        @DisplayName("Test Constructor with Null Session Context")
         void testNullRequest() {
             assertThatNullPointerException()
                     .isThrownBy(() -> new BlockStreamSubscriberSession(
-                            clientId, null, responsePipeline, blockNodeContext, sessionReadyLatch));
+                            null, responsePipeline, blockNodeContext, sessionReadyLatch));
         }
 
         /**
@@ -130,7 +129,7 @@ class BlockStreamSubscriberSessionTest {
         void testNullResponsePipeline() {
             assertThatNullPointerException()
                     .isThrownBy(() -> new BlockStreamSubscriberSession(
-                            clientId, validRequest, null, blockNodeContext, sessionReadyLatch));
+                            sessionContext, null, blockNodeContext, sessionReadyLatch));
         }
 
         /**
@@ -143,7 +142,7 @@ class BlockStreamSubscriberSessionTest {
         void testNullBlockNodeContext() {
             assertThatNullPointerException()
                     .isThrownBy(() -> new BlockStreamSubscriberSession(
-                            clientId, validRequest, responsePipeline, null, sessionReadyLatch));
+                            sessionContext, responsePipeline, null, sessionReadyLatch));
         }
 
         /**
@@ -155,8 +154,8 @@ class BlockStreamSubscriberSessionTest {
         @DisplayName("Test Constructor with Null Session Ready Latch")
         void testNullSessionReadyLatch() {
             assertThatNullPointerException()
-                    .isThrownBy(() -> new BlockStreamSubscriberSession(
-                            clientId, validRequest, responsePipeline, blockNodeContext, null));
+                    .isThrownBy(() ->
+                            new BlockStreamSubscriberSession(sessionContext, responsePipeline, blockNodeContext, null));
         }
     }
 
@@ -372,7 +371,7 @@ class BlockStreamSubscriberSessionTest {
             /**
              * This test aims to assert that the
              * {@link BlockStreamSubscriberSession#validateRequest} method
-             * returns {@code false} if the request is invalid due to start
+             * returns {@code false} if the request is invalid due to end
              * being lower than
              * {@value org.hiero.block.node.spi.BlockNodePlugin#UNKNOWN_BLOCK_NUMBER}.
              * It is also expected that a response with status code
@@ -611,11 +610,9 @@ class BlockStreamSubscriberSessionTest {
             @DisplayName("Test Can Fulfill Request - Positive: start == -1L && end >= 0L")
             void testEarliestAvailableClosedRange(final long firstAvailableBlock) {
                 // First we create the request
-                final long startBlockNumber = -1L;
-                final long endBlockNumber = 10L;
                 final SubscribeStreamRequest request = SubscribeStreamRequest.newBuilder()
-                        .startBlockNumber(startBlockNumber)
-                        .endBlockNumber(endBlockNumber)
+                        .startBlockNumber(-1L)
+                        .endBlockNumber(10L)
                         .build();
                 // Then, we add some blocks to the historical block facility
                 final SimpleBlockRangeSet temporaryAvailableBlocks = new SimpleBlockRangeSet();
@@ -740,7 +737,7 @@ class BlockStreamSubscriberSessionTest {
              * {@link BlockStreamSubscriberSession#canFulfillRequest} method
              * returns {@code false} if the request is valid and is for a
              * closed range of blocks, i.e. when both start and end are whole
-             * numbers and end is greater than start, but the blocks are not
+             * numbers and end is greater than start, but no blocks are
              * available. It is also expected that a response with status code
              * {@link Code#NOT_AVAILABLE} is sent to the subscriber. The
              * session and the connection with the subscriber is expected to be
@@ -748,7 +745,7 @@ class BlockStreamSubscriberSessionTest {
              */
             @Test
             @DisplayName("Test Can Fulfill Request - Negative: start >= 0 && end > start, blocks not available")
-            void testClosedRangeBlocksNotAvailable() {
+            void testClosedRangeNoBlocksAvailable() {
                 // First we create the request
                 final SubscribeStreamRequest request = SubscribeStreamRequest.newBuilder()
                         .startBlockNumber(0L)
@@ -1119,7 +1116,7 @@ class BlockStreamSubscriberSessionTest {
              * and the connection with the subscriber is expected to be closed.
              */
             @ParameterizedTest
-            @MethodSource(INVALID_REQUESTS_SOURCE)
+            @MethodSource("invalidRequests")
             @DisplayName("Test Can Fulfill Request - Negative: Invalid Request")
             void testCanFulfillRequestInvalidRequest(final SubscribeStreamRequest request) {
                 // We add some blocks to the historical block facility, starting from block number 5
@@ -1149,6 +1146,28 @@ class BlockStreamSubscriberSessionTest {
                 assertThat(responsePipeline.getClientEndStreamCalls()).hasValue(0);
                 assertThat(responsePipeline.getOnSubscriptionCalls()).isEmpty();
                 assertThat(responsePipeline.getOnErrorCalls()).isEmpty();
+            }
+
+            /**
+             * All types of invalid requests. Used in parameterized tests.
+             */
+            private static Stream<SubscribeStreamRequest> invalidRequests() {
+                return Stream.of(
+                        // start < -1L
+                        SubscribeStreamRequest.newBuilder()
+                                .startBlockNumber(-2L)
+                                .endBlockNumber(-1L)
+                                .build(),
+                        // end < -1L
+                        SubscribeStreamRequest.newBuilder()
+                                .startBlockNumber(-1L)
+                                .endBlockNumber(-2L)
+                                .build(),
+                        // end >= 0 && end < start, both whole numbers
+                        SubscribeStreamRequest.newBuilder()
+                                .startBlockNumber(10L)
+                                .endBlockNumber(5L)
+                                .build());
             }
         }
     }
@@ -1195,28 +1214,9 @@ class BlockStreamSubscriberSessionTest {
      */
     private BlockStreamSubscriberSession generateSession(final SubscribeStreamRequest request) {
         return new BlockStreamSubscriberSession(
-                clientId, request, responsePipeline, blockNodeContext, sessionReadyLatch);
-    }
-
-    /**
-     * All types of invalid requests. Used in parameterized tests.
-     */
-    static Stream<SubscribeStreamRequest> invalidRequests() {
-        return Stream.of(
-                // start < -1L
-                SubscribeStreamRequest.newBuilder()
-                        .startBlockNumber(-2L)
-                        .endBlockNumber(-1L)
-                        .build(),
-                // end < -1L
-                SubscribeStreamRequest.newBuilder()
-                        .startBlockNumber(-1L)
-                        .endBlockNumber(-2L)
-                        .build(),
-                // end >= 0 && end < start, both whole numbers
-                SubscribeStreamRequest.newBuilder()
-                        .startBlockNumber(10L)
-                        .endBlockNumber(5L)
-                        .build());
+                SessionContext.create(clientId, request, blockNodeContext),
+                responsePipeline,
+                blockNodeContext,
+                sessionReadyLatch);
     }
 }

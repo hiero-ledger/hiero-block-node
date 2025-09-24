@@ -8,7 +8,6 @@ import static org.hiero.block.node.app.fixtures.TestUtils.enableDebugLogging;
 
 import com.hedera.hapi.block.stream.BlockItem;
 import com.hedera.pbj.runtime.ParseException;
-import com.hedera.pbj.runtime.grpc.ServiceInterface;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import java.util.ArrayList;
 import java.util.List;
@@ -16,7 +15,6 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.function.Function;
 import java.util.stream.Stream;
-import org.assertj.core.api.InstanceOfAssertFactories;
 import org.hiero.block.api.SubscribeStreamRequest;
 import org.hiero.block.api.SubscribeStreamResponse;
 import org.hiero.block.api.SubscribeStreamResponse.Code;
@@ -85,23 +83,6 @@ class SubscriberServicePluginTest {
         }
 
         /**
-         * Verifies that the service interface correctly registers and exposes
-         * the server status method.
-         */
-        @Test
-        @DisplayName("Test verify correct method/s registered for SubscriberServicePlugin in test base")
-        void testVerifyCorrectMethodRegistered() {
-            assertThat(serviceInterface)
-                    .isNotNull()
-                    .extracting(ServiceInterface::methods)
-                    .asInstanceOf(InstanceOfAssertFactories.LIST)
-                    .hasSize(1)
-                    .containsExactly(plugin.methods().getFirst())
-                    .actual()
-                    .forEach(m -> System.out.println("Methods registered for plugin tests: " + m));
-        }
-
-        /**
          * Functionality tests for the subscriber plugin.
          */
         @Nested
@@ -120,9 +101,11 @@ class SubscriberServicePluginTest {
                 @DisplayName("Single Block Request Tests")
                 class SingleBlockRequestTests {
                     /**
-                     * This test aims to assert that when a valid request for a single block is sent to the plugin,
-                     * a response with the block items is returned, followed by a success status response. Here, the
-                     * block requested already exists before the request is made.
+                     * This test aims to assert that when a valid request for a
+                     * single block is sent to the plugin, a response with the
+                     * block items is returned, followed by a success status
+                     * response. Here, the block requested already exists before
+                     * the request is made.
                      */
                     @Test
                     @DisplayName("Test Subscriber: Valid Request Single Block Already Existing")
@@ -159,11 +142,15 @@ class SubscriberServicePluginTest {
                     }
 
                     /**
-                     * This test aims to assert that when a valid request for a single block is sent to the plugin,
-                     * a response with the block items is returned, followed by a success status response. Here, the
-                     * block requested does not exist at the time of the request, but is supplied later from
-                     * history. This is a request for future block, but the request can be fulfilled because we have
-                     * some historical data, thus we can determine how far in the future the requested block is.
+                     * This test aims to assert that when a valid request for a
+                     * single block is sent to the plugin, a response with the
+                     * block items is returned, followed by a success status
+                     * response. Here, the block requested does not exist at the
+                     * time of the request, but is supplied later from history.
+                     * This is a request for future block, but the request can
+                     * be fulfilled because we have some historical data, thus
+                     * we can determine how far in the future the requested
+                     * block is.
                      */
                     @Test
                     @DisplayName("Test Subscriber: Valid Request Single Block Future From History")
@@ -207,11 +194,15 @@ class SubscriberServicePluginTest {
                     }
 
                     /**
-                     * This test aims to assert that when a valid request for a single block is sent to the plugin,
-                     * a response with the block items is returned, followed by a success status response. Here, the
-                     * block requested does not exist at the time of the request, but is supplied later from live
-                     * data. This is a request for future block, but the request can be fulfilled because we have
-                     * some historical data, thus we can determine how far in the future the requested block is.
+                     * This test aims to assert that when a valid request for a
+                     * single block is sent to the plugin, a response with the
+                     * block items is returned, followed by a success status
+                     * response. Here, the block requested does not exist at the
+                     * time of the request, but is supplied later from live
+                     * data. This is a request for future block, but the request
+                     * can be fulfilled because we have some historical data,
+                     * thus we can determine how far in the future the requested
+                     * block is.
                      */
                     @Test
                     @DisplayName("Test Subscriber: Valid Request Single Block Future From Live")
@@ -259,15 +250,18 @@ class SubscriberServicePluginTest {
                 }
 
                 /**
-                 * Multiple block requests with a closed range (start and end defined).
+                 * Multiple block requests with a closed range (start and end
+                 * defined).
                  */
                 @Nested
                 @DisplayName("Multiple Block Request Closed Range Tests")
                 class MultipleBlockRequestClosedRangeTests {
                     /**
-                     * This test aims to assert that when a valid request for multiple blocks is sent to the plugin,
-                     * a response with the block items is returned, followed by a success status response. Here, the
-                     * blocks requested already exist before the request is made.
+                     * This test aims to assert that when a valid request for
+                     * multiple blocks is sent to the plugin, a response(s) with
+                     * the block items is returned, followed by a success status
+                     * response. Here, the blocks requested already exist before
+                     * the request is made.
                      */
                     @Test
                     @DisplayName("Test Subscriber: Valid Request Multiple Blocks Already Existing")
@@ -298,23 +292,20 @@ class SubscriberServicePluginTest {
                                 .isNotNull()
                                 .returns(Code.SUCCESS, responseStatusExtractor);
                         // Extract and assert block items response
-                        final List<Bytes> blockItemRequests = fromPluginBytes.subList(0, fromPluginBytes.size());
-                        for (int i = 0; i < blocksZeroToTwo.size(); i++) {
-                            final List<BlockItem> expected = blocksZeroToTwo.get(i);
-                            final List<BlockItem> actual = responseExtractor
-                                    .apply(blockItemRequests.get(i))
-                                    .blockItems()
-                                    .blockItems();
-                            assertBlockReceived(expected, actual);
-                        }
+                        final List<Bytes> blockItemResponses = fromPluginBytes.subList(0, fromPluginBytes.size());
+                        assertBlockItemsMatch(blocksZeroToTwo, blockItemResponses);
                     }
 
                     /**
-                     * This test aims to assert that when a valid request for multiple blocks is sent to the plugin,
-                     * a response with the block items is returned, followed by a success status response. Here, the
-                     * blocks requested do not exist at the time of the request, but are supplied later from history.
-                     * This is a request for future blocks, but the request can be fulfilled because we have some
-                     * historical data, thus we can determine how far in the future the requested blocks are.
+                     * This test aims to assert that when a valid request for
+                     * multiple blocks is sent to the plugin, a response(s) with
+                     * the block items is returned, followed by a success status
+                     * response. Here, the blocks requested do not exist at the
+                     * time of the request, but are supplied later from history.
+                     * This is a request for future blocks, but the request can
+                     * be fulfilled because we have some historical data, thus
+                     * we can determine how far in the future the requested
+                     * blocks are.
                      */
                     @Test
                     @DisplayName("Test Subscriber: Valid Request Multiple Blocks Future From History")
@@ -352,23 +343,20 @@ class SubscriberServicePluginTest {
                                 .isNotNull()
                                 .returns(Code.SUCCESS, responseStatusExtractor);
                         // Extract and assert block items response
-                        final List<Bytes> blockItemRequests = fromPluginBytes.subList(0, fromPluginBytes.size());
-                        for (int i = 0; i < blocksOneToTwo.size(); i++) {
-                            final List<BlockItem> expected = blocksOneToTwo.get(i);
-                            final List<BlockItem> actual = responseExtractor
-                                    .apply(blockItemRequests.get(i))
-                                    .blockItems()
-                                    .blockItems();
-                            assertBlockReceived(expected, actual);
-                        }
+                        final List<Bytes> blockItemResponses = fromPluginBytes.subList(0, fromPluginBytes.size());
+                        assertBlockItemsMatch(blocksOneToTwo, blockItemResponses);
                     }
 
                     /**
-                     * This test aims to assert that when a valid request for multiple blocks is sent to the plugin,
-                     * a response with the block items is returned, followed by a success status response. Here, the
-                     * blocks requested do not exist at the time of the request, but are supplied later from live
-                     * data. This is a request for future blocks, but the request can be fulfilled because we have
-                     * some historical data, thus we can determine how far in the future the requested blocks are.
+                     * This test aims to assert that when a valid request for
+                     * multiple blocks is sent to the plugin, a response(s) with
+                     * the block items is returned, followed by a success status
+                     * response. Here, the blocks requested do not exist at the
+                     * time of the request, but are supplied later from live
+                     * data. This is a request for future blocks, but the
+                     * request can be fulfilled because we have some historical
+                     * data, thus we can determine how far in the future the
+                     * requested blocks are.
                      */
                     @Test
                     @DisplayName("Test Subscriber: Valid Request Multiple Blocks Future From Live")
@@ -409,32 +397,29 @@ class SubscriberServicePluginTest {
                                 .isNotNull()
                                 .returns(Code.SUCCESS, responseStatusExtractor);
                         // Extract and assert block items response
-                        final List<Bytes> blockItemRequests = fromPluginBytes.subList(0, fromPluginBytes.size());
-                        for (int i = 0; i < blocksOneToTwo.size(); i++) {
-                            final List<BlockItem> expected = blocksOneToTwo.get(i);
-                            final List<BlockItem> actual = responseExtractor
-                                    .apply(blockItemRequests.get(i))
-                                    .blockItems()
-                                    .blockItems();
-                            assertBlockReceived(expected, actual);
-                        }
+                        final List<Bytes> blockItemResponses = fromPluginBytes.subList(0, fromPluginBytes.size());
+                        assertBlockItemsMatch(blocksOneToTwo, blockItemResponses);
                     }
                 }
 
                 /**
-                 * Multiple block requests with an open range (start defined, end open).
+                 * Multiple block requests with an open range (start defined,
+                 * end open).
                  */
                 @Nested
                 @DisplayName("Multiple Block Request Start Defined - End Open Range Tests")
                 class MultipleBlockRequestStartDefinedEndOpenRangeTests {
                     /**
-                     * This test aims to assert that when a valid request for multiple blocks is sent to the plugin,
-                     * a response with the block items is returned, followed by a success status response. Here, the
-                     * blocks requested already exist before the request is made.
+                     * This test aims to assert that when a valid request for
+                     * multiple blocks is sent to the plugin, a response(s) with
+                     * the block items is returned, followed by a success status
+                     * response. This request starts with a defined block and
+                     * continues indefinitely. Here, the first block requested
+                     * already exists before the request is made.
                      */
                     @Test
                     @DisplayName(
-                            "Test Subscriber: Valid Request Multiple Blocks Start Defined - End Open Ranged Already Existing")
+                            "Test Subscriber: Valid Request Multiple Blocks Start Defined - End Open Ranged, Start Already Existing")
                     void testSuccessfulRequestMultipleBlocksStartDefinedEndOpenRange() {
                         // First we create the blocks
                         final List<List<BlockItem>> blocksZeroToTwo =
@@ -451,13 +436,13 @@ class SubscriberServicePluginTest {
                         // Send the request
                         toPluginPipe.onNext(SubscribeStreamRequest.PROTOBUF.toBytes(request));
                         // Wait for responses
-                        final int blockItemResponses = blocksZeroToTwo.size(); // three with items
-                        awaitResponse(fromPluginBytes, blockItemResponses);
+                        final int expectedBlockItemResponses = blocksZeroToTwo.size(); // three with items
+                        awaitResponse(fromPluginBytes, expectedBlockItemResponses);
                         // now we need to stop the plugin to end the open range request and
                         // receive the success status response
                         plugin.stop();
                         final int expectedResponses =
-                                blockItemResponses + 1; // three with items, one with success status
+                                expectedBlockItemResponses + 1; // three with items, one with success status
                         // Assert responses count and status success
                         assertThat(fromPluginBytes)
                                 .hasSize(expectedResponses)
@@ -466,27 +451,25 @@ class SubscriberServicePluginTest {
                                 .isNotNull()
                                 .returns(Code.SUCCESS, responseStatusExtractor);
                         // Extract and assert block items response
-                        final List<Bytes> blockItemRequests = fromPluginBytes.subList(0, fromPluginBytes.size());
-                        for (int i = 0; i < blocksZeroToTwo.size(); i++) {
-                            final List<BlockItem> expected = blocksZeroToTwo.get(i);
-                            final List<BlockItem> actual = responseExtractor
-                                    .apply(blockItemRequests.get(i))
-                                    .blockItems()
-                                    .blockItems();
-                            assertBlockReceived(expected, actual);
-                        }
+                        final List<Bytes> blockItemResponses = fromPluginBytes.subList(0, fromPluginBytes.size());
+                        assertBlockItemsMatch(blocksZeroToTwo, blockItemResponses);
                     }
 
                     /**
-                     * This test aims to assert that when a valid request for multiple blocks is sent to the plugin,
-                     * a response with the block items is returned, followed by a success status response. Here, the
-                     * blocks requested do not exist at the time of the request, but are supplied later from history.
-                     * This is a request for future blocks, but the request can be fulfilled because we have some
-                     * historical data, thus we can determine how far in the future the requested blocks are.
+                     * This test aims to assert that when a valid request for
+                     * multiple blocks is sent to the plugin, a response(s) with
+                     * the block items is returned, followed by a success status
+                     * response. This request starts with a defined block and
+                     * continues indefinitely. Here, the first block requested
+                     * does not exist at the time of the request, but is
+                     * supplied later from history. This is a request for future
+                     * blocks, but the request can be fulfilled because we have
+                     * some historical data, thus we can determine how far in
+                     * the future the requested blocks are.
                      */
                     @Test
                     @DisplayName(
-                            "Test Subscriber: Valid Request Multiple Blocks Start Defined - End Open Range Future From History")
+                            "Test Subscriber: Valid Request Multiple Blocks Start Defined - End Open Range, Future From History")
                     void testSuccessfulRequestMultipleBlocksStartDefinedEndOpenRangeFutureFromHistory() {
                         // First we create the blocks
                         final List<List<BlockItem>> blocksOneToTwo =
@@ -510,12 +493,13 @@ class SubscriberServicePluginTest {
                             historicalBlockFacility.handleBlockItemsReceived(toBlockItems(block));
                         }
                         // Wait for responses
-                        final int blockItemResponses = blocksOneToTwo.size(); // two with items
-                        awaitResponse(fromPluginBytes, blockItemResponses);
+                        final int expectedBlockItemResponses = blocksOneToTwo.size(); // two with items
+                        awaitResponse(fromPluginBytes, expectedBlockItemResponses);
                         // now we need to stop the plugin to end the open range request and
                         // receive the success status response
                         plugin.stop();
-                        final int expectedResponses = blockItemResponses + 1; // two with items, one with success status
+                        final int expectedResponses =
+                                expectedBlockItemResponses + 1; // two with items, one with success status
                         // Assert responses count and status success
                         assertThat(fromPluginBytes)
                                 .hasSize(expectedResponses)
@@ -524,27 +508,25 @@ class SubscriberServicePluginTest {
                                 .isNotNull()
                                 .returns(Code.SUCCESS, responseStatusExtractor);
                         // Extract and assert block items response
-                        final List<Bytes> blockItemRequests = fromPluginBytes.subList(0, fromPluginBytes.size());
-                        for (int i = 0; i < blocksOneToTwo.size(); i++) {
-                            final List<BlockItem> expected = blocksOneToTwo.get(i);
-                            final List<BlockItem> actual = responseExtractor
-                                    .apply(blockItemRequests.get(i))
-                                    .blockItems()
-                                    .blockItems();
-                            assertBlockReceived(expected, actual);
-                        }
+                        final List<Bytes> blockItemResponses = fromPluginBytes.subList(0, fromPluginBytes.size());
+                        assertBlockItemsMatch(blocksOneToTwo, blockItemResponses);
                     }
 
                     /**
-                     * This test aims to assert that when a valid request for multiple blocks is sent to the plugin,
-                     * a response with the block items is returned, followed by a success status response. Here, the
-                     * blocks requested do not exist at the time of the request, but are supplied later from live
-                     * data. This is a request for future blocks, but the request can be fulfilled because we have
-                     * some historical data, thus we can determine how far in the future the requested blocks are.
+                     * This test aims to assert that when a valid request for
+                     * multiple blocks is sent to the plugin, a response(s) with
+                     * the block items is returned, followed by a success status
+                     * response. This request starts with a defined block and
+                     * continues indefinitely. Here, the first block requested
+                     * does not exist at the time of the request, but is
+                     * supplied later from live data. This is a request for
+                     * future blocks, but the request can be fulfilled because
+                     * we have some historical data, thus we can determine how
+                     * far in the future the requested blocks are.
                      */
                     @Test
                     @DisplayName(
-                            "Test Subscriber: Valid Request Multiple Blocks Start Defined - End Open Range Future From Live")
+                            "Test Subscriber: Valid Request Multiple Blocks Start Defined - End Open Range, Future From Live")
                     void testSuccessfulRequestMultipleBlocksStartDefinedEndOpenRangeFutureFromLive() {
                         // First we create the blocks
                         final List<List<BlockItem>> blocksOneToTwo =
@@ -571,12 +553,13 @@ class SubscriberServicePluginTest {
                             blockMessaging.sendBlockItems(toBlockItems(block));
                         }
                         // Wait for responses
-                        final int blockItemResponses = blocksOneToTwo.size(); // two with items
-                        awaitResponse(fromPluginBytes, blockItemResponses);
+                        final int expectedBlockItemResponses = blocksOneToTwo.size(); // two with items
+                        awaitResponse(fromPluginBytes, expectedBlockItemResponses);
                         // now we need to stop the plugin to end the open range request and
                         // receive the success status response
                         plugin.stop();
-                        final int expectedResponses = blockItemResponses + 1; // two with items, one with success status
+                        final int expectedResponses =
+                                expectedBlockItemResponses + 1; // two with items, one with success status
                         // Assert responses count and status success
                         assertThat(fromPluginBytes)
                                 .hasSize(expectedResponses)
@@ -585,34 +568,31 @@ class SubscriberServicePluginTest {
                                 .isNotNull()
                                 .returns(Code.SUCCESS, responseStatusExtractor);
                         // Extract and assert block items response
-                        final List<Bytes> blockItemRequests = fromPluginBytes.subList(0, fromPluginBytes.size());
-                        for (int i = 0; i < blocksOneToTwo.size(); i++) {
-                            final List<BlockItem> expected = blocksOneToTwo.get(i);
-                            final List<BlockItem> actual = responseExtractor
-                                    .apply(blockItemRequests.get(i))
-                                    .blockItems()
-                                    .blockItems();
-                            assertBlockReceived(expected, actual);
-                        }
+                        final List<Bytes> blockItemResponses = fromPluginBytes.subList(0, fromPluginBytes.size());
+                        assertBlockItemsMatch(blocksOneToTwo, blockItemResponses);
                     }
                 }
 
                 /**
-                 * Multiple block requests with a range starting from the first available block in history
-                 * (start = -1), and a defined end block.
+                 * Multiple block requests with a range starting from the
+                 * first available block in history (start = -1), and a defined
+                 * end block.
                  */
                 @Nested
                 @DisplayName("Multiple Block Request Start From First Available - End Defined Range Tests")
                 class MultipleBlockRequestStartFromFirstAvailableEndDefinedRangeTests {
                     /**
-                     * This test aims to assert that when a valid request for multiple blocks is sent to the plugin,
-                     * a response with the block items is returned, followed by a success status response. Here, the
-                     * blocks requested already exist before the request is made. The request starts from the first
-                     * available block in history and is up to a defined end block.
+                     * This test aims to assert that when a valid request for
+                     * multiple blocks is sent to the plugin, a response(s) with
+                     * the block items is returned, followed by a success status
+                     * response. This request starts with the first available
+                     * block and continues up to a defined block (including).
+                     * Here, the blocks requested already exist before the
+                     * request is made.
                      */
                     @Test
                     @DisplayName(
-                            "Test Subscriber: Valid Request Multiple Blocks Start From First Available - End Defined Range Already Existing")
+                            "Test Subscriber: Valid Request Multiple Blocks Start From First Available - End Defined Range, Blocks Already Existing")
                     void testSuccessfulRequestMultipleBlocksStartFromFirstAvailableEndDefinedRange() {
                         // First we create the blocks
                         final List<List<BlockItem>> blocksZeroToTwo =
@@ -640,25 +620,22 @@ class SubscriberServicePluginTest {
                                 .isNotNull()
                                 .returns(Code.SUCCESS, responseStatusExtractor);
                         // Extract and assert block items response
-                        final List<Bytes> blockItemRequests = fromPluginBytes.subList(0, fromPluginBytes.size());
-                        for (int i = 0; i < blocksZeroToTwo.size(); i++) {
-                            final List<BlockItem> expected = blocksZeroToTwo.get(i);
-                            final List<BlockItem> actual = responseExtractor
-                                    .apply(blockItemRequests.get(i))
-                                    .blockItems()
-                                    .blockItems();
-                            assertBlockReceived(expected, actual);
-                        }
+                        final List<Bytes> blockItemResponses = fromPluginBytes.subList(0, fromPluginBytes.size());
+                        assertBlockItemsMatch(blocksZeroToTwo, blockItemResponses);
                     }
 
                     /**
-                     * This test aims to assert that when a valid request for multiple blocks is sent to the plugin,
-                     * a response with the block items is returned, followed by a success status response. Here, the
-                     * blocks requested do not exist at the time of the request, but are supplied later from history.
-                     * The request starts from the first available block in history and is up to a defined end block.
-                     * This is a request for future blocks, but the request can be fulfilled because we have some
-                     * historical data, thus we can determine how far in the future the requested blocks are.
-                     * The request starts from the first available block in history and is up to a defined end block.
+                     * This test aims to assert that when a valid request for
+                     * multiple blocks is sent to the plugin, a response(s) with
+                     * the block items is returned, followed by a success status
+                     * response. Here, the blocks requested do not exist at the
+                     * time of the request, but are supplied later from history.
+                     * The request starts from the first available block in
+                     * history and is up to a defined end block. This is a
+                     * request for future blocks, but the request can be
+                     * fulfilled because we have some historical data, thus we
+                     * can determine how far in the future the requested blocks
+                     * are.
                      */
                     @Test
                     @DisplayName(
@@ -694,25 +671,22 @@ class SubscriberServicePluginTest {
                                 .isNotNull()
                                 .returns(Code.SUCCESS, responseStatusExtractor);
                         // Extract and assert block items response
-                        final List<Bytes> blockItemRequests = fromPluginBytes.subList(0, fromPluginBytes.size());
-                        for (int i = 0; i < blocksZeroToTwo.size(); i++) {
-                            final List<BlockItem> expected = blocksZeroToTwo.get(i);
-                            final List<BlockItem> actual = responseExtractor
-                                    .apply(blockItemRequests.get(i))
-                                    .blockItems()
-                                    .blockItems();
-                            assertBlockReceived(expected, actual);
-                        }
+                        final List<Bytes> blockItemResponses = fromPluginBytes.subList(0, fromPluginBytes.size());
+                        assertBlockItemsMatch(blocksZeroToTwo, blockItemResponses);
                     }
 
                     /**
-                     * This test aims to assert that when a valid request for multiple blocks is sent to the plugin,
-                     * a response with the block items is returned, followed by a success status response. Here, the
-                     * blocks requested do not exist at the time of the request, but are supplied later from live
-                     * data. The request starts from the first available block in history and is up to a defined end
-                     * block. This is a request for future blocks, but the request can be fulfilled because we have
-                     * some historical data, thus we can determine how far in the future the requested blocks are.
-                     * The request starts from the first available block in history and is up to a defined end block.
+                     * This test aims to assert that when a valid request for
+                     * multiple blocks is sent to the plugin, a response(s) with
+                     * the block items is returned, followed by a success status
+                     * response. Here, the blocks requested do not exist at the
+                     * time of the request, but are supplied later from live
+                     * data. The request starts from the first available block
+                     * in history and is up to a defined end block. This is a
+                     * request for future blocks, but the request can be
+                     * fulfilled because we have some historical data, thus we
+                     * can determine how far in the future the requested blocks
+                     * are.
                      */
                     @Test
                     @DisplayName(
@@ -751,15 +725,8 @@ class SubscriberServicePluginTest {
                                 .isNotNull()
                                 .returns(Code.SUCCESS, responseStatusExtractor);
                         // Extract and assert block items response
-                        final List<Bytes> blockItemRequests = fromPluginBytes.subList(0, fromPluginBytes.size());
-                        for (int i = 0; i < blocksZeroToTwo.size(); i++) {
-                            final List<BlockItem> expected = blocksZeroToTwo.get(i);
-                            final List<BlockItem> actual = responseExtractor
-                                    .apply(blockItemRequests.get(i))
-                                    .blockItems()
-                                    .blockItems();
-                            assertBlockReceived(expected, actual);
-                        }
+                        final List<Bytes> blockItemResponses = fromPluginBytes.subList(0, fromPluginBytes.size());
+                        assertBlockItemsMatch(blocksZeroToTwo, blockItemResponses);
                     }
                 }
 
@@ -770,9 +737,11 @@ class SubscriberServicePluginTest {
                 @DisplayName("Live Stream Request Tests")
                 class LiveStreamRequestTest {
                     /**
-                     * This test aims to assert that when a valid request for live stream is sent to the plugin,
-                     * a response with the block items is returned, and items keep streaming indefinitely.
-                     * This is a request for live blocks, which can always be fulfilled.
+                     * This test aims to assert that when a valid request for
+                     * live stream is sent to the plugin, a response(s) with the
+                     * block items is returned, and items keep streaming
+                     * indefinitely. This is a request for live blocks, which
+                     * can always be fulfilled.
                      */
                     @Test
                     @DisplayName("Test Subscriber: Valid Request Live Stream")
@@ -795,37 +764,34 @@ class SubscriberServicePluginTest {
                             blockMessaging.sendBlockItems(toBlockItems(block));
                         }
                         // Wait for responses for block items
-                        final int blockItemResponses = blocksZeroToTwo.size(); // three with items
-                        awaitResponse(fromPluginBytes, blockItemResponses);
+                        final int expectedBlockItemResponses = blocksZeroToTwo.size(); // three with items
+                        awaitResponse(fromPluginBytes, expectedBlockItemResponses);
                         // now we need to stop the plugin to end the live stream request and
                         // receive the success status response
                         plugin.stop();
-                        final int expectedResponses = blockItemResponses + 1; // three with items, one
+                        final int expectedResponses = expectedBlockItemResponses + 1; // three with items, one
                         // Assert responses count and status success
                         assertThat(fromPluginBytes).hasSize(expectedResponses);
                         // Extract and assert block items response
-                        final List<Bytes> blockItemRequests = fromPluginBytes.subList(0, fromPluginBytes.size());
-                        for (int i = 0; i < blocksZeroToTwo.size(); i++) {
-                            final List<BlockItem> expected = blocksZeroToTwo.get(i);
-                            final List<BlockItem> actual = responseExtractor
-                                    .apply(blockItemRequests.get(i))
-                                    .blockItems()
-                                    .blockItems();
-                            assertBlockReceived(expected, actual);
-                        }
+                        final List<Bytes> blockItemResponses = fromPluginBytes.subList(0, fromPluginBytes.size());
+                        assertBlockItemsMatch(blocksZeroToTwo, blockItemResponses);
                     }
 
                     /**
-                     * This test aims to assert that when a valid request for live stream is sent to the plugin,
-                     * a response with the block items is returned, and items keep streaming indefinitely.
-                     * This is a request for live blocks, which can always be fulfilled. Here, we supply the first
-                     * block from live stream, and then we supply following from history. This is to ensure that
-                     * the plugin can handle blocks coming from both live and history when in live stream mode.
+                     * This test aims to assert that when a valid request for
+                     * live stream is sent to the plugin, a response(s) with the
+                     * block items is returned, and items keep streaming
+                     * indefinitely. This is a request for live blocks, which
+                     * can always be fulfilled. Here, we supply the first block
+                     * from live stream, and then we supply following from
+                     * history. This is to ensure that the plugin can handle
+                     * blocks coming from both live and history when in live
+                     * stream mode.
                      */
                     @Test
                     @DisplayName("Test Subscriber: Valid Request Live Stream From Live Then History")
                     @Disabled(
-                            "@todo(1374) should not be failing, we fail because history not permitted, we think we jump ahead")
+                            "@todo(1673) should not be failing, we fail because history not permitted, we think we jump ahead")
                     void testSuccessfulRequestLiveStreamFromLiveThenHistory() {
                         // First we create the blocks
                         final List<List<BlockItem>> blocksZeroToTwo =
@@ -860,24 +826,20 @@ class SubscriberServicePluginTest {
                                 .isNotNull()
                                 .returns(Code.SUCCESS, responseStatusExtractor);
                         // Extract and assert block items response
-                        final List<Bytes> blockItemRequests = fromPluginBytes.subList(0, fromPluginBytes.size());
-                        for (int i = 0; i < blocksZeroToTwo.size(); i++) {
-                            final List<BlockItem> expected = blocksZeroToTwo.get(i);
-                            final List<BlockItem> actual = responseExtractor
-                                    .apply(blockItemRequests.get(i))
-                                    .blockItems()
-                                    .blockItems();
-                            assertBlockReceived(expected, actual);
-                        }
+                        final List<Bytes> blockItemResponses = fromPluginBytes.subList(0, fromPluginBytes.size());
+                        assertBlockItemsMatch(blocksZeroToTwo, blockItemResponses);
                     }
 
                     /**
-                     * This test aims to assert that when a valid request for live stream is sent to the plugin,
-                     * a response with the block items is returned, and items keep streaming indefinitely.
-                     * This is a request for live blocks, which can always be fulfilled. Here, we simulate that the
-                     * subscriber has subscribed mid-block, meaning the live ring buffer holds partially the current
-                     * block. If that is so, the plugin should discard that partial block and start sending from the next
-                     * block.
+                     * This test aims to assert that when a valid request for
+                     * live stream is sent to the plugin, a response with the
+                     * block items is returned, and items keep streaming
+                     * indefinitely. This is a request for live blocks, which
+                     * can always be fulfilled. Here, we simulate that the
+                     * subscriber has subscribed mid-block, meaning the live
+                     * ring buffer holds partially the current block. If that is
+                     * so, the plugin should discard that partial block and
+                     * start sending from the next block.
                      */
                     @Test
                     @DisplayName("Test Subscriber: Valid Request Live Stream Mid-Block Subscription")
@@ -916,15 +878,8 @@ class SubscriberServicePluginTest {
                                 .isNotNull()
                                 .returns(Code.SUCCESS, responseStatusExtractor);
                         // Extract and assert block items response
-                        final List<Bytes> blockItemRequests = fromPluginBytes.subList(0, fromPluginBytes.size());
-                        for (int i = 0; i < expectedBlockItemResponses; i++) {
-                            final List<BlockItem> expected = blocksOneToTwo.get(i);
-                            final List<BlockItem> actual = responseExtractor
-                                    .apply(blockItemRequests.get(i))
-                                    .blockItems()
-                                    .blockItems();
-                            assertBlockReceived(expected, actual);
-                        }
+                        final List<Bytes> blockItemResponses = fromPluginBytes.subList(0, fromPluginBytes.size());
+                        assertBlockItemsMatch(blocksOneToTwo, blockItemResponses);
                     }
                 }
             }
@@ -936,7 +891,7 @@ class SubscriberServicePluginTest {
             @DisplayName("Negative Subscriber Tests")
             class NegativeSubscriberTests {
                 /**
-                 * This test aims to asser that when a valid request is sent to
+                 * This test aims to assert that when a valid request is sent to
                  * the plugin, but the request is starts with block too far in
                  * the future, an error response with the expected error code is
                  * returned.
@@ -988,7 +943,6 @@ class SubscriberServicePluginTest {
                             .extracting(responseExtractor)
                             .isNotNull()
                             .returns(expectedCode, responseStatusExtractor);
-                    System.out.println();
                 }
 
                 /**
@@ -1072,6 +1026,18 @@ class SubscriberServicePluginTest {
         }
     }
 
+    private static void assertBlockItemsMatch(
+            final List<List<BlockItem>> expectedBlocks, final List<Bytes> blocksFromPipeline) {
+        for (int i = 0; i < expectedBlocks.size(); i++) {
+            final List<BlockItem> expected = expectedBlocks.get(i);
+            final List<BlockItem> actual = responseExtractor
+                    .apply(blocksFromPipeline.get(i))
+                    .blockItems()
+                    .blockItems();
+            assertBlockReceived(expected, actual);
+        }
+    }
+
     private static void assertBlockReceived(final List<BlockItem> expected, final List<BlockItem> actual) {
         assertThat(actual).hasSameSizeAs(expected);
         for (int i = 0; i < expected.size(); i++) {
@@ -1090,6 +1056,7 @@ class SubscriberServicePluginTest {
         return toBlockItems(expected, true);
     }
 
+    @SuppressWarnings("all")
     private static BlockItems toBlockItems(final List<BlockItem> expected, final boolean sendHeader) {
         final List<BlockItemUnparsed> result = new ArrayList<>();
         final List<BlockItem> actualExpected = sendHeader ? expected : expected.subList(1, expected.size());
