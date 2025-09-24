@@ -200,6 +200,7 @@ public class PositiveMultiplePublishersTests extends BaseSuite {
     @Test
     @DisplayName(
             "Autonomous backfill should fill the gaps and Publisher should send TOO_FAR_BEHIND to activate backfill on demand")
+    @Timeout(90)
     public void testBackfillOnDemandAndAutonomousBackfill() throws IOException, InterruptedException {
 
         //  2 Block Nodes, 1 Source (40840), Subject BN: Backfill will happen here. (8082)
