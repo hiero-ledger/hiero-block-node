@@ -20,7 +20,7 @@ dependencies.constraints {
     val pbjVersion = "0.11.15"
     val protobufVersion = "4.32.0"
     val swirldsVersion = "0.61.3"
-    val mockitoVersion = "5.19.0"
+    val mockitoVersion = "5.20.0"
     val testContainersVersion = "1.21.3"
 
     api("com.github.luben:zstd-jni:1.5.7-4") { because("com.github.luben.zstd_jni") }
