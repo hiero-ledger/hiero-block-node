@@ -30,7 +30,7 @@ dependencies.constraints {
     api("com.google.auto.service:auto-service-annotations:1.1.1") {
         because("com.google.auto.service")
     }
-    api("com.google.guava:guava:33.4.8-jre") { because("com.google.common") }
+    api("com.google.guava:guava:33.5.0-jre") { because("com.google.common") }
     api("com.google.protobuf:protobuf-java-util:$protobufVersion") {
         because("com.google.protobuf.util")
     }
