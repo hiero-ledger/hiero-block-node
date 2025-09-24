@@ -23,6 +23,7 @@ import java.util.stream.Stream;
 import org.hiero.block.api.protoc.BlockResponse;
 import org.hiero.block.api.protoc.BlockResponse.Code;
 import org.hiero.block.simulator.BlockStreamSimulatorApp;
+import org.hiero.block.simulator.config.data.StreamStatus;
 import org.hiero.block.suites.BaseSuite;
 import org.hiero.block.suites.BlockNodeContainerConfig;
 import org.junit.jupiter.api.AfterEach;
@@ -40,7 +41,9 @@ import org.junit.jupiter.params.provider.MethodSource;
  * <p>Inherits from {@link BaseSuite} to reuse the container setup and teardown logic for the Block
  * Node.
  */
+// TODO(#1665) Verify simulator's connection has been closed for multi-publisher scenarios
 @DisplayName("Positive Multiple Publishers Tests")
+@Timeout(30)
 public class PositiveMultiplePublishersTests extends BaseSuite {
 
     private final List<Future<?>> simulators = new ArrayList<>();
@@ -68,7 +71,6 @@ public class PositiveMultiplePublishersTests extends BaseSuite {
 
     @Test
     @DisplayName("Publisher should send TOO_FAR_BEHIND to activate backfill on demand")
-    @Timeout(30)
     public void testBackfillOnDemand() throws IOException, InterruptedException {
         launchBlockNodes(
                 List.of(new BlockNodeContainerConfig(8082, 9989, "/resources/block-nodes.json", new HashMap<>())));
@@ -130,7 +132,6 @@ public class PositiveMultiplePublishersTests extends BaseSuite {
 
     @Test
     @DisplayName("Autonomous backfill should fill the gaps")
-    @Timeout(30)
     public void testAutonomousBackfill() throws IOException, InterruptedException {
         launchBlockNodes(
                 List.of(new BlockNodeContainerConfig(8082, 9989, "/resources/block-nodes.json", new HashMap<>())));
@@ -302,7 +303,6 @@ public class PositiveMultiplePublishersTests extends BaseSuite {
 
     @Test
     @DisplayName("Publisher should handle BEHIND and send TOO_FAR_BEHIND")
-    @Timeout(30)
     public void publisherShouldSendTooFarBehindAfterBehind() throws IOException, InterruptedException {
         // ===== Prepare and Start first simulator and make sure it's streaming ======================
         final Map<String, String> firstSimulatorConfiguration = Map.of("generator.startBlockNumber", "0");
@@ -369,7 +369,6 @@ public class PositiveMultiplePublishersTests extends BaseSuite {
     @Disabled("Temporarily disabled whiles publisher plugin is being rewritten. Currently produces a false positive")
     @Test
     @DisplayName("Should switch to faster publisher when it catches up with current block number")
-    @Timeout(30)
     public void shouldSwitchToFasterPublisherWhenCaughtUp() throws IOException, InterruptedException {
         // ===== Prepare environment =================================================================
         final Map<String, String> slowerSimulatorConfiguration = Map.of("blockStream.millisecondsPerBlock", "1000");
@@ -438,6 +437,122 @@ public class PositiveMultiplePublishersTests extends BaseSuite {
         assertFalse(lastFasterSimulatorStatusAfter.contains("DUPLICATE_BLOCK"));
     }
 
+    @Test
+    @DisplayName("Verify Single Publisher Acknowledgements")
+    public void testAcknowledgements() throws IOException, InterruptedException {
+        final BlockStreamSimulatorApp firstSimulator = createBlockSimulator();
+        startSimulatorInThread(firstSimulator);
+        simulatorAppsRef.add(firstSimulator);
+        Thread.sleep(5000);
+
+        StreamStatus firstStreamStatus = simulatorAppsRef.getFirst().getStreamStatus();
+        assertTrue(firstStreamStatus.publishedBlocks() > 0);
+        firstStreamStatus
+                .lastKnownPublisherClientStatuses()
+                .forEach(status -> assertTrue(status.toLowerCase().contains("acknowledgement")));
+    }
+
+    @Test
+    @DisplayName("Verify Multi Publisher Acknowledgements")
+    public void testMultiPublisherAcknowledgements() throws IOException, InterruptedException {
+        final Map<String, String> firstSimulatorConfiguration = Map.of("blockStream.millisecondsPerBlock", "5000");
+        final BlockStreamSimulatorApp firstSimulator = createBlockSimulator();
+        final BlockStreamSimulatorApp secondSimulator = createBlockSimulator(firstSimulatorConfiguration);
+        startSimulatorInThread(firstSimulator);
+        startSimulatorInThread(secondSimulator);
+        simulatorAppsRef.add(firstSimulator);
+        simulatorAppsRef.add(secondSimulator);
+        Thread.sleep(5000);
+
+        StreamStatus firstStreamStatus = simulatorAppsRef.get(0).getStreamStatus();
+        StreamStatus secondStreamStatus = simulatorAppsRef.get(1).getStreamStatus();
+        assertTrue(firstStreamStatus.publishedBlocks() > 0);
+        assertTrue(secondStreamStatus.publishedBlocks() > 0);
+        firstStreamStatus.lastKnownPublisherClientStatuses().stream()
+                .filter(status -> status.toLowerCase().contains("acknowledgement"))
+                .forEach(ackStatus -> assertTrue(
+                        secondStreamStatus.lastKnownPublisherClientStatuses().stream()
+                                .anyMatch(s -> s.equalsIgnoreCase(ackStatus)),
+                        "Acknowledgement from firstStreamStatus not found in secondStreamStatus: " + ackStatus));
+    }
+
+    @Test
+    @DisplayName("Verify Multi Publisher Skip")
+    public void testMultiPublisherSkip() throws IOException, InterruptedException {
+        final Map<String, String> firstSimulatorConfiguration =
+                Map.of("generator.minEventsPerBlock", "100", "generator.maxEventsPerBlock", "200");
+        final Map<String, String> secondSimulatorConfiguration =
+                Map.of("generator.minEventsPerBlock", "100", "generator.maxEventsPerBlock", "200");
+        final BlockStreamSimulatorApp firstSimulator = createBlockSimulator(firstSimulatorConfiguration);
+        final BlockStreamSimulatorApp secondSimulator = createBlockSimulator(secondSimulatorConfiguration);
+        startSimulatorInThread(firstSimulator);
+        startSimulatorInThread(secondSimulator);
+        simulatorAppsRef.add(firstSimulator);
+        simulatorAppsRef.add(secondSimulator);
+        Thread.sleep(5000);
+
+        StreamStatus firstStreamStatus = simulatorAppsRef.get(0).getStreamStatus();
+        StreamStatus secondStreamStatus = simulatorAppsRef.get(1).getStreamStatus();
+        assertTrue(firstStreamStatus.publishedBlocks() > 0);
+        assertTrue(secondStreamStatus.publishedBlocks() > 0);
+        assertTrue(
+                firstStreamStatus.lastKnownPublisherClientStatuses().stream()
+                                .anyMatch(status -> status.toLowerCase().contains("skip_block"))
+                        || secondStreamStatus.lastKnownPublisherClientStatuses().stream()
+                                .anyMatch(status -> status.toLowerCase().contains("skip_block")),
+                "Neither firstStreamStatus nor secondStreamStatus contains 'skip_block'");
+    }
+
+    @Test
+    @DisplayName("Verify Multi Publisher Duplicate Block")
+    public void testMultiPublisherDuplicateBlock() throws IOException, InterruptedException {
+        final BlockStreamSimulatorApp firstSimulator = createBlockSimulator();
+        final BlockStreamSimulatorApp secondSimulator = createBlockSimulator();
+        startSimulatorInThread(firstSimulator);
+        simulatorAppsRef.add(firstSimulator);
+        simulatorAppsRef.add(secondSimulator);
+        Thread.sleep(3000);
+        startSimulatorInThread(secondSimulator);
+        Thread.sleep(1000);
+
+        StreamStatus firstStreamStatus = simulatorAppsRef.get(0).getStreamStatus();
+        StreamStatus secondStreamStatus = simulatorAppsRef.get(1).getStreamStatus();
+        assertTrue(firstStreamStatus.publishedBlocks() > 0);
+        assertTrue(secondStreamStatus.publishedBlocks() > 0);
+        assertTrue(
+                secondStreamStatus.lastKnownPublisherClientStatuses().stream()
+                        .anyMatch(status -> status.toLowerCase().contains("duplicate_block")),
+                "secondStreamStatus does not contain 'duplicate_block'");
+    }
+
+    // TODO(#1663) We must assert that one of simulators receives the bad block proof, the other one should receive a
+    // resend.
+    @Test
+    @DisplayName("Verify Failed Verification Handling")
+    public void testMultiPublisherBadBlockProof() throws IOException, InterruptedException {
+        final Map<String, String> firstSimulatorConfiguration = Map.of("generator.invalidBlockHash", "true");
+        final Map<String, String> secondSimulatorConfiguration = Map.of("generator.startBlockNumber", Long.toString(2));
+        final BlockStreamSimulatorApp firstSimulator = createBlockSimulator(firstSimulatorConfiguration);
+        final BlockStreamSimulatorApp secondSimulator = createBlockSimulator(secondSimulatorConfiguration);
+        startSimulatorInThread(firstSimulator);
+        simulatorAppsRef.add(firstSimulator);
+        simulatorAppsRef.add(secondSimulator);
+        Thread.sleep(3000);
+        startSimulatorInThread(secondSimulator);
+        Thread.sleep(1000);
+
+        StreamStatus firstStreamStatus = simulatorAppsRef.get(0).getStreamStatus();
+        StreamStatus secondStreamStatus = simulatorAppsRef.get(1).getStreamStatus();
+        assertTrue(firstStreamStatus.publishedBlocks() > 0);
+        assertTrue(secondStreamStatus.publishedBlocks() > 0);
+        assertTrue(
+                firstStreamStatus.lastKnownPublisherClientStatuses().stream()
+                                .anyMatch(status -> status.toLowerCase().contains("bad_block_proof"))
+                        || secondStreamStatus.lastKnownPublisherClientStatuses().stream()
+                                .anyMatch(status -> status.toLowerCase().contains("bad_block_proof")),
+                "Neither firstStreamStatus nor secondStreamStatus contains 'bad_block_proof'");
+    }
+
     /**
      * Verifies that the block-node correctly prioritizes publishers that are streaming current blocks
      * over publishers that are streaming future blocks. This test asserts that the block-node maintains
@@ -447,7 +562,6 @@ public class PositiveMultiplePublishersTests extends BaseSuite {
     @Disabled("Temporarily disabled whiles publisher plugin is being rewritten.")
     @Test
     @DisplayName("Should prefer publisher with current blocks over future blocks")
-    @Timeout(30)
     public void shouldPreferCurrentBlockPublisher() throws IOException {
         // ===== Prepare environment =================================================================
         final Map<String, String> currentSimulatorConfiguration = Map.of("generator.startBlockNumber", "0");
@@ -480,7 +594,6 @@ public class PositiveMultiplePublishersTests extends BaseSuite {
     @ParameterizedTest
     @DisplayName("Publisher should handle error responses and resume streaming")
     @MethodSource("provideDataForErrorResponses")
-    @Timeout(30)
     public void publisherShouldResumeAfterError(Map<String, String> config, String errorStatus)
             throws IOException, InterruptedException {
         // ===== Prepare and Start first simulator and make sure it's streaming ======================
@@ -549,7 +662,6 @@ public class PositiveMultiplePublishersTests extends BaseSuite {
     @Disabled("Temporarily disabled whiles publisher plugin is being rewritten. Currently hangs after duplicate block")
     @Test
     @DisplayName("Should resume block streaming from new publisher after primary publisher disconnects")
-    @Timeout(30)
     public void shouldResumeFromNewPublisherAfterPrimaryDisconnects() throws IOException, InterruptedException {
         // ===== Prepare and Start first simulator and make sure it's streaming ======================
         final Map<String, String> firstSimulatorConfiguration = Map.of("generator.startBlockNumber", "0");

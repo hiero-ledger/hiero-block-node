@@ -14,23 +14,23 @@ dependencies {
 dependencies.constraints {
     val daggerVersion = "2.56.2"
     val grpcIoVersion = "1.75.0"
-    val helidonVersion = "4.2.6"
+    val helidonVersion = "4.2.7"
     // When Upgrading pbjVersion, also need to update pbjCompiler version on
     // block-node/protobuf-pbj/build.gradle.kts
     val pbjVersion = "0.11.15"
-    val protobufVersion = "4.32.0"
+    val protobufVersion = "4.32.1"
     val swirldsVersion = "0.61.3"
-    val mockitoVersion = "5.19.0"
+    val mockitoVersion = "5.20.0"
     val testContainersVersion = "1.21.3"
 
     api("com.github.luben:zstd-jni:1.5.7-4") { because("com.github.luben.zstd_jni") }
-    api("com.github.spotbugs:spotbugs-annotations:4.9.5") {
+    api("com.github.spotbugs:spotbugs-annotations:4.9.6") {
         because("com.github.spotbugs.annotations")
     }
     api("com.google.auto.service:auto-service-annotations:1.1.1") {
         because("com.google.auto.service")
     }
-    api("com.google.guava:guava:33.4.8-jre") { because("com.google.common") }
+    api("com.google.guava:guava:33.5.0-jre") { because("com.google.common") }
     api("com.google.protobuf:protobuf-java-util:$protobufVersion") {
         because("com.google.protobuf.util")
     }
