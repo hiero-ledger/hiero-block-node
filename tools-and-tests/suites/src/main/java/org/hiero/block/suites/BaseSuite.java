@@ -225,7 +225,7 @@ public abstract class BaseSuite {
                 .withEnv("BACKFILL_BLOCK_NODE_SOURCES_PATH", config.backfillSourcePath())
                 .withEnv("BACKFILL_INITIAL_DELAY", "5000") // 5 seconds
                 .withEnv("SERVER_PORT", String.valueOf(blockNodePort))
-                .withEnv(config.EnvOverrides())
+                .withEnv(config.envOverrides())
                 .withEnv("JAVA_TOOL_OPTIONS", "'-Djava.util.logging.config.file=/resources/logging.properties'")
                 .withFileSystemBind(
                         Paths.get("src/main/resources/block-nodes.json")

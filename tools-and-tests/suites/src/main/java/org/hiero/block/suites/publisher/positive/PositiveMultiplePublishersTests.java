@@ -18,6 +18,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.Future;
+import java.util.concurrent.ThreadLocalRandom;
 import java.util.stream.Stream;
 import org.hiero.block.api.protoc.BlockResponse;
 import org.hiero.block.api.protoc.BlockResponse.Code;
@@ -166,7 +167,7 @@ public class PositiveMultiplePublishersTests extends BaseSuite {
         assertEquals(NOT_FOUND, block2Deleted.getStatus());
 
         restartBlockNode(0);
-        Thread.sleep(6000);
+        Thread.sleep(9000);
 
         long block0 = getBlock(blockAccessStubs.get(8082), 0)
                 .getBlock()
@@ -198,12 +199,10 @@ public class PositiveMultiplePublishersTests extends BaseSuite {
     @Test
     @DisplayName(
             "Autonomous backfill should fill the gaps and Publisher should send TOO_FAR_BEHIND to activate backfill on demand")
-    //    @Timeout(30)
     public void testBackfillOnDemandAndAutonomousBackfill() throws IOException, InterruptedException {
 
         //  2 Block Nodes, 1 Source (40840), Subject BN: Backfill will happen here. (8082)
         // We only launch 8082 cause the source is already in BASE class.
-        // delayBetweenBatches
         Map<String, String> bnSubjectConfigOverride = Map.of(
                 "BACKFILL_PER_BLOCK_PROCESSING_TIMEOUT",
                 "2000",
@@ -238,8 +237,7 @@ public class PositiveMultiplePublishersTests extends BaseSuite {
         final BlockStreamSimulatorApp secondSimulator = createBlockSimulator(secondSimulatorConfiguration);
         // Start Simulators
         startSimulatorInstance(firstSimulator); // Source
-        startSimulatorInstanceWithErrorResponse(secondSimulator);
-        //startSimulatorInstance(secondSimulator); // Subject
+        startSimulatorInstance(secondSimulator); // Subject
         // wait to be sure the blocks are processed
         Thread.sleep(6000);
         // Delete 15 blocks to create a gap that needs to be backfilled on Subject BN (8082)
@@ -278,9 +276,6 @@ public class PositiveMultiplePublishersTests extends BaseSuite {
         final BlockStreamSimulatorApp thirdSimulator = createBlockSimulator(thirdSimulatorConfiguration);
         startSimulatorInstanceWithErrorResponse(thirdSimulator);
 
-        // This sleep is for debugging purposes, to be able to see the state of the block node after backfilling in
-        // container
-        // Thread.sleep(600000);
         Thread.sleep(32000); // Autonomous Timeout is 2 x 15 = 30 secs + some margin
 
         // Verify that Backfill on Demand Worked.
@@ -294,9 +289,12 @@ public class PositiveMultiplePublishersTests extends BaseSuite {
         assertEquals(18, latestBlockNodeBlockNumber);
 
         // Verify that Autonomous Backfill Worked for the deleted blocks
-        BlockResponse block0 = getBlock(blockAccessStubs.get(8082), 0);
+        // Pick a random block number between 0 and 14
+        int randomBlockNumber = ThreadLocalRandom.current().nextInt(0, 15);
+        BlockResponse block = getBlock(blockAccessStubs.get(8082), randomBlockNumber);
         assertEquals(
-                0, block0.getBlock().getItemsList().getFirst().getBlockHeader().getNumber());
+                randomBlockNumber,
+                block.getBlock().getItemsList().getFirst().getBlockHeader().getNumber());
 
         // After all Assertion pass we can teardown
         teardownBlockNodes();

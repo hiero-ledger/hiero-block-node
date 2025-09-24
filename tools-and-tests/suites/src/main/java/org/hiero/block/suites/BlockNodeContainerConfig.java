@@ -7,4 +7,4 @@ import java.util.Map;
  * Configuration for a single Block Node instance in test suites.
  */
 public record BlockNodeContainerConfig(
-        int port, int metricPort, String backfillSourcePath, Map<String, String> EnvOverrides) {}
+        int port, int metricPort, String backfillSourcePath, Map<String, String> envOverrides) {}
