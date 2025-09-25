@@ -136,9 +136,15 @@ class VerificationServicePluginTest extends PluginTestBase<VerificationServicePl
         // sent the mocked BlockItems to the plugin
         plugin.handleBlockItemsReceived(blockItems);
         // check the exception was thrown and resulted in a shutdown
-        assertTrue(
+        assertFalse(
                 ((TestHealthFacility) blockNodeContext.serverHealth()).shutdownCalled.get(),
-                "The server should be shutdown after an exception is thrown");
+                "The server should NOT be shutdown after an exception is thrown on VerificationServicePlugin");
+
+        // check we get a failed verification notification
+        VerificationNotification blockNotification =
+                blockMessaging.getSentVerificationNotifications().getFirst();
+        assertNotNull(blockNotification);
+        assertFalse(blockNotification.success(), "The verification should be unsuccessful");
     }
 
     @Test
@@ -193,6 +199,10 @@ class VerificationServicePluginTest extends PluginTestBase<VerificationServicePl
         // check we don't received a block verification notification
         long blockNotifications =
                 blockMessaging.getSentVerificationNotifications().size();
-        assertEquals(0, blockNotifications);
+        assertEquals(1, blockNotifications);
+        VerificationNotification blockNotification =
+                blockMessaging.getSentVerificationNotifications().getFirst();
+        assertNotNull(blockNotification);
+        assertFalse(blockNotification.success(), "The verification should be unsuccessful");
     }
 }
