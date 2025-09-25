@@ -11,9 +11,9 @@ import org.hiero.block.node.spi.blockmessaging.BlockSource;
 import org.hiero.block.node.spi.blockmessaging.VerificationNotification;
 import org.hiero.block.node.verification.session.BlockVerificationSession;
 
+// todo(1661) there is a follow-up task to implement this class based on the HAPI 0.68.0 expected spec (latest)
 public class BlockVerificationSessionAt0680 implements BlockVerificationSession {
 
-    // logger
     private final System.Logger LOGGER = System.getLogger(getClass().getName());
 
     public BlockVerificationSessionAt0680(
