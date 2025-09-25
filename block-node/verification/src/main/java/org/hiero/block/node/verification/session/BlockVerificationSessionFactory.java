@@ -15,6 +15,9 @@ public final class BlockVerificationSessionFactory {
 
     private BlockVerificationSessionFactory() {}
 
+    private static final SemanticVersion V_0_68_0 = semanticVersion(0, 68, 0);
+    private static final SemanticVersion V_0_64_0 = semanticVersion(0, 64, 0);
+
     /**
      * Create a {@link BlockVerificationSession} for the given HAPI version.
      *
@@ -32,9 +35,9 @@ public final class BlockVerificationSessionFactory {
         Objects.requireNonNull(hapiVersion, "hapiVersion");
         Preconditions.requireWhole(blockNumber, "blockNumber must be >= 0");
 
-        if (gte(hapiVersion, semanticVersion(0, 68, 0))) {
+        if (gte(hapiVersion, V_0_68_0)) {
             return new BlockVerificationSessionAt0680(blockNumber, blockSource, "extraBytesPlaceholder");
-        } else if (gte(hapiVersion, semanticVersion(0, 64, 0))) {
+        } else if (gte(hapiVersion, V_0_64_0)) {
             return new BlockVerificationSessionAt0640(blockNumber, blockSource);
         } else {
             throw new IllegalArgumentException(
