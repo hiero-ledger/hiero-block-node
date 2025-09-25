@@ -21,7 +21,6 @@ import org.hiero.block.node.spi.blockmessaging.BlockSource;
 import org.hiero.block.node.spi.blockmessaging.VerificationNotification;
 import org.hiero.block.node.verification.session.BlockVerificationSession;
 import org.hiero.block.node.verification.session.BlockVerificationSessionFactory;
-import org.hiero.block.node.verification.session.impl.BlockVerificationSessionAt0640;
 
 /** Provides implementation for the health endpoints of the server. */
 @SuppressWarnings("unused")
@@ -212,8 +211,21 @@ public class VerificationServicePlugin implements BlockNodePlugin, BlockItemHand
             LOGGER.log(
                     TRACE, "Received backfilled block notification for block number: {0}", notification.blockNumber());
             // create a new verification session for the backfilled block
-            BlockVerificationSession backfillSession =
-                    new BlockVerificationSessionAt0640(notification.blockNumber(), BlockSource.BACKFILL);
+
+            BlockHeader blockHeader = BlockHeader.PROTOBUF.parse(
+                    notification.block().blockItems().getFirst().blockHeader());
+            if (notification.blockNumber() != blockHeader.number()) {
+                LOGGER.log(
+                        WARNING,
+                        "Block number in BackfilledBlockNotification ({0}) does not match number in BlockHeader ({1})",
+                        notification.blockNumber(),
+                        blockHeader.number());
+                throw new IllegalStateException("Block number mismatch");
+            }
+
+            BlockVerificationSession backfillSession = BlockVerificationSessionFactory.createSession(
+                    notification.blockNumber(), BlockSource.BACKFILL, blockHeader.hapiProtoVersionOrThrow());
+
             // process the block items in the backfilled notification
             VerificationNotification backfillNotification =
                     backfillSession.processBlockItems(notification.block().blockItems());
