@@ -80,10 +80,14 @@ public final class BlockUtils {
      * These blocks are used for testing purposes only.
      */
     public enum SAMPLE_BLOCKS {
-        GENERATED_14(
-                "000000000000000000000000000000000014.blk.gz",
+        HAPI_0_64_0_BLOCK_14(
+                "HAPI-0-64-0/000000000000000000000000000000000014.blk.gz",
                 "54dca69665741f13d8c956dffb3327edbe5d56e32d2bc66d6ce145a1e1b62fe61cddb74b19f17a5da9bb01933429d5e0",
-                14);
+                14),
+        HAPI_0_66_0_BLOCK_10(
+                "HAPI-0-66-0/000000000000000000000000000000000010.blk.gz",
+                "8d6d9004594f10f15518a2c6a7c5d473077f2a83a874a9489095adc0d0bf6b7c9f7e49b1e5430203e7234ebfd2880de2",
+                10);
 
         // VNymlmV0HxPYyVbf+zMn7b5dVuMtK8ZtbOFFoeG2L+Yc3bdLGfF6Xam7AZM0KdXg
         private final String blockName;
