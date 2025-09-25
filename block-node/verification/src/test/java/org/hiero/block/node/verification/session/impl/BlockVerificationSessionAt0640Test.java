@@ -13,6 +13,7 @@ import org.hiero.block.node.spi.blockmessaging.VerificationNotification;
 import org.hiero.block.node.verification.session.BlockVerificationSession;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 
 class BlockVerificationSessionAt0640Test {
@@ -165,5 +166,18 @@ class BlockVerificationSessionAt0640Test {
                 "The block hash should not be the same as the one in the block header");
 
         Assertions.assertFalse(blockNotification.success(), "The block notification should be unsuccessful");
+    }
+
+    @Test
+    @Disabled("BlockHeader number and blockNumber on constructor mismatch, should throw IllegalStateException")
+    void blockHeaderAndNumberMismatch() throws ParseException {
+        BlockHeader blockHeader =
+                BlockHeader.PROTOBUF.parse(blockItems.getFirst().blockHeaderOrThrow());
+
+        long blockNumber = blockHeader.number() + 1;
+
+        BlockVerificationSessionAt0640 session = new BlockVerificationSessionAt0640(blockNumber, BlockSource.PUBLISHER);
+
+        Assertions.assertThrows(IllegalStateException.class, () -> session.processBlockItems(blockItems));
     }
 }
