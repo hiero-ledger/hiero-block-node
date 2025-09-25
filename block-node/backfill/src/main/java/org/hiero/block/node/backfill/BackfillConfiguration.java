@@ -18,7 +18,7 @@ import org.hiero.block.node.base.Loggable;
  * @param initialRetryDelay Initial cooldown time between retries in milliseconds, will be multiplied by number of retry on each attempt
  * @param fetchBatchSize Number of blocks to fetch in a single gRPC call
  * @param delayBetweenBatches Cool downtime in milliseconds between batches of blocks to fetch
- * @param initialDelay Initial delay in seconds before starting the backfill process, to give time for the system to stabilize
+ * @param initialDelay Initial delay in milliseconds before starting the backfill process, to give time for the system to stabilize
  * @param perBlockProcessingTimeout Timeout in milliseconds for processing each block, to avoid blocking the backfill
  *                                  process indefinitely in case something unexpected happens, this would allow for self-recovery
  * @param grpcOverallTimeout single timeout configuration for gRPC Client construction, connectTimeout, readTimeout and pollWaitTime
