@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-package org.hiero.block.node.verification;
+package org.hiero.block.node.verification.session.impl;
 
 import static org.hiero.block.common.hasher.HashingUtilities.getBlockItemHash;
 
@@ -18,12 +18,13 @@ import org.hiero.block.internal.BlockItemUnparsed;
 import org.hiero.block.internal.BlockUnparsed;
 import org.hiero.block.node.spi.blockmessaging.BlockSource;
 import org.hiero.block.node.spi.blockmessaging.VerificationNotification;
+import org.hiero.block.node.verification.session.BlockVerificationSession;
 
 /**
  * Block verification for a single block, aka. session. A new one is created for each block to verify. This is a simple
  * separate class so it is easy to test.
  */
-public class BlockVerificationSession {
+public class BlockVerificationSessionAt0640 implements BlockVerificationSession {
     /** The block number being verified. */
     protected final long blockNumber;
     // Stream Hashers
@@ -52,7 +53,7 @@ public class BlockVerificationSession {
      * @param blockNumber the block number to verify, we pass it in even though we could extract from block items to
      *                    avoid having to duplicate parsing work of the block header.
      */
-    protected BlockVerificationSession(final long blockNumber, @NonNull final BlockSource blockSource) {
+    public BlockVerificationSessionAt0640(final long blockNumber, @NonNull final BlockSource blockSource) {
         this.blockNumber = blockNumber;
         // using NaiveStreamingTreeHasher as we should only need single threaded
         this.inputTreeHasher = new NaiveStreamingTreeHasher();
@@ -72,6 +73,7 @@ public class BlockVerificationSession {
      *          block proof otherwise null
      * @throws ParseException if a parsing error occurs
      */
+    @Override
     public VerificationNotification processBlockItems(List<BlockItemUnparsed> blockItems) throws ParseException {
         // Collect the block items for later use in producing the block notification
         this.blockItems.addAll(blockItems);
@@ -105,7 +107,7 @@ public class BlockVerificationSession {
      * @param blockProof the block proof
      * @return VerificationNotification indicating the result of the verification
      */
-    VerificationNotification finalizeVerification(BlockProof blockProof) {
+    protected VerificationNotification finalizeVerification(BlockProof blockProof) {
         final Bytes blockHash = HashingUtilities.computeFinalBlockHash(
                 blockProof,
                 inputTreeHasher,
@@ -125,7 +127,7 @@ public class BlockVerificationSession {
      * @param signature the signature to verify
      * @return true if the signature is valid, false otherwise
      */
-    Boolean verifySignature(@NonNull Bytes hash, @NonNull Bytes signature) {
+    protected Boolean verifySignature(@NonNull Bytes hash, @NonNull Bytes signature) {
         // TODO we are close to having real TTS signature verification, we maybe should have a config if we are work on
         // TODO preview or production block stream and hence which verification to use
 
