@@ -10,6 +10,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
+import com.hedera.hapi.block.stream.output.BlockHeader;
 import com.hedera.pbj.runtime.OneOf;
 import com.hedera.pbj.runtime.ParseException;
 import java.io.IOException;
@@ -173,5 +174,25 @@ class VerificationServicePluginTest extends PluginTestBase<VerificationServicePl
                 sampleBlockInfo.blockUnparsed(),
                 blockNotification.block(),
                 "The block should be the same as the one sent");
+    }
+
+    @Test
+    @DisplayName("BlockHeader number and blockNumber on constructor mismatch, should throw IllegalStateException")
+    void blockHeaderAndNumberMismatch() throws ParseException, IOException {
+
+        BlockUtils.SampleBlockInfo sampleBlockInfo =
+                BlockUtils.getSampleBlockInfo(BlockUtils.SAMPLE_BLOCKS.HAPI_0_64_0_BLOCK_14);
+
+        BlockHeader blockHeader = BlockHeader.PROTOBUF.parse(
+                sampleBlockInfo.blockUnparsed().blockItems().getFirst().blockHeaderOrThrow());
+
+        long blockNumber = blockHeader.number() + 1;
+        plugin.handleBlockItemsReceived(
+                new BlockItems(sampleBlockInfo.blockUnparsed().blockItems(), blockNumber));
+
+        // check we don't received a block verification notification
+        long blockNotifications =
+                blockMessaging.getSentVerificationNotifications().size();
+        assertEquals(0, blockNotifications);
     }
 }

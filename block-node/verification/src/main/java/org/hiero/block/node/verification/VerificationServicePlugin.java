@@ -190,9 +190,10 @@ public class VerificationServicePlugin implements BlockNodePlugin, BlockItemHand
         } catch (final Exception e) {
             LOGGER.log(ERROR, "Failed to verify BlockItems: ", e);
             verificationBlocksError.increment();
-            // TODO is shutting down here really the right thing to do?
-            // Trigger the server to stop accepting new requests
-            context.serverHealth().shutdown(VerificationServicePlugin.class.getSimpleName(), e.getMessage());
+            // Return a success=false notification to indicate failure but include the block number.
+            context.blockMessaging()
+                    .sendBlockVerification(
+                            new VerificationNotification(false, currentBlockNumber, null, null, BlockSource.PUBLISHER));
         }
     }
 
