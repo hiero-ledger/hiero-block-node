@@ -200,18 +200,28 @@ public class PositiveMultiplePublishersTests extends BaseSuite {
     @Test
     @DisplayName(
             "Autonomous backfill should fill the gaps and Publisher should send TOO_FAR_BEHIND to activate backfill on demand")
-    @Timeout(90)
+    @Timeout(600)
     public void testBackfillOnDemandAndAutonomousBackfill() throws IOException, InterruptedException {
 
         //  2 Block Nodes, 1 Source (40840), Subject BN: Backfill will happen here. (8082)
         // We only launch 8082 cause the source is already in BASE class.
+        // block.node.earliestManagedBlock
         Map<String, String> bnSubjectConfigOverride = Map.of(
+                "BACKFILL_SCAN_INTERVAL",
+                "30000",
                 "BACKFILL_PER_BLOCK_PROCESSING_TIMEOUT",
                 "2000",
                 "BACKFILL_FETCH_BATCH_SIZE",
-                "3",
+                "25",
                 "BACKFILL_DELAY_BETWEEN_BATCHES",
-                "2000");
+                "2000",
+                "MESSAGING_BLOCK_ITEM_QUEUE_SIZE",
+                "2048",
+                "MESSAGING_BLOCK_NOTIFICATION_QUEUE_SIZE",
+                "512",
+                "BLOCK_NODE_EARLIEST_MANAGED_BLOCK",
+                "100");
+
         launchBlockNodes(List.of(
                 new BlockNodeContainerConfig(8082, 9989, "/resources/block-nodes.json", bnSubjectConfigOverride)));
         // Simulator config for Source up to block 18
@@ -221,7 +231,7 @@ public class PositiveMultiplePublishersTests extends BaseSuite {
                 "blockStream.millisecondsPerBlock",
                 "250",
                 "generator.endBlockNumber",
-                "18",
+                "200",
                 "grpc.port",
                 "40840");
         // Simulator config for Subject up to block 16
@@ -230,8 +240,10 @@ public class PositiveMultiplePublishersTests extends BaseSuite {
                 "MILLIS_PER_BLOCK",
                 "blockStream.millisecondsPerBlock",
                 "250",
+                "generator.startBlockNumber",
+                "100",
                 "generator.endBlockNumber",
-                "16",
+                "150",
                 "grpc.port",
                 "8082");
         // Create Simulators
@@ -240,23 +252,8 @@ public class PositiveMultiplePublishersTests extends BaseSuite {
         // Start Simulators
         startSimulatorInstance(firstSimulator); // Source
         startSimulatorInstance(secondSimulator); // Subject
-        // wait to be sure the blocks are processed
-        Thread.sleep(6000);
-        // Delete 15 blocks to create a gap that needs to be backfilled on Subject BN (8082)
-        // Subject is the only one we created on demand, hence 0 index on the list.  (0-14)
-        deleteBlocks(0, 15);
-
-        // Verify that the first 3 blocks are deleted
-        BlockResponse block0Deleted = getBlock(blockAccessStubs.get(8082), 0);
-        BlockResponse block1Deleted = getBlock(blockAccessStubs.get(8082), 1);
-        BlockResponse block2Deleted = getBlock(blockAccessStubs.get(8082), 2);
-        assertEquals(NOT_FOUND, block0Deleted.getStatus());
-        assertEquals(NOT_FOUND, block1Deleted.getStatus());
-        assertEquals(NOT_FOUND, block2Deleted.getStatus());
-
-        // Restart the BN to trigger autonomous backfill for the deleted blocks
-        restartBlockNode(0);
-        Thread.sleep(6000); // wait for container to start and Backfill to kick in
+        // wait to be sure the blocks are processed and Backfill to kick in.
+        Thread.sleep(60_000);
 
         // Simulator for Trigger Backfill on Demand from BN Subject (8082)
         final Map<String, String> thirdSimulatorConfiguration = Map.of(
@@ -265,20 +262,21 @@ public class PositiveMultiplePublishersTests extends BaseSuite {
                 "blockStream.millisecondsPerBlock",
                 "250",
                 "generator.startBlockNumber",
-                "18",
+                "200",
                 "blockStream.endStreamMode",
                 "TOO_FAR_BEHIND",
                 "blockStream.endStreamEarliestBlockNumber",
                 "0",
                 "blockStream.endStreamLatestBlockNumber",
-                "18",
+                "200",
                 "grpc.port",
                 "8082");
         // create and start third simulator
         final BlockStreamSimulatorApp thirdSimulator = createBlockSimulator(thirdSimulatorConfiguration);
         startSimulatorInstanceWithErrorResponse(thirdSimulator);
 
-        Thread.sleep(32000); // Autonomous Timeout is 2 x 15 = 30 secs + some margin
+        // Change hardcoded value for a polling mechanism with timeout.
+        Thread.sleep(120_000);
 
         // Verify that Backfill on Demand Worked.
         final BlockResponse latestPublishedBlockAfter = getLatestBlock(blockAccessStubs.get(8082));
@@ -288,15 +286,35 @@ public class PositiveMultiplePublishersTests extends BaseSuite {
                 .getFirst()
                 .getBlockHeader()
                 .getNumber();
-        assertEquals(18, latestBlockNodeBlockNumber);
+        assertEquals(200, latestBlockNodeBlockNumber);
 
         // Verify that Autonomous Backfill Worked for the deleted blocks
-        // Pick a random block number between 0 and 14
-        int randomBlockNumber = ThreadLocalRandom.current().nextInt(0, 15);
-        BlockResponse block = getBlock(blockAccessStubs.get(8082), randomBlockNumber);
-        assertEquals(
-                randomBlockNumber,
-                block.getBlock().getItemsList().getFirst().getBlockHeader().getNumber());
+        // Pick a random block number between 0 and 100 (Autonomous backfill should have filled the gaps up to 100)
+
+        for (int i = 0; i < 5; i++) {
+            int randomBlockNumber = ThreadLocalRandom.current().nextInt(0, 100);
+            BlockResponse block = getBlock(blockAccessStubs.get(8082), randomBlockNumber);
+            assertEquals(
+                    randomBlockNumber,
+                    block.getBlock().getItemsList().getFirst().getBlockHeader().getNumber());
+        }
+        // Pick a random block number between 0 and 150 (Where pushed in real time by second simulator)
+        for (int i = 0; i < 5; i++) {
+            int randomBlockNumber = ThreadLocalRandom.current().nextInt(100, 150);
+            BlockResponse block = getBlock(blockAccessStubs.get(8082), randomBlockNumber);
+            assertEquals(
+                    randomBlockNumber,
+                    block.getBlock().getItemsList().getFirst().getBlockHeader().getNumber());
+        }
+
+        // Pick a random block number between 150 and 200 (Autonomous backfill 150-->200)
+        for (int i = 0; i < 5; i++) {
+            int randomBlockNumber = ThreadLocalRandom.current().nextInt(150, 200);
+            BlockResponse block = getBlock(blockAccessStubs.get(8082), randomBlockNumber);
+            assertEquals(
+                    randomBlockNumber,
+                    block.getBlock().getItemsList().getFirst().getBlockHeader().getNumber());
+        }
 
         // After all Assertion pass we can teardown
         teardownBlockNodes();
