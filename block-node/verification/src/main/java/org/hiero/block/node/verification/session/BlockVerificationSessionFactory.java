@@ -31,13 +31,13 @@ public final class BlockVerificationSessionFactory {
     public static BlockVerificationSession createSession(
             final long blockNumber, final BlockSource blockSource, final SemanticVersion hapiVersion) {
 
-        Objects.requireNonNull(blockSource, "blockSource");
-        Objects.requireNonNull(hapiVersion, "hapiVersion");
+        Objects.requireNonNull(blockSource, "blockSource cannot be null");
+        Objects.requireNonNull(hapiVersion, "hapiVersion cannot be null");
         Preconditions.requireWhole(blockNumber, "blockNumber must be >= 0");
 
-        if (gte(hapiVersion, V_0_68_0)) {
+        if (isGreaterThanOrEqual(hapiVersion, V_0_68_0)) {
             return new BlockVerificationSessionAt0680(blockNumber, blockSource, "extraBytesPlaceholder");
-        } else if (gte(hapiVersion, V_0_64_0)) {
+        } else if (isGreaterThanOrEqual(hapiVersion, V_0_64_0)) {
             return new BlockVerificationSessionAt0640(blockNumber, blockSource);
         } else {
             throw new IllegalArgumentException(
@@ -46,7 +46,7 @@ public final class BlockVerificationSessionFactory {
     }
 
     /** v >= w ? (lexicographic by major, minor, patch) */
-    private static boolean gte(final SemanticVersion v, final SemanticVersion w) {
+    private static boolean isGreaterThanOrEqual(final SemanticVersion v, final SemanticVersion w) {
         if (v.major() != w.major()) return v.major() > w.major();
         if (v.minor() != w.minor()) return v.minor() > w.minor();
         return v.patch() >= w.patch();
@@ -62,6 +62,6 @@ public final class BlockVerificationSessionFactory {
     }
     /** Convert to a short string "major.minor.patch" */
     private static String toShortString(final SemanticVersion v) {
-        return v.major() + "." + v.minor() + "." + v.patch();
+        return "%02d.%03d.%04d".formatted(v.major(), v.minor(), v.patch());
     }
 }

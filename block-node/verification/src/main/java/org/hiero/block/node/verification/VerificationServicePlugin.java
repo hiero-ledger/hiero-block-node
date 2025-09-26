@@ -2,6 +2,7 @@
 package org.hiero.block.node.verification;
 
 import static java.lang.System.Logger.Level.ERROR;
+import static java.lang.System.Logger.Level.INFO;
 import static java.lang.System.Logger.Level.TRACE;
 import static java.lang.System.Logger.Level.WARNING;
 
@@ -142,11 +143,11 @@ public class VerificationServicePlugin implements BlockNodePlugin, BlockItemHand
                         blockItems.blockItems().getFirst().blockHeader());
                 if (currentBlockNumber != blockHeader.number()) {
                     LOGGER.log(
-                            WARNING,
+                            INFO,
                             "Block number in BlockItems ({0}) does not match number in BlockHeader ({1})",
                             currentBlockNumber,
                             blockHeader.number());
-                    throw new IllegalStateException("Block number mismatch");
+                    throw new RuntimeException("Block number mismatch");
                 }
 
                 SemanticVersion semanticVersion = blockHeader.hapiProtoVersionOrThrow();
