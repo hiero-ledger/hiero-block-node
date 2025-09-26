@@ -10,14 +10,6 @@ module org.hiero.block.node.verification {
             com.swirlds.config.impl,
             com.swirlds.config.extensions,
             org.hiero.block.node.app;
-    exports org.hiero.block.node.verification.session.impl to
-            com.swirlds.config.extensions,
-            com.swirlds.config.impl,
-            org.hiero.block.node.app;
-    exports org.hiero.block.node.verification.session to
-            com.swirlds.config.extensions,
-            com.swirlds.config.impl,
-            org.hiero.block.node.app;
 
     requires transitive com.hedera.pbj.runtime;
     requires transitive com.swirlds.config.api;
