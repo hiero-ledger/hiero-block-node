@@ -250,6 +250,85 @@ class SubscriberServicePluginTest {
                                 .blockItems();
                         assertBlockReceived(expected, actual);
                     }
+
+                    /**
+                     * This test aims to assert that when a valid request for a
+                     * single block is sent to the plugin, a response with the
+                     * block items is returned, followed by a success status
+                     * response. Here, the block requested does not exist at the
+                     * time of the request, but is supplied later from live
+                     * data. This is a request for future block, but the request
+                     * can be fulfilled because we have some historical data,
+                     * thus we can determine how far in the future the requested
+                     * block is. The Block is supplied to live in multiple
+                     * batches. The live data must nevertheless be streamed to
+                     * completion. A single block sent in multiple batches is
+                     * sufficient to assert this.
+                     */
+                    @Test
+                    @DisplayName("Test Subscriber: Valid Request Single Block Future From Live In Batches")
+                    void testSuccessfulRequestSingleBlockFutureFromLiveInBatches() {
+                        // First we create the block
+                        final List<Block> blockZero =
+                                SimpleTestBlockItemBuilder.createNumberOfVerySimpleBlocksBatched(0, 0);
+                        // Supply a block, otherwise if there is no data at all, we
+                        // cannot fulfill the request, because we cannot determine
+                        // how much in the future the requested block is
+                        final List<BlockItem> blockZeroItems =
+                                blockZero.getFirst().items();
+                        historicalBlockFacility.handleBlockItemsReceived(toBlockItems(blockZeroItems));
+                        // Then, we create the request for block 0
+                        final SubscribeStreamRequest request = SubscribeStreamRequest.newBuilder()
+                                .startBlockNumber(1L)
+                                .endBlockNumber(1L)
+                                .build();
+                        // Send the request
+                        toPluginPipe.onNext(SubscribeStreamRequest.PROTOBUF.toBytes(request));
+                        // Disable history to listen to live data so we ensure
+                        // block will be supplied from live
+                        historicalBlockFacility.setDisablePlugin();
+                        // Now supply the requested block to history in multiple batches
+                        final List<Block> blockOne =
+                                SimpleTestBlockItemBuilder.createNumberOfVerySimpleBlocksBatched(1, 1);
+                        final List<BlockItem> expected = blockOne.getFirst().items();
+                        // Now, send to live only the header as a first batch
+                        final List<BlockItem> headerOnly = expected.subList(0, 1);
+                        blockMessaging.sendBlockItems(toBlockItems(headerOnly));
+                        // we expect that a response will be sent
+                        awaitResponse(fromPluginBytes, 1);
+                        // Now send the rest of the block in one batch
+                        final List<BlockItem> restOfBlock = expected.subList(1, expected.size());
+                        blockMessaging.sendBlockItems(toBlockItems(
+                                restOfBlock,
+                                false,
+                                headerOnly.getFirst().blockHeader().number()));
+                        // Wait for all responses, now we expect two responses,
+                        // one is for the rest of the block items, the other is
+                        // the success status
+                        awaitResponse(fromPluginBytes, 2);
+                        // Assert total expected responses count and status success
+                        final int expectedResponses = 3;
+                        awaitResponse(fromPluginBytes, expectedResponses);
+                        // Assert responses count and status success
+                        assertThat(fromPluginBytes)
+                                .hasSize(expectedResponses)
+                                .last()
+                                .extracting(responseExtractor)
+                                .isNotNull()
+                                .returns(Code.SUCCESS, responseStatusExtractor);
+                        // Extract and assert block items response for the header
+                        final List<BlockItem> actualHeaderOnly = responseExtractor
+                                .apply(fromPluginBytes.getFirst())
+                                .blockItems()
+                                .blockItems();
+                        assertBlockReceived(headerOnly, actualHeaderOnly);
+                        // Extract and assert block items response for the rest of the block
+                        final List<BlockItem> actualRestOfBlock = responseExtractor
+                                .apply(fromPluginBytes.get(1))
+                                .blockItems()
+                                .blockItems();
+                        assertBlockReceived(restOfBlock, actualRestOfBlock);
+                    }
                 }
 
                 /**
@@ -870,7 +949,10 @@ class SubscriberServicePluginTest {
                         // Send a partial block from live, simulating a mid-block subscription
                         final List<BlockItem> firstBlock =
                                 blocksZeroToTwo.getFirst().items();
-                        blockMessaging.sendBlockItems(toBlockItems(firstBlock, false));
+                        blockMessaging.sendBlockItems(toBlockItems(
+                                firstBlock,
+                                false,
+                                firstBlock.getFirst().blockHeader().number()));
                         // Now supply the following blocks from history
                         final List<Block> blocksOneToTwo = blocksZeroToTwo.subList(1, blocksZeroToTwo.size());
                         for (final Block block : blocksOneToTwo) {
@@ -1068,13 +1150,19 @@ class SubscriberServicePluginTest {
     }
 
     private static BlockItems toBlockItems(final List<BlockItem> block) {
-        return toBlockItems(block, true);
+        return toBlockItems(block, true, block.getFirst().blockHeader().number());
     }
 
     @SuppressWarnings("all")
-    private static BlockItems toBlockItems(final List<BlockItem> block, final boolean sendHeader) {
+    private static BlockItems toBlockItems(
+            final List<BlockItem> block, final boolean includeHeader, final long blockNumber) {
         final List<BlockItemUnparsed> result = new ArrayList<>();
-        final List<BlockItem> toConvert = sendHeader ? block : block.subList(1, block.size());
+        final List<BlockItem> toConvert;
+        if (!block.getFirst().hasBlockHeader()) {
+            toConvert = block;
+        } else {
+            toConvert = includeHeader ? block : block.subList(1, block.size());
+        }
         for (final BlockItem item : toConvert) {
             try {
                 result.add(BlockItemUnparsed.PROTOBUF.parse(BlockItem.PROTOBUF.toBytes(item)));
@@ -1082,7 +1170,7 @@ class SubscriberServicePluginTest {
                 fail("Failed to parse BlockItem to BlockItemUnparsed", e);
             }
         }
-        return new BlockItems(result, block.getFirst().blockHeader().number());
+        return new BlockItems(result, blockNumber);
     }
 
     private void awaitResponse(final List<Bytes> fromPluginBytes, final int requiredReplies) {
