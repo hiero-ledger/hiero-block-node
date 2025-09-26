@@ -201,11 +201,13 @@ public final class SimpleTestBlockItemBuilder {
      * @param endBlockNumber the ending block number, inclusive
      * @return a list of block items that are batched per block
      */
-    public static List<List<BlockItem>> createNumberOfVerySimpleBlocksBatched(
+    public static List<Block> createNumberOfVerySimpleBlocksBatched(
             final int startBlockNumber, final int endBlockNumber) {
-        final ArrayList<List<BlockItem>> result = new ArrayList<>();
+        final ArrayList<Block> result = new ArrayList<>();
         for (int i = startBlockNumber; i <= endBlockNumber; i++) {
-            result.add(Arrays.asList(createNumberOfVerySimpleBlocks(i, i)));
+            result.add(Block.newBuilder()
+                    .items(createNumberOfVerySimpleBlocks(i, i))
+                    .build());
         }
         return result;
     }
