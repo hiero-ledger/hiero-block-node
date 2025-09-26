@@ -58,6 +58,7 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
     private final ConcurrentMap<Long, BlockingDeque<BlockItemSetUnparsed>> queueByBlockMap;
     private final Condition dataReadyLatch;
     private final ReentrantLock dataReadyLock;
+    private final long earliestManagedBlock;
 
     /**
      * Future tracking the queue forwarder task.
@@ -93,6 +94,8 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
         lastPersistedBlockNumber = new AtomicLong(-1);
         dataReadyLock = new ReentrantLock();
         dataReadyLatch = dataReadyLock.newCondition();
+        NodeConfig nodeConfiguration = serverContext.configuration().getConfigData(NodeConfig.class);
+        earliestManagedBlock = nodeConfiguration.earliestManagedBlock();
         updateBlockNumbers(serverContext);
     }
 
@@ -219,6 +222,12 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
             return BlockAction.END_DUPLICATE;
         } else if (blockNumber > lastPersistedBlockNumber.get() && blockNumber < nextUnstreamedBlockNumber.get()) {
             // current streaming number will always be within the range tested here.
+            // Except when we're awaiting the first block after restart and earliest
+            // managed block is higher than what the publisher offered here.
+            if (blockNumber <= earliestManagedBlock
+                    && nextUnstreamedBlockNumber.get() == currentStreamingBlockNumber.get()) {
+                return addHandlerQueueForBlock(blockNumber, handlerId);
+            }
             return BlockAction.SKIP;
         } else if (blockNumber == nextUnstreamedBlockNumber.get()) {
             return addHandlerQueueForBlock(blockNumber, handlerId);
@@ -235,6 +244,11 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
      * todo(1420) add documentation
      */
     private BlockAction addHandlerQueueForBlock(final long blockNumber, final long handlerId) {
+        // Handle an edge case where we need to accept a block before the earliest
+        // managed block right after the node (re)started.
+        if (nextUnstreamedBlockNumber.get() == earliestManagedBlock) {
+            nextUnstreamedBlockNumber.compareAndSet(earliestManagedBlock, blockNumber);
+        }
         if (nextUnstreamedBlockNumber.compareAndSet(blockNumber, blockNumber + 1L)) {
             final String handlerQueueName = getQueueNameForHandlerId(handlerId);
             // Exception, using var here for an expected null value to avoid excessive wrapping.
@@ -496,6 +510,10 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
     @Override
     public void handleVerification(@NonNull final VerificationNotification notification) {
         final long blockNumber = notification.blockNumber();
+        // Critical note: Only handle _failed_ verifications.
+        // If we ever handle successful verifications, we must add conditions
+        // to handle if the block is the first block received after a
+        // restart.
         final boolean shouldHandle = !notification.success()
                 && blockNumber > lastPersistedBlockNumber.get()
                 && blockNumber < nextUnstreamedBlockNumber.get();
@@ -594,16 +612,24 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
         // known blocks.
         lastPersistedBlockNumber.set(latestKnownBlock);
         NodeConfig nodeConfiguration = serverContext.configuration().getConfigData(NodeConfig.class);
-        final long earliestManagedBlock = nodeConfiguration.earliestManagedBlock();
         if (UNKNOWN_BLOCK_NUMBER == latestKnownBlock) {
-            // if we have entered here, then we have no blocks available
+            // if we have entered here, then we have no blocks available.
+            // treat anything up to the earliest managed block as the "next"
+            // block.
+            currentStreamingBlockNumber.set(earliestManagedBlock);
+            nextUnstreamedBlockNumber.set(earliestManagedBlock);
+        } else if (latestKnownBlock < earliestManagedBlock) {
+            // We haven't caught up to the earliest block the operator wants
+            // to treat as the start of history, so accept anything up to that
+            // block as the "next" block.
             currentStreamingBlockNumber.set(earliestManagedBlock);
             nextUnstreamedBlockNumber.set(earliestManagedBlock);
         } else {
             // if we have entered here, we know what the latest known block is,
-            // so we can set the next unstreamed block number to one greater
-            // pretend the next unstreamed block is streaming initially, that
-            // ensures that the first block accepted is correctly handled.
+            // and we must prevent gaps after that block, so we can set the
+            // next unstreamed block number to one greater pretend the next
+            // unstreamed block is streaming initially, that ensures that the
+            // first block accepted is correctly handled.
             currentStreamingBlockNumber.set(latestKnownBlock + 1L);
             nextUnstreamedBlockNumber.set(latestKnownBlock + 1L);
         }
