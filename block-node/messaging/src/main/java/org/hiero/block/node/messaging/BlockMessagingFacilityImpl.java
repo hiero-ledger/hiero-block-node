@@ -20,6 +20,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ExecutorService;
 import java.util.concurrent.ThreadFactory;
 import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.ServiceBuilder;
@@ -174,6 +175,8 @@ public class BlockMessagingFacilityImpl implements BlockMessagingFacility {
     private final List<PreRegisteredBlockNotificationHandler> preRegisteredBlockNotificationHandlers =
             new ArrayList<>();
 
+    private ExecutorService messageForwarder;
+
     /**
      * {@inheritDoc}
      */
@@ -214,6 +217,7 @@ public class BlockMessagingFacilityImpl implements BlockMessagingFacility {
                 "BlockMessagingFacility initialized with block item queue size: {0} and block notification queue size: {1}",
                 messagingConfig.blockItemQueueSize(),
                 messagingConfig.blockNotificationQueueSize());
+        messageForwarder = context.threadPoolManager().createSingleThreadExecutor("messageForwarder");
     }
 
     /**
@@ -406,16 +410,18 @@ public class BlockMessagingFacilityImpl implements BlockMessagingFacility {
      */
     @Override
     public void sendBlockVerification(VerificationNotification notification) {
-        blockNotificationDisruptor.getRingBuffer().publishEvent((event, sequence) -> event.set(notification));
-        // metrics
-        blockVerificationNotificationsCounter.increment();
-        // logs
-        LOGGER.log(
-                TRACE,
-                "Sending block verification notificiation for block: {0}, blockSource: {1}, and success: {2} ",
-                notification.blockNumber(),
-                notification.source(),
-                notification.success());
+        messageForwarder.submit(() -> {
+            blockNotificationDisruptor.getRingBuffer().publishEvent((event, sequence) -> event.set(notification));
+            // metrics
+            blockVerificationNotificationsCounter.increment();
+            // logs
+            LOGGER.log(
+                    TRACE,
+                    "Sending block verification notificiation for block: {0}, blockSource: {1}, and success: {2} ",
+                    notification.blockNumber(),
+                    notification.source(),
+                    notification.success());
+        });
     }
 
     /**
@@ -423,9 +429,11 @@ public class BlockMessagingFacilityImpl implements BlockMessagingFacility {
      */
     @Override
     public void sendBlockPersisted(PersistedNotification notification) {
-        LOGGER.log(TRACE, "Sending block persisted notification: " + notification);
-        blockNotificationDisruptor.getRingBuffer().publishEvent((event, sequence) -> event.set(notification));
-        blockPersistedNotificationsCounter.increment();
+        messageForwarder.submit(() -> {
+            LOGGER.log(TRACE, "Sending block persisted notification: " + notification);
+            blockNotificationDisruptor.getRingBuffer().publishEvent((event, sequence) -> event.set(notification));
+            blockPersistedNotificationsCounter.increment();
+        });
     }
 
     /**
@@ -433,16 +441,20 @@ public class BlockMessagingFacilityImpl implements BlockMessagingFacility {
      */
     @Override
     public void sendBackfilledBlockNotification(BackfilledBlockNotification notification) {
-        LOGGER.log(TRACE, "Sending backfilled block notification: {0}", notification);
-        blockNotificationDisruptor.getRingBuffer().publishEvent((event, sequence) -> event.set(notification));
-        blockBackfilledNotificationsCounter.increment();
+        messageForwarder.submit(() -> {
+            LOGGER.log(TRACE, "Sending backfilled block notification: {0}", notification);
+            blockNotificationDisruptor.getRingBuffer().publishEvent((event, sequence) -> event.set(notification));
+            blockBackfilledNotificationsCounter.increment();
+        });
     }
 
     @Override
     public void sendNewestBlockKnownToNetwork(NewestBlockKnownToNetworkNotification notification) {
-        LOGGER.log(TRACE, "Sending NewestBlockKnownToNetwork notification: " + notification);
-        blockNotificationDisruptor.getRingBuffer().publishEvent((event, sequence) -> event.set(notification));
-        newestBlockKnownToNetworkNotificationsCounter.increment();
+        messageForwarder.submit(() -> {
+            LOGGER.log(TRACE, "Sending NewestBlockKnownToNetwork notification: " + notification);
+            blockNotificationDisruptor.getRingBuffer().publishEvent((event, sequence) -> event.set(notification));
+            newestBlockKnownToNetworkNotificationsCounter.increment();
+        });
     }
 
     /**
