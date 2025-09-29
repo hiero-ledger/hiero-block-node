@@ -224,11 +224,16 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
             // current streaming number will always be within the range tested here.
             // Except when we're awaiting the first block after restart and earliest
             // managed block is higher than what the publisher offered here.
-            if (blockNumber <= earliestManagedBlock
-                    && nextUnstreamedBlockNumber.get() == currentStreamingBlockNumber.get()) {
+            if (blockNumber < earliestManagedBlock
+                    && nextUnstreamedBlockNumber.get() == currentStreamingBlockNumber.get()
+                    // Handle an edge case where we need to accept a block before the earliest
+                    // managed block right after the node (re)started.
+                    && nextUnstreamedBlockNumber.compareAndSet(earliestManagedBlock, blockNumber)) {
+                currentStreamingBlockNumber.set(blockNumber);
                 return addHandlerQueueForBlock(blockNumber, handlerId);
+            } else {
+                return BlockAction.SKIP;
             }
-            return BlockAction.SKIP;
         } else if (blockNumber == nextUnstreamedBlockNumber.get()) {
             return addHandlerQueueForBlock(blockNumber, handlerId);
         } else if (blockNumber > nextUnstreamedBlockNumber.get()) {
@@ -244,11 +249,6 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
      * todo(1420) add documentation
      */
     private BlockAction addHandlerQueueForBlock(final long blockNumber, final long handlerId) {
-        // Handle an edge case where we need to accept a block before the earliest
-        // managed block right after the node (re)started.
-        if (nextUnstreamedBlockNumber.get() == earliestManagedBlock) {
-            nextUnstreamedBlockNumber.compareAndSet(earliestManagedBlock, blockNumber);
-        }
         if (nextUnstreamedBlockNumber.compareAndSet(blockNumber, blockNumber + 1L)) {
             final String handlerQueueName = getQueueNameForHandlerId(handlerId);
             // Exception, using var here for an expected null value to avoid excessive wrapping.
@@ -611,7 +611,6 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
         // Always set the last persisted block number, even if there are no
         // known blocks.
         lastPersistedBlockNumber.set(latestKnownBlock);
-        NodeConfig nodeConfiguration = serverContext.configuration().getConfigData(NodeConfig.class);
         if (UNKNOWN_BLOCK_NUMBER == latestKnownBlock) {
             // if we have entered here, then we have no blocks available.
             // treat anything up to the earliest managed block as the "next"
