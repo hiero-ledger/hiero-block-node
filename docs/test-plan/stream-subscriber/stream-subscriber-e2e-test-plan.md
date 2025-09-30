@@ -69,6 +69,7 @@ Block Stream as new Blocks are being published to the Block Node.
 | [TC-NRV-003](#tc-nrv-003) | Verify Invalid Request: Invalid Closed Range                                                  |                   :x:                    |
 |                           | _**<br/>[Error Tests](#error-tests)<br/>&nbsp;**_                                             |                                          |
 | [TC-ERR-001](#tc-err-001) | Verify Abrupt Client Connection Termination                                                   |                   :x:                    |
+| [TC-ERR-002](#tc-err-002) | Verify Server Error                                                                           |                   :x:                    |
 
 > **Please note**: unless otherwise specified, all tests assume that no Blocks
 > are historically available in the Block Node at the start of the test and also
@@ -108,7 +109,7 @@ The `Stream Subscriber Plugin` MUST validate the gRPC requests.</br>
 The `Stream Subscriber Plugin` MUST perform a precheck to ensure that the
 request can be fulfilled.</br>
 The `Stream Subscriber Plugin` MUST start streaming the Blocks to the client
-based on the request criteria if the request is valid and can be fulfilled.
+based on the request criteria if the request is valid and can be fulfilled.</br>
 The `Stream Subscriber Plugin` MUST send an EndBlock message to the client after
 streaming a Block in full, for every Block streamed.
 
@@ -172,7 +173,7 @@ The `Stream Subscriber Plugin` MUST validate the gRPC requests.</br>
 The `Stream Subscriber Plugin` MUST perform a precheck to ensure that the
 request can be fulfilled.</br>
 The `Stream Subscriber Plugin` MUST start streaming the Blocks to the client
-based on the request criteria if the request is valid and can be fulfilled.
+based on the request criteria if the request is valid and can be fulfilled.</br>
 The `Stream Subscriber Plugin` MUST send an EndBlock message to the client after
 streaming a Block in full, for every Block streamed.
 
@@ -245,7 +246,7 @@ The `Stream Subscriber Plugin` MUST validate the gRPC requests.</br>
 The `Stream Subscriber Plugin` MUST perform a precheck to ensure that the
 request can be fulfilled.</br>
 The `Stream Subscriber Plugin` MUST start streaming the Blocks to the client
-based on the request criteria if the request is valid and can be fulfilled.
+based on the request criteria if the request is valid and can be fulfilled.</br>
 The `Stream Subscriber Plugin` MUST send an EndBlock message to the client after
 streaming a Block in full, for every Block streamed.
 
@@ -314,7 +315,7 @@ The `Stream Subscriber Plugin` MUST validate the gRPC requests.</br>
 The `Stream Subscriber Plugin` MUST perform a precheck to ensure that the
 request can be fulfilled.</br>
 The `Stream Subscriber Plugin` MUST start streaming the Blocks to the client
-based on the request criteria if the request is valid and can be fulfilled.
+based on the request criteria if the request is valid and can be fulfilled.</br>
 The `Stream Subscriber Plugin` MUST send an EndBlock message to the client after
 streaming a Block in full, for every Block streamed.
 
@@ -382,7 +383,7 @@ The `Stream Subscriber Plugin` MUST validate the gRPC requests.</br>
 The `Stream Subscriber Plugin` MUST perform a precheck to ensure that the
 request can be fulfilled.</br>
 The `Stream Subscriber Plugin` MUST start streaming the Blocks to the client
-based on the request criteria if the request is valid and can be fulfilled.
+based on the request criteria if the request is valid and can be fulfilled.</br>
 The `Stream Subscriber Plugin` MUST send an EndBlock message to the client after
 streaming a Block in full, for every Block streamed.
 
@@ -590,7 +591,7 @@ message will be sent to the client. The connection will also be closed.
 The `Stream Subscriber Plugin` MUST allow clients to send gRPC requests.</br>
 The `Stream Subscriber Plugin` MUST validate the gRPC requests.</br>
 The `Stream Subscriber Plugin` MUST reject invalid requests and send an
-appropriate error message to the client.
+appropriate error message to the client.</br>
 The `Stream Subscriber Plugin` MUST close the connection after rejecting an
 invalid request.
 
@@ -644,7 +645,7 @@ message will be sent to the client. The connection will also be closed.
 The `Stream Subscriber Plugin` MUST allow clients to send gRPC requests.</br>
 The `Stream Subscriber Plugin` MUST validate the gRPC requests.</br>
 The `Stream Subscriber Plugin` MUST reject invalid requests and send an
-appropriate error message to the client.
+appropriate error message to the client.</br>
 The `Stream Subscriber Plugin` MUST close the connection after rejecting an
 invalid request.
 
@@ -698,7 +699,7 @@ message will be sent to the client. The connection will also be closed.
 The `Stream Subscriber Plugin` MUST allow clients to send gRPC requests.</br>
 The `Stream Subscriber Plugin` MUST validate the gRPC requests.</br>
 The `Stream Subscriber Plugin` MUST reject invalid requests and send an
-appropriate error message to the client.
+appropriate error message to the client.</br>
 The `Stream Subscriber Plugin` MUST close the connection after rejecting an
 invalid request.
 
@@ -761,7 +762,7 @@ The `Stream Subscriber Plugin` MUST validate the gRPC requests.</br>
 The `Stream Subscriber Plugin` MUST perform a precheck to ensure that the
 request can be fulfilled.</br>
 The `Stream Subscriber Plugin` MUST start streaming the Blocks to the client
-based on the request criteria if the request is valid and can be fulfilled.
+based on the request criteria if the request is valid and can be fulfilled.</br>
 The `Stream Subscriber Plugin` MUST send an EndBlock message to the client after
 streaming a Block in full, for every Block streamed.</br>
 The `Stream Subscriber Plugin` MUST handle abrupt client connection termination
@@ -816,6 +817,93 @@ connection termination.
   session is cleaned up properly.
 - The `Stream Subscriber Plugin` and the Block Node remain stable after the
   abrupt client connection termination.
+
+##### Other
+
+N/A
+
+---
+
+#### TC-ERR-002
+
+##### Test Name
+
+`Verify Server Error`
+
+##### Scenario Description
+
+`Stream Subscriber Plugin` accepts gRPC server streaming requests. If an
+unexpected server error occurs while processing a request, the error must be
+handled gracefully without causing the `Stream Subscriber Plugin` or the Block
+Node to become unstable. An ERROR message must be sent to the client. The
+session must be cleaned up properly. The connection must be closed.
+
+##### Requirements
+
+The `Stream Subscriber Plugin` MUST allow clients to send gRPC requests.</br>
+The `Stream Subscriber Plugin` MUST validate the gRPC requests.</br>
+The `Stream Subscriber Plugin` MUST perform a precheck to ensure that the
+request can be fulfilled.</br>
+The `Stream Subscriber Plugin` MUST start streaming the Blocks to the client
+based on the request criteria if the request is valid and can be fulfilled.</br>
+The `Stream Subscriber Plugin` MUST send an EndBlock message to the client after
+streaming a Block in full, for every Block streamed.</br>
+The `Stream Subscriber Plugin` MUST handle unexpected server errors gracefully
+without causing the `Stream Subscriber Plugin` or the Block Node to become
+unstable.</br>
+The `Stream Subscriber Plugin` MUST send an ERROR message to the client if an
+unexpected server error occurs while processing a request.</br>
+The `Stream Subscriber Plugin` MUST clean up the session properly after an
+unexpected server error occurs while processing a request.</br>
+The `Stream Subscriber Plugin` MUST close the connection after sending an ERROR
+message to the client.
+
+##### Expected Behaviour
+
+- It is expected that when a client sends any valid gRPC request, the
+  `Stream Subscriber Plugin` will validate the request, perform a fulfillment
+  precheck, and then start streaming the Blocks to the client based on the
+  request criteria, granted that the request is valid and fulfillable.
+- It is expected that if an unexpected server error occurs while processing the
+  request, the error will be handled gracefully without causing the
+  `Stream Subscriber Plugin` or the Block Node to become unstable.
+- It is expected that an ERROR message will be sent to the client.
+- It is expected that the session will be cleaned up properly after the
+  unexpected server error occurs while processing the request.
+- It is expected that the connection will be closed after sending the ERROR
+  message to the client.
+
+##### Preconditions
+
+- A Block Node with:
+  - A working `Stream Subscriber Plugin`.
+  - A working Publisher component that will be publishing new Blocks to the
+    Block Node which will then be available for streaming to clients.
+  - A working Block Provision component that will have the ability to
+    provision historical Blocks if needed.
+- A Subscriber Client that can send gRPC server streaming requests to the Block
+  Node and receive responses.
+- A way to simulate unexpected server errors in the `Stream Subscriber Plugin`
+  while processing a request.
+
+##### Input
+
+- A Publisher component starts publishing new Blocks to the Block Node starting
+  from Block `0000000000000000000` onwards.
+- A Subscriber Client sends a valid gRPC request for live Blocks.
+- An unexpected server error is simulated in the `Stream Subscriber Plugin`
+  while processing the request.
+
+##### Output
+
+- The `Stream Subscriber Plugin` handles the unexpected server error gracefully
+  without causing the `Stream Subscriber Plugin` or the Block Node to become
+  unstable.
+- The Subscriber Client receives an ERROR message indicating that an unexpected
+  server error occurred while processing the request.
+- The session is cleaned up properly after the unexpected server error occurs
+  while processing the request.
+- The connection is closed after sending the ERROR message to the client.
 
 ##### Other
 
