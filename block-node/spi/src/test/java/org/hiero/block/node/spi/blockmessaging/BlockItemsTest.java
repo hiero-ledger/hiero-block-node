@@ -37,7 +37,7 @@ public class BlockItemsTest {
         BlockItems blockItems = new BlockItems(blockItemList, 1);
         assertNotNull(blockItems);
         assertEquals(blockItemList, blockItems.blockItems());
-        assertEquals(1, blockItems.newBlockNumber());
+        assertEquals(1, blockItems.blockNumber());
     }
 
     @Test

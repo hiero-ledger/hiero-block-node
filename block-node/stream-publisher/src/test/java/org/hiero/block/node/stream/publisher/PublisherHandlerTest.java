@@ -25,13 +25,13 @@ import org.hiero.block.internal.BlockItemSetUnparsed;
 import org.hiero.block.internal.BlockItemUnparsed;
 import org.hiero.block.internal.PublishStreamRequestUnparsed;
 import org.hiero.block.node.app.fixtures.blocks.SimpleTestBlockItemBuilder;
+import org.hiero.block.node.app.fixtures.pipeline.TestResponsePipeline;
 import org.hiero.block.node.app.fixtures.plugintest.TestBlockMessagingFacility;
 import org.hiero.block.node.spi.blockmessaging.BlockSource;
 import org.hiero.block.node.spi.blockmessaging.NewestBlockKnownToNetworkNotification;
 import org.hiero.block.node.spi.blockmessaging.PersistedNotification;
 import org.hiero.block.node.stream.publisher.PublisherHandler.MetricsHolder;
 import org.hiero.block.node.stream.publisher.StreamPublisherManager.BlockAction;
-import org.hiero.block.node.stream.publisher.fixtures.TestResponsePipeline;
 import org.hiero.block.node.stream.publisher.fixtures.TestStreamPublisherManager;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -55,7 +55,7 @@ class PublisherHandlerTest {
         /** Handler ID used for the tests. */
         private long validNextId;
         /** Test response pipeline used for asserting the handler's responses. */
-        private TestResponsePipeline validReplyPipeline;
+        private TestResponsePipeline<PublishStreamResponse> validReplyPipeline;
         /** Metrics holder used for asserting the handler's metrics. */
         private MetricsHolder validMetricsHodler;
         /** Test publisher manager used within the handler to test. */
@@ -146,7 +146,7 @@ class PublisherHandlerTest {
         /** Handler ID used for the tests. */
         private long handlerId;
         /** Test response pipeline used for asserting the handler's responses. */
-        private TestResponsePipeline repliesPipeline;
+        private TestResponsePipeline<PublishStreamResponse> repliesPipeline;
         /** Metrics holder used for asserting the handler's metrics. */
         private MetricsHolder metrics;
         /** Test publisher manager used within the handler to test. */

@@ -60,7 +60,7 @@ public class SimpleInMemoryHistoricalBlockFacility implements HistoricalBlockFac
                             "Something went wrong, partitionedBlock is not empty. So we never got a end "
                                     + "block for current block");
                 }
-                currentBlockNumber.set(blockItems.newBlockNumber());
+                currentBlockNumber.set(blockItems.blockNumber());
             }
             partialBlock.add(blockItems);
             if (blockItems.isEndOfBlock()) {
