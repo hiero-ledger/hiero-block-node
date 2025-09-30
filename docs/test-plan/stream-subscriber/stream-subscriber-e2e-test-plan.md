@@ -591,6 +591,8 @@ The `Stream Subscriber Plugin` MUST allow clients to send gRPC requests.</br>
 The `Stream Subscriber Plugin` MUST validate the gRPC requests.</br>
 The `Stream Subscriber Plugin` MUST reject invalid requests and send an
 appropriate error message to the client.
+The `Stream Subscriber Plugin` MUST close the connection after rejecting an
+invalid request.
 
 ##### Expected Behaviour
 
@@ -643,6 +645,8 @@ The `Stream Subscriber Plugin` MUST allow clients to send gRPC requests.</br>
 The `Stream Subscriber Plugin` MUST validate the gRPC requests.</br>
 The `Stream Subscriber Plugin` MUST reject invalid requests and send an
 appropriate error message to the client.
+The `Stream Subscriber Plugin` MUST close the connection after rejecting an
+invalid request.
 
 ##### Expected Behaviour
 
@@ -695,11 +699,13 @@ The `Stream Subscriber Plugin` MUST allow clients to send gRPC requests.</br>
 The `Stream Subscriber Plugin` MUST validate the gRPC requests.</br>
 The `Stream Subscriber Plugin` MUST reject invalid requests and send an
 appropriate error message to the client.
+The `Stream Subscriber Plugin` MUST close the connection after rejecting an
+invalid request.
 
 ##### Expected Behaviour
 
 - It is expected that when a client sends an invalid gRPC request with a closed
-  range - both start and end are whole numbers, but end is greater than start,
+  range - both start and end are whole numbers, but start is greater than end,
   the `Stream Subscriber Plugin` will validate the request, determine that it is
   invalid, and then reject the request by sending the INVALID_END_BLOCK_NUMBER
   code to the client.
@@ -715,7 +721,7 @@ appropriate error message to the client.
 ##### Input
 
 - A Subscriber Client sends an invalid gRPC request with a closed range - both
-  start and end are whole numbers, but end is greater than start.
+  start and end are whole numbers, but start is greater than end.
 
 ##### Output
 
@@ -802,5 +808,17 @@ connection termination.
   - During the fulfillment precheck.
   - While streaming Blocks to the client.
   - While waiting for the next Block to become available.
+
+##### Output
+
+- The `Stream Subscriber Plugin` handles the abrupt client connection
+  termination gracefully without causing any resource leaks or other issues. The
+  session is cleaned up properly.
+- The `Stream Subscriber Plugin` and the Block Node remain stable after the
+  abrupt client connection termination.
+
+##### Other
+
+N/A
 
 ---
