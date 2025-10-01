@@ -26,7 +26,7 @@ import org.hiero.block.node.base.Loggable;
 @ConfigData("messaging")
 public record MessagingConfig(
         @Loggable @ConfigProperty(defaultValue = "512") int blockItemQueueSize,
-        @Loggable @ConfigProperty(defaultValue = "16") int blockNotificationQueueSize) {
+        @Loggable @ConfigProperty(defaultValue = "32") int blockNotificationQueueSize) {
     /**
      * Constructor.
      */

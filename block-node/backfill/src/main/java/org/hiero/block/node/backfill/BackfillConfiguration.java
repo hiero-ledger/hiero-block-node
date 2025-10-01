@@ -32,9 +32,9 @@ public record BackfillConfiguration(
         @Loggable @ConfigProperty(defaultValue = "60000") @Min(100) int scanInterval,
         @Loggable @ConfigProperty(defaultValue = "3") @Min(0) @Max(10) int maxRetries,
         @Loggable @ConfigProperty(defaultValue = "5000") @Min(500) int initialRetryDelay,
-        @Loggable @ConfigProperty(defaultValue = "25") @Min(1) @Max(10_000) int fetchBatchSize,
+        @Loggable @ConfigProperty(defaultValue = "10") @Min(1) @Max(1024) int fetchBatchSize,
         @Loggable @ConfigProperty(defaultValue = "1000") @Min(100) int delayBetweenBatches,
         @Loggable @ConfigProperty(defaultValue = "15000") @Min(5) int initialDelay,
         @Loggable @ConfigProperty(defaultValue = "1000") @Min(500) int perBlockProcessingTimeout,
-        @Loggable @ConfigProperty(defaultValue = "30000") @Min(10000) int grpcOverallTimeout,
+        @Loggable @ConfigProperty(defaultValue = "60000") @Min(10000) int grpcOverallTimeout,
         @Loggable @ConfigProperty(defaultValue = "false") boolean enableTLS) {}
