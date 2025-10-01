@@ -16,6 +16,7 @@ import java.lang.System.Logger.Level;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletionService;
 import java.util.concurrent.ConcurrentSkipListMap;
 import java.util.concurrent.CountDownLatch;
@@ -33,6 +34,7 @@ import org.hiero.block.internal.SubscribeStreamResponseUnparsed.Builder;
 import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.BlockNodePlugin;
 import org.hiero.block.node.spi.ServiceBuilder;
+import org.hiero.block.node.stream.subscriber.BlockStreamSubscriberSession.SessionContext;
 
 /**
  * Provides implementation for the block stream subscriber endpoints of the server. These handle incoming requests for block
@@ -201,8 +203,9 @@ public class SubscriberServicePlugin implements BlockNodePlugin, BlockStreamSubs
             final CompletionService<BlockStreamSubscriberSession> streams = streamSessions;
             final Map<Long, BlockStreamSubscriberSession> sessions = openSessions;
             if (streams != null && sessions != null) {
-                final BlockStreamSubscriberSession blockStreamSession = new BlockStreamSubscriberSession(
-                        clientId, request, responsePipeline, context, sessionReadyLatch);
+                final SessionContext sessionContext = SessionContext.create(clientId, request, context);
+                final BlockStreamSubscriberSession blockStreamSession =
+                        new BlockStreamSubscriberSession(sessionContext, responsePipeline, context, sessionReadyLatch);
                 streams.submit(blockStreamSession);
                 // Wait for the session to start
                 sessionReadyLatch.await();
@@ -258,7 +261,7 @@ public class SubscriberServicePlugin implements BlockNodePlugin, BlockStreamSubs
                     // Otherwise, log that the session completed successfully.
                     LOGGER.log(Level.TRACE, "Subscriber session %(,d completed successfully.".formatted(clientId));
                 }
-            } catch (ExecutionException e) {
+            } catch (final CancellationException | ExecutionException e) {
                 // Note, this only happens if something truly unexpected (i.e. an Error) caused
                 // the session to fail, so the error is significant.
                 final String message = "Subscriber session failed due to unhandled %s:%n{0}.".formatted(e.getCause());

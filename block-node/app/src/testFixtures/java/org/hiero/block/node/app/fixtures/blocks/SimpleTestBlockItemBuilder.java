@@ -195,6 +195,24 @@ public final class SimpleTestBlockItemBuilder {
     }
 
     /**
+     * Creates a number of block items, batched per block.
+     *
+     * @param startBlockNumber the starting block number
+     * @param endBlockNumber the ending block number, inclusive
+     * @return a list of block items that are batched per block
+     */
+    public static List<Block> createNumberOfVerySimpleBlocksBatched(
+            final int startBlockNumber, final int endBlockNumber) {
+        final ArrayList<Block> result = new ArrayList<>();
+        for (int i = startBlockNumber; i <= endBlockNumber; i++) {
+            result.add(Block.newBuilder()
+                    .items(createNumberOfVerySimpleBlocks(i, i))
+                    .build());
+        }
+        return result;
+    }
+
+    /**
      * Creates an array of BlockItem objects representing a simple block stream of blocks with large 2.5MB data each
      * from startBlockNumber to endBlockNumber inclusive.
      *

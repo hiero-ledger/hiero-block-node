@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-package org.hiero.block.node.stream.publisher.fixtures;
+package org.hiero.block.node.app.fixtures.pipeline;
 
 import com.hedera.pbj.runtime.grpc.Pipeline;
 import java.util.List;
@@ -7,17 +7,16 @@ import java.util.Objects;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.Flow.Subscription;
 import java.util.concurrent.atomic.AtomicInteger;
-import org.hiero.block.api.PublishStreamResponse;
 
 /**
  * A simple test implementation of the {@link Pipeline} interface. It keeps
  * track of the calls made to its methods and allows for assertions to be
  * made on the calls made to it.
  */
-public class TestResponsePipeline implements Pipeline<PublishStreamResponse> {
+public class TestResponsePipeline<R> implements Pipeline<R> {
     private final AtomicInteger clientEndStreamCalls = new AtomicInteger(0);
     private final AtomicInteger onCompleteCalls = new AtomicInteger(0);
-    private final List<PublishStreamResponse> onNextCalls = new CopyOnWriteArrayList<>();
+    private final List<R> onNextCalls = new CopyOnWriteArrayList<>();
     private final List<Subscription> onSubscriptionCalls = new CopyOnWriteArrayList<>();
     private final List<Throwable> onErrorCalls = new CopyOnWriteArrayList<>();
 
@@ -27,7 +26,7 @@ public class TestResponsePipeline implements Pipeline<PublishStreamResponse> {
     }
 
     @Override
-    public void onNext(final PublishStreamResponse item) throws RuntimeException {
+    public void onNext(final R item) {
         onNextCalls.add(Objects.requireNonNull(item));
     }
 
@@ -54,7 +53,7 @@ public class TestResponsePipeline implements Pipeline<PublishStreamResponse> {
         return onCompleteCalls;
     }
 
-    public List<PublishStreamResponse> getOnNextCalls() {
+    public List<R> getOnNextCalls() {
         return onNextCalls;
     }
 
