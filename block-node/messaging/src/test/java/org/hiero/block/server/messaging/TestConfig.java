@@ -10,6 +10,7 @@ import org.hiero.block.node.app.fixtures.async.BlockingExecutor;
 import org.hiero.block.node.app.fixtures.async.TestThreadPoolManager;
 import org.hiero.block.node.messaging.MessagingConfig;
 import org.hiero.block.node.spi.BlockNodeContext;
+import org.hiero.block.node.spi.threading.ThreadPoolManager;
 
 public class TestConfig {
 
@@ -37,6 +38,10 @@ public class TestConfig {
             null,
             null,
             new TestThreadPoolManager<>(new BlockingExecutor(new LinkedBlockingQueue<>())));
+
+    public static BlockNodeContext generateContext(final ThreadPoolManager threadPoolManager) {
+        return new BlockNodeContext(getConfig(), getMetrics(), null, null, null, null, threadPoolManager);
+    }
 
     /**
      * Helper method to get the metrics for the messaging service. For use in tests.

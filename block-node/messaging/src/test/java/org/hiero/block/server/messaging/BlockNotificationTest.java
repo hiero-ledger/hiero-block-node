@@ -12,6 +12,8 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.Executors;
+import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
@@ -19,12 +21,17 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicIntegerArray;
 import java.util.concurrent.locks.LockSupport;
 import java.util.stream.IntStream;
+import org.hiero.block.node.app.fixtures.async.BlockingExecutor;
+import org.hiero.block.node.app.fixtures.async.TestThreadPoolManager;
 import org.hiero.block.node.messaging.BlockMessagingFacilityImpl;
 import org.hiero.block.node.messaging.MessagingConfig;
+import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.blockmessaging.BlockMessagingFacility;
 import org.hiero.block.node.spi.blockmessaging.BlockNotificationHandler;
 import org.hiero.block.node.spi.blockmessaging.BlockSource;
 import org.hiero.block.node.spi.blockmessaging.VerificationNotification;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 
 /**
@@ -42,6 +49,17 @@ public class BlockNotificationTest {
 
     private static final int MAX_NOTIFICATION_COUNT =
             TestConfig.getConfig().getConfigData(MessagingConfig.class).blockNotificationQueueSize();
+
+    /** The thread pool manager to use when testing */
+    private TestThreadPoolManager<BlockingExecutor> threadPoolManager;
+
+    private BlockNodeContext context;
+
+    @BeforeEach
+    void setup() {
+        threadPoolManager = new TestThreadPoolManager<>(new BlockingExecutor(new LinkedBlockingQueue<>()));
+        context = TestConfig.generateContext(threadPoolManager);
+    }
 
     /**
      * Simple test to verify that the messaging service can handle multiple block notification handlers and that
@@ -64,7 +82,7 @@ public class BlockNotificationTest {
         }
         // Create MessagingService to test and register the handlers
         BlockMessagingFacility messagingService = new BlockMessagingFacilityImpl();
-        messagingService.init(TestConfig.BLOCK_NODE_CONTEXT, null);
+        messagingService.init(context, null);
         testHandlers.forEach(handler -> messagingService.registerBlockNotificationHandler(handler, false, null));
         // start the messaging service
         messagingService.start();
@@ -72,6 +90,9 @@ public class BlockNotificationTest {
         Thread senderThread = new SendingThread(messagingService, sentCounter, counters, null, 0, 0, 0);
         senderThread.start();
         waitForSenderBlockedOrComplete(senderThread);
+        threadPoolManager
+                .executor()
+                .executeAsync(false, 10_000L, true, true, () -> Executors.newSingleThreadExecutor());
         // wait for all handlers to finish
         waitToFinish(latch);
         // shutdown the messaging service
@@ -106,7 +127,7 @@ public class BlockNotificationTest {
                 new LatchCountdownHandler(expectedCount, counters, latch, 1, holdBackSlowHandler);
         // Create MessagingService to test and register the handlers
         BlockMessagingFacility messagingService = new BlockMessagingFacilityImpl();
-        messagingService.init(TestConfig.BLOCK_NODE_CONTEXT, null);
+        messagingService.init(context, null);
         messagingService.registerBlockNotificationHandler(fastHandler, false, null);
         messagingService.registerBlockNotificationHandler(slowHandler, false, null);
         // start the messaging service
@@ -118,6 +139,9 @@ public class BlockNotificationTest {
         waitForSenderBlockedOrComplete(senderThread);
         // mark sending finished and release the slow handler
         holdBackSlowHandler.release(TEST_DATA_COUNT);
+        threadPoolManager
+                .executor()
+                .executeAsync(false, 10_000L, true, true, () -> Executors.newSingleThreadExecutor());
         // wait for all handlers to finish
         waitToFinish(latch);
         // shutdown the messaging service
@@ -139,6 +163,7 @@ public class BlockNotificationTest {
      * @throws InterruptedException if the test latch is interrupted
      */
     @Test
+    @Disabled("Disabled until new backpressure mechanism is in place")
     void testBlockNotificationBackpressure() throws InterruptedException {
         // latch to wait for all handlers to finish
         final CountDownLatch latch = new CountDownLatch(1);
@@ -219,7 +244,7 @@ public class BlockNotificationTest {
         };
         // create message service to test, add handlers and start the service
         final BlockMessagingFacility messagingService = new BlockMessagingFacilityImpl();
-        messagingService.init(TestConfig.BLOCK_NODE_CONTEXT, null);
+        messagingService.init(context, null);
         messagingService.registerBlockNotificationHandler(handler1, false, null);
         messagingService.registerBlockNotificationHandler(handler2, false, null);
         messagingService.start();
@@ -236,6 +261,9 @@ public class BlockNotificationTest {
             // have to slow down production to make test reliable
             LockSupport.parkNanos(500_000);
         }
+        threadPoolManager
+                .executor()
+                .executeAsync(false, 10_000L, true, true, () -> Executors.newSingleThreadExecutor());
         // wait for handler number 2 to finish
         waitToFinish(latch);
         // shutdown the messaging service

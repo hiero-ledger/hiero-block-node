@@ -586,6 +586,7 @@ public class BlockMessagingFacilityImpl implements BlockMessagingFacility {
             // log the stopping of the thread
             LOGGER.log(TRACE, "Stopped block notification handler thread: {0}", thread.getName());
         }
+        messageForwarder.shutdown();
     }
 
     /**

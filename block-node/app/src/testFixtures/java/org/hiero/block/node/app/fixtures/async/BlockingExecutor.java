@@ -18,6 +18,7 @@ import java.util.concurrent.RunnableFuture;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
+import java.util.function.Supplier;
 
 /**
  * A very simple executor to be used only for testing! This executor has the
@@ -126,7 +127,7 @@ public class BlockingExecutor extends ThreadPoolExecutor {
      * Timeout is {@value TASK_TIMEOUT_MILLIS} milliseconds, blocking is enabled,
      * and exceptions will be thrown on exceptional completion.
      * Logging on exceptional completion is disabled.
-     * @see #executeAsync(boolean, long, boolean, boolean)
+     * @see #executeAsync(boolean, long, boolean, boolean, Supplier)
      */
     public List<CompletableFuture<Void>> executeAsync() {
         return executeAsync(true);
@@ -138,7 +139,7 @@ public class BlockingExecutor extends ThreadPoolExecutor {
      * <p>
      * Timeout is {@value TASK_TIMEOUT_MILLIS} milliseconds and blocking is
      * enabled. Logging on exceptional completion is disabled.
-     * @see #executeAsync(boolean, long, boolean, boolean)
+     * @see #executeAsync(boolean, long, boolean, boolean, Supplier)
      */
     public List<CompletableFuture<Void>> executeAsync(final boolean throwOnExceptionalCompletion) {
         return executeAsync(TASK_TIMEOUT_MILLIS, throwOnExceptionalCompletion);
@@ -150,7 +151,7 @@ public class BlockingExecutor extends ThreadPoolExecutor {
      * <p>
      * Blocking is enabled and exceptions will be thrown on exceptional
      * completion. Logging on exceptional completion is disabled.
-     * @see #executeAsync(boolean, long, boolean, boolean)
+     * @see #executeAsync(boolean, long, boolean, boolean, Supplier)
      */
     public List<CompletableFuture<Void>> executeAsync(final long timeoutMillis) {
         return executeAsync(timeoutMillis, true);
@@ -161,7 +162,7 @@ public class BlockingExecutor extends ThreadPoolExecutor {
      * asynchronously.
      * <p>
      * Blocking is enabled. Logging on exceptional completion is disabled.
-     * @see #executeAsync(boolean, long, boolean, boolean)
+     * @see #executeAsync(boolean, long, boolean, boolean, Supplier)
      */
     public List<CompletableFuture<Void>> executeAsync(
             final long blockTimeoutMillis, final boolean throwOnExceptionalCompletion) {
@@ -173,13 +174,18 @@ public class BlockingExecutor extends ThreadPoolExecutor {
      * asynchronously.
      * <p>
      * Blocking is enabled.
-     * @see #executeAsync(boolean, long, boolean, boolean)
+     * @see #executeAsync(boolean, long, boolean, boolean, Supplier)
      */
     public List<CompletableFuture<Void>> executeAsync(
             final long blockTimeoutMillis,
             final boolean throwOnExceptionalCompletion,
             final boolean logOnExceptionalCompletion) {
-        return executeAsync(true, blockTimeoutMillis, throwOnExceptionalCompletion, logOnExceptionalCompletion);
+        return executeAsync(
+                true,
+                blockTimeoutMillis,
+                throwOnExceptionalCompletion,
+                logOnExceptionalCompletion,
+                () -> Executors.newThreadPerTaskExecutor(Executors.defaultThreadFactory()));
     }
 
     /**
@@ -218,12 +224,13 @@ public class BlockingExecutor extends ThreadPoolExecutor {
             final boolean blockUntilDone,
             final long blockTimeoutMillis,
             final boolean throwOnExceptionalCompletion,
-            final boolean logOnExceptionalCompletion) {
+            final boolean logOnExceptionalCompletion,
+            final Supplier<ExecutorService> executorServiceSupplier) {
         if (blockTimeoutMillis <= 0) {
             throw new IllegalArgumentException("Timeout per task must be greater than 0");
         } else {
             final List<CompletableFuture<Void>> futures = new ArrayList<>();
-            final ExecutorService pool = Executors.newThreadPerTaskExecutor(Executors.defaultThreadFactory());
+            final ExecutorService pool = executorServiceSupplier.get();
             if (workQueue.isEmpty()) {
                 throw new IllegalStateException("Queue is empty");
             } else {
