@@ -5,6 +5,9 @@ import com.swirlds.common.metrics.platform.DefaultMetricsProvider;
 import com.swirlds.config.api.Configuration;
 import com.swirlds.config.api.ConfigurationBuilder;
 import com.swirlds.metrics.api.Metrics;
+import java.util.concurrent.LinkedBlockingQueue;
+import org.hiero.block.node.app.fixtures.async.BlockingExecutor;
+import org.hiero.block.node.app.fixtures.async.TestThreadPoolManager;
 import org.hiero.block.node.messaging.MessagingConfig;
 import org.hiero.block.node.spi.BlockNodeContext;
 
@@ -26,8 +29,14 @@ public class TestConfig {
      * A test context for the BlockNodeContext interface. Only provides a configuration object as that is all that is
      * needed by messaging facility so far.
      */
-    public static final BlockNodeContext BLOCK_NODE_CONTEXT =
-            new BlockNodeContext(getConfig(), getMetrics(), null, null, null, null, null);
+    public static final BlockNodeContext BLOCK_NODE_CONTEXT = new BlockNodeContext(
+            getConfig(),
+            getMetrics(),
+            null,
+            null,
+            null,
+            null,
+            new TestThreadPoolManager<>(new BlockingExecutor(new LinkedBlockingQueue<>())));
 
     /**
      * Helper method to get the metrics for the messaging service. For use in tests.
