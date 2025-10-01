@@ -16,7 +16,7 @@ import org.hiero.block.node.spi.blockmessaging.VerificationNotification;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
-class ExtendedMerkleTreeVerificationSessionV0680Test {
+class ExtendedMerkleTreeSessionTest {
     BlockUtils.SampleBlockInfo sampleBlockInfo;
     List<BlockItemUnparsed> blockItems;
 
@@ -36,8 +36,7 @@ class ExtendedMerkleTreeVerificationSessionV0680Test {
 
         long blockNumber = blockHeader.number();
 
-        ExtendedMerkleTreeVerificationSessionV0680 session =
-                new ExtendedMerkleTreeVerificationSessionV0680(blockNumber, BlockSource.PUBLISHER, "");
+        ExtendedMerkleTreeSession session = new ExtendedMerkleTreeSession(blockNumber, BlockSource.PUBLISHER, "");
 
         VerificationNotification blockNotification = session.processBlockItems(blockItems);
 
