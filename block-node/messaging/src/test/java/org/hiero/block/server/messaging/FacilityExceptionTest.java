@@ -6,12 +6,17 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.hedera.pbj.runtime.OneOf;
 import java.util.List;
+import java.util.concurrent.Executors;
+import java.util.concurrent.LinkedBlockingQueue;
 import java.util.logging.Handler;
 import java.util.logging.LogRecord;
 import org.hiero.block.internal.BlockItemUnparsed;
 import org.hiero.block.internal.BlockItemUnparsed.ItemOneOfType;
 import org.hiero.block.internal.BlockUnparsed;
+import org.hiero.block.node.app.fixtures.async.BlockingExecutor;
+import org.hiero.block.node.app.fixtures.async.TestThreadPoolManager;
 import org.hiero.block.node.messaging.BlockMessagingFacilityImpl;
+import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.blockmessaging.BackfilledBlockNotification;
 import org.hiero.block.node.spi.blockmessaging.BlockItems;
 import org.hiero.block.node.spi.blockmessaging.BlockMessagingFacility;
@@ -32,6 +37,10 @@ public class FacilityExceptionTest {
     private java.util.logging.Logger logger;
     /** The custom log handler used to capture log messages. */
     private TestLogHandler logHandler;
+    /** The thread pool manager to use when testing */
+    private TestThreadPoolManager<BlockingExecutor> threadPoolManager;
+
+    private BlockNodeContext context;
 
     /**
      * Set up the test environment by initializing the logger and adding a custom log handler so that we can capture
@@ -44,6 +53,8 @@ public class FacilityExceptionTest {
         logHandler = new TestLogHandler();
         logger.addHandler(logHandler);
         logger.setLevel(java.util.logging.Level.INFO);
+        threadPoolManager = new TestThreadPoolManager<>(new BlockingExecutor(new LinkedBlockingQueue<>()));
+        context = TestConfig.generateContext(threadPoolManager);
     }
 
     /**
@@ -108,7 +119,7 @@ public class FacilityExceptionTest {
     @Test
     void testBlockNotificationHandlerException() {
         BlockMessagingFacility service = new BlockMessagingFacilityImpl();
-        service.init(BLOCK_NODE_CONTEXT, null);
+        service.init(context, null);
         // register a block notification handler that just throws an exception
         service.registerBlockNotificationHandler(
                 new BlockNotificationHandler() {
@@ -143,6 +154,7 @@ public class FacilityExceptionTest {
         service.sendBlockPersisted(new PersistedNotification(1, true, 1, BlockSource.PUBLISHER));
         service.sendBackfilledBlockNotification(
                 new BackfilledBlockNotification(1, BlockUnparsed.newBuilder().build()));
+        threadPoolManager.executor().executeAsync(true, 10_000L, true, true, () -> Executors.newSingleThreadExecutor());
         service.stop();
         // wait for the log handler to process the log messages
         for (int i = 0; i < 10 && logHandler.getLogMessages().isEmpty(); i++) {
