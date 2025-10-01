@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-package org.hiero.block.node.verification;
+package org.hiero.block.node.verification.session.impl;
 
 import com.hedera.hapi.block.stream.output.BlockHeader;
 import com.hedera.pbj.runtime.ParseException;
@@ -10,18 +10,19 @@ import org.hiero.block.internal.BlockItemUnparsed;
 import org.hiero.block.node.app.fixtures.blocks.BlockUtils;
 import org.hiero.block.node.spi.blockmessaging.BlockSource;
 import org.hiero.block.node.spi.blockmessaging.VerificationNotification;
+import org.hiero.block.node.verification.session.BlockVerificationSession;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
-class BlockVerificationSessionTest {
+class PreviewSimpleVerificationSessionV0640Test {
 
     BlockUtils.SampleBlockInfo sampleBlockInfo;
     List<BlockItemUnparsed> blockItems;
 
     @BeforeEach
     void setUp() throws IOException, ParseException {
-        sampleBlockInfo = BlockUtils.getSampleBlockInfo(BlockUtils.SAMPLE_BLOCKS.GENERATED_14);
+        sampleBlockInfo = BlockUtils.getSampleBlockInfo(BlockUtils.SAMPLE_BLOCKS.HAPI_0_64_0_BLOCK_14);
         blockItems = sampleBlockInfo.blockUnparsed().blockItems();
     }
 
@@ -35,7 +36,8 @@ class BlockVerificationSessionTest {
 
         long blockNumber = blockHeader.number();
 
-        BlockVerificationSession session = new BlockVerificationSession(blockNumber, BlockSource.PUBLISHER);
+        PreviewSimpleVerificationSessionV0640 session =
+                new PreviewSimpleVerificationSessionV0640(blockNumber, BlockSource.PUBLISHER);
 
         VerificationNotification blockNotification = session.processBlockItems(blockItems);
 
@@ -76,7 +78,8 @@ class BlockVerificationSessionTest {
         int currentChunk = 0;
         long blockNumber = sampleBlockInfo.blockNumber();
 
-        BlockVerificationSession session = new BlockVerificationSession(blockNumber, BlockSource.PUBLISHER);
+        PreviewSimpleVerificationSessionV0640 session =
+                new PreviewSimpleVerificationSessionV0640(blockNumber, BlockSource.PUBLISHER);
 
         VerificationNotification blockNotification = session.processBlockItems(chunkifiedItems.get(currentChunk));
 
@@ -117,7 +120,8 @@ class BlockVerificationSessionTest {
         blockItems.remove(5);
 
         long blockNumber = sampleBlockInfo.blockNumber();
-        BlockVerificationSession session = new BlockVerificationSession(blockNumber, BlockSource.PUBLISHER);
+        BlockVerificationSession session =
+                new PreviewSimpleVerificationSessionV0640(blockNumber, BlockSource.PUBLISHER);
         VerificationNotification blockNotification = session.processBlockItems(blockItems);
 
         Assertions.assertEquals(
@@ -145,7 +149,8 @@ class BlockVerificationSessionTest {
         int currentChunk = 0;
         long blockNumber = sampleBlockInfo.blockNumber();
 
-        BlockVerificationSession session = new BlockVerificationSession(blockNumber, BlockSource.PUBLISHER);
+        BlockVerificationSession session =
+                new PreviewSimpleVerificationSessionV0640(blockNumber, BlockSource.PUBLISHER);
         VerificationNotification blockNotification = session.processBlockItems(chunkifiedItems.get(currentChunk));
 
         while (blockNotification == null) {

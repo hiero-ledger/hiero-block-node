@@ -10,6 +10,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
+import com.hedera.hapi.block.stream.output.BlockHeader;
 import com.hedera.pbj.runtime.OneOf;
 import com.hedera.pbj.runtime.ParseException;
 import java.io.IOException;
@@ -42,7 +43,7 @@ class VerificationServicePluginTest extends PluginTestBase<VerificationServicePl
     void testVerificationPlugin() throws IOException, ParseException {
 
         BlockUtils.SampleBlockInfo sampleBlockInfo =
-                BlockUtils.getSampleBlockInfo(BlockUtils.SAMPLE_BLOCKS.GENERATED_14);
+                BlockUtils.getSampleBlockInfo(BlockUtils.SAMPLE_BLOCKS.HAPI_0_64_0_BLOCK_14);
 
         List<BlockItemUnparsed> blockItems = sampleBlockInfo.blockUnparsed().blockItems();
         long blockNumber = sampleBlockInfo.blockNumber();
@@ -72,7 +73,7 @@ class VerificationServicePluginTest extends PluginTestBase<VerificationServicePl
     void testFailedVerification() throws IOException, ParseException {
 
         BlockUtils.SampleBlockInfo sampleBlockInfo =
-                BlockUtils.getSampleBlockInfo(BlockUtils.SAMPLE_BLOCKS.GENERATED_14);
+                BlockUtils.getSampleBlockInfo(BlockUtils.SAMPLE_BLOCKS.HAPI_0_64_0_BLOCK_14);
 
         List<BlockItemUnparsed> blockItems = sampleBlockInfo.blockUnparsed().blockItems();
         // remove one block item, so the hash is no longer valid
@@ -103,7 +104,7 @@ class VerificationServicePluginTest extends PluginTestBase<VerificationServicePl
     void testHandleBlockItemsReceived_NoCurrentSession() throws IOException, ParseException {
         // create sample block data
         BlockUtils.SampleBlockInfo sampleBlockInfo =
-                BlockUtils.getSampleBlockInfo(BlockUtils.SAMPLE_BLOCKS.GENERATED_14);
+                BlockUtils.getSampleBlockInfo(BlockUtils.SAMPLE_BLOCKS.HAPI_0_64_0_BLOCK_14);
         long blockNumber = sampleBlockInfo.blockNumber();
         List<BlockItemUnparsed> blockItems = sampleBlockInfo.blockUnparsed().blockItems();
         // remove the header to simulate a case where receive items and have never received a header
@@ -135,9 +136,15 @@ class VerificationServicePluginTest extends PluginTestBase<VerificationServicePl
         // sent the mocked BlockItems to the plugin
         plugin.handleBlockItemsReceived(blockItems);
         // check the exception was thrown and resulted in a shutdown
-        assertTrue(
+        assertFalse(
                 ((TestHealthFacility) blockNodeContext.serverHealth()).shutdownCalled.get(),
-                "The server should be shutdown after an exception is thrown");
+                "The server should NOT be shutdown after an exception is thrown on VerificationServicePlugin");
+
+        // check we get a failed verification notification
+        VerificationNotification blockNotification =
+                blockMessaging.getSentVerificationNotifications().getFirst();
+        assertNotNull(blockNotification);
+        assertFalse(blockNotification.success(), "The verification should be unsuccessful");
     }
 
     @Test
@@ -146,7 +153,7 @@ class VerificationServicePluginTest extends PluginTestBase<VerificationServicePl
 
         // prepare test data
         BlockUtils.SampleBlockInfo sampleBlockInfo =
-                BlockUtils.getSampleBlockInfo(BlockUtils.SAMPLE_BLOCKS.GENERATED_14);
+                BlockUtils.getSampleBlockInfo(BlockUtils.SAMPLE_BLOCKS.HAPI_0_64_0_BLOCK_14);
 
         List<BlockItemUnparsed> blockItems = sampleBlockInfo.blockUnparsed().blockItems();
         long blockNumber = sampleBlockInfo.blockNumber();
@@ -173,5 +180,29 @@ class VerificationServicePluginTest extends PluginTestBase<VerificationServicePl
                 sampleBlockInfo.blockUnparsed(),
                 blockNotification.block(),
                 "The block should be the same as the one sent");
+    }
+
+    @Test
+    @DisplayName("BlockHeader number and blockNumber on constructor mismatch, should throw IllegalStateException")
+    void blockHeaderAndNumberMismatch() throws ParseException, IOException {
+
+        BlockUtils.SampleBlockInfo sampleBlockInfo =
+                BlockUtils.getSampleBlockInfo(BlockUtils.SAMPLE_BLOCKS.HAPI_0_64_0_BLOCK_14);
+
+        BlockHeader blockHeader = BlockHeader.PROTOBUF.parse(
+                sampleBlockInfo.blockUnparsed().blockItems().getFirst().blockHeaderOrThrow());
+
+        long blockNumber = blockHeader.number() + 1;
+        plugin.handleBlockItemsReceived(
+                new BlockItems(sampleBlockInfo.blockUnparsed().blockItems(), blockNumber));
+
+        // check we don't received a block verification notification
+        long blockNotifications =
+                blockMessaging.getSentVerificationNotifications().size();
+        assertEquals(1, blockNotifications);
+        VerificationNotification blockNotification =
+                blockMessaging.getSentVerificationNotifications().getFirst();
+        assertNotNull(blockNotification);
+        assertFalse(blockNotification.success(), "The verification should be unsuccessful");
     }
 }

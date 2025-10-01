@@ -2,9 +2,12 @@
 package org.hiero.block.node.verification;
 
 import static java.lang.System.Logger.Level.ERROR;
+import static java.lang.System.Logger.Level.INFO;
 import static java.lang.System.Logger.Level.TRACE;
 import static java.lang.System.Logger.Level.WARNING;
 
+import com.hedera.hapi.block.stream.output.BlockHeader;
+import com.hedera.hapi.node.base.SemanticVersion;
 import com.swirlds.metrics.api.Counter;
 import edu.umd.cs.findbugs.annotations.NonNull;
 import java.util.List;
@@ -17,6 +20,8 @@ import org.hiero.block.node.spi.blockmessaging.BlockItems;
 import org.hiero.block.node.spi.blockmessaging.BlockNotificationHandler;
 import org.hiero.block.node.spi.blockmessaging.BlockSource;
 import org.hiero.block.node.spi.blockmessaging.VerificationNotification;
+import org.hiero.block.node.verification.session.BlockVerificationSession;
+import org.hiero.block.node.verification.session.BlockVerificationSessionFactory;
 
 /** Provides implementation for the health endpoints of the server. */
 @SuppressWarnings("unused")
@@ -86,11 +91,8 @@ public class VerificationServicePlugin implements BlockNodePlugin, BlockItemHand
      */
     @Override
     public void init(BlockNodeContext context, ServiceBuilder serviceBuilder) {
+        // setting config and context
         this.context = context;
-        // TODO do we need this? It is not used anywhere, what am I missing?
-        // I doubled checked, we don't need configuration atm, these configs were only necessary for ASYNC impl.
-        // however we should have one for pubKey, not sure if we will be able to get the pubKey from state from the very
-        // beginning.
         verificationConfig = context.configuration().getConfigData(VerificationConfig.class);
 
         // register the service
@@ -137,8 +139,22 @@ public class VerificationServicePlugin implements BlockNodePlugin, BlockItemHand
                 currentBlockNumber = blockItems.blockNumber();
                 // start working time
                 blockWorkStartTime = System.nanoTime();
-                // start new session and set it as current
-                currentSession = new BlockVerificationSession(currentBlockNumber, BlockSource.PUBLISHER);
+                BlockHeader blockHeader = BlockHeader.PROTOBUF.parse(
+                        blockItems.blockItems().getFirst().blockHeader());
+                if (currentBlockNumber != blockHeader.number()) {
+                    LOGGER.log(
+                            INFO,
+                            "Block number in BlockItems ({0}) does not match number in BlockHeader ({1})",
+                            currentBlockNumber,
+                            blockHeader.number());
+                    throw new IllegalArgumentException("Block number mismatch");
+                }
+
+                SemanticVersion semanticVersion = blockHeader.hapiProtoVersionOrThrow();
+
+                // create a new verification session for the new block based on hapi version on block header.
+                currentSession = BlockVerificationSessionFactory.createSession(
+                        currentBlockNumber, BlockSource.PUBLISHER, semanticVersion);
                 LOGGER.log(TRACE, "Started new block verification session for block number: {0}", currentBlockNumber);
             }
             if (currentSession == null) {
@@ -176,9 +192,10 @@ public class VerificationServicePlugin implements BlockNodePlugin, BlockItemHand
         } catch (final Exception e) {
             LOGGER.log(ERROR, "Failed to verify BlockItems: ", e);
             verificationBlocksError.increment();
-            // TODO is shutting down here really the right thing to do?
-            // Trigger the server to stop accepting new requests
-            context.serverHealth().shutdown(VerificationServicePlugin.class.getSimpleName(), e.getMessage());
+            // Return a success=false notification to indicate failure but include the block number.
+            context.blockMessaging()
+                    .sendBlockVerification(
+                            new VerificationNotification(false, currentBlockNumber, null, null, BlockSource.PUBLISHER));
         }
     }
 
@@ -195,8 +212,21 @@ public class VerificationServicePlugin implements BlockNodePlugin, BlockItemHand
             LOGGER.log(
                     TRACE, "Received backfilled block notification for block number: {0}", notification.blockNumber());
             // create a new verification session for the backfilled block
-            BlockVerificationSession backfillSession =
-                    new BlockVerificationSession(notification.blockNumber(), BlockSource.BACKFILL);
+
+            BlockHeader blockHeader = BlockHeader.PROTOBUF.parse(
+                    notification.block().blockItems().getFirst().blockHeader());
+            if (notification.blockNumber() != blockHeader.number()) {
+                LOGGER.log(
+                        WARNING,
+                        "Block number in BackfilledBlockNotification ({0}) does not match number in BlockHeader ({1})",
+                        notification.blockNumber(),
+                        blockHeader.number());
+                throw new IllegalArgumentException("Block number mismatch");
+            }
+
+            BlockVerificationSession backfillSession = BlockVerificationSessionFactory.createSession(
+                    notification.blockNumber(), BlockSource.BACKFILL, blockHeader.hapiProtoVersionOrThrow());
+
             // process the block items in the backfilled notification
             VerificationNotification backfillNotification =
                     backfillSession.processBlockItems(notification.block().blockItems());
