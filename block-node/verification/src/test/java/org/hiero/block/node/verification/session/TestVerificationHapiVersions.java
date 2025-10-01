@@ -42,9 +42,9 @@ class TestVerificationHapiVersions {
         final long blockNumber = blockHeader.number();
 
         // If session creation or processing ever regresses, we want fast, high-signal failures
-        final BlockVerificationSession session = assertTimeoutPreemptively(
+        final VerificationSession session = assertTimeoutPreemptively(
                 Duration.ofSeconds(2),
-                () -> BlockVerificationSessionFactory.createSession(
+                () -> HapiVersionSessionFactory.createSession(
                         blockNumber, BlockSource.UNKNOWN, blockHeader.hapiProtoVersion()),
                 sampleName + ": creating verification session exceeded time budget");
 
