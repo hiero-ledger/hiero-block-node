@@ -14,10 +14,10 @@ resources:
 
 blockNode:
   config:
-    JAVA_OPTS: '-Xms4G -Xmx4G  -XX:+HeapDumpOnOutOfMemoryError -XX:HeapDumpPath="/tmp/dump.hprof"'
-    MESSAGING_BLOCK_ITEM_QUEUE_SIZE: "64"
-    MESSAGING_BLOCK_NOTIFICATION_QUEUE_SIZE: "8"
-    BACKFILL_FETCH_BATCH_SIZE: "4"
+    JAVA_OPTS: '-Xms1G -Xmx1G  -XX:+HeapDumpOnOutOfMemoryError -XX:HeapDumpPath="/tmp/dump.hprof"'
+    MESSAGING_BLOCK_ITEM_QUEUE_SIZE: "128"
+    MESSAGING_BLOCK_NOTIFICATION_QUEUE_SIZE: "16"
+    BACKFILL_FETCH_BATCH_SIZE: "5"
   persistence:
     archive:
       size: 1Gi
