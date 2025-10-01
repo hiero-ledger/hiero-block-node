@@ -10,8 +10,8 @@ import static org.mockito.Mockito.mock;
 import com.hedera.hapi.node.base.SemanticVersion;
 import java.util.stream.Stream;
 import org.hiero.block.node.spi.blockmessaging.BlockSource;
-import org.hiero.block.node.verification.session.impl.BlockVerificationSessionAt0640;
-import org.hiero.block.node.verification.session.impl.BlockVerificationSessionAt0680;
+import org.hiero.block.node.verification.session.impl.ExtendedMerkleTreeVerificationSessionV0680;
+import org.hiero.block.node.verification.session.impl.PreviewSimpleVerificationSessionV0640;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -56,10 +56,10 @@ class BlockVerificationSessionFactoryTest {
                 );
     }
 
-    @ParameterizedTest(name = ">= 0.68.0 resolves to BlockVerificationSessionAt0680 for {0}")
+    @ParameterizedTest(name = ">= 0.68.0 resolves to ExtendedMerkleTreeVerificationSessionV0680 for {0}")
     @MethodSource("latestImplVersions")
     void selectsLatestImplFor0680AndAbove(SemanticVersion v) {
-        assertCreates(v, BlockVerificationSessionAt0680.class, blockSource);
+        assertCreates(v, ExtendedMerkleTreeVerificationSessionV0680.class, blockSource);
     }
 
     static Stream<Arguments> midRangeImplVersions() {
@@ -72,17 +72,17 @@ class BlockVerificationSessionFactoryTest {
                 Arguments.of(sv(0, 67, 999)));
     }
 
-    @ParameterizedTest(name = ">= 0.64.0 and < 0.68.0 resolves to BlockVerificationSessionAt0640 for {0}")
+    @ParameterizedTest(name = ">= 0.64.0 and < 0.68.0 resolves to PreviewSimpleVerificationSessionV0640 for {0}")
     @MethodSource("midRangeImplVersions")
     void selects0640ImplForRange(SemanticVersion v) {
-        assertCreates(v, BlockVerificationSessionAt0640.class, blockSource);
+        assertCreates(v, PreviewSimpleVerificationSessionV0640.class, blockSource);
     }
 
     @Test
     @DisplayName("Boundary: 0.67.x resolves to 0640; 0.68.0 flips to 0680")
     void boundaryFlipAt0680() {
-        assertCreates(sv(0, 67, 999), BlockVerificationSessionAt0640.class, blockSource);
-        assertCreates(sv(0, 68, 0), BlockVerificationSessionAt0680.class, blockSource);
+        assertCreates(sv(0, 67, 999), PreviewSimpleVerificationSessionV0640.class, blockSource);
+        assertCreates(sv(0, 68, 0), ExtendedMerkleTreeVerificationSessionV0680.class, blockSource);
     }
 
     @Test
@@ -133,8 +133,8 @@ class BlockVerificationSessionFactoryTest {
             var s2 = BlockVerificationSessionFactory.createSession(9_999_999L, blockSource, v);
 
             assertAll(
-                    () -> assertTrue(s1 instanceof BlockVerificationSessionAt0680),
-                    () -> assertTrue(s2 instanceof BlockVerificationSessionAt0680));
+                    () -> assertTrue(s1 instanceof ExtendedMerkleTreeVerificationSessionV0680),
+                    () -> assertTrue(s2 instanceof ExtendedMerkleTreeVerificationSessionV0680));
         }
     }
 }

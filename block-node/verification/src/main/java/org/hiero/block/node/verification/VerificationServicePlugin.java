@@ -147,7 +147,7 @@ public class VerificationServicePlugin implements BlockNodePlugin, BlockItemHand
                             "Block number in BlockItems ({0}) does not match number in BlockHeader ({1})",
                             currentBlockNumber,
                             blockHeader.number());
-                    throw new RuntimeException("Block number mismatch");
+                    throw new IllegalArgumentException("Block number mismatch");
                 }
 
                 SemanticVersion semanticVersion = blockHeader.hapiProtoVersionOrThrow();
@@ -221,7 +221,7 @@ public class VerificationServicePlugin implements BlockNodePlugin, BlockItemHand
                         "Block number in BackfilledBlockNotification ({0}) does not match number in BlockHeader ({1})",
                         notification.blockNumber(),
                         blockHeader.number());
-                throw new IllegalStateException("Block number mismatch");
+                throw new IllegalArgumentException("Block number mismatch");
             }
 
             BlockVerificationSession backfillSession = BlockVerificationSessionFactory.createSession(

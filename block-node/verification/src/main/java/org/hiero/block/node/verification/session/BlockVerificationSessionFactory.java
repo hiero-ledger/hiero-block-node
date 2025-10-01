@@ -5,8 +5,8 @@ import com.hedera.hapi.node.base.SemanticVersion;
 import java.util.Objects;
 import org.hiero.block.common.utils.Preconditions;
 import org.hiero.block.node.spi.blockmessaging.BlockSource;
-import org.hiero.block.node.verification.session.impl.BlockVerificationSessionAt0640;
-import org.hiero.block.node.verification.session.impl.BlockVerificationSessionAt0680;
+import org.hiero.block.node.verification.session.impl.ExtendedMerkleTreeVerificationSessionV0680;
+import org.hiero.block.node.verification.session.impl.PreviewSimpleVerificationSessionV0640;
 
 /**
  * Factory for creating {@link BlockVerificationSession} instances based on the requested HAPI version.
@@ -36,12 +36,12 @@ public final class BlockVerificationSessionFactory {
         Preconditions.requireWhole(blockNumber, "blockNumber must be >= 0");
 
         if (isGreaterThanOrEqual(hapiVersion, V_0_68_0)) {
-            return new BlockVerificationSessionAt0680(blockNumber, blockSource, "extraBytesPlaceholder");
+            return new ExtendedMerkleTreeVerificationSessionV0680(blockNumber, blockSource, "extraBytesPlaceholder");
         } else if (isGreaterThanOrEqual(hapiVersion, V_0_64_0)) {
-            return new BlockVerificationSessionAt0640(blockNumber, blockSource);
+            return new PreviewSimpleVerificationSessionV0640(blockNumber, blockSource);
         } else {
-            throw new IllegalArgumentException(
-                    "Unsupported HAPI version: " + toShortString(hapiVersion) + " (supported from 0.64.0 and up)");
+            throw new IllegalArgumentException("Unsupported HAPI version: %s (supported from 0.64.0 and up)"
+                    .formatted(toShortString(hapiVersion)));
         }
     }
 

@@ -24,7 +24,7 @@ import org.hiero.block.node.verification.session.BlockVerificationSession;
  * Block verification for a single block, aka. session. A new one is created for each block to verify. This is a simple
  * separate class so it is easy to test.
  */
-public class BlockVerificationSessionAt0640 implements BlockVerificationSession {
+public class PreviewSimpleVerificationSessionV0640 implements BlockVerificationSession {
     /** The block number being verified. */
     protected final long blockNumber;
     // Stream Hashers
@@ -53,7 +53,7 @@ public class BlockVerificationSessionAt0640 implements BlockVerificationSession 
      * @param blockNumber the block number to verify, we pass it in even though we could extract from block items to
      *                    avoid having to duplicate parsing work of the block header.
      */
-    public BlockVerificationSessionAt0640(final long blockNumber, @NonNull final BlockSource blockSource) {
+    public PreviewSimpleVerificationSessionV0640(final long blockNumber, @NonNull final BlockSource blockSource) {
         this.blockNumber = blockNumber;
         // using NaiveStreamingTreeHasher as we should only need single threaded
         this.inputTreeHasher = new NaiveStreamingTreeHasher();

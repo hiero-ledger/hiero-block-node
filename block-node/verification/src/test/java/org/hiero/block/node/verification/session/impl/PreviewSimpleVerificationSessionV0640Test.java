@@ -15,7 +15,7 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
-class BlockVerificationSessionAt0640Test {
+class PreviewSimpleVerificationSessionV0640Test {
 
     BlockUtils.SampleBlockInfo sampleBlockInfo;
     List<BlockItemUnparsed> blockItems;
@@ -36,7 +36,8 @@ class BlockVerificationSessionAt0640Test {
 
         long blockNumber = blockHeader.number();
 
-        BlockVerificationSessionAt0640 session = new BlockVerificationSessionAt0640(blockNumber, BlockSource.PUBLISHER);
+        PreviewSimpleVerificationSessionV0640 session =
+                new PreviewSimpleVerificationSessionV0640(blockNumber, BlockSource.PUBLISHER);
 
         VerificationNotification blockNotification = session.processBlockItems(blockItems);
 
@@ -77,7 +78,8 @@ class BlockVerificationSessionAt0640Test {
         int currentChunk = 0;
         long blockNumber = sampleBlockInfo.blockNumber();
 
-        BlockVerificationSessionAt0640 session = new BlockVerificationSessionAt0640(blockNumber, BlockSource.PUBLISHER);
+        PreviewSimpleVerificationSessionV0640 session =
+                new PreviewSimpleVerificationSessionV0640(blockNumber, BlockSource.PUBLISHER);
 
         VerificationNotification blockNotification = session.processBlockItems(chunkifiedItems.get(currentChunk));
 
@@ -118,7 +120,8 @@ class BlockVerificationSessionAt0640Test {
         blockItems.remove(5);
 
         long blockNumber = sampleBlockInfo.blockNumber();
-        BlockVerificationSession session = new BlockVerificationSessionAt0640(blockNumber, BlockSource.PUBLISHER);
+        BlockVerificationSession session =
+                new PreviewSimpleVerificationSessionV0640(blockNumber, BlockSource.PUBLISHER);
         VerificationNotification blockNotification = session.processBlockItems(blockItems);
 
         Assertions.assertEquals(
@@ -146,7 +149,8 @@ class BlockVerificationSessionAt0640Test {
         int currentChunk = 0;
         long blockNumber = sampleBlockInfo.blockNumber();
 
-        BlockVerificationSession session = new BlockVerificationSessionAt0640(blockNumber, BlockSource.PUBLISHER);
+        BlockVerificationSession session =
+                new PreviewSimpleVerificationSessionV0640(blockNumber, BlockSource.PUBLISHER);
         VerificationNotification blockNotification = session.processBlockItems(chunkifiedItems.get(currentChunk));
 
         while (blockNotification == null) {
