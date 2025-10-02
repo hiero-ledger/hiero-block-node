@@ -212,8 +212,7 @@ public class PositiveMultiplePublishersTests extends BaseSuite {
                 "BACKFILL_DELAY_BETWEEN_BATCHES",
                 "500",
                 "BLOCK_NODE_EARLIEST_MANAGED_BLOCK",
-                "50"
-          );
+                "50");
 
         launchBlockNodes(List.of(
                 new BlockNodeContainerConfig(8082, 9989, "/resources/block-nodes.json", bnSubjectConfigOverride)));
@@ -247,7 +246,8 @@ public class PositiveMultiplePublishersTests extends BaseSuite {
         startSimulatorInstance(secondSimulator); // Subject
 
         // Wait until both simulators have published their blocks
-        while(firstSimulator.getStreamStatus().publishedBlocks() < 101 || secondSimulator.getStreamStatus().publishedBlocks() < 21) {
+        while (firstSimulator.getStreamStatus().publishedBlocks() < 101
+                || secondSimulator.getStreamStatus().publishedBlocks() < 21) {
             Thread.sleep(1000);
         }
 
@@ -274,21 +274,21 @@ public class PositiveMultiplePublishersTests extends BaseSuite {
         // polling the latest block until we reach block 200 (backfill on demand is completed)
         Thread.sleep(5_000);
         long latestBlockNumber = getLatestBlock(blockAccessStubs.get(8082))
-          .getBlock()
-          .getItemsList()
-          .getFirst()
-          .getBlockHeader()
-          .getNumber();
+                .getBlock()
+                .getItemsList()
+                .getFirst()
+                .getBlockHeader()
+                .getNumber();
 
         while (latestBlockNumber < 100) {
             System.out.println("Latest Block Number: " + latestBlockNumber);
             Thread.sleep(1000);
             latestBlockNumber = getLatestBlock(blockAccessStubs.get(8082))
-              .getBlock()
-              .getItemsList()
-              .getFirst()
-              .getBlockHeader()
-              .getNumber();
+                    .getBlock()
+                    .getItemsList()
+                    .getFirst()
+                    .getBlockHeader()
+                    .getNumber();
         }
 
         // Verify that Backfill on Demand Worked.
