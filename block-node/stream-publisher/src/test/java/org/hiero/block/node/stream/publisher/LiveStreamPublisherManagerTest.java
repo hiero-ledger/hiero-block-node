@@ -962,6 +962,64 @@ class LiveStreamPublisherManagerTest {
                 // Assert that the latest known block number is now set to the notification's end block number.
                 assertThat(toTest.getLatestBlockNumber()).isEqualTo(expectedLatestBlockNumber);
             }
+
+            /**
+             * This test aims to assert that the
+             * {@link LiveStreamPublisherManager#handlePersisted(PersistedNotification)}
+             * will not send acknowledgement to registered publisher handlers
+             * when the persistence has failed, i.e.
+             * {@link PersistedNotification#succeeded()} is false.
+             */
+            @Test
+            @DisplayName(
+                    "handlePersisted() does not send acknowledgement with latest block number to all registered handlers when persistence failed")
+            void testHandlePersistedNotificationFailedPersistence() {
+                // As a precondition, assert that the responses pipeline is empty (nothing has been sent yet).
+                // Also, assert that the latest known block number is -1L (initial state in order to compare later).
+                assertThat(responsePipeline.getOnNextCalls()).isEmpty();
+                final long expectedLatestPersistedFromManager = -1L;
+                assertThat(toTest.getLatestBlockNumber()).isEqualTo(expectedLatestPersistedFromManager);
+                final PersistedNotification notification =
+                        new PersistedNotification(10L, false, 0, BlockSource.PUBLISHER);
+                // Call
+                toTest.handlePersisted(notification);
+                // Assert that the response pipeline has not received any responses.
+                assertThat(responsePipeline.getOnNextCalls()).isEmpty();
+                // Assert that the latest known block number is still -1L, it was not updated
+                assertThat(toTest.getLatestBlockNumber()).isEqualTo(expectedLatestPersistedFromManager);
+                // Assert no other responses sent
+                assertThat(responsePipeline.getOnErrorCalls()).isEmpty();
+                assertThat(responsePipeline.getOnSubscriptionCalls()).isEmpty();
+                assertThat(responsePipeline.getOnCompleteCalls().get()).isEqualTo(0);
+                assertThat(responsePipeline.getClientEndStreamCalls().get()).isEqualTo(0);
+            }
+
+            /**
+             * This test aims to assert that the
+             * {@link LiveStreamPublisherManager#handlePersisted(PersistedNotification)}
+             * will not send acknowledgement to registered publisher handlers
+             * when the notification is null.
+             */
+            @Test
+            @DisplayName("handlePersisted() does nothing when notification is null")
+            void testHandlePersistedNotificationNull() {
+                // As a precondition, assert that the responses pipeline is empty (nothing has been sent yet).
+                // Also, assert that the latest known block number is -1L (initial state in order to compare later).
+                assertThat(responsePipeline.getOnNextCalls()).isEmpty();
+                final long expectedLatestPersistedFromManager = -1L;
+                assertThat(toTest.getLatestBlockNumber()).isEqualTo(expectedLatestPersistedFromManager);
+                // Call
+                toTest.handlePersisted(null);
+                // Assert that the response pipeline has not received any responses.
+                assertThat(responsePipeline.getOnNextCalls()).isEmpty();
+                // Assert that the latest known block number is still -1L, it was not updated
+                assertThat(toTest.getLatestBlockNumber()).isEqualTo(expectedLatestPersistedFromManager);
+                // Assert no other responses sent
+                assertThat(responsePipeline.getOnErrorCalls()).isEmpty();
+                assertThat(responsePipeline.getOnSubscriptionCalls()).isEmpty();
+                assertThat(responsePipeline.getOnCompleteCalls().get()).isEqualTo(0);
+                assertThat(responsePipeline.getClientEndStreamCalls().get()).isEqualTo(0);
+            }
         }
 
         /**
