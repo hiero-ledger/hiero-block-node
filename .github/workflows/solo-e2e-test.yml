@@ -164,7 +164,7 @@ jobs:
                     block:
                       enabled: true
                       nodes:
-                        - host: block-node-0.${NAMESPACE}.svc.cluster.local
+                        - host: block-node-1.${NAMESPACE}.svc.cluster.local
                           port: 40840
                       sourceType: BLOCK_NODE
                     downloader:
@@ -341,7 +341,7 @@ jobs:
         if: always()
         run: |
           # Get CN Logs
-          solo node logs -d "${DEPLOYMENT}" --dev -q
+          consensus diagnostics all --dev --deployment "${DEPLOYMENT}"
           BASE="${HOME}/.solo/logs/${NAMESPACE}"
           LOG_FOLDER=$(ls -1d "$BASE"/* | sort -r | head -n1)
           echo "Latest log folder is $LOG_FOLDER"
