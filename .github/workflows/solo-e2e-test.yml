@@ -157,6 +157,11 @@ jobs:
       - name: Create Mirror Values Override File
         run: |
           cat <<EOF > mirror-bn-values.yaml
+            importer:
+              image:
+                registry: docker.io
+                repository: xinatswirlds/importer
+                tag: 8b691c40c
             config:
               hiero:
                 mirror:
@@ -183,7 +188,8 @@ jobs:
       # solo mirror-node deploy (formerly `mirror node add`)
       - name: Solo Mirror Node Deploy
         run: |
-          solo mirror node add --deployment "${DEPLOYMENT}" --mirror-node-version "${{ inputs.mirror-node-release-tag }}" --pinger --cluster-ref "${CLUSTER_REFERENCE}" --enable-ingress -f mirror-bn-values.yaml
+          solo mirror node add --deployment "${DEPLOYMENT}" --pinger --cluster-ref "${CLUSTER_REFERENCE}" --enable-ingress -f mirror-bn-values.yaml
+          # solo mirror node add --deployment "${DEPLOYMENT}" --mirror-node-version "${{ inputs.mirror-node-release-tag }}" --pinger --cluster-ref "${CLUSTER_REFERENCE}" --enable-ingress -f mirror-bn-values.yaml
 
       # solo relay deploy (formerly `relay node add`)
       - name: Solo Relay Deploy
@@ -332,7 +338,7 @@ jobs:
         if: always()
         run: |
           # Get BN Logs
-          kubectl logs -n "${NAMESPACE}" -l "app.kubernetes.io/name=block-node-0" --all-containers --since=24h --timestamps --prefix --tail=-1 > bn0-logs.log
+          kubectl logs -n "${NAMESPACE}" -l "app.kubernetes.io/name=block-node-1" --all-containers --since=24h --timestamps --prefix --tail=-1 > bn0-logs.log
 
           # Get MN Logs
           kubectl logs -n "${NAMESPACE}" -l "app.kubernetes.io/instance=mirror,app.kubernetes.io/component=importer" --all-containers --since=24h --timestamps --prefix --tail=-1 > mn0-logs.log
