@@ -7,15 +7,15 @@ on:
       block-node-helm-chart-version:
         description: "Block Node Helm Chart Version"
         required: true
-        default: "v0.17.1"
+        default: "v0.19.1"
       consensus-node-release-tag:
         description: "Consensus Node Release Tag"
         required: true
-        default: "v0.65.0"
+        default: "v0.66.0"
       mirror-node-release-tag:
         description: "Mirror Node Release Tag (for now ignored since using XIN Image)"
         required: true
-        default: "v0.137.0"
+        default: "v0.139.0"
       solo-network-size:
         description: "Solo Network Size (Number of Consensus Nodes)"
         required: true
@@ -111,30 +111,22 @@ jobs:
       # solo cluster-ref connect (formerly `cluster-ref config connect`)
       - name: Solo Cluster Ref Connect
         run: |
-          solo cluster-ref connect --cluster-ref "${CLUSTER_REFERENCE}" --context "${CONTEXT}"
-          #v0.44.0/main
-          # solo cluster-ref config connect --cluster-ref "${CLUSTER_REFERENCE}" --context "${CONTEXT}"
+          solo cluster-ref config connect --cluster-ref "${CLUSTER_REFERENCE}" --context "${CONTEXT}"
 
       # solo deployment create (formerly `deployment config create`)
       - name: Solo Deployment Create
         run: |
-          solo deployment create --deployment "${DEPLOYMENT}" --namespace "${NAMESPACE}"
-          #v0.44.0/main
-          # solo deployment config create --deployment "${DEPLOYMENT}" --namespace "${NAMESPACE}"
+          solo deployment config create --deployment "${DEPLOYMENT}" --namespace "${NAMESPACE}"
 
       # solo deployment add-cluster (formerly `deployment cluster attach`)
       - name: Solo Deployment Add Cluster
         run: |
-          solo deployment add-cluster --deployment "${DEPLOYMENT}" --cluster-ref "${CLUSTER_REFERENCE}" --num-consensus-nodes "${{ inputs.solo-network-size }}"
-          #v0.44.0/main
-          # solo deployment cluster attach --deployment "${DEPLOYMENT}" --cluster-ref "${CLUSTER_REFERENCE}" --num-consensus-nodes "${{ inputs.solo-network-size }}"
+          solo deployment cluster attach --deployment "${DEPLOYMENT}" --cluster-ref "${CLUSTER_REFERENCE}" --num-consensus-nodes "${{ inputs.solo-network-size }}"
 
       # solo cluster-ref setup (formerly `cluster-ref config setup`)
       - name: Solo Cluster Ref Setup
         run: |
-          solo cluster-ref setup --cluster-ref "${CLUSTER_REFERENCE}"
-          #v0.44.0/main
-          # solo cluster-ref config setup -s "${CLUSTER_REFERENCE}"
+          solo cluster-ref config setup -s "${CLUSTER_REFERENCE}"
 
       # Solo Block Node Add (unchanged)
       - name: Solo Block Node Add
@@ -144,9 +136,7 @@ jobs:
       # solo node keys (formerly `keys consensus generate`)
       - name: Solo Node Keys
         run: |
-          solo node keys --gossip-keys --tls-keys --deployment "${DEPLOYMENT}" --node-aliases "${NODE_IDENTIFIERS}"
-          #v0.44.0/main
-          # solo keys consensus generate --gossip-keys --tls-keys --deployment "${DEPLOYMENT}" --node-aliases "${NODE_IDENTIFIERS}"
+          solo keys consensus generate --gossip-keys --tls-keys --deployment "${DEPLOYMENT}" --node-aliases "${NODE_IDENTIFIERS}"
 
       # solo network deploy (formerly `consensus network deploy`)
       - name: Solo Network Deploy
@@ -158,26 +148,17 @@ jobs:
       # solo node setup (formerly `consensus node setup`)
       - name: Solo Node Setup
         run: |
-          solo node setup --node-aliases "${NODE_IDENTIFIERS}" --deployment "${DEPLOYMENT}" --release-tag "${{ inputs.consensus-node-release-tag }}"
-          #v0.44.0/main
-          # solo consensus node setup --node-aliases "${NODE_IDENTIFIERS}" --deployment "${DEPLOYMENT}" --release-tag "${{ inputs.consensus-node-release-tag }}"
+          solo consensus node setup --node-aliases "${NODE_IDENTIFIERS}" --deployment "${DEPLOYMENT}" --release-tag "${{ inputs.consensus-node-release-tag }}"
 
       # solo node start (formerly `consensus node start`)
       - name: Solo Node Start
         run: |
-          solo node start --deployment "${DEPLOYMENT}" --node-aliases "${NODE_IDENTIFIERS}"
-          #v0.44.0/main
-          # solo consensus node start --deployment "${DEPLOYMENT}" --node-aliases "${NODE_IDENTIFIERS}"
+          solo consensus node start --deployment "${DEPLOYMENT}" --node-aliases "${NODE_IDENTIFIERS}"
 
       # Create Mirror Values Override File (uses BN service)
       - name: Create Mirror Values Override File
         run: |
           cat <<EOF > mirror-bn-values.yaml
-          importer:
-            image:
-              registry: docker.io
-              repository: xinatswirlds/importer
-              tag: 8b691c40c
             config:
               hiero:
                 mirror:
@@ -204,23 +185,17 @@ jobs:
       # solo mirror-node deploy (formerly `mirror node add`)
       - name: Solo Mirror Node Deploy
         run: |
-          solo mirror-node deploy --deployment "${DEPLOYMENT}" --pinger --cluster-ref "${CLUSTER_REFERENCE}" --enable-ingress -f mirror-bn-values.yaml
-          #v0.44.0/main
-          # solo mirror node add --deployment "${DEPLOYMENT}" --pinger --cluster-ref "${CLUSTER_REFERENCE}" --enable-ingress -f mirror-bn-values.yaml
+          solo mirror node add --deployment "${DEPLOYMENT}" --mirror-node-version "${{ inputs.mirror-node-release-tag }}" --pinger --cluster-ref "${CLUSTER_REFERENCE}" --enable-ingress -f mirror-bn-values.yaml
 
       # solo relay deploy (formerly `relay node add`)
       - name: Solo Relay Deploy
         run: |
-          solo relay deploy --deployment "${DEPLOYMENT}" --node-aliases "${NODE_IDENTIFIERS}" --cluster-ref "${CLUSTER_REFERENCE}"
-          #v0.44.0/main
-          # solo relay node add --deployment "${DEPLOYMENT}" --node-aliases "${NODE_IDENTIFIERS}" --cluster-ref "${CLUSTER_REFERENCE}"
+          solo relay node add --deployment "${DEPLOYMENT}" --node-aliases "${NODE_IDENTIFIERS}" --cluster-ref "${CLUSTER_REFERENCE}"
 
       # solo explorer deploy (formerly `explorer node add`)
       - name: Solo Explorer Deploy
         run: |
-          solo explorer deploy --deployment "${DEPLOYMENT}" --cluster-ref "${CLUSTER_REFERENCE}"
-          #v0.44.0/main
-          # solo explorer node add --deployment "${DEPLOYMENT}" --cluster-ref "${CLUSTER_REFERENCE}"
+          solo explorer node add --deployment "${DEPLOYMENT}" --cluster-ref "${CLUSTER_REFERENCE}"
 
       # ---- BN verification with grpcurl ----
 
