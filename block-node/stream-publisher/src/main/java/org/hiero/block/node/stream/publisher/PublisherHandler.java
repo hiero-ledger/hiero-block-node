@@ -466,6 +466,17 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
         return handlerId;
     }
 
+    public long handleFailedPersistence(final long blockNumber) {
+        unacknowledgedStreamedBlocks.remove(blockNumber);
+        try {
+            sendEndOfStream(Code.PERSISTENCE_FAILED);
+        } finally {
+            shutdown();
+        }
+
+        return handlerId;
+    }
+
     // ==== Block Action Handling Methods ======================================
 
     /**
