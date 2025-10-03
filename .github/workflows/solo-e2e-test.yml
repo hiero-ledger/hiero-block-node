@@ -341,7 +341,7 @@ jobs:
         if: always()
         run: |
           # Get CN Logs
-          consensus diagnostics all --dev --deployment "${DEPLOYMENT}"
+          solo consensus diagnostics all --dev --deployment "${DEPLOYMENT}"
           BASE="${HOME}/.solo/logs/${NAMESPACE}"
           LOG_FOLDER=$(ls -1d "$BASE"/* | sort -r | head -n1)
           echo "Latest log folder is $LOG_FOLDER"
