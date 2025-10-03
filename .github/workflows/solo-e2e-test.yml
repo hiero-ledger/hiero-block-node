@@ -223,7 +223,7 @@ jobs:
 
       - name: Port Forward to Block Node
         run: |
-          kubectl port-forward --namespace "${NAMESPACE}" svc/block-node-0 40840:40840 &
+          kubectl port-forward --namespace "${NAMESPACE}" svc/block-node-1 40840:40840 &
           echo $! > /tmp/pf.pid
           # wait for port-forward to be established
           sleep 10
