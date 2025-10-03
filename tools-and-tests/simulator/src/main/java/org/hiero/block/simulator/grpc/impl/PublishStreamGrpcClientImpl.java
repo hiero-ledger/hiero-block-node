@@ -112,6 +112,7 @@ public class PublishStreamGrpcClientImpl implements PublishStreamGrpcClient {
     @Override
     public boolean streamBlock(
             Block block, @NonNull final Consumer<PublishStreamResponse> publishStreamResponseConsumer) {
+        final long blockNumber = block.getItems(0).getBlockHeader().getNumber();
         List<List<BlockItem>> streamingBatches =
                 ChunkUtils.chunkify(block.getItemsList(), blockStreamConfig.blockItemsBatchSize());
         for (List<BlockItem> streamingBatch : streamingBatches) {
@@ -142,6 +143,11 @@ public class PublishStreamGrpcClientImpl implements PublishStreamGrpcClient {
                 break;
             }
         }
+        requestStreamObserver.onNext(PublishStreamRequest.newBuilder()
+                .setEndOfBlock(org.hiero.block.api.protoc.BlockEnd.newBuilder()
+                        .setBlockNumber(blockNumber)
+                        .build())
+                .build());
         metricsService.get(LiveBlocksSent).increment();
         return streamEnabled.get();
     }

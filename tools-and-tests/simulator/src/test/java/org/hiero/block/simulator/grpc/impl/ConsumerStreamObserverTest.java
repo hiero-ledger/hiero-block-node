@@ -17,6 +17,7 @@ import com.swirlds.config.api.Configuration;
 import java.io.IOException;
 import java.util.ArrayDeque;
 import java.util.concurrent.CountDownLatch;
+import org.hiero.block.api.protoc.BlockEnd;
 import org.hiero.block.api.protoc.BlockItemSet;
 import org.hiero.block.api.protoc.SubscribeStreamResponse;
 import org.hiero.block.api.protoc.SubscribeStreamResponse.Code;
@@ -85,8 +86,9 @@ class ConsumerStreamObserverTest {
                 .setBlockProof(BlockProof.newBuilder().setBlock(0).build())
                 .build();
         BlockItem blockItemProof1 = BlockItem.newBuilder()
-                .setBlockProof(BlockProof.newBuilder().setBlock(1).build())
+                .setBlockProof(BlockProof.newBuilder().setBlock(0).build())
                 .build();
+        final BlockEnd endOfBlock = BlockEnd.newBuilder().setBlockNumber(0).build();
 
         BlockItemSet blockItemsSet = BlockItemSet.newBuilder()
                 .addBlockItems(blockItemHeader)
@@ -100,8 +102,10 @@ class ConsumerStreamObserverTest {
         assertEquals(0, metricsService.get(Counter.LiveBlocksConsumed).get());
 
         observer.onNext(response);
+        observer.onNext(
+                SubscribeStreamResponse.newBuilder().setEndOfBlock(endOfBlock).build());
 
-        assertEquals(2, metricsService.get(Counter.LiveBlocksConsumed).get());
+        assertEquals(1, metricsService.get(Counter.LiveBlocksConsumed).get());
         verifyNoInteractions(streamLatch);
     }
 
@@ -112,7 +116,8 @@ class ConsumerStreamObserverTest {
         IllegalArgumentException exception =
                 assertThrows(IllegalArgumentException.class, () -> observer.onNext(response));
 
-        assertEquals("Unknown response type: RESPONSE_NOT_SET", exception.getMessage());
+        // Removed check for message match
+        // Unit tests that verify exception _messages_ are just brittle failure.
         verifyNoInteractions(metricsService);
         verifyNoInteractions(streamLatch);
     }

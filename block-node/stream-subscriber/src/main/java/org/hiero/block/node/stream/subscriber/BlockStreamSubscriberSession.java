@@ -24,6 +24,7 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
+import org.hiero.block.api.BlockEnd;
 import org.hiero.block.api.SubscribeStreamRequest;
 import org.hiero.block.api.SubscribeStreamResponse;
 import org.hiero.block.api.SubscribeStreamResponse.Code;
@@ -452,7 +453,7 @@ public class BlockStreamSubscriberSession implements Callable<BlockStreamSubscri
                     throw new IllegalStateException(message);
                 } else {
                     // We have retrieved the block to send, so send it.
-                    sendOneBlockItemSet(block);
+                    sendOneFullBlock(block);
                     // Trim the queue if necessary, also increment the next block to send.
                     trimBlockItemQueue(nextBlockToSend.incrementAndGet());
                 }
@@ -550,7 +551,7 @@ public class BlockStreamSubscriberSession implements Callable<BlockStreamSubscri
                     == nextBlockToSend.get()) { // todo if block number from block items cannot be -1, we are good here
                 blockItems = liveBlockQueue.poll();
                 if (blockItems != null) {
-                    sendOneBlockItemSet(blockItems);
+                    sendOneBlockItemSet(blockItems, blockItems.isEndOfBlock());
                     if (blockItems.isEndOfBlock()) {
                         trimBlockItemQueue(nextBlockToSend.getAndIncrement());
                     }
@@ -737,29 +738,35 @@ public class BlockStreamSubscriberSession implements Callable<BlockStreamSubscri
         interruptedStream.set(true);
     }
 
-    private void sendOneBlockItemSet(final BlockUnparsed nextBlock) throws ParseException {
-        final BlockHeader header =
-                BlockHeader.PROTOBUF.parse(nextBlock.blockItems().getFirst().blockHeader());
-        if (header.number() == nextBlockToSend.get()) {
-            sendOneBlockItemSet(nextBlock.blockItems());
+    private void sendOneFullBlock(final BlockUnparsed nextBlock) throws ParseException {
+        if (nextBlock.blockItems().getFirst().hasBlockHeader()) {
+            final BlockHeader header =
+                    BlockHeader.PROTOBUF.parse(nextBlock.blockItems().getFirst().blockHeader());
+            if (header.number() == nextBlockToSend.get()) {
+                // We're sending a whole block, so this block is complete
+                sendOneBlockItemSet(nextBlock.blockItems(), true);
+            } else {
+                final String message = "Block {0} should be sent, but we are trying to send block {1}.";
+                LOGGER.log(Level.WARNING, message, nextBlockToSend.get(), header.number());
+            }
         } else {
-            LOGGER.log(
-                    Level.ERROR,
-                    "Block {0} should be sent, but we are trying to send block {1}.",
-                    nextBlockToSend.get(),
-                    header.number());
+            final String message = "Block {0} should be sent, but the block does not start with a block header.";
+            LOGGER.log(Level.WARNING, message, nextBlockToSend.get());
         }
     }
 
-    private void sendOneBlockItemSet(final BlockItems nextBatch) {
-        sendOneBlockItemSet(nextBatch.blockItems());
+    private void sendOneBlockItemSet(final BlockItems nextBatch, final boolean blockComplete) {
+        sendOneBlockItemSet(nextBatch.blockItems(), blockComplete);
     }
 
-    private void sendOneBlockItemSet(final List<BlockItemUnparsed> blockItems) {
+    private void sendOneBlockItemSet(final List<BlockItemUnparsed> blockItems, final boolean blockComplete) {
         final BlockItemSetUnparsed dataToSend = new BlockItemSetUnparsed(blockItems);
         final OneOf<ResponseOneOfType> responseOneOf = new OneOf<>(ResponseOneOfType.BLOCK_ITEMS, dataToSend);
         try {
             responsePipeline.onNext(new SubscribeStreamResponseUnparsed(responseOneOf));
+            if (blockComplete) {
+                sendEndOfBlock(nextBlockToSend.get());
+            }
         } catch (UncheckedIOException e) {
             // Unfortunately this is the "standard" way to end a stream, so log
             // at debug rather than emitting noise in the logs.
@@ -776,6 +783,11 @@ public class BlockStreamSubscriberSession implements Callable<BlockStreamSubscri
             LOGGER.log(Level.DEBUG, message, e);
             close(null); // cannot send the end stream response, just close the stream.
         }
+    }
+
+    private void sendEndOfBlock(final long blockNumber) {
+        final SubscribeStreamResponseUnparsed.Builder builder = SubscribeStreamResponseUnparsed.newBuilder();
+        responsePipeline.onNext(builder.endOfBlock(new BlockEnd(blockNumber)).build());
     }
 
     // ==== Block Item Handler Class ===========================================

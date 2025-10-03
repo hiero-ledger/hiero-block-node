@@ -6,6 +6,7 @@ import com.hedera.pbj.grpc.helidon.config.PbjConfig;
 import io.helidon.webserver.ConnectionConfig;
 import io.helidon.webserver.WebServer;
 import io.helidon.webserver.WebServerConfig;
+import org.hiero.block.api.BlockEnd;
 import org.hiero.block.api.BlockItemSet;
 import org.hiero.block.api.BlockNodeServiceInterface;
 import org.hiero.block.api.BlockStreamSubscribeServiceInterface;
@@ -41,6 +42,10 @@ public class TestBlockNodeServer {
                                                     .block()
                                                     .items())
                                             .build())
+                                    .build());
+                            replies.onNext(SubscribeStreamResponse.newBuilder()
+                                    .endOfBlock(
+                                            BlockEnd.newBuilder().blockNumber(i).build())
                                     .build());
                         }
 
