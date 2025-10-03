@@ -566,13 +566,15 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
     public void handlePersisted(@NonNull final PersistedNotification notification) {
         if (notification != null) {
             final long newLastPersistedBlock = notification.blockNumber();
-            if (newLastPersistedBlock > lastPersistedBlockNumber.get()) {
-                handlers.values().parallelStream().unordered().forEach(handler -> {
-                    // _Important_, we only need the last persisted block number
-                    // all previous blocks are implicitly acknowledged.
-                    handler.sendAcknowledgement(newLastPersistedBlock);
-                });
-                lastPersistedBlockNumber.set(newLastPersistedBlock);
+            if (notification.succeeded()) {
+                if (newLastPersistedBlock > lastPersistedBlockNumber.get()) {
+                    handlers.values().parallelStream().unordered().forEach(handler -> {
+                        // _Important_, we only need the last persisted block number
+                        // all previous blocks are implicitly acknowledged.
+                        handler.sendAcknowledgement(newLastPersistedBlock);
+                    });
+                    lastPersistedBlockNumber.set(newLastPersistedBlock);
+                }
             }
         }
     }
