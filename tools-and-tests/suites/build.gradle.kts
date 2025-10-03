@@ -25,7 +25,7 @@ tasks.register<Test>("runSuites") {
 
     // @todo(#813) All of the docker processing belongs here, not in block-node-app.
     //    This might mean duplication, which is perfectly fine.
-    dependsOn(":block-node-app:createDockerImage")
+    dependsOn(":block-node-app:createDockerImageCI")
 
     useJUnitPlatform()
     testLogging { events("passed", "skipped", "failed") }
