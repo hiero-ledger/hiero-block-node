@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatNoException;
 import static org.assertj.core.api.Assertions.assertThatNullPointerException;
 import static org.hiero.block.node.spi.BlockNodePlugin.METRICS_CATEGORY;
+import static org.hiero.block.node.stream.publisher.fixtures.PublishApiUtility.endThisBlock;
 
 import com.swirlds.metrics.api.Counter.Config;
 import com.swirlds.metrics.impl.DefaultCounter;
@@ -392,9 +393,9 @@ class PublisherHandlerTest {
                 manager.setBlockAction(action);
                 // Call
                 toTest.onNext(request);
+                endThisBlock(toTest, streamedBlockNumber);
                 // Assert that the manager's closeBlock method was called
                 assertThat(manager.closeBlockCallsForHandler(handlerId)).isOne();
-                assertThat(manager.nullCloseBlockCallsForHandler(handlerId)).isEqualTo(-1);
             }
 
             /**
@@ -428,9 +429,9 @@ class PublisherHandlerTest {
                 manager.setBlockAction(action);
                 // Call
                 toTest.onNext(request);
+                endThisBlock(toTest, streamedBlockNumber);
                 // Assert that the manager's closeBlock method was called
-                assertThat(manager.closeBlockCallsForHandler(handlerId)).isEqualTo(-1);
-                assertThat(manager.nullCloseBlockCallsForHandler(handlerId)).isOne();
+                assertThat(manager.closeBlockCallsForHandler(handlerId)).isEqualTo(1);
             }
 
             /**
@@ -477,6 +478,7 @@ class PublisherHandlerTest {
                         .build();
                 // Second call
                 toTest.onNext(request2);
+                endThisBlock(toTest, streamedBlockNumber);
                 // Assert items offered to the transfer queue
                 assertThat(transferQueue).hasSize(2).containsExactly(blockItemSet1, blockItemSet2);
             }
@@ -524,6 +526,7 @@ class PublisherHandlerTest {
                         .build();
                 // Second call
                 toTest.onNext(request2);
+                endThisBlock(toTest, streamedBlockNumber);
                 // Assert metrics updated
                 assertThat(metrics.liveBlockItemsReceived().get()).isEqualTo(blockItems.length);
                 // Assert other metrics unchanged
@@ -565,6 +568,7 @@ class PublisherHandlerTest {
                 manager.setBlockAction(BlockAction.SKIP);
                 // Call
                 toTest.onNext(request);
+                endThisBlock(toTest, streamedBlockNumber);
                 // Assert no items offered to the transfer queue
                 assertThat(transferQueue).isEmpty();
             }
@@ -598,6 +602,10 @@ class PublisherHandlerTest {
                 manager.setBlockAction(BlockAction.SKIP);
                 // Call
                 toTest.onNext(request);
+                // End the block, this should not cause failure.
+                // Here we simulate network latency such that the block completes and ends
+                // before skip gets back to publisher.
+                endThisBlock(toTest, streamedBlockNumber);
                 // Assert single response is SkipBlock with block number same as streamed
                 assertThat(repliesPipeline.getOnNextCalls())
                         .hasSize(1)
@@ -639,6 +647,7 @@ class PublisherHandlerTest {
                 manager.setBlockAction(BlockAction.SKIP);
                 // Call
                 toTest.onNext(request);
+                // No end block, should get SKIP _before_ ending the block
                 // Assert metrics updated
                 assertThat(metrics.blockSkipsSent().get()).isEqualTo(1);
                 // Assert other metrics unchanged
@@ -680,6 +689,7 @@ class PublisherHandlerTest {
                 manager.setBlockAction(BlockAction.RESEND);
                 // Call
                 toTest.onNext(request);
+                // No end block, should get resend _before_ ending the block
                 // Assert no items offered to the transfer queue
                 assertThat(transferQueue).isEmpty();
             }
@@ -717,6 +727,8 @@ class PublisherHandlerTest {
                 manager.setLatestBlockNumber(latestBlockNumber);
                 // Call
                 toTest.onNext(request);
+                // Test that we can still end the block when a resend is expected
+                endThisBlock(toTest, streamedBlockNumber);
                 // Assert single response is ResendBlock with block number same as streamed
                 assertThat(repliesPipeline.getOnNextCalls())
                         .hasSize(1)
@@ -841,6 +853,8 @@ class PublisherHandlerTest {
                 manager.setLatestBlockNumber(expectedLatestBlockNumber);
                 // Call
                 toTest.onNext(request);
+                // ensure that we can still end blocks when duplicate is expected
+                endThisBlock(toTest, streamedBlockNumber);
                 // Assert single response is DUPLICATE_BLOCK with block number latest known and onComplete is called
                 // (shutdown)
                 assertThat(repliesPipeline.getOnNextCalls())
@@ -967,6 +981,8 @@ class PublisherHandlerTest {
                 manager.setLatestBlockNumber(expectedLatestBlockNumber);
                 // Call
                 toTest.onNext(request);
+                // test that we can still end a block when behind is expected
+                endThisBlock(toTest, streamedBlockNumber);
                 // Assert single response is BEHIND with block number same as latest known
                 assertThat(repliesPipeline.getOnNextCalls())
                         .hasSize(1)
@@ -1092,6 +1108,8 @@ class PublisherHandlerTest {
                 manager.setLatestBlockNumber(expectedLatestBlockNumber);
                 // Call
                 toTest.onNext(request);
+                // test that we can still end a block when error is encountered
+                endThisBlock(toTest, streamedBlockNumber);
                 // Assert single response is ERROR and onComplete is called (shutdown)
                 assertThat(repliesPipeline.getOnNextCalls())
                         .hasSize(1)
@@ -1304,6 +1322,7 @@ class PublisherHandlerTest {
                 manager.setBlockAction(BlockAction.ACCEPT);
                 // Call with valid request
                 toTest.onNext(validRequest);
+                endThisBlock(toTest, expectedStreamedBlockNumber);
                 // Assert items were propagated to the transfer queue
                 assertThat(transferQueue).hasSize(1).containsExactly(validBlockItemSet);
             }
@@ -1914,8 +1933,7 @@ class PublisherHandlerTest {
              * correctly handles a request with EndStream shutdown. We expect
              * that {@link PublishStreamResponse.EndOfStream}
              * response is returned with any code to shut down the handler even
-             * if the request is invalid as specified by
-             * {@code PublisherHandler.isEndStreamRequestValid}.
+             * if the request is invalid.
              */
             @ParameterizedTest()
             @EnumSource(EndStream.Code.class)
@@ -2172,6 +2190,7 @@ class PublisherHandlerTest {
                 manager.setBlockAction(BlockAction.ACCEPT);
                 // Call onNext with the request, this will update the internal state of the handler
                 toTest.onNext(request);
+                endThisBlock(toTest, expectedBlockNumber);
                 // Train the manager to return the expected latest block number
                 final long latestBlockNumber = expectedBlockNumber - 1L;
                 manager.setLatestBlockNumber(latestBlockNumber);

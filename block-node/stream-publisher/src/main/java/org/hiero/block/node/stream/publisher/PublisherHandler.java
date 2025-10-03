@@ -8,7 +8,6 @@ import static java.lang.System.Logger.Level.WARNING;
 import static org.hiero.block.node.spi.BlockNodePlugin.METRICS_CATEGORY;
 import static org.hiero.block.node.spi.BlockNodePlugin.UNKNOWN_BLOCK_NUMBER;
 
-import com.hedera.hapi.block.stream.BlockProof;
 import com.hedera.hapi.block.stream.output.BlockHeader;
 import com.hedera.pbj.runtime.ParseException;
 import com.hedera.pbj.runtime.grpc.Pipeline;
@@ -26,6 +25,7 @@ import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.ConcurrentSkipListSet;
 import java.util.concurrent.Flow.Subscription;
 import java.util.concurrent.atomic.AtomicLong;
+import org.hiero.block.api.BlockEnd;
 import org.hiero.block.api.PublishStreamRequest.EndStream;
 import org.hiero.block.api.PublishStreamResponse;
 import org.hiero.block.api.PublishStreamResponse.BlockAcknowledgement;
@@ -71,8 +71,9 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
     private final long handlerId;
     /** The current streaming block number. This is used to track the current block being streamed. */
     private final AtomicLong currentStreamingBlockNumber;
-    /** The unacknowledged yet blocks that were streamed to completion by this handler. */
+    /** The unacknowledged blocks that were streamed to completion by this handler. */
     private final NavigableSet<Long> unacknowledgedStreamedBlocks;
+    // @todo() remove this (and its usage) and use telemetry or metrics queries instead
     /** The start time in nanos of block being currently streamed */
     private long currentStreamingBlockHeaderReceivedTime = System.nanoTime();
 
@@ -175,11 +176,24 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
                 shutdown();
             }
         } else if (request.hasEndOfBlock()) {
-            // @todo(1626) Do nothing for now.
+            handleEndOfBlock(request.endOfBlock());
         } else {
             // this should never happen
             sendEndAndResetState(Code.ERROR);
         }
+    }
+
+    private void handleEndOfBlock(final BlockEnd endOfBlock) {
+        final long blockNumber = endOfBlock.blockNumber();
+        final long expectedBlockNumber = currentStreamingBlockNumber.get();
+        if (blockNumber != expectedBlockNumber) {
+            final String message = "Expected to close block {0}, but received close for block {1}.";
+            LOGGER.log(Level.INFO, message, expectedBlockNumber, blockNumber);
+        }
+        metrics.receiveBlockTimeLatencyNs.add(System.nanoTime() - currentStreamingBlockHeaderReceivedTime);
+        publisherManager.closeBlock(handlerId);
+        unacknowledgedStreamedBlocks.add(blockNumber);
+        resetState();
     }
 
     /**
@@ -279,11 +293,6 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
                     case END_ERROR -> handleEndError();
                 };
         handleBlockActionResult(handleResult);
-        // we must now check if the last item in the set is a proof.
-        final BlockItemUnparsed last = blockItems.getLast();
-        if (last.hasBlockProof()) {
-            handleBlockProof(last.blockProof(), blockNumber);
-        }
     }
 
     /**
@@ -545,41 +554,6 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
     }
 
     /**
-     * Handle a block proof received from the publisher.
-     * <p>
-     * This method is called when a block proof is received from the publisher.
-     * It will parse the block proof and close the block in the publisher manager.
-     * If parsing fails, it will log an error and close the block with a null proof.
-     * <p>
-     * It is important to note that a null proof sent to the close block method
-     * does not prevent sending the proof into messaging, it just means the
-     * publisher manager won't have the proof for metrics, logging, and
-     * calculating whether other handlers are too slow and a resend must be
-     * initiated.
-     *
-     * @param blockProofBytes the bytes of the block proof to handle
-     * @param blockNumber the block number that this proof verifies
-     */
-    private void handleBlockProof(final Bytes blockProofBytes, final long blockNumber) {
-        try {
-            publisherManager.closeBlock(BlockProof.PROTOBUF.parse(blockProofBytes), handlerId);
-        } catch (final ParseException e) {
-            publisherManager.closeBlock(null, handlerId);
-            LOGGER.log(INFO, "Failed to parse block proof: {}", e);
-        }
-        long proofReceivedTime = System.nanoTime() - currentStreamingBlockHeaderReceivedTime;
-        metrics.receiveBlockTimeLatencyNs.add(proofReceivedTime);
-        LOGGER.log(
-                TRACE,
-                "Publisher Handler {0} Received block proof for block: {1,number,#}, and it took {2,number,#} ns",
-                handlerId,
-                blockNumber,
-                proofReceivedTime);
-        unacknowledgedStreamedBlocks.add(blockNumber);
-        resetState();
-    }
-
-    /**
      * Handle the ACCEPT action for a block.
      */
     private BatchHandleResult handleAccept(
@@ -735,14 +709,13 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
      */
     private void shutdown() {
         try {
-            final long blockInProgress = currentStreamingBlockNumber.get();
+            final long blockInProgress = currentStreamingBlockNumber.getAndSet(UNKNOWN_BLOCK_NUMBER);
             if (blockInProgress != UNKNOWN_BLOCK_NUMBER) {
                 publisherManager.handlerIsEnding(blockInProgress, handlerId);
-                publisherManager.closeBlock(null, handlerId);
+                publisherManager.closeBlock(handlerId);
             }
             // reset state
             resetState();
-
             // This method is called when the handler is removed from the manager.
             // We should clean up any resources that are no longer needed.
             publisherManager.removeHandler(handlerId);
@@ -753,6 +726,7 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
             try {
                 // onComplete call in finally block to ensure it is called
                 replies.onComplete();
+                // @todo(1757) How do we terminate the connection and ensure the socket is closed?
             } catch (final RuntimeException e) {
                 LOGGER.log(DEBUG, "Exception during calling onComplete for handler %d".formatted(handlerId), e);
             }

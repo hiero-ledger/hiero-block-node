@@ -23,9 +23,13 @@ ENV DEBIAN_FRONTEND=noninteractive
 ENV LANG=C.UTF-8
 ENV LC_ALL=C.UTF-8
 
+# Copy the repro sources list shell script file, don't use a bind mount because that
+# is sensitive to local (real) user umask and file permissions.
+COPY --chmod=755 repro-sources-list.sh /usr/local/bin/repro-sources-list.sh
+# The script will be removed after it is run.
 # Install basic OS utilities for building
-RUN --mount=type=bind,source=./repro-sources-list.sh,target=/usr/local/bin/repro-sources-list.sh \
-    repro-sources-list.sh && \
+RUN repro-sources-list.sh && \
+    rm -rf /usr/local/bin/repro-sources-list.sh && \
     apt-get update && \
     apt-get install --yes --no-install-recommends tar gzip curl ca-certificates sudo && \
     apt-get autoclean --yes && \
