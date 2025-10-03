@@ -5,6 +5,7 @@ import static java.util.concurrent.locks.LockSupport.parkNanos;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hiero.block.node.app.fixtures.TestUtils.enableDebugLogging;
 import static org.hiero.block.node.app.fixtures.blocks.SimpleTestBlockItemBuilder.toBlockItems;
+import static org.hiero.block.node.stream.publisher.fixtures.PublishApiUtility.endThisBlock;
 
 import com.hedera.hapi.block.stream.Block;
 import com.hedera.hapi.block.stream.BlockItem;
@@ -200,6 +201,7 @@ class StreamPublisherPluginTest {
                     .build();
             // Send the request to the pipeline
             toPluginPipe.onNext(PublishStreamRequestUnparsed.PROTOBUF.toBytes(request));
+            endThisBlock(toPluginPipe, 0L);
             // Await to ensure async execution and assert response
             parkNanos(500_000_000L);
             assertThat(fromPluginBytes)
@@ -262,6 +264,7 @@ class StreamPublisherPluginTest {
                     .build();
             // Send the request to the pipeline
             toPluginPipe.onNext(PublishStreamRequestUnparsed.PROTOBUF.toBytes(request));
+            endThisBlock(toPluginPipe, 0L);
             // Await to ensure async execution and assert response
             parkNanos(500_000_000L);
             // Assert that the block has been successfully streamed
@@ -307,6 +310,7 @@ class StreamPublisherPluginTest {
                     .build();
             // Send the request to the pipeline
             toPluginPipe.onNext(PublishStreamRequestUnparsed.PROTOBUF.toBytes(request));
+            endThisBlock(toPluginPipe, 0L);
             // Await to ensure async execution and assert response
             parkNanos(500_000_000L);
             // Assert that the block has been successfully streamed
@@ -355,6 +359,7 @@ class StreamPublisherPluginTest {
                     .build();
             // Send the request to the pipeline
             toPluginPipe.onNext(PublishStreamRequestUnparsed.PROTOBUF.toBytes(request));
+            endThisBlock(toPluginPipe, 0L);
             // Await to ensure async execution and assert response
             parkNanos(500_000_000L);
             // Assert that the block has been successfully streamed
@@ -405,6 +410,7 @@ class StreamPublisherPluginTest {
                     .build();
             // Send the request to the pipeline
             toPluginPipe.onNext(PublishStreamRequestUnparsed.PROTOBUF.toBytes(request));
+            endThisBlock(toPluginPipe, 0L);
             // Await to ensure async execution and assert response
             parkNanos(500_000_000L);
             // Assert that the block has been successfully streamed
@@ -452,6 +458,7 @@ class StreamPublisherPluginTest {
                     .build();
             // Send the request to the pipeline
             toPluginPipe.onNext(PublishStreamRequestUnparsed.PROTOBUF.toBytes(request));
+            endThisBlock(toPluginPipe, 0L);
             // Await to ensure async execution and assert response
             parkNanos(500_000_000L);
             // Assert that the block has been successfully streamed
@@ -485,6 +492,7 @@ class StreamPublisherPluginTest {
                     .blockItems(firstRequestSet)
                     .build();
             toPluginPipe.onNext(PublishStreamRequestUnparsed.PROTOBUF.toBytes(firstRequest));
+            endThisBlock(toPluginPipe, 0L);
             // Await to ensure async execution and assert response
             parkNanos(500_000_000L);
             // Assert that the block has been successfully streamed
@@ -539,6 +547,7 @@ class StreamPublisherPluginTest {
                     .blockItems(firstRequestSet)
                     .build();
             toPluginPipe.onNext(PublishStreamRequestUnparsed.PROTOBUF.toBytes(firstRequest));
+            endThisBlock(toPluginPipe, 0L);
             // Await to ensure async execution and assert response
             parkNanos(500_000_000L);
             // Assert that the block has been successfully streamed
@@ -588,6 +597,7 @@ class StreamPublisherPluginTest {
                     .blockItems(firstRequestSet)
                     .build();
             toPluginPipe.onNext(PublishStreamRequestUnparsed.PROTOBUF.toBytes(firstRequest));
+            endThisBlock(toPluginPipe, 0L);
             // Await to ensure async execution and assert response
             parkNanos(500_000_000L);
             // Assert that the block has been successfully streamed
