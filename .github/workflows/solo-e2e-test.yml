@@ -141,9 +141,7 @@ jobs:
       # solo network deploy (formerly `consensus network deploy`)
       - name: Solo Network Deploy
         run: |
-          solo network deploy --deployment "${DEPLOYMENT}" --pvcs true --node-aliases "${NODE_IDENTIFIERS}" --release-tag "${{ inputs.consensus-node-release-tag }}"
-          #v0.44.0/main
-          # solo consensus network deploy --deployment "${DEPLOYMENT}" --pvcs true --node-aliases "${NODE_IDENTIFIERS}" --release-tag "${{ inputs.consensus-node-release-tag }}"
+          solo consensus network deploy --deployment "${DEPLOYMENT}" --pvcs true --node-aliases "${NODE_IDENTIFIERS}" --release-tag "${{ inputs.consensus-node-release-tag }}"
 
       # solo node setup (formerly `consensus node setup`)
       - name: Solo Node Setup
