@@ -26,6 +26,7 @@ import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.ConcurrentSkipListSet;
 import java.util.concurrent.Flow.Subscription;
 import java.util.concurrent.atomic.AtomicLong;
+import org.hiero.block.api.BlockEnd;
 import org.hiero.block.api.PublishStreamRequest.EndStream;
 import org.hiero.block.api.PublishStreamResponse;
 import org.hiero.block.api.PublishStreamResponse.BlockAcknowledgement;
@@ -175,10 +176,18 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
             } finally {
                 shutdown();
             }
+        } else if (request.hasEndOfBlock()) {
+            handleEndOfBlock(request.endOfBlock());
         } else {
             // this should never happen
             sendEndAndResetState(Code.ERROR);
         }
+    }
+
+    private void handleEndOfBlock(final BlockEnd endOfBlock) {
+        final long blockNumber = endOfBlock.blockNumber();
+        LOGGER.log(TRACE, "Handler {0} received EndOfBlock for block {1}", handlerId, blockNumber);
+        // @todo(1626) Close the block and ensure it's complete.
     }
 
     /**
@@ -738,6 +747,7 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
             try {
                 // onComplete call in finally block to ensure it is called
                 replies.onComplete();
+                // @todo(1757) How do we terminate the connection and ensure the socket is closed?
             } catch (final RuntimeException e) {
                 LOGGER.log(DEBUG, "Exception during calling onComplete for handler %d".formatted(handlerId), e);
             }
