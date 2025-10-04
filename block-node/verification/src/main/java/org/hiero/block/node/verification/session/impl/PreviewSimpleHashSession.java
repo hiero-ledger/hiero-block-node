@@ -18,13 +18,13 @@ import org.hiero.block.internal.BlockItemUnparsed;
 import org.hiero.block.internal.BlockUnparsed;
 import org.hiero.block.node.spi.blockmessaging.BlockSource;
 import org.hiero.block.node.spi.blockmessaging.VerificationNotification;
-import org.hiero.block.node.verification.session.BlockVerificationSession;
+import org.hiero.block.node.verification.session.VerificationSession;
 
 /**
  * Block verification for a single block, aka. session. A new one is created for each block to verify. This is a simple
  * separate class so it is easy to test.
  */
-public class PreviewSimpleVerificationSessionV0640 implements BlockVerificationSession {
+public class PreviewSimpleHashSession implements VerificationSession {
     /** The block number being verified. */
     protected final long blockNumber;
     // Stream Hashers
@@ -53,7 +53,7 @@ public class PreviewSimpleVerificationSessionV0640 implements BlockVerificationS
      * @param blockNumber the block number to verify, we pass it in even though we could extract from block items to
      *                    avoid having to duplicate parsing work of the block header.
      */
-    public PreviewSimpleVerificationSessionV0640(final long blockNumber, @NonNull final BlockSource blockSource) {
+    public PreviewSimpleHashSession(final long blockNumber, @NonNull final BlockSource blockSource) {
         this.blockNumber = blockNumber;
         // using NaiveStreamingTreeHasher as we should only need single threaded
         this.inputTreeHasher = new NaiveStreamingTreeHasher();

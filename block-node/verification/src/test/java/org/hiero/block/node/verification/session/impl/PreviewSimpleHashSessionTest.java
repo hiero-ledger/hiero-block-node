@@ -10,12 +10,12 @@ import org.hiero.block.internal.BlockItemUnparsed;
 import org.hiero.block.node.app.fixtures.blocks.BlockUtils;
 import org.hiero.block.node.spi.blockmessaging.BlockSource;
 import org.hiero.block.node.spi.blockmessaging.VerificationNotification;
-import org.hiero.block.node.verification.session.BlockVerificationSession;
+import org.hiero.block.node.verification.session.VerificationSession;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
-class PreviewSimpleVerificationSessionV0640Test {
+class PreviewSimpleHashSessionTest {
 
     BlockUtils.SampleBlockInfo sampleBlockInfo;
     List<BlockItemUnparsed> blockItems;
@@ -27,7 +27,7 @@ class PreviewSimpleVerificationSessionV0640Test {
     }
 
     /**
-     * Happy path test for the BlockVerificationSession class.
+     * Happy path test for the VerificationSession class.
      * */
     @Test
     void happyPath() throws ParseException {
@@ -36,8 +36,7 @@ class PreviewSimpleVerificationSessionV0640Test {
 
         long blockNumber = blockHeader.number();
 
-        PreviewSimpleVerificationSessionV0640 session =
-                new PreviewSimpleVerificationSessionV0640(blockNumber, BlockSource.PUBLISHER);
+        PreviewSimpleHashSession session = new PreviewSimpleHashSession(blockNumber, BlockSource.PUBLISHER);
 
         VerificationNotification blockNotification = session.processBlockItems(blockItems);
 
@@ -70,7 +69,7 @@ class PreviewSimpleVerificationSessionV0640Test {
     }
 
     /**
-     * Happy path test for the BlockVerificationSession class with chunked list of items, to simulate actual usage.
+     * Happy path test for the VerificationSession class with chunked list of items, to simulate actual usage.
      * */
     @Test
     void happyPath_chunked() throws ParseException {
@@ -78,8 +77,7 @@ class PreviewSimpleVerificationSessionV0640Test {
         int currentChunk = 0;
         long blockNumber = sampleBlockInfo.blockNumber();
 
-        PreviewSimpleVerificationSessionV0640 session =
-                new PreviewSimpleVerificationSessionV0640(blockNumber, BlockSource.PUBLISHER);
+        PreviewSimpleHashSession session = new PreviewSimpleHashSession(blockNumber, BlockSource.PUBLISHER);
 
         VerificationNotification blockNotification = session.processBlockItems(chunkifiedItems.get(currentChunk));
 
@@ -112,7 +110,7 @@ class PreviewSimpleVerificationSessionV0640Test {
     }
 
     /**
-     * Non-Happy path test for the BlockVerificationSession class with invalid hash
+     * Non-Happy path test for the VerificationSession class with invalid hash
      * */
     @Test
     void invalidHash() throws ParseException {
@@ -120,8 +118,7 @@ class PreviewSimpleVerificationSessionV0640Test {
         blockItems.remove(5);
 
         long blockNumber = sampleBlockInfo.blockNumber();
-        BlockVerificationSession session =
-                new PreviewSimpleVerificationSessionV0640(blockNumber, BlockSource.PUBLISHER);
+        VerificationSession session = new PreviewSimpleHashSession(blockNumber, BlockSource.PUBLISHER);
         VerificationNotification blockNotification = session.processBlockItems(blockItems);
 
         Assertions.assertEquals(
@@ -138,7 +135,7 @@ class PreviewSimpleVerificationSessionV0640Test {
     }
 
     /**
-     * Non-Happy path test for the BlockVerificationSession class with invalid hash with chunked list of items, to simulate actual usage.
+     * Non-Happy path test for the VerificationSession class with invalid hash with chunked list of items, to simulate actual usage.
      * */
     @Test
     void invalidHash_chunked() throws ParseException {
@@ -149,8 +146,7 @@ class PreviewSimpleVerificationSessionV0640Test {
         int currentChunk = 0;
         long blockNumber = sampleBlockInfo.blockNumber();
 
-        BlockVerificationSession session =
-                new PreviewSimpleVerificationSessionV0640(blockNumber, BlockSource.PUBLISHER);
+        VerificationSession session = new PreviewSimpleHashSession(blockNumber, BlockSource.PUBLISHER);
         VerificationNotification blockNotification = session.processBlockItems(chunkifiedItems.get(currentChunk));
 
         while (blockNotification == null) {
