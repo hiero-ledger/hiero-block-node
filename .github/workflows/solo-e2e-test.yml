@@ -91,68 +91,7 @@ jobs:
         run: |
           npm i @hashgraph/solo@${{ inputs.solo-version }} -g
 
-      # create kind cluster
-      - name: Create Kind Cluster
-        run: |
-          kind create cluster -n "${CLUSTER_NAME}"
-          # wait for control plane
-          sleep 10
-
-      # use kubectl context
-      - name: Use kubectl context
-        run: |
-          kubectl config use-context "${CONTEXT}"
-
-      # solo init
-      - name: Solo Init
-        run: |
-          solo init
-
-      # solo cluster-ref connect (formerly `cluster-ref config connect`)
-      - name: Solo Cluster Ref Connect
-        run: |
-          solo cluster-ref config connect --cluster-ref "${CLUSTER_REFERENCE}" --context "${CONTEXT}"
-
-      # solo deployment create (formerly `deployment config create`)
-      - name: Solo Deployment Create
-        run: |
-          solo deployment config create --deployment "${DEPLOYMENT}" --namespace "${NAMESPACE}"
-
-      # solo deployment add-cluster (formerly `deployment cluster attach`)
-      - name: Solo Deployment Add Cluster
-        run: |
-          solo deployment cluster attach --deployment "${DEPLOYMENT}" --cluster-ref "${CLUSTER_REFERENCE}" --num-consensus-nodes "${{ inputs.solo-network-size }}"
-
-      # solo cluster-ref setup (formerly `cluster-ref config setup`)
-      - name: Solo Cluster Ref Setup
-        run: |
-          solo cluster-ref config setup -s "${CLUSTER_REFERENCE}"
-
-      # Solo Block Node Add (unchanged)
-      - name: Solo Block Node Add
-        run: |
-          solo block node add --deployment "${DEPLOYMENT}" --release-tag "${{ inputs.consensus-node-release-tag }}" --cluster-ref "${CLUSTER_REFERENCE}" --chart-version "${{ inputs.block-node-helm-chart-version }}"
-
-      # solo node keys (formerly `keys consensus generate`)
-      - name: Solo Node Keys
-        run: |
-          solo keys consensus generate --gossip-keys --tls-keys --deployment "${DEPLOYMENT}" --node-aliases "${NODE_IDENTIFIERS}"
-
-      # solo network deploy (formerly `consensus network deploy`)
-      - name: Solo Network Deploy
-        run: |
-          solo consensus network deploy --deployment "${DEPLOYMENT}" --pvcs true --node-aliases "${NODE_IDENTIFIERS}" --release-tag "${{ inputs.consensus-node-release-tag }}"
-
-      # solo node setup (formerly `consensus node setup`)
-      - name: Solo Node Setup
-        run: |
-          solo consensus node setup --node-aliases "${NODE_IDENTIFIERS}" --deployment "${DEPLOYMENT}" --release-tag "${{ inputs.consensus-node-release-tag }}"
-
-      # solo node start (formerly `consensus node start`)
-      - name: Solo Node Start
-        run: |
-          solo consensus node start --deployment "${DEPLOYMENT}" --node-aliases "${NODE_IDENTIFIERS}"
-
+      # Prepare Overrides
       # Create Mirror Values Override File (uses BN service)
       - name: Create Mirror Values Override File
         run: |
@@ -185,20 +124,29 @@ jobs:
         run: |
           cat mirror-bn-values.yaml
 
-      # solo mirror-node deploy (formerly `mirror node add`)
-      - name: Solo Mirror Node Deploy
+      # Solo Cluster Setup
+      - name: Cluster setup (Kind + Solo)
         run: |
+          kind create cluster -n "${CLUSTER_NAME}"
+          sleep 10
+          kubectl config use-context "${CONTEXT}"
+          solo init
+          solo cluster-ref config connect --cluster-ref "${CLUSTER_REFERENCE}" --context "${CONTEXT}"
+          solo deployment config create --deployment "${DEPLOYMENT}" --namespace "${NAMESPACE}"
+          solo deployment cluster attach --deployment "${DEPLOYMENT}" --cluster-ref "${CLUSTER_REFERENCE}" --num-consensus-nodes "${{ inputs.solo-network-size }}"
+          solo cluster-ref config setup -s "${CLUSTER_REFERENCE}"
+
+      # Node Deployment
+      - name: Solo Nodes Deployment (BN, CN, MN)
+        run: |
+          solo block node add --deployment "${DEPLOYMENT}" --release-tag "${{ inputs.consensus-node-release-tag }}" --cluster-ref "${CLUSTER_REFERENCE}" --chart-version "${{ inputs.block-node-helm-chart-version }}"
+          solo keys consensus generate --gossip-keys --tls-keys --deployment "${DEPLOYMENT}" --node-aliases "${NODE_IDENTIFIERS}"
+          solo consensus network deploy --deployment "${DEPLOYMENT}" --pvcs true --node-aliases "${NODE_IDENTIFIERS}" --release-tag "${{ inputs.consensus-node-release-tag }}"
+          solo consensus node setup --node-aliases "${NODE_IDENTIFIERS}" --deployment "${DEPLOYMENT}" --release-tag "${{ inputs.consensus-node-release-tag }}"
+          solo consensus node start --deployment "${DEPLOYMENT}" --node-aliases "${NODE_IDENTIFIERS}"
           solo mirror node add --deployment "${DEPLOYMENT}" --pinger --cluster-ref "${CLUSTER_REFERENCE}" --enable-ingress -f mirror-bn-values.yaml
           # solo mirror node add --deployment "${DEPLOYMENT}" --mirror-node-version "${{ inputs.mirror-node-release-tag }}" --pinger --cluster-ref "${CLUSTER_REFERENCE}" --enable-ingress -f mirror-bn-values.yaml
-
-      # solo relay deploy (formerly `relay node add`)
-      - name: Solo Relay Deploy
-        run: |
           solo relay node add --deployment "${DEPLOYMENT}" --node-aliases "${NODE_IDENTIFIERS}" --cluster-ref "${CLUSTER_REFERENCE}"
-
-      # solo explorer deploy (formerly `explorer node add`)
-      - name: Solo Explorer Deploy
-        run: |
           solo explorer node add --deployment "${DEPLOYMENT}" --cluster-ref "${CLUSTER_REFERENCE}"
 
       # ---- BN verification with grpcurl ----
