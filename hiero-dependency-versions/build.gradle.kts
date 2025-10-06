@@ -12,7 +12,7 @@ dependencies {
 }
 
 dependencies.constraints {
-    val daggerVersion = "2.56.2"
+    val daggerVersion = "2.57.2"
     val grpcIoVersion = "1.75.0"
     val helidonVersion = "4.3.0"
     // When Upgrading pbjVersion, also need to update pbjCompiler version on
@@ -79,7 +79,7 @@ dependencies.constraints {
 
     // Testing only versions
     api("com.github.docker-java:docker-java-api:3.6.0") { because("com.github.dockerjava.api") }
-    api("org.assertj:assertj-core:3.27.4") { because("org.assertj.core") }
+    api("org.assertj:assertj-core:3.27.6") { because("org.assertj.core") }
     api("org.junit.jupiter:junit-jupiter-api:5.13.4") { because("org.junit.jupiter.api") }
     api("org.mockito:mockito-core:${mockitoVersion}") { because("org.mockito") }
     api("org.mockito:mockito-junit-jupiter:${mockitoVersion}") {
