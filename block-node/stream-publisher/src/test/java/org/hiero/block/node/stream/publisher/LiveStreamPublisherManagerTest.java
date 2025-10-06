@@ -972,7 +972,7 @@ class LiveStreamPublisherManagerTest {
              */
             @Test
             @DisplayName(
-                    "handlePersisted() does not send acknowledgement with latest block number to all registered handlers when persistence failed")
+                    "handlePersisted() PERSISTENCE_FAILED is sent to all registered handlers when persistence failed")
             void testHandlePersistedNotificationFailedPersistence() {
                 // As a precondition, assert that the responses pipeline is empty (nothing has been sent yet).
                 // Also, assert that the latest known block number is -1L (initial state in order to compare later).
@@ -983,14 +983,21 @@ class LiveStreamPublisherManagerTest {
                         new PersistedNotification(10L, false, 0, BlockSource.PUBLISHER);
                 // Call
                 toTest.handlePersisted(notification);
-                // Assert that the response pipeline has not received any responses.
-                assertThat(responsePipeline.getOnNextCalls()).isEmpty();
+                // Assert that the response pipeline has received a PERSISTENCE_FAILED
+                assertThat(responsePipeline.getOnNextCalls())
+                        .hasSize(1)
+                        .first()
+                        .returns(ResponseOneOfType.END_STREAM, responseKindExtractor)
+                        .returns(Code.PERSISTENCE_FAILED, endStreamResponseCodeExtractor)
+                        // below block number in the response is the latest known, -1L because none are stored
+                        .returns(-1L, endStreamBlockNumberExtractor);
                 // Assert that the latest known block number is still -1L, it was not updated
                 assertThat(toTest.getLatestBlockNumber()).isEqualTo(expectedLatestPersistedFromManager);
+                assertThat(responsePipeline.getOnCompleteCalls().get()).isEqualTo(1);
+
                 // Assert no other responses sent
                 assertThat(responsePipeline.getOnErrorCalls()).isEmpty();
                 assertThat(responsePipeline.getOnSubscriptionCalls()).isEmpty();
-                assertThat(responsePipeline.getOnCompleteCalls().get()).isEqualTo(0);
                 assertThat(responsePipeline.getClientEndStreamCalls().get()).isEqualTo(0);
             }
 
