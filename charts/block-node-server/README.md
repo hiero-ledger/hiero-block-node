@@ -18,7 +18,7 @@ Replacing the values with the appropriate values for your environment: bn-releas
 
 ```bash
 export RELEASE="bn-release"
-export VERSION="0.20.0-rc2"
+export VERSION="0.20.0-rc3"
 ```
 
 ## Template

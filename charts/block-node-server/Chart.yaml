@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 apiVersion: v2
-appVersion: 0.20.0-rc2
+appVersion: 0.20.0-rc3
 description: A Helm chart for Hiero Block Node
 home: https://github.com/hiero-ledger/hiero-block-node
 keywords:
@@ -15,7 +15,7 @@ maintainers:
 name: block-node-server
 sources:
   - https://github.com/hiero-ledger/hiero-block-node
-version: 0.20.0-rc2
+version: 0.20.0-rc3
 dependencies:
   - name: kube-prometheus-stack
     alias: kubepromstack
