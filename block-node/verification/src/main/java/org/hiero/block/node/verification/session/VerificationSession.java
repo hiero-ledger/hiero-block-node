@@ -9,7 +9,7 @@ import org.hiero.block.node.spi.blockmessaging.VerificationNotification;
 /**
  * A session for verifying a single block. A new session is created for each block to verify.
  */
-public interface BlockVerificationSession {
+public interface VerificationSession {
     /**
      * Processes the provided block items by updating the tree hashers.
      * If the last item has a block proof, final verification is triggered.

@@ -10,8 +10,8 @@ import static org.mockito.Mockito.mock;
 import com.hedera.hapi.node.base.SemanticVersion;
 import java.util.stream.Stream;
 import org.hiero.block.node.spi.blockmessaging.BlockSource;
-import org.hiero.block.node.verification.session.impl.ExtendedMerkleTreeVerificationSessionV0680;
-import org.hiero.block.node.verification.session.impl.PreviewSimpleVerificationSessionV0640;
+import org.hiero.block.node.verification.session.impl.ExtendedMerkleTreeSession;
+import org.hiero.block.node.verification.session.impl.PreviewSimpleHashSession;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -20,8 +20,8 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
 
-@DisplayName("BlockVerificationSessionFactory")
-class BlockVerificationSessionFactoryTest {
+@DisplayName("HapiVersionSessionFactory")
+class HapiVersionSessionFactoryTest {
 
     private BlockSource blockSource;
 
@@ -37,7 +37,7 @@ class BlockVerificationSessionFactoryTest {
     }
 
     private static <T> void assertCreates(SemanticVersion ver, Class<T> expectedType, BlockSource src) {
-        var session = BlockVerificationSessionFactory.createSession(123L, src, ver);
+        var session = HapiVersionSessionFactory.createSession(123L, src, ver);
         assertNotNull(session, "session should not be null");
         assertTrue(
                 expectedType.isInstance(session),
@@ -56,10 +56,10 @@ class BlockVerificationSessionFactoryTest {
                 );
     }
 
-    @ParameterizedTest(name = ">= 0.68.0 resolves to ExtendedMerkleTreeVerificationSessionV0680 for {0}")
+    @ParameterizedTest(name = ">= 0.68.0 resolves to ExtendedMerkleTreeSession for {0}")
     @MethodSource("latestImplVersions")
     void selectsLatestImplFor0680AndAbove(SemanticVersion v) {
-        assertCreates(v, ExtendedMerkleTreeVerificationSessionV0680.class, blockSource);
+        assertCreates(v, ExtendedMerkleTreeSession.class, blockSource);
     }
 
     static Stream<Arguments> midRangeImplVersions() {
@@ -72,17 +72,17 @@ class BlockVerificationSessionFactoryTest {
                 Arguments.of(sv(0, 67, 999)));
     }
 
-    @ParameterizedTest(name = ">= 0.64.0 and < 0.68.0 resolves to PreviewSimpleVerificationSessionV0640 for {0}")
+    @ParameterizedTest(name = ">= 0.64.0 and < 0.68.0 resolves to PreviewSimpleHashSession for {0}")
     @MethodSource("midRangeImplVersions")
     void selects0640ImplForRange(SemanticVersion v) {
-        assertCreates(v, PreviewSimpleVerificationSessionV0640.class, blockSource);
+        assertCreates(v, PreviewSimpleHashSession.class, blockSource);
     }
 
     @Test
     @DisplayName("Boundary: 0.67.x resolves to 0640; 0.68.0 flips to 0680")
     void boundaryFlipAt0680() {
-        assertCreates(sv(0, 67, 999), PreviewSimpleVerificationSessionV0640.class, blockSource);
-        assertCreates(sv(0, 68, 0), ExtendedMerkleTreeVerificationSessionV0680.class, blockSource);
+        assertCreates(sv(0, 67, 999), PreviewSimpleHashSession.class, blockSource);
+        assertCreates(sv(0, 68, 0), ExtendedMerkleTreeSession.class, blockSource);
     }
 
     @Test
@@ -90,7 +90,7 @@ class BlockVerificationSessionFactoryTest {
     void belowLowestThrows() {
         var ex = assertThrows(
                 IllegalArgumentException.class,
-                () -> BlockVerificationSessionFactory.createSession(0L, blockSource, sv(0, 63, 1)));
+                () -> HapiVersionSessionFactory.createSession(0L, blockSource, sv(0, 63, 1)));
         assertTrue(
                 ex.getMessage().toLowerCase().contains("unsupported hapi version"),
                 "message should mention unsupported");
@@ -101,16 +101,13 @@ class BlockVerificationSessionFactoryTest {
     @Test
     @DisplayName("Null blockSource throws NPE")
     void nullBlockSourceThrows() {
-        assertThrows(
-                NullPointerException.class,
-                () -> BlockVerificationSessionFactory.createSession(0L, null, sv(0, 68, 0)));
+        assertThrows(NullPointerException.class, () -> HapiVersionSessionFactory.createSession(0L, null, sv(0, 68, 0)));
     }
 
     @Test
     @DisplayName("Null hapiVersion throws NPE")
     void nullVersionThrows() {
-        assertThrows(
-                NullPointerException.class, () -> BlockVerificationSessionFactory.createSession(0L, blockSource, null));
+        assertThrows(NullPointerException.class, () -> HapiVersionSessionFactory.createSession(0L, blockSource, null));
     }
 
     @Test
@@ -118,7 +115,7 @@ class BlockVerificationSessionFactoryTest {
     void negativeBlockNumberThrows() {
         assertThrows(
                 IllegalArgumentException.class,
-                () -> BlockVerificationSessionFactory.createSession(-1L, blockSource, sv(0, 68, 0)));
+                () -> HapiVersionSessionFactory.createSession(-1L, blockSource, sv(0, 68, 0)));
     }
 
     // ---------- Smoke tests with different block numbers ----------
@@ -129,12 +126,12 @@ class BlockVerificationSessionFactoryTest {
         @DisplayName("Uses the same impl regardless of blockNumber (0 and large)")
         void blockNumberDoesNotAffectImpl() {
             var v = sv(0, 68, 3);
-            var s1 = BlockVerificationSessionFactory.createSession(0L, blockSource, v);
-            var s2 = BlockVerificationSessionFactory.createSession(9_999_999L, blockSource, v);
+            var s1 = HapiVersionSessionFactory.createSession(0L, blockSource, v);
+            var s2 = HapiVersionSessionFactory.createSession(9_999_999L, blockSource, v);
 
             assertAll(
-                    () -> assertTrue(s1 instanceof ExtendedMerkleTreeVerificationSessionV0680),
-                    () -> assertTrue(s2 instanceof ExtendedMerkleTreeVerificationSessionV0680));
+                    () -> assertTrue(s1 instanceof ExtendedMerkleTreeSession),
+                    () -> assertTrue(s2 instanceof ExtendedMerkleTreeSession));
         }
     }
 }
