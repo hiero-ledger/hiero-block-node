@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.node.stream.publisher;
 
+import static java.lang.System.Logger.Level.TRACE;
+
 import com.hedera.pbj.runtime.grpc.Pipeline;
 import com.hedera.pbj.runtime.grpc.Pipelines;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
@@ -40,7 +42,6 @@ import org.hiero.block.node.spi.ServiceBuilder;
  *
  */
 public final class StreamPublisherPlugin implements BlockNodePlugin, BlockStreamPublishServiceInterface {
-    // @todo(1413) add proper logging usage to this class.
     /** The logger for this class. */
     private final System.Logger LOGGER = System.getLogger(getClass().getName());
 
@@ -76,6 +77,7 @@ public final class StreamPublisherPlugin implements BlockNodePlugin, BlockStream
             @NonNull final Method method,
             @NonNull final RequestOptions options,
             @NonNull final Pipeline<? super Bytes> replies) {
+      LOGGER.log(TRACE, "StreamPublisherPlugin.open called");
         final BlockStreamPublishServiceMethod blockStreamPublisherServiceMethod =
                 (BlockStreamPublishServiceMethod) method;
         return switch (blockStreamPublisherServiceMethod) {
@@ -98,6 +100,7 @@ public final class StreamPublisherPlugin implements BlockNodePlugin, BlockStream
         // the init method, otherwise the server will be started and we will not
         // have registered at all
         serviceBuilder.registerGrpcService(this);
+      LOGGER.log(TRACE, "StreamPublisherPlugin initialized successfully.");
     }
 
     @Override
@@ -110,6 +113,7 @@ public final class StreamPublisherPlugin implements BlockNodePlugin, BlockStream
         context.blockMessaging()
                 .registerBlockNotificationHandler(
                         publisherManager, false, LiveStreamPublisherManager.class.getSimpleName());
+      LOGGER.log(TRACE, "StreamPublisherPlugin started successfully.");
     }
 
     @Override

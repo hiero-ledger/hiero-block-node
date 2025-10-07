@@ -209,12 +209,14 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
                     try {
                         header = BlockHeader.PROTOBUF.parse(headerBytes);
                     } catch (final ParseException e) {
+                        LOGGER.log(DEBUG, "Failed to parse BlockHeader: %s".formatted(e.getMessage()), e);
                         // if we have reached this block, this means that the
                         // request is invalid
                         sendEndAndResetState(Code.INVALID_REQUEST);
                         return;
                     }
                 } else {
+                  LOGGER.log(DEBUG, "Handler %d received a BlockHeader with null bytes".formatted(handlerId));
                     // this should never happen
                     sendEndAndResetState(Code.ERROR);
                     return;
@@ -224,6 +226,7 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
                 // update the current streaming block number
                 currentStreamingBlockNumber.set(blockNumber);
             } else {
+              LOGGER.log(DEBUG, "Handler %d received a BlockHeader while already streaming block %d".formatted(handlerId, blockNumber));
                 // If we have entered here, we have an invalid request, the
                 // block number is not reset which means that the block
                 // from the request prior to this one has not been streamed in
@@ -240,7 +243,7 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
             // header batch to arrive and the "skip" response to be sent back,
             // due to network latency and processing time.
             // @todo(1416) add metrics
-            // @todo(1413) add logs
+            LOGGER.log(DEBUG, "Handler %d dropping batch because first block item is not BlockHeader".formatted(handlerId));
             return;
         }
         // now we need to query the manager with the block number currently
@@ -450,6 +453,7 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
      * @return the id of this handler
      */
     public long handleFailedVerification(final long blockNumber) {
+      LOGGER.log(DEBUG, "Handler %d handling failed verification for block %d".formatted(handlerId, blockNumber));
         if (unacknowledgedStreamedBlocks.remove(blockNumber)) {
             // If the block number that failed verification was sent by this
             // handler, we need to send an EndOfStream with BAD_BLOCK_PROOF code.
@@ -536,6 +540,7 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
      * Handle the SKIP action for a block.
      */
     private BatchHandleResult handleSkip(final long blockNumber) {
+      LOGGER.log(DEBUG, "Handler %d is sending SKIP for block %d".formatted(handlerId, blockNumber));
         // If the action is SKIP, we need to send a skip response
         // to the publisher and not propagate the items.
         final SkipBlock skipBlock =
@@ -554,6 +559,7 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
      * Handle the RESEND action for a block.
      */
     private BatchHandleResult handleResend() {
+      LOGGER.log(DEBUG, "Handler %d is sending RESEND".formatted(handlerId));
         // If the action is RESEND, we need to send a resend
         // response to the publisher and not propagate the items.
         final ResendBlock resendBlock = ResendBlock.newBuilder()
@@ -573,6 +579,7 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
      * Handle the END_BEHIND action for a block.
      */
     private BatchHandleResult handleEndBehind() {
+      LOGGER.log(DEBUG, "Handler %d is sending BEHIND".formatted(handlerId));
         // If the action is END_BEHIND, we need to send an end of stream
         // response to the publisher and not propagate the items.
         sendEndOfStream(Code.BEHIND);
@@ -583,6 +590,7 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
      * Handle the END_DUPLICATE action for a block.
      */
     private BatchHandleResult handleEndDuplicate() {
+        LOGGER.log(DEBUG, "Handler %d is sending DUPLICATE_BLOCK".formatted(handlerId));
         // If the action is END_DUPLICATE, we need to send an end of stream
         // response to the publisher and not propagate the items.
         sendEndOfStream(Code.DUPLICATE_BLOCK);
@@ -593,6 +601,7 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
      * Handle the END_ERROR action for a block.
      */
     private BatchHandleResult handleEndError() {
+        LOGGER.log(DEBUG, "Handler %d is sending ERROR".formatted(handlerId));
         // If the action is END_ERROR, we need to send an end of stream
         // response to the publisher and not propagate the items.
         sendEndOfStream(Code.ERROR);
