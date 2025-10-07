@@ -173,7 +173,6 @@ jobs:
           build-contexts: |
             distributions=./block-node/app/build/distributions
 
-
   publish-protobuf-jar:
     timeout-minutes: 30
     runs-on: hiero-block-node-linux-medium
@@ -302,7 +301,6 @@ jobs:
           build-args: |
             VERSION=${{ env.VERSION }}
 
-
   helm-chart-release-app:
     timeout-minutes: 15
     needs: publish-app
@@ -342,7 +340,6 @@ jobs:
         if: "${{ github.event_name != 'workflow_dispatch' || github.event.inputs.publish == 'true' }}"
         run: |
           helm push block-node-server-${{ env.VERSION }}.tgz oci://ghcr.io/hiero-ledger/hiero-block-node
-
 
   helm-chart-release-simulator:
     timeout-minutes: 15
