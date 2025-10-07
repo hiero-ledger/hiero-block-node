@@ -28,7 +28,7 @@ defaults:
 
 permissions:
   id-token: write
-  contents: read
+  contents: write
   packages: write
 
 env:
@@ -79,6 +79,50 @@ jobs:
           name: block-node-protobuf-${{ env.VERSION }}.tgz
           path: ./protobuf-sources/block-node-protobuf-${{ env.VERSION }}.tgz
           if-no-files-found: error
+
+      - name: Check if protobuf asset already exists
+        id: check_asset
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          tag="v${{ env.VERSION }}"
+          name="block-node-protobuf-${{ env.VERSION }}.tgz"
+          if gh release view "$tag" --repo "${GITHUB_REPOSITORY}" >/dev/null 2>&1; then
+            if gh api "repos/${GITHUB_REPOSITORY}/releases/tags/$tag" --jq '.assets[].name' | grep -qx "$name"; then
+              echo "exists=true" >> "$GITHUB_OUTPUT"
+            fi
+          fi
+
+      - name: Attach artifact to GitHub Release
+        if: ${{ steps.check_asset.outputs.exists != 'true' }}
+        uses: step-security/release-action@03a57407052f15d1537fd5469a6fbbc536aba326
+        with:
+          tag: v${{ env.VERSION }}
+          allowUpdates: true
+          files: ./protobuf-sources/block-node-protobuf-${{ env.VERSION }}.tgz
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Check if protobuf asset already exists
+        id: check_asset
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          tag="v${{ env.VERSION }}"
+          name="block-node-protobuf-${{ env.VERSION }}.tgz"
+          if gh release view "$tag" --repo "${GITHUB_REPOSITORY}" >/dev/null 2>&1; then
+            if gh api "repos/${GITHUB_REPOSITORY}/releases/tags/$tag" --jq '.assets[].name' | grep -qx "$name"; then
+              echo "exists=true" >> "$GITHUB_OUTPUT"
+            fi
+          fi
+
+      - name: Attach artifact to GitHub Release
+        if: ${{ steps.check_asset.outputs.exists != 'true' }}
+        uses: step-security/release-action@03a57407052f15d1537fd5469a6fbbc536aba326
+        with:
+          tag: v${{ env.VERSION }}
+          allowUpdates: true
+          files: ./protobuf-sources/block-node-protobuf-${{ env.VERSION }}.tgz
+          token: ${{ secrets.GITHUB_TOKEN }}
 
   publish-app:
     timeout-minutes: 30
@@ -150,6 +194,7 @@ jobs:
             SOURCE_DATE_EPOCH=${{ env.SOURCE_DATE_EPOCH }}
           build-contexts: |
             distributions=./block-node/app/build/distributions
+
 
   publish-protobuf-jar:
     timeout-minutes: 30
@@ -279,6 +324,7 @@ jobs:
           build-args: |
             VERSION=${{ env.VERSION }}
 
+
   helm-chart-release-app:
     timeout-minutes: 15
     needs: publish-app
@@ -318,6 +364,7 @@ jobs:
         if: "${{ github.event_name != 'workflow_dispatch' || github.event.inputs.publish == 'true' }}"
         run: |
           helm push block-node-server-${{ env.VERSION }}.tgz oci://ghcr.io/hiero-ledger/hiero-block-node
+
 
   helm-chart-release-simulator:
     timeout-minutes: 15
