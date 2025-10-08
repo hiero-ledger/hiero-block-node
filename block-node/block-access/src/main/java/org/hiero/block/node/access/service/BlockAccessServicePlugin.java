@@ -16,8 +16,6 @@ import org.hiero.block.node.spi.BlockNodePlugin;
 import org.hiero.block.node.spi.ServiceBuilder;
 import org.hiero.block.node.spi.historicalblocks.HistoricalBlockFacility;
 
-import static java.lang.System.Logger.Level.*;
-
 /**
  * Plugin that implements the BlockAccessService and provides the 'block' RPC.
  */
