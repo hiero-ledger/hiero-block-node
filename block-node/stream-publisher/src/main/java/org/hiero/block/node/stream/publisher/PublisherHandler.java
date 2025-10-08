@@ -470,6 +470,23 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
         return handlerId;
     }
 
+    /**
+     * This method must be called when persistence fails for a given block.
+     * We will attempt to send an {@link EndOfStream} with a {@link Code#PERSISTENCE_FAILED} and
+     * proceed to shut down the handler.
+     *
+     * @return the id of this handler
+     */
+    public long handleFailedPersistence() {
+        try {
+            sendEndOfStream(Code.PERSISTENCE_FAILED);
+        } finally {
+            shutdown();
+        }
+
+        return handlerId;
+    }
+
     // ==== Block Action Handling Methods ======================================
 
     /**
