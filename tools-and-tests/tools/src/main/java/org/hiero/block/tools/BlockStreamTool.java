@@ -3,6 +3,7 @@ package org.hiero.block.tools;
 
 import org.hiero.block.tools.commands.BlockInfo;
 import org.hiero.block.tools.commands.ConvertToJson;
+import org.hiero.block.tools.commands.history.DaysCommand;
 import org.hiero.block.tools.commands.record2blocks.Record2BlockCommand;
 import org.hiero.block.tools.commands.record2blocks.gcp.AddNewerBlockTimes;
 import org.hiero.block.tools.commands.record2blocks.mirrornode.ExtractBlockTimes;
@@ -26,7 +27,8 @@ import picocli.CommandLine.Command;
             FetchMirrorNodeRecordsCsv.class,
             ExtractBlockTimes.class,
             ValidateBlockTimes.class,
-            AddNewerBlockTimes.class
+            AddNewerBlockTimes.class,
+            DaysCommand.class
         })
 public final class BlockStreamTool {
 
