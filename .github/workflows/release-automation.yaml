@@ -131,8 +131,8 @@ jobs:
         with:
           allowUpdates: true
           commit: ${{ env.RELEASE_BRANCH }}
-          draft: ${{ steps.version_parser.outputs.prerelease == '' }}
-          generateReleaseNotes: true
+          draft: true
+          generateReleaseNotes: false
           name: ${{ env.RELEASE_TAG }}
           omitBody: ${{ steps.milestone.outputs.milestone_id == '' }}
           prerelease: ${{ steps.version_parser.outputs.prerelease != '' }}

@@ -28,7 +28,7 @@ defaults:
 
 permissions:
   id-token: write
-  contents: read
+  contents: write
   packages: write
 
 env:
@@ -79,6 +79,18 @@ jobs:
           name: block-node-protobuf-${{ env.VERSION }}.tgz
           path: ./protobuf-sources/block-node-protobuf-${{ env.VERSION }}.tgz
           if-no-files-found: error
+
+      # skip if non-draft release already exists
+      - name: Attach artifact to GitHub Release
+        uses: step-security/release-action@03a57407052f15d1537fd5469a6fbbc536aba326
+        with:
+          tag: v${{ env.VERSION }}
+          allowUpdates: true
+          draft: true
+          skipIfReleaseExists: true
+          artifacts: |
+            ./protobuf-sources/block-node-protobuf-${{ env.VERSION }}.tgz
+          token: ${{ secrets.GITHUB_TOKEN }}
 
   publish-app:
     timeout-minutes: 30

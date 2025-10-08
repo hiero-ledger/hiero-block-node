@@ -1,0 +1,8 @@
+kubepromstack:
+  enabled: true
+
+loki:
+  enabled: true
+
+promtail:
+  enabled: true
