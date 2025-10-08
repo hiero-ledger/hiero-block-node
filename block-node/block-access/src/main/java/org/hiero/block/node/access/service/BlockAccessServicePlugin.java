@@ -49,23 +49,21 @@ public class BlockAccessServicePlugin implements BlockNodePlugin, BlockAccessSer
         requestCounter.increment();
 
         try {
-            String blockRequestInfo = "retrieveLatest"; // default to latest, update to block number if specified
             long blockNumberToRetrieve;
             // The block number and retrieve latest are mutually exclusive in
             // the proto definition, so no need to check for that here.
 
             // if retrieveLatest is set, or the request is for the largest possible block number, get the latest block.
-            if (request.retrieveLatestOrElse(false) || request.blockNumberOrElse(-1L) == Long.MAX_VALUE) {
+            if (request.retrieveLatestOrElse(false) || request.blockNumberOrElse(0L) == -1) {
                 blockNumberToRetrieve = blockProvider.availableBlocks().max();
+              LOGGER.log(TRACE, "Received 'retrieveLatest' BlockRequest, retrieving block: {0}", blockNumberToRetrieve);
             } else if (request.blockNumberOrElse(-1L) >= 0 ) {
                 blockNumberToRetrieve = request.blockNumber();
-                blockRequestInfo = String.valueOf(blockNumberToRetrieve);
+                LOGGER.log(TRACE, "Received `block_number` BlockRequest, retrieving block: {0}", blockNumberToRetrieve);
             } else {
                 LOGGER.log(INFO, "Invalid request, 'retrieve_latest' or a valid 'block number' is required.");
                 return new BlockResponse(Code.INVALID_REQUEST, null);
             }
-
-            LOGGER.log(TRACE, "Received BlockRequest for {0}, retrieving block number: {1}", blockRequestInfo, blockNumberToRetrieve);
 
             // Check if block is within the available range
             if (!blockProvider.availableBlocks().contains(blockNumberToRetrieve)) {

@@ -150,19 +150,6 @@ public class BlockAccessServicePluginTest extends GrpcPluginTestBase<BlockAccess
         // parse the response
         BlockResponse response = BlockResponse.PROTOBUF.parse(fromPluginBytes.get(0));
         // check that the status is success
-        assertEquals(Code.INVALID_REQUEST, response.status());
-    }
-
-    @Test
-    @DisplayName("block_number is Long.MAX - should return latest block")
-    void testBlockNumberIsLongMax() throws ParseException {
-      final BlockRequest request = BlockRequest.newBuilder().blockNumber(Long.MAX_VALUE).build();
-      toPluginPipe.onNext(BlockRequest.PROTOBUF.toBytes(request));
-      // Check we get a response
-      assertEquals(1, fromPluginBytes.size());
-      // parse the response
-      BlockResponse response = BlockResponse.PROTOBUF.parse(fromPluginBytes.get(0));
-      // check that the status is success
       assertEquals(Code.SUCCESS, response.status());
       // check that the block number is correct
       assertEquals(24, response.block().items().getFirst().blockHeader().number());
