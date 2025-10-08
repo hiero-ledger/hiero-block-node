@@ -1,10 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.node.access.service;
 
-import static java.lang.System.Logger.Level.ERROR;
-import static java.lang.System.Logger.Level.TRACE;
-import static java.lang.System.Logger.Level.WARNING;
-
 import com.hedera.hapi.block.stream.Block;
 import com.swirlds.metrics.api.Counter;
 import org.hiero.block.api.BlockAccessServiceInterface;
@@ -15,6 +11,8 @@ import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.BlockNodePlugin;
 import org.hiero.block.node.spi.ServiceBuilder;
 import org.hiero.block.node.spi.historicalblocks.HistoricalBlockFacility;
+
+import static java.lang.System.Logger.Level.*;
 
 /**
  * Plugin that implements the BlockAccessService and provides the 'block' RPC.
@@ -47,22 +45,23 @@ public class BlockAccessServicePlugin implements BlockNodePlugin, BlockAccessSer
         requestCounter.increment();
 
         try {
+            String blockRequestInfo = "retrieveLatest"; // default to latest, update to block number if specified
             long blockNumberToRetrieve;
             // The block number and retrieve latest are mutually exclusive in
             // the proto definition, so no need to check for that here.
 
-            // if retrieveLatest is set, or the request is for the largest
-            // possible block number, get the latest block.
-            if (request.retrieveLatestOrElse(false) || request.blockNumberOrElse(0L) == -1) {
+            // if retrieveLatest is set, or the request is for the largest possible block number, get the latest block.
+            if (request.retrieveLatestOrElse(false) || request.blockNumberOrElse(-1L) == Long.MAX_VALUE) {
                 blockNumberToRetrieve = blockProvider.availableBlocks().max();
-                if (blockNumberToRetrieve < 0) {
-                    LOGGER.log(WARNING, "Latest available block number is not available, this should not be possible.");
-                    responseCounterNotAvailable.increment();
-                    return new BlockResponse(Code.NOT_AVAILABLE, null);
-                }
-            } else {
+            } else if (request.blockNumberOrElse(-1L) >= 0 ) {
                 blockNumberToRetrieve = request.blockNumber();
+                blockRequestInfo = String.valueOf(blockNumberToRetrieve);
+            } else {
+                LOGGER.log(INFO, "Invalid request, 'retrieve_latest' or a valid 'block number' is required.");
+                return new BlockResponse(Code.INVALID_REQUEST, null);
             }
+
+            LOGGER.log(TRACE, "Received BlockRequest for {0}, retrieving block number: {1}", blockRequestInfo, blockNumberToRetrieve);
 
             // Check if block is within the available range
             if (!blockProvider.availableBlocks().contains(blockNumberToRetrieve)) {

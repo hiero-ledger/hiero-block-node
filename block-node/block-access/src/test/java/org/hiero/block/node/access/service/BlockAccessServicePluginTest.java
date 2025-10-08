@@ -110,6 +110,23 @@ public class BlockAccessServicePluginTest extends GrpcPluginTestBase<BlockAccess
     }
 
     @Test
+    @DisplayName("Request Latest Block on empty store")
+    void testRequestLatestBlockOnEmptyStore() throws ParseException {
+      // restart with a fresh plugin and empty historical block facility
+      start(plugin, plugin.methods().getFirst(), new SimpleInMemoryHistoricalBlockFacility());
+
+      final BlockRequest request =
+        BlockRequest.newBuilder().retrieveLatest(true).build();
+      toPluginPipe.onNext(BlockRequest.PROTOBUF.toBytes(request));
+      // Check we get a response
+      assertEquals(1, fromPluginBytes.size());
+      // parse the response
+      BlockResponse response = BlockResponse.PROTOBUF.parse(fromPluginBytes.get(0));
+      // check that the status is NOT_AVAILABLE
+      assertEquals(Code.NOT_AVAILABLE, response.status());
+    }
+
+    @Test
     @DisplayName("block_number is -1 - should return latest block")
     void testBlockNumberIsMinusOne() throws ParseException {
         final BlockRequest request = BlockRequest.newBuilder().blockNumber(-1).build();
@@ -119,9 +136,22 @@ public class BlockAccessServicePluginTest extends GrpcPluginTestBase<BlockAccess
         // parse the response
         BlockResponse response = BlockResponse.PROTOBUF.parse(fromPluginBytes.get(0));
         // check that the status is success
-        assertEquals(Code.SUCCESS, response.status());
-        // check that the block number is correct
-        assertEquals(24, response.block().items().getFirst().blockHeader().number());
+        assertEquals(Code.INVALID_REQUEST, response.status());
+    }
+
+    @Test
+    @DisplayName("block_number is Long.MAX - should return latest block")
+    void testBlockNumberIsLongMax() throws ParseException {
+      final BlockRequest request = BlockRequest.newBuilder().blockNumber(Long.MAX_VALUE).build();
+      toPluginPipe.onNext(BlockRequest.PROTOBUF.toBytes(request));
+      // Check we get a response
+      assertEquals(1, fromPluginBytes.size());
+      // parse the response
+      BlockResponse response = BlockResponse.PROTOBUF.parse(fromPluginBytes.get(0));
+      // check that the status is success
+      assertEquals(Code.SUCCESS, response.status());
+      // check that the block number is correct
+      assertEquals(24, response.block().items().getFirst().blockHeader().number());
     }
 
     private void sendBlocks(int numberOfBlocks) {
