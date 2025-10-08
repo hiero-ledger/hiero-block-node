@@ -3,6 +3,7 @@ package org.hiero.block.node.stream.publisher;
 
 import static java.lang.System.Logger.Level.DEBUG;
 import static java.lang.System.Logger.Level.INFO;
+import static java.lang.System.Logger.Level.TRACE;
 import static java.lang.System.Logger.Level.WARNING;
 import static org.hiero.block.node.spi.BlockNodePlugin.METRICS_CATEGORY;
 import static org.hiero.block.node.spi.BlockNodePlugin.UNKNOWN_BLOCK_NUMBER;
@@ -378,6 +379,9 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
      *     verified and persisted.
      */
     public void sendAcknowledgement(final long newLastAcknowledgedBlockNumber) {
+        LOGGER.log(
+                TRACE,
+                "Handler %d sending acknowledgement for block %d".formatted(handlerId, newLastAcknowledgedBlockNumber));
         // We only ever need to acknowledge once for a given block number, even
         // if there are several blocks "behind" that acknowledgement.
         // The publishers expect that acknowledgement for block N implicitly
@@ -483,6 +487,7 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
      * @return the id of this handler
      */
     public long handleFailedPersistence() {
+        LOGGER.log(DEBUG, "Handler %d handling failed persistence".formatted(handlerId));
         try {
             sendEndOfStream(Code.PERSISTENCE_FAILED);
         } finally {

@@ -108,6 +108,7 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
                 new PublisherHandler(handlerId, replies, handlerMetrics, this, registerTransferQueue(handlerId));
         handlers.put(handlerId, newHandler);
         metrics.currentPublisherCount().set(handlers.size());
+        LOGGER.log(TRACE, "Added new handler {0}", handlerId);
         return newHandler;
     }
 
