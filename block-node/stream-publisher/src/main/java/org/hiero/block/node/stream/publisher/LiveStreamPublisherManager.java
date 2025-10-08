@@ -575,6 +575,23 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
                     });
                     lastPersistedBlockNumber.set(newLastPersistedBlock);
                 }
+            } else {
+                queueByBlockMap.clear();
+                final long blockNumber = notification.blockNumber();
+                // @todo(1514): We have an extremely rare race condition here
+                //    similar to the one in handleVerification.
+                nextUnstreamedBlockNumber.set(blockNumber);
+                currentStreamingBlockNumber.set(blockNumber);
+
+                handlers.values().parallelStream().unordered().forEach(handler -> {
+                    final long handlerId = handler.handleFailedPersistence();
+                    final String qId = getQueueNameForHandlerId(handlerId);
+                    final BlockingQueue<BlockItemSetUnparsed> queue = transferQueueMap.get(qId);
+                    if (queue != null) {
+                        // If a queue exists for the handler, we need to flush it
+                        queue.clear();
+                    }
+                });
             }
         }
     }
