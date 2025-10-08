@@ -11,6 +11,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.IOException;
 import java.util.concurrent.Future;
+
+import org.hiero.block.api.protoc.BlockRequest;
 import org.hiero.block.api.protoc.BlockResponse;
 import org.hiero.block.api.protoc.BlockResponse.Code;
 import org.hiero.block.simulator.BlockStreamSimulatorApp;
@@ -111,5 +113,17 @@ public class GetBlockApiTests extends BaseSuite {
                 latestPublishedBlock,
                 response.getBlock().getItemsList().getFirst().getBlockHeader().getNumber(),
                 "Block number should match the latest block number");
+    }
+
+    @Test
+    @DisplayName("Get a Single Block using API - Request Latest Block")
+    void requestLatestBlockWithFalseUsingBlockAPI() {
+      // Request the latest block
+      BlockRequest request = BlockRequest.newBuilder().setRetrieveLatest(false).build();
+      final BlockResponse response = blockAccessStub.getBlock(request);
+
+      // Verify the response
+      assertNotNull(response, "Response should not be null");
+      assertEquals(Code.INVALID_REQUEST, response.getStatus(), "Block retrieval should fail with invalid");
     }
 }

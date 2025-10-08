@@ -112,18 +112,35 @@ public class BlockAccessServicePluginTest extends GrpcPluginTestBase<BlockAccess
     @Test
     @DisplayName("Request Latest Block on empty store")
     void testRequestLatestBlockOnEmptyStore() throws ParseException {
-      // restart with a fresh plugin and empty historical block facility
-      start(plugin, plugin.methods().getFirst(), new SimpleInMemoryHistoricalBlockFacility());
+        // restart with a fresh plugin and empty historical block facility
+        start(plugin, plugin.methods().getFirst(), new SimpleInMemoryHistoricalBlockFacility());
 
-      final BlockRequest request =
-        BlockRequest.newBuilder().retrieveLatest(true).build();
-      toPluginPipe.onNext(BlockRequest.PROTOBUF.toBytes(request));
-      // Check we get a response
-      assertEquals(1, fromPluginBytes.size());
-      // parse the response
-      BlockResponse response = BlockResponse.PROTOBUF.parse(fromPluginBytes.get(0));
-      // check that the status is NOT_AVAILABLE
-      assertEquals(Code.NOT_AVAILABLE, response.status());
+        final BlockRequest request =
+          BlockRequest.newBuilder().retrieveLatest(true).build();
+        toPluginPipe.onNext(BlockRequest.PROTOBUF.toBytes(request));
+        // Check we get a response
+        assertEquals(1, fromPluginBytes.size());
+        // parse the response
+        BlockResponse response = BlockResponse.PROTOBUF.parse(fromPluginBytes.get(0));
+        // check that the status is NOT_AVAILABLE
+        assertEquals(Code.NOT_AVAILABLE, response.status());
+    }
+
+    @Test
+    @DisplayName("Invalid Request Latest Block on empty store")
+    void testInvalidRequestLatestBlockOnEmptyStore() throws ParseException {
+        // restart with a fresh plugin and empty historical block facility
+        start(plugin, plugin.methods().getFirst(), new SimpleInMemoryHistoricalBlockFacility());
+
+        final BlockRequest request =
+          BlockRequest.newBuilder().retrieveLatest(false).build();
+        toPluginPipe.onNext(BlockRequest.PROTOBUF.toBytes(request));
+        // Check we get a response
+        assertEquals(1, fromPluginBytes.size());
+        // parse the response
+        BlockResponse response = BlockResponse.PROTOBUF.parse(fromPluginBytes.get(0));
+        // check that the status is NOT_AVAILABLE
+        assertEquals(Code.INVALID_REQUEST, response.status());
     }
 
     @Test
