@@ -155,6 +155,20 @@ public class BlockAccessServicePluginTest extends GrpcPluginTestBase<BlockAccess
       assertEquals(24, response.block().items().getFirst().blockHeader().number());
     }
 
+    @Test
+    @DisplayName("Invalid Request")
+    void testInvalidRequest() throws ParseException {
+      final BlockRequest request =
+        BlockRequest.newBuilder().build();
+      toPluginPipe.onNext(BlockRequest.PROTOBUF.toBytes(request));
+      // Check we get a response
+      assertEquals(1, fromPluginBytes.size());
+      // parse the response
+      BlockResponse response = BlockResponse.PROTOBUF.parse(fromPluginBytes.get(0));
+      // check that the status is NOT_AVAILABLE
+      assertEquals(Code.INVALID_REQUEST, response.status());
+    }
+
     private void sendBlocks(int numberOfBlocks) {
 
         BlockItem[] blockItems = createNumberOfVerySimpleBlocks(numberOfBlocks);

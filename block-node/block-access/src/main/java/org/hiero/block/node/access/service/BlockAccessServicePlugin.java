@@ -52,12 +52,13 @@ public class BlockAccessServicePlugin implements BlockNodePlugin, BlockAccessSer
             // the proto definition, so no need to check for that here.
 
             // if retrieveLatest is set, or the request is for the largest possible block number, get the latest block.
-            if (request.retrieveLatestOrElse(false) || request.blockNumberOrElse(0L) == -1) {
-                blockNumberToRetrieve = blockProvider.availableBlocks().max();
-              LOGGER.log(TRACE, "Received 'retrieveLatest' BlockRequest, retrieving block: {0}", blockNumberToRetrieve);
-            } else if (request.blockNumberOrElse(-1L) >= 0 ) {
+            if (request.hasBlockNumber() && request.blockNumber() >= 0) {
                 blockNumberToRetrieve = request.blockNumber();
                 LOGGER.log(TRACE, "Received `block_number` BlockRequest, retrieving block: {0}", blockNumberToRetrieve);
+            } else if ((request.hasRetrieveLatest() && request.retrieveLatest()) ||
+                       (request.hasBlockNumber() && request.blockNumber() == -1)) {
+                blockNumberToRetrieve = blockProvider.availableBlocks().max();
+                LOGGER.log(TRACE, "Received 'retrieveLatest' BlockRequest, retrieving block: {0}", blockNumberToRetrieve);
             } else {
                 LOGGER.log(INFO, "Invalid request, 'retrieve_latest' or a valid 'block number' is required.");
                 return new BlockResponse(Code.INVALID_REQUEST, null);
