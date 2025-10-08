@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 plugins {
-    id("application")
+    id("org.hiero.gradle.module.application")
     id("org.hiero.gradle.module.library")
     id("com.hedera.pbj.pbj-compiler")
     id("org.hiero.gradle.feature.legacy-classpath") // due to 'com.google.cloud.storage'
@@ -21,6 +21,7 @@ mainModuleInfo {
     requires("com.google.cloud.storage")
     requires("com.google.gson")
     requires("info.picocli")
+    requires("org.apache.commons.compress")
     runtimeOnly("com.swirlds.config.impl")
     runtimeOnly("io.grpc.netty")
     runtimeOnly("com.hedera.pbj.grpc.helidon.config")
