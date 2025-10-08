@@ -11,7 +11,6 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.IOException;
 import java.util.concurrent.Future;
-
 import org.hiero.block.api.protoc.BlockRequest;
 import org.hiero.block.api.protoc.BlockResponse;
 import org.hiero.block.api.protoc.BlockResponse.Code;
@@ -118,12 +117,13 @@ public class GetBlockApiTests extends BaseSuite {
     @Test
     @DisplayName("Get a Single Block using API - Request Latest Block False")
     void requestLatestBlockWithFalseUsingBlockAPI() {
-      // Request the latest block
-      BlockRequest request = BlockRequest.newBuilder().setRetrieveLatest(false).build();
-      final BlockResponse response = blockAccessStub.getBlock(request);
+        // Request the latest block
+        BlockRequest request =
+                BlockRequest.newBuilder().setRetrieveLatest(false).build();
+        final BlockResponse response = blockAccessStub.getBlock(request);
 
-      // Verify the response
-      assertNotNull(response, "Response should not be null");
-      assertEquals(Code.INVALID_REQUEST, response.getStatus(), "Block retrieval should fail with invalid");
+        // Verify the response
+        assertNotNull(response, "Response should not be null");
+        assertEquals(Code.INVALID_REQUEST, response.getStatus(), "Block retrieval should fail with invalid");
     }
 }
