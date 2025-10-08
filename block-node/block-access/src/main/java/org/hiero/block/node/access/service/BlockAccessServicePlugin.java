@@ -1,6 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.node.access.service;
 
+import static java.lang.System.Logger.Level.ERROR;
+import static java.lang.System.Logger.Level.TRACE;
+import static java.lang.System.Logger.Level.INFO;
+
 import com.hedera.hapi.block.stream.Block;
 import com.swirlds.metrics.api.Counter;
 import org.hiero.block.api.BlockAccessServiceInterface;

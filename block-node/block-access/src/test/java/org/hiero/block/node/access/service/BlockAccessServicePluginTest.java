@@ -127,11 +127,8 @@ public class BlockAccessServicePluginTest extends GrpcPluginTestBase<BlockAccess
     }
 
     @Test
-    @DisplayName("Invalid Request Latest Block on empty store")
-    void testInvalidRequestLatestBlockOnEmptyStore() throws ParseException {
-        // restart with a fresh plugin and empty historical block facility
-        start(plugin, plugin.methods().getFirst(), new SimpleInMemoryHistoricalBlockFacility());
-
+    @DisplayName("Invalid Request Latest Block")
+    void testInvalidRequestLatestBlock() throws ParseException {
         final BlockRequest request =
           BlockRequest.newBuilder().retrieveLatest(false).build();
         toPluginPipe.onNext(BlockRequest.PROTOBUF.toBytes(request));

@@ -116,7 +116,7 @@ public class GetBlockApiTests extends BaseSuite {
     }
 
     @Test
-    @DisplayName("Get a Single Block using API - Request Latest Block")
+    @DisplayName("Get a Single Block using API - Request Latest Block False")
     void requestLatestBlockWithFalseUsingBlockAPI() {
       // Request the latest block
       BlockRequest request = BlockRequest.newBuilder().setRetrieveLatest(false).build();
