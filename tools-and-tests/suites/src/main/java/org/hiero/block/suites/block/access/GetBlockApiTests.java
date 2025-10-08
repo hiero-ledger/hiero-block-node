@@ -130,13 +130,12 @@ public class GetBlockApiTests extends BaseSuite {
     @Test
     @DisplayName("Get a Single Block using API - Request with no valid fields")
     void requestWithNoFieldsFromOneOf() {
-      // Request the latest block
-      BlockRequest request =
-        BlockRequest.newBuilder().build();
-      final BlockResponse response = blockAccessStub.getBlock(request);
+        // Request the latest block
+        BlockRequest request = BlockRequest.newBuilder().build();
+        final BlockResponse response = blockAccessStub.getBlock(request);
 
-      // Verify the response
-      assertNotNull(response, "Response should not be null");
-      assertEquals(Code.NOT_FOUND, response.getStatus(), "Block retrieval should fail with invalid");
+        // Verify the response
+        assertNotNull(response, "Response should not be null");
+        assertEquals(Code.INVALID_REQUEST, response.getStatus(), "Block retrieval should fail with invalid");
     }
 }
