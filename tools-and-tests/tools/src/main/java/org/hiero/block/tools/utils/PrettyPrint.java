@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.tools.utils;
 
 public class PrettyPrint {
@@ -49,9 +50,7 @@ public class PrettyPrint {
         for (int i = 0; i < width; i++) {
             bar.append(i < progress ? "=" : " ");
         }
-        bar.append("] ")
-                .append(String.format("%.2f", percent))
-                .append("% ");
+        bar.append("] ").append(String.format("%.2f", percent)).append("% ");
 
         String barLine = bar.toString();
 
@@ -62,7 +61,8 @@ public class PrettyPrint {
             String spinner = " " + spinnerChar;
 
             // apply colors if enabled (spinner colored same as bar)
-            final String coloredBarWithSpinner = USE_COLOR ? (ANSI_GREEN + barLine + spinner + ANSI_RESET) : (barLine + spinner);
+            final String coloredBarWithSpinner =
+                    USE_COLOR ? (ANSI_GREEN + barLine + spinner + ANSI_RESET) : (barLine + spinner);
             final String coloredProgressString = USE_COLOR ? (ANSI_BLUE + progressString + ANSI_RESET) : progressString;
 
             StringBuilder out = new StringBuilder();

@@ -27,7 +27,8 @@ import java.security.MessageDigest;
  * @param blockHash the block hash
  * @param recordFileContents the record file contents
  */
-public record RecordFileInfo(SemanticVersion hapiProtoVersion, Bytes previousBlockHash, Bytes blockHash, byte[] recordFileContents) {
+public record RecordFileInfo(
+        SemanticVersion hapiProtoVersion, Bytes previousBlockHash, Bytes blockHash, byte[] recordFileContents) {
     /* The length of the header in a v2 record file */
     private static final int V2_HEADER_LENGTH = Integer.BYTES + Integer.BYTES + 1 + 48;
 
@@ -58,7 +59,8 @@ public record RecordFileInfo(SemanticVersion hapiProtoVersion, Bytes previousBlo
                     final byte[] contentHash = digest.digest();
                     digest.update(recordFile, 0, V2_HEADER_LENGTH);
                     digest.update(contentHash);
-                    yield new RecordFileInfo(hapiProtoVersion,  Bytes.wrap(previousHash), Bytes.wrap(digest.digest()), recordFile);
+                    yield new RecordFileInfo(
+                            hapiProtoVersion, Bytes.wrap(previousHash), Bytes.wrap(digest.digest()), recordFile);
                 }
                 case 5 -> {
                     final int hapiMajorVersion = in.readInt();
@@ -75,8 +77,11 @@ public record RecordFileInfo(SemanticVersion hapiProtoVersion, Bytes previousBlo
                     // end running hash which is written as a special item at the end of the file.
                     in.skipBytes(in.available() - HASH_OBJECT_SIZE_BYTES);
                     final byte[] endHashObject = readHashObject(in);
-                    yield new RecordFileInfo(hapiProtoVersion, Bytes.wrap(startObjectRunningHash),
-                        Bytes.wrap(endHashObject), recordFile);
+                    yield new RecordFileInfo(
+                            hapiProtoVersion,
+                            Bytes.wrap(startObjectRunningHash),
+                            Bytes.wrap(endHashObject),
+                            recordFile);
                 }
                 case 6 -> {
                     // V6 is nice and easy as it is all protobuf encoded after the first version integer

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.tools.commands.days.subcommands;
 
 import java.io.File;
@@ -21,14 +22,14 @@ public class Compress implements Runnable {
     private static final Pattern DAY_DIR_PATTERN = Pattern.compile("\\d{4}-\\d{2}-\\d{2}");
 
     @Option(
-        names = {"-o", "--output-dir"},
-        description = "Directory where to write compressed files into")
+            names = {"-o", "--output-dir"},
+            description = "Directory where to write compressed files into")
     private File outputDir;
 
     @Option(
-        names = {"-c", "--compression-level"},
-        description = "the zstd compression level to use, 1 is fastest, 22 is slowest",
-        defaultValue = "6")
+            names = {"-c", "--compression-level"},
+            description = "the zstd compression level to use, 1 is fastest, 22 is slowest",
+            defaultValue = "6")
     private int compressionLevel;
 
     @Parameters(index = "0..*", description = "day directory or directories of day directories to process")
@@ -51,11 +52,12 @@ public class Compress implements Runnable {
         }
         if (!outputDir.exists()) {
             if (!outputDir.mkdirs()) {
-                throw new IllegalArgumentException("Output directory does not exist and could not be created: " + outputDir);
+                throw new IllegalArgumentException(
+                        "Output directory does not exist and could not be created: " + outputDir);
             }
         }
         // do compression
-        for(File dir : compressedDayOrDaysDirs) {
+        for (File dir : compressedDayOrDaysDirs) {
             if (dir.isDirectory()) {
                 if (DAY_DIR_PATTERN.matcher(dir.getName()).matches()) {
                     Path outFile = outputDir.toPath().resolve(dir.getName() + ".tar.zstd");
@@ -68,15 +70,19 @@ public class Compress implements Runnable {
                     // assume a directory of date dirs
                     try (var stream = Files.list(dir.toPath())) {
                         stream.filter(Files::isDirectory)
-                            .filter(path -> DAY_DIR_PATTERN.matcher(path.getFileName().toString()).matches())
-                            .forEach(path -> {
-                                Path outFile = outputDir.toPath().resolve(path.getFileName().toString() + ".tar.zstd");
-                                if (Files.exists(outFile)) {
-                                    System.out.println("Skipping existing: " + outFile);
-                                } else {
-                                    TarZstdDayWriter.compressDay(path, outputDir.toPath(), compressionLevel);
-                                }
-                            });
+                                .filter(path -> DAY_DIR_PATTERN
+                                        .matcher(path.getFileName().toString())
+                                        .matches())
+                                .forEach(path -> {
+                                    Path outFile = outputDir
+                                            .toPath()
+                                            .resolve(path.getFileName().toString() + ".tar.zstd");
+                                    if (Files.exists(outFile)) {
+                                        System.out.println("Skipping existing: " + outFile);
+                                    } else {
+                                        TarZstdDayWriter.compressDay(path, outputDir.toPath(), compressionLevel);
+                                    }
+                                });
                     } catch (IOException e) {
                         throw new RuntimeException(e);
                     }

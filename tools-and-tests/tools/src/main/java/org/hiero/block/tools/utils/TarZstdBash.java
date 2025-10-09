@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.tools.utils;
 
 import java.io.IOException;
@@ -9,7 +10,7 @@ public final class TarZstdBash {
 
     /**
      * Compresses inputDir (relative to workingDir) into outputFile (absolute or relative)
-     * using: tar -C . -cf - <inputDir> | zstd -10 -T0 --long=27 -o <outputFile>
+     * using: {@code tar -C . -cf - <inputDir> | zstd -10 -T0 --long=27 -o <outputFile>}
      * The archive is deterministic (sorted entries, clamped mtimes, no atime/ctime in PAX).
      */
     public static void compressDirectory(Path workingDir, String outputFile, String inputDir) throws IOException {
@@ -19,13 +20,15 @@ public final class TarZstdBash {
     /**
      * Fully configurable: level (1..19), longWindowPow2 (e.g., 27), threads (0=auto), deterministic on/off.
      */
-    public static void compressDirectory(Path workingDir,
+    public static void compressDirectory(
+            Path workingDir,
             String outputFile,
             String inputDir,
             int level,
             int longWindowPow2,
             int threads,
-            boolean deterministic) throws IOException {
+            boolean deterministic)
+            throws IOException {
 
         if (workingDir == null || !Files.isDirectory(workingDir)) {
             throw new IllegalArgumentException("workingDir must be an existing directory: " + workingDir);
@@ -45,24 +48,32 @@ public final class TarZstdBash {
         //  --mtime='@0'           clamp mtimes to epoch
         //  --clamp-mtime          applies the clamp instead of erroring
         //  --pax-option=delete=atime,delete=ctime   strip volatile timestamps
-        String detTar = deterministic
-                ? "--sort=name --mtime='@0' --clamp-mtime --pax-option=delete=atime,delete=ctime"
-                : "";
+        String detTar =
+                deterministic ? "--sort=name --mtime='@0' --clamp-mtime --pax-option=delete=atime,delete=ctime" : "";
 
         // Build a safe bash command string; we run inside workingDir so paths in archive are relative.
-        String cmd = String.join(" ",
+        String cmd = String.join(
+                " ",
                 "set -euo pipefail;",
                 "command -v tar >/dev/null 2>&1;",
                 "command -v zstd >/dev/null 2>&1;",
-                "tar", detTar, "-C", shq("."),
-                "-cf", "-", shq(relInput.toString()),
+                "tar",
+                detTar,
+                "-C",
+                shq("."),
+                "-cf",
+                "-",
+                shq(relInput.toString()),
                 "|",
-                "zstd", "-" + level, "-T" + threads, "--long=" + longWindowPow2,
-                "-o", shq(outputFile)
-        );
+                "zstd",
+                "-" + level,
+                "-T" + threads,
+                "--long=" + longWindowPow2,
+                "-o",
+                shq(outputFile));
 
         ProcessBuilder pb = new ProcessBuilder("bash", "-lc", cmd);
-        pb.directory(workingDir.toFile());  // makes -C . point at workingDir
+        pb.directory(workingDir.toFile()); // makes -C . point at workingDir
         pb.inheritIO(); // show progress/errors from tar/zstd
 
         try {
@@ -84,9 +95,9 @@ public final class TarZstdBash {
 
     // Example
     public static void main(String[] args) throws Exception {
-        Path workingDir = Paths.get("/data");           // parent dir
-        String inputDir  = "mydir";                     // relative to workingDir
-        String output    = "/backups/mydir.tar.zst";    // any path
+        Path workingDir = Paths.get("/data"); // parent dir
+        String inputDir = "mydir"; // relative to workingDir
+        String output = "/backups/mydir.tar.zst"; // any path
         compressDirectory(workingDir, output, inputDir); // -10 -T0 --long=27, deterministic
     }
 }
