@@ -16,7 +16,7 @@ subcommands or options.
 
 ## Running from command line
 
-Refer to the [Quickstart](quickstart.md) for a quick guide on how to run the tools CLI.
+Refer to the [Quickstart](../../docs/tools/quickstart.md) for a quick guide on how to run the tools CLI.
 
 ## Subcommands
 
@@ -28,6 +28,7 @@ The following subcommands are available:
 - `extractBlockTimes` - Extract block times from Mirror Node records csv file
 - `validateBlockTimes` - Validates a block times file as produced by `extractBlockTimes`
 - `addNewerBlockTimes` - Extends the block times file with newer block times
+- `days` - Tools for working with days of record files compressed as tar.zstd files
 
 ### The `json` Subcommand
 

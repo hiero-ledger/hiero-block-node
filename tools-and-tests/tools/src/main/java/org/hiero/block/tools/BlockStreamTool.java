@@ -3,7 +3,7 @@ package org.hiero.block.tools;
 
 import org.hiero.block.tools.commands.BlockInfo;
 import org.hiero.block.tools.commands.ConvertToJson;
-import org.hiero.block.tools.commands.history.DaysCommand;
+import org.hiero.block.tools.commands.days.DaysCommand;
 import org.hiero.block.tools.commands.record2blocks.Record2BlockCommand;
 import org.hiero.block.tools.commands.record2blocks.gcp.AddNewerBlockTimes;
 import org.hiero.block.tools.commands.record2blocks.mirrornode.ExtractBlockTimes;
