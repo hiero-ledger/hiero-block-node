@@ -4,7 +4,7 @@ import com.hedera.pbj.runtime.io.buffer.Bytes;
 import java.io.File;
 import java.util.concurrent.atomic.AtomicReference;
 import org.hiero.block.tools.commands.days.model.TarZstdUtils;
-import org.hiero.block.tools.commands.record2blocks.model.RecordFileInfo;
+import org.hiero.block.tools.records.RecordFileInfo;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Parameters;
 
