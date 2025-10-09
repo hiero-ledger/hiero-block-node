@@ -4,6 +4,7 @@ import static org.hiero.block.tools.commands.days.download.DownloadConstants.REC
 import static org.hiero.block.tools.commands.days.download.DownloadDay.downloadDay;
 
 import java.io.File;
+import java.util.concurrent.ForkJoinPool;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Option;
 import picocli.CommandLine.Parameters;
@@ -38,11 +39,15 @@ public class DownloadDay implements Runnable {
 
     @Override
     public void run() {
-        try {
-            downloadDay(listingDir.toPath(), downloadedDaysDir.toPath(), year, month, day,
-                RECORD_FILES_PER_DAY, 0, threads);
-        } catch (Exception e) {
-            throw new RuntimeException(e);
+        try (var pool = new ForkJoinPool(threads)) {
+            pool.submit(() -> {
+                try {
+                    downloadDay(listingDir.toPath(), downloadedDaysDir.toPath(), year, month, day,
+                        RECORD_FILES_PER_DAY, 0, threads);
+                } catch (Exception e) {
+                    throw new RuntimeException(e);
+                }
+            }).join();
         }
     }
 }
