@@ -4,6 +4,7 @@ package org.hiero.block.tools.commands.days;
 import org.hiero.block.tools.commands.days.subcommands.Compress;
 import org.hiero.block.tools.commands.days.subcommands.DownloadDay;
 import org.hiero.block.tools.commands.days.subcommands.Ls;
+import org.hiero.block.tools.commands.days.subcommands.PrintListing;
 import org.hiero.block.tools.commands.days.subcommands.Validate;
 import picocli.CommandLine.Command;
 
@@ -13,11 +14,11 @@ import picocli.CommandLine.Command;
 @Command(
         name = "days",
         description = "Works with compressed daily record file archives",
-        subcommands = {Ls.class, Validate.class, Compress.class, DownloadDay.class},
+        subcommands = {Ls.class, Validate.class, Compress.class, DownloadDay.class, PrintListing.class},
         mixinStandardHelpOptions = true)
 public class DaysCommand implements Runnable {
     @Override
     public void run() {
-        System.out.println("Please specify a subcommand: ls | validate | compress | download-day\nUse --help for more details.");
+        System.out.println("Please specify a subcommand: ls | validate | compress | download-day | print-listing\nUse --help for more details.");
     }
 }
