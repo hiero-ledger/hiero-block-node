@@ -78,20 +78,35 @@ public class PreviewSimpleVerificationSessionV0640 implements BlockVerificationS
         // Collect the block items for later use in producing the block notification
         this.blockItems.addAll(blockItems);
         // branch based on the type of block item and update respective merkle tree
-        for (BlockItemUnparsed item : blockItems) {
-            final BlockItemUnparsed.ItemOneOfType kind = item.item().kind();
-            final ByteBuffer hash = getBlockItemHash(item);
-            switch (kind) {
+      // Temporarily commented and moved to inside the has block proof, just as a work around of actual hashing time.
+//        for (BlockItemUnparsed item : blockItems) {
+//            final BlockItemUnparsed.ItemOneOfType kind = item.item().kind();
+//            final ByteBuffer hash = getBlockItemHash(item);
+//            switch (kind) {
+//                case ROUND_HEADER, EVENT_HEADER -> consensusHeaderHasher.addLeaf(hash);
+//                case SIGNED_TRANSACTION -> inputTreeHasher.addLeaf(hash);
+//                case TRANSACTION_RESULT, TRANSACTION_OUTPUT, BLOCK_HEADER -> outputTreeHasher.addLeaf(hash);
+//                case STATE_CHANGES -> stateChangesHasher.addLeaf(hash);
+//                case TRACE_DATA -> traceDataHasher.addLeaf(hash);
+//            }
+//        }
+        // Check if this batch contains the final block proof
+        final BlockItemUnparsed lastItem = blockItems.getLast();
+        if (lastItem.hasBlockProof()) {
+
+
+            for (BlockItemUnparsed item : this.blockItems) {
+              final BlockItemUnparsed.ItemOneOfType kind = item.item().kind();
+              final ByteBuffer hash = getBlockItemHash(item);
+              switch (kind) {
                 case ROUND_HEADER, EVENT_HEADER -> consensusHeaderHasher.addLeaf(hash);
                 case SIGNED_TRANSACTION -> inputTreeHasher.addLeaf(hash);
                 case TRANSACTION_RESULT, TRANSACTION_OUTPUT, BLOCK_HEADER -> outputTreeHasher.addLeaf(hash);
                 case STATE_CHANGES -> stateChangesHasher.addLeaf(hash);
                 case TRACE_DATA -> traceDataHasher.addLeaf(hash);
+              }
             }
-        }
-        // Check if this batch contains the final block proof
-        final BlockItemUnparsed lastItem = blockItems.getLast();
-        if (lastItem.hasBlockProof()) {
+
             @SuppressWarnings("DataFlowIssue")
             BlockProof blockProof = BlockProof.PROTOBUF.parse(lastItem.blockProof());
             return finalizeVerification(blockProof);
