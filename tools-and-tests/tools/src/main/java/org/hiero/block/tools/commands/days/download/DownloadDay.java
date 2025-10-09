@@ -4,51 +4,71 @@ import static org.hiero.block.tools.commands.days.download.DownloadConstants.BUC
 import static org.hiero.block.tools.commands.days.download.DownloadConstants.BUCKET_PATH_PREFIX;
 import static org.hiero.block.tools.commands.days.download.DownloadConstants.GCP_PROJECT_ID;
 import static org.hiero.block.tools.commands.days.listing.DayListingFileReader.loadRecordsFileForDay;
-import static org.hiero.block.tools.records.RecordFileUtils.findMostCommonSidecars;
-import static org.hiero.block.tools.utils.PrettyPrint.printProgress;
 import static org.hiero.block.tools.records.RecordFileUtils.extractRecordFileTimeStrFromPath;
 import static org.hiero.block.tools.records.RecordFileUtils.findMostCommonByType;
+import static org.hiero.block.tools.records.RecordFileUtils.findMostCommonSidecars;
+import static org.hiero.block.tools.utils.PrettyPrint.printProgress;
 
-import com.github.luben.zstd.ZstdOutputStream;
-import com.google.cloud.ReadChannel;
-import com.google.cloud.storage.Blob;
-import com.google.cloud.storage.BlobId;
 import com.google.cloud.storage.Storage;
-import com.google.cloud.storage.Storage.BlobGetOption;
-import com.google.cloud.storage.Storage.BlobSourceOption;
 import com.google.cloud.storage.StorageOptions;
 import java.io.IOException;
-import java.io.OutputStream;
-import java.nio.ByteBuffer;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.StandardCopyOption;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashSet;
+import java.util.HexFormat;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.Collectors;
-import org.apache.commons.compress.archivers.tar.TarArchiveEntry;
-import org.apache.commons.compress.archivers.tar.TarArchiveOutputStream;
 import org.hiero.block.tools.commands.days.listing.ListingRecordFile;
+import org.hiero.block.tools.commands.days.model.InMemoryFile;
+import org.hiero.block.tools.records.RecordFileInfo;
+import org.hiero.block.tools.utils.ConcurrentTarZstdWriter;
 import org.hiero.block.tools.utils.Gzip;
 import org.hiero.block.tools.utils.Md5Checker;
 
+/**
+ * Download all record files for a given day from GCP, group by block, deduplicate, validate,
+ * and write into a single .tar.zstd file.
+ */
 public class DownloadDay {
+    /** GCP BlobSourceOption to use userProject for billing */
+    public static final com.google.cloud.storage.Storage.BlobSourceOption BLOB_SOURCE_OPTION =
+            com.google.cloud.storage.Storage.BlobSourceOption.userProject(DownloadConstants.GCP_PROJECT_ID);
 
-    public static final Storage.BlobSourceOption BLOB_SOURCE_OPTION = BlobSourceOption.userProject(
-        DownloadConstants.GCP_PROJECT_ID);
-
-    public static void downloadDay(final Path listingDir, final Path downloadedDaysDir,
+    /**
+     *  Download all record files for a given day from GCP, group by block, deduplicate, validate,
+     *  and write into a single .tar.zstd file.
+     *
+     * @param listingDir directory where listing files are stored
+     * @param downloadedDaysDir directory where downloaded .tar.zstd files are stored
+     * @param year the year (e.g., 2023) to download
+     * @param month the month (1-12) to download
+     * @param day the day of month (1-31) to download
+     * @param progressTotal total number of files expected for progress reporting
+     * @param progressStart offset into total for progress reporting
+     * @param threads number of threads to use for processing blocks in parallel
+     * @param previousRecordFileHash the hash of the previous block's most common record file, null if first day
+     *                               being processed
+     * @return the hash of the last most common record file for this day, to be passed as previousRecordFileHash for next day
+     * @throws Exception on any error
+     */
+    public static byte[] downloadDay(final Path listingDir, final Path downloadedDaysDir,
             final int year, final int month, final int day,
-            final long progressTotal, final long progressStart, final int threads) throws Exception {
+            final long progressTotal, final long progressStart, final int threads, final byte[] previousRecordFileHash) throws Exception {
+        byte[] prevRecordFileHash = previousRecordFileHash;
         final List<ListingRecordFile> allDaysFiles = loadRecordsFileForDay(listingDir, year, month, day);
-        // group by RecordFile.timestamp and process each group
-        final Map<LocalDateTime, List<ListingRecordFile>> filesByTimestamp = allDaysFiles.stream()
+        // group by RecordFile.block and process each group
+        final Map<LocalDateTime, List<ListingRecordFile>> filesByBlock = allDaysFiles.stream()
                 .collect(Collectors.groupingBy(ListingRecordFile::timestamp));
         // for each group, download the files and write them into a single .tar.zstd file
         final String dayString = String.format("%04d-%02d-%02d", year, month, day);
@@ -58,7 +78,7 @@ public class DownloadDay {
         // If the final output already exists, bail out early (higher-level command may also check)
         if (Files.exists(finalOutFile)) {
             printProgress(progressStart, progressTotal, dayString + " :: Skipping as exists " + allDaysFiles.size() + " files");
-            return;
+            return null;
         }
         // ensure output dir exists
         if (!Files.exists(downloadedDaysDir)) Files.createDirectories(downloadedDaysDir);
@@ -68,14 +88,14 @@ public class DownloadDay {
         printProgress(progressStart, progressTotal, dayString + " :: Processing " + allDaysFiles.size() + " files");
         // sets for most common files
         final Set<ListingRecordFile> mostCommonFiles = new HashSet<>();
-        filesByTimestamp.values().forEach(list -> {
+        filesByBlock.values().forEach(list -> {
             final ListingRecordFile mostCommonRecordFile = findMostCommonByType(list, ListingRecordFile.Type.RECORD);
             final ListingRecordFile mostCommonSidecarFile = findMostCommonByType(list, ListingRecordFile.Type.RECORD_SIDECAR);
             if (mostCommonRecordFile != null) mostCommonFiles.add(mostCommonRecordFile);
             if (mostCommonSidecarFile != null) mostCommonFiles.add(mostCommonSidecarFile);
         });
-        // prepare list of timestamps sorted
-        final List<LocalDateTime> sortedTimestamps = filesByTimestamp.keySet().stream().sorted().toList();
+        // prepare list of blocks sorted
+        final List<LocalDateTime> sortedBlocks = filesByBlock.keySet().stream().sorted().toList();
         // Use Storage client to stream each blob into memory, check MD5, (ungzip if needed), and write to tar
         final Storage storage = StorageOptions.newBuilder()
             .setProjectId(GCP_PROJECT_ID)
@@ -83,118 +103,159 @@ public class DownloadDay {
         // precompute total files count cheaply to drive progress; reuse earlier count logic
         int totalFiles = allDaysFiles.size();
         AtomicLong writtenCounter = new AtomicLong(0);
-        // Open ZstdOutputStream -> TarArchiveOutputStream to write entries directly
-        try (OutputStream fout = Files.newOutputStream(partialOutFile);
-             ZstdOutputStream zOut = new ZstdOutputStream(fout, /*level*/6);
-             TarArchiveOutputStream tar = new TarArchiveOutputStream(zOut)) {
-            tar.setLongFileMode(TarArchiveOutputStream.LONGFILE_POSIX);
-            // iterate timestamps in order
-            for (LocalDateTime ts : sortedTimestamps) {
-                final List<ListingRecordFile> group = filesByTimestamp.get(ts);
-                if (group == null || group.isEmpty()) continue;
-                // find most common files for this timestamp
-                final ListingRecordFile mostCommonRecordFile = findMostCommonByType(group, ListingRecordFile.Type.RECORD);
+        // create executor for parallel downloads
+        // download, validate, and write files in block order
+        try(final ExecutorService exec = Executors.newFixedThreadPool(Math.max(1, threads));
+            ConcurrentTarZstdWriter writer = new ConcurrentTarZstdWriter(finalOutFile)) {
+            final Map<LocalDateTime, Future<List<InMemoryFile>>> futures = new ConcurrentHashMap<>();
+            // submit a task per block to download and prepare in-memory files
+            for (LocalDateTime ts : sortedBlocks) {
+                final List<ListingRecordFile> group = filesByBlock.get(ts);
+                if (group == null || group.isEmpty())
+                    continue;
+                final ListingRecordFile mostCommonRecordFile = findMostCommonByType(group,
+                    ListingRecordFile.Type.RECORD);
                 final ListingRecordFile[] mostCommonSidecarFiles = findMostCommonSidecars(group);
-                // build ordered list of ListingRecordFile objects to write for this timestamp
-                final List<ListingRecordFile> ordered = new ArrayList<>();
-                if (mostCommonRecordFile != null) ordered.add(mostCommonRecordFile);
-                ordered.addAll(Arrays.asList(mostCommonSidecarFiles));
+                // build ordered list of files to download, including the most common ones first, then all signatures,
+                // and other uncommon files
+                final List<ListingRecordFile> orderedFilesToDownload = new ArrayList<>();
+                if (mostCommonRecordFile != null)
+                    orderedFilesToDownload.add(mostCommonRecordFile);
+                orderedFilesToDownload.addAll(Arrays.asList(mostCommonSidecarFiles));
                 for (ListingRecordFile file : group) {
                     switch (file.type()) {
-                        case RECORD -> { if (!file.equals(mostCommonRecordFile)) ordered.add(file); }
-                        case RECORD_SIG -> ordered.add(file);
+                        case RECORD -> {
+                            if (!file.equals(mostCommonRecordFile))
+                                orderedFilesToDownload.add(file);
+                        }
+                        case RECORD_SIG -> orderedFilesToDownload.add(file);
                         case RECORD_SIDECAR -> {
-                            // check if this sidecar is already in mostCommonSidecarFiles
                             boolean isMostCommon = false;
-                            for (ListingRecordFile f : mostCommonSidecarFiles) {
-                                if (file.equals(f)) { isMostCommon = true; break; }
-                            }
-                            if (!isMostCommon) ordered.add(file);
+                            for (ListingRecordFile f : mostCommonSidecarFiles)
+                                if (file.equals(f)) {
+                                    isMostCommon = true;
+                                    break;
+                                }
+                            if (!isMostCommon)
+                                orderedFilesToDownload.add(file);
                         }
                         default -> throw new RuntimeException("Unsupported file type: " + file.type());
                     }
                 }
-                // For each file in ordered list, stream from GCS into memory, check MD5, optionally ungzip, then write into tar
-                for (ListingRecordFile lr : ordered) {
-                    final String blobName = BUCKET_PATH_PREFIX + lr.path();
-                    final byte[] rawBytes = storage.readAllBytes(BUCKET_NAME, blobName, BLOB_SOURCE_OPTION);
+                // submit downloader task that returns in-memory files for this block
+                futures.put(ts, exec.submit(
+                    () -> downloadBlock(orderedFilesToDownload, storage, mostCommonFiles)));
+            }
 
-                    // compute md5 hex of raw bytes (when blob is gzip compressed the md5 in listing corresponds to gz content)
-                    if (!Md5Checker.checkMd5(lr.md5Hex(), rawBytes)) {
-                        throw new IOException("MD5 mismatch for blob " + blobName);
-                    }
-
-                    // if gz compressed, ungzip in-memory
-                    byte[] contentBytes = rawBytes;
-                    String filename = lr.path().substring(lr.path().lastIndexOf('/') + 1);
-                    if (filename.endsWith(".gz")) {
-                        contentBytes = Gzip.ungzipInMemory(contentBytes);
-                        // strip .gz from filename for tar entry target unless existing code expects original name: original moved code removed .gz
-                        filename = filename.replaceAll("\\.gz$", "");
-                    }
-
-                    // determine nodeId from parent directory in path (e.g., .../record0.0.18/<file>)
-                    String parentDir = lr.path();
-                    int lastSlash = parentDir.lastIndexOf('/');
-                    if (lastSlash > 0) parentDir = parentDir.substring(0, lastSlash);
-                    String nodeDir = parentDir.substring(parentDir.lastIndexOf('/') + 1).replace("record", "");
-
-                    // determine target filename inside tar
-                    String targetFileName;
-                    if (lr.type() == ListingRecordFile.Type.RECORD || lr.type() == ListingRecordFile.Type.RECORD_SIDECAR) {
-                        if (mostCommonFiles.contains(lr)) {
-                            targetFileName = filename;
-                        } else {
-                            // insert _node_<id> before extension .rcd
-                            targetFileName = filename.replaceAll("\\.rcd$", "_node_" + nodeDir + ".rcd");
-                        }
-                    } else if (lr.type() == ListingRecordFile.Type.RECORD_SIG) {
-                        targetFileName = "node_" + nodeDir + ".rcs_sig";
-                    } else {
-                        throw new IOException("Unsupported file type: " + lr.type());
-                    }
-
-                    // compute date directory name for this entry
-                    String dateDirName = extractRecordFileTimeStrFromPath(Path.of(filename));
-                    String entryName = dateDirName + "/" + targetFileName;
-
-                    // write tar entry
-                    TarArchiveEntry entry = new TarArchiveEntry(entryName);
-                    entry.setSize(contentBytes.length);
-                    tar.putArchiveEntry(entry);
-                    tar.write(contentBytes);
-                    tar.closeArchiveEntry();
-
+            // iterate blocks in order, wait for downloads to complete, validate, compute hash, and enqueue entries
+            for (LocalDateTime ts : sortedBlocks) {
+                final Future<List<InMemoryFile>> f = futures.get(ts);
+                if (f == null) throw new Exception("no files for this block: "+ts); // should not happen
+                List<InMemoryFile> resultInMemFiles;
+                try {
+                    resultInMemFiles = f.get();
+                } catch (ExecutionException ee) {
+                    throw new RuntimeException("Failed downloading block " + ts, ee.getCause());
+                }
+                // first is always the most common record file
+                final InMemoryFile mostCommonRecordFileInMem = resultInMemFiles.getFirst();
+                // validate time period
+                prevRecordFileHash = validateBlock(prevRecordFileHash, resultInMemFiles, mostCommonRecordFileInMem);
+                // enqueue entries in the same block order to preserve tar ordering
+                for (InMemoryFile imf : resultInMemFiles) {
+                    writer.putEntry(imf);
                     long idx = writtenCounter.getAndIncrement();
                     if (idx % 1000 == 0 || idx == totalFiles - 1) {
-                        printProgress(progressStart + idx, progressTotal, dayString + " :: Writing " + entryName);
+                        printProgress(progressStart + idx, progressTotal, dayString + " :: Writing " + imf.path());
                     }
                 }
             }
-            tar.finish();
+        } catch (Exception e) {
+            e.printStackTrace();
+            // on any error, delete partial file
+            try { Files.deleteIfExists(partialOutFile); } catch (IOException ignored) {}
+            throw e;
         }
-
-        // move partial to final
-        try {
-            Files.move(partialOutFile, finalOutFile, StandardCopyOption.ATOMIC_MOVE);
-        } catch (IOException e) {
-            Files.move(partialOutFile, finalOutFile, StandardCopyOption.REPLACE_EXISTING);
-        }
+        return prevRecordFileHash;
     }
 
     /**
-     * Given the most common record file for a timestamp, compute its SHA384 hash based on Hedera record stream hashing
-     * logic and record file version.
-     * @param mostCommonRecordFile
-     * @return
+     * Download the given list of files from GCP, check MD5, ungzip if needed, and prepare in-memory files with
+     * correct target paths.
+     *
+     * @param orderedFilesToDownload the list of ListingRecordFile objects to download, in the order to write them. The
+     *                               first file in the list is always the most common record file for this block.
+     * @param storage the GCP Storage client
+     * @param mostCommonFiles the set of most common files to use for naming
+     * @return a list of in-memory files, the first is allways the most common record file
+     * @throws Exception on any error
      */
-    private static byte[] computeRecordFileHash(ListingRecordFile mostCommonRecordFile) {
-        // TODO implement hash computation
-        return new byte[48];
+    private static List<InMemoryFile> downloadBlock(final List<ListingRecordFile> orderedFilesToDownload,
+            Storage storage, Set<ListingRecordFile> mostCommonFiles) throws Exception {
+        final List<InMemoryFile> memFiles = new ArrayList<>();
+        for (ListingRecordFile lr : orderedFilesToDownload) {
+            final String blobName = BUCKET_PATH_PREFIX + lr.path();
+            final byte[] rawBytes = storage.readAllBytes(BUCKET_NAME, blobName, BLOB_SOURCE_OPTION);
+            // MD5 check
+            if (!Md5Checker.checkMd5(lr.md5Hex(), rawBytes)) {
+                throw new IOException("MD5 mismatch for blob " + blobName);
+            }
+            // unzip if needed
+            byte[] contentBytes = rawBytes;
+            String filename = lr.path().substring(lr.path().lastIndexOf('/') + 1);
+            if (filename.endsWith(".gz")) {
+                contentBytes = Gzip.ungzipInMemory(contentBytes);
+                filename = filename.replaceAll("\\.gz$", "");
+            }
+            // determine target path within tar
+            String parentDir = lr.path();
+            int lastSlash = parentDir.lastIndexOf('/');
+            if (lastSlash > 0) parentDir = parentDir.substring(0, lastSlash);
+            String nodeDir = parentDir.substring(parentDir.lastIndexOf('/') + 1).replace("record", "");
+            String targetFileName;
+            if (lr.type() == ListingRecordFile.Type.RECORD || lr.type() == ListingRecordFile.Type.RECORD_SIDECAR) {
+                if (mostCommonFiles.contains(lr)) {
+                    targetFileName = filename;
+                } else {
+                    targetFileName = filename.replaceAll("\\.rcd$", "_node_" + nodeDir + ".rcd");
+                }
+            } else if (lr.type() == ListingRecordFile.Type.RECORD_SIG) {
+                targetFileName = "node_" + nodeDir + ".rcs_sig";
+            } else {
+                throw new IOException("Unsupported file type: " + lr.type());
+            }
+            // use block dir from one of the files in this group (they all share the same block)
+            String dateDirName = extractRecordFileTimeStrFromPath(Path.of(filename));
+            String entryName = dateDirName + "/" + targetFileName;
+            memFiles.add(new InMemoryFile(Path.of(entryName), contentBytes));
+        }
+        return memFiles;
     }
 
-    private static boolean validateTimePeriod(byte[] previousRecordFileHash, List<ListingRecordFile> files,ListingRecordFile mostCommonRecordFile) {
-        // TODO implement validation logic
-        return true;
+    /**
+     * Validate the downloaded files hash correctly and form a valid Hedera blockchain.
+     *
+     * @param previousRecordFileHash the SHA384 hash of the previous block's most common record file, null if first
+     *                               block of day
+     * @param files the list of InMemoryFile objects for the current block
+     * @param mostCommonRecordFile the most common record file for the current block
+     * @return computed SHA384 hash of the current block's most common record file, to be passed as
+     *         previousRecordFileHash for next block, or null if validation failed
+     * @throws IllegalStateException if validation fails
+     */
+    private static byte[] validateBlock(byte[] previousRecordFileHash, List<InMemoryFile> files,
+            final InMemoryFile mostCommonRecordFile) {
+
+        final RecordFileInfo recordFileInfo = RecordFileInfo.parse(mostCommonRecordFile.data());
+        byte[] readPreviousBlockHash = recordFileInfo.previousBlockHash().toByteArray();
+        byte[] computedBlockHash = recordFileInfo.blockHash().toByteArray();
+        // check computed previousRecordFileHash matches one read from file
+        if (previousRecordFileHash != null && !Arrays.equals(previousRecordFileHash, readPreviousBlockHash)) {
+            throw new IllegalStateException("Previous block hash mismatch. Expected: " +
+                HexFormat.of().formatHex(previousRecordFileHash).substring(0,8) +
+                    ", Found: " + HexFormat.of().formatHex(readPreviousBlockHash).substring(0,8));
+        }
+        // TODO validate sigatures and sidecars
+        return computedBlockHash;
     }
 }

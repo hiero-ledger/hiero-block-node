@@ -71,17 +71,4 @@ public record DownloadedRecordFile(String path, LocalDateTime timestamp, int siz
                 ", md5Hex=" + md5Hex +
                 '}';
     }
-
-    public void write(DataOutputStream dos) throws IOException {
-        dos.writeUTF(path);
-        dos.writeInt(sizeBytes);
-        dos.writeUTF(md5Hex);
-    }
-
-    public static DownloadedRecordFile read(DataInputStream dis) throws IOException {
-        String readPath = dis.readUTF();
-        int readSizeBytes = dis.readInt();
-        String readMd5Hex = dis.readUTF();
-        return new DownloadedRecordFile(readPath, extractRecordFileTimeFromPath(readPath), readSizeBytes, readMd5Hex);
-    }
 }
