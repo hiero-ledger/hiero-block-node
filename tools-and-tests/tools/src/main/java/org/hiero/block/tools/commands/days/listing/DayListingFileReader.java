@@ -13,12 +13,31 @@ import java.util.List;
  * Utility class to read the listing file for a specific day and return the list of RecordFile objects.
  */
 public class DayListingFileReader {
+    /**
+     * Load the listing file for the given day and return a list of RecordFile objects.
+     * If the file does not exist, return an empty list.
+     *
+     * @param listingDir the base directory for listings
+     * @param year the year
+     * @param month the month (1-12)
+     * @param day the day (1-31)
+     * @return the list of RecordFile objects
+     * @throws IOException if an I/O error occurs
+     */
     public static List<ListingRecordFile> loadRecordsFileForDay(final Path listingDir,
             final int year, final int month, final int day) throws IOException {
         final Path listingPath = ListingRecordFile.getFileForDay(listingDir, year, month, day);
         return loadRecordsFile(listingPath);
     }
 
+    /**
+     * Load the listing file for the given day and return a list of RecordFile objects.
+     * If the file does not exist, return an empty list.
+     *
+     * @param listingPath the path to the listing file
+     * @return the list of RecordFile objects
+     * @throws IOException if an I/O error occurs
+     */
     public static List<ListingRecordFile> loadRecordsFile(Path listingPath) throws IOException {
         final List<ListingRecordFile> recordFiles = new ArrayList<>();
         // Implementation to read the listing file for the given day and return a list of RecordFile objects
@@ -33,39 +52,5 @@ public class DayListingFileReader {
             }
         }
         return recordFiles;
-    }
-
-    public static void main(String[] args) {
-        // support args: year month day <OPTIONAL sizeEstimateOnly>
-        if (!(args.length == 3)) {
-            System.err.println("Usage: DayListingFileReader <year> <month> <day>");
-            System.exit(1);
-        }
-        int year = Integer.parseInt(args[0]);
-        int month = Integer.parseInt(args[1]);
-        int day = Integer.parseInt(args[2]);
-        try {
-            List<ListingRecordFile> files = loadRecordsFileForDay(year, month, day);
-            System.out.println("Loaded " + files.size() + " files for " + year + "-" + month + "-" + day);
-            System.out.println("==========================================================================================");
-            System.out.println("First 100 record files");
-            System.out.println("==========================================================================================");
-            files.stream()
-                    .filter(f -> f.type() == ListingRecordFile.Type.RECORD)
-                    .sorted(Comparator.comparingLong(ListingRecordFile::timestampEpocMillis))
-                    .limit(50)
-                    .forEach(System.out::println);
-            System.out.println("==========================================================================================");
-
-            System.out.println("files containing T00_00_00");
-            System.out.println("==========================================================================================");
-            files.stream()
-                    .filter(f -> f.path().contains("T00_00_00"))
-                    .sorted(Comparator.comparingLong(ListingRecordFile::timestampEpocMillis))
-                    .forEach(System.out::println);
-            System.out.println("==========================================================================================");
-        } catch (IOException e) {
-            e.printStackTrace();
-        }
     }
 }

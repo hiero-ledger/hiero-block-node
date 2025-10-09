@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.tools.commands.record2blocks.model;
 
-import static org.hiero.block.tools.commands.record2blocks.util.RecordFileDates.blockTimeInstantToLong;
-import static org.hiero.block.tools.commands.record2blocks.util.RecordFileDates.extractRecordFileTime;
+import static org.hiero.block.tools.records.RecordFileDates.blockTimeInstantToLong;
+import static org.hiero.block.tools.records.RecordFileDates.extractRecordFileTime;
 
 import java.io.InputStream;
 import java.io.Serializable;

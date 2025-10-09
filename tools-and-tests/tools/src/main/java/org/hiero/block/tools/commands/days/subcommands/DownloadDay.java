@@ -8,7 +8,7 @@ import picocli.CommandLine.Command;
 import picocli.CommandLine.Option;
 import picocli.CommandLine.Parameters;
 
-@SuppressWarnings("FieldCanBeLocal")
+@SuppressWarnings({"FieldCanBeLocal", "FieldMayBeFinal"})
 @Command(
     name = "download-day",
     description = "Download all record files for a specific day")
@@ -24,17 +24,23 @@ public class DownloadDay implements Runnable {
         description = "Directory where downloaded days are stored")
     private File downloadedDaysDir = new File("compressedDays");
 
+    @Option(
+        names = {"-t", "--threads"},
+        description = "How many days to download in parallel")
+    private int threads = Runtime.getRuntime().availableProcessors()/2;
+
     @Parameters(index = "0", description = "Year to download")
-    private final int year = 2019;
+    private int year = 2019;
     @Parameters(index = "1", description = "Month to download")
-    private final int month = 9;
+    private int month = 9;
     @Parameters(index = "2", description = "Day to download")
-    private final int day = 13;
+    private int day = 13;
 
     @Override
     public void run() {
         try {
-            downloadDay(listingDir.toPath(), downloadedDaysDir.toPath(), year, month, day, RECORD_FILES_PER_DAY, 0);
+            downloadDay(listingDir.toPath(), downloadedDaysDir.toPath(), year, month, day,
+                RECORD_FILES_PER_DAY, 0, threads);
         } catch (Exception e) {
             throw new RuntimeException(e);
         }

@@ -1,6 +1,7 @@
 package org.hiero.block.tools.commands.days.listing;
 
 import static java.nio.file.StandardOpenOption.CREATE;
+import static org.hiero.block.tools.commands.days.listing.ListingRecordFile.getFileForDay;
 
 import java.io.BufferedOutputStream;
 import java.io.DataOutputStream;
@@ -20,8 +21,8 @@ public class DayListingFileWriter implements AutoCloseable {
     private long recordSigCount = 0;
     private long recordSidecarCount = 0;
 
-    public DayListingFileWriter(int year, int month, int day) throws IOException {
-        this.filePath = ListingDir.getFileForDay(year, month, day);
+    public DayListingFileWriter(Path listingDir, int year, int month, int day) throws IOException {
+        this.filePath = getFileForDay(listingDir,year, month, day);
         this.out = new DataOutputStream(new BufferedOutputStream(Files.newOutputStream(filePath, CREATE), 4096));
         out.writeLong(0); // reserve space for number of files
     }

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-package org.hiero.block.tools.commands.record2blocks.util;
+package org.hiero.block.tools.blocks;
 
 import com.github.luben.zstd.ZstdOutputStream;
 import com.hedera.hapi.block.stream.Block;
