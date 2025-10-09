@@ -46,6 +46,18 @@ public class DownloadDays implements Runnable {
 
     @Override
     public void run() {
+        try (var pool = new ForkJoinPool(threads)) {
+            pool.submit(() -> {
+                try {
+                    downloadDays();
+                } catch (Exception e) {
+                    throw new RuntimeException(e);
+                }
+            }).join();
+        }
+    }
+
+    private void downloadDays() throws Exception {
         final var days = LocalDate.of(fromYear, fromMonth, fromDay)
             .datesUntil(LocalDate.of(toYear, toMonth, toDay).plusDays(1))
             .toList();

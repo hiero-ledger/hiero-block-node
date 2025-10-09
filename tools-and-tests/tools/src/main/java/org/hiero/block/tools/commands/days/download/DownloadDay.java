@@ -4,6 +4,7 @@ import static org.hiero.block.tools.commands.days.download.DownloadConstants.BUC
 import static org.hiero.block.tools.commands.days.download.DownloadConstants.BUCKET_PATH_PREFIX;
 import static org.hiero.block.tools.commands.days.download.DownloadConstants.GCP_PROJECT_ID;
 import static org.hiero.block.tools.commands.days.listing.DayListingFileReader.loadRecordsFileForDay;
+import static org.hiero.block.tools.records.RecordFileUtils.findMostCommonSidecars;
 import static org.hiero.block.tools.utils.PrettyPrint.printProgress;
 import static org.hiero.block.tools.records.RecordFileUtils.extractRecordFileTimeStrFromPath;
 import static org.hiero.block.tools.records.RecordFileUtils.findMostCommonByType;
@@ -11,10 +12,10 @@ import static org.hiero.block.tools.records.RecordFileUtils.findMostCommonByType
 import com.github.luben.zstd.ZstdOutputStream;
 import com.google.cloud.ReadChannel;
 import com.google.cloud.storage.Blob;
-import com.google.cloud.storage.Blob.BlobSourceOption;
 import com.google.cloud.storage.BlobId;
 import com.google.cloud.storage.Storage;
 import com.google.cloud.storage.Storage.BlobGetOption;
+import com.google.cloud.storage.Storage.BlobSourceOption;
 import com.google.cloud.storage.StorageOptions;
 import java.io.IOException;
 import java.io.OutputStream;
@@ -24,6 +25,7 @@ import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -37,6 +39,9 @@ import org.hiero.block.tools.utils.Gzip;
 import org.hiero.block.tools.utils.Md5Checker;
 
 public class DownloadDay {
+
+    public static final Storage.BlobSourceOption BLOB_SOURCE_OPTION = BlobSourceOption.userProject(
+        DownloadConstants.GCP_PROJECT_ID);
 
     public static void downloadDay(final Path listingDir, final Path downloadedDaysDir,
             final int year, final int month, final int day,
@@ -72,7 +77,7 @@ public class DownloadDay {
         // prepare list of timestamps sorted
         final List<LocalDateTime> sortedTimestamps = filesByTimestamp.keySet().stream().sorted().toList();
         // Use Storage client to stream each blob into memory, check MD5, (ungzip if needed), and write to tar
-        Storage storage = StorageOptions.newBuilder()
+        final Storage storage = StorageOptions.newBuilder()
             .setProjectId(GCP_PROJECT_ID)
             .build().getService();
         // precompute total files count cheaply to drive progress; reuse earlier count logic
@@ -89,33 +94,30 @@ public class DownloadDay {
                 if (group == null || group.isEmpty()) continue;
                 // find most common files for this timestamp
                 final ListingRecordFile mostCommonRecordFile = findMostCommonByType(group, ListingRecordFile.Type.RECORD);
-                final ListingRecordFile mostCommonSidecarFile = findMostCommonByType(group, ListingRecordFile.Type.RECORD_SIDECAR);
+                final ListingRecordFile[] mostCommonSidecarFiles = findMostCommonSidecars(group);
                 // build ordered list of ListingRecordFile objects to write for this timestamp
                 final List<ListingRecordFile> ordered = new ArrayList<>();
                 if (mostCommonRecordFile != null) ordered.add(mostCommonRecordFile);
-                if (mostCommonSidecarFile != null) ordered.add(mostCommonSidecarFile);
+                ordered.addAll(Arrays.asList(mostCommonSidecarFiles));
                 for (ListingRecordFile file : group) {
                     switch (file.type()) {
                         case RECORD -> { if (!file.equals(mostCommonRecordFile)) ordered.add(file); }
                         case RECORD_SIG -> ordered.add(file);
-                        case RECORD_SIDECAR -> { if (!file.equals(mostCommonSidecarFile)) ordered.add(file); }
+                        case RECORD_SIDECAR -> {
+                            // check if this sidecar is already in mostCommonSidecarFiles
+                            boolean isMostCommon = false;
+                            for (ListingRecordFile f : mostCommonSidecarFiles) {
+                                if (file.equals(f)) { isMostCommon = true; break; }
+                            }
+                            if (!isMostCommon) ordered.add(file);
+                        }
                         default -> throw new RuntimeException("Unsupported file type: " + file.type());
                     }
                 }
                 // For each file in ordered list, stream from GCS into memory, check MD5, optionally ungzip, then write into tar
                 for (ListingRecordFile lr : ordered) {
                     final String blobName = BUCKET_PATH_PREFIX + lr.path();
-                    final BlobId blobId = BlobId.of(BUCKET_NAME, blobName);
-                    Blob blob = storage.get(blobId, BlobGetOption.userProject(GCP_PROJECT_ID));
-                    if (blob == null) {
-                        throw new IOException("Blob not found: " + blobName);
-                    }
-                    // stream blob content into byte[]
-                    final byte[] rawBytes = new byte[lr.sizeBytes()];
-                    final ByteBuffer rawBuf = ByteBuffer.wrap(rawBytes);
-                    try (ReadChannel reader = blob.reader(BlobSourceOption.userProject(GCP_PROJECT_ID))) {
-                        reader.read(rawBuf);
-                    }
+                    final byte[] rawBytes = storage.readAllBytes(BUCKET_NAME, blobName, BLOB_SOURCE_OPTION);
 
                     // compute md5 hex of raw bytes (when blob is gzip compressed the md5 in listing corresponds to gz content)
                     if (!Md5Checker.checkMd5(lr.md5Hex(), rawBytes)) {
@@ -178,5 +180,21 @@ public class DownloadDay {
         } catch (IOException e) {
             Files.move(partialOutFile, finalOutFile, StandardCopyOption.REPLACE_EXISTING);
         }
+    }
+
+    /**
+     * Given the most common record file for a timestamp, compute its SHA384 hash based on Hedera record stream hashing
+     * logic and record file version.
+     * @param mostCommonRecordFile
+     * @return
+     */
+    private static byte[] computeRecordFileHash(ListingRecordFile mostCommonRecordFile) {
+        // TODO implement hash computation
+        return new byte[48];
+    }
+
+    private static boolean validateTimePeriod(byte[] previousRecordFileHash, List<ListingRecordFile> files,ListingRecordFile mostCommonRecordFile) {
+        // TODO implement validation logic
+        return true;
     }
 }
