@@ -47,6 +47,7 @@ public class TarZstdUtils {
 
     public static void processSingleTarZstd(Path path, Consumer<InMemoryRecordFileSet> consumer) {
         try (Stream<InMemoryRecordFileSet> stream = TarZstdDayReader.streamTarZstd(path)) {
+            System.out.println("==================> Processing archive: " + path);
             Objects.requireNonNull(stream).forEach(consumer);
         } catch (Exception e) {
             System.err.println("Error reading archive: " + path + " -> " + e.getMessage());
