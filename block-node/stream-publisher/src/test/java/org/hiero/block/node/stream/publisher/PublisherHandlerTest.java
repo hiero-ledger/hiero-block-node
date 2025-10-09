@@ -2211,6 +2211,8 @@ class PublisherHandlerTest {
                 new DefaultCounter(new Config("category", "name")),
                 new DefaultCounter(new Config("category", "name")),
                 new DefaultCounter(new Config("category", "name")),
+                new DefaultCounter(new Config("category", "name")),
+                new DefaultCounter(new Config("category", "name")),
                 new DefaultCounter(new Config("category", "name")));
     }
 }
