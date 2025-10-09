@@ -6,8 +6,10 @@ import java.time.LocalDateTime;
 import java.time.ZoneOffset;
 import java.time.format.DateTimeParseException;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import org.hiero.block.tools.commands.days.listing.ListingRecordFile;
 
 /**
@@ -100,4 +102,41 @@ public class RecordFileUtils {
         return best;
     }
 
+    /**
+     * Find the most common of each Sidecar index in the given list of files of the given type. Sidecar files are named
+     * like "2023-04-25T17_48_38.002085562Z_01.rcd.gz" where the index is the number after the "Z_" and before the ".rcd".
+     *
+     * @param files the list of RecordFile objects to search
+     * @return the array of the most common sidecar RecordFiles one of each index, or empty list if none found
+     */
+    public static ListingRecordFile[] findMostCommonSidecars(List<ListingRecordFile> files) {
+        // find all sidecar indexes
+        final Map<Integer, List<ListingRecordFile>> sidecarsByIndex = new HashMap<>();
+        for (ListingRecordFile f : files) {
+            if (f.type() != ListingRecordFile.Type.RECORD_SIDECAR)
+                continue;
+            String fileName = Path.of(f.path()).getFileName().toString();
+            int idxStart = fileName.lastIndexOf("Z_");
+            int idxEnd = fileName.indexOf(".rcd");
+            if (idxStart < 0 || idxEnd < 0 || idxEnd <= idxStart + 2) {
+                throw new IllegalArgumentException("Invalid sidecar file name: " + fileName);
+            }
+            String idxStr = fileName.substring(idxStart + 2, idxEnd);
+            try {
+                int idx = Integer.parseInt(idxStr);
+                sidecarsByIndex.computeIfAbsent(idx, k -> new java.util.ArrayList<>()).add(f);
+            } catch (NumberFormatException e) {
+                throw new IllegalArgumentException("Invalid sidecar file name: " + fileName, e);
+            }
+        }
+        // create result array
+        final ListingRecordFile[] result = new ListingRecordFile[sidecarsByIndex.size()];
+        // for each index, find the most common sidecar
+        for (Map.Entry<Integer, List<ListingRecordFile>> entry : sidecarsByIndex.entrySet()) {
+            int idx = entry.getKey();
+            List<ListingRecordFile> sidecars = entry.getValue();
+            result[idx] = findMostCommonByType(sidecars, ListingRecordFile.Type.RECORD_SIDECAR);
+        }
+        return result;
+    }
 }
