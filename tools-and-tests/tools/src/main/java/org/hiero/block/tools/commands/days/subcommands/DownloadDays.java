@@ -5,14 +5,13 @@ import static org.hiero.block.tools.commands.days.download.DownloadDay.downloadD
 
 import java.io.File;
 import java.time.LocalDate;
-import java.util.concurrent.ForkJoinPool;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Option;
 import picocli.CommandLine.Parameters;
 
-@SuppressWarnings({"FieldCanBeLocal", "FieldMayBeFinal"})
+@SuppressWarnings({"FieldCanBeLocal", "FieldMayBeFinal", "CallToPrintStackTrace"})
 @Command(
-    name = "download-day",
+    name = "download-days",
     description = "Download all record files for a specific day")
 public class DownloadDays implements Runnable {
 
@@ -46,32 +45,22 @@ public class DownloadDays implements Runnable {
 
     @Override
     public void run() {
-        try (var pool = new ForkJoinPool(threads)) {
-            pool.submit(() -> {
-                try {
-                    downloadDays();
-                } catch (Exception e) {
-                    throw new RuntimeException(e);
-                }
-            }).join();
-        }
-    }
-
-    private void downloadDays() throws Exception {
         final var days = LocalDate.of(fromYear, fromMonth, fromDay)
             .datesUntil(LocalDate.of(toYear, toMonth, toDay).plusDays(1))
             .toList();
         final long totalProgress = days.size() * RECORD_FILES_PER_DAY;
         long progress = 0;
+        byte[] previousRecordHash = null;
         for (final LocalDate localDate : days) {
             try {
-                downloadDay(listingDir.toPath(), downloadedDaysDir.toPath(),
+                previousRecordHash = downloadDay(listingDir.toPath(), downloadedDaysDir.toPath(),
                     localDate.getYear(),
                     localDate.getMonthValue(),
                     localDate.getDayOfMonth(),
-                    totalProgress, progress, threads);
+                    totalProgress, progress, threads, previousRecordHash);
                 progress += RECORD_FILES_PER_DAY;
             } catch (Exception e) {
+                e.printStackTrace();
                 throw new RuntimeException(e);
             }
         }
