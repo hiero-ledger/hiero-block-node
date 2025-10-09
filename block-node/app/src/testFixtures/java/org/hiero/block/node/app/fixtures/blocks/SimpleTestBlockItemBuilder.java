@@ -2,6 +2,7 @@
 package org.hiero.block.node.app.fixtures.blocks;
 
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.fail;
 
 import com.hedera.hapi.block.stream.Block;
 import com.hedera.hapi.block.stream.BlockItem;
@@ -15,6 +16,7 @@ import com.hedera.hapi.node.base.SemanticVersion;
 import com.hedera.hapi.node.base.Timestamp;
 import com.hedera.hapi.platform.event.EventCore;
 import com.hedera.pbj.runtime.OneOf;
+import com.hedera.pbj.runtime.ParseException;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import java.time.Duration;
 import java.time.Instant;
@@ -296,19 +298,19 @@ public final class SimpleTestBlockItemBuilder {
      * @return an array of BlockItem objects
      */
     public static BlockItemUnparsed[] createNumberOfVerySimpleBlocksUnparsed(final int numberOfBlocks) {
-        return createNumberOfVerySimpleBlocksUnparsed(0, numberOfBlocks);
+        return createNumberOfVerySimpleBlocksUnparsed(0, numberOfBlocks - 1);
     }
 
     public static BlockItemUnparsed[] createNumberOfVerySimpleBlocksUnparsed(
             final int startBlockNumber, final int endBlockNumber) {
         assertTrue(startBlockNumber <= endBlockNumber);
         assertTrue(startBlockNumber >= 0);
-        final int numberOfBlocks = endBlockNumber - startBlockNumber;
+        final int numberOfBlocks = (endBlockNumber - startBlockNumber + 1);
         final BlockItemUnparsed[] blockItems = new BlockItemUnparsed[numberOfBlocks * 3];
-        for (int i = 0; i < blockItems.length; i += 3) {
-            long blockNumber = i / 3;
+        for (int blockNumber = startBlockNumber; blockNumber <= endBlockNumber; blockNumber++) {
+            final int i = (blockNumber - startBlockNumber) * 3;
             blockItems[i] = sampleBlockHeaderUnparsed(blockNumber);
-            blockItems[i + 1] = sampleRoundHeaderUnparsed(blockNumber * 10);
+            blockItems[i + 1] = sampleRoundHeaderUnparsed(blockNumber * 10L);
             blockItems[i + 2] = sampleBlockProofUnparsed(blockNumber);
         }
         return blockItems;
@@ -318,12 +320,12 @@ public final class SimpleTestBlockItemBuilder {
             final int startBlockNumber, final int endBlockNumber) {
         assertTrue(startBlockNumber <= endBlockNumber);
         assertTrue(startBlockNumber >= 0);
-        final int numberOfBlocks = endBlockNumber - startBlockNumber;
+        final int numberOfBlocks = (endBlockNumber - startBlockNumber + 1);
         final BlockItemUnparsed[] blockItems = new BlockItemUnparsed[numberOfBlocks * 3];
-        for (int i = 0; i < blockItems.length; i += 3) {
-            long blockNumber = i / 3;
+        for (int blockNumber = startBlockNumber; blockNumber <= endBlockNumber; blockNumber++) {
+            final int i = (blockNumber - startBlockNumber) * 3;
             blockItems[i] = sampleBrokenBlockHeaderUnparsed(blockNumber);
-            blockItems[i + 1] = sampleRoundHeaderUnparsed(blockNumber * 10);
+            blockItems[i + 1] = sampleRoundHeaderUnparsed(blockNumber * 10L);
             blockItems[i + 2] = sampleBlockProofUnparsed(blockNumber);
         }
         return blockItems;
@@ -333,12 +335,12 @@ public final class SimpleTestBlockItemBuilder {
             final int startBlockNumber, final int endBlockNumber) {
         assertTrue(startBlockNumber <= endBlockNumber);
         assertTrue(startBlockNumber >= 0);
-        final int numberOfBlocks = endBlockNumber - startBlockNumber;
+        final int numberOfBlocks = (endBlockNumber - startBlockNumber + 1);
         final BlockItemUnparsed[] blockItems = new BlockItemUnparsed[numberOfBlocks * 3];
-        for (int i = 0; i < blockItems.length; i += 3) {
-            long blockNumber = i / 3;
+        for (int blockNumber = startBlockNumber; blockNumber <= endBlockNumber; blockNumber++) {
+            final int i = (blockNumber - startBlockNumber) * 3;
             blockItems[i] = sampleBlockHeaderUnparsed(blockNumber);
-            blockItems[i + 1] = sampleRoundHeaderUnparsed(blockNumber * 10);
+            blockItems[i + 1] = sampleRoundHeaderUnparsed(blockNumber * 10L);
             blockItems[i + 2] = sampleBrokenBlockProofUnparsed(blockNumber);
         }
         return blockItems;
@@ -348,12 +350,12 @@ public final class SimpleTestBlockItemBuilder {
             final int startBlockNumber, final int endBlockNumber) {
         assertTrue(startBlockNumber <= endBlockNumber);
         assertTrue(startBlockNumber >= 0);
-        final int numberOfBlocks = endBlockNumber - startBlockNumber;
+        final int numberOfBlocks = (endBlockNumber - startBlockNumber + 1);
         final BlockItemUnparsed[] blockItems = new BlockItemUnparsed[numberOfBlocks * 3];
-        for (int i = 0; i < blockItems.length; i += 3) {
-            long blockNumber = i / 3;
+        for (int blockNumber = startBlockNumber; blockNumber <= endBlockNumber; blockNumber++) {
+            final int i = (blockNumber - startBlockNumber) * 3;
             blockItems[i] = sampleNullBlockHeaderUnparsed();
-            blockItems[i + 1] = sampleRoundHeaderUnparsed(blockNumber * 10);
+            blockItems[i + 1] = sampleRoundHeaderUnparsed(blockNumber * 10L);
             blockItems[i + 2] = sampleBlockProofUnparsed(blockNumber);
         }
         return blockItems;
@@ -392,5 +394,29 @@ public final class SimpleTestBlockItemBuilder {
         blockItems[1] = sampleRoundHeaderUnparsed(blockNumber * 10L);
         blockItems[2] = sampleBlockProofUnparsed(blockNumber);
         return blockItems;
+    }
+
+    public static BlockItems toBlockItems(final List<BlockItem> block) {
+        return toBlockItems(block, true, block.getFirst().blockHeader().number());
+    }
+
+    @SuppressWarnings("all")
+    public static BlockItems toBlockItems(
+            final List<BlockItem> block, final boolean includeHeader, final long blockNumber) {
+        final List<BlockItemUnparsed> result = new ArrayList<>();
+        final List<BlockItem> toConvert;
+        if (!block.getFirst().hasBlockHeader()) {
+            toConvert = block;
+        } else {
+            toConvert = includeHeader ? block : block.subList(1, block.size());
+        }
+        for (final BlockItem item : toConvert) {
+            try {
+                result.add(BlockItemUnparsed.PROTOBUF.parse(BlockItem.PROTOBUF.toBytes(item)));
+            } catch (final ParseException e) {
+                fail("Failed to parse BlockItem to BlockItemUnparsed", e);
+            }
+        }
+        return new BlockItems(result, blockNumber);
     }
 }
