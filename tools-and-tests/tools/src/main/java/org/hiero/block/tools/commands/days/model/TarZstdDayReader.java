@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-package org.hiero.block.tools.commands.history;
+package org.hiero.block.tools.commands.days.model;
 
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
@@ -15,8 +15,6 @@ import java.util.regex.Pattern;
 import java.util.stream.Stream;
 import org.apache.commons.compress.archivers.tar.TarArchiveEntry;
 import org.apache.commons.compress.archivers.tar.TarArchiveInputStream;
-import org.hiero.block.tools.commands.history.model.InMemoryFile;
-import org.hiero.block.tools.commands.history.model.InMemoryRecordFileSet;
 
 /**
  * Utility to read and group record files from a compressed daily tar archive compressed with zstd.
