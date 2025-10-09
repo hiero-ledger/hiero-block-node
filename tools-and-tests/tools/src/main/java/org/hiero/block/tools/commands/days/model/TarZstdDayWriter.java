@@ -1,5 +1,7 @@
+// SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.tools.commands.days.model;
 
+import com.github.luben.zstd.ZstdOutputStream;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.nio.file.Files;
@@ -9,7 +11,6 @@ import java.util.List;
 import java.util.regex.Pattern;
 import org.apache.commons.compress.archivers.tar.TarArchiveEntry;
 import org.apache.commons.compress.archivers.tar.TarArchiveOutputStream;
-import com.github.luben.zstd.ZstdOutputStream;
 
 /**
  * Utility class to create .tar.zst files from a day's directory. The day directory contains files like:
@@ -20,7 +21,8 @@ import com.github.luben.zstd.ZstdOutputStream;
  * </pre>
  */
 public class TarZstdDayWriter {
-    private  static final Pattern RECORD_FILE_DIR_PATTERN = Pattern.compile("\\d{4}-\\d{2}-\\d{2}T\\d{2}_\\d{2}_\\d{2}\\.\\d+Z");
+    private static final Pattern RECORD_FILE_DIR_PATTERN =
+            Pattern.compile("\\d{4}-\\d{2}-\\d{2}T\\d{2}_\\d{2}_\\d{2}\\.\\d+Z");
 
     /**
      * Compress all record file directories in the day directory into a single tar zstd file.
@@ -37,8 +39,10 @@ public class TarZstdDayWriter {
         Path tempPartial = null;
         try {
             if (!Files.exists(outputDirectory)) Files.createDirectories(outputDirectory);
-            final Path outputFile = outputDirectory.resolve(dayDirectory.getFileName().toString() + ".tar.zstd");
-            final Path partialFile = outputDirectory.resolve(dayDirectory.getFileName().toString() + ".tar.zstd_partial");
+            final Path outputFile =
+                    outputDirectory.resolve(dayDirectory.getFileName().toString() + ".tar.zstd");
+            final Path partialFile =
+                    outputDirectory.resolve(dayDirectory.getFileName().toString() + ".tar.zstd_partial");
 
             // If the final output already exists, bail out early (higher-level command may also check)
             if (Files.exists(outputFile)) {
@@ -47,15 +51,20 @@ public class TarZstdDayWriter {
             }
 
             // remove any stale partial file before starting
-            try { Files.deleteIfExists(partialFile); } catch (IOException ignored) {}
+            try {
+                Files.deleteIfExists(partialFile);
+            } catch (IOException ignored) {
+            }
             tempPartial = partialFile;
 
             final List<Path> sortedRecordDirs;
             try (var stream = Files.list(dayDirectory)) {
-                sortedRecordDirs = stream
-                    .filter(path -> Files.isDirectory(path) && RECORD_FILE_DIR_PATTERN.matcher(path.getFileName().toString()).matches())
-                    .sorted()
-                    .toList();
+                sortedRecordDirs = stream.filter(path -> Files.isDirectory(path)
+                                && RECORD_FILE_DIR_PATTERN
+                                        .matcher(path.getFileName().toString())
+                                        .matches())
+                        .sorted()
+                        .toList();
             }
 
             // Compute total number of regular files to write (cheap count, no sizes)
@@ -70,8 +79,8 @@ public class TarZstdDayWriter {
 
             // Open partial output file and wrap with ZstdOutputStream, then TarArchiveOutputStream
             try (OutputStream fout = Files.newOutputStream(partialFile);
-                 ZstdOutputStream zOut = new ZstdOutputStream(fout, compressionLevel);
-                 TarArchiveOutputStream tar = new TarArchiveOutputStream(zOut)) {
+                    ZstdOutputStream zOut = new ZstdOutputStream(fout, compressionLevel);
+                    TarArchiveOutputStream tar = new TarArchiveOutputStream(zOut)) {
 
                 tar.setLongFileMode(TarArchiveOutputStream.LONGFILE_POSIX);
 
@@ -83,7 +92,8 @@ public class TarZstdDayWriter {
                     }
 
                     for (Path file : files) {
-                        String entryName = dayDirectory.relativize(file).toString().replace(java.io.File.separatorChar, '/');
+                        String entryName =
+                                dayDirectory.relativize(file).toString().replace(java.io.File.separatorChar, '/');
                         long size = Files.size(file);
 
                         TarArchiveEntry entry = new TarArchiveEntry(entryName);
@@ -124,7 +134,10 @@ public class TarZstdDayWriter {
         } catch (IOException e) {
             // cleanup partial file if present
             if (tempPartial != null) {
-                try { Files.deleteIfExists(tempPartial); } catch (IOException ignored) {}
+                try {
+                    Files.deleteIfExists(tempPartial);
+                } catch (IOException ignored) {
+                }
             }
             throw new RuntimeException(e);
         }

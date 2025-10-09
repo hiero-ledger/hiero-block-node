@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.tools.commands.days.listing;
 
 import java.io.FileWriter;
@@ -15,7 +16,7 @@ public class BadLinesWriter implements AutoCloseable {
     /** Constructor that initializes the FileWriter and create new bad lines file. */
     public BadLinesWriter() {
         try {
-            writer = new FileWriter("badlines_"+ Instant.now()+".txt", true);
+            writer = new FileWriter("badlines_" + Instant.now() + ".txt", true);
         } catch (IOException e) {
             throw new RuntimeException(e);
         }

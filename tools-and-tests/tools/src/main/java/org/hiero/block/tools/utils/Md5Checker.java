@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.tools.utils;
 
 import java.io.IOException;
@@ -17,7 +18,7 @@ public class Md5Checker {
      * @return true if the MD5 checksum matches, false otherwise
      * @throws IOException if an I/O error occurs
      */
-    public static boolean checkMd5( String expectedMd5Hex, Path filePath ) throws IOException {
+    public static boolean checkMd5(String expectedMd5Hex, Path filePath) throws IOException {
         // compute the md5Hex of the file at filePath by calling command line app "md5sum <filePath>"
         ProcessBuilder pb = new ProcessBuilder("md5sum", filePath.toString());
         try {
@@ -43,7 +44,7 @@ public class Md5Checker {
      * @return true if the MD5 checksum matches, false otherwise
      * @throws Exception if an error occurs while computing the MD5 checksum
      */
-    public static boolean checkMd5( String expectedMd5Hex, byte[] data ) throws Exception {
+    public static boolean checkMd5(String expectedMd5Hex, byte[] data) throws Exception {
         MessageDigest md = MessageDigest.getInstance("MD5");
         return expectedMd5Hex.equals(HexFormat.of().formatHex(md.digest(data)));
     }

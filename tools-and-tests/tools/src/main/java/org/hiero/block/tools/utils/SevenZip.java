@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.tools.utils;
 
 import java.io.IOException;
@@ -9,16 +10,7 @@ public class SevenZip {
         // using command line 7z a -t7z -m0=LZMA2 -mx=9 -mmt=on -md=256m -ms=on
         ProcessBuilder processBuilder = new ProcessBuilder();
         processBuilder.command(
-                "7z",
-                "a",
-                "-t7z",
-                "-m0=LZMA2",
-                "-mx=9",
-                "-mmt=on",
-                "-md=256m",
-                "-ms=on",
-                outputFile,
-                inputDir);
+                "7z", "a", "-t7z", "-m0=LZMA2", "-mx=9", "-mmt=on", "-md=256m", "-ms=on", outputFile, inputDir);
         processBuilder.directory(workingDir.toFile());
         processBuilder.inheritIO();
         try {

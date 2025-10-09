@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.tools.commands.record2blocks;
 
-import static org.hiero.block.tools.commands.record2blocks.mirrornode.FetchBlockQuery.getPreviousHashForBlock;
 import static org.hiero.block.tools.blocks.BlockWriter.writeBlock;
+import static org.hiero.block.tools.commands.record2blocks.mirrornode.FetchBlockQuery.getPreviousHashForBlock;
 import static org.hiero.block.tools.records.RecordFileDates.blockTimeLongToInstant;
 
 import com.hedera.hapi.block.stream.Block;
@@ -30,13 +30,13 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
+import org.hiero.block.tools.blocks.BlockWriter.BlockPath;
 import org.hiero.block.tools.commands.record2blocks.gcp.MainNetBucket;
 import org.hiero.block.tools.commands.record2blocks.model.BlockInfo;
 import org.hiero.block.tools.commands.record2blocks.model.BlockTimes;
 import org.hiero.block.tools.commands.record2blocks.model.ChainFile;
 import org.hiero.block.tools.commands.record2blocks.model.ParsedSignatureFile;
 import org.hiero.block.tools.records.RecordFileInfo;
-import org.hiero.block.tools.blocks.BlockWriter.BlockPath;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Help.Ansi;
 import picocli.CommandLine.Option;

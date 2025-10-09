@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.tools.utils;
 
 import java.io.ByteArrayInputStream;
@@ -17,7 +18,8 @@ public class Gzip {
     public static Path ungzip(Path file) throws IOException {
         // ungzip the given file
         if (file.toString().endsWith(".gz")) {
-            final Process process = new ProcessBuilder("gunzip", file.getFileName().toString())
+            final Process process = new ProcessBuilder(
+                            "gunzip", file.getFileName().toString())
                     .directory(file.getParent().toFile())
                     .start();
             try {
@@ -43,8 +45,8 @@ public class Gzip {
      */
     public static byte[] ungzipInMemory(byte[] gzBytes) throws IOException {
         try (ByteArrayInputStream bais = new ByteArrayInputStream(gzBytes);
-             GZIPInputStream gis = new GZIPInputStream(bais);
-             ByteArrayOutputStream baos = new ByteArrayOutputStream()) {
+                GZIPInputStream gis = new GZIPInputStream(bais);
+                ByteArrayOutputStream baos = new ByteArrayOutputStream()) {
             byte[] buf = new byte[8192];
             int r;
             while ((r = gis.read(buf)) != -1) baos.write(buf, 0, r);
