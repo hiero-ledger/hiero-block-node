@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.tools.utils;
 
 import java.nio.file.Files;
@@ -36,13 +37,13 @@ public class FilesUtils {
     public static void deleteDirectory(Path path) {
         try (Stream<Path> walk = Files.walk(path)) {
             walk.sorted(Comparator.reverseOrder()) // delete children before parents
-                .forEach(p -> {
-                    try {
-                        Files.delete(p);
-                    } catch (java.io.IOException e) {
-                        throw new RuntimeException(e);
-                    }
-                });
+                    .forEach(p -> {
+                        try {
+                            Files.delete(p);
+                        } catch (java.io.IOException e) {
+                            throw new RuntimeException(e);
+                        }
+                    });
         } catch (java.io.IOException e) {
             throw new RuntimeException(e);
         }

@@ -1,5 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.tools.commands.days.listing;
-
 
 import static org.hiero.block.tools.records.RecordFileUtils.extractRecordFileTimeFromPath;
 
@@ -35,8 +35,8 @@ public record ListingRecordFile(String path, LocalDateTime timestamp, int sizeBy
      * @return the path to the listing file for the specified day
      * @throws IOException if an I/O error occurs
      */
-    public static Path getFileForDay(final Path listingDir,
-            final int year, final int month, final int day) throws IOException {
+    public static Path getFileForDay(final Path listingDir, final int year, final int month, final int day)
+            throws IOException {
         final Path monthDir = listingDir.resolve(String.format("%04d/%02d", year, month));
         Files.createDirectories(monthDir);
         return monthDir.resolve(String.format("%02d.bin", day));
@@ -45,8 +45,8 @@ public record ListingRecordFile(String path, LocalDateTime timestamp, int sizeBy
     public ListingRecordFile {
         if (md5Hex == null || md5Hex.length() != 32) {
             throw new IllegalArgumentException(
-                    "md5Hex["+md5Hex+"] must be exactly 16 bytes, 32 chars hex string. length is " +
-                            (md5Hex == null ? 0 : md5Hex.length()));
+                    "md5Hex[" + md5Hex + "] must be exactly 16 bytes, 32 chars hex string. length is "
+                            + (md5Hex == null ? 0 : md5Hex.length()));
         }
     }
 
@@ -54,14 +54,15 @@ public record ListingRecordFile(String path, LocalDateTime timestamp, int sizeBy
         return timestamp.toInstant(java.time.ZoneOffset.UTC).toEpochMilli();
     }
     /** Equality purely by MD5 contents (128-bit). */
-    @Override public boolean equals(Object o) {
+    @Override
+    public boolean equals(Object o) {
         if (this == o) return true;
-        return (o instanceof ListingRecordFile rf)
-                && this.md5Hex.equals(rf.md5Hex);
+        return (o instanceof ListingRecordFile rf) && this.md5Hex.equals(rf.md5Hex);
     }
 
     /** Hash purely by MD5 contents (xor-folded 128->32). */
-    @Override public int hashCode() {
+    @Override
+    public int hashCode() {
         return md5Hex.hashCode();
     }
 
@@ -79,13 +80,12 @@ public record ListingRecordFile(String path, LocalDateTime timestamp, int sizeBy
 
     @Override
     public String toString() {
-        return "RecordFile{" +
-                "type=" + type() +
-                ", path='" + path + '\'' +
-                ", timestamp=" + timestamp +
-                ", sizeBytes=" + sizeBytes +
-                ", md5Hex=" + md5Hex +
-                '}';
+        return "RecordFile{" + "type="
+                + type() + ", path='"
+                + path + '\'' + ", timestamp="
+                + timestamp + ", sizeBytes="
+                + sizeBytes + ", md5Hex="
+                + md5Hex + '}';
     }
 
     public void write(DataOutputStream dos) throws IOException {

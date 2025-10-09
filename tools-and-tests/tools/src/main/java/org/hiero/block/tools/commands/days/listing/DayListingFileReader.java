@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.tools.commands.days.listing;
 
 import java.io.BufferedInputStream;
@@ -6,7 +7,6 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
-import java.util.Comparator;
 import java.util.List;
 
 /**
@@ -24,8 +24,8 @@ public class DayListingFileReader {
      * @return the list of RecordFile objects
      * @throws IOException if an I/O error occurs
      */
-    public static List<ListingRecordFile> loadRecordsFileForDay(final Path listingDir,
-            final int year, final int month, final int day) throws IOException {
+    public static List<ListingRecordFile> loadRecordsFileForDay(
+            final Path listingDir, final int year, final int month, final int day) throws IOException {
         final Path listingPath = ListingRecordFile.getFileForDay(listingDir, year, month, day);
         return loadRecordsFile(listingPath);
     }
@@ -41,7 +41,7 @@ public class DayListingFileReader {
     public static List<ListingRecordFile> loadRecordsFile(Path listingPath) throws IOException {
         final List<ListingRecordFile> recordFiles = new ArrayList<>();
         // Implementation to read the listing file for the given day and return a list of RecordFile objects
-        try(var din = new DataInputStream(new BufferedInputStream(Files.newInputStream(listingPath), 1024*1024))) {
+        try (var din = new DataInputStream(new BufferedInputStream(Files.newInputStream(listingPath), 1024 * 1024))) {
             final long numberOfFiles = din.readLong();
             for (long i = 0; i < numberOfFiles; i++) {
                 recordFiles.add(ListingRecordFile.read(din));

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.tools.utils;
 
 import com.github.luben.zstd.ZstdOutputStream;
@@ -6,6 +7,9 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Objects;
 import java.util.concurrent.ArrayBlockingQueue;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 import org.apache.commons.compress.archivers.tar.TarArchiveEntry;
 import org.apache.commons.compress.archivers.tar.TarArchiveOutputStream;
 import org.hiero.block.tools.commands.days.model.InMemoryFile;
@@ -30,6 +34,8 @@ public class ConcurrentTarZstdWriter implements AutoCloseable {
     private final Path partialOutFile;
     private final ArrayBlockingQueue<InMemoryFile> filesToWrite = new ArrayBlockingQueue<>(100);
     private final Thread writerThread;
+    private final AtomicReference<Throwable> writerError = new AtomicReference<>();
+    private final AtomicBoolean closed = new AtomicBoolean(false);
 
     public ConcurrentTarZstdWriter(Path outFile) throws Exception {
         // check the file extension is .tar.zstd
@@ -41,28 +47,45 @@ public class ConcurrentTarZstdWriter implements AutoCloseable {
             throw new IllegalArgumentException("Output file already exists: " + outFile);
         }
         this.outFile = outFile;
-        this. partialOutFile = outFile.getParent().resolve(outFile.getFileName() + "_partial");
+        this.partialOutFile = outFile.getParent().resolve(outFile.getFileName() + "_partial");
         this.fout = Files.newOutputStream(partialOutFile);
-        this.zOut = new ZstdOutputStream(fout, /*level*/6);
+        this.zOut = new ZstdOutputStream(fout, /*level*/ 6);
         this.tar = new TarArchiveOutputStream(zOut);
         tar.setLongFileMode(TarArchiveOutputStream.LONGFILE_POSIX);
         // start writer thread
-        this.writerThread = new Thread(() -> {
-            try {
-                // just keep the thread alive to allow synchronized writes
-                while (!Thread.currentThread().isInterrupted()) {
-                    InMemoryFile file;
-                    file = filesToWrite.take();
-                    TarArchiveEntry entry = new TarArchiveEntry(file.path().toString());
-                    entry.setSize(file.data().length);
-                    tar.putArchiveEntry(entry);
-                    tar.write(file.data());
-                    tar.closeArchiveEntry();
-                }
-            } catch (Exception e) {
-                e.printStackTrace();
-            }
-        });
+        this.writerThread = new Thread(
+                () -> {
+                    try {
+                        while (true) {
+                            InMemoryFile file;
+                            try {
+                                // poll with timeout so we can wake up when close() sets the closed flag
+                                file = filesToWrite.poll(250, TimeUnit.MILLISECONDS);
+                            } catch (InterruptedException ie) {
+                                // Interrupted while polling: restore interrupt and exit loop
+                                Thread.currentThread().interrupt();
+                                break;
+                            }
+                            if (file == null) {
+                                // no item this interval; exit if closed and queue empty
+                                if (closed.get() && filesToWrite.isEmpty()) break;
+                                continue;
+                            }
+                            // process the file
+                            TarArchiveEntry entry =
+                                    new TarArchiveEntry(file.path().toString());
+                            entry.setSize(file.data().length);
+                            tar.putArchiveEntry(entry);
+                            tar.write(file.data());
+                            tar.closeArchiveEntry();
+                        }
+                    } catch (Throwable t) {
+                        // record the error for later rethrow in close()
+                        writerError.compareAndSet(null, t);
+                    }
+                },
+                "concurrent-tar-writer");
+        this.writerThread.setDaemon(true);
         this.writerThread.start();
     }
 
@@ -71,26 +94,81 @@ public class ConcurrentTarZstdWriter implements AutoCloseable {
      *
      * @param file the in-memory file to add
      */
-    public void putEntry(InMemoryFile file) throws Exception {
-        // add entry to queue
-        filesToWrite.add(Objects.requireNonNull(file));
+    public void putEntry(InMemoryFile file) {
+        Objects.requireNonNull(file);
+        // don't accept new entries after close() called
+        if (closed.get()) {
+            throw new IllegalStateException("Writer is closed");
+        }
+        // propagate writer thread errors early
+        Throwable t = writerError.get();
+        if (t != null) {
+            throw new RuntimeException("Writer thread failed previously", t);
+        }
+        try {
+            // try to enqueue but avoid blocking forever if the writer dies; periodically check status
+            while (!filesToWrite.offer(file, 5, TimeUnit.SECONDS)) {
+                t = writerError.get();
+                if (t != null) {
+                    throw new RuntimeException("Writer thread failed previously", t);
+                }
+                if (!writerThread.isAlive()) {
+                    throw new IllegalStateException("Writer thread not alive and queue is full");
+                }
+                if (closed.get()) {
+                    throw new IllegalStateException("Writer is closed");
+                }
+            }
+        } catch (InterruptedException ie) {
+            Thread.currentThread().interrupt();
+            // convert to unchecked to avoid forcing callers to handle checked InterruptedException
+            throw new RuntimeException("Interrupted while enqueuing file to writer", ie);
+        }
     }
 
     /** Close the writer, waiting for all entries to be written. */
     @Override
     public void close() throws Exception {
-        // wait for queue to drain
-        while (!filesToWrite.isEmpty()) {
-            Thread.sleep(100);
+        // mark closed so writer thread will finish after it drains the queue
+        if (!closed.compareAndSet(false, true)) {
+            return; // already closed
         }
-        // stop writer thread
-        writerThread.interrupt();
-        writerThread.join();
-        // close streams
-        tar.finish();
-        tar.close();
-        zOut.close();
-        fout.close();
+
+        // wait for writer thread to finish (bounded)
+        try {
+            writerThread.join(60_000);
+            if (writerThread.isAlive()) {
+                writerError.compareAndSet(
+                        null, new IllegalStateException("Writer thread did not terminate within timeout"));
+                // interrupt as a last resort
+                writerThread.interrupt();
+                writerThread.join(5_000);
+            }
+        } catch (InterruptedException ie) {
+            Thread.currentThread().interrupt();
+        }
+        // if the writer had an error, rethrow it
+        Throwable t = writerError.get();
+        if (t != null) {
+            throw new RuntimeException("Writer thread failed", t);
+        }
+        // close streams and finish tar
+        try {
+            tar.finish();
+        } finally {
+            try {
+                tar.close();
+            } catch (Exception ignored) {
+            }
+            try {
+                zOut.close();
+            } catch (Exception ignored) {
+            }
+            try {
+                fout.close();
+            } catch (Exception ignored) {
+            }
+        }
         // rename partial file to final file
         Files.move(partialOutFile, outFile);
     }

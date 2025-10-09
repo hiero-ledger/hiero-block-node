@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.tools.commands.days.listing;
 
 import static java.nio.file.StandardOpenOption.CREATE;
@@ -22,7 +23,7 @@ public class DayListingFileWriter implements AutoCloseable {
     private long recordSidecarCount = 0;
 
     public DayListingFileWriter(Path listingDir, int year, int month, int day) throws IOException {
-        this.filePath = getFileForDay(listingDir,year, month, day);
+        this.filePath = getFileForDay(listingDir, year, month, day);
         this.out = new DataOutputStream(new BufferedOutputStream(Files.newOutputStream(filePath, CREATE), 4096));
         out.writeLong(0); // reserve space for number of files
     }
@@ -39,12 +40,11 @@ public class DayListingFileWriter implements AutoCloseable {
 
     @Override
     public synchronized String toString() {
-        return "DayListingFileWriter{" +
-                "filePath=" + filePath +
-                ", recordCount=" + recordCount +
-                ", recordSigCount=" + recordSigCount +
-                ", recordSidecarCount=" + recordSidecarCount +
-                '}';
+        return "DayListingFileWriter{" + "filePath="
+                + filePath + ", recordCount="
+                + recordCount + ", recordSigCount="
+                + recordSigCount + ", recordSidecarCount="
+                + recordSidecarCount + '}';
     }
 
     @Override

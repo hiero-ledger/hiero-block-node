@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.tools.records;
 
 import java.nio.file.Path;
@@ -6,10 +7,8 @@ import java.time.LocalDateTime;
 import java.time.ZoneOffset;
 import java.time.format.DateTimeParseException;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 import org.hiero.block.tools.commands.days.listing.ListingRecordFile;
 
 /**
@@ -25,7 +24,7 @@ public class RecordFileUtils {
      */
     public static String extractRecordFileTimeStrFromPath(Path path) {
         final String fileName = path.getFileName().toString();
-        return fileName.substring(0, fileName.indexOf("Z")+1);
+        return fileName.substring(0, fileName.indexOf("Z") + 1);
     }
 
     /**
@@ -92,9 +91,7 @@ public class RecordFileUtils {
         for (ListingRecordFile f : files) {
             if (f.type() != type) continue;
             long c = counts.merge(f, 1L, Long::sum);
-            if (best == null
-                    || c > bestCount
-                    || (c == bestCount && f.md5Hex().compareTo(best.md5Hex()) < 0)) {
+            if (best == null || c > bestCount || (c == bestCount && f.md5Hex().compareTo(best.md5Hex()) < 0)) {
                 best = f;
                 bestCount = c;
             }
@@ -113,8 +110,7 @@ public class RecordFileUtils {
         // find all sidecar indexes
         final Map<Integer, List<ListingRecordFile>> sidecarsByIndex = new HashMap<>();
         for (ListingRecordFile f : files) {
-            if (f.type() != ListingRecordFile.Type.RECORD_SIDECAR)
-                continue;
+            if (f.type() != ListingRecordFile.Type.RECORD_SIDECAR) continue;
             String fileName = Path.of(f.path()).getFileName().toString();
             int idxStart = fileName.lastIndexOf("Z_");
             int idxEnd = fileName.indexOf(".rcd");
@@ -124,7 +120,9 @@ public class RecordFileUtils {
             String idxStr = fileName.substring(idxStart + 2, idxEnd);
             try {
                 int idx = Integer.parseInt(idxStr);
-                sidecarsByIndex.computeIfAbsent(idx, k -> new java.util.ArrayList<>()).add(f);
+                sidecarsByIndex
+                        .computeIfAbsent(idx, k -> new java.util.ArrayList<>())
+                        .add(f);
             } catch (NumberFormatException e) {
                 throw new IllegalArgumentException("Invalid sidecar file name: " + fileName, e);
             }
