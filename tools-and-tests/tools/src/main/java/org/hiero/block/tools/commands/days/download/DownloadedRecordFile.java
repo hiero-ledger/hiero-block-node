@@ -1,13 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.tools.commands.days.download;
 
-
-import static org.hiero.block.tools.records.RecordFileUtils.extractRecordFileTimeFromPath;
-
-import java.io.DataInputStream;
-import java.io.DataOutputStream;
-import java.io.IOException;
-import java.nio.file.Files;
-import java.nio.file.Path;
 import java.time.LocalDateTime;
 
 /**
@@ -19,7 +12,8 @@ import java.time.LocalDateTime;
  * @param md5Hex the MD5 hash of the file contents as hex string (16 bytes, 32 chars)
  * @param contents the file contents as byte array
  */
-public record DownloadedRecordFile(String path, LocalDateTime timestamp, int sizeBytes, String md5Hex, byte[] contents) {
+public record DownloadedRecordFile(
+        String path, LocalDateTime timestamp, int sizeBytes, String md5Hex, byte[] contents) {
     public enum Type {
         RECORD,
         RECORD_SIG,
@@ -29,8 +23,8 @@ public record DownloadedRecordFile(String path, LocalDateTime timestamp, int siz
     public DownloadedRecordFile {
         if (md5Hex == null || md5Hex.length() != 32) {
             throw new IllegalArgumentException(
-                    "md5Hex["+md5Hex+"] must be exactly 16 bytes, 32 chars hex string. length is " +
-                            (md5Hex == null ? 0 : md5Hex.length()));
+                    "md5Hex[" + md5Hex + "] must be exactly 16 bytes, 32 chars hex string. length is "
+                            + (md5Hex == null ? 0 : md5Hex.length()));
         }
     }
 
@@ -38,14 +32,15 @@ public record DownloadedRecordFile(String path, LocalDateTime timestamp, int siz
         return timestamp.toInstant(java.time.ZoneOffset.UTC).toEpochMilli();
     }
     /** Equality purely by MD5 contents (128-bit). */
-    @Override public boolean equals(Object o) {
+    @Override
+    public boolean equals(Object o) {
         if (this == o) return true;
-        return (o instanceof DownloadedRecordFile rf)
-                && this.md5Hex.equals(rf.md5Hex);
+        return (o instanceof DownloadedRecordFile rf) && this.md5Hex.equals(rf.md5Hex);
     }
 
     /** Hash purely by MD5 contents (xor-folded 128->32). */
-    @Override public int hashCode() {
+    @Override
+    public int hashCode() {
         return md5Hex.hashCode();
     }
 
@@ -63,12 +58,11 @@ public record DownloadedRecordFile(String path, LocalDateTime timestamp, int siz
 
     @Override
     public String toString() {
-        return "RecordFile{" +
-                "type=" + type() +
-                ", path='" + path + '\'' +
-                ", timestamp=" + timestamp +
-                ", sizeBytes=" + sizeBytes +
-                ", md5Hex=" + md5Hex +
-                '}';
+        return "RecordFile{" + "type="
+                + type() + ", path='"
+                + path + '\'' + ", timestamp="
+                + timestamp + ", sizeBytes="
+                + sizeBytes + ", md5Hex="
+                + md5Hex + '}';
     }
 }

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.tools.commands.days.download;
 
 import static org.hiero.block.tools.commands.days.download.DownloadConstants.BUCKET_NAME;
@@ -62,14 +63,22 @@ public class DownloadDay {
      * @return the hash of the last most common record file for this day, to be passed as previousRecordFileHash for next day
      * @throws Exception on any error
      */
-    public static byte[] downloadDay(final Path listingDir, final Path downloadedDaysDir,
-            final int year, final int month, final int day,
-            final long progressTotal, final long progressStart, final int threads, final byte[] previousRecordFileHash) throws Exception {
+    public static byte[] downloadDay(
+            final Path listingDir,
+            final Path downloadedDaysDir,
+            final int year,
+            final int month,
+            final int day,
+            final long progressTotal,
+            final long progressStart,
+            final int threads,
+            final byte[] previousRecordFileHash)
+            throws Exception {
         byte[] prevRecordFileHash = previousRecordFileHash;
         final List<ListingRecordFile> allDaysFiles = loadRecordsFileForDay(listingDir, year, month, day);
         // group by RecordFile.block and process each group
-        final Map<LocalDateTime, List<ListingRecordFile>> filesByBlock = allDaysFiles.stream()
-                .collect(Collectors.groupingBy(ListingRecordFile::timestamp));
+        final Map<LocalDateTime, List<ListingRecordFile>> filesByBlock =
+                allDaysFiles.stream().collect(Collectors.groupingBy(ListingRecordFile::timestamp));
         // for each group, download the files and write them into a single .tar.zstd file
         final String dayString = String.format("%04d-%02d-%02d", year, month, day);
         // target output tar.zstd path
@@ -77,56 +86,60 @@ public class DownloadDay {
         final Path partialOutFile = downloadedDaysDir.resolve(dayString + ".tar.zstd_partial");
         // If the final output already exists, bail out early (higher-level command may also check)
         if (Files.exists(finalOutFile)) {
-            printProgress(progressStart, progressTotal, dayString + " :: Skipping as exists " + allDaysFiles.size() + " files");
+            printProgress(
+                    progressStart,
+                    progressTotal,
+                    dayString + " :: Skipping as exists " + allDaysFiles.size() + " files");
             return null;
         }
         // ensure output dir exists
         if (!Files.exists(downloadedDaysDir)) Files.createDirectories(downloadedDaysDir);
         // remove stale partial
-        try { Files.deleteIfExists(partialOutFile); } catch (IOException ignored) {}
+        try {
+            Files.deleteIfExists(partialOutFile);
+        } catch (IOException ignored) {
+        }
         // print starting message
         printProgress(progressStart, progressTotal, dayString + " :: Processing " + allDaysFiles.size() + " files");
         // sets for most common files
         final Set<ListingRecordFile> mostCommonFiles = new HashSet<>();
         filesByBlock.values().forEach(list -> {
             final ListingRecordFile mostCommonRecordFile = findMostCommonByType(list, ListingRecordFile.Type.RECORD);
-            final ListingRecordFile mostCommonSidecarFile = findMostCommonByType(list, ListingRecordFile.Type.RECORD_SIDECAR);
+            final ListingRecordFile mostCommonSidecarFile =
+                    findMostCommonByType(list, ListingRecordFile.Type.RECORD_SIDECAR);
             if (mostCommonRecordFile != null) mostCommonFiles.add(mostCommonRecordFile);
             if (mostCommonSidecarFile != null) mostCommonFiles.add(mostCommonSidecarFile);
         });
         // prepare list of blocks sorted
-        final List<LocalDateTime> sortedBlocks = filesByBlock.keySet().stream().sorted().toList();
+        final List<LocalDateTime> sortedBlocks =
+                filesByBlock.keySet().stream().sorted().toList();
         // Use Storage client to stream each blob into memory, check MD5, (ungzip if needed), and write to tar
-        final Storage storage = StorageOptions.newBuilder()
-            .setProjectId(GCP_PROJECT_ID)
-            .build().getService();
+        final Storage storage =
+                StorageOptions.newBuilder().setProjectId(GCP_PROJECT_ID).build().getService();
         // precompute total files count cheaply to drive progress; reuse earlier count logic
         int totalFiles = allDaysFiles.size();
         AtomicLong writtenCounter = new AtomicLong(0);
         // create executor for parallel downloads
         // download, validate, and write files in block order
-        try(final ExecutorService exec = Executors.newFixedThreadPool(Math.max(1, threads));
-            ConcurrentTarZstdWriter writer = new ConcurrentTarZstdWriter(finalOutFile)) {
+        try (final ExecutorService exec = Executors.newFixedThreadPool(Math.max(1, threads));
+                ConcurrentTarZstdWriter writer = new ConcurrentTarZstdWriter(finalOutFile)) {
             final Map<LocalDateTime, Future<List<InMemoryFile>>> futures = new ConcurrentHashMap<>();
             // submit a task per block to download and prepare in-memory files
             for (LocalDateTime ts : sortedBlocks) {
                 final List<ListingRecordFile> group = filesByBlock.get(ts);
-                if (group == null || group.isEmpty())
-                    continue;
-                final ListingRecordFile mostCommonRecordFile = findMostCommonByType(group,
-                    ListingRecordFile.Type.RECORD);
+                if (group == null || group.isEmpty()) continue;
+                final ListingRecordFile mostCommonRecordFile =
+                        findMostCommonByType(group, ListingRecordFile.Type.RECORD);
                 final ListingRecordFile[] mostCommonSidecarFiles = findMostCommonSidecars(group);
                 // build ordered list of files to download, including the most common ones first, then all signatures,
                 // and other uncommon files
                 final List<ListingRecordFile> orderedFilesToDownload = new ArrayList<>();
-                if (mostCommonRecordFile != null)
-                    orderedFilesToDownload.add(mostCommonRecordFile);
+                if (mostCommonRecordFile != null) orderedFilesToDownload.add(mostCommonRecordFile);
                 orderedFilesToDownload.addAll(Arrays.asList(mostCommonSidecarFiles));
                 for (ListingRecordFile file : group) {
                     switch (file.type()) {
                         case RECORD -> {
-                            if (!file.equals(mostCommonRecordFile))
-                                orderedFilesToDownload.add(file);
+                            if (!file.equals(mostCommonRecordFile)) orderedFilesToDownload.add(file);
                         }
                         case RECORD_SIG -> orderedFilesToDownload.add(file);
                         case RECORD_SIDECAR -> {
@@ -136,21 +149,19 @@ public class DownloadDay {
                                     isMostCommon = true;
                                     break;
                                 }
-                            if (!isMostCommon)
-                                orderedFilesToDownload.add(file);
+                            if (!isMostCommon) orderedFilesToDownload.add(file);
                         }
                         default -> throw new RuntimeException("Unsupported file type: " + file.type());
                     }
                 }
                 // submit downloader task that returns in-memory files for this block
-                futures.put(ts, exec.submit(
-                    () -> downloadBlock(orderedFilesToDownload, storage, mostCommonFiles)));
+                futures.put(ts, exec.submit(() -> downloadBlock(orderedFilesToDownload, storage, mostCommonFiles)));
             }
 
             // iterate blocks in order, wait for downloads to complete, validate, compute hash, and enqueue entries
             for (LocalDateTime ts : sortedBlocks) {
                 final Future<List<InMemoryFile>> f = futures.get(ts);
-                if (f == null) throw new Exception("no files for this block: "+ts); // should not happen
+                if (f == null) throw new Exception("no files for this block: " + ts); // should not happen
                 List<InMemoryFile> resultInMemFiles;
                 try {
                     resultInMemFiles = f.get();
@@ -173,7 +184,10 @@ public class DownloadDay {
         } catch (Exception e) {
             e.printStackTrace();
             // on any error, delete partial file
-            try { Files.deleteIfExists(partialOutFile); } catch (IOException ignored) {}
+            try {
+                Files.deleteIfExists(partialOutFile);
+            } catch (IOException ignored) {
+            }
             throw e;
         }
         return prevRecordFileHash;
@@ -190,8 +204,11 @@ public class DownloadDay {
      * @return a list of in-memory files, the first is allways the most common record file
      * @throws Exception on any error
      */
-    private static List<InMemoryFile> downloadBlock(final List<ListingRecordFile> orderedFilesToDownload,
-            Storage storage, Set<ListingRecordFile> mostCommonFiles) throws Exception {
+    private static List<InMemoryFile> downloadBlock(
+            final List<ListingRecordFile> orderedFilesToDownload,
+            Storage storage,
+            Set<ListingRecordFile> mostCommonFiles)
+            throws Exception {
         final List<InMemoryFile> memFiles = new ArrayList<>();
         for (ListingRecordFile lr : orderedFilesToDownload) {
             final String blobName = BUCKET_PATH_PREFIX + lr.path();
@@ -243,17 +260,18 @@ public class DownloadDay {
      *         previousRecordFileHash for next block, or null if validation failed
      * @throws IllegalStateException if validation fails
      */
-    private static byte[] validateBlock(byte[] previousRecordFileHash, List<InMemoryFile> files,
-            final InMemoryFile mostCommonRecordFile) {
+    private static byte[] validateBlock(
+            byte[] previousRecordFileHash, List<InMemoryFile> files, final InMemoryFile mostCommonRecordFile) {
 
         final RecordFileInfo recordFileInfo = RecordFileInfo.parse(mostCommonRecordFile.data());
         byte[] readPreviousBlockHash = recordFileInfo.previousBlockHash().toByteArray();
         byte[] computedBlockHash = recordFileInfo.blockHash().toByteArray();
         // check computed previousRecordFileHash matches one read from file
         if (previousRecordFileHash != null && !Arrays.equals(previousRecordFileHash, readPreviousBlockHash)) {
-            throw new IllegalStateException("Previous block hash mismatch. Expected: " +
-                HexFormat.of().formatHex(previousRecordFileHash).substring(0,8) +
-                    ", Found: " + HexFormat.of().formatHex(readPreviousBlockHash).substring(0,8));
+            throw new IllegalStateException("Previous block hash mismatch. Expected: "
+                    + HexFormat.of().formatHex(previousRecordFileHash).substring(0, 8)
+                    + ", Found: "
+                    + HexFormat.of().formatHex(readPreviousBlockHash).substring(0, 8));
         }
         // TODO validate sigatures and sidecars
         return computedBlockHash;
