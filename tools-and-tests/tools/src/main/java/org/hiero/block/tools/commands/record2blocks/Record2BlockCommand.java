@@ -2,8 +2,8 @@
 package org.hiero.block.tools.commands.record2blocks;
 
 import static org.hiero.block.tools.commands.record2blocks.mirrornode.FetchBlockQuery.getPreviousHashForBlock;
-import static org.hiero.block.tools.commands.record2blocks.util.BlockWriter.writeBlock;
-import static org.hiero.block.tools.commands.record2blocks.util.RecordFileDates.blockTimeLongToInstant;
+import static org.hiero.block.tools.blocks.BlockWriter.writeBlock;
+import static org.hiero.block.tools.records.RecordFileDates.blockTimeLongToInstant;
 
 import com.hedera.hapi.block.stream.Block;
 import com.hedera.hapi.block.stream.BlockItem;
@@ -35,8 +35,8 @@ import org.hiero.block.tools.commands.record2blocks.model.BlockInfo;
 import org.hiero.block.tools.commands.record2blocks.model.BlockTimes;
 import org.hiero.block.tools.commands.record2blocks.model.ChainFile;
 import org.hiero.block.tools.commands.record2blocks.model.ParsedSignatureFile;
-import org.hiero.block.tools.commands.record2blocks.model.RecordFileInfo;
-import org.hiero.block.tools.commands.record2blocks.util.BlockWriter.BlockPath;
+import org.hiero.block.tools.records.RecordFileInfo;
+import org.hiero.block.tools.blocks.BlockWriter.BlockPath;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Help.Ansi;
 import picocli.CommandLine.Option;
