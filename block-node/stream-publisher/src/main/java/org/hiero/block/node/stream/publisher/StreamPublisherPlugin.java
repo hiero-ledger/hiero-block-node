@@ -40,7 +40,6 @@ import org.hiero.block.node.spi.ServiceBuilder;
  *
  */
 public final class StreamPublisherPlugin implements BlockNodePlugin, BlockStreamPublishServiceInterface {
-    // @todo(1413) add proper logging usage to this class.
     /** The logger for this class. */
     private final System.Logger LOGGER = System.getLogger(getClass().getName());
 
