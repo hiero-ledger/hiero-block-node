@@ -23,6 +23,8 @@ echo "BLOCKNODE_STORAGE_ROOT_PATH=/opt/hiero/block-node/storage" >> .env
 # echo "BACKFILL_BLOCK_NODE_SOURCES_PATH=/opt/hiero/block-node/backfill/backfill-sources.json" >> .env
 # block.node.earliestManagedBlock=100000000
 echo "BLOCK_NODE_EARLIEST_MANAGED_BLOCK=100000000" >> .env
+#server.maxMessageSizeBytes
+echo "SERVER_MAX_MESSAGE_SIZE_BYTES=16_777_215" >> .env
 
 if [ true = "$is_smoke_test" ]; then
   # add smoke test variables
