@@ -210,7 +210,7 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
                     try {
                         header = BlockHeader.PROTOBUF.parse(headerBytes);
                     } catch (final ParseException e) {
-                        LOGGER.log(DEBUG, "Failed to parse BlockHeader: {0}", e.getMessage(), e);
+                        LOGGER.log(DEBUG, "Failed to parse BlockHeader due to {0}", e);
                         // if we have reached this block, this means that the
                         // request is invalid
                         sendEndAndResetState(Code.INVALID_REQUEST);
@@ -584,7 +584,8 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
      * Handle the RESEND action for a block.
      */
     private BatchHandleResult handleResend() {
-        LOGGER.log(DEBUG, "Handler {0} is sending RESEND", handlerId);
+        final long blockToResend = publisherManager.getLatestBlockNumber() + 1L;
+        LOGGER.log(DEBUG, "Handler {0} is sending RESEND({1})", handlerId, blockToResend);
         // If the action is RESEND, we need to send a resend
         // response to the publisher and not propagate the items.
         final ResendBlock resendBlock = ResendBlock.newBuilder()
@@ -604,7 +605,7 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
      * Handle the END_BEHIND action for a block.
      */
     private BatchHandleResult handleEndBehind() {
-        LOGGER.log(DEBUG, "Handler {0} is sending BEHIND", handlerId);
+        LOGGER.log(DEBUG, "Handler {0} is sending BEHIND({1}).", handlerId, publisherManager.getLatestBlockNumber());
         // If the action is END_BEHIND, we need to send an end of stream
         // response to the publisher and not propagate the items.
         sendEndOfStream(Code.BEHIND);
@@ -615,7 +616,11 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
      * Handle the END_DUPLICATE action for a block.
      */
     private BatchHandleResult handleEndDuplicate() {
-        LOGGER.log(DEBUG, "Handler {0} is sending DUPLICATE_BLOCK", handlerId);
+        LOGGER.log(
+                DEBUG,
+                "Handler {0} is sending DUPLICATE_BLOCK({1}).",
+                handlerId,
+                publisherManager.getLatestBlockNumber());
         // If the action is END_DUPLICATE, we need to send an end of stream
         // response to the publisher and not propagate the items.
         sendEndOfStream(Code.DUPLICATE_BLOCK);
