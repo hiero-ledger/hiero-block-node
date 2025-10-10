@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.tools.commands.days.subcommands;
 
-import static org.hiero.block.tools.commands.days.download.DownloadConstants.RECORD_FILES_PER_DAY;
 import static org.hiero.block.tools.commands.days.download.DownloadDay.downloadDay;
 
 import java.io.File;
@@ -40,16 +39,18 @@ public class DownloadDay implements Runnable {
     @Override
     public void run() {
         try {
+            long now = System.currentTimeMillis();
             downloadDay(
                     listingDir.toPath(),
                     downloadedDaysDir.toPath(),
                     year,
                     month,
                     day,
-                    RECORD_FILES_PER_DAY,
-                    0,
+                    1L, // totalDays
+                    0, // dayIndex
                     threads,
-                    null);
+                    null,
+                    now);
         } catch (Exception e) {
             e.printStackTrace();
         }
