@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.tools.commands.days.subcommands;
 
-import static org.hiero.block.tools.commands.days.download.DownloadConstants.RECORD_FILES_PER_DAY;
 import static org.hiero.block.tools.commands.days.download.DownloadDay.downloadDay;
 
 import java.io.File;
@@ -38,13 +37,13 @@ public class DownloadDays implements Runnable {
     @Parameters(index = "2", description = "From day to download")
     private int fromDay = 13;
 
-    @Parameters(index = "0", description = "To year to download")
+    @Parameters(index = "3", description = "To year to download")
     private int toYear = LocalDate.now().getYear();
 
-    @Parameters(index = "1", description = "To month to download")
+    @Parameters(index = "4", description = "To month to download")
     private int toMonth = LocalDate.now().getMonthValue();
 
-    @Parameters(index = "2", description = "To day to download")
+    @Parameters(index = "5", description = "To day to download")
     private int toDay = LocalDate.now().getDayOfMonth();
 
     @Override
@@ -52,10 +51,11 @@ public class DownloadDays implements Runnable {
         final var days = LocalDate.of(fromYear, fromMonth, fromDay)
                 .datesUntil(LocalDate.of(toYear, toMonth, toDay).plusDays(1))
                 .toList();
-        final long totalProgress = days.size() * RECORD_FILES_PER_DAY;
-        long progress = 0;
+        final long totalDays = days.size();
+        final long overallStartMillis = System.currentTimeMillis();
         byte[] previousRecordHash = null;
-        for (final LocalDate localDate : days) {
+        for (int i = 0; i < days.size(); i++) {
+            final LocalDate localDate = days.get(i);
             try {
                 previousRecordHash = downloadDay(
                         listingDir.toPath(),
@@ -63,11 +63,11 @@ public class DownloadDays implements Runnable {
                         localDate.getYear(),
                         localDate.getMonthValue(),
                         localDate.getDayOfMonth(),
-                        totalProgress,
-                        progress,
+                        totalDays,
+                        i, // progressStart as day index (0-based)
                         threads,
-                        previousRecordHash);
-                progress += RECORD_FILES_PER_DAY;
+                        previousRecordHash,
+                        overallStartMillis);
             } catch (Exception e) {
                 e.printStackTrace();
                 throw new RuntimeException(e);

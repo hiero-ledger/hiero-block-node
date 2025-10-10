@@ -8,7 +8,8 @@ import static org.hiero.block.tools.commands.days.listing.DayListingFileReader.l
 import static org.hiero.block.tools.records.RecordFileUtils.extractRecordFileTimeStrFromPath;
 import static org.hiero.block.tools.records.RecordFileUtils.findMostCommonByType;
 import static org.hiero.block.tools.records.RecordFileUtils.findMostCommonSidecars;
-import static org.hiero.block.tools.utils.PrettyPrint.printProgress;
+import static org.hiero.block.tools.utils.PrettyPrint.clearProgress;
+import static org.hiero.block.tools.utils.PrettyPrint.printProgressWithEta;
 
 import com.google.cloud.storage.Storage;
 import com.google.cloud.storage.StorageOptions;
@@ -55,11 +56,12 @@ public class DownloadDay {
      * @param year the year (e.g., 2023) to download
      * @param month the month (1-12) to download
      * @param day the day of month (1-31) to download
-     * @param progressTotal total number of files expected for progress reporting
-     * @param progressStart offset into total for progress reporting
+     * @param totalDays total number of days in the overall download run (used to split 100% across days)
+     * @param dayIndex zero-based index of this day within the overall run (0..totalDays-1)
      * @param threads number of threads to use for processing blocks in parallel
-     * @param previousRecordFileHash the hash of the previous block's most common record file, null if first day
+     * @param previousRecordFileHash the hash of the previous block's most common record file, null if first
      *                               being processed
+     * @param overallStartMillis epoch millis when overall run started (for ETA calculations)
      * @return the hash of the last most common record file for this day, to be passed as previousRecordFileHash for next day
      * @throws Exception on any error
      */
@@ -69,10 +71,11 @@ public class DownloadDay {
             final int year,
             final int month,
             final int day,
-            final long progressTotal,
-            final long progressStart,
+            final long totalDays,
+            final int dayIndex,
             final int threads,
-            final byte[] previousRecordFileHash)
+            final byte[] previousRecordFileHash,
+            final long overallStartMillis)
             throws Exception {
         byte[] prevRecordFileHash = previousRecordFileHash;
         final List<ListingRecordFile> allDaysFiles = loadRecordsFileForDay(listingDir, year, month, day);
@@ -86,10 +89,17 @@ public class DownloadDay {
         final Path partialOutFile = downloadedDaysDir.resolve(dayString + ".tar.zstd_partial");
         // If the final output already exists, bail out early (higher-level command may also check)
         if (Files.exists(finalOutFile)) {
-            printProgress(
-                    progressStart,
-                    progressTotal,
-                    dayString + " :: Skipping as exists " + allDaysFiles.size() + " files");
+            // compute percent for this day as fully complete
+            double daySharePercent = (totalDays <= 0) ? 100.0 : (100.0 / totalDays);
+            double overallPercent = dayIndex * daySharePercent + daySharePercent; // this day done
+            long remaining = Long.MAX_VALUE;
+            long now = System.currentTimeMillis();
+            long elapsed = Math.max(1L, now - overallStartMillis);
+            if (overallPercent > 0.0 && overallPercent < 100.0) {
+                remaining = (long) (elapsed * (100.0 - overallPercent) / overallPercent);
+            }
+            printProgressWithEta(
+                    overallPercent, dayString + " :: Skipping as exists " + allDaysFiles.size() + " files", remaining);
             return null;
         }
         // ensure output dir exists
@@ -99,8 +109,14 @@ public class DownloadDay {
             Files.deleteIfExists(partialOutFile);
         } catch (IOException ignored) {
         }
-        // print starting message
-        printProgress(progressStart, progressTotal, dayString + " :: Processing " + allDaysFiles.size() + " files");
+        // print starting message (showing day share percent and unknown ETA initially)
+        double daySharePercent = (totalDays <= 0) ? 100.0 : (100.0 / totalDays);
+        double startingPercent = dayIndex * daySharePercent;
+        long remainingMillisUnknown = Long.MAX_VALUE;
+        printProgressWithEta(
+                startingPercent,
+                dayString + " :: Processing " + allDaysFiles.size() + " files",
+                remainingMillisUnknown);
         // sets for most common files
         final Set<ListingRecordFile> mostCommonFiles = new HashSet<>();
         filesByBlock.values().forEach(list -> {
@@ -116,9 +132,9 @@ public class DownloadDay {
         // Use Storage client to stream each blob into memory, check MD5, (ungzip if needed), and write to tar
         final Storage storage =
                 StorageOptions.newBuilder().setProjectId(GCP_PROJECT_ID).build().getService();
-        // precompute total files count cheaply to drive progress; reuse earlier count logic
-        int totalFiles = allDaysFiles.size();
-        AtomicLong writtenCounter = new AtomicLong(0);
+        // precompute total blocks count to drive per-block progress
+        int totalBlocks = sortedBlocks.size();
+        AtomicLong blocksProcessed = new AtomicLong(0);
         // create executor for parallel downloads
         // download, validate, and write files in block order
         try (final ExecutorService exec = Executors.newFixedThreadPool(Math.max(1, threads));
@@ -159,13 +175,17 @@ public class DownloadDay {
             }
 
             // iterate blocks in order, wait for downloads to complete, validate, compute hash, and enqueue entries
-            for (LocalDateTime ts : sortedBlocks) {
+            for (int blockIndex = 0; blockIndex < sortedBlocks.size(); blockIndex++) {
+                final LocalDateTime ts = sortedBlocks.get(blockIndex);
                 final Future<List<InMemoryFile>> f = futures.get(ts);
                 if (f == null) throw new Exception("no files for this block: " + ts); // should not happen
                 List<InMemoryFile> resultInMemFiles;
                 try {
                     resultInMemFiles = f.get();
                 } catch (ExecutionException ee) {
+                    // clear progress so stacktrace prints cleanly
+                    clearProgress();
+                    ee.getCause().printStackTrace();
                     throw new RuntimeException("Failed downloading block " + ts, ee.getCause());
                 }
                 // first is always the most common record file
@@ -173,15 +193,29 @@ public class DownloadDay {
                 // validate time period
                 prevRecordFileHash = validateBlock(prevRecordFileHash, resultInMemFiles, mostCommonRecordFileInMem);
                 // enqueue entries in the same block order to preserve tar ordering
+                final String blockStr = ts.toString();
                 for (InMemoryFile imf : resultInMemFiles) {
                     writer.putEntry(imf);
-                    long idx = writtenCounter.getAndIncrement();
-                    if (idx % 1000 == 0 || idx == totalFiles - 1) {
-                        printProgress(progressStart + idx, progressTotal, dayString + " :: Writing " + imf.path());
-                    }
                 }
+
+                // update blocks processed and print progress with ETA, showing every block
+                long processed = blocksProcessed.incrementAndGet();
+                double blockFraction = (totalBlocks == 0) ? 1.0 : (processed / (double) totalBlocks);
+                double overallPercent = dayIndex * daySharePercent + blockFraction * daySharePercent;
+                long now = System.currentTimeMillis();
+                long elapsed = Math.max(1L, now - overallStartMillis);
+                long remaining = Long.MAX_VALUE;
+                if (overallPercent > 0.0 && overallPercent < 100.0) {
+                    remaining = (long) (elapsed * (100.0 - overallPercent) / overallPercent);
+                } else if (overallPercent >= 100.0) {
+                    remaining = 0L;
+                }
+                String msg = dayString + " :: Block " + (blockIndex + 1) + "/" + totalBlocks + " (" + blockStr + ")";
+                printProgressWithEta(overallPercent, msg, remaining);
             }
         } catch (Exception e) {
+            // clear any active progress line before printing errors
+            clearProgress();
             e.printStackTrace();
             // on any error, delete partial file
             try {
@@ -190,6 +224,8 @@ public class DownloadDay {
             }
             throw e;
         }
+        // clear the progress line so caller output isn't mangled
+        clearProgress();
         return prevRecordFileHash;
     }
 
