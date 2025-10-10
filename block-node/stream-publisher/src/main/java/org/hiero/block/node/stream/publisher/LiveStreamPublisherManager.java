@@ -108,6 +108,7 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
                 new PublisherHandler(handlerId, replies, handlerMetrics, this, registerTransferQueue(handlerId));
         handlers.put(handlerId, newHandler);
         metrics.currentPublisherCount().set(handlers.size());
+        LOGGER.log(TRACE, "Added new handler {0}", handlerId);
         return newHandler;
     }
 
@@ -374,13 +375,21 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
             metrics.blocksClosedIncomplete.increment();
         } else {
             metrics.blocksClosedComplete.increment();
-            // @todo(1413) Also log completed blocks metric and any other relevant
+            // @todo(1416) Also log completed blocks metric and any other relevant
             //     actions. Also check if we have incomplete blocks lower than the
             //     block that completed, and possibly enter the resend process to
             //     have handlers go back and get the block that was too slow resent
             //     from a different publisher (don't forget to keep/track last
             //     completed block, and retain data in queue(s) for
             //     completed-but-not-forwarded blocks).
+
+            // @todo(1414)
+            // @todo(1415) Remove this log when the related tickets are done.
+            LOGGER.log(
+                    DEBUG,
+                    "Completed blocks: {0}, Incompleted blocks: {1}",
+                    metrics.blocksClosedComplete.get(),
+                    metrics.blocksClosedIncomplete.get());
         }
     }
 
