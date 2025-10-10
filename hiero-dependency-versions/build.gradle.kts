@@ -14,16 +14,16 @@ dependencies {
 dependencies.constraints {
     val daggerVersion = "2.57.2"
     val grpcIoVersion = "1.75.0"
-    val helidonVersion = "4.3.0"
+    val helidonVersion = "4.3.1"
     // When Upgrading pbjVersion, also need to update pbjCompiler version on
     // block-node/protobuf-pbj/build.gradle.kts
-    val pbjVersion = "0.11.15"
+    val pbjVersion = "0.12.0"
     val protobufVersion = "4.32.1"
     val swirldsVersion = "0.61.3"
     val mockitoVersion = "5.20.0"
     val testContainersVersion = "1.21.3"
 
-    api("com.github.luben:zstd-jni:1.5.7-4") { because("com.github.luben.zstd_jni") }
+    api("com.github.luben:zstd-jni:1.5.7-5") { because("com.github.luben.zstd_jni") }
     api("com.github.spotbugs:spotbugs-annotations:4.9.6") {
         because("com.github.spotbugs.annotations")
     }
@@ -80,7 +80,7 @@ dependencies.constraints {
     // Testing only versions
     api("com.github.docker-java:docker-java-api:3.6.0") { because("com.github.dockerjava.api") }
     api("org.assertj:assertj-core:3.27.6") { because("org.assertj.core") }
-    api("org.junit.jupiter:junit-jupiter-api:5.13.4") { because("org.junit.jupiter.api") }
+    api("org.junit.jupiter:junit-jupiter-api:6.0.0") { because("org.junit.jupiter.api") }
     api("org.mockito:mockito-core:${mockitoVersion}") { because("org.mockito") }
     api("org.mockito:mockito-junit-jupiter:${mockitoVersion}") {
         because("org.mockito.junit.jupiter")

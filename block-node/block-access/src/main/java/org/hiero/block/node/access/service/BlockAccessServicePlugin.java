@@ -2,8 +2,8 @@
 package org.hiero.block.node.access.service;
 
 import static java.lang.System.Logger.Level.ERROR;
+import static java.lang.System.Logger.Level.INFO;
 import static java.lang.System.Logger.Level.TRACE;
-import static java.lang.System.Logger.Level.WARNING;
 
 import com.hedera.hapi.block.stream.Block;
 import com.swirlds.metrics.api.Counter;
@@ -51,17 +51,18 @@ public class BlockAccessServicePlugin implements BlockNodePlugin, BlockAccessSer
             // The block number and retrieve latest are mutually exclusive in
             // the proto definition, so no need to check for that here.
 
-            // if retrieveLatest is set, or the request is for the largest
-            // possible block number, get the latest block.
-            if (request.retrieveLatestOrElse(false) || request.blockNumberOrElse(0L) == -1) {
-                blockNumberToRetrieve = blockProvider.availableBlocks().max();
-                if (blockNumberToRetrieve < 0) {
-                    LOGGER.log(WARNING, "Latest available block number is not available, this should not be possible.");
-                    responseCounterNotAvailable.increment();
-                    return new BlockResponse(Code.NOT_AVAILABLE, null);
-                }
-            } else {
+            // if retrieveLatest is set, or the request is for the largest possible block number, get the latest block.
+            if (request.hasBlockNumber() && request.blockNumber() >= 0) {
                 blockNumberToRetrieve = request.blockNumber();
+                LOGGER.log(TRACE, "Received `block_number` BlockRequest, retrieving block: {0}", blockNumberToRetrieve);
+            } else if ((request.hasRetrieveLatest() && request.retrieveLatest())
+                    || (request.hasBlockNumber() && request.blockNumber() == -1)) {
+                blockNumberToRetrieve = blockProvider.availableBlocks().max();
+                LOGGER.log(
+                        TRACE, "Received 'retrieveLatest' BlockRequest, retrieving block: {0}", blockNumberToRetrieve);
+            } else {
+                LOGGER.log(INFO, "Invalid request, 'retrieve_latest' or a valid 'block number' is required.");
+                return new BlockResponse(Code.INVALID_REQUEST, null);
             }
 
             // Check if block is within the available range
