@@ -39,6 +39,8 @@ public class VerificationServicePlugin implements BlockNodePlugin, BlockItemHand
     private long currentBlockNumber = -1;
     /** The time when block verification started. */
     private long blockWorkStartTime;
+    /** Verification Start time, when actual hashing works starts. */
+    private long hashingWorkStartTime;
     /** Metric for number of blocks received. */
     private Counter verificationBlocksReceived;
     /** Metric for number of blocks verified. */
@@ -49,6 +51,10 @@ public class VerificationServicePlugin implements BlockNodePlugin, BlockItemHand
     private Counter verificationBlocksError;
     /** Metric for block verification time. */
     private Counter verificationBlockTime;
+    /** Metric for block hashing time. ignores time to receive block */
+    private Counter hashingBlockTime;
+
+    private long blockVerificationTotalTimeNs = 0L;
 
     /**
      * {@inheritDoc}
@@ -84,6 +90,9 @@ public class VerificationServicePlugin implements BlockNodePlugin, BlockItemHand
 
         verificationBlockTime = metrics.getOrCreate(new Counter.Config(METRICS_CATEGORY, "verification_block_time")
                 .withDescription("Verification time per block (ms)"));
+
+        hashingBlockTime = metrics.getOrCreate(new Counter.Config(METRICS_CATEGORY, "hashing_block_time")
+                .withDescription("Hashing time per block (ms)"));
     }
 
     /**
@@ -128,6 +137,7 @@ public class VerificationServicePlugin implements BlockNodePlugin, BlockItemHand
     @Override
     public void handleBlockItemsReceived(BlockItems blockItems) {
         try {
+            final long startVerificationHandlingTime = System.nanoTime();
             if (!context.serverHealth().isRunning()) {
                 LOGGER.log(ERROR, "Service is not running. Block item will not be processed further.");
                 return;
@@ -138,7 +148,7 @@ public class VerificationServicePlugin implements BlockNodePlugin, BlockItemHand
                 // we already checked that firstItem has blockHeader
                 currentBlockNumber = blockItems.blockNumber();
                 // start working time
-                blockWorkStartTime = System.nanoTime();
+                // blockWorkStartTime = System.nanoTime();
                 BlockHeader blockHeader = BlockHeader.PROTOBUF.parse(
                         blockItems.blockItems().getFirst().blockHeader());
                 if (currentBlockNumber != blockHeader.number()) {
@@ -169,6 +179,13 @@ public class VerificationServicePlugin implements BlockNodePlugin, BlockItemHand
                         "Appending {0} block items to the current session for block number: {1}",
                         blockItems.blockItems().size(),
                         currentBlockNumber);
+
+                // if the last item has a block proof, we are doing the final hashing work
+                if(blockItems.blockItems().getLast().hasBlockProof()) {
+                    // we are doing the final hashing work, start timing it
+                    hashingWorkStartTime = System.nanoTime();
+                }
+
                 VerificationNotification notification = currentSession.processBlockItems(blockItems.blockItems());
                 if (notification != null) {
                     LOGGER.log(
@@ -182,13 +199,15 @@ public class VerificationServicePlugin implements BlockNodePlugin, BlockItemHand
                         verificationBlocksFailed.increment();
                         LOGGER.log(WARNING, "Block verification failed for block number: {0}", currentBlockNumber);
                     }
-                    verificationBlockTime.add(System.nanoTime() - blockWorkStartTime);
+                    hashingBlockTime.add(System.nanoTime() - hashingWorkStartTime);
                     // send the notification to the block messaging service
                     LOGGER.log(
                             TRACE, "Sending block verification notification for block number: {0}", currentBlockNumber);
                     context.blockMessaging().sendBlockVerification(notification);
                 }
             }
+            LOGGER.log(TRACE, "Finished verification handling block items for block number: {0}", currentBlockNumber);
+            verificationBlockTime.add(System.nanoTime() - startVerificationHandlingTime);
         } catch (final Exception e) {
             LOGGER.log(ERROR, "Failed to verify BlockItems: ", e);
             verificationBlocksError.increment();
