@@ -96,5 +96,5 @@ dependencies.constraints {
     }
     api("com.google.jimfs:jimfs:1.3.1") { because("com.google.common.jimfs") }
     api("io.minio:minio:8.5.17") { because("io.minio") }
-    api("com.squareup.okio:okio-jvm:3.16.0") { because("okio") } // required by minio
+    api("com.squareup.okio:okio-jvm:3.16.1") { because("okio") } // required by minio
 }
