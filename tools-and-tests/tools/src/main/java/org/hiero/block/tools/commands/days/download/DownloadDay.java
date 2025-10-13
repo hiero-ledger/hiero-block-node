@@ -42,6 +42,7 @@ import org.hiero.block.tools.utils.Md5Checker;
  * Download all record files for a given day from GCP, group by block, deduplicate, validate,
  * and write into a single .tar.zstd file.
  */
+@SuppressWarnings("CallToPrintStackTrace")
 public class DownloadDay {
     /** GCP BlobSourceOption to use userProject for billing */
     public static final com.google.cloud.storage.Storage.BlobSourceOption BLOB_SOURCE_OPTION =
@@ -200,7 +201,7 @@ public class DownloadDay {
 
                 // update blocks processed and print progress with ETA, showing every block
                 long processed = blocksProcessed.incrementAndGet();
-                double blockFraction = (totalBlocks == 0) ? 1.0 : (processed / (double) totalBlocks);
+                double blockFraction = processed / (double) totalBlocks;
                 double overallPercent = dayIndex * daySharePercent + blockFraction * daySharePercent;
                 long now = System.currentTimeMillis();
                 long elapsed = Math.max(1L, now - overallStartMillis);
@@ -211,7 +212,7 @@ public class DownloadDay {
                     remaining = 0L;
                 }
                 String msg = dayString + " :: Block " + (blockIndex + 1) + "/" + totalBlocks + " (" + blockStr + ")";
-                printProgressWithEta(overallPercent, msg, remaining);
+                if (blockIndex % 500 == 0) printProgressWithEta(overallPercent, msg, remaining);
             }
         } catch (Exception e) {
             // clear any active progress line before printing errors
@@ -224,8 +225,6 @@ public class DownloadDay {
             }
             throw e;
         }
-        // clear the progress line so caller output isn't mangled
-        clearProgress();
         return prevRecordFileHash;
     }
 
