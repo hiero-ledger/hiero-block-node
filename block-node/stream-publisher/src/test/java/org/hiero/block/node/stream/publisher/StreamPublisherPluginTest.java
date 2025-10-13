@@ -4,7 +4,9 @@ package org.hiero.block.node.stream.publisher;
 import static java.util.concurrent.locks.LockSupport.parkNanos;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hiero.block.node.app.fixtures.TestUtils.enableDebugLogging;
+import static org.hiero.block.node.app.fixtures.blocks.SimpleTestBlockItemBuilder.toBlockItems;
 
+import com.hedera.hapi.block.stream.Block;
 import com.hedera.hapi.block.stream.BlockItem;
 import com.hedera.pbj.runtime.ParseException;
 import com.hedera.pbj.runtime.UncheckedParseException;
@@ -12,6 +14,7 @@ import com.hedera.pbj.runtime.grpc.ServiceInterface;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -25,10 +28,12 @@ import org.hiero.block.api.PublishStreamResponse.ResponseOneOfType;
 import org.hiero.block.internal.BlockItemSetUnparsed;
 import org.hiero.block.internal.BlockItemUnparsed;
 import org.hiero.block.internal.PublishStreamRequestUnparsed;
+import org.hiero.block.node.app.config.node.NodeConfig;
 import org.hiero.block.node.app.fixtures.blocks.SimpleTestBlockItemBuilder;
 import org.hiero.block.node.app.fixtures.plugintest.GrpcPluginTestBase;
 import org.hiero.block.node.app.fixtures.plugintest.SimpleInMemoryHistoricalBlockFacility;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
@@ -38,6 +43,24 @@ import org.junit.jupiter.api.Test;
  */
 @DisplayName("StreamPublisherPlugin Tests")
 class StreamPublisherPluginTest {
+    // ASSERTION MAPPERS
+    private static final Function<Bytes, PublishStreamResponse> bytesToPublishStreamResponseMapper = bytes -> {
+        try {
+            return PublishStreamResponse.PROTOBUF.parse(bytes);
+        } catch (final ParseException e) {
+            throw new UncheckedParseException(e);
+        }
+    };
+    // ASSERTION EXTRACTORS
+    private static final Function<PublishStreamResponse, ResponseOneOfType> responseKindExtractor =
+            response -> response.response().kind();
+    private static final Function<PublishStreamResponse, Code> endStreamResponseCodeExtractor =
+            response -> Objects.requireNonNull(response.endStream()).status();
+    private static final Function<PublishStreamResponse, Long> endStreamResponseBlockNumberExtractor =
+            response -> Objects.requireNonNull(response.endStream()).blockNumber();
+    private static final Function<PublishStreamResponse, Long> acknowledgementBlockNumberExtractor =
+            response -> Objects.requireNonNull(response.acknowledgement()).blockNumber();
+
     /**
      * Enable debug logging for each test.
      */
@@ -52,20 +75,6 @@ class StreamPublisherPluginTest {
     @Nested
     @DisplayName("Plugin Tests")
     class PluginTest extends GrpcPluginTestBase<StreamPublisherPlugin, ExecutorService> {
-        // ASSERTION MAPPERS
-        private final Function<Bytes, PublishStreamResponse> bytesToPublishStreamResponseMapper = bytes -> {
-            try {
-                return PublishStreamResponse.PROTOBUF.parse(bytes);
-            } catch (final ParseException e) {
-                throw new UncheckedParseException(e);
-            }
-        };
-        // ASSERTION EXTRACTORS
-        private final Function<PublishStreamResponse, ResponseOneOfType> responseKindExtractor =
-                response -> response.response().kind();
-        private final Function<PublishStreamResponse, Code> endStreamResponseCodeExtractor =
-                response -> Objects.requireNonNull(response.endStream()).status();
-
         /**
          * Constructor for the plugin tests.
          */
@@ -118,7 +127,8 @@ class StreamPublisherPluginTest {
                     .extracting(bytesToPublishStreamResponseMapper)
                     .isNotNull()
                     .returns(ResponseOneOfType.END_STREAM, responseKindExtractor)
-                    .returns(Code.INVALID_REQUEST, endStreamResponseCodeExtractor);
+                    .returns(Code.INVALID_REQUEST, endStreamResponseCodeExtractor)
+                    .returns(-1L, endStreamResponseBlockNumberExtractor);
         }
 
         /**
@@ -145,7 +155,8 @@ class StreamPublisherPluginTest {
                     .extracting(bytesToPublishStreamResponseMapper)
                     .isNotNull()
                     .returns(ResponseOneOfType.END_STREAM, responseKindExtractor)
-                    .returns(Code.INVALID_REQUEST, endStreamResponseCodeExtractor);
+                    .returns(Code.INVALID_REQUEST, endStreamResponseCodeExtractor)
+                    .returns(-1L, endStreamResponseBlockNumberExtractor);
         }
 
         /**
@@ -169,7 +180,8 @@ class StreamPublisherPluginTest {
                     .extracting(bytesToPublishStreamResponseMapper)
                     .isNotNull()
                     .returns(ResponseOneOfType.END_STREAM, responseKindExtractor)
-                    .returns(Code.ERROR, endStreamResponseCodeExtractor);
+                    .returns(Code.ERROR, endStreamResponseCodeExtractor)
+                    .returns(-1L, endStreamResponseBlockNumberExtractor);
         }
 
         /**
@@ -189,14 +201,412 @@ class StreamPublisherPluginTest {
                     .build();
             // Send the request to the pipeline
             toPluginPipe.onNext(PublishStreamRequestUnparsed.PROTOBUF.toBytes(request));
-            parkNanos(500_000_000L);
             // Await to ensure async execution and assert response
+            parkNanos(500_000_000L);
             assertThat(fromPluginBytes)
                     .hasSize(1)
                     .first()
                     .extracting(bytesToPublishStreamResponseMapper)
                     .isNotNull()
-                    .returns(ResponseOneOfType.ACKNOWLEDGEMENT, responseKindExtractor);
+                    .returns(ResponseOneOfType.ACKNOWLEDGEMENT, responseKindExtractor)
+                    .returns(0L, acknowledgementBlockNumberExtractor);
         }
+    }
+
+    /**
+     * Test for the {@link StreamPublisherPlugin} plugin when publishing a block
+     * prior to the earliest managed block.
+     */
+    @Nested
+    @DisplayName("Plugin Tests Pre Earliest Managed Block")
+    class PluginTestsPreEarliestManagedBlock extends GrpcPluginTestBase<StreamPublisherPlugin, ExecutorService> {
+        /** The historical block facility to use when testing. */
+        private final SimpleInMemoryHistoricalBlockFacility historicalBlockFacility;
+
+        /**
+         * Constructor for the plugin tests.
+         */
+        PluginTestsPreEarliestManagedBlock() {
+            super(Executors.newSingleThreadExecutor());
+            historicalBlockFacility = new SimpleInMemoryHistoricalBlockFacility();
+        }
+
+        private void activatePlugin(final long earliestManagedBlock) {
+            final StreamPublisherPlugin toTest = new StreamPublisherPlugin();
+            final Map<String, String> configOverrides =
+                    Map.ofEntries(Map.entry("block.node.earliestManagedBlock", Long.toString(earliestManagedBlock)));
+            start(toTest, toTest.methods().getFirst(), historicalBlockFacility, configOverrides);
+            // Assert that the earliest managed block is set to 10
+            final long earliestManagedBlockFromConfig = blockNodeContext
+                    .configuration()
+                    .getConfigData(NodeConfig.class)
+                    .earliestManagedBlock();
+            assertThat(earliestManagedBlockFromConfig).isGreaterThan(-1L).isEqualTo(earliestManagedBlock);
+        }
+
+        /**
+         * This test aims to assert that a valid block could be streamed to the
+         * plugin even if it is prior to the earliestManagedBlock, granted that
+         * this is the first block ever published after the plugin has started.
+         * Here, we have no prior block history.
+         */
+        @Test
+        @DisplayName("Test publish a valid block as items prior to earliestManagedBlock, no history")
+        void testStreamPriorToEarliestManagedBlockNoHistory() {
+            activatePlugin(10L);
+            // Build a PublishStreamRequest with a valid block as items
+            final BlockItemUnparsed[] block = SimpleTestBlockItemBuilder.createNumberOfVerySimpleBlocksUnparsed(0, 1);
+            final BlockItemSetUnparsed blockItems =
+                    BlockItemSetUnparsed.newBuilder().blockItems(block).build();
+            final PublishStreamRequestUnparsed request = PublishStreamRequestUnparsed.newBuilder()
+                    .blockItems(blockItems)
+                    .build();
+            // Send the request to the pipeline
+            toPluginPipe.onNext(PublishStreamRequestUnparsed.PROTOBUF.toBytes(request));
+            // Await to ensure async execution and assert response
+            parkNanos(500_000_000L);
+            // Assert that the block has been successfully streamed
+            assertThat(fromPluginBytes)
+                    .hasSize(1)
+                    .first()
+                    .extracting(bytesToPublishStreamResponseMapper)
+                    .isNotNull()
+                    .returns(ResponseOneOfType.ACKNOWLEDGEMENT, responseKindExtractor)
+                    .returns(0L, acknowledgementBlockNumberExtractor);
+        }
+
+        /**
+         * This test aims to assert that a valid block could be streamed to the
+         * plugin even if it is prior to the earliestManagedBlock, granted that
+         * there is prior block history and the start of the stream is after the
+         * history.
+         */
+        @Test
+        @DisplayName(
+                "Test publish a valid block as items prior to earliestManagedBlock, with history, start after history")
+        void testStreamPriorToEarliestManagedBlockWithHistoryStartAfterHistory() {
+            // First, we need to ensure we have some history.
+            final List<Block> blocks = SimpleTestBlockItemBuilder.createNumberOfVerySimpleBlocksBatched(0, 5);
+            // Add all the blocks to the historical block facility.
+            for (final Block block : blocks) {
+                historicalBlockFacility.handleBlockItemsReceived(toBlockItems(block.items()), false);
+            }
+            // Activate the plugin with the earliest managed block of 10.
+            activatePlugin(10L);
+            // Assert that the historical block facility has blocks 0-5
+            assertThat(blockNodeContext
+                            .historicalBlockProvider()
+                            .availableBlocks()
+                            .contains(0, 5))
+                    .isTrue();
+            // Build a PublishStreamRequest with a valid block as items prior to earliestManagedBlock && after history
+            final BlockItemUnparsed[] block = SimpleTestBlockItemBuilder.createNumberOfVerySimpleBlocksUnparsed(6, 6);
+            final BlockItemSetUnparsed blockItems =
+                    BlockItemSetUnparsed.newBuilder().blockItems(block).build();
+            final PublishStreamRequestUnparsed request = PublishStreamRequestUnparsed.newBuilder()
+                    .blockItems(blockItems)
+                    .build();
+            // Send the request to the pipeline
+            toPluginPipe.onNext(PublishStreamRequestUnparsed.PROTOBUF.toBytes(request));
+            // Await to ensure async execution and assert response
+            parkNanos(500_000_000L);
+            // Assert that the block has been successfully streamed
+            assertThat(fromPluginBytes)
+                    .hasSize(1)
+                    .first()
+                    .extracting(bytesToPublishStreamResponseMapper)
+                    .isNotNull()
+                    .returns(ResponseOneOfType.ACKNOWLEDGEMENT, responseKindExtractor)
+                    .returns(6L, acknowledgementBlockNumberExtractor);
+        }
+
+        /**
+         * This test aims to assert that a valid block could be streamed to the
+         * plugin even if it is prior to the earliestManagedBlock, granted that
+         * there is prior block history and the start of the stream is before
+         * the history.
+         */
+        @Test
+        @DisplayName(
+                "Test publish a valid block as items prior to earliestManagedBlock, with history, start before history")
+        void testStreamPriorToEarliestManagedBlockWithHistoryStartBeforeHistory() {
+            // First, we need to ensure we have some history.
+            final List<Block> blocks = SimpleTestBlockItemBuilder.createNumberOfVerySimpleBlocksBatched(3, 5);
+            // Add all the blocks to the historical block facility.
+            for (final Block block : blocks) {
+                historicalBlockFacility.handleBlockItemsReceived(toBlockItems(block.items()), false);
+            }
+            activatePlugin(10L);
+            // Assert that the historical block facility has blocks 3-5
+            assertThat(blockNodeContext
+                            .historicalBlockProvider()
+                            .availableBlocks()
+                            .contains(3, 5))
+                    .isTrue();
+            // Build a PublishStreamRequest with a valid block as items prior to earliestManagedBlock && history
+            final BlockItemUnparsed[] block = SimpleTestBlockItemBuilder.createNumberOfVerySimpleBlocksUnparsed(2, 2);
+            final BlockItemSetUnparsed blockItems =
+                    BlockItemSetUnparsed.newBuilder().blockItems(block).build();
+            final PublishStreamRequestUnparsed request = PublishStreamRequestUnparsed.newBuilder()
+                    .blockItems(blockItems)
+                    .build();
+            // Send the request to the pipeline
+            toPluginPipe.onNext(PublishStreamRequestUnparsed.PROTOBUF.toBytes(request));
+            // Await to ensure async execution and assert response
+            parkNanos(500_000_000L);
+            // Assert that the block has been successfully streamed
+            assertThat(fromPluginBytes)
+                    .hasSize(1)
+                    .first()
+                    .extracting(bytesToPublishStreamResponseMapper)
+                    .isNotNull()
+                    .returns(ResponseOneOfType.ACKNOWLEDGEMENT, responseKindExtractor)
+                    .returns(2L, acknowledgementBlockNumberExtractor);
+        }
+
+        /**
+         * This test aims to assert that a valid block could be streamed to the
+         * plugin even if it is prior to the earliestManagedBlock, granted that
+         * there is prior block history and the start of the stream is in the
+         * middle of the history.
+         */
+        @Test
+        @DisplayName(
+                "Test publish a valid block as items prior to earliestManagedBlock, with history, start mid history")
+        void testStreamPriorToEarliestManagedBlockWithHistoryStartMidHistory() {
+            // First, we need to ensure we have some history.
+            final List<Block> blocks = SimpleTestBlockItemBuilder.createNumberOfVerySimpleBlocksBatched(0, 5);
+            // Add all the blocks to the historical block facility.
+            for (final Block block : blocks) {
+                historicalBlockFacility.handleBlockItemsReceived(toBlockItems(block.items()), false);
+            }
+            activatePlugin(10L);
+            // Assert that the historical block facility has blocks 0-5
+            assertThat(blockNodeContext
+                            .historicalBlockProvider()
+                            .availableBlocks()
+                            .contains(0, 5))
+                    .isTrue();
+            // Build a PublishStreamRequest with a valid block as items prior to earliestManagedBlock && mid history
+            final BlockItemUnparsed[] block = SimpleTestBlockItemBuilder.createNumberOfVerySimpleBlocksUnparsed(3, 3);
+            final BlockItemSetUnparsed blockItems =
+                    BlockItemSetUnparsed.newBuilder().blockItems(block).build();
+            final PublishStreamRequestUnparsed request = PublishStreamRequestUnparsed.newBuilder()
+                    .blockItems(blockItems)
+                    .build();
+            // Send the request to the pipeline
+            toPluginPipe.onNext(PublishStreamRequestUnparsed.PROTOBUF.toBytes(request));
+            // Await to ensure async execution and assert response
+            parkNanos(500_000_000L);
+            // Assert that the block has been successfully streamed
+            assertThat(fromPluginBytes)
+                    .hasSize(1)
+                    .first()
+                    .extracting(bytesToPublishStreamResponseMapper)
+                    .isNotNull()
+                    .returns(ResponseOneOfType.ACKNOWLEDGEMENT, responseKindExtractor)
+                    .returns(3L, acknowledgementBlockNumberExtractor);
+        }
+
+        /**
+         * This test aims to assert that a valid block could NOT be streamed to
+         * the plugin if it is prior to the earliestManagedBlock and there is
+         * prior block history where the latest historical block passes or
+         * is equal to the earliestManagedBlock.
+         */
+        @Test
+        @DisplayName(
+                "Test publish a valid block as items prior to earliestManagedBlock, with history, latest historical block >= earliestManagedBlock")
+        void testStreamPriorToEarliestManagedBlockHistorySurpass() {
+            // First, we need to ensure we have some history where the latest historical block is >= the earliest
+            // managed block.
+            final int expectedLatestPersistedBlockNumber = 10;
+            final List<Block> blocks = SimpleTestBlockItemBuilder.createNumberOfVerySimpleBlocksBatched(
+                    expectedLatestPersistedBlockNumber, expectedLatestPersistedBlockNumber);
+            for (final Block block : blocks) {
+                historicalBlockFacility.handleBlockItemsReceived(toBlockItems(block.items()), false);
+            }
+            activatePlugin(10L);
+            // Assert that the historical block facility has block 10
+            assertThat(blockNodeContext
+                            .historicalBlockProvider()
+                            .availableBlocks()
+                            .contains(expectedLatestPersistedBlockNumber))
+                    .isTrue();
+            // Build a PublishStreamRequest with a valid block as items prior to earliestManagedBlock
+            final BlockItemUnparsed[] block = SimpleTestBlockItemBuilder.createNumberOfVerySimpleBlocksUnparsed(3, 3);
+            final BlockItemSetUnparsed blockItems =
+                    BlockItemSetUnparsed.newBuilder().blockItems(block).build();
+            final PublishStreamRequestUnparsed request = PublishStreamRequestUnparsed.newBuilder()
+                    .blockItems(blockItems)
+                    .build();
+            // Send the request to the pipeline
+            toPluginPipe.onNext(PublishStreamRequestUnparsed.PROTOBUF.toBytes(request));
+            // Await to ensure async execution and assert response
+            parkNanos(500_000_000L);
+            // Assert that the block has been successfully streamed
+            assertThat(fromPluginBytes)
+                    .hasSize(1)
+                    .first()
+                    .extracting(bytesToPublishStreamResponseMapper)
+                    .isNotNull()
+                    .returns(ResponseOneOfType.END_STREAM, responseKindExtractor)
+                    .returns(Code.DUPLICATE_BLOCK, endStreamResponseCodeExtractor)
+                    .returns((long) expectedLatestPersistedBlockNumber, endStreamResponseBlockNumberExtractor);
+        }
+
+        /**
+         * This test aims to verify that once a block has been streamed to the
+         * plugin prior to the earliest managed block, the chain of blocks
+         * must then be followed strictly. Here, we want to make sure that
+         * sending the next block which does continue the chain is possible.
+         */
+        @Test
+        @DisplayName(
+                "Test publish a valid block as items prior to earliestManagedBlock, next blocks continue the chain")
+        void testStreamPriorToEarliestManagedBlockFollowUpContinuesChain() {
+            final BlockItemUnparsed[] block0 = SimpleTestBlockItemBuilder.createSimpleBlockUnparsedWithNumber(0);
+            // Activate the plugin with the earliest managed block of 10.
+            activatePlugin(10L);
+            // Then, we need to stream the first block
+            final BlockItemSetUnparsed firstRequestSet =
+                    BlockItemSetUnparsed.newBuilder().blockItems(block0).build();
+            final PublishStreamRequestUnparsed firstRequest = PublishStreamRequestUnparsed.newBuilder()
+                    .blockItems(firstRequestSet)
+                    .build();
+            toPluginPipe.onNext(PublishStreamRequestUnparsed.PROTOBUF.toBytes(firstRequest));
+            // Await to ensure async execution and assert response
+            parkNanos(500_000_000L);
+            // Assert that the block has been successfully streamed
+            assertThat(fromPluginBytes)
+                    .hasSize(1)
+                    .first()
+                    .extracting(bytesToPublishStreamResponseMapper)
+                    .isNotNull()
+                    .returns(ResponseOneOfType.ACKNOWLEDGEMENT, responseKindExtractor)
+                    .returns(0L, acknowledgementBlockNumberExtractor);
+            // Clear the plugin pipe
+            fromPluginBytes.clear();
+            // Now attempt to send the next block
+            final BlockItemUnparsed[] block1 = SimpleTestBlockItemBuilder.createSimpleBlockUnparsedWithNumber(1);
+            final BlockItemSetUnparsed secondRequestSet =
+                    BlockItemSetUnparsed.newBuilder().blockItems(block1).build();
+            final PublishStreamRequestUnparsed secondRequest = PublishStreamRequestUnparsed.newBuilder()
+                    .blockItems(secondRequestSet)
+                    .build();
+            toPluginPipe.onNext(PublishStreamRequestUnparsed.PROTOBUF.toBytes(secondRequest));
+            // Await to ensure async execution and assert response
+            parkNanos(500_000_000L);
+            // Assert that the block has been successfully streamed
+            assertThat(fromPluginBytes)
+                    .hasSize(1)
+                    .first()
+                    .extracting(bytesToPublishStreamResponseMapper)
+                    .isNotNull()
+                    .returns(ResponseOneOfType.ACKNOWLEDGEMENT, responseKindExtractor)
+                    .returns(1L, acknowledgementBlockNumberExtractor);
+        }
+
+        /**
+         * This test aims to verify that once a block has been streamed to the
+         * plugin prior to the earliest managed block, the chain of blocks
+         * must then be followed strictly. Here, we want to make sure that
+         * sending the next block which does not continue the chain will not
+         * be possible, be that prior to the first block sent, equal to it, or
+         * after it but not continuing the chain.
+         */
+        @Test
+        @DisplayName(
+                "Test publish a valid block as items prior to earliestManagedBlock, next blocks must continue chain")
+        void testStreamPriorToEarliestManagedBlockMustContinueChain() {
+            final BlockItemUnparsed[] block0 = SimpleTestBlockItemBuilder.createSimpleBlockUnparsedWithNumber(0);
+            // Activate the plugin with the earliest managed block of 10.
+            activatePlugin(10L);
+            // Then, we need to stream the first block
+            final BlockItemSetUnparsed firstRequestSet =
+                    BlockItemSetUnparsed.newBuilder().blockItems(block0).build();
+            final PublishStreamRequestUnparsed firstRequest = PublishStreamRequestUnparsed.newBuilder()
+                    .blockItems(firstRequestSet)
+                    .build();
+            toPluginPipe.onNext(PublishStreamRequestUnparsed.PROTOBUF.toBytes(firstRequest));
+            // Await to ensure async execution and assert response
+            parkNanos(500_000_000L);
+            // Assert that the block has been successfully streamed
+            assertThat(fromPluginBytes)
+                    .hasSize(1)
+                    .first()
+                    .extracting(bytesToPublishStreamResponseMapper)
+                    .isNotNull()
+                    .returns(ResponseOneOfType.ACKNOWLEDGEMENT, responseKindExtractor)
+                    .returns(0L, acknowledgementBlockNumberExtractor);
+            // Clear the plugin pipe
+            fromPluginBytes.clear();
+            // Now attempt to send the same request again, that should not be possible
+            toPluginPipe.onNext(PublishStreamRequestUnparsed.PROTOBUF.toBytes(firstRequest));
+            // Assert end stream
+            assertThat(fromPluginBytes)
+                    .hasSize(1)
+                    .first()
+                    .extracting(bytesToPublishStreamResponseMapper)
+                    .isNotNull()
+                    .returns(ResponseOneOfType.END_STREAM, responseKindExtractor)
+                    .returns(Code.DUPLICATE_BLOCK, endStreamResponseCodeExtractor)
+                    .returns(0L, endStreamResponseBlockNumberExtractor);
+        }
+
+        /**
+         * This test aims to verify that once a block has been streamed to the
+         * plugin prior to the earliest managed block, the chain of blocks
+         * must then be followed strictly. Here, we want to make sure that
+         * sending the next block which does not continue the chain will not
+         * be possible, be that prior to the first block sent, equal to it, or
+         * after it but not continuing the chain. This test covers an edge case
+         * where we land on the earliest managed block exactly, and the history
+         * has just caught up. It should not be allowed to repeat that block.
+         */
+        @Test
+        @Disabled("This test covers an edge case in the getActionForBlock from the manager") // @todo(1693)
+        @DisplayName(
+                "Test publish a valid block as items prior to earliestManagedBlock, next blocks must continue chain, with history")
+        void testStreamPriorToEarliestManagedBlockMustContinueChainWithHistoryEdge() {
+            final BlockItemUnparsed[] block0 = SimpleTestBlockItemBuilder.createSimpleBlockUnparsedWithNumber(0);
+            // Activate the plugin with the earliest managed block of 1. This will allow us to hit the edge case.
+            activatePlugin(1L);
+            // Then, we need to stream the first block
+            final BlockItemSetUnparsed firstRequestSet =
+                    BlockItemSetUnparsed.newBuilder().blockItems(block0).build();
+            final PublishStreamRequestUnparsed firstRequest = PublishStreamRequestUnparsed.newBuilder()
+                    .blockItems(firstRequestSet)
+                    .build();
+            toPluginPipe.onNext(PublishStreamRequestUnparsed.PROTOBUF.toBytes(firstRequest));
+            // Await to ensure async execution and assert response
+            parkNanos(500_000_000L);
+            // Assert that the block has been successfully streamed
+            assertThat(fromPluginBytes)
+                    .hasSize(1)
+                    .first()
+                    .extracting(bytesToPublishStreamResponseMapper)
+                    .isNotNull()
+                    .returns(ResponseOneOfType.ACKNOWLEDGEMENT, responseKindExtractor)
+                    .returns(0L, acknowledgementBlockNumberExtractor);
+            // Clear the plugin pipe
+            fromPluginBytes.clear();
+            // Now attempt to send the same request again, that should not be possible
+            toPluginPipe.onNext(PublishStreamRequestUnparsed.PROTOBUF.toBytes(firstRequest));
+            // Await to ensure async execution and assert response
+            parkNanos(500_000_000L);
+            // Assert end stream
+            assertThat(fromPluginBytes)
+                    .hasSize(1)
+                    .first()
+                    .extracting(bytesToPublishStreamResponseMapper)
+                    .isNotNull()
+                    .returns(ResponseOneOfType.END_STREAM, responseKindExtractor)
+                    .returns(Code.DUPLICATE_BLOCK, endStreamResponseCodeExtractor)
+                    .returns(0L, endStreamResponseBlockNumberExtractor);
+        }
+
+        // @todo(1693) add tests:
+        //    - add e2e test cases to test plan
     }
 }

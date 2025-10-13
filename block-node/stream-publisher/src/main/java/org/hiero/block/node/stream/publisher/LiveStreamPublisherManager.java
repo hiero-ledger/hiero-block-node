@@ -220,21 +220,13 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
      */
     private BlockAction getActionForHeader(final long blockNumber, final long handlerId) {
         if (blockNumber <= lastPersistedBlockNumber.get()) {
-            return BlockAction.END_DUPLICATE;
+            // @todo(1693) there is an edge case here, we can stream one and the
+            //    same block number multiple times because things can advance and
+            //    the check that works for the next else-if does not fit this one.
+            //    We need slightly different conditions here.
+            return streamBeforeEMBOr(blockNumber, handlerId, BlockAction.END_DUPLICATE);
         } else if (blockNumber > lastPersistedBlockNumber.get() && blockNumber < nextUnstreamedBlockNumber.get()) {
-            // current streaming number will always be within the range tested here.
-            // Except when we're awaiting the first block after restart and earliest
-            // managed block is higher than what the publisher offered here.
-            if (blockNumber < earliestManagedBlock
-                    && nextUnstreamedBlockNumber.get() == currentStreamingBlockNumber.get()
-                    // Handle an edge case where we need to accept a block before the earliest
-                    // managed block right after the node (re)started.
-                    && nextUnstreamedBlockNumber.compareAndSet(earliestManagedBlock, blockNumber)) {
-                currentStreamingBlockNumber.set(blockNumber);
-                return addHandlerQueueForBlock(blockNumber, handlerId);
-            } else {
-                return BlockAction.SKIP;
-            }
+            return streamBeforeEMBOr(blockNumber, handlerId, BlockAction.SKIP);
         } else if (blockNumber == nextUnstreamedBlockNumber.get()) {
             return addHandlerQueueForBlock(blockNumber, handlerId);
         } else if (blockNumber > nextUnstreamedBlockNumber.get()) {
@@ -243,6 +235,23 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
             // This should not be possible, all cases that could reach here are
             // already handled above.
             return BlockAction.END_ERROR;
+        }
+    }
+
+    private BlockAction streamBeforeEMBOr(
+            final long blockNumber, final long handlerId, final BlockAction actionIfNotToStream) {
+        // current streaming number will always be within the range tested here.
+        // Except when we're awaiting the first block after restart and earliest
+        // managed block is higher than what the publisher offered here.
+        if (blockNumber < earliestManagedBlock
+                && nextUnstreamedBlockNumber.get() == currentStreamingBlockNumber.get()
+                // Handle an edge case where we need to accept a block before the earliest
+                // managed block right after the node (re)started.
+                && nextUnstreamedBlockNumber.compareAndSet(earliestManagedBlock, blockNumber)) {
+            currentStreamingBlockNumber.set(blockNumber);
+            return addHandlerQueueForBlock(blockNumber, handlerId);
+        } else {
+            return actionIfNotToStream;
         }
     }
 
@@ -576,7 +585,8 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
         if (notification != null) {
             final long newLastPersistedBlock = notification.blockNumber();
             if (notification.succeeded()) {
-                if (newLastPersistedBlock > lastPersistedBlockNumber.get()) {
+                if (newLastPersistedBlock > lastPersistedBlockNumber.get()
+                        || lastPersistedBlockNumber.get() < earliestManagedBlock) {
                     handlers.values().parallelStream().unordered().forEach(handler -> {
                         // _Important_, we only need the last persisted block number
                         // all previous blocks are implicitly acknowledged.

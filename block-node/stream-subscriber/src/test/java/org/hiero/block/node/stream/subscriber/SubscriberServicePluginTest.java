@@ -3,14 +3,12 @@ package org.hiero.block.node.stream.subscriber;
 
 import static java.util.concurrent.locks.LockSupport.parkNanos;
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.fail;
 import static org.hiero.block.node.app.fixtures.TestUtils.enableDebugLogging;
+import static org.hiero.block.node.app.fixtures.blocks.SimpleTestBlockItemBuilder.toBlockItems;
 
 import com.hedera.hapi.block.stream.Block;
 import com.hedera.hapi.block.stream.BlockItem;
-import com.hedera.pbj.runtime.ParseException;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -19,11 +17,9 @@ import java.util.stream.Stream;
 import org.hiero.block.api.SubscribeStreamRequest;
 import org.hiero.block.api.SubscribeStreamResponse;
 import org.hiero.block.api.SubscribeStreamResponse.Code;
-import org.hiero.block.internal.BlockItemUnparsed;
 import org.hiero.block.node.app.fixtures.blocks.SimpleTestBlockItemBuilder;
 import org.hiero.block.node.app.fixtures.plugintest.GrpcPluginTestBase;
 import org.hiero.block.node.app.fixtures.plugintest.SimpleInMemoryHistoricalBlockFacility;
-import org.hiero.block.node.spi.blockmessaging.BlockItems;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.DisplayName;
@@ -1147,30 +1143,6 @@ class SubscriberServicePluginTest {
             assertThat(areObjectsEqual).isTrue();
             assertThat(areHexEqual).isTrue();
         }
-    }
-
-    private static BlockItems toBlockItems(final List<BlockItem> block) {
-        return toBlockItems(block, true, block.getFirst().blockHeader().number());
-    }
-
-    @SuppressWarnings("all")
-    private static BlockItems toBlockItems(
-            final List<BlockItem> block, final boolean includeHeader, final long blockNumber) {
-        final List<BlockItemUnparsed> result = new ArrayList<>();
-        final List<BlockItem> toConvert;
-        if (!block.getFirst().hasBlockHeader()) {
-            toConvert = block;
-        } else {
-            toConvert = includeHeader ? block : block.subList(1, block.size());
-        }
-        for (final BlockItem item : toConvert) {
-            try {
-                result.add(BlockItemUnparsed.PROTOBUF.parse(BlockItem.PROTOBUF.toBytes(item)));
-            } catch (final ParseException e) {
-                fail("Failed to parse BlockItem to BlockItemUnparsed", e);
-            }
-        }
-        return new BlockItems(result, blockNumber);
     }
 
     private void awaitResponse(final List<Bytes> fromPluginBytes, final int requiredReplies) {
