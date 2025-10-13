@@ -32,7 +32,7 @@ public class ConcurrentTarZstdWriter implements AutoCloseable {
     private final TarArchiveOutputStream tar;
     private final Path outFile;
     private final Path partialOutFile;
-    private final ArrayBlockingQueue<InMemoryFile> filesToWrite = new ArrayBlockingQueue<>(100);
+    private final ArrayBlockingQueue<InMemoryFile> filesToWrite = new ArrayBlockingQueue<>(1000);
     private final Thread writerThread;
     private final AtomicReference<Throwable> writerError = new AtomicReference<>();
     private final AtomicBoolean closed = new AtomicBoolean(false);
