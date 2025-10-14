@@ -10,10 +10,11 @@ import java.util.Comparator;
 import java.util.Objects;
 import java.util.function.Consumer;
 import java.util.stream.Stream;
+import org.hiero.block.tools.records.InMemoryBlock;
 
 public class TarZstdUtils {
     // Shared helper: walk files/dirs and apply consumer to each InMemoryRecordFileSet
-    public static void processPaths(File[] compressedDayOrDaysDirs, Consumer<InMemoryRecordFileSet> consumer) {
+    public static void processPaths(File[] compressedDayOrDaysDirs, Consumer<InMemoryBlock> consumer) {
         if (compressedDayOrDaysDirs == null || compressedDayOrDaysDirs.length == 0) {
             System.err.println("No input paths provided");
             return;
@@ -46,8 +47,8 @@ public class TarZstdUtils {
         }
     }
 
-    public static void processSingleTarZstd(Path path, Consumer<InMemoryRecordFileSet> consumer) {
-        try (Stream<InMemoryRecordFileSet> stream = TarZstdDayReader.streamTarZstd(path)) {
+    public static void processSingleTarZstd(Path path, Consumer<InMemoryBlock> consumer) {
+        try (Stream<InMemoryBlock> stream = TarZstdDayReader.streamTarZstd(path)) {
             System.out.println("==================> Processing archive: " + path);
             Objects.requireNonNull(stream).forEach(consumer);
         } catch (Exception e) {
