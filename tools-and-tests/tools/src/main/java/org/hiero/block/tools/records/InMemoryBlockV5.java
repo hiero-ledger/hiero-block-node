@@ -16,4 +16,5 @@ public class InMemoryBlockV5 extends InMemoryBlock {
     public ValidationResult validate(byte[] startRunningHash, NodeAddressBook addressBook) {
         return null;
     }
+
 }

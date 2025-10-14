@@ -4,7 +4,7 @@ import com.hedera.hapi.node.base.NodeAddressBook;
 import java.time.Instant;
 import java.util.List;
 
-public class InMemoryBlockV6 extends InMemoryBlockV5 {
+public class InMemoryBlockV6 extends InMemoryBlock {
 
     public InMemoryBlockV6(Instant recordFileTime, InMemoryFile primaryRecordFile,
         List<InMemoryFile> otherRecordFiles, List<InMemoryFile> signatureFiles,
