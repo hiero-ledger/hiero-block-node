@@ -57,8 +57,11 @@ public abstract class InMemoryBlock {
         // get the record file data
         final byte[] recordFileBytes = primaryRecordFile.data();
         // read first for bytes as a Java integer in the same format as written by DataOutputStream
-        final int recordFormatVersion = recordFileBytes[0] & 0xFF | (recordFileBytes[1] & 0xFF) << 8 |
-            (recordFileBytes[2] & 0xFF) << 16 | (recordFileBytes[3] & 0xFF) << 24;
+        // Read 32-bit big-endian version from first 4 bytes (DataInputStream.readInt() semantics)
+        final int recordFormatVersion = ((recordFileBytes[0] & 0xFF) << 24) |
+            ((recordFileBytes[1] & 0xFF) << 16) |
+            ((recordFileBytes[2] & 0xFF) << 8) |
+            (recordFileBytes[3] & 0xFF);
         return switch (recordFormatVersion) {
             case 2 -> new InMemoryBlockV2(recordFileTime, primaryRecordFile, otherRecordFiles,
                                         signatureFiles, primarySidecarFiles, otherSidecarFiles);

@@ -31,6 +31,11 @@ public class InMemoryBlockV2 extends InMemoryBlock {
         try (DataInputStream in = new DataInputStream(new ByteArrayInputStream(recordFileBytes))) {
             boolean isValid = true;
             final StringBuilder warningMessages = new StringBuilder();
+            // Read and verify the record file version
+            final int fileVersion = in.readInt();
+            if (fileVersion != 2) {
+                throw new IllegalStateException("Invalid v2 record file version: " + fileVersion);
+            }
             final int hapiMajorVersion = in.readInt();
             final SemanticVersion hapiVersion = new SemanticVersion(hapiMajorVersion, 0, 0, null, null);
             final byte previousFileHashMarker = in.readByte();
@@ -51,7 +56,8 @@ public class InMemoryBlockV2 extends InMemoryBlock {
             final byte[] contentHash = digest.digest();
             digest.update(recordFileBytes, 0, V2_HEADER_LENGTH);
             digest.update(contentHash);
-            return new ValidationResult(isValid, warningMessages.toString(), contentHash, hapiVersion, Collections.emptyList());
+            final byte[] blockHash = digest.digest();
+            return new ValidationResult(isValid, warningMessages.toString(), blockHash, hapiVersion, Collections.emptyList());
         } catch (IOException | NoSuchAlgorithmException e) {
             throw new RuntimeException(e);
         }
