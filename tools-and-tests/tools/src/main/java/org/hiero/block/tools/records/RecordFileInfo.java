@@ -69,8 +69,8 @@ public record RecordFileInfo(
                     final SemanticVersion hapiProtoVersion =
                             new SemanticVersion(hapiMajorVersion, hapiMinorVersion, hapiPatchVersion, null, null);
                     final int objectStreamVersion = in.readInt();
-                    byte[] startObjectRunningHash = new byte[48];
-                    in.readFully(startObjectRunningHash);
+                    // Start Object Running Hash is a Hash Object; parse to extract SHA-384 bytes
+                    final byte[] startObjectRunningHash = readHashObject(in);
 
                     // skip to last hash object. This trick allows us to not have to understand the format for record
                     // file items and their contents which is much more complicated. For v5 and v6 the block hash is the
