@@ -15,6 +15,8 @@ import java.util.regex.Pattern;
 import java.util.stream.Stream;
 import org.apache.commons.compress.archivers.tar.TarArchiveEntry;
 import org.apache.commons.compress.archivers.tar.TarArchiveInputStream;
+import org.hiero.block.tools.records.InMemoryFile;
+import org.hiero.block.tools.records.InMemoryBlock;
 
 /**
  * Utility to read and group record files from a compressed daily tar archive compressed with zstd.
@@ -22,7 +24,7 @@ import org.apache.commons.compress.archivers.tar.TarArchiveInputStream;
  * <p>This class invokes the system {@code zstd} binary to stream-decompress a {@code .tar.zstd}
  * archive and then reads the contained TAR entries with Apache Commons Compress. Files are
  * grouped by their parent directory (typically a per-timestamp subdirectory) and assembled into
- * {@link InMemoryRecordFileSet} instances which contain the primary record file, any alternate
+ * {@link InMemoryBlock} instances which contain the primary record file, any alternate
  * record files, signature files and sidecars.</p>
  *
  * <p>Filename conventions understood by this reader:
@@ -53,7 +55,7 @@ public class TarZstdDayReader {
 
     /**
      * Decompresses the given {@code .tar.zstd} file and returns a stream of
-     * {@link InMemoryRecordFileSet} grouped by the per-timestamp directory structure in the
+     * {@link InMemoryBlock} grouped by the per-timestamp directory structure in the
      * archive.
      *
      * <p>Behavioral summary:
@@ -62,13 +64,13 @@ public class TarZstdDayReader {
      *       bytes into an {@link TarArchiveInputStream}.</li>
      *   <li>Reads TAR entries and groups files by parent directory; when a directory boundary is
      *       observed the accumulated files are processed into one or more
-     *       {@link InMemoryRecordFileSet} instances.</li>
+     *       {@link InMemoryBlock} instances.</li>
      *   <li>Ensures the zstd process exits and throws a {@link RuntimeException} if it terminates
      *       with a non-zero exit code or if reading the stream fails.</li>
      * </ul>
      *
      * @param zstdFile the path to a .tar.zstd archive; must not be {@code null}
-     * @return a {@link Stream} of {@link InMemoryRecordFileSet} representing grouped record files
+     * @return a {@link Stream} of {@link InMemoryBlock} representing grouped record files
      *         found in the archive. The caller should consume or close the stream promptly.
      * @throws IllegalArgumentException if {@code zstdFile} is {@code null}
      * @throws RuntimeException if launching or reading from the zstd process fails, or if the
@@ -78,7 +80,7 @@ public class TarZstdDayReader {
      * archive inside this method. If you need true lazy streaming (emitting sets while still
      * reading the archive), consider refactoring to a streaming/Spliterator approach.
      */
-    public static Stream<InMemoryRecordFileSet> streamTarZstd(Path zstdFile) {
+    public static Stream<InMemoryBlock> streamTarZstd(Path zstdFile) {
         if (zstdFile == null) throw new IllegalArgumentException("zstdFile is null");
 
         // Build safe shell command that ensures zstd exists and writes decompressed tar to stdout
@@ -93,7 +95,7 @@ public class TarZstdDayReader {
             throw new RuntimeException("IOException starting zstd process for file: " + zstdFile, ioe);
         }
 
-        List<InMemoryRecordFileSet> results = new ArrayList<>();
+        List<InMemoryBlock> results = new ArrayList<>();
 
         try (InputStream procOut = p.getInputStream();
                 TarArchiveInputStream tar = new TarArchiveInputStream(procOut)) {
@@ -150,7 +152,7 @@ public class TarZstdDayReader {
 
     /**
      * Process a batch of files that belong to the same parent directory and append the resulting
-     * {@link InMemoryRecordFileSet} objects to {@code results}.
+     * {@link InMemoryBlock} objects to {@code results}.
      *
      * <p>This method implements the grouping and classification rules:
      * <ul>
@@ -163,7 +165,7 @@ public class TarZstdDayReader {
      *       classifies other {@code .rcd} files as other-record or sidecar files based on naming
      *       patterns.</li>
      *   <li>Primary sidecars are ordered by index (1..N) when present and attached to the
-     *       {@link InMemoryRecordFileSet} in index order.</li>
+     *       {@link InMemoryBlock} in index order.</li>
      * </ul>
      *
      * @param currentDir the parent directory path (as a string ending with '/'), may be {@code "/"}
@@ -171,11 +173,11 @@ public class TarZstdDayReader {
      *                   key for signatures that do not include timestamps in their names
      * @param currentFiles files read from the TAR that share the same parent directory; may include
      *                     {@code .rcd} and {@code .rcs_sig} files
-     * @param results the list to append created {@link InMemoryRecordFileSet} instances to
+     * @param results the list to append created {@link InMemoryBlock} instances to
      */
     @SuppressWarnings("ReplaceNullCheck")
     private static void processDirectoryFiles(
-            String currentDir, List<InMemoryFile> currentFiles, List<InMemoryRecordFileSet> results) {
+            String currentDir, List<InMemoryFile> currentFiles, List<InMemoryBlock> results) {
         if (currentFiles == null || currentFiles.isEmpty()) return;
 
         // Compute directory base key if directory name looks like a timestamp directory
@@ -298,7 +300,7 @@ public class TarZstdDayReader {
                 }
             }
 
-            // Build ordered list of primary sidecars by index (1..max)
+            // Build an ordered list of primary sidecars by index (1…max)
             List<InMemoryFile> primarySidecars = new ArrayList<>();
             if (!primarySidecarMap.isEmpty()) {
                 int max = primarySidecarMap.keySet().stream()
@@ -320,7 +322,7 @@ public class TarZstdDayReader {
                 recordTime = Instant.EPOCH;
             }
 
-            InMemoryRecordFileSet set = new InMemoryRecordFileSet(
+            InMemoryBlock set = InMemoryBlock.newInMemoryBlock(
                     recordTime, primaryRecord, otherRecordFiles, signatureFiles, primarySidecars, otherSidecarFiles);
 
             results.add(set);

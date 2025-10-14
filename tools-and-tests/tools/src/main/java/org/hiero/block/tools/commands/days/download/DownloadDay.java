@@ -32,7 +32,7 @@ import java.util.concurrent.Future;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.Collectors;
 import org.hiero.block.tools.commands.days.listing.ListingRecordFile;
-import org.hiero.block.tools.commands.days.model.InMemoryFile;
+import org.hiero.block.tools.records.InMemoryFile;
 import org.hiero.block.tools.records.RecordFileInfo;
 import org.hiero.block.tools.utils.ConcurrentTarZstdWriter;
 import org.hiero.block.tools.utils.Gzip;
@@ -308,7 +308,7 @@ public class DownloadDay {
                     + ", Found: "
                     + HexFormat.of().formatHex(readPreviousBlockHash).substring(0, 8));
         }
-        // TODO validate sigatures and sidecars
+        // TODO validate signatures and sidecars
         return computedBlockHash;
     }
 }
