@@ -9,6 +9,15 @@ description = "Hiero Block Stream Tools"
 
 application { mainClass = "org.hiero.block.tools.BlockStreamTool" }
 
+dependencies {
+    testImplementation("org.junit.jupiter:junit-jupiter-api:5.10.3")
+    testRuntimeOnly("org.junit.jupiter:junit-jupiter-engine:5.10.3")
+}
+
+tasks.test {
+    useJUnitPlatform()
+}
+
 mainModuleInfo {
     requires("org.hiero.block.protobuf.pbj")
     requires("com.hedera.pbj.runtime")
