@@ -241,7 +241,7 @@ public class TarZstdDayReader {
 
             if (rcdFiles.isEmpty() && signatureFiles.isEmpty()) continue; // nothing to build
 
-            // find primary record file: exact match baseKey + ".rcd"
+            // find the primary record file: exact match baseKey + ".rcd"
             InMemoryFile primaryRecord = null;
             List<InMemoryFile> otherRecordFiles = new ArrayList<>();
 
