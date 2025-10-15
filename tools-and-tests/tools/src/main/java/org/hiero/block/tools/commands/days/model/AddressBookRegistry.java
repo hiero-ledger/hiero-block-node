@@ -6,22 +6,26 @@ import com.google.gson.annotations.SerializedName;
 import com.hedera.hapi.node.base.AccountID;
 import com.hedera.hapi.node.base.NodeAddress;
 import com.hedera.hapi.node.base.NodeAddressBook;
+import com.hedera.hapi.node.transaction.SignedTransaction;
 import com.hedera.pbj.runtime.ParseException;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import com.hedera.pbj.runtime.io.stream.ReadableStreamingData;
-import java.io.BufferedInputStream;
-import java.io.File;
-import java.io.FileInputStream;
-import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.HexFormat;
 import java.util.List;
 import java.util.Objects;
-
+/**
+ * Registry of address books, starting with the Genesis address book.
+ * New address books can be added as they are encountered in the record files.
+ * The current address book is the most recently added address book.
+ */
 public class AddressBookRegistry {
     private final List<NodeAddressBook> addressBooks = new ArrayList<>();
 
+    /**
+     * Create a new AddressBookRegistry instance and load the Genesis address book.
+     */
     public AddressBookRegistry() {
         try {
             addressBooks.add(loadGenesisAddressBook());
@@ -29,6 +33,39 @@ public class AddressBookRegistry {
             throw new RuntimeException("Error loading Genesis Address Book", e);
         }
     }
+
+    /**
+     * Get the current address book. Which is the most recently added address book.
+     *
+     * @return the current address book
+     */
+    public NodeAddressBook getCurrentAddressBook() {
+        return addressBooks.getLast();
+    }
+
+    /**
+     * Update the address book registry with any new address books found in the provided list of transactions.
+     * This method should be called when processing a new block of transactions to ensure the address book is up to date.
+     * <p>
+     * There are two kinds of transactions that can update the address book:
+     * <ul>
+     *   <li>File append transactions that update the address book file(id: 0.0.102) with a new address book. Of type
+     *   com.hedera.hapi.node.file.FileAppendTransactionBody . There can be one or more append transactions for a
+     *   complete address book file contents update.</li>
+     *   <li>Address book change transactions that add, update or remove nodes. These are types
+     *   NodeCreateTransactionBody, NodeUpdateTransactionBody and NodeDeleteTransactionBody</li>
+     * </ul>
+     * This method should handle both types of transactions and update the address book accordingly.
+     * </p>
+     *
+     * @param addressBookTransactions the list of transactions to check for address book updates
+     */
+    public void updateAddressBook(List<SignedTransaction> addressBookTransactions) {
+        // TODO walk through the transactions, extract any file 0.0.102 updates or address book change transactions
+        //  and apply them to create a new address book, then add it to the list.
+    }
+
+    // ==== Static utility methods for loading address books ====
 
     public static NodeAddressBook loadGenesisAddressBook() throws ParseException {
         try (var in = new ReadableStreamingData(Objects.requireNonNull(AddressBookRegistry.class
