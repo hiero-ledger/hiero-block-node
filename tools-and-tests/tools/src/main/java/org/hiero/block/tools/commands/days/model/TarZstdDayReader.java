@@ -1,9 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.tools.commands.days.model;
 
+import com.github.luben.zstd.RecyclingBufferPool;
+import com.github.luben.zstd.ZstdInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -58,17 +61,6 @@ public class TarZstdDayReader {
      * {@link InMemoryBlock} grouped by the per-timestamp directory structure in the
      * archive.
      *
-     * <p>Behavioral summary:
-     * <ul>
-     *   <li>Spawns {@code zstd -d -c <zstdFile>} as a subprocess and pipes the decompressed TAR
-     *       bytes into an {@link TarArchiveInputStream}.</li>
-     *   <li>Reads TAR entries and groups files by parent directory; when a directory boundary is
-     *       observed the accumulated files are processed into one or more
-     *       {@link InMemoryBlock} instances.</li>
-     *   <li>Ensures the zstd process exits and throws a {@link RuntimeException} if it terminates
-     *       with a non-zero exit code or if reading the stream fails.</li>
-     * </ul>
-     *
      * @param zstdFile the path to a .tar.zstd archive; must not be {@code null}
      * @return a {@link Stream} of {@link InMemoryBlock} representing grouped record files
      *         found in the archive. The caller should consume or close the stream promptly.
@@ -77,29 +69,30 @@ public class TarZstdDayReader {
      *         zstd process returns a non-zero exit code
      *
      * @apiNote the returned Stream is built from an in-memory list collected while reading the
-     * archive inside this method. If you need true lazy streaming (emitting sets while still
-     * reading the archive), consider refactoring to a streaming/Spliterator approach.
+     * archive inside this method.
      */
     public static Stream<InMemoryBlock> streamTarZstd(Path zstdFile) {
+        return readTarZstd(zstdFile).stream();
+    }
+
+    /**
+     * Decompresses the given {@code .tar.zstd} file and returns a stream of
+     * {@link InMemoryBlock} grouped by the per-timestamp directory structure in the
+     * archive.
+     *
+     * @param zstdFile the path to a .tar.zstd archive; must not be {@code null}
+     * @return a {@link List} of {@link InMemoryBlock} representing grouped record files
+     *         found in the archive. The caller should consume or close the stream promptly.
+     * @throws IllegalArgumentException if {@code zstdFile} is {@code null}
+     * @throws RuntimeException if launching or reading from the zstd process fails, or if the
+     *         zstd process returns a non-zero exit code
+     */
+    public static List<InMemoryBlock> readTarZstd(Path zstdFile) {
         if (zstdFile == null) throw new IllegalArgumentException("zstdFile is null");
+        final List<InMemoryBlock> results = new ArrayList<>();
 
-        // Build safe shell command that ensures zstd exists and writes decompressed tar to stdout
-        String cmd = String.join(
-                " ", "set -euo pipefail;", "command -v zstd >/dev/null 2>&1;", "zstd -d -c", shq(zstdFile.toString()));
-
-        ProcessBuilder pb = new ProcessBuilder("bash", "-lc", cmd);
-        Process p;
-        try {
-            p = pb.start();
-        } catch (IOException ioe) {
-            throw new RuntimeException("IOException starting zstd process for file: " + zstdFile, ioe);
-        }
-
-        List<InMemoryBlock> results = new ArrayList<>();
-
-        try (InputStream procOut = p.getInputStream();
-                TarArchiveInputStream tar = new TarArchiveInputStream(procOut)) {
-
+        try (TarArchiveInputStream tar = new TarArchiveInputStream(
+                    new ZstdInputStream(Files.newInputStream(zstdFile), RecyclingBufferPool.INSTANCE))) {
             TarArchiveEntry entry;
             String currentDir = null;
             List<InMemoryFile> currentFiles = new ArrayList<>();
@@ -124,30 +117,15 @@ public class TarZstdDayReader {
                 byte[] data = readEntryFully(tar, entry.getSize());
                 currentFiles.add(new InMemoryFile(Path.of(entryName), data));
             }
-
             // process remaining files
             if (currentDir != null && !currentFiles.isEmpty()) {
                 processDirectoryFiles(currentDir, currentFiles, results);
             }
 
         } catch (IOException ioe) {
-            // If we get an IOException here, the process may still be running; ensure we destroy it
-            p.destroyForcibly();
             throw new RuntimeException("IOException processing tar.zstd file: " + zstdFile, ioe);
         }
-        // After closing streams, ensure process exit and check return code (avoid throws inside finally)
-        int rc;
-        try {
-            rc = p.waitFor();
-        } catch (InterruptedException ie) {
-            Thread.currentThread().interrupt();
-            throw new RuntimeException("Interrupted waiting for zstd process", ie);
-        }
-        if (rc != 0) {
-            throw new RuntimeException("zstd process exited with code " + rc);
-        }
-
-        return results.stream();
+        return results;
     }
 
     /**
@@ -379,20 +357,6 @@ public class TarZstdDayReader {
         int idx = entryName.lastIndexOf('/');
         if (idx <= 0) return "/"; // root or no slash
         return entryName.substring(0, idx + 1); // include trailing slash to make it clear it's a directory
-    }
-
-    /**
-     * Shell-quote a string for safe single-quoted use inside a bash command line.
-     *
-     * <p>This helper produces a single-quoted shell token that is safe to insert into a command
-     * passed to {@code bash -lc}. It escapes existing single quotes in the input by closing the
-     * single-quoted region, inserting {@code '"'"'} and reopening it.
-     *
-     * @param s the raw string to quote
-     * @return a safely quoted string suitable for inclusion in a bash single-quoted token
-     */
-    private static String shq(String s) {
-        return "'" + s.replace("'", "'\"'\"'") + "'";
     }
 
     /**
