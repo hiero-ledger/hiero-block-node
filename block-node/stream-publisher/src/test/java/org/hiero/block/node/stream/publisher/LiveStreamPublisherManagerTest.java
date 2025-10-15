@@ -124,6 +124,9 @@ class LiveStreamPublisherManagerTest {
         /** The ID of the second publisher handler, used to identify it in the manager */
         private long publisherHandlerId2;
 
+        private MetricsHolder managerMetrics;
+        private PublisherHandler.MetricsHolder sharedHandlerMetrics;
+
         // INSTANCE UNDER TEST
         /** The instance under test */
         private LiveStreamPublisherManager toTest;
@@ -156,7 +159,7 @@ class LiveStreamPublisherManagerTest {
             // Initialize the historical block facility with the context.
             historicalBlockFacility.init(context, null);
             // Create the metrics hodler for the manager.
-            final MetricsHolder managerMetrics = generateManagerMetrics();
+            managerMetrics = generateManagerMetrics();
             // Create the LiveStreamPublisherManager instance to test.
             toTest = new LiveStreamPublisherManager(context, managerMetrics);
             // We need to explicitly register the manager as a notification handler
@@ -164,7 +167,7 @@ class LiveStreamPublisherManagerTest {
             context.blockMessaging()
                     .registerBlockNotificationHandler(toTest, false, LiveStreamPublisherManager.class.getSimpleName());
             // Initialize the shared metrics holder for the publisher handlers.
-            final PublisherHandler.MetricsHolder sharedHandlerMetrics = generateHandlerMetrics();
+            sharedHandlerMetrics = generateHandlerMetrics();
             // Create a response pipeline to handle the responses from the first publisher handler.
             responsePipeline = new TestResponsePipeline();
             // Create the first publisher handler and add it to the manager.
@@ -741,6 +744,7 @@ class LiveStreamPublisherManagerTest {
                         // below block number in the response is the latest known, -1L because none are stored
                         .returns(-1L, endStreamBlockNumberExtractor);
                 assertThat(responsePipeline.getOnCompleteCalls().get()).isEqualTo(1);
+                assertThat(sharedHandlerMetrics.endOfStreamsSent().get()).isEqualTo(1);
                 // Assert no other responses sent
                 assertThat(responsePipeline.getOnErrorCalls()).isEmpty();
                 assertThat(responsePipeline.getOnSubscriptionCalls()).isEmpty();
@@ -792,6 +796,7 @@ class LiveStreamPublisherManagerTest {
                         // below block number in the response is the latest known +1, i.e. 0L because none are stored
                         // which is -1L + 1L = 0L
                         .returns(0L, resendBlockNumberExtractor);
+                assertThat(sharedHandlerMetrics.blockResendsSent().get()).isEqualTo(1);
                 // Assert no other responses sent
                 assertThat(responsePipeline.getOnErrorCalls()).isEmpty();
                 assertThat(responsePipeline.getOnSubscriptionCalls()).isEmpty();
@@ -860,6 +865,7 @@ class LiveStreamPublisherManagerTest {
                         // below block number in the response is latest known +1, i.e. 0L because none are stored
                         // which is -1L + 1L = 0L
                         .returns(0L, resendBlockNumberExtractor);
+                assertThat(sharedHandlerMetrics.blockResendsSent().get()).isEqualTo(1);
                 // Assert no other responses sent
                 assertThat(responsePipeline.getOnErrorCalls()).isEmpty();
                 assertThat(responsePipeline.getOnSubscriptionCalls()).isEmpty();
@@ -876,6 +882,7 @@ class LiveStreamPublisherManagerTest {
                         // below block number in the response is the latest known, -1L because none are stored
                         .returns(-1L, endStreamBlockNumberExtractor);
                 assertThat(responsePipeline2.getOnCompleteCalls().get()).isEqualTo(1);
+                assertThat(sharedHandlerMetrics.endOfStreamsSent().get()).isEqualTo(1);
                 // Assert no other responses sent
                 assertThat(responsePipeline2.getOnErrorCalls()).isEmpty();
                 assertThat(responsePipeline2.getOnSubscriptionCalls()).isEmpty();
@@ -935,6 +942,7 @@ class LiveStreamPublisherManagerTest {
                         .first()
                         .returns(ResponseOneOfType.ACKNOWLEDGEMENT, responseKindExtractor)
                         .returns(expectedLatestBlockNumber, acknowledgementBlockNumberExtractor);
+                assertThat(managerMetrics.latestBlockNumberAcknowledged().get()).isEqualTo(expectedLatestBlockNumber);
                 // Assert no other responses sent
                 assertThat(responsePipeline.getOnErrorCalls()).isEmpty();
                 assertThat(responsePipeline.getOnSubscriptionCalls()).isEmpty();
@@ -959,6 +967,7 @@ class LiveStreamPublisherManagerTest {
                         new PersistedNotification(10L, true, 0, BlockSource.PUBLISHER);
                 // Call
                 toTest.handlePersisted(notification);
+                assertThat(managerMetrics.latestBlockNumberAcknowledged().get()).isEqualTo(expectedLatestBlockNumber);
                 // Assert that the latest known block number is now set to the notification's end block number.
                 assertThat(toTest.getLatestBlockNumber()).isEqualTo(expectedLatestBlockNumber);
             }
@@ -1070,6 +1079,7 @@ class LiveStreamPublisherManagerTest {
                         .build();
                 // Now we send the end stream request to the publisher handler.
                 publisherHandler.onNext(endStreamRequest);
+                assertThat(sharedHandlerMetrics.endStreamsReceived().get()).isEqualTo(1);
                 // Now we must assert that the publisher has shutdown
                 assertThat(responsePipeline.getOnCompleteCalls().get()).isEqualTo(1);
                 // Assert no other responses sent
@@ -1086,6 +1096,7 @@ class LiveStreamPublisherManagerTest {
                         .first()
                         .returns(ResponseOneOfType.SKIP_BLOCK, responseKindExtractor)
                         .returns(streamedBlockNumber, skipBlockNumberExtractor);
+                assertThat(sharedHandlerMetrics.blockSkipsSent().get()).isEqualTo(1);
                 // Assert no other responses sent
                 assertThat(responsePipeline2.getOnErrorCalls()).isEmpty();
                 assertThat(responsePipeline2.getOnSubscriptionCalls()).isEmpty();
@@ -1133,6 +1144,7 @@ class LiveStreamPublisherManagerTest {
                 publisherHandler.onNext(endStreamRequest);
                 // Now we must assert that the publisher has shutdown
                 assertThat(responsePipeline.getOnCompleteCalls().get()).isEqualTo(1);
+                assertThat(sharedHandlerMetrics.endStreamsReceived().get()).isEqualTo(1);
                 // Assert no other responses sent
                 assertThat(responsePipeline.getOnNextCalls()).isEmpty();
                 assertThat(responsePipeline.getOnErrorCalls()).isEmpty();
