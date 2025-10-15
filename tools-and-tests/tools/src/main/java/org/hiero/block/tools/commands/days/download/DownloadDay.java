@@ -306,7 +306,9 @@ public class DownloadDay {
             throw new IllegalStateException("Previous block hash mismatch. Expected: "
                     + HexFormat.of().formatHex(previousRecordFileHash).substring(0, 8)
                     + ", Found: "
-                    + HexFormat.of().formatHex(readPreviousBlockHash).substring(0, 8));
+                    + HexFormat.of().formatHex(readPreviousBlockHash).substring(0, 8) +"\n" +
+                "Context mostCommonRecordFile:"+mostCommonRecordFile.path()+
+                " computedHash:"+HexFormat.of().formatHex(computedBlockHash).substring(0, 8));
         }
         // TODO validate signatures and sidecars
         return computedBlockHash;

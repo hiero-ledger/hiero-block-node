@@ -23,8 +23,12 @@ public abstract class InMemoryBlock {
      * @param hapiVersion HAPI proto version
      * @param addressBookTransactions Transactions that affect the address book
      */
-    public record ValidationResult(boolean isValid, String warningMessages, byte[] endRunningHash,
-                                   SemanticVersion hapiVersion, List<SignedTransaction> addressBookTransactions) {}
+    public record ValidationResult(
+            boolean isValid,
+            String warningMessages,
+            byte[] endRunningHash,
+            SemanticVersion hapiVersion,
+            List<SignedTransaction> addressBookTransactions) {}
 
     /** the consensus time of the block */
     protected final Instant recordFileTime;
@@ -51,25 +55,48 @@ public abstract class InMemoryBlock {
      * @param otherSidecarFiles the other sidecar files for the block
      * @return the new InMemoryBlock instance
      */
-    public static InMemoryBlock newInMemoryBlock(Instant recordFileTime, InMemoryFile primaryRecordFile, List<InMemoryFile> otherRecordFiles,
-        List<InMemoryFile> signatureFiles, List<InMemoryFile> primarySidecarFiles,
-        List<InMemoryFile> otherSidecarFiles) {
+    public static InMemoryBlock newInMemoryBlock(
+            Instant recordFileTime,
+            InMemoryFile primaryRecordFile,
+            List<InMemoryFile> otherRecordFiles,
+            List<InMemoryFile> signatureFiles,
+            List<InMemoryFile> primarySidecarFiles,
+            List<InMemoryFile> otherSidecarFiles) {
         // get the record file data
         final byte[] recordFileBytes = primaryRecordFile.data();
         // read first for bytes as a Java integer in the same format as written by DataOutputStream
         // Read 32-bit big-endian version from first 4 bytes (DataInputStream.readInt() semantics)
-        final int recordFormatVersion = ((recordFileBytes[0] & 0xFF) << 24) |
-            ((recordFileBytes[1] & 0xFF) << 16) |
-            ((recordFileBytes[2] & 0xFF) << 8) |
-            (recordFileBytes[3] & 0xFF);
+        final int recordFormatVersion = ((recordFileBytes[0] & 0xFF) << 24)
+                | ((recordFileBytes[1] & 0xFF) << 16)
+                | ((recordFileBytes[2] & 0xFF) << 8)
+                | (recordFileBytes[3] & 0xFF);
         return switch (recordFormatVersion) {
-            case 2 -> new InMemoryBlockV2(recordFileTime, primaryRecordFile, otherRecordFiles,
-                                        signatureFiles, primarySidecarFiles, otherSidecarFiles);
-            case 5 -> new InMemoryBlockV5(recordFileTime, primaryRecordFile, otherRecordFiles,
-                signatureFiles, primarySidecarFiles, otherSidecarFiles);
-            case 6 -> new InMemoryBlockV6(recordFileTime, primaryRecordFile, otherRecordFiles,
-                signatureFiles, primarySidecarFiles, otherSidecarFiles);
-            default -> throw new IllegalArgumentException("Unsupported record file format version: " + recordFormatVersion);
+            case 2 ->
+                new InMemoryBlockV2(
+                        recordFileTime,
+                        primaryRecordFile,
+                        otherRecordFiles,
+                        signatureFiles,
+                        primarySidecarFiles,
+                        otherSidecarFiles);
+            case 5 ->
+                new InMemoryBlockV5(
+                        recordFileTime,
+                        primaryRecordFile,
+                        otherRecordFiles,
+                        signatureFiles,
+                        primarySidecarFiles,
+                        otherSidecarFiles);
+            case 6 ->
+                new InMemoryBlockV6(
+                        recordFileTime,
+                        primaryRecordFile,
+                        otherRecordFiles,
+                        signatureFiles,
+                        primarySidecarFiles,
+                        otherSidecarFiles);
+            default ->
+                throw new IllegalArgumentException("Unsupported record file format version: " + recordFormatVersion);
         };
     }
 
@@ -83,9 +110,13 @@ public abstract class InMemoryBlock {
      * @param primarySidecarFiles the primary sidecar files for the block
      * @param otherSidecarFiles the other sidecar files for the block
      */
-    protected  InMemoryBlock(Instant recordFileTime, InMemoryFile primaryRecordFile, List<InMemoryFile> otherRecordFiles,
-        List<InMemoryFile> signatureFiles, List<InMemoryFile> primarySidecarFiles,
-        List<InMemoryFile> otherSidecarFiles) {
+    protected InMemoryBlock(
+            Instant recordFileTime,
+            InMemoryFile primaryRecordFile,
+            List<InMemoryFile> otherRecordFiles,
+            List<InMemoryFile> signatureFiles,
+            List<InMemoryFile> primarySidecarFiles,
+            List<InMemoryFile> otherSidecarFiles) {
         if (recordFileTime == null) {
             throw new IllegalArgumentException("recordFileTime cannot be null");
         }
@@ -126,25 +157,37 @@ public abstract class InMemoryBlock {
     @Override
     public @NonNull String toString() {
         return String.format(
-            "-- RecordFileSet @ %-32s :: primary=%b, signatures=%2d%s%s",
-            recordFileTime,
-            primaryRecordFile != null,
-            signatureFiles.size(),
-            primarySidecarFiles.isEmpty() ? "" : ", primary sidecars=" + primarySidecarFiles.size(),
-            otherRecordFiles.isEmpty() ? "" : ", other record files=" + otherRecordFiles.size());
+                "-- RecordFileSet @ %-32s :: primary=%b, signatures=%2d%s%s",
+                recordFileTime,
+                primaryRecordFile != null,
+                signatureFiles.size(),
+                primarySidecarFiles.isEmpty() ? "" : ", primary sidecars=" + primarySidecarFiles.size(),
+                otherRecordFiles.isEmpty() ? "" : ", other record files=" + otherRecordFiles.size());
     }
 
-    public Instant recordFileTime() {return recordFileTime;}
+    public Instant recordFileTime() {
+        return recordFileTime;
+    }
 
-    public InMemoryFile primaryRecordFile() {return primaryRecordFile;}
+    public InMemoryFile primaryRecordFile() {
+        return primaryRecordFile;
+    }
 
-    public List<InMemoryFile> otherRecordFiles() {return otherRecordFiles;}
+    public List<InMemoryFile> otherRecordFiles() {
+        return otherRecordFiles;
+    }
 
-    public List<InMemoryFile> signatureFiles() {return signatureFiles;}
+    public List<InMemoryFile> signatureFiles() {
+        return signatureFiles;
+    }
 
-    public List<InMemoryFile> primarySidecarFiles() {return primarySidecarFiles;}
+    public List<InMemoryFile> primarySidecarFiles() {
+        return primarySidecarFiles;
+    }
 
-    public List<InMemoryFile> otherSidecarFiles() {return otherSidecarFiles;}
+    public List<InMemoryFile> otherSidecarFiles() {
+        return otherSidecarFiles;
+    }
 
     @Override
     public boolean equals(Object obj) {
@@ -155,17 +198,22 @@ public abstract class InMemoryBlock {
             return false;
         }
         var that = (InMemoryBlock) obj;
-        return Objects.equals(this.recordFileTime, that.recordFileTime) &&
-            Objects.equals(this.primaryRecordFile, that.primaryRecordFile) &&
-            Objects.equals(this.otherRecordFiles, that.otherRecordFiles) &&
-            Objects.equals(this.signatureFiles, that.signatureFiles) &&
-            Objects.equals(this.primarySidecarFiles, that.primarySidecarFiles) &&
-            Objects.equals(this.otherSidecarFiles, that.otherSidecarFiles);
+        return Objects.equals(this.recordFileTime, that.recordFileTime)
+                && Objects.equals(this.primaryRecordFile, that.primaryRecordFile)
+                && Objects.equals(this.otherRecordFiles, that.otherRecordFiles)
+                && Objects.equals(this.signatureFiles, that.signatureFiles)
+                && Objects.equals(this.primarySidecarFiles, that.primarySidecarFiles)
+                && Objects.equals(this.otherSidecarFiles, that.otherSidecarFiles);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(recordFileTime, primaryRecordFile, otherRecordFiles, signatureFiles, primarySidecarFiles,
-            otherSidecarFiles);
+        return Objects.hash(
+                recordFileTime,
+                primaryRecordFile,
+                otherRecordFiles,
+                signatureFiles,
+                primarySidecarFiles,
+                otherSidecarFiles);
     }
 }
