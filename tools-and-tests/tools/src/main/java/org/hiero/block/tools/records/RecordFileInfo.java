@@ -11,6 +11,7 @@ import com.hedera.pbj.runtime.io.stream.ReadableStreamingData;
 import java.io.ByteArrayInputStream;
 import java.io.DataInputStream;
 import java.security.MessageDigest;
+import org.hiero.block.tools.utils.PrettyPrint;
 
 /**
  * Represents the version and block hash information of a record file.
@@ -22,13 +23,14 @@ import java.security.MessageDigest;
  * Way Back Machine</a>
  * </p>
  *
+ * @param recordFormatVersion the record file format version
  * @param hapiProtoVersion the HAPI protocol version
  * @param previousBlockHash the hash of the previous block
  * @param blockHash the block hash
  * @param recordFileContents the record file contents
  */
 public record RecordFileInfo(
-        SemanticVersion hapiProtoVersion, Bytes previousBlockHash, Bytes blockHash, byte[] recordFileContents) {
+    int recordFormatVersion, SemanticVersion hapiProtoVersion, Bytes previousBlockHash, Bytes blockHash, byte[] recordFileContents) {
     /* The length of the header in a v2 record file */
     private static final int V2_HEADER_LENGTH = Integer.BYTES + Integer.BYTES + 1 + 48;
 
@@ -59,8 +61,8 @@ public record RecordFileInfo(
                     final byte[] contentHash = digest.digest();
                     digest.update(recordFile, 0, V2_HEADER_LENGTH);
                     digest.update(contentHash);
-                    yield new RecordFileInfo(
-                            hapiProtoVersion, Bytes.wrap(previousHash), Bytes.wrap(digest.digest()), recordFile);
+                    yield new RecordFileInfo(recordFormatVersion, hapiProtoVersion, Bytes.wrap(previousHash),
+                        Bytes.wrap(digest.digest()), recordFile);
                 }
                 case 5 -> {
                     final int hapiMajorVersion = in.readInt();
@@ -72,30 +74,25 @@ public record RecordFileInfo(
                     // Start Object Running Hash is a Hash Object; parse to extract SHA-384 bytes
                     final byte[] startObjectRunningHash = readHashObject(in);
 
-                    // skip to last hash object. This trick allows us to not have to understand the format for record
-                    // file items and their contents which is much more complicated. For v5 and v6 the block hash is the
-                    // end running hash which is written as a special item at the end of the file.
+                    // skip to the last hash object. This trick allows us to not have to understand the format for record
+                    // file items and their contents, which is much more complicated. For v5 and v6 the block hash is the
+                    // end-running-hash written as a special item at the end of the file.
                     in.skipBytes(in.available() - HASH_OBJECT_SIZE_BYTES);
                     final byte[] endHashObject = readHashObject(in);
-                    yield new RecordFileInfo(
-                            hapiProtoVersion,
-                            Bytes.wrap(startObjectRunningHash),
-                            Bytes.wrap(endHashObject),
-                            recordFile);
+                    yield new RecordFileInfo(recordFormatVersion, hapiProtoVersion, Bytes.wrap(startObjectRunningHash),
+                            Bytes.wrap(endHashObject), recordFile);
                 }
                 case 6 -> {
                     // V6 is nice and easy as it is all protobuf encoded after the first version integer
                     final RecordStreamFile recordStreamFile =
                             RecordStreamFile.PROTOBUF.parse(new ReadableStreamingData(in));
-                    // For v6 the block hash is the end running hash which is accessed via endObjectRunningHash()
+                    // For v6 the block hash is the end-running-hash accessed via endObjectRunningHash()
                     if (recordStreamFile.endObjectRunningHash() == null) {
                         throw new IllegalStateException("No end object running hash in record file");
                     }
-                    yield new RecordFileInfo(
-                            recordStreamFile.hapiProtoVersion(),
+                    yield new RecordFileInfo(recordFormatVersion, recordStreamFile.hapiProtoVersion(),
                             recordStreamFile.startObjectRunningHash().hash(),
-                            recordStreamFile.endObjectRunningHash().hash(),
-                            recordFile);
+                            recordStreamFile.endObjectRunningHash().hash(), recordFile);
                 }
                 default ->
                     throw new UnsupportedOperationException(
@@ -104,5 +101,20 @@ public record RecordFileInfo(
         } catch (Exception e) {
             throw new RuntimeException(e);
         }
+    }
+
+    /**
+     * Pretty prints the record file info.
+     *
+     * @return the pretty string
+     */
+    public String prettyToString() {
+        return "RecordFileInfo{\n" +
+            "       recordFormatVersion    = " + recordFormatVersion + "\n" +
+            "       hapiProtoVersion       = " + hapiProtoVersion + "\n" +
+            "       previousBlockHash      = " + previousBlockHash + "\n" +
+            "       blockHash              = " + blockHash + "\n" +
+            "       recordFileContentsSize = " + PrettyPrint.prettyPrintFileSize(recordFileContents.length) + "\n" +
+            '}';
     }
 }

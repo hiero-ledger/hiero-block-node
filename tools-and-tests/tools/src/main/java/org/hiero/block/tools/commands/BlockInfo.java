@@ -24,9 +24,6 @@ import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.zip.GZIPInputStream;
-import picocli.CommandLine.Command;
-import picocli.CommandLine.Option;
-import picocli.CommandLine.Parameters;
 
 /**
  * Command line command that prints info for block files
@@ -38,54 +35,43 @@ import picocli.CommandLine.Parameters;
     "DuplicatedCode",
     "FieldMayBeFinal"
 })
-@Command(name = "info", description = "Prints info for block files")
-public class BlockInfo implements Runnable {
-
-    @Parameters(index = "0..*")
-    private File[] files;
-
-    @Option(
-            names = {"-ms", "--min-size"},
-            description = "Filter to only files bigger than this minimum file size in megabytes")
-    private double minSizeMb = Double.MAX_VALUE;
-
-    @Option(
-            names = {"-c", "--csv"},
-            description = "Enable CSV output mode (default: ${DEFAULT-VALUE})")
-    private boolean csvMode = false;
-
-    @Option(
-            names = {"-o", "--output-file"},
-            description = "Output to file rather than stdout")
-    private File outputFile;
-
-    // atomic counters for total blocks, transactions, items, compressed bytes, and uncompressed bytes
-    private final AtomicLong totalBlocks = new AtomicLong(0);
-    private final AtomicLong totalTransactions = new AtomicLong(0);
-    private final AtomicLong totalItems = new AtomicLong(0);
-    private final AtomicLong totalBytesCompressed = new AtomicLong(0);
-    private final AtomicLong totalBytesUncompressed = new AtomicLong(0);
+public class BlockInfo {
 
     /**
-     * Empty Default constructor to remove JavaDoc warning
+     * Empty Default constructor to remove Javadoc warning
      */
-    public BlockInfo() {}
+    private BlockInfo() {}
 
     /**
-     * Main method to run the command
+     * Produce information for a list of block files
+     *
+     * @param files the list of block files to produce info for
+     * @param csvMode when true, then produce CSV output
+     * @param outputFile the output file to write to
+     * @param minSizeMb the minimum file size in MB to process
      */
-    @Override
-    public void run() {
-        System.out.println("csvMode = " + csvMode);
-        System.out.println("outputFile = " + outputFile.getAbsoluteFile());
+    public static void blockInfo(File[] files, boolean csvMode, File outputFile, double minSizeMb) {
+        // atomic counters for total blocks, transactions, items, compressed bytes, and uncompressed bytes
+        final AtomicLong totalBlocks = new AtomicLong(0);
+        final AtomicLong totalTransactions = new AtomicLong(0);
+        final AtomicLong totalItems = new AtomicLong(0);
+        final AtomicLong totalBytesCompressed = new AtomicLong(0);
+        final AtomicLong totalBytesUncompressed = new AtomicLong(0);
         if (files == null || files.length == 0) {
-            System.err.println("No files to convert");
+            System.err.println("No files to display info for");
         } else {
+            if (csvMode) {
+                System.out.print("Writing CSV output");
+            }
+            if(outputFile != null) {
+                System.out.print("to : " + outputFile.getAbsoluteFile());
+            }
+            System.out.print("\n");
             totalTransactions.set(0);
             totalItems.set(0);
             totalBytesCompressed.set(0);
             totalBytesUncompressed.set(0);
-            // if none of the files exist then print error message
+            // if none of the files exist then print error an message
             if (Arrays.stream(files).noneMatch(File::exists)) {
                 System.err.println("No files found");
                 System.exit(1);
@@ -123,13 +109,16 @@ public class BlockInfo implements Runnable {
                             })
                     .sorted(Comparator.comparing(file -> file.getFileName().toString()))
                     .toList();
-            // create stream of block info strings
-            final var blockInfoStream = blockFiles.stream().parallel().map(this::blockInfo);
-            // create CSV header line
+            // create a stream of block info strings
+            final var blockInfoStream = blockFiles.stream()
+                .parallel()
+                .map(file -> blockInfo(file, csvMode, totalBlocks, totalTransactions, totalItems,
+                    totalBytesCompressed, totalBytesUncompressed));
+            // create a CSV header line
             final String csvHeader = "\"Block\",\"Items\",\"Transactions\",\"Java Objects\","
                     + "\"Original Size (MB)\",\"Uncompressed Size(MB)\",\"Compression\"";
             if (outputFile != null) {
-                // check if file exists and throw error
+                // check if a file exists and throw an error
                 if (outputFile.exists()) {
                     System.err.println("Output file already exists : " + outputFile);
                     System.exit(1);
@@ -210,7 +199,7 @@ public class BlockInfo implements Runnable {
      * @param totalBlockFiles the total number of block files
      * @param completedBlockFiles the number of block files completed
      */
-    public void printProgress(double progress, int totalBlockFiles, int completedBlockFiles) {
+    private static void printProgress(double progress, int totalBlockFiles, int completedBlockFiles) {
         final int width = 50;
         System.out.print("\r[");
         int i = 0;
@@ -230,7 +219,9 @@ public class BlockInfo implements Runnable {
      * @param blockProtoFile the block file to produce info for
      * @return the info string
      */
-    public String blockInfo(Path blockProtoFile) {
+    private static String blockInfo(Path blockProtoFile, boolean csvMode, final AtomicLong totalBlocks,
+            final AtomicLong totalTransactions, final AtomicLong totalItems, final AtomicLong totalBytesCompressed,
+            final AtomicLong totalBytesUncompressed) {
         try (InputStream fIn = Files.newInputStream(blockProtoFile)) {
             byte[] uncompressedData;
             if (blockProtoFile.getFileName().toString().endsWith(".gz")) {
@@ -241,7 +232,8 @@ public class BlockInfo implements Runnable {
             long start = System.currentTimeMillis();
             final Block block = Block.PROTOBUF.parse(Bytes.wrap(uncompressedData));
             long end = System.currentTimeMillis();
-            return blockInfo(block, end - start, Files.size(blockProtoFile), uncompressedData.length);
+            return blockInfo(block, end - start, Files.size(blockProtoFile), uncompressedData.length, csvMode,
+                    totalBlocks, totalTransactions, totalItems, totalBytesCompressed, totalBytesUncompressed);
         } catch (Exception e) {
             StringWriter sw = new StringWriter();
             sw.append("Error processing file : " + blockProtoFile + "\n");
@@ -259,7 +251,10 @@ public class BlockInfo implements Runnable {
      * @param uncompressedFileSizeBytes the uncompressed file size in bytes
      * @return the info string
      */
-    public String blockInfo(Block block, long parseTimeMs, long originalFileSizeBytes, long uncompressedFileSizeBytes) {
+    private static String blockInfo(Block block, long parseTimeMs, long originalFileSizeBytes,
+                long uncompressedFileSizeBytes, boolean csvMode, final AtomicLong totalBlocks,
+                final AtomicLong totalTransactions, final AtomicLong totalItems, final AtomicLong totalBytesCompressed,
+                final AtomicLong totalBytesUncompressed) {
         final StringBuffer output = new StringBuffer();
         long numOfTransactions =
                 block.items().stream().filter(BlockItem::hasSignedTransaction).count();

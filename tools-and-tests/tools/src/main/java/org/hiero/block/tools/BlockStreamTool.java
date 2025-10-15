@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.tools;
 
-import org.hiero.block.tools.commands.BlockInfo;
 import org.hiero.block.tools.commands.ConvertToJson;
+import org.hiero.block.tools.commands.Info;
 import org.hiero.block.tools.commands.NetworkCapacity;
 import org.hiero.block.tools.commands.days.DaysCommand;
 import org.hiero.block.tools.commands.record2blocks.Record2BlockCommand;
@@ -23,7 +23,7 @@ import picocli.CommandLine.Command;
         version = "BlockStreamTool 0.1",
         subcommands = {
             ConvertToJson.class,
-            BlockInfo.class,
+            Info.class,
             Record2BlockCommand.class,
             FetchMirrorNodeRecordsCsv.class,
             ExtractBlockTimes.class,

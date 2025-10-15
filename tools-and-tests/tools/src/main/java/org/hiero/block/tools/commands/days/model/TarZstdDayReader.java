@@ -15,8 +15,8 @@ import java.util.regex.Pattern;
 import java.util.stream.Stream;
 import org.apache.commons.compress.archivers.tar.TarArchiveEntry;
 import org.apache.commons.compress.archivers.tar.TarArchiveInputStream;
-import org.hiero.block.tools.records.InMemoryFile;
 import org.hiero.block.tools.records.InMemoryBlock;
+import org.hiero.block.tools.records.InMemoryFile;
 
 /**
  * Utility to read and group record files from a compressed daily tar archive compressed with zstd.
