@@ -11,8 +11,9 @@ import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 import org.hiero.block.tools.commands.days.model.TarZstdDayReader;
 import org.hiero.block.tools.commands.days.model.TarZstdDayUtils;
+import org.hiero.block.tools.commands.days.model.AddressBookRegistry;
 import org.hiero.block.tools.records.InMemoryBlock;
-import org.hiero.block.tools.records.RecordFileInfo;
+import org.hiero.block.tools.records.InMemoryBlock.ValidationResult;
 import org.hiero.block.tools.utils.PrettyPrint;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Parameters;
@@ -25,7 +26,7 @@ import picocli.CommandLine.Spec;
 @SuppressWarnings("CallToPrintStackTrace")
 @Command(name = "validate", description = "Validate blockchain in record file blocks in day files")
 public class Validate implements Runnable {
-    private static final Bytes ZERO_HASH = Bytes.wrap(new byte[48]);
+    private static final byte[] ZERO_HASH = new byte[48];
 
     // Simple wrapper for producer-consumer communication (day boundaries + blocks)
     private static final class Item {
@@ -56,8 +57,8 @@ public class Validate implements Runnable {
             spec.commandLine().usage(spec.commandLine().getOut());
             return;
         }
-        final AtomicReference<Bytes> carryOverHash = new AtomicReference<>(ZERO_HASH);
-        System.out.println("Staring hash[" + carryOverHash.get() + "]");
+        final AtomicReference<byte[]> carryOverHash = new AtomicReference<>(ZERO_HASH);
+        System.out.println("Starting hash[" + Bytes.wrap(carryOverHash.get()) + "]");
         final List<Path> dayPaths = TarZstdDayUtils.sortedDayPaths(compressedDayOrDaysDirs);
         // Estimation/ETA support
         final long startNanos = System.nanoTime();
@@ -129,31 +130,27 @@ public class Validate implements Runnable {
                         // update counters
                         progress.incrementAndGet();
                         try {
-                            final RecordFileInfo recordFileInfo =
-                                RecordFileInfo.parse(set.primaryRecordFile().data());
-
                             // previous block hash from prior iteration (carry over)
-                            final Bytes previousBlockHash = carryOverHash.get();
-                            // update carry over to current block hash for next iteration
-                            carryOverHash.set(recordFileInfo.blockHash());
+                            final byte[] previousBlockHash = carryOverHash.get();
+                            // Validate the block using InMemoryBlock.validate which performs internal checks
+                            final ValidationResult vr = set.validate(previousBlockHash, AddressBookRegistry.OCT_2025);
 
-                            // Validate linkage: previous hash must equal carry-over from the last block
-                            if (!recordFileInfo.previousBlockHash().equals(previousBlockHash)) {
+                            // update carry over to current block end-running-hash for next iteration
+                            carryOverHash.set(vr.endRunningHash());
+
+                            if (!vr.isValid()) {
                                 PrettyPrint.clearProgress();
-                                System.err.println(
-                                    "Validation failed for " + set.recordFileTime() + " - expected prev="
-                                        + previousBlockHash + " but found prev=" + recordFileInfo.previousBlockHash());
+                                System.err.println("Validation failed for " + set.recordFileTime() + ":\n" + vr.warningMessages());
                                 System.out.flush();
                                 System.exit(1);
                             }
 
                             // Build progress string showing time and hashes (shortened to 8 chars for readability)
                             final String progressString = String.format(
-                                "%32s carry[%s] prev[%s] next[%s]",
+                                "%s carry[%s] next[%s]",
                                 set.recordFileTime(),
                                 shortHash(previousBlockHash),
-                                shortHash(recordFileInfo.previousBlockHash()),
-                                shortHash(recordFileInfo.blockHash()));
+                                shortHash(vr.endRunningHash()));
 
                             // Estimate totals and ETA
                             final long elapsedMillis = (System.nanoTime() - startNanos) / 1_000_000L;
@@ -214,9 +211,9 @@ public class Validate implements Runnable {
      * @param hash the hash to shorten
      * @return the shortened hash
      */
-    private static String shortHash(final Bytes hash) {
+    private static String shortHash(final byte[] hash) {
         if (hash == null) return "null";
-        final String s = hash.toString();
+        final String s = Bytes.wrap(hash).toString();
         return s.length() <= 8 ? s : s.substring(0, 8);
     }
 }
