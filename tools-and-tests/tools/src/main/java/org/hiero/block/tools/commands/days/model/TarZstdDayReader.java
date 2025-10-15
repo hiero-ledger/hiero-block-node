@@ -236,6 +236,7 @@ public class TarZstdDayReader {
             if (primaryRecord == null) {
                 System.err.println(
                         "Missing primary record file for baseKey='" + baseKey + "' in dir='" + currentDir + "'");
+                for(InMemoryFile f : rcdFiles) System.err.println("    "+ f.path());
                 throw new RuntimeException(
                         "Primary record file not found for baseKey='" + baseKey + "' in dir='" + currentDir + "'");
             }
@@ -243,6 +244,7 @@ public class TarZstdDayReader {
             // There must be at least one signature file for the group; enforce invariant
             if (signatureFiles.isEmpty()) {
                 System.err.println("Missing signature files for baseKey='" + baseKey + "' in dir='" + currentDir + "'");
+                for(InMemoryFile f : rcdFiles) System.err.println("    "+ f.path());
                 throw new RuntimeException(
                         "No signature files found for baseKey='" + baseKey + "' in dir='" + currentDir + "'");
             }
@@ -253,7 +255,8 @@ public class TarZstdDayReader {
                 String name = f.path().getFileName().toString();
                 String noExt = name.substring(0, name.length() - 4);
                 // classify sidecars vs other record files: non-sidecars are treated as otherRecordFiles
-                if (!noExt.matches(Pattern.quote(baseKey) + "_\\d+(_node_\\d+)?$")) {
+                // allow node ids with dots (e.g. _node_0.0.5)
+                if (!noExt.matches(Pattern.quote(baseKey) + "_\\d+(_node_[\\d.]+)?$")) {
                     otherRecordFiles.add(f);
                 }
             }
@@ -263,7 +266,8 @@ public class TarZstdDayReader {
             List<InMemoryFile> otherSidecarFiles = new ArrayList<>();
 
             Pattern primarySidecarPattern = Pattern.compile(Pattern.quote(baseKey) + "_(\\d+)$");
-            Pattern otherSidecarPattern = Pattern.compile(Pattern.quote(baseKey) + "_(\\d+)_node_\\d+$");
+            // allow node ids with dots in sidecar names (e.g. <base>_1_node_0.0.5.rcd)
+            Pattern otherSidecarPattern = Pattern.compile(Pattern.quote(baseKey) + "_(\\d+)_node_[\\d.]+$");
 
             for (InMemoryFile f : rcdFiles) {
                 String name = f.path().getFileName().toString();
@@ -391,7 +395,8 @@ public class TarZstdDayReader {
 
         // strip node suffixes like _node_21 and sidecar indexes like _1
         // We want the pure timestamp prefix like 2019-09-13T22_48_30.277013Z
-        noExt = noExt.replaceAll("_node_\\d+$", "");
+        // allow node ids containing dots (e.g. _node_0.0.5)
+        noExt = noExt.replaceAll("_node_[\\d.]+$", "");
         noExt = noExt.replaceAll("_(\\d+)$", "");
         return noExt;
     }
