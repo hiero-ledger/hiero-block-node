@@ -33,7 +33,6 @@ import org.hiero.block.node.app.fixtures.blocks.SimpleTestBlockItemBuilder;
 import org.hiero.block.node.app.fixtures.plugintest.GrpcPluginTestBase;
 import org.hiero.block.node.app.fixtures.plugintest.SimpleInMemoryHistoricalBlockFacility;
 import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
@@ -321,17 +320,21 @@ class StreamPublisherPluginTest {
         }
 
         /**
-         * This test aims to assert that a valid block could be streamed to the
-         * plugin even if it is prior to the earliestManagedBlock, granted that
-         * there is prior block history and the start of the stream is before
-         * the history.
+         * This test aims to assert that streaming a valid block prior to the
+         * earliestManagedBlock is not possible when that block is prior to
+         * available history, which is also prior to the earliestManagedBlock.
+         * No block can be streamed before the latest persisted block, no matter
+         * if that value is before, same as or after the earliestManagedBlock.
          */
         @Test
         @DisplayName(
                 "Test publish a valid block as items prior to earliestManagedBlock, with history, start before history")
         void testStreamPriorToEarliestManagedBlockWithHistoryStartBeforeHistory() {
             // First, we need to ensure we have some history.
-            final List<Block> blocks = SimpleTestBlockItemBuilder.createNumberOfVerySimpleBlocksBatched(3, 5);
+            final int earliestPersistedBlock = 3;
+            final int expectedLatestPersistedBlock = 5;
+            final List<Block> blocks = SimpleTestBlockItemBuilder.createNumberOfVerySimpleBlocksBatched(
+                    earliestPersistedBlock, expectedLatestPersistedBlock);
             // Add all the blocks to the historical block facility.
             for (final Block block : blocks) {
                 historicalBlockFacility.handleBlockItemsReceived(toBlockItems(block.items()), false);
@@ -341,7 +344,7 @@ class StreamPublisherPluginTest {
             assertThat(blockNodeContext
                             .historicalBlockProvider()
                             .availableBlocks()
-                            .contains(3, 5))
+                            .contains(earliestPersistedBlock, expectedLatestPersistedBlock))
                     .isTrue();
             // Build a PublishStreamRequest with a valid block as items prior to earliestManagedBlock && history
             final BlockItemUnparsed[] block = SimpleTestBlockItemBuilder.createNumberOfVerySimpleBlocksUnparsed(2, 2);
@@ -360,22 +363,28 @@ class StreamPublisherPluginTest {
                     .first()
                     .extracting(bytesToPublishStreamResponseMapper)
                     .isNotNull()
-                    .returns(ResponseOneOfType.ACKNOWLEDGEMENT, responseKindExtractor)
-                    .returns(2L, acknowledgementBlockNumberExtractor);
+                    .returns(ResponseOneOfType.END_STREAM, responseKindExtractor)
+                    .returns(Code.DUPLICATE_BLOCK, endStreamResponseCodeExtractor)
+                    .returns((long) expectedLatestPersistedBlock, endStreamResponseBlockNumberExtractor);
         }
 
         /**
-         * This test aims to assert that a valid block could be streamed to the
-         * plugin even if it is prior to the earliestManagedBlock, granted that
-         * there is prior block history and the start of the stream is in the
-         * middle of the history.
+         * This test aims to assert that streaming a valid block prior to the
+         * earliestManagedBlock is not possible when that block is in the middle
+         * of available history, which is also prior to the
+         * earliestManagedBlock. No block can be streamed before the latest
+         * persisted block, no matter if that value is before, same as or after
+         * the earliestManagedBlock.
          */
         @Test
         @DisplayName(
                 "Test publish a valid block as items prior to earliestManagedBlock, with history, start mid history")
         void testStreamPriorToEarliestManagedBlockWithHistoryStartMidHistory() {
             // First, we need to ensure we have some history.
-            final List<Block> blocks = SimpleTestBlockItemBuilder.createNumberOfVerySimpleBlocksBatched(0, 5);
+            final int earliestPersistedBlock = 0;
+            final int latestPersistedBlock = 5;
+            final List<Block> blocks = SimpleTestBlockItemBuilder.createNumberOfVerySimpleBlocksBatched(
+                    earliestPersistedBlock, latestPersistedBlock);
             // Add all the blocks to the historical block facility.
             for (final Block block : blocks) {
                 historicalBlockFacility.handleBlockItemsReceived(toBlockItems(block.items()), false);
@@ -385,7 +394,7 @@ class StreamPublisherPluginTest {
             assertThat(blockNodeContext
                             .historicalBlockProvider()
                             .availableBlocks()
-                            .contains(0, 5))
+                            .contains(earliestPersistedBlock, latestPersistedBlock))
                     .isTrue();
             // Build a PublishStreamRequest with a valid block as items prior to earliestManagedBlock && mid history
             final BlockItemUnparsed[] block = SimpleTestBlockItemBuilder.createNumberOfVerySimpleBlocksUnparsed(3, 3);
@@ -404,8 +413,9 @@ class StreamPublisherPluginTest {
                     .first()
                     .extracting(bytesToPublishStreamResponseMapper)
                     .isNotNull()
-                    .returns(ResponseOneOfType.ACKNOWLEDGEMENT, responseKindExtractor)
-                    .returns(3L, acknowledgementBlockNumberExtractor);
+                    .returns(ResponseOneOfType.END_STREAM, responseKindExtractor)
+                    .returns(Code.DUPLICATE_BLOCK, endStreamResponseCodeExtractor)
+                    .returns((long) latestPersistedBlock, endStreamResponseBlockNumberExtractor);
         }
 
         /**
@@ -565,7 +575,6 @@ class StreamPublisherPluginTest {
          * has just caught up. It should not be allowed to repeat that block.
          */
         @Test
-        @Disabled("This test covers an edge case in the getActionForBlock from the manager") // @todo(1693)
         @DisplayName(
                 "Test publish a valid block as items prior to earliestManagedBlock, next blocks must continue chain, with history")
         void testStreamPriorToEarliestManagedBlockMustContinueChainWithHistoryEdge() {

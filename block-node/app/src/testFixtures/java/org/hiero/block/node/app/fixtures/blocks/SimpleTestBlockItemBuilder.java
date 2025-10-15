@@ -307,11 +307,10 @@ public final class SimpleTestBlockItemBuilder {
         assertTrue(startBlockNumber >= 0);
         final int numberOfBlocks = (endBlockNumber - startBlockNumber + 1);
         final BlockItemUnparsed[] blockItems = new BlockItemUnparsed[numberOfBlocks * 3];
-        for (int blockNumber = startBlockNumber; blockNumber <= endBlockNumber; blockNumber++) {
-            final int i = (blockNumber - startBlockNumber) * 3;
-            blockItems[i] = sampleBlockHeaderUnparsed(blockNumber);
-            blockItems[i + 1] = sampleRoundHeaderUnparsed(blockNumber * 10L);
-            blockItems[i + 2] = sampleBlockProofUnparsed(blockNumber);
+        for (int blockNumber = startBlockNumber, i = 0; blockNumber <= endBlockNumber; blockNumber++) {
+            blockItems[i++] = sampleBlockHeaderUnparsed(blockNumber);
+            blockItems[i++] = sampleRoundHeaderUnparsed(blockNumber * 10L);
+            blockItems[i++] = sampleBlockProofUnparsed(blockNumber);
         }
         return blockItems;
     }
@@ -322,11 +321,10 @@ public final class SimpleTestBlockItemBuilder {
         assertTrue(startBlockNumber >= 0);
         final int numberOfBlocks = (endBlockNumber - startBlockNumber + 1);
         final BlockItemUnparsed[] blockItems = new BlockItemUnparsed[numberOfBlocks * 3];
-        for (int blockNumber = startBlockNumber; blockNumber <= endBlockNumber; blockNumber++) {
-            final int i = (blockNumber - startBlockNumber) * 3;
-            blockItems[i] = sampleBrokenBlockHeaderUnparsed(blockNumber);
-            blockItems[i + 1] = sampleRoundHeaderUnparsed(blockNumber * 10L);
-            blockItems[i + 2] = sampleBlockProofUnparsed(blockNumber);
+        for (int blockNumber = startBlockNumber, i = 0; blockNumber <= endBlockNumber; blockNumber++) {
+            blockItems[i++] = sampleBrokenBlockHeaderUnparsed(blockNumber);
+            blockItems[i++] = sampleRoundHeaderUnparsed(blockNumber * 10L);
+            blockItems[i++] = sampleBlockProofUnparsed(blockNumber);
         }
         return blockItems;
     }
@@ -337,11 +335,10 @@ public final class SimpleTestBlockItemBuilder {
         assertTrue(startBlockNumber >= 0);
         final int numberOfBlocks = (endBlockNumber - startBlockNumber + 1);
         final BlockItemUnparsed[] blockItems = new BlockItemUnparsed[numberOfBlocks * 3];
-        for (int blockNumber = startBlockNumber; blockNumber <= endBlockNumber; blockNumber++) {
-            final int i = (blockNumber - startBlockNumber) * 3;
-            blockItems[i] = sampleBlockHeaderUnparsed(blockNumber);
-            blockItems[i + 1] = sampleRoundHeaderUnparsed(blockNumber * 10L);
-            blockItems[i + 2] = sampleBrokenBlockProofUnparsed(blockNumber);
+        for (int blockNumber = startBlockNumber, i = 0; blockNumber <= endBlockNumber; blockNumber++) {
+            blockItems[i++] = sampleBlockHeaderUnparsed(blockNumber);
+            blockItems[i++] = sampleRoundHeaderUnparsed(blockNumber * 10L);
+            blockItems[i++] = sampleBrokenBlockProofUnparsed(blockNumber);
         }
         return blockItems;
     }
@@ -352,11 +349,10 @@ public final class SimpleTestBlockItemBuilder {
         assertTrue(startBlockNumber >= 0);
         final int numberOfBlocks = (endBlockNumber - startBlockNumber + 1);
         final BlockItemUnparsed[] blockItems = new BlockItemUnparsed[numberOfBlocks * 3];
-        for (int blockNumber = startBlockNumber; blockNumber <= endBlockNumber; blockNumber++) {
-            final int i = (blockNumber - startBlockNumber) * 3;
-            blockItems[i] = sampleNullBlockHeaderUnparsed();
-            blockItems[i + 1] = sampleRoundHeaderUnparsed(blockNumber * 10L);
-            blockItems[i + 2] = sampleBlockProofUnparsed(blockNumber);
+        for (int blockNumber = startBlockNumber, i = 0; blockNumber <= endBlockNumber; blockNumber++) {
+            blockItems[i++] = sampleNullBlockHeaderUnparsed();
+            blockItems[i++] = sampleRoundHeaderUnparsed(blockNumber * 10L);
+            blockItems[i++] = sampleBlockProofUnparsed(blockNumber);
         }
         return blockItems;
     }
@@ -404,13 +400,13 @@ public final class SimpleTestBlockItemBuilder {
     public static BlockItems toBlockItems(
             final List<BlockItem> block, final boolean includeHeader, final long blockNumber) {
         final List<BlockItemUnparsed> result = new ArrayList<>();
-        final List<BlockItem> toConvert;
+        final List<BlockItem> blockItemsToConvert;
         if (!block.getFirst().hasBlockHeader()) {
-            toConvert = block;
+            blockItemsToConvert = block;
         } else {
-            toConvert = includeHeader ? block : block.subList(1, block.size());
+            blockItemsToConvert = includeHeader ? block : block.subList(1, block.size());
         }
-        for (final BlockItem item : toConvert) {
+        for (final BlockItem item : blockItemsToConvert) {
             try {
                 result.add(BlockItemUnparsed.PROTOBUF.parse(BlockItem.PROTOBUF.toBytes(item)));
             } catch (final ParseException e) {
