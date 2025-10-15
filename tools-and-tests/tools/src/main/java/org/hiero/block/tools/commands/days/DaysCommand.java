@@ -8,6 +8,8 @@ import org.hiero.block.tools.commands.days.subcommands.Ls;
 import org.hiero.block.tools.commands.days.subcommands.PrintListing;
 import org.hiero.block.tools.commands.days.subcommands.Validate;
 import picocli.CommandLine.Command;
+import picocli.CommandLine.Model.CommandSpec;
+import picocli.CommandLine.Spec;
 
 /**
  * Top level command for working with compressed daily record file archives. These archives are tar.zstd files with a
@@ -27,9 +29,12 @@ import picocli.CommandLine.Command;
         },
         mixinStandardHelpOptions = true)
 public class DaysCommand implements Runnable {
+    @Spec
+    CommandSpec spec;
+
     @Override
     public void run() {
-        System.out.println(
-                "Please specify a subcommand: ls | validate | compress | download-day | download-days | print-listing\nUse --help for more details.");
+        // Use picocli to print the usage help (which includes subcommands) when no subcommand is specified
+        spec.commandLine().usage(spec.commandLine().getOut());
     }
 }
