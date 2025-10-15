@@ -38,39 +38,26 @@ public class Validate implements Runnable {
             spec.commandLine().usage(spec.commandLine().getOut());
             return;
         }
-
         final AtomicReference<Bytes> carryOverHash = new AtomicReference<>(ZERO_HASH);
-        final AtomicLong processed = new AtomicLong(0);
-        final long startNanos = System.nanoTime();
         System.out.println("Staring hash[" + carryOverHash.get() + "]");
-
         final List<Path> dayPaths = TarZstdDayUtils.sortedDayPaths(compressedDayOrDaysDirs);
-
         // Estimation/ETA support
+        final long startNanos = System.nanoTime();
         final long INITIAL_ESTIMATE_PER_DAY = (24L * 60L * 60L) / 5L; // one every 5 seconds for a whole day
-        long completedDaysActualSum = 0L;     // sum of actual counts for completed days
-        long lastDayActualCount = 0L;         // last fully processed day count (used to estimate next days)
-        int dayIndex = -1;
+        final long dayCount = dayPaths.size();
+        final AtomicLong totalProgress = new AtomicLong(dayCount * INITIAL_ESTIMATE_PER_DAY);
+        final AtomicLong progress = new AtomicLong(0);
 
-        for (Path dayFile : dayPaths) {
-            dayIndex++;
-            // choose estimate for current day
-            long estimateForCurrentDay = (dayIndex == 0)
-                    ? INITIAL_ESTIMATE_PER_DAY
-                    : (lastDayActualCount > 0 ? lastDayActualCount : INITIAL_ESTIMATE_PER_DAY);
-
-            final int totalDays = dayPaths.size();
-            final int dayIndexFinal = dayIndex;
-            final int totalDaysFinal = totalDays;
-            final long estimateForCurrentDayFinal = estimateForCurrentDay;
-            final long baseCompletedDaysActualSum = completedDaysActualSum; // snapshot for lambda
-
+        for (int day = 0; day < dayPaths.size(); day++) {
+            Path dayFile = dayPaths.get(day);
             try (var stream = TarZstdDayReader.streamTarZstd(dayFile)) {
-                final AtomicLong processedInDayAtomic = new AtomicLong(0L);
+                final long progressAtStartOfDay = progress.get();
                 stream.forEach((InMemoryBlock set) -> {
+                    // update counters
+                    progress.incrementAndGet();
                     try {
                         final RecordFileInfo recordFileInfo =
-                                RecordFileInfo.parse(set.primaryRecordFile().data());
+                            RecordFileInfo.parse(set.primaryRecordFile().data());
 
                         // previous block hash from prior iteration (carry over)
                         final Bytes previousBlockHash = carryOverHash.get();
@@ -81,45 +68,37 @@ public class Validate implements Runnable {
                         if (!recordFileInfo.previousBlockHash().equals(previousBlockHash)) {
                             PrettyPrint.clearProgress();
                             System.err.println(
-                                    "Validation failed for " + set.recordFileTime() + " - expected prev="
-                                            + previousBlockHash + " but found prev=" + recordFileInfo.previousBlockHash());
+                                "Validation failed for " + set.recordFileTime() + " - expected prev="
+                                    + previousBlockHash + " but found prev=" + recordFileInfo.previousBlockHash());
                             System.out.flush();
                             System.exit(1);
                         }
 
-                        // update counters
-                        long processedInCurrentDayLocal = processedInDayAtomic.incrementAndGet();
 
                         // Build progress string showing time and hashes (shortened to 8 chars for readability)
                         final String progressString = String.format(
-                                "%s carry[%s] prev[%s] next[%s]",
-                                set.recordFileTime(),
-                                shortHash(previousBlockHash),
-                                shortHash(recordFileInfo.previousBlockHash()),
-                                shortHash(recordFileInfo.blockHash()));
+                            "%s carry[%s] prev[%s] next[%s]",
+                            set.recordFileTime(),
+                            shortHash(previousBlockHash),
+                            shortHash(recordFileInfo.previousBlockHash()),
+                            shortHash(recordFileInfo.blockHash()));
 
                         // Estimate totals and ETA
                         final long elapsedMillis = (System.nanoTime() - startNanos) / 1_000_000L;
-                        final int remainingDaysAfterCurrent = totalDaysFinal - dayIndexFinal - 1;
-                        final long estimateForRemainingEach = (processedInCurrentDayLocal > 0)
-                                ? processedInCurrentDayLocal // use running count as the best current estimate for next days
-                                : estimateForCurrentDayFinal;
-                        final long totalEstimated =
-                                baseCompletedDaysActualSum + // all completed days actuals (snapshot)
-                                estimateForCurrentDayFinal +   // current day estimate
-                                (remainingDaysAfterCurrent > 0 ? (estimateForRemainingEach * remainingDaysAfterCurrent) : 0L);
 
                         // Progress percent and remaining
-                        final long processedSoFarAcrossAll = baseCompletedDaysActualSum + processedInCurrentDayLocal;
-                        double percent = (totalEstimated > 0)
-                                ? (processedSoFarAcrossAll * 100.0) / (double) totalEstimated
-                                : 0.0;
+                        final long processedSoFarAcrossAll = progress.get();
+                        final long totalProgressFinal = totalProgress.get();
+                        double percent = ((double)processedSoFarAcrossAll / (double) totalProgressFinal) * 100.0;
 
                         long remainingMillis;
                         if (processedSoFarAcrossAll > 0) {
-                            long remainingUnits = totalEstimated - processedSoFarAcrossAll;
-                            remainingMillis = (long) ((elapsedMillis * (double) remainingUnits) / (double) processedSoFarAcrossAll);
-                            if (remainingMillis < 0) remainingMillis = 0;
+                            long remainingUnits = totalProgressFinal - processedSoFarAcrossAll;
+                            remainingMillis = (long) ((elapsedMillis * (double) remainingUnits)
+                                / (double) processedSoFarAcrossAll);
+                            if (remainingMillis < 0) {
+                                remainingMillis = 0;
+                            }
                         } else {
                             remainingMillis = Long.MAX_VALUE; // unknown ETA at the very start
                         }
@@ -134,10 +113,11 @@ public class Validate implements Runnable {
                 });
 
                 // After finishing the day, update aggregates
-                long dayCountThisDay = processedInDayAtomic.get();
-                completedDaysActualSum += dayCountThisDay;
-                lastDayActualCount = dayCountThisDay;
-                processed.addAndGet(dayCountThisDay);
+                final long progressAtEndOfDay = progress.get();
+                final long blocksInDay = progressAtEndOfDay - progressAtStartOfDay;
+                final long remainingDays = dayCount - (day + 1);
+                // update total estimate based on actual blocks processed in this day
+                totalProgress.set(progressAtEndOfDay + (remainingDays * blocksInDay));
             } catch (Exception ex) {
                 PrettyPrint.clearProgress();
                 System.err.println("Failed processing day file: " + dayFile + ": " + ex.getMessage());
@@ -147,7 +127,7 @@ public class Validate implements Runnable {
         }
         // clear the progress line once done and print a summary
         PrettyPrint.clearProgress();
-        System.out.println("Validation complete. Blocks processed: " + processed.get());
+        System.out.println("Validation complete. Days processed: "+dayCount+" , Blocks processed: " + progress.get());
     }
 
     /**
