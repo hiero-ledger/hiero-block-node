@@ -3,6 +3,7 @@ package org.hiero.block.tools.commands.days.model;
 
 import com.github.luben.zstd.RecyclingBufferPool;
 import com.github.luben.zstd.ZstdInputStream;
+import java.io.BufferedInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
@@ -92,7 +93,9 @@ public class TarZstdDayReader {
         final List<InMemoryBlock> results = new ArrayList<>();
 
         try (TarArchiveInputStream tar = new TarArchiveInputStream(
-                    new ZstdInputStream(Files.newInputStream(zstdFile), RecyclingBufferPool.INSTANCE))) {
+                    new ZstdInputStream(new BufferedInputStream(
+                        Files.newInputStream(zstdFile), 1024*1024*100),
+                        RecyclingBufferPool.INSTANCE))) {
             TarArchiveEntry entry;
             String currentDir = null;
             List<InMemoryFile> currentFiles = new ArrayList<>();
