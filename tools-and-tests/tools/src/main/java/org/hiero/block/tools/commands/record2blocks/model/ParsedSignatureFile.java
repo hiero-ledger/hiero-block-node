@@ -3,12 +3,12 @@ package org.hiero.block.tools.commands.record2blocks.model;
 
 import com.hedera.hapi.streams.SignatureFile;
 import com.hedera.pbj.runtime.ParseException;
-import com.hedera.pbj.runtime.io.ReadableSequentialData;
 import com.hedera.pbj.runtime.io.stream.ReadableStreamingData;
 import java.io.DataInputStream;
 import java.io.IOException;
 import java.util.HexFormat;
 import org.hiero.block.tools.commands.record2blocks.gcp.MainNetBucket;
+import org.hiero.block.tools.records.SerializationV5Utils;
 
 /**
  * SignatureFile represents a Hedera record file signature file. There have been 3 versions of the signature files used
@@ -185,6 +185,7 @@ public record ParsedSignatureFile(int nodeId, byte[] fileHash, byte[] signature)
      *
      * @return the string representation of the SignatureFile
      */
+    @SuppressWarnings("NullableProblems")
     @Override
     public String toString() {
         final HexFormat hexFormat = HexFormat.of();
@@ -227,7 +228,7 @@ public record ParsedSignatureFile(int nodeId, byte[] fileHash, byte[] signature)
                         throw new IllegalArgumentException("Invalid object stream signature version");
                     }
                     // read hash object - hash bytes
-                    final byte[] entireFileHash = readHashObject(in);
+                    final byte[] entireFileHash = SerializationV5Utils.readV5HashObject(in);
                     // read signature object - class id
                     if (in.readLong() != 0x13dc4b399b245c69L) {
                         throw new IllegalArgumentException("Invalid signature object class ID");
@@ -281,66 +282,5 @@ public record ParsedSignatureFile(int nodeId, byte[] fileHash, byte[] signature)
         }
     }
 
-    /** The size of a hash object in bytes */
-    public static final int HASH_OBJECT_SIZE_BYTES = Long.BYTES + Integer.BYTES + Integer.BYTES + Integer.BYTES + 48;
 
-    /**
-     * Read a hash object from a data input stream in SelfSerializable SHA384 format.
-     *
-     * @param in the data input stream
-     * @return the hash bytes
-     * @throws IOException if an error occurs reading the hash object
-     */
-    public static byte[] readHashObject(DataInputStream in) throws IOException {
-        // read hash class id
-        if (in.readLong() != 0xf422da83a251741eL) {
-            throw new IllegalArgumentException("Invalid hash class ID");
-        }
-        // read hash class version
-        if (in.readInt() != 1) {
-            throw new IllegalArgumentException("Invalid hash class version");
-        }
-        // read hash object, starting with digest type SHA384
-        if (in.readInt() != 0x58ff811b) {
-            throw new IllegalArgumentException("Invalid digest type not SHA384");
-        }
-        // read hash object - length of hash
-        if (in.readInt() != 48) {
-            throw new IllegalArgumentException("Invalid hash length");
-        }
-        // read hash object - hash bytes
-        final byte[] entireFileHash = new byte[48];
-        in.readFully(entireFileHash);
-        return entireFileHash;
-    }
-
-    /**
-     * Read a hash object from a data input stream in SelfSerializable SHA384 format.
-     *
-     * @param in the data input stream
-     * @return the hash bytes
-     * @throws IOException if an error occurs reading the hash object
-     */
-    public static byte[] readHashObject(ReadableSequentialData in) throws IOException {
-        // read hash class id
-        if (in.readLong() != 0xf422da83a251741eL) {
-            throw new IllegalArgumentException("Invalid hash class ID");
-        }
-        // read hash class version
-        if (in.readInt() != 1) {
-            throw new IllegalArgumentException("Invalid hash class version");
-        }
-        // read hash object, starting with digest type SHA384
-        if (in.readInt() != 0x58ff811b) {
-            throw new IllegalArgumentException("Invalid digest type not SHA384");
-        }
-        // read hash object - length of hash
-        if (in.readInt() != 48) {
-            throw new IllegalArgumentException("Invalid hash length");
-        }
-        // read hash object - hash bytes
-        final byte[] entireFileHash = new byte[48];
-        in.readBytes(entireFileHash);
-        return entireFileHash;
-    }
 }
