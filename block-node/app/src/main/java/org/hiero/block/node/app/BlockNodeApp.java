@@ -184,7 +184,8 @@ public class BlockNodeApp implements HealthFacility {
                 .maxMessageSizeBytes(serverConfig.maxMessageSizeBytes())
                 .build();
 
-        // Http2 Config
+        // Http2 Config more info at
+        // https://helidon.io/docs/v4/apidocs/io.helidon.webserver.http2/io/helidon/webserver/http2/Http2Config.html
         final Http2Config http2Config = Http2Config.builder()
                 .flowControlTimeout(Duration.ofMillis(webServerHttp2Config.flowControlTimeout()))
                 .initialWindowSize(webServerHttp2Config.initialWindowSize())
