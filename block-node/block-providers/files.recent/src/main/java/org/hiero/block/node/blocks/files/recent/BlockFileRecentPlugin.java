@@ -259,9 +259,7 @@ public final class BlockFileRecentPlugin implements BlockProviderPlugin, BlockNo
     public void handleVerification(VerificationNotification notification) {
         try {
             final long startTime = System.nanoTime();
-            LOGGER.log(
-                    TRACE,
-                    "Persistence Handle verification started for block: %d".formatted(notification.blockNumber()));
+            LOGGER.log(TRACE, "Persistence Handle verification started for block {0}", notification.blockNumber());
             if (notification != null && notification.success()) {
                 // write the block to the live path and send notification of block persisted
                 writeBlockToLivePath(notification.block(), notification.blockNumber(), notification.source());
@@ -287,8 +285,9 @@ public final class BlockFileRecentPlugin implements BlockProviderPlugin, BlockNo
             persistenceLatencyNs.add(totalTime);
             LOGGER.log(
                     TRACE,
-                    "Persistence Handle verification finished for block: %d, and it took %d ns to complete"
-                            .formatted(notification.blockNumber(), totalTime));
+                    "Persistence Handle verification finished for block {0}, and it took {1} ns to complete",
+                    notification.blockNumber(),
+                    totalTime);
         } catch (final RuntimeException e) {
             final String message = "Failed to handle verification notification due to %s".formatted(e);
             LOGGER.log(WARNING, message, e);

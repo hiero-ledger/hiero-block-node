@@ -137,11 +137,12 @@ public class PublisherClientModeHandler implements SimulatorModeHandler {
             long elapsedTime = System.nanoTime() - startTime;
             long timeToDelay = secondsPerBlockNanos - elapsedTime;
             if (timeToDelay > 0) {
-              final String message = "Streaming block took {0}ms. Delaying for {1}ms to maintain {2} milliseconds per block.";
-              final long elapsed = elapsedTime / 1_000_000;
-              final long delay = timeToDelay / 1_000_000;
-              LOGGER.log(INFO, message, elapsed, delay, millisecondsPerBlock);
-              Thread.sleep(timeToDelay / NANOS_PER_MILLI, (int) (timeToDelay % NANOS_PER_MILLI));
+                final String message =
+                        "Streaming block took {0}ms. Delaying for {1}ms to maintain {2} milliseconds per block.";
+                final long elapsed = elapsedTime / 1_000_000;
+                final long delay = timeToDelay / 1_000_000;
+                LOGGER.log(INFO, message, elapsed, delay, millisecondsPerBlock);
+                Thread.sleep(timeToDelay / NANOS_PER_MILLI, (int) (timeToDelay % NANOS_PER_MILLI));
             } else {
                 LOGGER.log(
                         System.Logger.Level.WARNING,

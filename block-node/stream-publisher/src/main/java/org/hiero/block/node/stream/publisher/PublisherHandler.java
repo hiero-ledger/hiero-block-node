@@ -146,9 +146,9 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
     @Override
     public void onNext(@NonNull final PublishStreamRequestUnparsed request) {
         try {
-            LOGGER.log(TRACE, "Handler %d received request".formatted(handlerId));
+            LOGGER.log(TRACE, "Handler {0} received request", handlerId);
             processNextRequestUnparsed(request);
-            LOGGER.log(TRACE, "Handler %d finished processing request".formatted(handlerId));
+            LOGGER.log(TRACE, "Handler {0} finished processing request", handlerId);
         } catch (final InterruptedException | RuntimeException e) {
             // If we reach here, it means that the handler was interrupted or
             // an unexpected error occurred. We should log the error and shut down.
@@ -230,10 +230,8 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
                 blockNumber = header.number();
                 // this means that we are starting a new block, so we can
                 // update the current streaming block number
-                if (LOGGER.isLoggable(TRACE)) {
-                    final String traceMessage = "metric-end-to-end-latency-by-block-start {0},{1}ns";
-                    LOGGER.log(TRACE, traceMessage, blockNumber, System.nanoTime());
-                }
+                final String traceMessage = "metric-end-to-end-latency-by-block-start {0},{1}ns";
+                LOGGER.log(TRACE, traceMessage, blockNumber, System.nanoTime());
                 currentStreamingBlockHeaderReceivedTime = System.nanoTime();
                 currentStreamingBlockNumber.set(blockNumber);
             } else {
@@ -408,14 +406,10 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
                     .clear();
             metrics.blockAcknowledgementsSent.increment(); // @todo(1415) add label
 
-            if (LOGGER.isLoggable(TRACE)) {
-                final String traceMessage = "metric-end-to-end-latency-by-block-end {0},{1}ns";
-                LOGGER.log(TRACE, traceMessage, newLastAcknowledgedBlockNumber, System.nanoTime());
-                LOGGER.log(
-                        TRACE,
-                        "Sent acknowledgement for block %d from handler %d"
-                                .formatted(newLastAcknowledgedBlockNumber, handlerId));
-            }
+            final String ackMessage = "Sent acknowledgement for block {0} from handler {1}";
+            final String traceMessage = "metric-end-to-end-latency-by-block-end {0},{1}ns";
+            LOGGER.log(TRACE, traceMessage, newLastAcknowledgedBlockNumber, System.nanoTime());
+            LOGGER.log(TRACE, ackMessage, newLastAcknowledgedBlockNumber, handlerId);
         }
     }
 
@@ -447,7 +441,7 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
             long start = System.nanoTime();
             replies.onNext(response);
             long duration = System.nanoTime() - start;
-            LOGGER.log(DEBUG, "Handler %d: replies.onNext took %d ns".formatted(handlerId, duration));
+            LOGGER.log(DEBUG, "Handler {0} replies.onNext took {1} ns", handlerId, duration);
             return true;
         } catch (UncheckedIOException e) {
             shutdown(); // this method is idempotent and can be called multiple times
