@@ -283,12 +283,12 @@ public final class BlockFileRecentPlugin implements BlockProviderPlugin, BlockNo
                     }
                 }
             }
-            final long endTime = System.nanoTime() - startTime;
-            persistenceLatencyNs.add(endTime);
+            final long totalTime = System.nanoTime() - startTime;
+            persistenceLatencyNs.add(totalTime);
             LOGGER.log(
                     TRACE,
                     "Persistence Handle verification finished for block: %d, and it took %d ns to complete"
-                            .formatted(notification.blockNumber(), endTime));
+                            .formatted(notification.blockNumber(), totalTime));
         } catch (final RuntimeException e) {
             final String message = "Failed to handle verification notification due to %s".formatted(e);
             LOGGER.log(WARNING, message, e);
