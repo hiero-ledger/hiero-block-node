@@ -7,6 +7,7 @@ import org.hiero.block.node.base.Loggable;
 
 /**
  * Use this configuration across the server features
+ * More info at <a href="https://helidon.io/docs/v4/apidocs/io.helidon.webserver.http2/io/helidon/webserver/http2/Http2Config.html">...</a>
  *
  * <p>ServerConfig will have settings for the server.
  *
