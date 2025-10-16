@@ -231,8 +231,8 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
                 // this means that we are starting a new block, so we can
                 // update the current streaming block number
                 final String traceMessage = "metric-end-to-end-latency-by-block-start {0},{1}ns";
-                LOGGER.log(TRACE, traceMessage, blockNumber, System.nanoTime());
                 currentStreamingBlockHeaderReceivedTime = System.nanoTime();
+                LOGGER.log(TRACE, traceMessage, blockNumber, currentStreamingBlockHeaderReceivedTime);
                 currentStreamingBlockNumber.set(blockNumber);
             } else {
                 LOGGER.log(
