@@ -3,6 +3,8 @@ package org.hiero.block.tools.commands.days.subcommands;
 
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import java.io.File;
+import java.io.FileWriter;
+import java.io.IOException;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.concurrent.BlockingQueue;
@@ -16,6 +18,7 @@ import org.hiero.block.tools.records.InMemoryBlock;
 import org.hiero.block.tools.records.InMemoryBlock.ValidationResult;
 import org.hiero.block.tools.utils.PrettyPrint;
 import picocli.CommandLine.Command;
+import picocli.CommandLine.Option;
 import picocli.CommandLine.Parameters;
 import picocli.CommandLine.Model.CommandSpec;
 import picocli.CommandLine.Spec;
@@ -46,6 +49,11 @@ public class Validate implements Runnable {
 
     @Spec
     CommandSpec spec;
+
+    @Option(
+        names = {"-w", "--warnings-file"},
+        description = "Write warnings to this file, rather than ignoring them")
+    private File warningFile = null;
 
     @Parameters(index = "0..*", description = "Files or directories to process")
     private final File[] compressedDayOrDaysDirs = new File[0];
@@ -116,7 +124,7 @@ public class Validate implements Runnable {
         long progressAtStartOfDay = 0L;
         int currentDay = -1;
 
-        try {
+        try (FileWriter warningWriter = warningFile != null ? new FileWriter(warningFile, true) : null) {
             // Consumer loop: validate blocks and update progress/ETA
             while (true) {
                 final Item item = queue.take();
@@ -137,6 +145,10 @@ public class Validate implements Runnable {
                             // Validate the block using InMemoryBlock.validate which performs internal checks
                             final ValidationResult vr = set.validate(previousBlockHash,
                                 addressBookRegistry.getCurrentAddressBook());
+                            if (warningWriter != null && !vr.warningMessages().isEmpty()) {
+                                warningWriter.write("Warnings for " + set.recordFileTime() + ":\n" + vr.warningMessages() + "\n");
+                                warningWriter.flush();
+                            }
                             // check overall validity and fail if not valid
                             if (!vr.isValid()) {
                                 PrettyPrint.clearProgress();
@@ -185,6 +197,8 @@ public class Validate implements Runnable {
             PrettyPrint.clearProgress();
             System.err.println("Validation interrupted");
             System.exit(1);
+        } catch (IOException e) {
+            throw new RuntimeException(e);
         }
 
         // clear the progress line once done and print a summary
