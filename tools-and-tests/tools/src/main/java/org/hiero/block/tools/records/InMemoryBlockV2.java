@@ -6,6 +6,7 @@ import com.hedera.hapi.node.base.SemanticVersion;
 import com.hedera.hapi.node.base.Transaction;
 import com.hedera.hapi.node.transaction.TransactionBody;
 import com.hedera.pbj.runtime.ParseException;
+import com.hedera.pbj.runtime.io.buffer.BufferedData;
 import com.hedera.pbj.runtime.io.stream.ReadableStreamingData;
 import java.io.ByteArrayInputStream;
 import java.io.DataInputStream;
@@ -81,7 +82,8 @@ public class InMemoryBlockV2 extends InMemoryBlock {
     @Override
     public ValidationResult validate(byte[] startRunningHash, NodeAddressBook addressBook) {
         final byte[] recordFileBytes = primaryRecordFile().data();
-        try (ReadableStreamingData in = new ReadableStreamingData(new ByteArrayInputStream(recordFileBytes))) {
+        try {
+            final BufferedData in = BufferedData.wrap(recordFileBytes);
             boolean isValid = true;
             final StringBuilder warningMessages = new StringBuilder();
             // Read and verify the record file version
@@ -114,7 +116,7 @@ public class InMemoryBlockV2 extends InMemoryBlock {
             final byte[] blockHash = digest.digest();
 
             // Validate all signature files if an address book is provided
-            isValid = validateSignatures(addressBook, warningMessages, isValid, blockHash, recordFileBytes);
+            isValid = isValid && validateSignatures(addressBook, warningMessages, blockHash, recordFileBytes);
 
             // read all the transactions
             final List<Transaction> transactions = new ArrayList<>();
@@ -131,7 +133,9 @@ public class InMemoryBlockV2 extends InMemoryBlock {
                     isValid = false;
                     break;
                 }
-                Transaction txn = Transaction.PROTOBUF.parse(in);
+                // Parse the transaction from an explicit Bytes slice so the protobuf parser only reads
+                // the transaction bytes and does not consume subsequent record fields.
+                Transaction txn = Transaction.PROTOBUF.parse(in.readBytes(txnLength));
                 transactions.add(txn);
                 if (in.remaining() < 4) {
                     warningMessages.append("Insufficient bytes for transaction record length in v2 record file\n");
@@ -158,19 +162,20 @@ public class InMemoryBlockV2 extends InMemoryBlock {
     }
 
     /**
-     * Validate all signature files against the computed block hash using RSA public keys from the address book.
+     * Validate all signature files against the computed block hash using RSA public keys from the address book. Make
+     * sure we have 1/3 of all nodes in address book have signed with valid signatures.
      *
      * @param addressBook the address book containing node RSA public keys; may be null to skip signature verification
      * @param warningMessages a StringBuilder to append any warning messages to
-     * @param isValid the current validity state, updated if any signatures fail to verify
      * @param blockHash the computed 48-byte block hash of the record file
      * @param recordFileBytes the entire record file bytes (used for fallback signature verification)
      * @return the updated validity state after checking all signatures
      * @throws IOException if an I/O error occurs reading a signature file
      */
-    private boolean validateSignatures(NodeAddressBook addressBook, StringBuilder warningMessages, boolean isValid,
+    private boolean validateSignatures(NodeAddressBook addressBook, StringBuilder warningMessages,
         byte[] blockHash, byte[] recordFileBytes) throws IOException {
         if (addressBook != null && !signatureFiles().isEmpty()) {
+            int validSignatureCount = 0;
             for (InMemoryFile sigFile : signatureFiles()) {
                 try (DataInputStream sin = new DataInputStream(new ByteArrayInputStream(sigFile.data()))) {
                     final int firstByte = sin.read();
@@ -179,7 +184,6 @@ public class InMemoryBlockV2 extends InMemoryBlock {
                                 .append("Unexpected signature file first byte (expected 4) in ")
                                 .append(sigFile.path())
                                 .append("\n");
-                        isValid = false;
                         continue;
                     }
                     final byte[] fileHashFromSig = new byte[48];
@@ -189,14 +193,12 @@ public class InMemoryBlockV2 extends InMemoryBlock {
                                 .append("Signature file hash does not match computed block hash for ")
                                 .append(sigFile.path())
                                 .append("\n");
-                        isValid = false;
                     }
                     if (sin.read() != 3) {
                         warningMessages
                                 .append("Invalid signature marker in ")
                                 .append(sigFile.path())
                                 .append("\n");
-                        isValid = false;
                         continue;
                     }
                     final int sigLen = sin.readInt();
@@ -210,7 +212,6 @@ public class InMemoryBlockV2 extends InMemoryBlock {
                                 .append("Unable to extract node account number from signature filename: ")
                                 .append(sigFile.path())
                                 .append("\n");
-                        isValid = false;
                         continue;
                     }
                     // Look up RSA public key via AddressBookRegistry helper
@@ -224,7 +225,6 @@ public class InMemoryBlockV2 extends InMemoryBlock {
                                 .append(" in provided address book; file ")
                                 .append(sigFile.path())
                                 .append("\n");
-                        isValid = false;
                         continue;
                     }
                     if (rsaPubKey == null || rsaPubKey.isEmpty()) {
@@ -234,7 +234,6 @@ public class InMemoryBlockV2 extends InMemoryBlock {
                                 .append("; file ")
                                 .append(sigFile.path())
                                 .append("\n");
-                        isValid = false;
                         continue;
                     }
 
@@ -247,12 +246,35 @@ public class InMemoryBlockV2 extends InMemoryBlock {
                                 .append(" (file ")
                                 .append(sigFile.path())
                                 .append(")\n");
-                        isValid = false;
                     }
+                    // we count valid signatures only if the file hash matched and the signature verified
+                    validSignatureCount ++;
+                } catch (Exception e) {
+                    warningMessages
+                            .append("Error processing signature file ")
+                            .append(sigFile.path())
+                            .append(": ")
+                            .append(e.getMessage())
+                            .append("\n");
                 }
             }
+            final int totalNodeCount = addressBook.nodeAddress().size();
+            // Require at least 1/3 of all nodes to have valid signatures
+            final int requiredSignatures = (totalNodeCount / 3) + 1;
+            if (validSignatureCount < requiredSignatures) {
+                warningMessages
+                    .append("Insufficient valid signatures: ")
+                    .append(validSignatureCount)
+                    .append(" of ")
+                    .append(totalNodeCount)
+                    .append(" nodes; required ")
+                    .append(requiredSignatures)
+                    .append("\n");
+                return false;
+            }
+            return true;
         }
-        return isValid;
+        return false;
     }
 
     /**

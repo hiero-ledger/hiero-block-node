@@ -4,6 +4,7 @@ package org.hiero.block.tools.records;
 import static org.hiero.block.tools.records.RecordFileUtils.extractRecordFileTime;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.hedera.hapi.node.base.NodeAddressBook;
@@ -17,10 +18,11 @@ import java.util.List;
 import org.hiero.block.tools.commands.days.model.AddressBookRegistry;
 import org.junit.jupiter.api.Test;
 
+/**
+ * Unit tests for InMemoryBlock validate() method using example record files from mainnet and testnet.
+ * Testing using blocks 0, 26591040 and 82297471 as these are examples of v2,v5 and v6 formats.
+ */
 public class InMemoryBlockValidateTest {
-    public static final long EXAMPLE_V2_BLOCK_NUMBER = 0;
-    public static final long EXAMPLE_V5_BLOCK_NUMBER = 26591040;
-    public static final long EXAMPLE_V6_BLOCK_NUMBER = 82297471;
     public static final byte[] EXAMPLE_V2_PREVIOUS_RECORD_FILE_HASH = new byte[48];
     public static final byte[] EXAMPLE_V5_PREVIOUS_RECORD_FILE_HASH = HexFormat.of()
             .parseHex(
@@ -50,6 +52,7 @@ public class InMemoryBlockValidateTest {
 
     @Test
     void validateV2RecordFile() throws Exception {
+        final NodeAddressBook addressBook = AddressBookRegistry.loadGenesisAddressBook();
         final String base = "/record-files/example-v2/2019-09-13T21_53_51.396440Z/";
         final InMemoryFile record = loadResourceFile(base + "2019-09-13T21_53_51.396440Z.rcd");
         // use RecordFileInfo to check the previous file and end running hashes written in the file, not recomputed
@@ -79,7 +82,7 @@ public class InMemoryBlockValidateTest {
                 Collections.emptyList());
         // now call validate with the genesis address book as this is the first block
         final InMemoryBlock.ValidationResult result =
-                block.validate(EXAMPLE_V2_PREVIOUS_RECORD_FILE_HASH, AddressBookRegistry.loadGenesisAddressBook());
+                block.validate(EXAMPLE_V2_PREVIOUS_RECORD_FILE_HASH, addressBook);
         assertTrue(
                 result.warningMessages().isBlank(),
                 "Should be no warnings, but got:\n" + result.warningMessages() + "\n");
@@ -87,10 +90,26 @@ public class InMemoryBlockValidateTest {
         assertArrayEquals(
                 EXAMPLE_V2_EXPECTED_END_RUNNING_HASH, result.endRunningHash(), "End running hash mismatch for v2");
         assertEquals(info.hapiProtoVersion(), result.hapiVersion(), "HAPI version mismatch for v2");
+        // now make bad block with not enough signature files and check we get validation failure
+        final InMemoryBlock badBlock = InMemoryBlock.newInMemoryBlock(
+            extractRecordFileTime("2019-09-13T21_53_51.396440Z.rcd").toInstant(ZoneOffset.UTC),
+            record,
+            Collections.emptyList(), // no other record files needed for testing
+            List.of(
+                loadResourceFile(base + "node_0.0.3.rcd_sig"),
+                loadResourceFile(base + "node_0.0.4.rcd_sig"),
+                loadResourceFile(base + "node_0.0.5.rcd_sig")),
+            Collections.emptyList(),
+            Collections.emptyList());
+        final InMemoryBlock.ValidationResult result2 =
+            badBlock.validate(EXAMPLE_V2_PREVIOUS_RECORD_FILE_HASH, addressBook);
+        assertTrue(result2.warningMessages().contains("Insufficient valid signatures"), "Should report not enough sigs");
+        assertFalse(result2.isValid(), "V2 validation should be invalid");
     }
 
     @Test
     void validateV5RecordFile() throws Exception {
+        final NodeAddressBook addressBook = AddressBookRegistry.OCT_2025;
         final String base = "/record-files/example-v5/2022-01-01T00_00_00.252365821Z/";
         final InMemoryFile record = loadResourceFile(base + "2022-01-01T00_00_00.252365821Z.rcd");
         // use RecordFileInfo to check the previous file and end running hashes written in the file, not recomputed
@@ -123,10 +142,9 @@ public class InMemoryBlockValidateTest {
                         loadResourceFile(base + "node_0.0.22.rcd_sig")),
                 Collections.emptyList(),
                 Collections.emptyList()); // this block has no sidecar files
-
         // validate the block
         final InMemoryBlock.ValidationResult result =
-                block.validate(EXAMPLE_V5_PREVIOUS_RECORD_FILE_HASH, (NodeAddressBook) null);
+                block.validate(EXAMPLE_V5_PREVIOUS_RECORD_FILE_HASH, addressBook);
         assertTrue(
                 result.warningMessages().isBlank(),
                 "Should be no warnings, but got:\n" + result.warningMessages() + "\n");
@@ -134,10 +152,26 @@ public class InMemoryBlockValidateTest {
         assertArrayEquals(
                 EXAMPLE_V5_EXPECTED_END_RUNNING_HASH, result.endRunningHash(), "End running hash mismatch for v5");
         assertEquals(info.hapiProtoVersion(), result.hapiVersion(), "HAPI version mismatch for v5");
+        // now make bad block with not enough signature files and check we get validation failure
+        final InMemoryBlock badBlock = InMemoryBlock.newInMemoryBlock(
+            extractRecordFileTime("2022-01-01T00_00_00.252365821Z.rcd").toInstant(ZoneOffset.UTC),
+            record,
+            Collections.emptyList(), // no other record files needed for testing
+            List.of(
+                loadResourceFile(base + "node_0.0.10.rcd_sig"),
+                loadResourceFile(base + "node_0.0.11.rcd_sig"),
+                loadResourceFile(base + "node_0.0.12.rcd_sig")),
+            Collections.emptyList(),
+            Collections.emptyList()); // this block has no sidecar files
+        final InMemoryBlock.ValidationResult result2 =
+            badBlock.validate(EXAMPLE_V5_PREVIOUS_RECORD_FILE_HASH, addressBook);
+        assertTrue(result2.warningMessages().contains("Insufficient valid signatures"), "Should report not enough sigs");
+        assertFalse(result2.isValid(), "V5 validation should be invalid");
     }
 
     @Test
     void validateV6RecordFileWithSidecar() throws Exception {
+        final NodeAddressBook addressBook = AddressBookRegistry.OCT_2025;
         final String base = "/record-files/example-v6/2025-07-23T20_37_42.076472454Z/";
         final InMemoryFile record = loadResourceFile(base + "2025-07-23T20_37_42.076472454Z.rcd");
         final InMemoryFile sidecar01 = loadResourceFile(base + "2025-07-23T20_37_42.076472454Z_01.rcd");
@@ -174,7 +208,7 @@ public class InMemoryBlockValidateTest {
 
         // validate the block
         final InMemoryBlock.ValidationResult result =
-                block.validate(EXAMPLE_V6_PREVIOUS_RECORD_FILE_HASH, (NodeAddressBook) null);
+                block.validate(EXAMPLE_V6_PREVIOUS_RECORD_FILE_HASH, addressBook);
         assertTrue(
                 result.warningMessages().isBlank(),
                 "Should be no warnings, but got:\n" + result.warningMessages() + "\n");
@@ -182,5 +216,20 @@ public class InMemoryBlockValidateTest {
         assertArrayEquals(
                 EXAMPLE_V6_EXPECTED_END_RUNNING_HASH, result.endRunningHash(), "End running hash mismatch for v6");
         assertEquals(info.hapiProtoVersion(), result.hapiVersion(), "HAPI version mismatch for v6");
+        // now make bad block with not enough signature files and check we get validation failure
+        final InMemoryBlock badBlock = InMemoryBlock.newInMemoryBlock(
+            extractRecordFileTime("2025-07-23T20_37_42.076472454Z.rcd").toInstant(ZoneOffset.UTC),
+            record,
+            Collections.emptyList(), // no other record files needed for testing
+            List.of(
+                loadResourceFile(base + "node_0.0.3.rcd_sig"),
+                loadResourceFile(base + "node_0.0.21.rcd_sig"),
+                loadResourceFile(base + "node_0.0.25.rcd_sig")),
+            List.of(sidecar01),
+            Collections.emptyList());
+        final InMemoryBlock.ValidationResult result2 =
+            badBlock.validate(EXAMPLE_V6_PREVIOUS_RECORD_FILE_HASH, addressBook);
+        assertTrue(result2.warningMessages().contains("Insufficient valid signatures"), "Should report not enough sigs");
+        assertFalse(result2.isValid(), "V6 validation should be invalid");
     }
 }
