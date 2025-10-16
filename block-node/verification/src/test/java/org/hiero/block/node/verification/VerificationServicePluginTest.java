@@ -183,7 +183,7 @@ class VerificationServicePluginTest extends PluginTestBase<VerificationServicePl
     }
 
     @Test
-    @DisplayName("BlockHeader number and blockNumber on constructor mismatch, should throw IllegalStateException")
+    @DisplayName("BlockHeader number and blockNumber on constructor mismatch, should fail but not throw")
     void blockHeaderAndNumberMismatch() throws ParseException, IOException {
 
         BlockUtils.SampleBlockInfo sampleBlockInfo =

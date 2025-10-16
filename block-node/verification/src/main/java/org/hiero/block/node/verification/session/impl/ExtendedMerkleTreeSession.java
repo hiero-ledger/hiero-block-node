@@ -12,11 +12,10 @@ import org.hiero.block.internal.BlockItemUnparsed;
 import org.hiero.block.internal.BlockUnparsed;
 import org.hiero.block.node.spi.blockmessaging.BlockSource;
 import org.hiero.block.node.spi.blockmessaging.VerificationNotification;
-import org.hiero.block.node.verification.session.BlockVerificationSession;
+import org.hiero.block.node.verification.session.VerificationSession;
 
-// todo(1661) there is a follow-up task to implement this class based on the HAPI 0.68.0 expected spec (latest)
-public class ExtendedMerkleTreeVerificationSessionV0680 implements BlockVerificationSession {
-
+// todo(1661) there is a follow-up task to implement this class based on the expected spec (latest)
+public class ExtendedMerkleTreeSession implements VerificationSession {
     private final System.Logger LOGGER = System.getLogger(getClass().getName());
 
     /** The block number being verified. */
@@ -31,8 +30,7 @@ public class ExtendedMerkleTreeVerificationSessionV0680 implements BlockVerifica
      */
     protected final List<BlockItemUnparsed> blockItems = new ArrayList<>();
 
-    public ExtendedMerkleTreeVerificationSessionV0680(
-            final long blockNumber, final BlockSource blockSource, final String extraBytes) {
+    public ExtendedMerkleTreeSession(final long blockNumber, final BlockSource blockSource, final String extraBytes) {
         this.blockNumber = blockNumber;
         this.blockSource = blockSource;
         LOGGER.log(INFO, "Created ExtendedMerkleTreeVerificationSessionV0680 for block {}", blockNumber);
