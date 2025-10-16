@@ -186,7 +186,7 @@ public class BlockNodeApp implements HealthFacility {
                 .addRouting(serviceBuilder.grpcRoutingBuilder())
                 .connectionConfig(ConnectionConfig.builder()
                         .sendBufferSize(serverConfig.socketSendBufferSizeBytes())
-                        .receiveBufferSize(serverConfig.socketSendBufferSizeBytes())
+                        .receiveBufferSize(serverConfig.socketReceiveBufferSizeBytes())
                         .build())
                 .build();
 

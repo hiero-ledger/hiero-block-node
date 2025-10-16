@@ -73,6 +73,9 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
     private final AtomicLong currentStreamingBlockNumber;
     /** The unacknowledged yet blocks that were streamed to completion by this handler. */
     private final NavigableSet<Long> unacknowledgedStreamedBlocks;
+    /** The start time in nanos of block being currently streamed */
+    private long currentStreamingBlockHeaderReceivedTime = System.nanoTime();
+
     /**
      * The current block action.
      * This is tracked to help the manager determine what to do with the current
@@ -143,7 +146,9 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
     @Override
     public void onNext(@NonNull final PublishStreamRequestUnparsed request) {
         try {
+            LOGGER.log(TRACE, "Handler {0} received request", handlerId);
             processNextRequestUnparsed(request);
+            LOGGER.log(TRACE, "Handler {0} finished processing request", handlerId);
         } catch (final InterruptedException | RuntimeException e) {
             // If we reach here, it means that the handler was interrupted or
             // an unexpected error occurred. We should log the error and shut down.
@@ -225,6 +230,9 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
                 blockNumber = header.number();
                 // this means that we are starting a new block, so we can
                 // update the current streaming block number
+                final String traceMessage = "metric-end-to-end-latency-by-block-start {0},{1}ns";
+                currentStreamingBlockHeaderReceivedTime = System.nanoTime();
+                LOGGER.log(TRACE, traceMessage, blockNumber, currentStreamingBlockHeaderReceivedTime);
                 currentStreamingBlockNumber.set(blockNumber);
             } else {
                 LOGGER.log(
@@ -397,6 +405,11 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
                     .headSet(newLastAcknowledgedBlockNumber, true)
                     .clear();
             metrics.blockAcknowledgementsSent.increment(); // @todo(1415) add label
+
+            final String ackMessage = "Sent acknowledgement for block {0} from handler {1}";
+            final String traceMessage = "metric-end-to-end-latency-by-block-end {0},{1}ns";
+            LOGGER.log(TRACE, traceMessage, newLastAcknowledgedBlockNumber, System.nanoTime());
+            LOGGER.log(TRACE, ackMessage, newLastAcknowledgedBlockNumber, handlerId);
         }
     }
 
@@ -425,7 +438,10 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
      */
     private boolean sendResponse(final PublishStreamResponse response) {
         try {
+            long start = System.nanoTime();
             replies.onNext(response);
+            long duration = System.nanoTime() - start;
+            LOGGER.log(DEBUG, "Handler {0} replies.onNext took {1} ns", handlerId, duration);
             return true;
         } catch (UncheckedIOException e) {
             shutdown(); // this method is idempotent and can be called multiple times
@@ -543,6 +559,14 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
             publisherManager.closeBlock(null, handlerId);
             LOGGER.log(INFO, "Failed to parse block proof: {}", e.getMessage());
         }
+        long proofReceivedTime = System.nanoTime() - currentStreamingBlockHeaderReceivedTime;
+        metrics.receiveBlockTimeLatencyNs.add(proofReceivedTime);
+        LOGGER.log(
+                TRACE,
+                "Publisher Handler {0} Received block proof for block: {1}, and it took {2}ns",
+                handlerId,
+                blockNumber,
+                proofReceivedTime);
         unacknowledgedStreamedBlocks.add(blockNumber);
         resetState();
     }
@@ -731,6 +755,7 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
      * {@link #blockResendsSent} - Count of block resend responses
      * {@link #endOfStreamsSent} - Count of end of stream responses (should always be at most 1 per stream)
      * {@link #endStreamsReceived} - Count of end streams received (should always be at most 1 per stream)
+     * {@link #receiveBlockTimeLatencyNs} - Time it takes for a block to be received from block header to block proof, in nanoseconds
      * </pre>
      */
     public record MetricsHolder(
@@ -741,7 +766,8 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
             Counter blockResendsSent,
             Counter endOfStreamsSent,
             Counter sendResponseFailed,
-            Counter endStreamsReceived) {
+            Counter endStreamsReceived,
+            Counter receiveBlockTimeLatencyNs) {
         /**
          * Factory method.
          * Creates a new instance of {@link MetricsHolder} using the provided
@@ -773,6 +799,11 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
             final Counter endStreamsReceived =
                     metrics.getOrCreate(new Counter.Config(METRICS_CATEGORY, "publisher_block_endstream_received")
                             .withDescription("Block End-Stream messages received"));
+            final Counter receiveBlockTimeLatencyNs = metrics.getOrCreate(
+                    new Counter.Config(METRICS_CATEGORY, "publisher_receive_latency_ns")
+                            .withDescription(
+                                    "Latency in nanoseconds between block being sent by publisher and being fully streamed from block header to block proof, also known as of network in-transit time latency"));
+
             return new MetricsHolder(
                     liveBlockItemsReceived,
                     blockAcknowledgementsSent,
@@ -781,7 +812,8 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
                     blockResendsSent,
                     endOfStreamsSent,
                     sendResponseFailed,
-                    endStreamsReceived);
+                    endStreamsReceived,
+                    receiveBlockTimeLatencyNs);
         }
     }
 }
