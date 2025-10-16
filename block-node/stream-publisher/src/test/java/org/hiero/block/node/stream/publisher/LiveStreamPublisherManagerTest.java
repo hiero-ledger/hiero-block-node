@@ -158,7 +158,7 @@ class LiveStreamPublisherManagerTest {
                     generateContext(historicalBlockFacility, threadPoolManager, messagingFacility);
             // Initialize the historical block facility with the context.
             historicalBlockFacility.init(context, null);
-            // Create the metrics hodler for the manager.
+            // Create the metrics holder for the manager.
             managerMetrics = generateManagerMetrics();
             // Create the LiveStreamPublisherManager instance to test.
             toTest = new LiveStreamPublisherManager(context, managerMetrics);
