@@ -52,6 +52,8 @@ public class Validate implements Runnable {
 
     @Override
     public void run() {
+        // create AddressBookRegistry to load address books as needed during validation
+        final AddressBookRegistry addressBookRegistry = new AddressBookRegistry();
         // If no inputs are provided, print usage help for this subcommand
         if (compressedDayOrDaysDirs.length == 0) {
             spec.commandLine().usage(spec.commandLine().getOut());
@@ -133,45 +135,33 @@ public class Validate implements Runnable {
                             // previous block hash from prior iteration (carry over)
                             final byte[] previousBlockHash = carryOverHash.get();
                             // Validate the block using InMemoryBlock.validate which performs internal checks
-                            final ValidationResult vr = set.validate(previousBlockHash, AddressBookRegistry.OCT_2025);
-
-                            // update carry over to current block end-running-hash for next iteration
-                            carryOverHash.set(vr.endRunningHash());
-
+                            final ValidationResult vr = set.validate(previousBlockHash,
+                                addressBookRegistry.getCurrentAddressBook());
+                            // check overall validity and fail if not valid
                             if (!vr.isValid()) {
                                 PrettyPrint.clearProgress();
                                 System.err.println("Validation failed for " + set.recordFileTime() + ":\n" + vr.warningMessages());
                                 System.out.flush();
                                 System.exit(1);
                             }
-
+                            // use ValidationResult to update address book if needed
+                            addressBookRegistry.updateAddressBook(vr.addressBookTransactions());
+                            // update carry over to current block end-running-hash for next iteration
+                            carryOverHash.set(vr.endRunningHash());
                             // Build progress string showing time and hashes (shortened to 8 chars for readability)
                             final String progressString = String.format(
                                 "%s carry[%s] next[%s]",
                                 set.recordFileTime(),
                                 shortHash(previousBlockHash),
                                 shortHash(vr.endRunningHash()));
-
                             // Estimate totals and ETA
                             final long elapsedMillis = (System.nanoTime() - startNanos) / 1_000_000L;
-
                             // Progress percent and remaining
                             final long processedSoFarAcrossAll = progress.get();
                             final long totalProgressFinal = totalProgress.get();
                             double percent = ((double) processedSoFarAcrossAll / (double) totalProgressFinal) * 100.0;
-
-                            long remainingMillis;
-                            if (processedSoFarAcrossAll > 0) {
-                                long remainingUnits = totalProgressFinal - processedSoFarAcrossAll;
-                                remainingMillis = (long) ((elapsedMillis * (double) remainingUnits)
-                                    / (double) processedSoFarAcrossAll);
-                                if (remainingMillis < 0) {
-                                    remainingMillis = 0;
-                                }
-                            } else {
-                                remainingMillis = Long.MAX_VALUE; // unknown ETA at the very start
-                            }
-
+                            long remainingMillis = computeRemainingMIllies(processedSoFarAcrossAll, totalProgressFinal,
+                                elapsedMillis);
                             PrettyPrint.printProgressWithEta(percent, progressString, remainingMillis);
                         } catch (Exception ex) {
                             PrettyPrint.clearProgress();
@@ -203,6 +193,21 @@ public class Validate implements Runnable {
 
         // Ensure reader finished
         try { reader.join(); } catch (InterruptedException ignored) { Thread.currentThread().interrupt(); }
+    }
+
+    private static long computeRemainingMIllies(long processedSoFarAcrossAll, long totalProgressFinal, long elapsedMillis) {
+        long remainingMillis;
+        if (processedSoFarAcrossAll > 0) {
+            long remainingUnits = totalProgressFinal - processedSoFarAcrossAll;
+            remainingMillis = (long) ((elapsedMillis * (double) remainingUnits)
+                / (double) processedSoFarAcrossAll);
+            if (remainingMillis < 0) {
+                remainingMillis = 0;
+            }
+        } else {
+            remainingMillis = Long.MAX_VALUE; // unknown ETA at the very start
+        }
+        return remainingMillis;
     }
 
     /**
