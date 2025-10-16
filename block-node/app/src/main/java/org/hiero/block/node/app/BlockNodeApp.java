@@ -54,8 +54,6 @@ public class BlockNodeApp implements HealthFacility {
     private final WebServer webServer;
     /** The server configuration. */
     private final ServerConfig serverConfig;
-    /** The server http2 configuration. */
-    private WebServerHttp2Config webServerHttp2Config;
     /** The historical block node facility */
     private final HistoricalBlockFacilityImpl historicalBlockFacility;
     /** Should the shutdown() method exit the JVM. */
@@ -154,7 +152,7 @@ public class BlockNodeApp implements HealthFacility {
         ConfigLogger.log(configuration);
         // now that configuration is loaded we can get config for server
         serverConfig = configuration.getConfigData(ServerConfig.class);
-        webServerHttp2Config = configuration.getConfigData(WebServerHttp2Config.class);
+        WebServerHttp2Config webServerHttp2Config = configuration.getConfigData(WebServerHttp2Config.class);
         // ==== METRICS ================================================================================================
         metricsProvider = new DefaultMetricsProvider(configuration);
         final Metrics metrics = metricsProvider.createGlobalMetrics();
