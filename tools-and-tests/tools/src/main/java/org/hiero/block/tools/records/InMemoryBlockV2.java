@@ -3,6 +3,10 @@ package org.hiero.block.tools.records;
 
 import com.hedera.hapi.node.base.NodeAddressBook;
 import com.hedera.hapi.node.base.SemanticVersion;
+import com.hedera.hapi.node.base.Transaction;
+import com.hedera.hapi.node.transaction.TransactionBody;
+import com.hedera.pbj.runtime.ParseException;
+import com.hedera.pbj.runtime.io.stream.ReadableStreamingData;
 import java.io.ByteArrayInputStream;
 import java.io.DataInputStream;
 import java.io.IOException;
@@ -14,13 +18,12 @@ import java.security.PublicKey;
 import java.security.Signature;
 import java.security.spec.X509EncodedKeySpec;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.Collections;
 import java.util.HexFormat;
 import java.util.List;
 import org.hiero.block.tools.commands.days.model.AddressBookRegistry;
 
-@SuppressWarnings("DuplicatedCode")
 /**
  * In-memory representation and validator for version 2 Hedera record stream files.
  * <p>
@@ -28,6 +31,7 @@ import org.hiero.block.tools.commands.days.model.AddressBookRegistry;
  * signature files against the computed file hash using RSA public keys from the provided NodeAddressBook.
  * It also checks that the provided startRunningHash (when supplied) matches the previous-file hash in the header.
  */
+@SuppressWarnings({"DuplicatedCode", "StringConcatenationInsideStringBufferAppend"})
 public class InMemoryBlockV2 extends InMemoryBlock {
     /* The length of the header in a v2 record file */
     private static final int V2_HEADER_LENGTH = Integer.BYTES + Integer.BYTES + 1 + 48;
@@ -77,7 +81,7 @@ public class InMemoryBlockV2 extends InMemoryBlock {
     @Override
     public ValidationResult validate(byte[] startRunningHash, NodeAddressBook addressBook) {
         final byte[] recordFileBytes = primaryRecordFile().data();
-        try (DataInputStream in = new DataInputStream(new ByteArrayInputStream(recordFileBytes))) {
+        try (ReadableStreamingData in = new ReadableStreamingData(new ByteArrayInputStream(recordFileBytes))) {
             boolean isValid = true;
             final StringBuilder warningMessages = new StringBuilder();
             // Read and verify the record file version
@@ -92,7 +96,7 @@ public class InMemoryBlockV2 extends InMemoryBlock {
                 throw new IllegalStateException("Invalid previous file hash marker in v2 record file");
             }
             final byte[] previousHash = new byte[48];
-            in.readFully(previousHash);
+            in.readBytes(previousHash);
             // check the start running hash is the same as the previous hash
             if (startRunningHash != null
                     && startRunningHash.length > 0
@@ -110,94 +114,145 @@ public class InMemoryBlockV2 extends InMemoryBlock {
             final byte[] blockHash = digest.digest();
 
             // Validate all signature files if an address book is provided
-            if (addressBook != null && !signatureFiles().isEmpty()) {
-                for (InMemoryFile sigFile : signatureFiles()) {
-                    try (DataInputStream sin = new DataInputStream(new ByteArrayInputStream(sigFile.data()))) {
-                        final int firstByte = sin.read();
-                        if (firstByte != 4) {
-                            warningMessages
-                                    .append("Unexpected signature file first byte (expected 4) in ")
-                                    .append(sigFile.path())
-                                    .append("\n");
-                            isValid = false;
-                            continue;
-                        }
-                        final byte[] fileHashFromSig = new byte[48];
-                        sin.readFully(fileHashFromSig);
-                        if (!Arrays.equals(fileHashFromSig, blockHash)) {
-                            warningMessages
-                                    .append("Signature file hash does not match computed block hash for ")
-                                    .append(sigFile.path())
-                                    .append("\n");
-                            isValid = false;
-                        }
-                        if (sin.read() != 3) {
-                            warningMessages
-                                    .append("Invalid signature marker in ")
-                                    .append(sigFile.path())
-                                    .append("\n");
-                            isValid = false;
-                            continue;
-                        }
-                        final int sigLen = sin.readInt();
-                        final byte[] signatureBytes = new byte[sigLen];
-                        sin.readFully(signatureBytes);
+            isValid = validateSignatures(addressBook, warningMessages, isValid, blockHash, recordFileBytes);
 
-                        // Extract node ID from filename and fetch RSA public key from address book
-                        final Long accountNum = extractNodeAccountNumFromSignaturePath(sigFile.path());
-                        if (accountNum == null) {
-                            warningMessages
-                                    .append("Unable to extract node account number from signature filename: ")
-                                    .append(sigFile.path())
-                                    .append("\n");
-                            isValid = false;
-                            continue;
-                        }
-                        // Look up RSA public key via AddressBookRegistry helper
-                        String rsaPubKey;
-                        try {
-                            rsaPubKey = AddressBookRegistry.publicKeyForNode(addressBook, 0, 0, accountNum);
-                        } catch (Exception e) {
-                            warningMessages
-                                    .append("No RSA public key found for 0.0.")
-                                    .append(accountNum)
-                                    .append(" in provided address book; file ")
-                                    .append(sigFile.path())
-                                    .append("\n");
-                            isValid = false;
-                            continue;
-                        }
-                        if (rsaPubKey == null || rsaPubKey.isEmpty()) {
-                            warningMessages
-                                    .append("Empty RSA public key for 0.0.")
-                                    .append(accountNum)
-                                    .append("; file ")
-                                    .append(sigFile.path())
-                                    .append("\n");
-                            isValid = false;
-                            continue;
-                        }
+            // read all the transactions
+            final List<Transaction> transactions = new ArrayList<>();
+            while (in.hasRemaining()) {
+                final byte recordMarker = in.readByte();
+                if (recordMarker != 2) {
+                    warningMessages.append("Unexpected record marker "+recordMarker+" (expected 2) in v2 record file\n");
+                    isValid = false;
+                    break;
+                }
+                final int txnLength = in.readInt();
+                if (txnLength <= 0 || txnLength > in.remaining()) {
+                    warningMessages.append("Invalid transaction length in v2 record file\n");
+                    isValid = false;
+                    break;
+                }
+                Transaction txn = Transaction.PROTOBUF.parse(in);
+                transactions.add(txn);
+                if (in.remaining() < 4) {
+                    warningMessages.append("Insufficient bytes for transaction record length in v2 record file\n");
+                    isValid = false;
+                    break;
+                }
+                final int txnRecordLength = in.readInt();
+                if (txnRecordLength <= 0 || txnRecordLength > in.remaining()) {
+                    warningMessages.append("Invalid transaction record length in v2 record file\n");
+                    isValid = false;
+                    break;
+                }
+                in.skip(txnRecordLength);
+            }
+            // feed the transactions to the address book registry to extract any address book transactions
+            final List<TransactionBody> addressBookTransactions =
+                    AddressBookRegistry.filterToJustAddressBookTransactions(transactions);
+            // return the validation result
+            return new ValidationResult(
+                    isValid, warningMessages.toString(), blockHash, hapiVersion, addressBookTransactions);
+        } catch (IOException | NoSuchAlgorithmException | ParseException e) {
+            throw new RuntimeException(e);
+        }
+    }
 
-                        final boolean verified =
-                                verifyRsaSha384(rsaPubKey, fileHashFromSig, recordFileBytes, signatureBytes);
-                        if (!verified) {
-                            warningMessages
-                                    .append("RSA signature verification failed for node account 0.0.")
-                                    .append(accountNum)
-                                    .append(" (file ")
-                                    .append(sigFile.path())
-                                    .append(")\n");
-                            isValid = false;
-                        }
+    /**
+     * Validate all signature files against the computed block hash using RSA public keys from the address book.
+     *
+     * @param addressBook the address book containing node RSA public keys; may be null to skip signature verification
+     * @param warningMessages a StringBuilder to append any warning messages to
+     * @param isValid the current validity state, updated if any signatures fail to verify
+     * @param blockHash the computed 48-byte block hash of the record file
+     * @param recordFileBytes the entire record file bytes (used for fallback signature verification)
+     * @return the updated validity state after checking all signatures
+     * @throws IOException if an I/O error occurs reading a signature file
+     */
+    private boolean validateSignatures(NodeAddressBook addressBook, StringBuilder warningMessages, boolean isValid,
+        byte[] blockHash, byte[] recordFileBytes) throws IOException {
+        if (addressBook != null && !signatureFiles().isEmpty()) {
+            for (InMemoryFile sigFile : signatureFiles()) {
+                try (DataInputStream sin = new DataInputStream(new ByteArrayInputStream(sigFile.data()))) {
+                    final int firstByte = sin.read();
+                    if (firstByte != 4) {
+                        warningMessages
+                                .append("Unexpected signature file first byte (expected 4) in ")
+                                .append(sigFile.path())
+                                .append("\n");
+                        isValid = false;
+                        continue;
+                    }
+                    final byte[] fileHashFromSig = new byte[48];
+                    sin.readFully(fileHashFromSig);
+                    if (!Arrays.equals(fileHashFromSig, blockHash)) {
+                        warningMessages
+                                .append("Signature file hash does not match computed block hash for ")
+                                .append(sigFile.path())
+                                .append("\n");
+                        isValid = false;
+                    }
+                    if (sin.read() != 3) {
+                        warningMessages
+                                .append("Invalid signature marker in ")
+                                .append(sigFile.path())
+                                .append("\n");
+                        isValid = false;
+                        continue;
+                    }
+                    final int sigLen = sin.readInt();
+                    final byte[] signatureBytes = new byte[sigLen];
+                    sin.readFully(signatureBytes);
+
+                    // Extract node ID from filename and fetch RSA public key from address book
+                    final Long accountNum = extractNodeAccountNumFromSignaturePath(sigFile.path());
+                    if (accountNum == null) {
+                        warningMessages
+                                .append("Unable to extract node account number from signature filename: ")
+                                .append(sigFile.path())
+                                .append("\n");
+                        isValid = false;
+                        continue;
+                    }
+                    // Look up RSA public key via AddressBookRegistry helper
+                    String rsaPubKey;
+                    try {
+                        rsaPubKey = AddressBookRegistry.publicKeyForNode(addressBook, 0, 0, accountNum);
+                    } catch (Exception e) {
+                        warningMessages
+                                .append("No RSA public key found for 0.0.")
+                                .append(accountNum)
+                                .append(" in provided address book; file ")
+                                .append(sigFile.path())
+                                .append("\n");
+                        isValid = false;
+                        continue;
+                    }
+                    if (rsaPubKey == null || rsaPubKey.isEmpty()) {
+                        warningMessages
+                                .append("Empty RSA public key for 0.0.")
+                                .append(accountNum)
+                                .append("; file ")
+                                .append(sigFile.path())
+                                .append("\n");
+                        isValid = false;
+                        continue;
+                    }
+
+                    final boolean verified =
+                            verifyRsaSha384(rsaPubKey, fileHashFromSig, recordFileBytes, signatureBytes);
+                    if (!verified) {
+                        warningMessages
+                                .append("RSA signature verification failed for node account 0.0.")
+                                .append(accountNum)
+                                .append(" (file ")
+                                .append(sigFile.path())
+                                .append(")\n");
+                        isValid = false;
                     }
                 }
             }
-
-            return new ValidationResult(
-                    isValid, warningMessages.toString(), blockHash, hapiVersion, Collections.emptyList());
-        } catch (IOException | NoSuchAlgorithmException e) {
-            throw new RuntimeException(e);
         }
+        return isValid;
     }
 
     /**

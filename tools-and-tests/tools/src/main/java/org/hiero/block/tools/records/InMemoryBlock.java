@@ -3,7 +3,7 @@ package org.hiero.block.tools.records;
 
 import com.hedera.hapi.node.base.NodeAddressBook;
 import com.hedera.hapi.node.base.SemanticVersion;
-import com.hedera.hapi.node.transaction.SignedTransaction;
+import com.hedera.hapi.node.transaction.TransactionBody;
 import edu.umd.cs.findbugs.annotations.NonNull;
 import java.time.Instant;
 import java.util.List;
@@ -28,7 +28,7 @@ public abstract class InMemoryBlock {
             String warningMessages,
             byte[] endRunningHash,
             SemanticVersion hapiVersion,
-            List<SignedTransaction> addressBookTransactions) {}
+            List<TransactionBody> addressBookTransactions) {}
 
     /** the consensus time of the block */
     protected final Instant recordFileTime;
