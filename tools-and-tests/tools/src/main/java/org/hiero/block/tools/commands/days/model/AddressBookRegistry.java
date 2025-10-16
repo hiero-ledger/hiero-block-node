@@ -6,7 +6,9 @@ import com.google.gson.annotations.SerializedName;
 import com.hedera.hapi.node.base.AccountID;
 import com.hedera.hapi.node.base.NodeAddress;
 import com.hedera.hapi.node.base.NodeAddressBook;
+import com.hedera.hapi.node.base.Transaction;
 import com.hedera.hapi.node.transaction.SignedTransaction;
+import com.hedera.hapi.node.transaction.TransactionBody;
 import com.hedera.pbj.runtime.ParseException;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import com.hedera.pbj.runtime.io.stream.ReadableStreamingData;
@@ -60,12 +62,46 @@ public class AddressBookRegistry {
      *
      * @param addressBookTransactions the list of transactions to check for address book updates
      */
-    public void updateAddressBook(List<SignedTransaction> addressBookTransactions) {
+    public void updateAddressBook(List<TransactionBody> addressBookTransactions) {
         // TODO walk through the transactions, extract any file 0.0.102 updates or address book change transactions
         //  and apply them to create a new address book, then add it to the list.
     }
 
     // ==== Static utility methods for loading address books ====
+
+    /**
+     * Filter a list of transactions to just those that are address book related. These are either file append
+     * transactions to file 0.0.102 or node create/update/delete transactions.
+     *
+     * @param transactions the list of transactions to filter
+     * @return a list of TransactionBody objects that are address book related
+     * @throws ParseException if there is an error parsing a transaction
+     */
+    public static List<TransactionBody> filterToJustAddressBookTransactions(List<Transaction> transactions)
+        throws ParseException {
+        List<TransactionBody> result = new ArrayList<>();
+        for (Transaction t : transactions) {
+            TransactionBody body;
+            if (t.hasBody()) {
+                body = t.body();
+            } else if (t.bodyBytes().length() > 0) {
+                body = TransactionBody.PROTOBUF.parse(t.bodyBytes());
+            } else if (t.signedTransactionBytes().length() > 0) {
+                final SignedTransaction st = SignedTransaction.PROTOBUF.parse(t.signedTransactionBytes());
+                body = TransactionBody.PROTOBUF.parse(st.bodyBytes());
+            } else {
+                // no transaction body or signed bytes, ignore
+                throw new ParseException("Transaction has no body or signed bytes");
+            }
+            // check if this is a file append to file 0.0.102 or a node create/update/delete transaction
+            if (body.hasFileAppend() && body.fileAppend().fileID().fileNum() == 102) {
+                result.add(body);
+            } else if (body.hasNodeCreate() || body.hasNodeUpdate() || body.hasNodeDelete()) {
+                result.add(body);
+            }
+        }
+        return result;
+    }
 
     public static NodeAddressBook loadGenesisAddressBook() throws ParseException {
         try (var in = new ReadableStreamingData(Objects.requireNonNull(AddressBookRegistry.class

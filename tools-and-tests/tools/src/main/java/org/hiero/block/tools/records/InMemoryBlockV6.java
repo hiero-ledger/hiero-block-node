@@ -3,7 +3,10 @@ package org.hiero.block.tools.records;
 
 import com.hedera.hapi.node.base.NodeAddressBook;
 import com.hedera.hapi.node.base.SemanticVersion;
+import com.hedera.hapi.node.base.Transaction;
+import com.hedera.hapi.node.transaction.TransactionBody;
 import com.hedera.hapi.streams.RecordStreamFile;
+import com.hedera.hapi.streams.RecordStreamItem;
 import com.hedera.pbj.runtime.ParseException;
 import com.hedera.pbj.runtime.io.stream.ReadableStreamingData;
 import java.io.ByteArrayInputStream;
@@ -17,6 +20,7 @@ import java.util.HashSet;
 import java.util.HexFormat;
 import java.util.List;
 import java.util.Set;
+import org.hiero.block.tools.commands.days.model.AddressBookRegistry;
 
 /**
  * In-memory representation and validator for version 6 Hedera record stream files.
@@ -121,9 +125,17 @@ public class InMemoryBlockV6 extends InMemoryBlock {
                         .append('\n');
                 isValid = false;
             }
+            // get all transactions in the record file
+            final List<Transaction> transactions = rsf.recordStreamItems().stream()
+                .filter(RecordStreamItem::hasTransaction)
+                .map(RecordStreamItem::transaction)
+                .toList();
 
+            // feed the transactions to the address book registry to extract any address book transactions
+            final List<TransactionBody> addressBookTransactions =
+                AddressBookRegistry.filterToJustAddressBookTransactions(transactions);
             return new ValidationResult(
-                    isValid, warnings.toString(), endRunningHash, hapiVersion, java.util.Collections.emptyList());
+                    isValid, warnings.toString(), endRunningHash, hapiVersion, addressBookTransactions);
         } catch (IOException | NoSuchAlgorithmException | ParseException e) {
             throw new RuntimeException(e);
         }

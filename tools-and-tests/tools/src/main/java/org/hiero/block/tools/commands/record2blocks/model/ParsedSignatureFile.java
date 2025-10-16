@@ -3,6 +3,7 @@ package org.hiero.block.tools.commands.record2blocks.model;
 
 import com.hedera.hapi.streams.SignatureFile;
 import com.hedera.pbj.runtime.ParseException;
+import com.hedera.pbj.runtime.io.ReadableSequentialData;
 import com.hedera.pbj.runtime.io.stream.ReadableStreamingData;
 import java.io.DataInputStream;
 import java.io.IOException;
@@ -310,6 +311,36 @@ public record ParsedSignatureFile(int nodeId, byte[] fileHash, byte[] signature)
         // read hash object - hash bytes
         final byte[] entireFileHash = new byte[48];
         in.readFully(entireFileHash);
+        return entireFileHash;
+    }
+
+    /**
+     * Read a hash object from a data input stream in SelfSerializable SHA384 format.
+     *
+     * @param in the data input stream
+     * @return the hash bytes
+     * @throws IOException if an error occurs reading the hash object
+     */
+    public static byte[] readHashObject(ReadableSequentialData in) throws IOException {
+        // read hash class id
+        if (in.readLong() != 0xf422da83a251741eL) {
+            throw new IllegalArgumentException("Invalid hash class ID");
+        }
+        // read hash class version
+        if (in.readInt() != 1) {
+            throw new IllegalArgumentException("Invalid hash class version");
+        }
+        // read hash object, starting with digest type SHA384
+        if (in.readInt() != 0x58ff811b) {
+            throw new IllegalArgumentException("Invalid digest type not SHA384");
+        }
+        // read hash object - length of hash
+        if (in.readInt() != 48) {
+            throw new IllegalArgumentException("Invalid hash length");
+        }
+        // read hash object - hash bytes
+        final byte[] entireFileHash = new byte[48];
+        in.readBytes(entireFileHash);
         return entireFileHash;
     }
 }

@@ -6,10 +6,8 @@ import static org.hiero.block.tools.commands.record2blocks.model.ParsedSignature
 
 import com.hedera.hapi.node.base.SemanticVersion;
 import com.hedera.hapi.streams.RecordStreamFile;
+import com.hedera.pbj.runtime.io.buffer.BufferedData;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
-import com.hedera.pbj.runtime.io.stream.ReadableStreamingData;
-import java.io.ByteArrayInputStream;
-import java.io.DataInputStream;
 import java.security.MessageDigest;
 import org.hiero.block.tools.utils.PrettyPrint;
 
@@ -29,6 +27,7 @@ import org.hiero.block.tools.utils.PrettyPrint;
  * @param blockHash the block hash
  * @param recordFileContents the record file contents
  */
+@SuppressWarnings("DuplicatedCode")
 public record RecordFileInfo(
     int recordFormatVersion, SemanticVersion hapiProtoVersion, Bytes previousBlockHash, Bytes blockHash, byte[] recordFileContents) {
     /* The length of the header in a v2 record file */
@@ -41,7 +40,8 @@ public record RecordFileInfo(
      * @return the record file version info
      */
     public static RecordFileInfo parse(byte[] recordFile) {
-        try (DataInputStream in = new DataInputStream(new ByteArrayInputStream(recordFile))) {
+        try {
+            final BufferedData in = BufferedData.wrap(recordFile);
             final int recordFormatVersion = in.readInt();
             // This is a minimal parser for all record file formats only extracting the necessary information
             return switch (recordFormatVersion) {
@@ -53,7 +53,7 @@ public record RecordFileInfo(
                         throw new IllegalStateException("Invalid previous file hash marker in v2 record file");
                     }
                     final byte[] previousHash = new byte[48];
-                    in.readFully(previousHash);
+                    in.readBytes(previousHash);
                     // The hash for v2 files is the hash(header, hash(content)) this is different to other versions
                     // the block hash is not available in the file so we have to calculate it
                     MessageDigest digest = MessageDigest.getInstance("SHA-384");
@@ -77,7 +77,7 @@ public record RecordFileInfo(
                     // skip to the last hash object. This trick allows us to not have to understand the format for record
                     // file items and their contents, which is much more complicated. For v5 and v6 the block hash is the
                     // end-running-hash written as a special item at the end of the file.
-                    in.skipBytes(in.available() - HASH_OBJECT_SIZE_BYTES);
+                    in.skip(in.remaining() - HASH_OBJECT_SIZE_BYTES);
                     final byte[] endHashObject = readHashObject(in);
                     yield new RecordFileInfo(recordFormatVersion, hapiProtoVersion, Bytes.wrap(startObjectRunningHash),
                             Bytes.wrap(endHashObject), recordFile);
@@ -85,7 +85,7 @@ public record RecordFileInfo(
                 case 6 -> {
                     // V6 is nice and easy as it is all protobuf encoded after the first version integer
                     final RecordStreamFile recordStreamFile =
-                            RecordStreamFile.PROTOBUF.parse(new ReadableStreamingData(in));
+                            RecordStreamFile.PROTOBUF.parse(in);
                     // For v6 the block hash is the end-running-hash accessed via endObjectRunningHash()
                     if (recordStreamFile.endObjectRunningHash() == null) {
                         throw new IllegalStateException("No end object running hash in record file");

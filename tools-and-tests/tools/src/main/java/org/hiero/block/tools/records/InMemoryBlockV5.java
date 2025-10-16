@@ -3,11 +3,17 @@ package org.hiero.block.tools.records;
 
 import com.hedera.hapi.node.base.NodeAddressBook;
 import com.hedera.hapi.node.base.SemanticVersion;
+import com.hedera.hapi.node.base.Transaction;
+import com.hedera.hapi.node.transaction.TransactionBody;
+import com.hedera.pbj.runtime.ParseException;
+import com.hedera.pbj.runtime.io.stream.ReadableStreamingData;
 import java.io.ByteArrayInputStream;
 import java.io.DataInputStream;
 import java.io.IOException;
 import java.time.Instant;
+import java.util.HexFormat;
 import java.util.List;
+import org.hiero.block.tools.commands.days.model.AddressBookRegistry;
 
 /**
  * In-memory representation and validator for version 5 Hedera record stream files.
@@ -17,7 +23,9 @@ import java.util.List;
  * supplied) matches the hash in the file and returns the end-running hash contained in the file.
  * Signature file validation is not performed here (v5 signatures are validated elsewhere if needed).
  */
+@SuppressWarnings("DuplicatedCode")
 public class InMemoryBlockV5 extends InMemoryBlock {
+    private static final long RECORD_STREAM_OBJECT_CLASS_ID = Long.parseLong("e370929ba5429d8b", 16);
     /**
      * Creates a v5 in-memory block wrapper.
      *
@@ -60,7 +68,7 @@ public class InMemoryBlockV5 extends InMemoryBlock {
     public ValidationResult validate(byte[] startRunningHash, NodeAddressBook addressBook) {
         // Parse the v5 record file per RecordFileFormat.md and verify hashes
         final byte[] recordFileBytes = primaryRecordFile().data();
-        try (DataInputStream in = new DataInputStream(new ByteArrayInputStream(recordFileBytes))) {
+        try (ReadableStreamingData in = new ReadableStreamingData(new ByteArrayInputStream(recordFileBytes))) {
             boolean isValid = true;
             final StringBuilder warnings = new StringBuilder();
 
@@ -93,20 +101,52 @@ public class InMemoryBlockV5 extends InMemoryBlock {
                 isValid = false;
             }
 
-            // Skip forward to the last hash object (End Object Running Hash)
-            final int bytesRemaining = in.available();
-            if (bytesRemaining
-                    < org.hiero.block.tools.commands.record2blocks.model.ParsedSignatureFile.HASH_OBJECT_SIZE_BYTES) {
-                throw new IllegalStateException("v5 record file too short to contain end running hash");
+            // read all transactions in the file
+            final List<Transaction> transactions = new java.util.ArrayList<>();
+            while (in.position() < in.limit() - 48) { // 48 bytes for end running hash
+                // read a RecordStreamObject
+                final long classId = in.readLong();
+                if (classId != RECORD_STREAM_OBJECT_CLASS_ID) {
+                    warnings.append("Unexpected class ID in record file: ").append(Long.toHexString(classId))
+                        .append(" expected f422da83a251741e\n");
+                    isValid = false;
+                    break; // cannot continue parsing
+                }
+                final int classVersion = in.readInt();
+                if (classVersion != 1) { // expecting transaction object
+                    warnings.append("Unexpected class version in record file: ").append(classVersion)
+                        .append(" expected 1\n");
+                    isValid = false;
+                    break; // cannot continue parsing
+                }
+                final int transactionRecordLength = in.readInt();
+                if (transactionRecordLength <= 0 || transactionRecordLength > in.limit() - in.position() - 48) {
+                    warnings.append("Invalid transaction record length in record file: ").append(transactionRecordLength).append('\n');
+                    isValid = false;
+                    break; // cannot continue parsing
+                }
+                // skip over the transaction record bytes; not needed for this validation
+                in.skip(transactionRecordLength);
+                // read the transaction bytes length and the transaction bytes
+                final int transactionLength = in.readInt();
+                if (transactionLength <= 0 || transactionLength > in.limit() - in.position() - 48) {
+                    warnings.append("Invalid transaction length in record file: ").append(transactionLength).append('\n');
+                    isValid = false;
+                    break; // cannot continue parsing
+                }
+                final Transaction transaction = Transaction.PROTOBUF.parse(in.readBytes(transactionLength));
+                transactions.add(transaction);
             }
-            in.skipBytes(bytesRemaining
-                    - org.hiero.block.tools.commands.record2blocks.model.ParsedSignatureFile.HASH_OBJECT_SIZE_BYTES);
+            // read the end running hash object
             final byte[] endRunningHash =
                     org.hiero.block.tools.commands.record2blocks.model.ParsedSignatureFile.readHashObject(in);
-
+            // feed the transactions to the address book registry to extract any address book transactions
+            final List<TransactionBody> addressBookTransactions =
+                AddressBookRegistry.filterToJustAddressBookTransactions(transactions);
+            // return the validation result
             return new ValidationResult(
-                    isValid, warnings.toString(), endRunningHash, hapiVersion, java.util.Collections.emptyList());
-        } catch (IOException e) {
+                    isValid, warnings.toString(), endRunningHash, hapiVersion, addressBookTransactions);
+        } catch (IOException | ParseException e) {
             throw new RuntimeException(e);
         }
     }
