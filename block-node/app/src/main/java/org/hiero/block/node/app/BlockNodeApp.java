@@ -186,14 +186,14 @@ public class BlockNodeApp implements HealthFacility {
 
         // Http2 Config
         final Http2Config http2Config = Http2Config.builder()
-                .flowControlTimeout(Duration.parse(webServerHttp2Config.flowControlTimeout()))
+                .flowControlTimeout(Duration.ofMillis(webServerHttp2Config.flowControlTimeout()))
                 .initialWindowSize(webServerHttp2Config.initialWindowSize())
                 .maxConcurrentStreams(webServerHttp2Config.maxConcurrentStreams())
                 .maxEmptyFrames(webServerHttp2Config.maxEmptyFrames())
                 .maxFrameSize(webServerHttp2Config.maxFrameSize())
                 .maxHeaderListSize(webServerHttp2Config.maxHeaderListSize())
                 .maxRapidResets(webServerHttp2Config.maxRapidResets())
-                .rapidResetCheckPeriod(Duration.parse(webServerHttp2Config.rapidResetCheckPeriod()))
+                .rapidResetCheckPeriod(Duration.ofMillis(webServerHttp2Config.rapidResetCheckPeriod()))
                 .build();
 
         // Create the web server and configure
