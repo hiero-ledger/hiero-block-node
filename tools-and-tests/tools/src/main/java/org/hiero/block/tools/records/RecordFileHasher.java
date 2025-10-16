@@ -1,8 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.tools.records;
 
-import static org.hiero.block.tools.commands.record2blocks.model.ParsedSignatureFile.HASH_OBJECT_SIZE_BYTES;
-import static org.hiero.block.tools.commands.record2blocks.model.ParsedSignatureFile.readHashObject;
+import static org.hiero.block.tools.records.SerializationV5Utils.HASH_OBJECT_SIZE_BYTES;
 
 import com.hedera.hapi.node.base.SemanticVersion;
 import com.hedera.hapi.streams.RecordStreamFile;
@@ -14,6 +13,7 @@ import java.security.MessageDigest;
 /**
  * Class for computing the SHA384 hash for the record file.
  */
+@SuppressWarnings({"DuplicatedCode", "unused"})
 public class RecordFileHasher {
     /* The length of the header in a v2 record file */
     private static final int V2_HEADER_LENGTH = Integer.BYTES + Integer.BYTES + 1 + 48;
@@ -32,7 +32,6 @@ public class RecordFileHasher {
             return switch (recordFormatVersion) {
                 case 2 -> {
                     final int hapiMajorVersion = in.readInt();
-                    final SemanticVersion hapiProtoVersion = new SemanticVersion(hapiMajorVersion, 0, 0, null, null);
                     final byte previousFileHashMarker = in.readByte();
                     if (previousFileHashMarker != 1) {
                         throw new IllegalStateException("Invalid previous file hash marker in v2 record file");
@@ -62,7 +61,7 @@ public class RecordFileHasher {
                     // file items and their contents which is much more complicated. For v5 and v6 the block hash is the
                     // end running hash which is written as a special item at the end of the file.
                     in.skipBytes(in.available() - HASH_OBJECT_SIZE_BYTES);
-                    final byte[] endHashObject = readHashObject(in);
+                    final byte[] endHashObject = SerializationV5Utils.readV5HashObject(in);
                     yield new byte[0];
                 }
                 case 6 -> {

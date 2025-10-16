@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.tools.records;
 
-import static org.hiero.block.tools.commands.record2blocks.model.ParsedSignatureFile.HASH_OBJECT_SIZE_BYTES;
-import static org.hiero.block.tools.commands.record2blocks.model.ParsedSignatureFile.readHashObject;
+import static org.hiero.block.tools.records.SerializationV5Utils.HASH_OBJECT_SIZE_BYTES;
+import static org.hiero.block.tools.records.SerializationV5Utils.readV5HashObject;
 
 import com.hedera.hapi.node.base.SemanticVersion;
 import com.hedera.hapi.streams.RecordStreamFile;
@@ -27,7 +27,7 @@ import org.hiero.block.tools.utils.PrettyPrint;
  * @param blockHash the block hash
  * @param recordFileContents the record file contents
  */
-@SuppressWarnings("DuplicatedCode")
+@SuppressWarnings({"DuplicatedCode", "DataFlowIssue"})
 public record RecordFileInfo(
     int recordFormatVersion, SemanticVersion hapiProtoVersion, Bytes previousBlockHash, Bytes blockHash, byte[] recordFileContents) {
     /* The length of the header in a v2 record file */
@@ -39,6 +39,7 @@ public record RecordFileInfo(
      * @param recordFile the record file bytes to parse
      * @return the record file version info
      */
+    @SuppressWarnings("unused")
     public static RecordFileInfo parse(byte[] recordFile) {
         try {
             final BufferedData in = BufferedData.wrap(recordFile);
@@ -72,13 +73,13 @@ public record RecordFileInfo(
                             new SemanticVersion(hapiMajorVersion, hapiMinorVersion, hapiPatchVersion, null, null);
                     final int objectStreamVersion = in.readInt();
                     // Start Object Running Hash is a Hash Object; parse to extract SHA-384 bytes
-                    final byte[] startObjectRunningHash = readHashObject(in);
+                    final byte[] startObjectRunningHash = readV5HashObject(in);
 
                     // skip to the last hash object. This trick allows us to not have to understand the format for record
                     // file items and their contents, which is much more complicated. For v5 and v6 the block hash is the
                     // end-running-hash written as a special item at the end of the file.
                     in.skip(in.remaining() - HASH_OBJECT_SIZE_BYTES);
-                    final byte[] endHashObject = readHashObject(in);
+                    final byte[] endHashObject = readV5HashObject(in);
                     yield new RecordFileInfo(recordFormatVersion, hapiProtoVersion, Bytes.wrap(startObjectRunningHash),
                             Bytes.wrap(endHashObject), recordFile);
                 }
