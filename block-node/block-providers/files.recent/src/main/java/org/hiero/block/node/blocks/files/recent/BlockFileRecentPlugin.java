@@ -97,6 +97,8 @@ public final class BlockFileRecentPlugin implements BlockProviderPlugin, BlockNo
     private LongGauge blocksStoredGauge;
     /** Gauge for the total bytes stored in the recent tier */
     private LongGauge bytesStoredGauge;
+    /** Persistence Writing total time in nanos **/
+    private Counter persistenceLatencyNs;
 
     /**
      * Default constructor for the plugin. This is used for normal service loading.
@@ -188,6 +190,10 @@ public final class BlockFileRecentPlugin implements BlockProviderPlugin, BlockNo
 
         bytesStoredGauge = metrics.getOrCreate(new LongGauge.Config(METRICS_CATEGORY, "files_recent_total_bytes_stored")
                 .withDescription("Bytes stored in files.recent provider"));
+
+        persistenceLatencyNs =
+                metrics.getOrCreate(new Counter.Config(METRICS_CATEGORY, "files_recent_persistence_time_latency_ns")
+                        .withDescription("Total time spent persisting blocks in files.recent provider in nanoseconds"));
     }
 
     /**
@@ -252,6 +258,10 @@ public final class BlockFileRecentPlugin implements BlockProviderPlugin, BlockNo
     @Override
     public void handleVerification(VerificationNotification notification) {
         try {
+            final long startTime = System.nanoTime();
+            LOGGER.log(
+                    TRACE,
+                    "Persistence Handle verification started for block: %d".formatted(notification.blockNumber()));
             if (notification != null && notification.success()) {
                 // write the block to the live path and send notification of block persisted
                 writeBlockToLivePath(notification.block(), notification.blockNumber(), notification.source());
@@ -273,6 +283,12 @@ public final class BlockFileRecentPlugin implements BlockProviderPlugin, BlockNo
                     }
                 }
             }
+            final long endTime = System.nanoTime() - startTime;
+            persistenceLatencyNs.add(endTime);
+            LOGGER.log(
+                    TRACE,
+                    "Persistence Handle verification finished for block: %d, and it took %d ns to complete"
+                            .formatted(notification.blockNumber(), endTime));
         } catch (final RuntimeException e) {
             final String message = "Failed to handle verification notification due to %s".formatted(e);
             LOGGER.log(WARNING, message, e);

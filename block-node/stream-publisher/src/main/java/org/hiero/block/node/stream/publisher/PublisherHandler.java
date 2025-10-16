@@ -19,7 +19,9 @@ import edu.umd.cs.findbugs.annotations.NonNull;
 import java.io.UncheckedIOException;
 import java.lang.System.Logger;
 import java.lang.System.Logger.Level;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.NavigableSet;
 import java.util.Objects;
 import java.util.concurrent.BlockingQueue;
@@ -73,6 +75,9 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
     private final AtomicLong currentStreamingBlockNumber;
     /** The unacknowledged yet blocks that were streamed to completion by this handler. */
     private final NavigableSet<Long> unacknowledgedStreamedBlocks;
+
+    private Map<Long, Long> blockStreamStartTimes = new HashMap<>();
+    private Map<Long, Long> blockStreamEndTimes = new HashMap<>();
     /**
      * The current block action.
      * This is tracked to help the manager determine what to do with the current
@@ -143,7 +148,9 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
     @Override
     public void onNext(@NonNull final PublishStreamRequestUnparsed request) {
         try {
+            LOGGER.log(TRACE, "Handler %d received request".formatted(handlerId));
             processNextRequestUnparsed(request);
+            LOGGER.log(TRACE, "Handler %d finished processing request".formatted(handlerId));
         } catch (final InterruptedException | RuntimeException e) {
             // If we reach here, it means that the handler was interrupted or
             // an unexpected error occurred. We should log the error and shut down.
@@ -225,6 +232,7 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
                 blockNumber = header.number();
                 // this means that we are starting a new block, so we can
                 // update the current streaming block number
+                blockStreamStartTimes.put(blockNumber, System.nanoTime());
                 currentStreamingBlockNumber.set(blockNumber);
             } else {
                 LOGGER.log(
@@ -397,6 +405,20 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
                     .headSet(newLastAcknowledgedBlockNumber, true)
                     .clear();
             metrics.blockAcknowledgementsSent.increment(); // @todo(1415) add label
+
+            if (blockStreamStartTimes.containsKey(newLastAcknowledgedBlockNumber)) {
+                metrics.ackLatencyNs.add(System.nanoTime() - blockStreamStartTimes.get(newLastAcknowledgedBlockNumber));
+                blockStreamStartTimes.remove(newLastAcknowledgedBlockNumber);
+            }
+            if (blockStreamEndTimes.containsKey(newLastAcknowledgedBlockNumber)) {
+                metrics.proofLatencyNs.add(System.nanoTime() - blockStreamEndTimes.get(newLastAcknowledgedBlockNumber));
+                blockStreamEndTimes.remove(newLastAcknowledgedBlockNumber);
+            }
+
+            LOGGER.log(
+                    TRACE,
+                    "Sent acknowledgement for block %d from handler %d"
+                            .formatted(newLastAcknowledgedBlockNumber, handlerId));
         }
     }
 
@@ -425,7 +447,10 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
      */
     private boolean sendResponse(final PublishStreamResponse response) {
         try {
+            long start = System.nanoTime();
             replies.onNext(response);
+            long duration = System.nanoTime() - start;
+            LOGGER.log(DEBUG, "Handler %d: replies.onNext took %d ns".formatted(handlerId, duration));
             return true;
         } catch (UncheckedIOException e) {
             shutdown(); // this method is idempotent and can be called multiple times
@@ -542,6 +567,15 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
         } catch (final ParseException e) {
             publisherManager.closeBlock(null, handlerId);
             LOGGER.log(INFO, "Failed to parse block proof: {}", e.getMessage());
+        }
+        long proofReceivedTime = System.nanoTime();
+        blockStreamEndTimes.put(blockNumber, proofReceivedTime);
+        // This metric measures the time taken from the start of streaming to the end of the streaming of a block.
+        // it can be thought of as the "streaming latency" of a block. "in-transit" and "network latency" is included
+        // here.
+        if (blockStreamStartTimes.containsKey(blockNumber)) {
+            var inTransitTime = proofReceivedTime - blockStreamStartTimes.get(blockNumber);
+            metrics.inTransitLatencyNs.add(inTransitTime);
         }
         unacknowledgedStreamedBlocks.add(blockNumber);
         resetState();
@@ -741,7 +775,10 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
             Counter blockResendsSent,
             Counter endOfStreamsSent,
             Counter sendResponseFailed,
-            Counter endStreamsReceived) {
+            Counter endStreamsReceived,
+            Counter ackLatencyNs,
+            Counter proofLatencyNs,
+            Counter inTransitLatencyNs) {
         /**
          * Factory method.
          * Creates a new instance of {@link MetricsHolder} using the provided
@@ -773,6 +810,19 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
             final Counter endStreamsReceived =
                     metrics.getOrCreate(new Counter.Config(METRICS_CATEGORY, "publisher_block_endstream_received")
                             .withDescription("Block End-Stream messages received"));
+            final Counter ackLatencyNs = metrics.getOrCreate(
+                    new Counter.Config(METRICS_CATEGORY, "publisher_ack_latency_ns")
+                            .withDescription(
+                                    "Latency in nanoseconds between block being persisted and acknowledgement being sent"));
+            final Counter proofLatencyNs = metrics.getOrCreate(
+                    new Counter.Config(METRICS_CATEGORY, "publisher_producer_proof_latency")
+                            .withDescription(
+                                    "Latency in nanoseconds between block being fully streamed and block proof being received"));
+            final Counter inTransitLatencyNs = metrics.getOrCreate(
+                    new Counter.Config(METRICS_CATEGORY, "publisher_in_transit_latency_ns")
+                            .withDescription(
+                                    "Latency in nanoseconds between block being sent by publisher and being fully streamed"));
+
             return new MetricsHolder(
                     liveBlockItemsReceived,
                     blockAcknowledgementsSent,
@@ -781,7 +831,10 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
                     blockResendsSent,
                     endOfStreamsSent,
                     sendResponseFailed,
-                    endStreamsReceived);
+                    endStreamsReceived,
+                    ackLatencyNs,
+                    proofLatencyNs,
+                    inTransitLatencyNs);
         }
     }
 }
