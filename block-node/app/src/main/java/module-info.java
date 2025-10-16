@@ -24,6 +24,7 @@ module org.hiero.block.node.app {
     requires org.hiero.block.node.spi;
     requires io.helidon.common;
     requires io.helidon.webserver;
+    requires io.helidon.webserver.http2;
     requires java.logging; // javax.annotation.processing.Generated
     requires static transitive com.github.spotbugs.annotations;
     requires static java.compiler;
