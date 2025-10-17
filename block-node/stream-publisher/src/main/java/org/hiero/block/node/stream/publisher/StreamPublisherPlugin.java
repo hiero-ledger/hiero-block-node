@@ -45,8 +45,6 @@ public final class StreamPublisherPlugin implements BlockNodePlugin, BlockStream
 
     /** The block node context, for access to core facilities. */
     private BlockNodeContext context;
-    /** The configuration for the publisher */
-    private PublisherConfig publisherConfig;
     /** The publisher block manager, which connects handlers to the messaging facility. */
     private StreamPublisherManager publisherManager;
 
@@ -91,8 +89,6 @@ public final class StreamPublisherPlugin implements BlockNodePlugin, BlockStream
     @Override
     public void init(@NonNull final BlockNodeContext context, @NonNull final ServiceBuilder serviceBuilder) {
         this.context = Objects.requireNonNull(context);
-        // load the publisher config
-        publisherConfig = context.configuration().getConfigData(PublisherConfig.class);
         // register us as a service, we need to register the gRPC service in
         // the init method, otherwise the server will be started and we will not
         // have registered at all
