@@ -11,6 +11,7 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import edu.umd.cs.findbugs.annotations.NonNull;
+import io.grpc.stub.StreamObserver;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -22,6 +23,7 @@ import java.util.concurrent.ThreadLocalRandom;
 import java.util.stream.Stream;
 import org.hiero.block.api.protoc.BlockResponse;
 import org.hiero.block.api.protoc.BlockResponse.Code;
+import org.hiero.block.api.protoc.PublishStreamResponse;
 import org.hiero.block.simulator.BlockStreamSimulatorApp;
 import org.hiero.block.simulator.config.data.StreamStatus;
 import org.hiero.block.suites.BaseSuite;
@@ -556,32 +558,38 @@ public class PositiveMultiplePublishersTests extends BaseSuite {
                 "secondStreamStatus does not contain 'duplicate_block'");
     }
 
-    // TODO(#1663) We must assert that one of simulators receives the bad block proof, the other one should receive a
-    // resend.
     @Test
     @DisplayName("Verify Failed Verification Handling")
     public void testMultiPublisherBadBlockProof() throws IOException, InterruptedException {
-        final Map<String, String> firstSimulatorConfiguration = Map.of("generator.invalidBlockHash", "true");
-        final Map<String, String> secondSimulatorConfiguration = Map.of("generator.startBlockNumber", Long.toString(2));
-        final BlockStreamSimulatorApp firstSimulator = createBlockSimulator(firstSimulatorConfiguration);
-        final BlockStreamSimulatorApp secondSimulator = createBlockSimulator(secondSimulatorConfiguration);
-        startSimulatorInThread(firstSimulator);
-        simulatorAppsRef.add(firstSimulator);
-        simulatorAppsRef.add(secondSimulator);
-        Thread.sleep(3000);
-        startSimulatorInThread(secondSimulator);
+        final Map<String, String> simulatorConfig = Map.of("generator.invalidBlockHash", "true");
+        final BlockStreamSimulatorApp simulator = createBlockSimulator(simulatorConfig);
+        startSimulatorInThread(simulator);
+        simulatorAppsRef.add(simulator);
         Thread.sleep(1000);
 
-        StreamStatus firstStreamStatus = simulatorAppsRef.get(0).getStreamStatus();
-        StreamStatus secondStreamStatus = simulatorAppsRef.get(1).getStreamStatus();
-        assertTrue(firstStreamStatus.publishedBlocks() > 0);
-        assertTrue(secondStreamStatus.publishedBlocks() > 0);
-        assertTrue(
-                firstStreamStatus.lastKnownPublisherClientStatuses().stream()
-                                .anyMatch(status -> status.toLowerCase().contains("bad_block_proof"))
-                        || secondStreamStatus.lastKnownPublisherClientStatuses().stream()
-                                .anyMatch(status -> status.toLowerCase().contains("bad_block_proof")),
-                "Neither firstStreamStatus nor secondStreamStatus contains 'bad_block_proof'");
+        StreamStatus streamStatus = simulatorAppsRef.getFirst().getStreamStatus();
+        assertTrue(streamStatus.publishedBlocks() > 0);
+
+        final PublishStreamResponse[] response = new PublishStreamResponse[1];
+        StreamObserver<PublishStreamResponse> responseObserver = new StreamObserver<>() {
+            @Override
+            public void onNext(PublishStreamResponse value) {
+                response[0] = value;
+            }
+
+            @Override
+            public void onError(Throwable t) {}
+
+            @Override
+            public void onCompleted() {}
+        };
+        blockStreamPublishServiceStub.publishBlockStream(responseObserver);
+        Thread.sleep(3000);
+
+        assertTrue(response[0].hasResendBlock());
+        assertEquals(0, response[0].getResendBlock().getBlockNumber());
+        assertTrue(streamStatus.lastKnownPublisherClientStatuses().stream()
+                .anyMatch(s -> s.toLowerCase().contains("bad_block_proof")));
     }
 
     /**
