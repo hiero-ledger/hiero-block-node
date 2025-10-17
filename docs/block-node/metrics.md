@@ -118,9 +118,8 @@ Observes inbound streams from publishers.
 |  Type   |                   Name                   |                     Description                     |
 |---------|------------------------------------------|-----------------------------------------------------|
 | Counter | `publisher_block_items_received`         | Live block items received (sum over all publishers) |
-| Gauge   | `publisher_lowest_block_number_inbound`  | Oldest inbound block number                         |
-| Gauge   | `publisher_current_block_number_inbound` | Current block number from primary publisher         |
-| Gauge   | `publisher_highest_block_number_inbound` | Newest inbound block number                         |
+| Gauge   | `publisher_lowest_block_number_inbound`  | Lowest incoming block number                        |
+| Gauge   | `publisher_highest_block_number_inbound` | Highest incoming block number                       |
 | Gauge   | `publisher_open_connections`             | Connected publishers                                |
 | Counter | `publisher_blocks_ack_sent`              | Block‑ack messages sent                             |
 | Gauge   | `publisher_latest_block_number_ack_sent` | Latest Block Number Ack Sent from Publisher         |
