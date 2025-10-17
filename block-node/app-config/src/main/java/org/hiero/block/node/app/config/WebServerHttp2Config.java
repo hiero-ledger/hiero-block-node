@@ -22,11 +22,11 @@ import org.hiero.block.node.base.Loggable;
  */
 @ConfigData("server.http2")
 public record WebServerHttp2Config(
-        @Loggable @ConfigProperty(defaultValue = "50") int flowControlTimeout,
-        @Loggable @ConfigProperty(defaultValue = "1048576") int initialWindowSize,
+        @Loggable @ConfigProperty(defaultValue = "250") int flowControlTimeout,
+        @Loggable @ConfigProperty(defaultValue = "8_388_608") int initialWindowSize,
         @Loggable @ConfigProperty(defaultValue = "8") long maxConcurrentStreams,
         @Loggable @ConfigProperty(defaultValue = "10") int maxEmptyFrames,
-        @Loggable @ConfigProperty(defaultValue = "524288") int maxFrameSize,
+        @Loggable @ConfigProperty(defaultValue = "524_288") int maxFrameSize,
         @Loggable @ConfigProperty(defaultValue = "8192") long maxHeaderListSize,
         @Loggable @ConfigProperty(defaultValue = "50") int maxRapidResets,
         @Loggable @ConfigProperty(defaultValue = "10000") int rapidResetCheckPeriod) {}
