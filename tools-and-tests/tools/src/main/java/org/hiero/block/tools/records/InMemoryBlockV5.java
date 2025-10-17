@@ -108,15 +108,14 @@ public class InMemoryBlockV5 extends InMemoryBlock {
             }
             // read start running hash is a Hash Object in v5 format; parse to extract SHA-384 bytes
             final byte[] startHashInFile = readV5HashObject(in);
-            if (startRunningHash == null || startRunningHash.length != SHA_384_HASH_SIZE ||
+            if (startRunningHash != null && (startRunningHash.length != SHA_384_HASH_SIZE ||
                     startHashInFile.length != SHA_384_HASH_SIZE ||
-                    !java.util.Arrays.equals(startRunningHash, startHashInFile)) {
+                    !java.util.Arrays.equals(startRunningHash, startHashInFile))) {
                 warnings.append("Start running hash does not match provided start hash (v5).\n");
                 isValid = false;
             }
             // read all transactions in the file
             final List<Transaction> transactions = new java.util.ArrayList<>();
-            System.out.println("Remaining bytes before transactions: " + in.remaining());
             while (in.remaining() > HASH_OBJECT_SIZE_BYTES) {
                 // read a RecordStreamObject
                 final long classId = in.readLong();
@@ -152,7 +151,6 @@ public class InMemoryBlockV5 extends InMemoryBlock {
                 final Transaction transaction = Transaction.PROTOBUF.parse(in.readBytes(transactionLength));
                 transactions.add(transaction);
             }
-            System.out.println("Remaining bytes after transactions: " + in.remaining());
             if (in.remaining() != HASH_OBJECT_SIZE_BYTES) {
                 warnings.append("Expected ").append(HASH_OBJECT_SIZE_BYTES)
                         .append(" bytes remaining for end running hash, but found ").append(in.remaining()).append('\n');

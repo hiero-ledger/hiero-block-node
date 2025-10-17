@@ -40,6 +40,13 @@ public class InMemoryBlockValidateTest {
             .parseHex(
                     "f3a71062087f6afb70754c32cca0dcb48d297b0b909a956cd2b6d22c782ed6054742584b0465865e1fb1adcfbda7f65d");
 
+    /**
+     * Load a file from a resource path into an InMemoryFile.
+     *
+     * @param resourcePath the path to the resource file
+     * @return the loaded InMemoryFile
+     * @throws Exception if there is an error loading the file
+     */
     private static InMemoryFile loadResourceFile(String resourcePath) throws Exception {
         final URL url = InMemoryBlockValidateTest.class.getResource(resourcePath);
         if (url == null) {
@@ -48,6 +55,23 @@ public class InMemoryBlockValidateTest {
         final Path path = Path.of(url.toURI());
         final byte[] data = Files.readAllBytes(path);
         return new InMemoryFile(path.getFileName(), data);
+    }
+
+    /**
+     * Load an address book from a resource file.
+     *
+     * @param resourcePath the path to the resource file
+     * @return the loaded NodeAddressBook
+     * @throws Exception if there is an error loading the file
+     */
+    private static NodeAddressBook loadAddressBookResourceFile(String resourcePath) throws Exception {
+        final URL url = InMemoryBlockValidateTest.class.getResource(resourcePath);
+        if (url == null) {
+            throw new IllegalStateException("Resource not found: " + resourcePath);
+        }
+        final Path path = Path.of(url.toURI());
+        final byte[] data = Files.readAllBytes(path);
+        return AddressBookRegistry.readAddressBook(data);
     }
 
     @Test
@@ -109,8 +133,8 @@ public class InMemoryBlockValidateTest {
 
     @Test
     void validateV5RecordFile() throws Exception {
-        final NodeAddressBook addressBook = AddressBookRegistry.OCT_2025;
         final String base = "/record-files/example-v5/2022-01-01T00_00_00.252365821Z/";
+        final NodeAddressBook addressBook = loadAddressBookResourceFile(base+"address_book.bin");
         final InMemoryFile record = loadResourceFile(base + "2022-01-01T00_00_00.252365821Z.rcd");
         // use RecordFileInfo to check the previous file and end running hashes written in the file, not recomputed
         final RecordFileInfo info = RecordFileInfo.parse(record.data());
@@ -171,8 +195,9 @@ public class InMemoryBlockValidateTest {
 
     @Test
     void validateV6RecordFileWithSidecar() throws Exception {
-        final NodeAddressBook addressBook = AddressBookRegistry.OCT_2025;
         final String base = "/record-files/example-v6/2025-07-23T20_37_42.076472454Z/";
+        final NodeAddressBook addressBook = loadAddressBookResourceFile(base+"address_book.bin");
+        System.out.println("addressBook = " + addressBook);
         final InMemoryFile record = loadResourceFile(base + "2025-07-23T20_37_42.076472454Z.rcd");
         final InMemoryFile sidecar01 = loadResourceFile(base + "2025-07-23T20_37_42.076472454Z_01.rcd");
         // use RecordFileInfo to check the previous file and end running hashes written in the file, not recomputed

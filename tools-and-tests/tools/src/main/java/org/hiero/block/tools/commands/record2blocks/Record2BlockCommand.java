@@ -2,7 +2,7 @@
 package org.hiero.block.tools.commands.record2blocks;
 
 import static org.hiero.block.tools.blocks.BlockWriter.writeBlock;
-import static org.hiero.block.tools.commands.record2blocks.mirrornode.FetchBlockQuery.getPreviousHashForBlock;
+import static org.hiero.block.tools.utils.mirrornode.FetchBlockQuery.getPreviousHashForBlock;
 import static org.hiero.block.tools.records.RecordFileDates.blockTimeLongToInstant;
 
 import com.hedera.hapi.block.stream.Block;

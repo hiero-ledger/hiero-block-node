@@ -148,7 +148,7 @@ public abstract class InMemoryBlock {
      * <p>
      * Signature files are also validated using the RSA public keys for each node in the address book. If
      *
-     * @param startRunningHash the running hash from the previous block
+     * @param startRunningHash the running hash from the previous block, null if we do not want to validate it
      * @param addressBook the address book to use to validate signatures with
      * @return the validation result
      */
