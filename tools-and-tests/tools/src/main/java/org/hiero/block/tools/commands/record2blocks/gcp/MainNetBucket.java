@@ -22,7 +22,7 @@ import java.util.stream.Stream;
 import java.util.zip.GZIPInputStream;
 import java.util.zip.GZIPOutputStream;
 import org.hiero.block.tools.commands.record2blocks.model.ChainFile;
-import org.hiero.block.tools.commands.record2blocks.util.RecordFileDates;
+import org.hiero.block.tools.records.RecordFileDates;
 
 /**
  * A class to list and download files from the mainnet bucket. This is designed to be thread safe.
