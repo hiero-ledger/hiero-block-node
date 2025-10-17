@@ -4,6 +4,7 @@ package org.hiero.block.node.stream.publisher;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatNoException;
 import static org.assertj.core.api.Assertions.assertThatNullPointerException;
+import static org.hiero.block.node.spi.BlockNodePlugin.METRICS_CATEGORY;
 
 import com.swirlds.metrics.api.Counter.Config;
 import com.swirlds.metrics.impl.DefaultCounter;
@@ -2204,13 +2205,14 @@ class PublisherHandlerTest {
      */
     private MetricsHolder createMetrics() {
         return new MetricsHolder(
-                new DefaultCounter(new Config("category", "name")),
-                new DefaultCounter(new Config("category", "name")),
-                new DefaultCounter(new Config("category", "name")),
-                new DefaultCounter(new Config("category", "name")),
-                new DefaultCounter(new Config("category", "name")),
-                new DefaultCounter(new Config("category", "name")),
-                new DefaultCounter(new Config("category", "name")),
-                new DefaultCounter(new Config("category", "name")));
+                new DefaultCounter(new Config(METRICS_CATEGORY, "publisher_block_items_received")),
+                new DefaultCounter(new Config(METRICS_CATEGORY, "publisher_blocks_ack_sent")),
+                new DefaultCounter(new Config(METRICS_CATEGORY, "publisher_stream_errors")),
+                new DefaultCounter(new Config(METRICS_CATEGORY, "publisher_blocks_skips_sent")),
+                new DefaultCounter(new Config(METRICS_CATEGORY, "publisher_blocks_resend_sent")),
+                new DefaultCounter(new Config(METRICS_CATEGORY, "publisher_block_endofstream_sent")),
+                new DefaultCounter(new Config(METRICS_CATEGORY, "publisher_block_send_response_failed")),
+                new DefaultCounter(new Config(METRICS_CATEGORY, "publisher_block_endstream_received")),
+                new DefaultCounter(new Config(METRICS_CATEGORY, "publisher_receive_latency_ns")));
     }
 }

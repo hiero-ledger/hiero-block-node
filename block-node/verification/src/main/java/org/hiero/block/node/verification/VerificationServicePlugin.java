@@ -8,6 +8,7 @@ import static java.lang.System.Logger.Level.WARNING;
 
 import com.hedera.hapi.block.stream.output.BlockHeader;
 import com.hedera.hapi.node.base.SemanticVersion;
+import com.hedera.pbj.runtime.ParseException;
 import com.swirlds.metrics.api.Counter;
 import edu.umd.cs.findbugs.annotations.NonNull;
 import java.util.List;
@@ -20,12 +21,13 @@ import org.hiero.block.node.spi.blockmessaging.BlockItems;
 import org.hiero.block.node.spi.blockmessaging.BlockNotificationHandler;
 import org.hiero.block.node.spi.blockmessaging.BlockSource;
 import org.hiero.block.node.spi.blockmessaging.VerificationNotification;
-import org.hiero.block.node.verification.session.BlockVerificationSession;
-import org.hiero.block.node.verification.session.BlockVerificationSessionFactory;
+import org.hiero.block.node.verification.session.HapiVersionSessionFactory;
+import org.hiero.block.node.verification.session.VerificationSession;
 
 /** Provides implementation for the health endpoints of the server. */
 @SuppressWarnings("unused")
 public class VerificationServicePlugin implements BlockNodePlugin, BlockItemHandler, BlockNotificationHandler {
+    private static final String COMPLETED_MESSAGE = "Verified backfill block items for block {0} with success={1}";
     /** The logger for this class. */
     private final System.Logger LOGGER = System.getLogger(getClass().getName());
     /** The block node context, for access to core facilities. */
@@ -34,11 +36,9 @@ public class VerificationServicePlugin implements BlockNodePlugin, BlockItemHand
     @SuppressWarnings("FieldCanBeLocal")
     private VerificationConfig verificationConfig;
     /** The current verification session, a new one is created each block. */
-    private BlockVerificationSession currentSession;
+    private VerificationSession currentSession;
     /** The current block number being verified. */
     private long currentBlockNumber = -1;
-    /** The time when block verification started. */
-    private long blockWorkStartTime;
     /** Metric for number of blocks received. */
     private Counter verificationBlocksReceived;
     /** Metric for number of blocks verified. */
@@ -49,6 +49,8 @@ public class VerificationServicePlugin implements BlockNodePlugin, BlockItemHand
     private Counter verificationBlocksError;
     /** Metric for block verification time. */
     private Counter verificationBlockTime;
+    /** Metric for block hashing time. ignores time to receive block */
+    private Counter hashingBlockTimeNs;
 
     /**
      * {@inheritDoc}
@@ -66,24 +68,21 @@ public class VerificationServicePlugin implements BlockNodePlugin, BlockItemHand
      */
     private void initMetrics(BlockNodeContext context) {
         final var metrics = context.metrics();
-
         verificationBlocksReceived =
                 metrics.getOrCreate(new Counter.Config(METRICS_CATEGORY, "verification_blocks_received")
                         .withDescription("Blocks received for verification"));
-
         verificationBlocksVerified =
                 metrics.getOrCreate(new Counter.Config(METRICS_CATEGORY, "verification_blocks_verified")
                         .withDescription("Blocks that passed verification"));
-
         verificationBlocksFailed =
                 metrics.getOrCreate(new Counter.Config(METRICS_CATEGORY, "verification_blocks_failed")
                         .withDescription("Blocks that failed verification"));
-
         verificationBlocksError = metrics.getOrCreate(new Counter.Config(METRICS_CATEGORY, "verification_blocks_error")
                 .withDescription("Internal errors during verification"));
-
         verificationBlockTime = metrics.getOrCreate(new Counter.Config(METRICS_CATEGORY, "verification_block_time")
                 .withDescription("Verification time per block (ms)"));
+        hashingBlockTimeNs = metrics.getOrCreate(new Counter.Config(METRICS_CATEGORY, "hashing_block_time")
+                .withDescription("Hashing time per block (ms)"));
     }
 
     /**
@@ -94,13 +93,10 @@ public class VerificationServicePlugin implements BlockNodePlugin, BlockItemHand
         // setting config and context
         this.context = context;
         verificationConfig = context.configuration().getConfigData(VerificationConfig.class);
-
         // register the service
         context.blockMessaging().registerBlockNotificationHandler(this, false, "VerificationServicePlugin");
-
         // initialize metrics
         initMetrics(context);
-
         LOGGER.log(TRACE, "VerificationServicePlugin initialized successfully.");
     }
 
@@ -113,7 +109,6 @@ public class VerificationServicePlugin implements BlockNodePlugin, BlockItemHand
         // specify that we are cpu intensive and should be run on a separate non-virtual thread
         context.blockMessaging().registerBlockItemHandler(this, true, VerificationServicePlugin.class.getSimpleName());
         // we do not need to unregister the handler as it will be unregistered when the message service is stopped
-
         LOGGER.log(TRACE, "VerificationServicePlugin started successfully.");
     }
 
@@ -128,75 +123,81 @@ public class VerificationServicePlugin implements BlockNodePlugin, BlockItemHand
     @Override
     public void handleBlockItemsReceived(BlockItems blockItems) {
         try {
+            final long startVerificationHandlingTime = System.nanoTime();
             if (!context.serverHealth().isRunning()) {
                 LOGGER.log(ERROR, "Service is not running. Block item will not be processed further.");
                 return;
             }
+            final boolean headerValid;
             // If we have a new block header, that means a new block has started
             if (blockItems.isStartOfNewBlock()) {
                 verificationBlocksReceived.increment();
                 // we already checked that firstItem has blockHeader
                 currentBlockNumber = blockItems.blockNumber();
-                // start working time
-                blockWorkStartTime = System.nanoTime();
                 BlockHeader blockHeader = BlockHeader.PROTOBUF.parse(
                         blockItems.blockItems().getFirst().blockHeader());
                 if (currentBlockNumber != blockHeader.number()) {
-                    LOGGER.log(
-                            INFO,
-                            "Block number in BlockItems ({0}) does not match number in BlockHeader ({1})",
-                            currentBlockNumber,
-                            blockHeader.number());
-                    throw new IllegalArgumentException("Block number mismatch");
+                    final String message = "Block number {0} in block items does not match block {1} in header.";
+                    LOGGER.log(INFO, message, currentBlockNumber, blockHeader.number());
+                    headerValid = false;
+                } else {
+                    headerValid = true;
                 }
-
                 SemanticVersion semanticVersion = blockHeader.hapiProtoVersionOrThrow();
-
                 // create a new verification session for the new block based on hapi version on block header.
-                currentSession = BlockVerificationSessionFactory.createSession(
+                currentSession = HapiVersionSessionFactory.createSession(
                         currentBlockNumber, BlockSource.PUBLISHER, semanticVersion);
-                LOGGER.log(TRACE, "Started new block verification session for block number: {0}", currentBlockNumber);
+                LOGGER.log(TRACE, "Started new block verification session for block number {0}", currentBlockNumber);
+            } else {
+                headerValid = true; // header not present, assume it was valid
             }
             if (currentSession == null) {
-                // todo(452): correctly propagate this exception to the rest of the system, so it can be handled
                 // from Jasper, this should be normal and just ignored, logging is fine. It will happen normally
                 // anytime a block node is started in a already running network. Maybe we can check if it happening
                 // when the block node is just starting vs in the middle of running normal as that should not happen.
-                LOGGER.log(ERROR, "Received block items before a block header.");
-            } else {
-                LOGGER.log(
-                        TRACE,
-                        "Appending {0} block items to the current session for block number: {1}",
-                        blockItems.blockItems().size(),
-                        currentBlockNumber);
+                // ERROR is not appropriate for "normal" events, so use INFO.
+                LOGGER.log(INFO, "Received block items before a block header, ignoring.");
+            } else if (headerValid) {
+                final String traceMessage = "Appending {0} block items to the current session for block number: {1}";
+                LOGGER.log(TRACE, traceMessage, blockItems.blockItems().size(), currentBlockNumber);
+                long startHashingTime = System.nanoTime();
                 VerificationNotification notification = currentSession.processBlockItems(blockItems.blockItems());
+                long hashingTime = System.nanoTime() - startHashingTime;
+                hashingBlockTimeNs.add(hashingTime);
                 if (notification != null) {
-                    LOGGER.log(
-                            TRACE,
-                            "Block verification session completed for block number: {0} with status success={1}",
-                            currentBlockNumber,
-                            notification.success());
+                    LOGGER.log(TRACE, COMPLETED_MESSAGE, currentBlockNumber, notification.success());
                     if (notification.success()) {
                         verificationBlocksVerified.increment();
+                        // send the notification to the block messaging service
+                        LOGGER.log(TRACE, "Sending verification notification for block number {0}", currentBlockNumber);
+                        context.blockMessaging().sendBlockVerification(notification);
                     } else {
-                        verificationBlocksFailed.increment();
-                        LOGGER.log(WARNING, "Block verification failed for block number: {0}", currentBlockNumber);
+                        LOGGER.log(INFO, "Verification failed for block number {0}", currentBlockNumber);
+                        sendFailureNotification(currentBlockNumber, BlockSource.PUBLISHER);
                     }
-                    verificationBlockTime.add(System.nanoTime() - blockWorkStartTime);
-                    // send the notification to the block messaging service
-                    LOGGER.log(
-                            TRACE, "Sending block verification notification for block number: {0}", currentBlockNumber);
-                    context.blockMessaging().sendBlockVerification(notification);
                 }
+            } else {
+                sendFailureNotification(currentBlockNumber, BlockSource.PUBLISHER);
             }
-        } catch (final Exception e) {
-            LOGGER.log(ERROR, "Failed to verify BlockItems: ", e);
-            verificationBlocksError.increment();
-            // Return a success=false notification to indicate failure but include the block number.
-            context.blockMessaging()
-                    .sendBlockVerification(
-                            new VerificationNotification(false, currentBlockNumber, null, null, BlockSource.PUBLISHER));
+            // end working time
+            long blockWorkEndTime = System.nanoTime() - startVerificationHandlingTime;
+            LOGGER.log(
+                    TRACE,
+                    "Finished verification handling block items for block number: {0}, and it took {1} ns",
+                    currentBlockNumber,
+                    blockWorkEndTime);
+            verificationBlockTime.add(blockWorkEndTime);
+        } catch (final RuntimeException | ParseException e) {
+            LOGGER.log(WARNING, "Failed to verify BlockItems.", e);
+            sendFailureNotification(currentBlockNumber, BlockSource.PUBLISHER);
         }
+    }
+
+    private void sendFailureNotification(final long blockNumber, final BlockSource source) {
+        verificationBlocksError.increment();
+        // Return a success=false notification to indicate failure and include the block number.
+        VerificationNotification notification = new VerificationNotification(false, blockNumber, null, null, source);
+        context.blockMessaging().sendBlockVerification(notification);
     }
 
     /**
@@ -209,42 +210,28 @@ public class VerificationServicePlugin implements BlockNodePlugin, BlockItemHand
     public void handleBackfilled(BackfilledBlockNotification notification) {
         try {
             // log the backfilled block notification received
-            LOGGER.log(
-                    TRACE, "Received backfilled block notification for block number: {0}", notification.blockNumber());
+            LOGGER.log(TRACE, "Received backfill notification for block number {0}", notification.blockNumber());
             // create a new verification session for the backfilled block
-
             BlockHeader blockHeader = BlockHeader.PROTOBUF.parse(
                     notification.block().blockItems().getFirst().blockHeader());
             if (notification.blockNumber() != blockHeader.number()) {
-                LOGGER.log(
-                        WARNING,
-                        "Block number in BackfilledBlockNotification ({0}) does not match number in BlockHeader ({1})",
-                        notification.blockNumber(),
-                        blockHeader.number());
-                throw new IllegalArgumentException("Block number mismatch");
+                final String message = "Block number {0} in backfill does not match block {1} in header.";
+                LOGGER.log(WARNING, message, notification.blockNumber(), blockHeader.number());
+                sendFailureNotification(notification.blockNumber(), BlockSource.BACKFILL);
+            } else {
+                VerificationSession backfillSession = HapiVersionSessionFactory.createSession(
+                        notification.blockNumber(), BlockSource.BACKFILL, blockHeader.hapiProtoVersionOrThrow());
+                // process the block items in the backfilled notification
+                VerificationNotification backfillNotification =
+                        backfillSession.processBlockItems(notification.block().blockItems());
+                // Log the backfill verification result
+                LOGGER.log(TRACE, COMPLETED_MESSAGE, notification.blockNumber(), backfillNotification.success());
+                // send the verification notification for the backfilled block
+                context.blockMessaging().sendBlockVerification(backfillNotification);
             }
-
-            BlockVerificationSession backfillSession = BlockVerificationSessionFactory.createSession(
-                    notification.blockNumber(), BlockSource.BACKFILL, blockHeader.hapiProtoVersionOrThrow());
-
-            // process the block items in the backfilled notification
-            VerificationNotification backfillNotification =
-                    backfillSession.processBlockItems(notification.block().blockItems());
-            // Log the backfill verification result
-            LOGGER.log(
-                    TRACE,
-                    "Verified backfilled block items for block number: {0} with success={1}",
-                    notification.blockNumber(),
-                    backfillNotification.success());
-            // send the verification notification for the backfilled block
-            context.blockMessaging().sendBlockVerification(backfillNotification);
-        } catch (Exception ex) {
-            LOGGER.log(ERROR, "Failed to handle verification notification: ", ex);
-            verificationBlocksError.increment();
-            // Return a success=false notification to indicate failure
-            VerificationNotification errorNotification =
-                    new VerificationNotification(false, notification.blockNumber(), null, null, BlockSource.BACKFILL);
-            context.blockMessaging().sendBlockVerification(errorNotification);
+        } catch (RuntimeException | ParseException e) {
+            LOGGER.log(WARNING, "Failed to handle backfill notification ", e);
+            sendFailureNotification(notification.blockNumber(), BlockSource.BACKFILL);
         }
     }
 }
