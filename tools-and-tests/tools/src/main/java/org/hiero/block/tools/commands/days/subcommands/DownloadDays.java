@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.tools.commands.days.subcommands;
 
-import static org.hiero.block.tools.commands.days.download.DownloadDay.downloadDay;
+import static org.hiero.block.tools.commands.days.download.DownloadDayImpl.downloadDay;
 
 import java.io.File;
 import java.time.LocalDate;
