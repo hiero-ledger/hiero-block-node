@@ -43,7 +43,7 @@ import org.hiero.block.tools.utils.Md5Checker;
  * and write into a single .tar.zstd file.
  */
 @SuppressWarnings("CallToPrintStackTrace")
-public class DownloadDay {
+public class DownloadDayImpl {
     /** GCP BlobSourceOption to use userProject for billing */
     public static final com.google.cloud.storage.Storage.BlobSourceOption BLOB_SOURCE_OPTION =
             com.google.cloud.storage.Storage.BlobSourceOption.userProject(DownloadConstants.GCP_PROJECT_ID);
@@ -176,6 +176,7 @@ public class DownloadDay {
             }
 
             // iterate blocks in order, wait for downloads to complete, validate, compute hash, and enqueue entries
+            int blocksSkipped = 0;
             for (int blockIndex = 0; blockIndex < sortedBlocks.size(); blockIndex++) {
                 final LocalDateTime ts = sortedBlocks.get(blockIndex);
                 final Future<List<InMemoryFile>> f = futures.get(ts);
@@ -192,7 +193,38 @@ public class DownloadDay {
                 // first is always the most common record file
                 final InMemoryFile mostCommonRecordFileInMem = resultInMemFiles.getFirst();
                 // validate time period
-                prevRecordFileHash = validateBlock(prevRecordFileHash, resultInMemFiles, mostCommonRecordFileInMem);
+
+                final RecordFileInfo recordFileInfo = RecordFileInfo.parse(mostCommonRecordFileInMem.data());
+                byte[] readPreviousBlockHash = recordFileInfo.previousBlockHash().toByteArray();
+                byte[] computedBlockHash = recordFileInfo.blockHash().toByteArray();
+                // check computed previousRecordFileHash matches one read from file
+                if (prevRecordFileHash != null && !Arrays.equals(prevRecordFileHash, readPreviousBlockHash)) {
+                    // try skipping this block as we have cases where a node produced bad dated record files
+                    // for example 2021-10-13T07_37_27, which was only produced by node 0.0.18 the rest of the nodes
+                    // had blocks 2021-10-13T18:06:52 and 2021-10-13T23:10:06.07.
+                    blocksSkipped ++;
+                    if (blocksSkipped < 2) {
+                        System.err.println("SKIPPING BLOCK IN CASE IT IS BAD: blocksSkipped="+blocksSkipped+
+                            " - Previous block hash mismatch. Expected: "
+                            + HexFormat.of().formatHex(prevRecordFileHash).substring(0, 8)
+                            + ", Found: "
+                            + HexFormat.of().formatHex(readPreviousBlockHash).substring(0, 8) + "\n" +
+                            "Context mostCommonRecordFile:" + mostCommonRecordFileInMem.path() +
+                            " computedHash:" + HexFormat.of().formatHex(computedBlockHash).substring(0, 8));
+                    } else {
+                        throw new IllegalStateException("Previous block hash mismatch. Expected: "
+                            + HexFormat.of().formatHex(prevRecordFileHash).substring(0, 8)
+                            + ", Found: "
+                            + HexFormat.of().formatHex(readPreviousBlockHash).substring(0, 8) + "\n" +
+                            "Context mostCommonRecordFile:" + mostCommonRecordFileInMem.path() +
+                            " computedHash:" + HexFormat.of().formatHex(computedBlockHash).substring(0, 8));
+                    }
+                } else {
+                    // reset blocksSkipped counter
+                    blocksSkipped = 0;
+                }
+                // TODO validate signatures and sidecars
+                prevRecordFileHash = computedBlockHash;
                 // enqueue entries in the same block order to preserve tar ordering
                 final String blockStr = ts.toString();
                 for (InMemoryFile imf : resultInMemFiles) {
@@ -282,35 +314,5 @@ public class DownloadDay {
             memFiles.add(new InMemoryFile(Path.of(entryName), contentBytes));
         }
         return memFiles;
-    }
-
-    /**
-     * Validate the downloaded files hash correctly and form a valid Hedera blockchain.
-     *
-     * @param previousRecordFileHash the SHA384 hash of the previous block's most common record file, null if first
-     *                               block of day
-     * @param files the list of InMemoryFile objects for the current block
-     * @param mostCommonRecordFile the most common record file for the current block
-     * @return computed SHA384 hash of the current block's most common record file, to be passed as
-     *         previousRecordFileHash for next block, or null if validation failed
-     * @throws IllegalStateException if validation fails
-     */
-    private static byte[] validateBlock(
-            byte[] previousRecordFileHash, List<InMemoryFile> files, final InMemoryFile mostCommonRecordFile) {
-
-        final RecordFileInfo recordFileInfo = RecordFileInfo.parse(mostCommonRecordFile.data());
-        byte[] readPreviousBlockHash = recordFileInfo.previousBlockHash().toByteArray();
-        byte[] computedBlockHash = recordFileInfo.blockHash().toByteArray();
-        // check computed previousRecordFileHash matches one read from file
-        if (previousRecordFileHash != null && !Arrays.equals(previousRecordFileHash, readPreviousBlockHash)) {
-            throw new IllegalStateException("Previous block hash mismatch. Expected: "
-                    + HexFormat.of().formatHex(previousRecordFileHash).substring(0, 8)
-                    + ", Found: "
-                    + HexFormat.of().formatHex(readPreviousBlockHash).substring(0, 8) +"\n" +
-                "Context mostCommonRecordFile:"+mostCommonRecordFile.path()+
-                " computedHash:"+HexFormat.of().formatHex(computedBlockHash).substring(0, 8));
-        }
-        // TODO validate signatures and sidecars
-        return computedBlockHash;
     }
 }
