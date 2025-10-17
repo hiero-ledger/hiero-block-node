@@ -1,9 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.tools.commands.days.model;
 
-import com.google.gson.Gson;
-import com.google.gson.annotations.SerializedName;
-import com.hedera.hapi.node.base.AccountID;
 import com.hedera.hapi.node.base.NodeAddress;
 import com.hedera.hapi.node.base.NodeAddressBook;
 import com.hedera.hapi.node.base.Transaction;
@@ -12,10 +9,11 @@ import com.hedera.hapi.node.transaction.TransactionBody;
 import com.hedera.pbj.runtime.ParseException;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import com.hedera.pbj.runtime.io.stream.ReadableStreamingData;
-import java.nio.charset.StandardCharsets;
+import java.io.ByteArrayOutputStream;
 import java.util.ArrayList;
-import java.util.HexFormat;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 /**
  * Registry of address books, starting with the Genesis address book.
@@ -24,6 +22,9 @@ import java.util.Objects;
  */
 public class AddressBookRegistry {
     private final List<NodeAddressBook> addressBooks = new ArrayList<>();
+    // Maintain partial payloads for file id 2 only. Only completed parses for 0.0.102 are appended to addressBooks to
+    // keep getCurrentAddressBook() aligned with authoritative book semantics.
+    private ByteArrayOutputStream partialFileUpload = null;
 
     /**
      * Create a new AddressBookRegistry instance and load the Genesis address book.
@@ -51,9 +52,9 @@ public class AddressBookRegistry {
      * <p>
      * There are two kinds of transactions that can update the address book:
      * <ul>
-     *   <li>File append transactions that update the address book file(id: 0.0.102) with a new address book. Of type
-     *   com.hedera.hapi.node.file.FileAppendTransactionBody . There can be one or more append transactions for a
-     *   complete address book file contents update.</li>
+     *   <li>File update/append transactions that update the address book file (id: 0.0.102) with a new address book. Of
+     *   types com.hedera.hapi.node.file.FileUpdateTransactionBody and FileAppendTransactionBody. There can be one or
+     *   more append transactions for a complete address book file contents update.</li>
      *   <li>Address book change transactions that add, update or remove nodes. These are types
      *   NodeCreateTransactionBody, NodeUpdateTransactionBody and NodeDeleteTransactionBody</li>
      * </ul>
@@ -61,10 +62,51 @@ public class AddressBookRegistry {
      * </p>
      *
      * @param addressBookTransactions the list of transactions to check for address book updates
+     * @return a string describing the changes made to the address book, or a null string if no changes were made
      */
-    public void updateAddressBook(List<TransactionBody> addressBookTransactions) {
-        // TODO walk through the transactions, extract any file 0.0.102 updates or address book change transactions
-        //  and apply them to create a new address book, then add it to the list.
+    @SuppressWarnings("DataFlowIssue")
+    public String updateAddressBook(List<TransactionBody> addressBookTransactions) {
+        final NodeAddressBook currentBook = getCurrentAddressBook();
+        NodeAddressBook newAddressBook = currentBook;
+        // Walk through transactions in order, maintaining a buffer for 0.0.102. Only successful 0.0.102 parses produce a
+        // new version appended to addressBooks to align with authoritative address book semantics.
+        for (final TransactionBody body : addressBookTransactions) {
+            try {
+                // Handle file-based updates for 0.0.102 only
+                if ((body.hasFileUpdate() && body.fileUpdate().fileID().fileNum() == 102)
+                    || (body.hasFileAppend() && body.fileAppend().fileID().fileNum() == 102)) {
+                    if (partialFileUpload == null) partialFileUpload = new ByteArrayOutputStream();
+                    if (body.hasFileUpdate()) {
+                        body.fileUpdate().contents().writeTo(partialFileUpload);
+                    } else { // append
+                        body.fileAppend().contents().writeTo(partialFileUpload);
+                    }
+                    final byte[] contents = partialFileUpload.toByteArray();
+                    // Ignore empty contents and try to parse a full NodeAddressBook from the accumulated bytes
+                    if (contents.length > 0) {
+                        try {
+                            newAddressBook = readAddressBook(contents);
+                            // Successfully parsed a new complete/valid book; reset partial accumulator
+                            partialFileUpload = null;
+                        } catch (final ParseException parseException) {
+                            // Not yet a complete/valid book; keep accumulating across future appends
+                            // Do nothing on failure.
+                        }
+                    }
+                }
+                // Ignore other transaction types (e.g., node lifecycle) in this registry; only file-based updates are
+                // applied to compute new address book versions here.
+            } catch (Exception e) {
+                throw new RuntimeException("Error updating address book", e);
+            }
+        }
+        if (newAddressBook != currentBook) {
+            addressBooks.add(newAddressBook);
+            // Update changes description
+            return "Address Book Changed, via file update:\n" +
+                addressBookChanges(currentBook, newAddressBook);
+        }
+        return null;
     }
 
     // ==== Static utility methods for loading address books ====
@@ -93,16 +135,21 @@ public class AddressBookRegistry {
                 // no transaction body or signed bytes, ignore
                 throw new ParseException("Transaction has no body or signed bytes");
             }
-            // check if this is a file append to file 0.0.102 or a node create/update/delete transaction
-            if (body.hasFileAppend() && body.fileAppend().fileID().fileNum() == 102) {
-                result.add(body);
-            } else if (body.hasNodeCreate() || body.hasNodeUpdate() || body.hasNodeDelete()) {
+            // check if this is a file update/append to file 0.0.102
+            if ((body.hasFileUpdate() && body.fileUpdate().fileID().fileNum() == 102)
+                || (body.hasFileAppend() && body.fileAppend().fileID().fileNum() == 102)) {
                 result.add(body);
             }
         }
         return result;
     }
 
+    /**
+     * Load the Genesis address book from the classpath resource "mainnet-genesis-address-book.proto.bin".
+     *
+     * @return the Genesis NodeAddressBook
+     * @throws ParseException if there is an error parsing the address book
+     */
     public static NodeAddressBook loadGenesisAddressBook() throws ParseException {
         try (var in = new ReadableStreamingData(Objects.requireNonNull(AddressBookRegistry.class
                 .getClassLoader()
@@ -111,13 +158,23 @@ public class AddressBookRegistry {
         }
     }
 
+    /**
+     * Read an address book from a byte array.
+     *
+     * @param bytes the byte array containing the address book in protobuf format
+     * @return the parsed NodeAddressBook
+     * @throws ParseException if there is an error parsing the address book
+     */
     public static NodeAddressBook readAddressBook(byte[] bytes) throws ParseException {
         return NodeAddressBook.PROTOBUF.parse(Bytes.wrap(bytes));
     }
 
     /**
-     * Get the public key for a node in the address book. This uses the memo field of the NodeAddress which contains
-     * the node's shard, realm and number as a UTF-8 string.
+     * Get the public key for a node in the address book. There are two ways the node ID is in the NodeAddress used at
+     * different periods in the blockchain history. Early address books use the memo field of the NodeAddress which
+     * contains the node's shard, realm and number as a UTF-8 string in the form "1.2.3". Later address books use the
+     * nodeAccountId field of the NodeAddress which contains the account ID of the node, which includes the node id
+     * number.
      *
      * @param addressBook the address book to use to find the node
      * @param shard the shard number of the node
@@ -127,108 +184,67 @@ public class AddressBookRegistry {
      */
     public static String publicKeyForNode(
             final NodeAddressBook addressBook, final long shard, final long realm, final long number) {
-        String nodeAddress = String.format("%d.%d.%d", shard, realm, number);
+        // we assume shard and realm are always 0 for now, so we only use the number
+        if (shard != 0 || realm != 0) {
+            throw new IllegalArgumentException("Only shard 0 and realm 0 are supported");
+        }
         return addressBook.nodeAddress().stream()
-                .filter(na -> na.memo().asUtf8String().equals(nodeAddress))
+                .filter(na -> getNodeAccountId(na) == number)
                 .findFirst()
                 .orElseThrow()
                 .rsaPubKey();
     }
 
-    public static void main(String[] args) throws ParseException {
-        System.out.println("Loading Genesis Address Book...");
-        NodeAddressBook addressBook = loadGenesisAddressBook();
-        System.out.println("Genesis Address Book loaded successfully.");
-        for (NodeAddress nodeAddress : addressBook.nodeAddress()) {
-            System.out.println("memo=" + nodeAddress.memo().asUtf8String() + " rsa_pub_key=" + nodeAddress.rsaPubKey());
-        }
-
-        // test public key lookup
-        String publicKey = publicKeyForNode(addressBook, 0, 0, 11);
-        System.out.println("publicKey=" + publicKey);
-        if (!publicKey.startsWith(
-                "308201a2300d06092a864886f70d01010105000382018f003082018a02820181009bdd8e84fadaa35")) {
-            throw new RuntimeException("Unexpected public key");
+    /**
+     * Get the node ID from a NodeAddress. The node ID can be found in one of three places:
+     * <ul>
+     *   <li>The nodeId field of the NodeAddress (if present)</li>
+     *   <li>The nodeAccountId field of the NodeAddress (if present)</li>
+     *   <li>The memo field of the NodeAddress (if present)</li>
+     * </ul>
+     *
+     * @param nodeAddress the NodeAddress to get the node ID from
+     * @return the node ID
+     * @throws IllegalArgumentException if the NodeAddress does not have a node ID
+     */
+    @SuppressWarnings("DataFlowIssue")
+    public static long getNodeAccountId(NodeAddress nodeAddress) {
+        if (nodeAddress.hasNodeAccountId() && nodeAddress.nodeAccountId().hasAccountNum()) {
+            return nodeAddress.nodeAccountId().accountNum();
+        } else if (nodeAddress.memo().length() > 0) {
+            final String memoStr = nodeAddress.memo().asUtf8String();
+            return Long.parseLong(memoStr.substring(memoStr.lastIndexOf('.')+1));
+        } else {
+            throw new IllegalArgumentException("NodeAddress has no nodeAccountId or memo: " + nodeAddress);
         }
     }
 
     /**
-     * Address book snapshot for October 2025 loaded from address-book-oct-2025.json at repository root.
-     * If the JSON cannot be found or parsed at runtime, this constant will be an empty address book.
+     * Compare two address books and return a string describing the changes between them.
+     *
+     * @param oldAddressBook the old address book
+     * @param newAddressBook the new address book
+     * @return a string describing the changes between the two address books
      */
-    public static final NodeAddressBook OCT_2025 = loadOct2025();
-
-    private static NodeAddressBook loadOct2025() {
-        try {
-            final var in = AddressBookRegistry.class.getClassLoader().getResourceAsStream("address-book-oct-2025.json");
-            if (in == null) {
-                return NodeAddressBook.DEFAULT; // Not available
+    public static String addressBookChanges(final NodeAddressBook oldAddressBook, final NodeAddressBook newAddressBook) {
+        final StringBuilder sb = new StringBuilder();
+        final Map<Long, String> oldNodesIdToPubKey = new HashMap<>();
+        for (var node : oldAddressBook.nodeAddress()) {
+            oldNodesIdToPubKey.put(getNodeAccountId(node), node.rsaPubKey());
+        }
+        for (var node : newAddressBook.nodeAddress()) {
+            final long nodeId = getNodeAccountId(node);
+            final String oldPubKey = oldNodesIdToPubKey.get(nodeId);
+            if (oldPubKey == null) {
+                sb.append(String.format("   Node %d added with key %s%n", nodeId, node.rsaPubKey().substring(70,78)));
+            } else if (!oldPubKey.equals(node.rsaPubKey())) {
+                sb.append(String.format("   Node %d key changed from %s to %s%n", nodeId, oldPubKey.substring(70,78), node.rsaPubKey().substring(70,78)));
             }
-            try (in) {
-                final Gson gson = new Gson();
-                final AddressBookJson json = gson.fromJson(new java.io.InputStreamReader(in, StandardCharsets.UTF_8), AddressBookJson.class);
-                final List<NodeAddress> nodes = new ArrayList<>();
-                if (json != null && json.nodes != null) {
-                    for (final AddressBookJson.Node n : json.nodes) {
-                        final long accountNum = parseAccountNum(n.nodeAccountId);
-                        final String memoStr = "0.0." + accountNum;
-                        final String rsaHex = strip0x(n.publicKey);
-                        final byte[] certHash = parseHexOrEmpty(n.nodeCertHash);
-
-                        final AccountID accountID = AccountID.newBuilder()
-                                .shardNum(0)
-                                .realmNum(0)
-                                .accountNum(accountNum)
-                                .build();
-
-                        final NodeAddress node = NodeAddress.newBuilder()
-                                .memo(Bytes.wrap(memoStr.getBytes(StandardCharsets.UTF_8)))
-                                .rsaPubKey(rsaHex)
-                                .nodeId(n.nodeId)
-                                .nodeAccountId(accountID)
-                                .nodeCertHash(Bytes.wrap(certHash))
-                                .build();
-                        nodes.add(node);
-                    }
-                }
-                return new NodeAddressBook(nodes);
-            }
-        } catch (Exception e) {
-            // If anything goes wrong, return an empty book to avoid breaking callers.
-            return NodeAddressBook.DEFAULT;
+            oldNodesIdToPubKey.remove(nodeId);
         }
-    }
-
-    private static String strip0x(String s) {
-        if (s == null) return "";
-        return s.startsWith("0x") || s.startsWith("0X") ? s.substring(2) : s;
-    }
-
-    private static long parseAccountNum(String account) {
-        if (account == null || account.isBlank()) return 0L;
-        // expects format like "0.0.23"
-        final String[] parts = account.split("\\.");
-        return Long.parseLong(parts[parts.length - 1]);
-    }
-
-    private static byte[] parseHexOrEmpty(String hex) {
-        if (hex == null || hex.isBlank()) return new byte[0];
-        final String s = strip0x(hex);
-        try {
-            return HexFormat.of().parseHex(s);
-        } catch (Exception e) {
-            return new byte[0];
+        for (var removedNodeId : oldNodesIdToPubKey.keySet()) {
+            sb.append(String.format("   Node %d removed%n", removedNodeId));
         }
-    }
-
-    // Minimal JSON mapping classes
-    private static final class AddressBookJson {
-        List<Node> nodes;
-        static final class Node {
-            @SerializedName("node_id") long nodeId;
-            @SerializedName("node_account_id") String nodeAccountId;
-            @SerializedName("public_key") String publicKey;
-            @SerializedName("node_cert_hash") String nodeCertHash;
-        }
+        return sb.toString();
     }
 }

@@ -157,7 +157,11 @@ public class Validate implements Runnable {
                                 System.exit(1);
                             }
                             // use ValidationResult to update address book if needed
-                            addressBookRegistry.updateAddressBook(vr.addressBookTransactions());
+                            String addressBookChanges = addressBookRegistry.updateAddressBook(vr.addressBookTransactions());
+                            if (warningWriter != null && addressBookChanges != null) {
+                                warningWriter.write(addressBookChanges + "\n");
+                                warningWriter.flush();
+                            }
                             // update carry over to current block end-running-hash for next iteration
                             carryOverHash.set(vr.endRunningHash());
                             // Build progress string showing time and hashes (shortened to 8 chars for readability)

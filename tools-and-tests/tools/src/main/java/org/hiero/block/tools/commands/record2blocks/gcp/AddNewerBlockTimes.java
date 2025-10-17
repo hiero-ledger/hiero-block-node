@@ -13,7 +13,7 @@ import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
-import org.hiero.block.tools.commands.record2blocks.mirrornode.FetchBlockQuery;
+import org.hiero.block.tools.utils.mirrornode.FetchBlockQuery;
 import org.hiero.block.tools.records.RecordFileDates;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Help.Ansi;
