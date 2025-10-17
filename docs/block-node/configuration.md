@@ -41,6 +41,19 @@ Each plugin has its own properties, but this focuses on core options and core pl
 | SERVER_PORT                             | Server listening port.               |     40840 |
 | SERVER_SHUTDOWN_DELAY_MILLIS            | Delay before shutdown (ms).          |       500 |
 
+### WebServerHttp2 Configuration
+
+| ENV Variable                          | Description                                                                  |   Default |
+|:--------------------------------------|:-----------------------------------------------------------------------------|----------:|
+| SERVER_HTTP2_FLOW_CONTROL_TIMEOUT     | Outbound flow control blocking timeout (ms).                                 |        50 |
+| SERVER_HTTP2_INITIAL_WINDOW_SIZE      | Sender's maximum window size (bytes) for stream-level flow control.          | 1,048,576 |
+| SERVER_HTTP2_MAX_CONCURRENT_STREAMS   | Max concurrent streams the server will allow.                                |         8 |
+| SERVER_HTTP2_MAX_EMPTY_FRAMES         | Max consecutive empty frames allowed on connection.                          |        10 |
+| SERVER_HTTP2_MAX_FRAME_SIZE           | Largest frame payload size (bytes) the sender is willing to receive.         |   524,288 |
+| SERVER_HTTP2_MAX_HEADER_LIST_SIZE     | Max field section size (bytes) the sender is prepared to accept.             |     8,192 |
+| SERVER_HTTP2_MAX_RAPID_RESETS         | Max rapid resets (stream RST sent by client before any data sent by server). |        50 |
+| SERVER_HTTP2_RAPID_RESET_CHECK_PERIOD | Period for counting rapid resets (ms).                                       |    10,000 |
+
 ### Metrics Endpoint Configuration
 
 | ConfigKey                 | Description                          | Default |

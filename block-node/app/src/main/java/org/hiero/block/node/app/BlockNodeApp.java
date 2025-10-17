@@ -19,8 +19,10 @@ import com.swirlds.metrics.api.Metrics;
 import io.helidon.webserver.ConnectionConfig;
 import io.helidon.webserver.WebServer;
 import io.helidon.webserver.WebServerConfig;
+import io.helidon.webserver.http2.Http2Config;
 import java.io.IOException;
 import java.nio.file.Path;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicReference;
@@ -28,6 +30,7 @@ import java.util.logging.LogManager;
 import java.util.stream.Collectors;
 import org.hiero.block.node.app.config.AutomaticEnvironmentVariableConfigSource;
 import org.hiero.block.node.app.config.ServerConfig;
+import org.hiero.block.node.app.config.WebServerHttp2Config;
 import org.hiero.block.node.app.config.node.NodeConfig;
 import org.hiero.block.node.app.logging.CleanColorfulFormatter;
 import org.hiero.block.node.app.logging.ConfigLogger;
@@ -129,6 +132,7 @@ public class BlockNodeApp implements HealthFacility {
         // Collect all the config data types from the plugins and global server level
         final List<Class<? extends Record>> allConfigDataTypes = new ArrayList<>();
         allConfigDataTypes.add(ServerConfig.class);
+        allConfigDataTypes.add(WebServerHttp2Config.class);
         allConfigDataTypes.add(NodeConfig.class);
         loadedPlugins.forEach(plugin -> allConfigDataTypes.addAll(plugin.configDataTypes()));
         // Init BlockNode Configuration
@@ -148,6 +152,7 @@ public class BlockNodeApp implements HealthFacility {
         ConfigLogger.log(configuration);
         // now that configuration is loaded we can get config for server
         serverConfig = configuration.getConfigData(ServerConfig.class);
+        WebServerHttp2Config webServerHttp2Config = configuration.getConfigData(WebServerHttp2Config.class);
         // ==== METRICS ================================================================================================
         metricsProvider = new DefaultMetricsProvider(configuration);
         final Metrics metrics = metricsProvider.createGlobalMetrics();
@@ -178,9 +183,24 @@ public class BlockNodeApp implements HealthFacility {
                 .name(PBJ_PROTOCOL_PROVIDER_CONFIG_NAME)
                 .maxMessageSizeBytes(serverConfig.maxMessageSizeBytes())
                 .build();
+
+        // Http2 Config more info at
+        // https://helidon.io/docs/v4/apidocs/io.helidon.webserver.http2/io/helidon/webserver/http2/Http2Config.html
+        final Http2Config http2Config = Http2Config.builder()
+                .flowControlTimeout(Duration.ofMillis(webServerHttp2Config.flowControlTimeout()))
+                .initialWindowSize(webServerHttp2Config.initialWindowSize())
+                .maxConcurrentStreams(webServerHttp2Config.maxConcurrentStreams())
+                .maxEmptyFrames(webServerHttp2Config.maxEmptyFrames())
+                .maxFrameSize(webServerHttp2Config.maxFrameSize())
+                .maxHeaderListSize(webServerHttp2Config.maxHeaderListSize())
+                .maxRapidResets(webServerHttp2Config.maxRapidResets())
+                .rapidResetCheckPeriod(Duration.ofMillis(webServerHttp2Config.rapidResetCheckPeriod()))
+                .build();
+
         // Create the web server and configure
         webServer = WebServerConfig.builder()
                 .port(serverConfig.port())
+                .addProtocol(http2Config)
                 .addProtocol(pbjConfig)
                 .addRouting(serviceBuilder.httpRoutingBuilder())
                 .addRouting(serviceBuilder.grpcRoutingBuilder())
