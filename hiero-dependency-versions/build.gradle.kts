@@ -24,7 +24,7 @@ dependencies.constraints {
     val testContainersVersion = "1.21.3"
 
     api("com.github.luben:zstd-jni:1.5.7-5") { because("com.github.luben.zstd_jni") }
-    api("com.github.spotbugs:spotbugs-annotations:4.9.6") {
+    api("com.github.spotbugs:spotbugs-annotations:4.9.8") {
         because("com.github.spotbugs.annotations")
     }
     api("com.google.auto.service:auto-service-annotations:1.1.1") {
