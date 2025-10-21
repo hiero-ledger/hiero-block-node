@@ -204,7 +204,7 @@ public class DownloadDayImpl {
                     // for example 2021-10-13T07_37_27, which was only produced by node 0.0.18 the rest of the nodes
                     // had blocks 2021-10-13T18:06:52 and 2021-10-13T23:10:06.07.
                     blocksSkipped++;
-                    if (blocksSkipped < 5) {
+                    if (blocksSkipped < 20) {
                         System.err.println("SKIPPING BLOCK IN CASE IT IS BAD: blocksSkipped=" + blocksSkipped
                                 + " - Previous block hash mismatch. Expected: "
                                 + HexFormat.of().formatHex(prevRecordFileHash).substring(0, 8)
@@ -215,8 +215,8 @@ public class DownloadDayImpl {
                                 + mostCommonRecordFileInMem.path() + " computedHash:"
                                 + HexFormat.of().formatHex(computedBlockHash).substring(0, 8));
                     } else {
-                        throw new IllegalStateException("Previous block hash mismatch. Expected: "
-                                + HexFormat.of().formatHex(prevRecordFileHash).substring(0, 8)
+                        throw new IllegalStateException("Previous block hash mismatch. blocksSkipped="+blocksSkipped+
+                                ", Expected: " + HexFormat.of().formatHex(prevRecordFileHash).substring(0, 8)
                                 + ", Found: "
                                 + HexFormat.of()
                                         .formatHex(readPreviousBlockHash)
@@ -224,7 +224,8 @@ public class DownloadDayImpl {
                                 + mostCommonRecordFileInMem.path() + " computedHash:"
                                 + HexFormat.of().formatHex(computedBlockHash).substring(0, 8));
                     }
-                } else {
+                } else if(blocksSkipped > 0) {
+                    System.err.println("Resetting blocksSkipped counter after successful block: " + ts);
                     // reset blocksSkipped counter
                     blocksSkipped = 0;
                 }
