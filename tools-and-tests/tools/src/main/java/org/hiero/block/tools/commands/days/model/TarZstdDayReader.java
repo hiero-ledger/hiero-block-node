@@ -91,10 +91,9 @@ public class TarZstdDayReader {
     public static List<InMemoryBlock> readTarZstd(Path zstdFile) {
         if (zstdFile == null) throw new IllegalArgumentException("zstdFile is null");
         final List<InMemoryBlock> results = new ArrayList<>();
-
-        try (TarArchiveInputStream tar = new TarArchiveInputStream(new ZstdInputStream(
-                new BufferedInputStream(Files.newInputStream(zstdFile), 1024 * 1024 * 100),
-                RecyclingBufferPool.INSTANCE))) {
+        try (TarArchiveInputStream tar = new TarArchiveInputStream(new BufferedInputStream(new ZstdInputStream(
+            new BufferedInputStream(Files.newInputStream(zstdFile), 1024 * 1024 * 100),
+            RecyclingBufferPool.INSTANCE), 1024 * 1024 * 100))) {
             TarArchiveEntry entry;
             String currentDir = null;
             List<InMemoryFile> currentFiles = new ArrayList<>();
@@ -256,9 +255,7 @@ public class TarZstdDayReader {
                 if (f == primaryRecord) continue;
                 String name = f.path().getFileName().toString();
                 String noExt = name.substring(0, name.length() - 4);
-                // classify sidecars vs other record files: non-sidecars are treated as otherRecordFiles
-                // allow node ids with dots (e.g. _node_0.0.5)
-                if (!noExt.matches(Pattern.quote(baseKey) + "_\\d+(_node_[\\d.]+)?$")) {
+                if (!isSidecarName(noExt, baseKey)) { // non-sidecars -> otherRecordFiles
                     otherRecordFiles.add(f);
                 }
             }
@@ -267,19 +264,13 @@ public class TarZstdDayReader {
             Map<Integer, InMemoryFile> primarySidecarMap = new HashMap<>();
             List<InMemoryFile> otherSidecarFiles = new ArrayList<>();
 
-            Pattern primarySidecarPattern = Pattern.compile(Pattern.quote(baseKey) + "_(\\d+)$");
-            // allow node ids with dots in sidecar names (e.g. <base>_1_node_0.0.5.rcd)
-            Pattern otherSidecarPattern = Pattern.compile(Pattern.quote(baseKey) + "_(\\d+)_node_[\\d.]+$");
-
             for (InMemoryFile f : rcdFiles) {
                 String name = f.path().getFileName().toString();
                 String noExt = name.substring(0, name.length() - 4);
-                Matcher mPrimary = primarySidecarPattern.matcher(noExt);
-                Matcher mOther = otherSidecarPattern.matcher(noExt);
-                if (mPrimary.matches()) {
-                    int idx = Integer.parseInt(mPrimary.group(1));
-                    primarySidecarMap.put(idx, f);
-                } else if (mOther.matches()) {
+                int sidecarKind = classifySidecar(noExt, baseKey);
+                if (sidecarKind > 0) { // primary sidecar: kind is its index
+                    primarySidecarMap.put(sidecarKind, f);
+                } else if (sidecarKind == -2) { // other sidecar with node suffix
                     otherSidecarFiles.add(f);
                 }
             }
@@ -327,25 +318,32 @@ public class TarZstdDayReader {
      * @throws IOException if an I/O error occurs while reading the entry
      */
     private static byte[] readEntryFully(InputStream in, long sizeHint) throws IOException {
-        ByteArrayOutputStream baos =
-                new ByteArrayOutputStream(sizeHint > 0 && sizeHint <= Integer.MAX_VALUE ? (int) sizeHint : 8192);
-        byte[] buffer = new byte[8192];
-        long remaining = sizeHint;
+        // Fast-path when the size is known (typical for TAR): allocate the exact array and fill it
+        if (sizeHint > 0 && sizeHint <= Integer.MAX_VALUE) {
+            final int size = (int) sizeHint;
+            final byte[] out = new byte[size];
+            int off = 0;
+            while (off < size) {
+                int r = in.read(out, off, size - off);
+                if (r < 0) break; // premature EOF
+                off += r;
+            }
+            if (off != size) {
+                // Shrink if short-read (some TAR inputs may pad or misreport); avoid an extra copy when exact
+                if (off <= 0) return new byte[0];
+                byte[] exact = new byte[off];
+                System.arraycopy(out, 0, exact, 0, off);
+                return exact;
+            }
+            return out;
+        }
 
-        if (sizeHint > 0) {
-            while (remaining > 0) {
-                int toRead = (int) Math.min(buffer.length, remaining);
-                int r = in.read(buffer, 0, toRead);
-                if (r == -1) break;
-                baos.write(buffer, 0, r);
-                remaining -= r;
-            }
-        } else {
-            // size unknown: read until EOF for this entry
-            int r;
-            while ((r = in.read(buffer)) != -1) {
-                baos.write(buffer, 0, r);
-            }
+        // Fallback when size is unknown
+        ByteArrayOutputStream baos = new ByteArrayOutputStream(64 * 1024);
+        byte[] buffer = new byte[256 * 1024];
+        int r;
+        while ((r = in.read(buffer)) != -1) {
+            baos.write(buffer, 0, r);
         }
         return baos.toByteArray();
     }
@@ -384,9 +382,8 @@ public class TarZstdDayReader {
      * @return the extracted base key
      */
     private static String extractBaseKey(String filename) {
-        // remove known extensions
+        // remove known extensions without regex to avoid overhead
         String noExt = filename;
-        // Some signature files are named like <base>.rcd.rcs_sig — strip both suffixes in that order.
         if (noExt.endsWith(".rcd.rcs_sig")) {
             noExt = noExt.substring(0, noExt.length() - ".rcd.rcs_sig".length());
         } else if (noExt.endsWith(".rcs_sig")) {
@@ -395,12 +392,71 @@ public class TarZstdDayReader {
             noExt = noExt.substring(0, noExt.length() - ".rcd".length());
         }
 
-        // strip node suffixes like _node_21 and sidecar indexes like _1
-        // We want the pure timestamp prefix like 2019-09-13T22_48_30.277013Z
-        // allow node ids containing dots (e.g. _node_0.0.5)
-        noExt = noExt.replaceAll("_node_[\\d.]+$", "");
-        noExt = noExt.replaceAll("_(\\d+)$", "");
-        return noExt;
+        int end = noExt.length();
+
+        // Strip trailing _node_<id> where <id> is digits and '.'
+        int nodeIdx = noExt.lastIndexOf("_node_");
+        if (nodeIdx >= 0 && nodeIdx < end) {
+            boolean ok = true;
+            for (int i = nodeIdx + 6; i < end; i++) {
+                char c = noExt.charAt(i);
+                if (((c - '0') | ('9' - c)) < 0 && c != '.') { // fast digits-or-dot check
+                    ok = false;
+                    break;
+                }
+            }
+            if (ok) end = nodeIdx;
+        }
+
+        // Strip trailing _<digits>
+        int us = noExt.lastIndexOf('_', end - 1);
+        if (us >= 0) {
+            boolean digits = us + 1 < end;
+            for (int i = us + 1; i < end; i++) {
+                char c = noExt.charAt(i);
+                if (((c - '0') | ('9' - c)) < 0) { // not a digit
+                    digits = false;
+                    break;
+                }
+            }
+            if (digits) end = us;
+        }
+        return noExt.substring(0, end);
+    }
+
+    // Determine whether a noExt name represents a sidecar for baseKey
+    private static boolean isSidecarName(String noExt, String baseKey) {
+        int kind = classifySidecar(noExt, baseKey);
+        return kind > 0 || kind == -2;
+    }
+
+    // Classify sidecar: return >0 for primary sidecar index, -2 for node-suffixed sidecar, -1 for not a sidecar
+    private static int classifySidecar(String noExt, String baseKey) {
+        if (!noExt.startsWith(baseKey)) return -1;
+        int pos = baseKey.length();
+        if (noExt.length() <= pos + 1 || noExt.charAt(pos) != '_') return -1;
+        int i = pos + 1;
+        int startDigits = i;
+        int idx = 0;
+        while (i < noExt.length()) {
+            char c = noExt.charAt(i);
+            if (c < '0' || c > '9') break;
+            idx = (idx * 10) + (c - '0');
+            i++;
+        }
+        if (i == startDigits) return -1; // no digits -> not sidecar
+        if (i == noExt.length()) return Math.max(1, idx); // primary sidecar with index
+        // Check for node suffix
+        if (noExt.startsWith("_node_", i)) {
+            int j = i + 6;
+            if (j >= noExt.length()) return -1; // empty node id -> not expected
+            for (; j < noExt.length(); j++) {
+                char c = noExt.charAt(j);
+                if (((c - '0') | ('9' - c)) < 0 && c != '.') return -1; // invalid char in node id
+            }
+            return -2; // other sidecar with node suffix
+        }
+        return -1;
     }
 
     /**
