@@ -113,8 +113,8 @@ public record RecordFileInfo(
         return "RecordFileInfo{\n" +
             "       recordFormatVersion    = " + recordFormatVersion + "\n" +
             "       hapiProtoVersion       = " + hapiProtoVersion + "\n" +
-            "       previousBlockHash      = " + previousBlockHash + "\n" +
-            "       blockHash              = " + blockHash + "\n" +
+            "       previousBlockHash      = " + previousBlockHash.toString().substring(0,8) + "\n" +
+            "       blockHash              = " + blockHash.toString().substring(0,8) + "\n" +
             "       recordFileContentsSize = " + PrettyPrint.prettyPrintFileSize(recordFileContents.length) + "\n" +
             '}';
     }

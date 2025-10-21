@@ -9,22 +9,37 @@ import java.time.format.DateTimeParseException;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import org.hiero.block.tools.commands.days.listing.ListingRecordFile;
 
 /**
  * Utility class for extracting consensus timestamps from Hedera record file names and paths.
  */
 public class RecordFileUtils {
+    private static final Pattern RECORD_FILE_NAME_PATTERN = Pattern.compile(
+            "(\\d{4}-\\d{2}-\\d{2}T\\d{2}_\\d{2}_\\d{2}\\.\\d+Z)");
 
     /**
-     * Extract the record file time from a record file path.
+     * Extract the record file time from a record file path. Extracts the timestamp string from file paths like:
+     * "recordstreams_record0.0.10_2022-02-01T17_30_10.014479000Z.rcd" or
+     * "/path/to/2024-07-06T16_42_40.006863632Z.rcd.gz"
      *
-     * @param path the record file path, like "/path/to/2024-07-06T16_42_40.006863632Z.rcd.gz"
+     * @param path the record file path
      * @return the record file time as an Instant
      */
     public static String extractRecordFileTimeStrFromPath(Path path) {
         final String fileName = path.getFileName().toString();
-        return fileName.substring(0, fileName.indexOf("Z") + 1);
+        final Matcher matcher = RECORD_FILE_NAME_PATTERN.matcher(fileName);
+        // return last match if multiple found
+        String lastMatch = null;
+        while (matcher.find()) {
+            lastMatch = matcher.group(1);
+        }
+        if (lastMatch == null) {
+            throw new IllegalArgumentException("No valid record file time found in path: " + path);
+        }
+        return lastMatch;
     }
 
     /**

@@ -203,7 +203,7 @@ public class DownloadDayImpl {
                     // for example 2021-10-13T07_37_27, which was only produced by node 0.0.18 the rest of the nodes
                     // had blocks 2021-10-13T18:06:52 and 2021-10-13T23:10:06.07.
                     blocksSkipped ++;
-                    if (blocksSkipped < 2) {
+                    if (blocksSkipped < 5) {
                         System.err.println("SKIPPING BLOCK IN CASE IT IS BAD: blocksSkipped="+blocksSkipped+
                             " - Previous block hash mismatch. Expected: "
                             + HexFormat.of().formatHex(prevRecordFileHash).substring(0, 8)
