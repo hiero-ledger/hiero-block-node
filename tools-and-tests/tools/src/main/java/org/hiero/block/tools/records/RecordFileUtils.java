@@ -17,8 +17,8 @@ import org.hiero.block.tools.commands.days.listing.ListingRecordFile;
  * Utility class for extracting consensus timestamps from Hedera record file names and paths.
  */
 public class RecordFileUtils {
-    private static final Pattern RECORD_FILE_NAME_PATTERN = Pattern.compile(
-            "(\\d{4}-\\d{2}-\\d{2}T\\d{2}_\\d{2}_\\d{2}\\.\\d+Z)");
+    private static final Pattern RECORD_FILE_NAME_PATTERN =
+            Pattern.compile("(\\d{4}-\\d{2}-\\d{2}T\\d{2}_\\d{2}_\\d{2}\\.\\d+Z)");
 
     /**
      * Extract the record file time from a record file path. Extracts the timestamp string from file paths like:

@@ -1,18 +1,20 @@
+// SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.tools.utils;
 
 import com.hedera.pbj.runtime.io.buffer.BufferedData;
-
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReferenceArray;
 
 /**
  * A thread safe pool for on heap buffered data objects.
  *
- * Implementation notes:
- * - Bounded lock-free ring buffer using AtomicReferenceArray.
- * - Optimized for a single consumer (caller of getBuffer) and a single producer (caller of returnBuffer),
- *   which avoids heavy atomic contention and keeps operations fast.
- * - If a buffer of sufficient capacity isn't available the pool returns a newly allocated BufferedData.
+ * <p><b>Implementation notes:</b>
+ * <ul>
+ *     <li>Bounded lock-free ring buffer using AtomicReferenceArray.</li>
+ *     <li>Optimized for a single consumer (caller of getBuffer) and a single producer (caller of returnBuffer),
+ *     which avoids heavy atomic contention and keeps operations fast.</li>
+ *     <li>If a buffer of sufficient capacity isn't available the pool returns a newly allocated BufferedData.</li>
+ * </ul></p>
  */
 public class BufferedDataPool {
     public static final int POOL_SIZE = 100;
@@ -34,10 +36,10 @@ public class BufferedDataPool {
     /**
      * Obtain a BufferedData with at least the requested capacity. If a pooled buffer is available it will be
      * returned, otherwise a new instance will be created.
-     *
+     * <p>
      * This method is safe to call from one consumer thread while another thread returns buffers via
      * {@link #returnBuffer(BufferedData)}. It's optimized for a single consumer thread.
-     *
+     * </p>
      * @param size minimum required capacity in bytes
      * @return a BufferedData instance with capacity >= size
      */
@@ -57,13 +59,10 @@ public class BufferedDataPool {
             if (items.compareAndSet(idx, b, null)) {
                 // successfully removed from pool, attempt to advance head to probe+1 (best-effort)
                 head.compareAndSet(probe, probe + 1);
-                // ensure capacity is sufficient
+                // ensure capacity is sufficient, otherwise the buffer is too small so drop it and continue scanning
                 if (b.capacity() >= size) {
                     b.reset();
                     return b;
-                } else {
-                    // buffer too small; drop it and continue scanning
-                    continue;
                 }
             }
             // CAS failed; another thread interfered, try next probe

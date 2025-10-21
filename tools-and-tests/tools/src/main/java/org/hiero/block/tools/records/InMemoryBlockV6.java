@@ -125,8 +125,8 @@ public class InMemoryBlockV6 extends InMemoryBlock {
 
             final Set<String> expectedSidecarHashes = new HashSet<>();
             rsf.sidecars()
-                .forEach(meta -> expectedSidecarHashes.add(
-                    HexFormat.of().formatHex(meta.hash().hash().toByteArray())));
+                    .forEach(meta -> expectedSidecarHashes.add(
+                            HexFormat.of().formatHex(meta.hash().hash().toByteArray())));
 
             if (!expectedSidecarHashes.equals(providedSidecarHashes)) {
                 warnings.append("Sidecar hashes do not match metadata (v6). Expected ")
@@ -142,13 +142,13 @@ public class InMemoryBlockV6 extends InMemoryBlock {
 
             // get all transactions in the record file
             final List<Transaction> transactions = rsf.recordStreamItems().stream()
-                .filter(RecordStreamItem::hasTransaction)
-                .map(RecordStreamItem::transaction)
-                .toList();
+                    .filter(RecordStreamItem::hasTransaction)
+                    .map(RecordStreamItem::transaction)
+                    .toList();
 
             // feed the transactions to the address book registry to extract any address book transactions
             final List<TransactionBody> addressBookTransactions =
-                AddressBookRegistry.filterToJustAddressBookTransactions(transactions);
+                    AddressBookRegistry.filterToJustAddressBookTransactions(transactions);
             return new ValidationResult(
                     isValid, warnings.toString(), endRunningHash, hapiVersion, addressBookTransactions);
         } catch (IOException | ParseException e) {
@@ -167,8 +167,8 @@ public class InMemoryBlockV6 extends InMemoryBlock {
      * @return the updated validity state after checking all signatures
      * @throws IOException if an I/O error occurs reading a signature file
      */
-    private boolean validateSignatures(NodeAddressBook addressBook, StringBuilder warningMessages,
-        byte[] entireFileHash) throws IOException {
+    private boolean validateSignatures(
+            NodeAddressBook addressBook, StringBuilder warningMessages, byte[] entireFileHash) throws IOException {
         if (addressBook != null && !signatureFiles().isEmpty()) {
             int validSignatureCount = 0;
             for (InMemoryFile sigFile : signatureFiles()) {
@@ -190,7 +190,8 @@ public class InMemoryBlockV6 extends InMemoryBlock {
                                 .append("\n");
                         continue;
                     }
-                    final byte[] fileHashFromSig = signatureFile.fileSignature().hashObject().hash().toByteArray();
+                    final byte[] fileHashFromSig =
+                            signatureFile.fileSignature().hashObject().hash().toByteArray();
                     if (!Arrays.equals(fileHashFromSig, entireFileHash)) {
                         warningMessages
                                 .append("Signature file hash does not match computed entire file hash for ")
@@ -198,7 +199,8 @@ public class InMemoryBlockV6 extends InMemoryBlock {
                                 .append("\n");
                         continue;
                     }
-                    final byte[] signatureBytes = signatureFile.fileSignature().signature().toByteArray();
+                    final byte[] signatureBytes =
+                            signatureFile.fileSignature().signature().toByteArray();
 
                     // Extract node account num
                     final Long accountNum = extractNodeAccountNumFromSignaturePath(sigFile.path());
@@ -256,13 +258,13 @@ public class InMemoryBlockV6 extends InMemoryBlock {
             final int requiredSignatures = (totalNodeCount / 3) + 1;
             if (validSignatureCount < requiredSignatures) {
                 warningMessages
-                    .append("Insufficient valid signatures: ")
-                    .append(validSignatureCount)
-                    .append(" of ")
-                    .append(totalNodeCount)
-                    .append(" nodes; required ")
-                    .append(requiredSignatures)
-                    .append("\n");
+                        .append("Insufficient valid signatures: ")
+                        .append(validSignatureCount)
+                        .append(" of ")
+                        .append(totalNodeCount)
+                        .append(" nodes; required ")
+                        .append(requiredSignatures)
+                        .append("\n");
                 return false;
             }
             return true;

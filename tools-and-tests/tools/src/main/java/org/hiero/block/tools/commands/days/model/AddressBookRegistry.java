@@ -15,6 +15,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+
 /**
  * Registry of address books, starting with the Genesis address book.
  * New address books can be added as they are encountered in the record files.
@@ -68,13 +69,14 @@ public class AddressBookRegistry {
     public String updateAddressBook(List<TransactionBody> addressBookTransactions) {
         final NodeAddressBook currentBook = getCurrentAddressBook();
         NodeAddressBook newAddressBook = currentBook;
-        // Walk through transactions in order, maintaining a buffer for 0.0.102. Only successful 0.0.102 parses produce a
+        // Walk through transactions in order, maintaining a buffer for 0.0.102. Only successful 0.0.102 parses produce
+        // a
         // new version appended to addressBooks to align with authoritative address book semantics.
         for (final TransactionBody body : addressBookTransactions) {
             try {
                 // Handle file-based updates for 0.0.102 only
                 if ((body.hasFileUpdate() && body.fileUpdate().fileID().fileNum() == 102)
-                    || (body.hasFileAppend() && body.fileAppend().fileID().fileNum() == 102)) {
+                        || (body.hasFileAppend() && body.fileAppend().fileID().fileNum() == 102)) {
                     if (partialFileUpload == null) partialFileUpload = new ByteArrayOutputStream();
                     if (body.hasFileUpdate()) {
                         body.fileUpdate().contents().writeTo(partialFileUpload);
@@ -103,8 +105,7 @@ public class AddressBookRegistry {
         if (newAddressBook != currentBook) {
             addressBooks.add(newAddressBook);
             // Update changes description
-            return "Address Book Changed, via file update:\n" +
-                addressBookChanges(currentBook, newAddressBook);
+            return "Address Book Changed, via file update:\n" + addressBookChanges(currentBook, newAddressBook);
         }
         return null;
     }
@@ -119,8 +120,9 @@ public class AddressBookRegistry {
      * @return a list of TransactionBody objects that are address book related
      * @throws ParseException if there is an error parsing a transaction
      */
+    @SuppressWarnings("DataFlowIssue")
     public static List<TransactionBody> filterToJustAddressBookTransactions(List<Transaction> transactions)
-        throws ParseException {
+            throws ParseException {
         List<TransactionBody> result = new ArrayList<>();
         for (Transaction t : transactions) {
             TransactionBody body;
@@ -137,7 +139,7 @@ public class AddressBookRegistry {
             }
             // check if this is a file update/append to file 0.0.102
             if ((body.hasFileUpdate() && body.fileUpdate().fileID().fileNum() == 102)
-                || (body.hasFileAppend() && body.fileAppend().fileID().fileNum() == 102)) {
+                    || (body.hasFileAppend() && body.fileAppend().fileID().fileNum() == 102)) {
                 result.add(body);
             }
         }
@@ -213,7 +215,7 @@ public class AddressBookRegistry {
             return nodeAddress.nodeAccountId().accountNum();
         } else if (nodeAddress.memo().length() > 0) {
             final String memoStr = nodeAddress.memo().asUtf8String();
-            return Long.parseLong(memoStr.substring(memoStr.lastIndexOf('.')+1));
+            return Long.parseLong(memoStr.substring(memoStr.lastIndexOf('.') + 1));
         } else {
             throw new IllegalArgumentException("NodeAddress has no nodeAccountId or memo: " + nodeAddress);
         }
@@ -226,7 +228,8 @@ public class AddressBookRegistry {
      * @param newAddressBook the new address book
      * @return a string describing the changes between the two address books
      */
-    public static String addressBookChanges(final NodeAddressBook oldAddressBook, final NodeAddressBook newAddressBook) {
+    public static String addressBookChanges(
+            final NodeAddressBook oldAddressBook, final NodeAddressBook newAddressBook) {
         final StringBuilder sb = new StringBuilder();
         final Map<Long, String> oldNodesIdToPubKey = new HashMap<>();
         for (var node : oldAddressBook.nodeAddress()) {
@@ -236,9 +239,13 @@ public class AddressBookRegistry {
             final long nodeId = getNodeAccountId(node);
             final String oldPubKey = oldNodesIdToPubKey.get(nodeId);
             if (oldPubKey == null) {
-                sb.append(String.format("   Node %d added with key %s%n", nodeId, node.rsaPubKey().substring(70,78)));
+                sb.append(String.format(
+                        "   Node %d added with key %s%n",
+                        nodeId, node.rsaPubKey().substring(70, 78)));
             } else if (!oldPubKey.equals(node.rsaPubKey())) {
-                sb.append(String.format("   Node %d key changed from %s to %s%n", nodeId, oldPubKey.substring(70,78), node.rsaPubKey().substring(70,78)));
+                sb.append(String.format(
+                        "   Node %d key changed from %s to %s%n",
+                        nodeId, oldPubKey.substring(70, 78), node.rsaPubKey().substring(70, 78)));
             }
             oldNodesIdToPubKey.remove(nodeId);
         }

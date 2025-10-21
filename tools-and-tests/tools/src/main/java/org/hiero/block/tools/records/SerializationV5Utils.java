@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.tools.records;
 
 import static org.hiero.block.tools.utils.Sha384.SHA_384_HASH_SIZE;
@@ -12,8 +13,8 @@ import java.io.IOException;
 @SuppressWarnings("DuplicatedCode")
 public class SerializationV5Utils {
     /** The size of a hash object in bytes */
-    public static final int HASH_OBJECT_SIZE_BYTES = Long.BYTES + Integer.BYTES + Integer.BYTES +
-        Integer.BYTES + SHA_384_HASH_SIZE;
+    public static final int HASH_OBJECT_SIZE_BYTES =
+            Long.BYTES + Integer.BYTES + Integer.BYTES + Integer.BYTES + SHA_384_HASH_SIZE;
     /** The class ID for the hash object */
     private static final long HASH_CLASS_ID = 0xf422da83a251741eL;
     /** The class version for the hash object */
@@ -32,24 +33,24 @@ public class SerializationV5Utils {
         // read hash class id
         final long classId = in.readLong();
         if (classId != HASH_CLASS_ID) {
-            throw new IllegalArgumentException("Invalid hash class ID ["+Long.toHexString(classId)+
-                "] expected [f422da83a251741e]");
+            throw new IllegalArgumentException(
+                    "Invalid hash class ID [" + Long.toHexString(classId) + "] expected [f422da83a251741e]");
         }
         // read hash class version
         final int classVersion = in.readInt();
         if (classVersion != HASH_CLASS_VERSION) {
-            throw new IllegalArgumentException("Invalid hash class version ["+classVersion+"] expected [1]");
+            throw new IllegalArgumentException("Invalid hash class version [" + classVersion + "] expected [1]");
         }
         // read hash object, starting with digest type SHA384
         final int digestType = in.readInt();
         if (digestType != DIGEST_TYPE_SHA384) {
-            throw new IllegalArgumentException("Invalid digest type not SHA384 ["+Integer.toHexString(digestType)+
-                "] expected [58ff811b]");
+            throw new IllegalArgumentException(
+                    "Invalid digest type not SHA384 [" + Integer.toHexString(digestType) + "] expected [58ff811b]");
         }
         // read hash object - length of hash
         final int hashLength = in.readInt();
         if (hashLength != 48) {
-            throw new IllegalArgumentException("Invalid hash length ["+hashLength+"] expected [48]");
+            throw new IllegalArgumentException("Invalid hash length [" + hashLength + "] expected [48]");
         }
         // read hash object - hash bytes
         final byte[] entireFileHash = new byte[SHA_384_HASH_SIZE];
@@ -68,24 +69,24 @@ public class SerializationV5Utils {
         // read hash class id
         final long classId = in.readLong();
         if (classId != HASH_CLASS_ID) {
-            throw new IllegalArgumentException("Invalid hash class ID ["+Long.toHexString(classId)+
-                "] expected [f422da83a251741e]");
+            throw new IllegalArgumentException(
+                    "Invalid hash class ID [" + Long.toHexString(classId) + "] expected [f422da83a251741e]");
         }
         // read hash class version
         final int classVersion = in.readInt();
         if (classVersion != HASH_CLASS_VERSION) {
-            throw new IllegalArgumentException("Invalid hash class version ["+classVersion+"] expected [1]");
+            throw new IllegalArgumentException("Invalid hash class version [" + classVersion + "] expected [1]");
         }
         // read hash object, starting with digest type SHA384
         final int digestType = in.readInt();
         if (digestType != DIGEST_TYPE_SHA384) {
-            throw new IllegalArgumentException("Invalid digest type not SHA384 ["+Integer.toHexString(digestType)+
-                "] expected [58ff811b]");
+            throw new IllegalArgumentException(
+                    "Invalid digest type not SHA384 [" + Integer.toHexString(digestType) + "] expected [58ff811b]");
         }
         // read hash object - length of hash
         final int hashLength = in.readInt();
         if (hashLength != 48) {
-            throw new IllegalArgumentException("Invalid hash length ["+hashLength+"] expected [48]");
+            throw new IllegalArgumentException("Invalid hash length [" + hashLength + "] expected [48]");
         }
         // read hash object - hash bytes
         final byte[] entireFileHash = new byte[SHA_384_HASH_SIZE];

@@ -15,8 +15,7 @@ import picocli.CommandLine.Parameters;
 /**
  * Command line command that prints info for block files or record files
  */
-@SuppressWarnings({ "unused", "DuplicatedCode",
-    "FieldMayBeFinal", "CallToPrintStackTrace", "FieldCanBeLocal"})
+@SuppressWarnings({"unused", "DuplicatedCode", "FieldMayBeFinal", "CallToPrintStackTrace", "FieldCanBeLocal"})
 @Command(name = "info", description = "Prints info for record or block files")
 public class Info implements Runnable {
 
@@ -52,25 +51,26 @@ public class Info implements Runnable {
             System.err.println("No files to display info for");
         } else {
             // check if all files are record files or block files
-            if (Arrays.stream(files).anyMatch(f -> f.getName().endsWith("rcd.gz") || f.getName().endsWith("rcd"))) {
+            if (Arrays.stream(files)
+                    .anyMatch(f -> f.getName().endsWith("rcd.gz") || f.getName().endsWith("rcd"))) {
                 for (File f : files) {
-                    try  (InputStream in = f.getName().endsWith(".gz") ?
-                                new GZIPInputStream(Files.newInputStream(f.toPath()))  :
-                                Files.newInputStream(f.toPath())){
+                    try (InputStream in = f.getName().endsWith(".gz")
+                            ? new GZIPInputStream(Files.newInputStream(f.toPath()))
+                            : Files.newInputStream(f.toPath())) {
                         final byte[] recordFileContents = in.readAllBytes();
                         final RecordFileInfo info = RecordFileInfo.parse(recordFileContents);
-                        System.out.println("==== RECORD FILE " + f.getName() +" ============================\n" +
-                            info.prettyToString());
+                        System.out.println("==== RECORD FILE " + f.getName() + " ============================\n"
+                                + info.prettyToString());
                     } catch (IOException e) {
                         e.printStackTrace();
                     }
                 }
-            } else if (Arrays.stream(files).anyMatch(f -> f.getName().endsWith("blk.gz") || f.getName().endsWith("blk"))) {
-                BlockInfo.blockInfo(files, csvMode,outputFile,minSizeMb);
+            } else if (Arrays.stream(files)
+                    .anyMatch(f -> f.getName().endsWith("blk.gz") || f.getName().endsWith("blk"))) {
+                BlockInfo.blockInfo(files, csvMode, outputFile, minSizeMb);
             } else {
                 System.err.println("Only rcd, rcd.gz, blk and blk.gz files are supported");
             }
         }
     }
-
 }

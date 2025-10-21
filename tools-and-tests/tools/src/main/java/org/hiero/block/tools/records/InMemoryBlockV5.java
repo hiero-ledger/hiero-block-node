@@ -108,9 +108,10 @@ public class InMemoryBlockV5 extends InMemoryBlock {
             }
             // read start running hash is a Hash Object in v5 format; parse to extract SHA-384 bytes
             final byte[] startHashInFile = readV5HashObject(in);
-            if (startRunningHash != null && (startRunningHash.length != SHA_384_HASH_SIZE ||
-                    startHashInFile.length != SHA_384_HASH_SIZE ||
-                    !java.util.Arrays.equals(startRunningHash, startHashInFile))) {
+            if (startRunningHash != null
+                    && (startRunningHash.length != SHA_384_HASH_SIZE
+                            || startHashInFile.length != SHA_384_HASH_SIZE
+                            || !java.util.Arrays.equals(startRunningHash, startHashInFile))) {
                 warnings.append("Start running hash does not match provided start hash (v5).\n");
                 isValid = false;
             }
@@ -120,22 +121,29 @@ public class InMemoryBlockV5 extends InMemoryBlock {
                 // read a RecordStreamObject
                 final long classId = in.readLong();
                 if (classId != RECORD_STREAM_OBJECT_CLASS_ID) {
-                    warnings.append("Unexpected class ID in record file: ").append(Long.toHexString(classId))
-                        .append(" expected ").append(Long.toHexString(RECORD_STREAM_OBJECT_CLASS_ID)).append("\n");
+                    warnings.append("Unexpected class ID in record file: ")
+                            .append(Long.toHexString(classId))
+                            .append(" expected ")
+                            .append(Long.toHexString(RECORD_STREAM_OBJECT_CLASS_ID))
+                            .append("\n");
                     isValid = false;
                     break; // cannot continue parsing
                 }
                 final int classVersion = in.readInt();
                 if (classVersion != RECORD_STREAM_OBJECT_CLASS_VERSION) { // expecting transaction object
-                    warnings.append("Unexpected class version in record file: ").append(classVersion)
-                        .append(" expected ").append(RECORD_STREAM_OBJECT_CLASS_VERSION).append("\n");
+                    warnings.append("Unexpected class version in record file: ")
+                            .append(classVersion)
+                            .append(" expected ")
+                            .append(RECORD_STREAM_OBJECT_CLASS_VERSION)
+                            .append("\n");
                     isValid = false;
                     break; // cannot continue parsing
                 }
                 final int transactionRecordLength = in.readInt();
                 if (transactionRecordLength <= 0 || transactionRecordLength > in.remaining() - HASH_OBJECT_SIZE_BYTES) {
                     warnings.append("Invalid transaction record length in record file: ")
-                        .append(transactionRecordLength).append('\n');
+                            .append(transactionRecordLength)
+                            .append('\n');
                     isValid = false;
                     break; // cannot continue parsing
                 }
@@ -144,7 +152,9 @@ public class InMemoryBlockV5 extends InMemoryBlock {
                 // read the transaction bytes length and the transaction bytes
                 final int transactionLength = in.readInt();
                 if (transactionLength <= 0 || transactionLength > in.remaining() - HASH_OBJECT_SIZE_BYTES) {
-                    warnings.append("Invalid transaction length in record file: ").append(transactionLength).append('\n');
+                    warnings.append("Invalid transaction length in record file: ")
+                            .append(transactionLength)
+                            .append('\n');
                     isValid = false;
                     break; // cannot continue parsing
                 }
@@ -152,10 +162,12 @@ public class InMemoryBlockV5 extends InMemoryBlock {
                 transactions.add(transaction);
             }
             if (in.remaining() != HASH_OBJECT_SIZE_BYTES) {
-                warnings.append("Expected ").append(HASH_OBJECT_SIZE_BYTES)
-                        .append(" bytes remaining for end running hash, but found ").append(in.remaining()).append('\n');
-                return new ValidationResult(
-                    false, warnings.toString(), null, hapiVersion, Collections.emptyList());
+                warnings.append("Expected ")
+                        .append(HASH_OBJECT_SIZE_BYTES)
+                        .append(" bytes remaining for end running hash, but found ")
+                        .append(in.remaining())
+                        .append('\n');
+                return new ValidationResult(false, warnings.toString(), null, hapiVersion, Collections.emptyList());
             }
             // read the end running hash
             final byte[] endRunningHash = readV5HashObject(in);
@@ -163,7 +175,7 @@ public class InMemoryBlockV5 extends InMemoryBlock {
             isValid = isValid && validateSignatures(addressBook, warnings, entireFileHash);
             // feed the transactions to the address book registry to extract any address book transactions
             final List<TransactionBody> addressBookTransactions =
-                AddressBookRegistry.filterToJustAddressBookTransactions(transactions);
+                    AddressBookRegistry.filterToJustAddressBookTransactions(transactions);
             // return the validation result
             return new ValidationResult(
                     isValid, warnings.toString(), endRunningHash, hapiVersion, addressBookTransactions);
@@ -183,8 +195,8 @@ public class InMemoryBlockV5 extends InMemoryBlock {
      * @return the updated validity state after checking all signatures
      * @throws IOException if an I/O error occurs reading a signature file
      */
-    private boolean validateSignatures(NodeAddressBook addressBook, StringBuilder warningMessages,
-        byte[] entireFileHash) throws IOException {
+    private boolean validateSignatures(
+            NodeAddressBook addressBook, StringBuilder warningMessages, byte[] entireFileHash) throws IOException {
         if (addressBook != null && !signatureFiles().isEmpty()) {
             int validSignatureCount = 0;
             for (InMemoryFile sigFile : signatureFiles()) {
@@ -306,13 +318,13 @@ public class InMemoryBlockV5 extends InMemoryBlock {
             final int requiredSignatures = (totalNodeCount / 3) + RECORD_STREAM_OBJECT_CLASS_VERSION;
             if (validSignatureCount < requiredSignatures) {
                 warningMessages
-                    .append("Insufficient valid signatures: ")
-                    .append(validSignatureCount)
-                    .append(" of ")
-                    .append(totalNodeCount)
-                    .append(" nodes; required ")
-                    .append(requiredSignatures)
-                    .append("\n");
+                        .append("Insufficient valid signatures: ")
+                        .append(validSignatureCount)
+                        .append(" of ")
+                        .append(totalNodeCount)
+                        .append(" nodes; required ")
+                        .append(requiredSignatures)
+                        .append("\n");
                 return false;
             }
             return true;

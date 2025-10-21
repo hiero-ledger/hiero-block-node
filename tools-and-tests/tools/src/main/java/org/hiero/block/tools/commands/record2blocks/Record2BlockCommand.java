@@ -2,8 +2,8 @@
 package org.hiero.block.tools.commands.record2blocks;
 
 import static org.hiero.block.tools.blocks.BlockWriter.writeBlock;
-import static org.hiero.block.tools.utils.mirrornode.FetchBlockQuery.getPreviousHashForBlock;
 import static org.hiero.block.tools.records.RecordFileDates.blockTimeLongToInstant;
+import static org.hiero.block.tools.utils.mirrornode.FetchBlockQuery.getPreviousHashForBlock;
 
 import com.hedera.hapi.block.stream.Block;
 import com.hedera.hapi.block.stream.BlockItem;
@@ -115,6 +115,7 @@ public class Record2BlockCommand implements Runnable {
     /**
      * Main method to run the command
      */
+    @SuppressWarnings({"unused", "UnusedAssignment"})
     @Override
     public void run() {
         // create executor service
