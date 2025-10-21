@@ -141,6 +141,31 @@ public abstract class InMemoryBlock {
     }
 
     /**
+     * Get the total size in bytes of all files in the block.
+     *
+     * @return the total size in bytes
+     */
+    public long getTotalSizeBytes() {
+        long total = 0L;
+        if (primaryRecordFile != null) {
+            total += primaryRecordFile.data().length;
+        }
+        for (InMemoryFile f : otherRecordFiles) {
+            total += f.data().length;
+        }
+        for (InMemoryFile f : signatureFiles) {
+            total += f.data().length;
+        }
+        for (InMemoryFile f : primarySidecarFiles) {
+            total += f.data().length;
+        }
+        for (InMemoryFile f : otherSidecarFiles) {
+            total += f.data().length;
+        }
+        return total;
+    }
+
+    /**
      * Validate the record file. This recomputes the running hash. Checks the provided starting running hash with the
      * one read from the file. It also computes the end-running hash, checks it against the one in the file if the file
      * has one. Then returns the end-running hash in the ValidationResult. If the file is v6 and has sidecar files, then
