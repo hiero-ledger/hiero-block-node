@@ -12,7 +12,7 @@ import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 import org.hiero.block.tools.commands.days.model.AddressBookRegistry;
-import org.hiero.block.tools.commands.days.model.TarZstdDayReader;
+import org.hiero.block.tools.commands.days.model.TarZstdDayReaderUsingExec;
 import org.hiero.block.tools.commands.days.model.TarZstdDayUtils;
 import org.hiero.block.tools.records.InMemoryBlock;
 import org.hiero.block.tools.records.InMemoryBlock.ValidationResult;
@@ -109,7 +109,7 @@ public class Validate implements Runnable {
                         for (int day = 0; day < dayPaths.size(); day++) {
                             final Path dayPath = dayPaths.get(day);
                             queue.put(Item.dayStart(day, dayPath));
-                            try (var stream = TarZstdDayReader.streamTarZstd(dayPath)) {
+                            try (var stream = TarZstdDayReaderUsingExec.streamTarZstd(dayPath)) {
                                 final int dayIdx = day; // capture effectively final for lambda
                                 // capture effectively final for lambda
                                 stream.forEach(set -> {

@@ -80,8 +80,7 @@ public class MirrorNodeAddressBook {
                 return new NodeAddressBook(nodes);
             }
         } catch (Exception e) {
-            // If anything goes wrong, return an empty book to avoid breaking callers.
-            return NodeAddressBook.DEFAULT;
+            throw new RuntimeException("Failed to load address book from " + url, e);
         }
     }
 
