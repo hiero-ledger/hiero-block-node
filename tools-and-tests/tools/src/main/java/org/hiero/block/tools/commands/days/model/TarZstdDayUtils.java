@@ -6,14 +6,10 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Comparator;
 import java.util.List;
-import java.util.Objects;
-import java.util.function.Consumer;
 import java.util.regex.Pattern;
 import java.util.stream.Stream;
-import org.hiero.block.tools.records.InMemoryBlock;
 
 public class TarZstdDayUtils {
     /** Regex pattern for matching a single-day file name like "2021-02-04.tar.zstd" */
@@ -37,7 +33,9 @@ public class TarZstdDayUtils {
                 try (Stream<Path> fileStream = Files.walk(f.toPath())) {
                     fileStream
                             .filter(Files::isRegularFile)
-                            .filter(p -> DAY_FILE_PATTERN.matcher(p.getFileName().toString()).matches())
+                            .filter(p -> DAY_FILE_PATTERN
+                                    .matcher(p.getFileName().toString())
+                                    .matches())
                             .forEach(allDayFiles::add);
                 } catch (IOException ioe) {
                     throw new RuntimeException("IO error processing path: " + f + " -> " + ioe.getMessage(), ioe);

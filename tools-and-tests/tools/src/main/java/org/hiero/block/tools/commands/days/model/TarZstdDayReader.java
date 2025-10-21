@@ -92,10 +92,9 @@ public class TarZstdDayReader {
         if (zstdFile == null) throw new IllegalArgumentException("zstdFile is null");
         final List<InMemoryBlock> results = new ArrayList<>();
 
-        try (TarArchiveInputStream tar = new TarArchiveInputStream(
-                    new ZstdInputStream(new BufferedInputStream(
-                        Files.newInputStream(zstdFile), 1024*1024*100),
-                        RecyclingBufferPool.INSTANCE))) {
+        try (TarArchiveInputStream tar = new TarArchiveInputStream(new ZstdInputStream(
+                new BufferedInputStream(Files.newInputStream(zstdFile), 1024 * 1024 * 100),
+                RecyclingBufferPool.INSTANCE))) {
             TarArchiveEntry entry;
             String currentDir = null;
             List<InMemoryFile> currentFiles = new ArrayList<>();
@@ -239,7 +238,7 @@ public class TarZstdDayReader {
             if (primaryRecord == null) {
                 System.err.println(
                         "Missing primary record file for baseKey='" + baseKey + "' in dir='" + currentDir + "'");
-                for(InMemoryFile f : rcdFiles) System.err.println("    "+ f.path());
+                for (InMemoryFile f : rcdFiles) System.err.println("    " + f.path());
                 throw new RuntimeException(
                         "Primary record file not found for baseKey='" + baseKey + "' in dir='" + currentDir + "'");
             }
@@ -247,7 +246,7 @@ public class TarZstdDayReader {
             // There must be at least one signature file for the group; enforce invariant
             if (signatureFiles.isEmpty()) {
                 System.err.println("Missing signature files for baseKey='" + baseKey + "' in dir='" + currentDir + "'");
-                for(InMemoryFile f : rcdFiles) System.err.println("    "+ f.path());
+                for (InMemoryFile f : rcdFiles) System.err.println("    " + f.path());
                 throw new RuntimeException(
                         "No signature files found for baseKey='" + baseKey + "' in dir='" + currentDir + "'");
             }

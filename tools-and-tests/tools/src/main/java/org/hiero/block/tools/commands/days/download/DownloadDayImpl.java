@@ -195,29 +195,34 @@ public class DownloadDayImpl {
                 // validate time period
 
                 final RecordFileInfo recordFileInfo = RecordFileInfo.parse(mostCommonRecordFileInMem.data());
-                byte[] readPreviousBlockHash = recordFileInfo.previousBlockHash().toByteArray();
+                byte[] readPreviousBlockHash =
+                        recordFileInfo.previousBlockHash().toByteArray();
                 byte[] computedBlockHash = recordFileInfo.blockHash().toByteArray();
                 // check computed previousRecordFileHash matches one read from file
                 if (prevRecordFileHash != null && !Arrays.equals(prevRecordFileHash, readPreviousBlockHash)) {
                     // try skipping this block as we have cases where a node produced bad dated record files
                     // for example 2021-10-13T07_37_27, which was only produced by node 0.0.18 the rest of the nodes
                     // had blocks 2021-10-13T18:06:52 and 2021-10-13T23:10:06.07.
-                    blocksSkipped ++;
+                    blocksSkipped++;
                     if (blocksSkipped < 5) {
-                        System.err.println("SKIPPING BLOCK IN CASE IT IS BAD: blocksSkipped="+blocksSkipped+
-                            " - Previous block hash mismatch. Expected: "
-                            + HexFormat.of().formatHex(prevRecordFileHash).substring(0, 8)
-                            + ", Found: "
-                            + HexFormat.of().formatHex(readPreviousBlockHash).substring(0, 8) + "\n" +
-                            "Context mostCommonRecordFile:" + mostCommonRecordFileInMem.path() +
-                            " computedHash:" + HexFormat.of().formatHex(computedBlockHash).substring(0, 8));
+                        System.err.println("SKIPPING BLOCK IN CASE IT IS BAD: blocksSkipped=" + blocksSkipped
+                                + " - Previous block hash mismatch. Expected: "
+                                + HexFormat.of().formatHex(prevRecordFileHash).substring(0, 8)
+                                + ", Found: "
+                                + HexFormat.of()
+                                        .formatHex(readPreviousBlockHash)
+                                        .substring(0, 8) + "\n" + "Context mostCommonRecordFile:"
+                                + mostCommonRecordFileInMem.path() + " computedHash:"
+                                + HexFormat.of().formatHex(computedBlockHash).substring(0, 8));
                     } else {
                         throw new IllegalStateException("Previous block hash mismatch. Expected: "
-                            + HexFormat.of().formatHex(prevRecordFileHash).substring(0, 8)
-                            + ", Found: "
-                            + HexFormat.of().formatHex(readPreviousBlockHash).substring(0, 8) + "\n" +
-                            "Context mostCommonRecordFile:" + mostCommonRecordFileInMem.path() +
-                            " computedHash:" + HexFormat.of().formatHex(computedBlockHash).substring(0, 8));
+                                + HexFormat.of().formatHex(prevRecordFileHash).substring(0, 8)
+                                + ", Found: "
+                                + HexFormat.of()
+                                        .formatHex(readPreviousBlockHash)
+                                        .substring(0, 8) + "\n" + "Context mostCommonRecordFile:"
+                                + mostCommonRecordFileInMem.path() + " computedHash:"
+                                + HexFormat.of().formatHex(computedBlockHash).substring(0, 8));
                     }
                 } else {
                     // reset blocksSkipped counter

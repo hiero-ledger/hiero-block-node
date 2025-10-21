@@ -19,7 +19,7 @@ public class FetchBlockQuery {
      * @return the record file name
      */
     public static String getRecordFileNameForBlock(long blockNumber) {
-        final String url = MAINNET_MIRROR_NODE_API_URL+"blocks/" + blockNumber;
+        final String url = MAINNET_MIRROR_NODE_API_URL + "blocks/" + blockNumber;
         final JsonObject json = MirrorNodeUtils.readUrl(url);
         return json.get("name").getAsString();
     }
@@ -31,7 +31,7 @@ public class FetchBlockQuery {
      * @return the record file name
      */
     public static Bytes getPreviousHashForBlock(long blockNumber) {
-        final String url = MAINNET_MIRROR_NODE_API_URL+"blocks/" + blockNumber;
+        final String url = MAINNET_MIRROR_NODE_API_URL + "blocks/" + blockNumber;
         final JsonObject json = MirrorNodeUtils.readUrl(url);
         final String hashStr = json.get("previous_hash").getAsString();
         return Bytes.wrap(HexFormat.of().parseHex(hashStr.substring(2))); // remove 0x prefix and parse
