@@ -5,6 +5,7 @@ import java.io.File;
 import java.nio.file.Path;
 import java.util.List;
 import org.hiero.block.tools.commands.days.model.TarZstdDayReader;
+import org.hiero.block.tools.commands.days.model.TarZstdDayReaderUsingExec;
 import org.hiero.block.tools.commands.days.model.TarZstdDayUtils;
 import org.hiero.block.tools.records.InMemoryBlock;
 import picocli.CommandLine.Command;
@@ -29,7 +30,7 @@ public class Ls implements Runnable {
         }
         final List<Path> dayPaths = TarZstdDayUtils.sortedDayPaths(compressedDayOrDaysDirs);
         for (Path dayFile : dayPaths) {
-            try (var stream = TarZstdDayReader.streamTarZstd(dayFile)) {
+            try (var stream = TarZstdDayReaderUsingExec.streamTarZstd(dayFile)) {
                 stream.forEach((InMemoryBlock set) -> System.out.println(set.toString()));
             }
         }
