@@ -63,7 +63,7 @@ public class BlockInfo {
             if (csvMode) {
                 System.out.print("Writing CSV output");
             }
-            if(outputFile != null) {
+            if (outputFile != null) {
                 System.out.print("to : " + outputFile.getAbsoluteFile());
             }
             System.out.print("\n");
@@ -111,9 +111,15 @@ public class BlockInfo {
                     .toList();
             // create a stream of block info strings
             final var blockInfoStream = blockFiles.stream()
-                .parallel()
-                .map(file -> blockInfo(file, csvMode, totalBlocks, totalTransactions, totalItems,
-                    totalBytesCompressed, totalBytesUncompressed));
+                    .parallel()
+                    .map(file -> blockInfo(
+                            file,
+                            csvMode,
+                            totalBlocks,
+                            totalTransactions,
+                            totalItems,
+                            totalBytesCompressed,
+                            totalBytesUncompressed));
             // create a CSV header line
             final String csvHeader = "\"Block\",\"Items\",\"Transactions\",\"Java Objects\","
                     + "\"Original Size (MB)\",\"Uncompressed Size(MB)\",\"Compression\"";
@@ -219,8 +225,13 @@ public class BlockInfo {
      * @param blockProtoFile the block file to produce info for
      * @return the info string
      */
-    private static String blockInfo(Path blockProtoFile, boolean csvMode, final AtomicLong totalBlocks,
-            final AtomicLong totalTransactions, final AtomicLong totalItems, final AtomicLong totalBytesCompressed,
+    private static String blockInfo(
+            Path blockProtoFile,
+            boolean csvMode,
+            final AtomicLong totalBlocks,
+            final AtomicLong totalTransactions,
+            final AtomicLong totalItems,
+            final AtomicLong totalBytesCompressed,
             final AtomicLong totalBytesUncompressed) {
         try (InputStream fIn = Files.newInputStream(blockProtoFile)) {
             byte[] uncompressedData;
@@ -232,8 +243,17 @@ public class BlockInfo {
             long start = System.currentTimeMillis();
             final Block block = Block.PROTOBUF.parse(Bytes.wrap(uncompressedData));
             long end = System.currentTimeMillis();
-            return blockInfo(block, end - start, Files.size(blockProtoFile), uncompressedData.length, csvMode,
-                    totalBlocks, totalTransactions, totalItems, totalBytesCompressed, totalBytesUncompressed);
+            return blockInfo(
+                    block,
+                    end - start,
+                    Files.size(blockProtoFile),
+                    uncompressedData.length,
+                    csvMode,
+                    totalBlocks,
+                    totalTransactions,
+                    totalItems,
+                    totalBytesCompressed,
+                    totalBytesUncompressed);
         } catch (Exception e) {
             StringWriter sw = new StringWriter();
             sw.append("Error processing file : " + blockProtoFile + "\n");
@@ -251,10 +271,17 @@ public class BlockInfo {
      * @param uncompressedFileSizeBytes the uncompressed file size in bytes
      * @return the info string
      */
-    private static String blockInfo(Block block, long parseTimeMs, long originalFileSizeBytes,
-                long uncompressedFileSizeBytes, boolean csvMode, final AtomicLong totalBlocks,
-                final AtomicLong totalTransactions, final AtomicLong totalItems, final AtomicLong totalBytesCompressed,
-                final AtomicLong totalBytesUncompressed) {
+    private static String blockInfo(
+            Block block,
+            long parseTimeMs,
+            long originalFileSizeBytes,
+            long uncompressedFileSizeBytes,
+            boolean csvMode,
+            final AtomicLong totalBlocks,
+            final AtomicLong totalTransactions,
+            final AtomicLong totalItems,
+            final AtomicLong totalBytesCompressed,
+            final AtomicLong totalBytesUncompressed) {
         final StringBuffer output = new StringBuffer();
         long numOfTransactions =
                 block.items().stream().filter(BlockItem::hasSignedTransaction).count();

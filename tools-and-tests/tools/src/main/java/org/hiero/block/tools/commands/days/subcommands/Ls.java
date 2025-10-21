@@ -8,8 +8,8 @@ import org.hiero.block.tools.commands.days.model.TarZstdDayReader;
 import org.hiero.block.tools.commands.days.model.TarZstdDayUtils;
 import org.hiero.block.tools.records.InMemoryBlock;
 import picocli.CommandLine.Command;
-import picocli.CommandLine.Parameters;
 import picocli.CommandLine.Model.CommandSpec;
+import picocli.CommandLine.Parameters;
 import picocli.CommandLine.Spec;
 
 @Command(name = "ls", description = "List record file sets contained in the provided .tar.zstd files or directories")

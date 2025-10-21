@@ -7,7 +7,6 @@ import com.hedera.hapi.node.base.Transaction;
 import com.hedera.hapi.node.transaction.TransactionBody;
 import com.hedera.pbj.runtime.ParseException;
 import com.hedera.pbj.runtime.io.buffer.BufferedData;
-import com.hedera.pbj.runtime.io.stream.ReadableStreamingData;
 import java.io.ByteArrayInputStream;
 import java.io.DataInputStream;
 import java.io.IOException;
@@ -123,7 +122,8 @@ public class InMemoryBlockV2 extends InMemoryBlock {
             while (in.hasRemaining()) {
                 final byte recordMarker = in.readByte();
                 if (recordMarker != 2) {
-                    warningMessages.append("Unexpected record marker "+recordMarker+" (expected 2) in v2 record file\n");
+                    warningMessages.append(
+                            "Unexpected record marker " + recordMarker + " (expected 2) in v2 record file\n");
                     isValid = false;
                     break;
                 }
@@ -172,8 +172,9 @@ public class InMemoryBlockV2 extends InMemoryBlock {
      * @return the updated validity state after checking all signatures
      * @throws IOException if an I/O error occurs reading a signature file
      */
-    private boolean validateSignatures(NodeAddressBook addressBook, StringBuilder warningMessages,
-        byte[] blockHash, byte[] recordFileBytes) throws IOException {
+    private boolean validateSignatures(
+            NodeAddressBook addressBook, StringBuilder warningMessages, byte[] blockHash, byte[] recordFileBytes)
+            throws IOException {
         if (addressBook != null && !signatureFiles().isEmpty()) {
             int validSignatureCount = 0;
             for (InMemoryFile sigFile : signatureFiles()) {
@@ -248,7 +249,7 @@ public class InMemoryBlockV2 extends InMemoryBlock {
                                 .append(")\n");
                     }
                     // we count valid signatures only if the file hash matched and the signature verified
-                    validSignatureCount ++;
+                    validSignatureCount++;
                 } catch (Exception e) {
                     warningMessages
                             .append("Error processing signature file ")
@@ -263,13 +264,13 @@ public class InMemoryBlockV2 extends InMemoryBlock {
             final int requiredSignatures = (totalNodeCount / 3) + 1;
             if (validSignatureCount < requiredSignatures) {
                 warningMessages
-                    .append("Insufficient valid signatures: ")
-                    .append(validSignatureCount)
-                    .append(" of ")
-                    .append(totalNodeCount)
-                    .append(" nodes; required ")
-                    .append(requiredSignatures)
-                    .append("\n");
+                        .append("Insufficient valid signatures: ")
+                        .append(validSignatureCount)
+                        .append(" of ")
+                        .append(totalNodeCount)
+                        .append(" nodes; required ")
+                        .append(requiredSignatures)
+                        .append("\n");
                 return false;
             }
             return true;

@@ -39,7 +39,9 @@ import picocli.CommandLine.Spec;
  * </pre>
  */
 @SuppressWarnings("MismatchedReadAndWriteOfArray")
-@Command(name = "ls", description = "List record file info contained in the provided .rcd, .rcd.gz files or directories")
+@Command(
+        name = "ls",
+        description = "List record file info contained in the provided .rcd, .rcd.gz files or directories")
 public class LsRecordFiles implements Runnable {
     @Parameters(index = "0..*", description = "Files or directories to process")
     private final File[] recordFilesOrDirectories = new File[0];
@@ -54,52 +56,51 @@ public class LsRecordFiles implements Runnable {
             spec.commandLine().usage(spec.commandLine().getOut());
             return;
         }
-        System.out.printf("%-70s %-5s %-9s %-10s %-10s %s%n",
-            "File Name",
-            "Ver",
-            "HAPI",
-            "PrevHash",
-            "BlockHash",
-            "Size"
-        );
-        System.out.println("---------------------------------------------------------------------------------"+
-            "---------------------------------------");
+        System.out.printf(
+                "%-70s %-5s %-9s %-10s %-10s %s%n", "File Name", "Ver", "HAPI", "PrevHash", "BlockHash", "Size");
+        System.out.println("---------------------------------------------------------------------------------"
+                + "---------------------------------------");
         Arrays.stream(recordFilesOrDirectories)
-            .flatMap(
-                f -> {
+                .flatMap(f -> {
                     if (f.isDirectory()) {
                         try (Stream<Path> paths = Files.walk(f.toPath())) {
-                            return paths.filter(Files::isRegularFile).filter(p -> {
-                                    String name = p.getFileName().toString().toLowerCase();
-                                    return name.endsWith(".rcd") || name.endsWith(".rcd.gz");
-                                }).toList().stream();
+                            return paths
+                                    .filter(Files::isRegularFile)
+                                    .filter(p -> {
+                                        String name = p.getFileName().toString().toLowerCase();
+                                        return name.endsWith(".rcd") || name.endsWith(".rcd.gz");
+                                    })
+                                    .toList()
+                                    .stream();
                         } catch (IOException e) {
                             throw new RuntimeException(e);
                         }
                     } else {
                         return Stream.of(f.toPath());
                     }
-                }
-            )
-            .sorted(Comparator.comparing(RecordFileUtils::extractRecordFileTimeStrFromPath))
-            .forEach(recordFilePath -> {
-            try {
-                final byte[] fileData = recordFilePath.getFileName().toString().endsWith(".gz ") ?
-                    new GZIPInputStream(Files.newInputStream(recordFilePath)).readAllBytes()
-                    : Files.readAllBytes(recordFilePath);
-                final RecordFileInfo info = RecordFileInfo.parse(fileData);
-                System.out.printf("%-70s %-5d %-9s %-10s %-10s %s%n",
-                    recordFilePath.getFileName().toString(),
-                    info.recordFormatVersion(),
-                    info.hapiProtoVersion().major() +"." +info.hapiProtoVersion().minor() +"." +
-                        info.hapiProtoVersion().patch(),
-                    info.previousBlockHash().toString().substring(0,8),
-                    info.blockHash().toString().substring(0,8),
-                    PrettyPrint.prettyPrintFileSize(fileData.length)
-                );
-            } catch (IOException e) {
-                System.err.println("Error reading record file: " + recordFilePath + " Error: " + e.getMessage());
-            }
-        });
+                })
+                .sorted(Comparator.comparing(RecordFileUtils::extractRecordFileTimeStrFromPath))
+                .forEach(recordFilePath -> {
+                    try {
+                        final byte[] fileData =
+                                recordFilePath.getFileName().toString().endsWith(".gz ")
+                                        ? new GZIPInputStream(Files.newInputStream(recordFilePath)).readAllBytes()
+                                        : Files.readAllBytes(recordFilePath);
+                        final RecordFileInfo info = RecordFileInfo.parse(fileData);
+                        System.out.printf(
+                                "%-70s %-5d %-9s %-10s %-10s %s%n",
+                                recordFilePath.getFileName().toString(),
+                                info.recordFormatVersion(),
+                                info.hapiProtoVersion().major() + "."
+                                        + info.hapiProtoVersion().minor() + "."
+                                        + info.hapiProtoVersion().patch(),
+                                info.previousBlockHash().toString().substring(0, 8),
+                                info.blockHash().toString().substring(0, 8),
+                                PrettyPrint.prettyPrintFileSize(fileData.length));
+                    } catch (IOException e) {
+                        System.err.println(
+                                "Error reading record file: " + recordFilePath + " Error: " + e.getMessage());
+                    }
+                });
     }
 }

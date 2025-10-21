@@ -1,10 +1,9 @@
+// SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.tools.commands.days.model;
 
 import com.hedera.hapi.node.transaction.TransactionBody;
-import com.hedera.pbj.runtime.ProtoWriterTools;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import com.hedera.pbj.runtime.io.stream.WritableStreamingData;
-import java.io.OutputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
@@ -18,18 +17,19 @@ public class AddressBookTestHelper {
             "2021-06-08T17_35_34.007644000Z.rcd",
             "2021-06-08T17_35_42.084364000Z.rcd",
             "2021-06-08T17_35_50.003420000Z.rcd",
-            "2021-06-08T17_35_56.045590000Z.rcd"
-            );
+            "2021-06-08T17_35_56.045590000Z.rcd");
+
     public static void main(String[] args) {
         List<InMemoryBlock> day = TarZstdDayReader.readTarZstd(Path.of("REAL_DATA/2021-06-08.tar.zstd"));
 
         List<TransactionBody> addressBookTransactions = day.stream()
-            .filter(b -> REC_FILE_NAMES.contains(b.primaryRecordFile().path().getFileName().toString()))
-            .flatMap(block -> {
-                var vr = block.validate(null,  null);
-                return vr.addressBookTransactions().stream();
-            })
-            .toList();
+                .filter(b -> REC_FILE_NAMES.contains(
+                        b.primaryRecordFile().path().getFileName().toString()))
+                .flatMap(block -> {
+                    var vr = block.validate(null, null);
+                    return vr.addressBookTransactions().stream();
+                })
+                .toList();
         // parse the primary record file to find all transactions
         System.out.println("addressBookTransactions.size() = " + addressBookTransactions.size());
 
@@ -39,7 +39,7 @@ public class AddressBookTestHelper {
             out.writeInt(addressBookTransactions.size());
             for (TransactionBody tb : addressBookTransactions) {
                 Bytes tbBytes = TransactionBody.PROTOBUF.toBytes(tb);
-                out.writeInt((int)tbBytes.length());
+                out.writeInt((int) tbBytes.length());
                 tbBytes.writeTo(out);
             }
         } catch (Exception e) {

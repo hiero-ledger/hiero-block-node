@@ -281,6 +281,4 @@ public record ParsedSignatureFile(int nodeId, byte[] fileHash, byte[] signature)
             throw new RuntimeException("Error downloading or parsing signature file", e);
         }
     }
-
-
 }

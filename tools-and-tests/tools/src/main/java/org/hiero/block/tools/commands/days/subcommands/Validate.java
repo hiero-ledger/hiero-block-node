@@ -11,16 +11,16 @@ import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
+import org.hiero.block.tools.commands.days.model.AddressBookRegistry;
 import org.hiero.block.tools.commands.days.model.TarZstdDayReader;
 import org.hiero.block.tools.commands.days.model.TarZstdDayUtils;
-import org.hiero.block.tools.commands.days.model.AddressBookRegistry;
 import org.hiero.block.tools.records.InMemoryBlock;
 import org.hiero.block.tools.records.InMemoryBlock.ValidationResult;
 import org.hiero.block.tools.utils.PrettyPrint;
 import picocli.CommandLine.Command;
+import picocli.CommandLine.Model.CommandSpec;
 import picocli.CommandLine.Option;
 import picocli.CommandLine.Parameters;
-import picocli.CommandLine.Model.CommandSpec;
 import picocli.CommandLine.Spec;
 
 /**
@@ -33,26 +33,48 @@ public class Validate implements Runnable {
 
     // Simple wrapper for producer-consumer communication (day boundaries + blocks)
     private static final class Item {
-        enum Kind { DAY_START, BLOCK, DAY_END, STREAM_END }
+        enum Kind {
+            DAY_START,
+            BLOCK,
+            DAY_END,
+            STREAM_END
+        }
+
         final Kind kind;
         final int dayIndex; // index into dayPaths
         final Path dayFile; // for diagnostics (may be null for STREAM_END)
         final InMemoryBlock block; // only for BLOCK
+
         Item(Kind kind, int dayIndex, Path dayFile, InMemoryBlock block) {
-            this.kind = kind; this.dayIndex = dayIndex; this.dayFile = dayFile; this.block = block;
+            this.kind = kind;
+            this.dayIndex = dayIndex;
+            this.dayFile = dayFile;
+            this.block = block;
         }
-        static Item dayStart(int idx, Path file) { return new Item(Kind.DAY_START, idx, file, null); }
-        static Item block(int idx, Path file, InMemoryBlock b) { return new Item(Kind.BLOCK, idx, file, b); }
-        static Item dayEnd(int idx, Path file) { return new Item(Kind.DAY_END, idx, file, null); }
-        static Item streamEnd() { return new Item(Kind.STREAM_END, -1, null, null); }
+
+        static Item dayStart(int idx, Path file) {
+            return new Item(Kind.DAY_START, idx, file, null);
+        }
+
+        static Item block(int idx, Path file, InMemoryBlock b) {
+            return new Item(Kind.BLOCK, idx, file, b);
+        }
+
+        static Item dayEnd(int idx, Path file) {
+            return new Item(Kind.DAY_END, idx, file, null);
+        }
+
+        static Item streamEnd() {
+            return new Item(Kind.STREAM_END, -1, null, null);
+        }
     }
 
     @Spec
     CommandSpec spec;
 
     @Option(
-        names = {"-w", "--warnings-file"},
-        description = "Write warnings to this file, rather than ignoring them")
+            names = {"-w", "--warnings-file"},
+            description = "Write warnings to this file, rather than ignoring them")
     private File warningFile = null;
 
     @Parameters(index = "0..*", description = "Files or directories to process")
@@ -81,44 +103,47 @@ public class Validate implements Runnable {
         final BlockingQueue<Item> queue = new LinkedBlockingQueue<>(100_000);
 
         // Reader thread: reads .tar.zstd day files and enqueues blocks
-        final Thread reader = new Thread(() -> {
-            try {
-                for (int day = 0; day < dayPaths.size(); day++) {
-                    final Path dayPath = dayPaths.get(day);
-                    queue.put(Item.dayStart(day, dayPath));
-                    try (var stream = TarZstdDayReader.streamTarZstd(dayPath)) {
-                        final int dayIdx = day; // capture effectively final for lambda
-                        // capture effectively final for lambda
-                        stream.forEach(set -> {
-                            try {
-                                queue.put(Item.block(dayIdx, dayPath, set));
-                            } catch (InterruptedException ie) {
-                                Thread.currentThread().interrupt();
-                                throw new RuntimeException("Interrupted while enqueueing block from " + dayPath, ie);
+        final Thread reader = new Thread(
+                () -> {
+                    try {
+                        for (int day = 0; day < dayPaths.size(); day++) {
+                            final Path dayPath = dayPaths.get(day);
+                            queue.put(Item.dayStart(day, dayPath));
+                            try (var stream = TarZstdDayReader.streamTarZstd(dayPath)) {
+                                final int dayIdx = day; // capture effectively final for lambda
+                                // capture effectively final for lambda
+                                stream.forEach(set -> {
+                                    try {
+                                        queue.put(Item.block(dayIdx, dayPath, set));
+                                    } catch (InterruptedException ie) {
+                                        Thread.currentThread().interrupt();
+                                        throw new RuntimeException(
+                                                "Interrupted while enqueueing block from " + dayPath, ie);
+                                    }
+                                });
+                            } catch (Exception ex) {
+                                PrettyPrint.clearProgress();
+                                System.err.println("Failed processing day file: " + dayPath + ": " + ex.getMessage());
+                                ex.printStackTrace();
+                                System.exit(1);
                             }
-                        });
-                    } catch (Exception ex) {
+                            // signal day end
+                            queue.put(Item.dayEnd(day, dayPath));
+                        }
+                    } catch (InterruptedException ie) {
+                        Thread.currentThread().interrupt();
                         PrettyPrint.clearProgress();
-                        System.err.println("Failed processing day file: " + dayPath + ": " + ex.getMessage());
-                        ex.printStackTrace();
+                        System.err.println("Reader thread interrupted");
                         System.exit(1);
+                    } finally {
+                        try {
+                            queue.put(Item.streamEnd());
+                        } catch (InterruptedException ignored) {
+                            Thread.currentThread().interrupt();
+                        }
                     }
-                    // signal day end
-                    queue.put(Item.dayEnd(day, dayPath));
-                }
-            } catch (InterruptedException ie) {
-                Thread.currentThread().interrupt();
-                PrettyPrint.clearProgress();
-                System.err.println("Reader thread interrupted");
-                System.exit(1);
-            } finally {
-                try {
-                    queue.put(Item.streamEnd());
-                } catch (InterruptedException ignored) {
-                    Thread.currentThread().interrupt();
-                }
-            }
-        }, "validate-reader");
+                },
+                "validate-reader");
         reader.start();
 
         long progressAtStartOfDay = 0L;
@@ -143,21 +168,24 @@ public class Validate implements Runnable {
                             // previous block hash from prior iteration (carry over)
                             final byte[] previousBlockHash = carryOverHash.get();
                             // Validate the block using InMemoryBlock.validate which performs internal checks
-                            final ValidationResult vr = set.validate(previousBlockHash,
-                                addressBookRegistry.getCurrentAddressBook());
+                            final ValidationResult vr =
+                                    set.validate(previousBlockHash, addressBookRegistry.getCurrentAddressBook());
                             if (warningWriter != null && !vr.warningMessages().isEmpty()) {
-                                warningWriter.write("Warnings for " + set.recordFileTime() + ":\n" + vr.warningMessages() + "\n");
+                                warningWriter.write(
+                                        "Warnings for " + set.recordFileTime() + ":\n" + vr.warningMessages() + "\n");
                                 warningWriter.flush();
                             }
                             // check overall validity and fail if not valid
                             if (!vr.isValid()) {
                                 PrettyPrint.clearProgress();
-                                System.err.println("Validation failed for " + set.recordFileTime() + ":\n" + vr.warningMessages());
+                                System.err.println(
+                                        "Validation failed for " + set.recordFileTime() + ":\n" + vr.warningMessages());
                                 System.out.flush();
                                 System.exit(1);
                             }
                             // use ValidationResult to update address book if needed
-                            String addressBookChanges = addressBookRegistry.updateAddressBook(vr.addressBookTransactions());
+                            String addressBookChanges =
+                                    addressBookRegistry.updateAddressBook(vr.addressBookTransactions());
                             if (warningWriter != null && addressBookChanges != null) {
                                 warningWriter.write(addressBookChanges + "\n");
                                 warningWriter.flush();
@@ -166,18 +194,16 @@ public class Validate implements Runnable {
                             carryOverHash.set(vr.endRunningHash());
                             // Build progress string showing time and hashes (shortened to 8 chars for readability)
                             final String progressString = String.format(
-                                "%s carry[%s] next[%s]",
-                                set.recordFileTime(),
-                                shortHash(previousBlockHash),
-                                shortHash(vr.endRunningHash()));
+                                    "%s carry[%s] next[%s]",
+                                    set.recordFileTime(), shortHash(previousBlockHash), shortHash(vr.endRunningHash()));
                             // Estimate totals and ETA
                             final long elapsedMillis = (System.nanoTime() - startNanos) / 1_000_000L;
                             // Progress percent and remaining
                             final long processedSoFarAcrossAll = progress.get();
                             final long totalProgressFinal = totalProgress.get();
                             double percent = ((double) processedSoFarAcrossAll / (double) totalProgressFinal) * 100.0;
-                            long remainingMillis = computeRemainingMIllies(processedSoFarAcrossAll, totalProgressFinal,
-                                elapsedMillis);
+                            long remainingMillis =
+                                    computeRemainingMIllies(processedSoFarAcrossAll, totalProgressFinal, elapsedMillis);
                             PrettyPrint.printProgressWithEta(percent, progressString, remainingMillis);
                         } catch (Exception ex) {
                             PrettyPrint.clearProgress();
@@ -207,18 +233,23 @@ public class Validate implements Runnable {
 
         // clear the progress line once done and print a summary
         PrettyPrint.clearProgress();
-        System.out.println("Validation complete. Days processed: " + dayCount + " , Blocks processed: " + progress.get());
+        System.out.println(
+                "Validation complete. Days processed: " + dayCount + " , Blocks processed: " + progress.get());
 
         // Ensure reader finished
-        try { reader.join(); } catch (InterruptedException ignored) { Thread.currentThread().interrupt(); }
+        try {
+            reader.join();
+        } catch (InterruptedException ignored) {
+            Thread.currentThread().interrupt();
+        }
     }
 
-    private static long computeRemainingMIllies(long processedSoFarAcrossAll, long totalProgressFinal, long elapsedMillis) {
+    private static long computeRemainingMIllies(
+            long processedSoFarAcrossAll, long totalProgressFinal, long elapsedMillis) {
         long remainingMillis;
         if (processedSoFarAcrossAll > 0) {
             long remainingUnits = totalProgressFinal - processedSoFarAcrossAll;
-            remainingMillis = (long) ((elapsedMillis * (double) remainingUnits)
-                / (double) processedSoFarAcrossAll);
+            remainingMillis = (long) ((elapsedMillis * (double) remainingUnits) / (double) processedSoFarAcrossAll);
             if (remainingMillis < 0) {
                 remainingMillis = 0;
             }

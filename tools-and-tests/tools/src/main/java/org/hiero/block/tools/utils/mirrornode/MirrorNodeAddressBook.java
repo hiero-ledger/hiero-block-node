@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.tools.utils.mirrornode;
 
 import static org.hiero.block.tools.utils.mirrornode.MirrorNodeUtils.MAINNET_MIRROR_NODE_API_URL;
@@ -19,6 +20,7 @@ import java.util.List;
 /**
  * Utility class to fetch the address book from the mirror node.
  */
+@SuppressWarnings("unused")
 public class MirrorNodeAddressBook {
 
     /**
@@ -28,8 +30,8 @@ public class MirrorNodeAddressBook {
      */
     public static NodeAddressBook getLatestAddressBook() {
         try {
-            return loadJsonAddressBook(
-                URI.create(MAINNET_MIRROR_NODE_API_URL+"network/nodes?limit=40&order=asc").toURL());
+            return loadJsonAddressBook(URI.create(MAINNET_MIRROR_NODE_API_URL + "network/nodes?limit=40&order=asc")
+                    .toURL());
         } catch (MalformedURLException e) {
             throw new RuntimeException(e);
         }
@@ -49,7 +51,8 @@ public class MirrorNodeAddressBook {
             }
             try (in) {
                 final Gson gson = new Gson();
-                final AddressBookJson json = gson.fromJson(new java.io.InputStreamReader(in, StandardCharsets.UTF_8), AddressBookJson.class);
+                final AddressBookJson json =
+                        gson.fromJson(new java.io.InputStreamReader(in, StandardCharsets.UTF_8), AddressBookJson.class);
                 final List<NodeAddress> nodes = new ArrayList<>();
                 if (json != null && json.nodes != null) {
                     for (final AddressBookJson.Node n : json.nodes) {
@@ -59,18 +62,18 @@ public class MirrorNodeAddressBook {
                         final byte[] certHash = parseHexOrEmpty(n.nodeCertHash);
 
                         final AccountID accountID = AccountID.newBuilder()
-                            .shardNum(0)
-                            .realmNum(0)
-                            .accountNum(accountNum)
-                            .build();
+                                .shardNum(0)
+                                .realmNum(0)
+                                .accountNum(accountNum)
+                                .build();
 
                         final NodeAddress node = NodeAddress.newBuilder()
-                            .memo(Bytes.wrap(memoStr.getBytes(StandardCharsets.UTF_8)))
-                            .rsaPubKey(rsaHex)
-                            .nodeId(n.nodeId)
-                            .nodeAccountId(accountID)
-                            .nodeCertHash(Bytes.wrap(certHash))
-                            .build();
+                                .memo(Bytes.wrap(memoStr.getBytes(StandardCharsets.UTF_8)))
+                                .rsaPubKey(rsaHex)
+                                .nodeId(n.nodeId)
+                                .nodeAccountId(accountID)
+                                .nodeCertHash(Bytes.wrap(certHash))
+                                .build();
                         nodes.add(node);
                     }
                 }
@@ -130,11 +133,19 @@ public class MirrorNodeAddressBook {
     @SuppressWarnings("MismatchedQueryAndUpdateOfCollection")
     private static final class AddressBookJson {
         List<Node> nodes;
+
         static final class Node {
-            @SerializedName("node_id") long nodeId;
-            @SerializedName("node_account_id") String nodeAccountId;
-            @SerializedName("public_key") String publicKey;
-            @SerializedName("node_cert_hash") String nodeCertHash;
+            @SerializedName("node_id")
+            long nodeId;
+
+            @SerializedName("node_account_id")
+            String nodeAccountId;
+
+            @SerializedName("public_key")
+            String publicKey;
+
+            @SerializedName("node_cert_hash")
+            String nodeCertHash;
         }
     }
 }
