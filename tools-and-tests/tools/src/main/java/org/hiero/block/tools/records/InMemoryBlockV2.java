@@ -84,7 +84,7 @@ public class InMemoryBlockV2 extends InMemoryBlock {
         try {
             final BufferedData in = BufferedData.wrap(recordFileBytes);
             boolean isValid = true;
-            final StringBuilder warningMessages = new StringBuilder();
+            final StringBuffer warningMessages = new StringBuffer();
             // Read and verify the record file version
             final int fileVersion = in.readInt();
             if (fileVersion != 2) {
@@ -173,11 +173,12 @@ public class InMemoryBlockV2 extends InMemoryBlock {
      * @throws IOException if an I/O error occurs reading a signature file
      */
     private boolean validateSignatures(
-            NodeAddressBook addressBook, StringBuilder warningMessages, byte[] blockHash, byte[] recordFileBytes)
+            NodeAddressBook addressBook, StringBuffer warningMessages, byte[] blockHash, byte[] recordFileBytes)
             throws IOException {
         if (addressBook != null && !signatureFiles().isEmpty()) {
-            int validSignatureCount = 0;
-            for (InMemoryFile sigFile : signatureFiles()) {
+            final int validSignatureCount = signatureFiles().stream()
+                .parallel()
+                .mapToInt(sigFile -> {
                 try (DataInputStream sin = new DataInputStream(new ByteArrayInputStream(sigFile.data()))) {
                     final int firstByte = sin.read();
                     if (firstByte != 4) {
@@ -185,7 +186,7 @@ public class InMemoryBlockV2 extends InMemoryBlock {
                                 .append("Unexpected signature file first byte (expected 4) in ")
                                 .append(sigFile.path())
                                 .append("\n");
-                        continue;
+                        return 0;
                     }
                     final byte[] fileHashFromSig = new byte[48];
                     sin.readFully(fileHashFromSig);
@@ -200,7 +201,7 @@ public class InMemoryBlockV2 extends InMemoryBlock {
                                 .append("Invalid signature marker in ")
                                 .append(sigFile.path())
                                 .append("\n");
-                        continue;
+                        return 0;
                     }
                     final int sigLen = sin.readInt();
                     final byte[] signatureBytes = new byte[sigLen];
@@ -213,7 +214,7 @@ public class InMemoryBlockV2 extends InMemoryBlock {
                                 .append("Unable to extract node account number from signature filename: ")
                                 .append(sigFile.path())
                                 .append("\n");
-                        continue;
+                        return 0;
                     }
                     // Look up RSA public key via AddressBookRegistry helper
                     String rsaPubKey;
@@ -226,7 +227,7 @@ public class InMemoryBlockV2 extends InMemoryBlock {
                                 .append(" in provided address book; file ")
                                 .append(sigFile.path())
                                 .append("\n");
-                        continue;
+                        return 0;
                     }
                     if (rsaPubKey == null || rsaPubKey.isEmpty()) {
                         warningMessages
@@ -235,7 +236,7 @@ public class InMemoryBlockV2 extends InMemoryBlock {
                                 .append("; file ")
                                 .append(sigFile.path())
                                 .append("\n");
-                        continue;
+                        return 0;
                     }
 
                     final boolean verified =
@@ -249,7 +250,7 @@ public class InMemoryBlockV2 extends InMemoryBlock {
                                 .append(")\n");
                     }
                     // we count valid signatures only if the file hash matched and the signature verified
-                    validSignatureCount++;
+                    return 1;
                 } catch (Exception e) {
                     warningMessages
                             .append("Error processing signature file ")
@@ -257,8 +258,9 @@ public class InMemoryBlockV2 extends InMemoryBlock {
                             .append(": ")
                             .append(e.getMessage())
                             .append("\n");
+                    return 0;
                 }
-            }
+            }).sum();
             final int totalNodeCount = addressBook.nodeAddress().size();
             // Require at least 1/3 of all nodes to have valid signatures
             final int requiredSignatures = (totalNodeCount / 3) + 1;

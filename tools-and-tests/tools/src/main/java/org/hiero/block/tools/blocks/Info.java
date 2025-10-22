@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-package org.hiero.block.tools.commands;
+package org.hiero.block.tools.blocks;
 
 import java.io.File;
 import java.io.IOException;

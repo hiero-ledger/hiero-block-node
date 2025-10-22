@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-package org.hiero.block.tools.commands.record2blocks.mirrornode;
+package org.hiero.block.tools.commands.mirrornode;
 
 import static org.hiero.block.tools.records.RecordFileDates.recordFileNameToBlockTimeLong;
 
