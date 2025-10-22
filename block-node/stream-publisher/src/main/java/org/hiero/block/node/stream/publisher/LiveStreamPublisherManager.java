@@ -347,6 +347,7 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
             // This should result in new data being available, so we
             // count down the data ready latch.
             signalDataReady();
+            metrics.highestBlockNumber.set(blockNumber);
             // We're one of the handlers currently streaming, keep going.
             return BlockAction.ACCEPT;
         } else if (blockNumber == nextUnstreamedBlockNumber.get()) {
@@ -383,7 +384,6 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
             // here we just update metrics.
             metrics.blocksClosedIncomplete.increment();
         } else {
-            metrics.highestBlockNumber.set(blockEndProof.block());
             metrics.blocksClosedComplete.increment();
             // @todo(1416) Also log completed blocks metric and any other relevant
             //     actions. Also check if we have incomplete blocks lower than the
