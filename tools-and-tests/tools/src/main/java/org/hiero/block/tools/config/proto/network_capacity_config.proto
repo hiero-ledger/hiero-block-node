@@ -1,0 +1,32 @@
+
+// SPDX-License-Identifier: Apache-2.0
+syntax = "proto3";
+
+package org.hiero.block.tools.config;
+
+message HelidonWebClientConfig {
+  uint32 flowControlTimeoutMillis = 1;
+  uint32 initialWindowSize = 2;
+  uint32 maxFrameSize = 3;
+  uint32 maxHeaderListSize = 4;
+  bool pingEnabled = 5;
+  uint32 pingTimeoutMillis = 6;
+  uint32 readTimeoutMillis = 7;
+  bool priorKnowledge = 10;
+  uint32 serverMaxMessageSizeBytes = 12;
+}
+
+message HelidonWebServerConfig {
+  uint32 initialWindowSize = 1;
+  uint32 maxFrameSize = 2;
+  uint32 maxConcurrentStreams = 3;
+  uint32 flowControlTimeoutMillis = 4;
+  uint32 sendBufferSize = 5;
+  uint32 receiveBufferSize = 6;
+  uint32 maxMessageSizeBytes = 7;
+  bool tcpNoDelay = 8;
+  uint32 maxEmptyFrames = 9;
+  uint32 maxRapidResets = 10;
+  uint32 rapidResetTimeWindowMillis = 11;
+}
+

@@ -1,0 +1,41 @@
+version: "3.8"
+
+services:
+  # Example of the Container of block tool Blockstream for gRPC network capacity testing server mode
+  block-tool-server:
+    build: .
+    image: block-tools:${VERSION}
+    container_name: block-tools-server
+    env_file:
+      - .env
+    ports:
+      - "9090:9090"
+    volumes:
+      - ../resources/main/serverDefaultConfig.json:/app/conf/serverDefaultConfig.json:ro
+    # this command starts the server mode of the networkCapacity tool
+    command: ["networkCapacity",
+              "-m", "server",
+              "-c", "/app/conf/serverDefaultConfig.json",
+              "-p", "9090"]
+
+  # Example of the Container of block tool Blockstream for gRPC network capacity testing client mode
+  block-tool-client:
+    build: .
+    image: block-tools:${VERSION}
+    container_name: block-tools-client
+    env_file:
+      - .env
+    depends_on:
+      - block-tool-server
+    volumes:
+      - ../resources/main/clientDefaultConfig.json:/app/conf/clientDefaultConfig.json:ro
+      # make sure to have a blockstream recording folder to use the client with
+      - /path/to/your/recordings:/app/recording:ro
+    # this command starts the client mode of the networkCapacity tool
+    command: ["networkCapacity",
+              "-m", "client",
+              "-c", "/app/conf/clientDefaultConfig.json",
+              "-s", "block-tool-server",
+              "-p", "9090",
+              "-f", "/app/recording"]
+
