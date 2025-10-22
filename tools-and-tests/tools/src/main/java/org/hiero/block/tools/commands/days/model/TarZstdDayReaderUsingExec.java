@@ -15,7 +15,7 @@ import java.util.Spliterator;
 import java.util.function.Consumer;
 import java.util.stream.Stream;
 import java.util.stream.StreamSupport;
-import org.hiero.block.tools.records.InMemoryBlock;
+import org.hiero.block.tools.records.RecordFileBlock;
 import org.hiero.block.tools.records.InMemoryFile;
 import org.hiero.block.tools.utils.TarReader;
 import org.hiero.block.tools.utils.ZstCmdInputStream;
@@ -31,15 +31,15 @@ public class TarZstdDayReaderUsingExec {
 
     /**
      * Decompresses the given {@code .tar.zstd} file and returns a stream of
-     * {@link InMemoryBlock} grouped by the per-timestamp directory structure in the
+     * {@link RecordFileBlock} grouped by the per-timestamp directory structure in the
      * archive.
      *
      * @param zstdFile the path to a .tar.zstd archive; must not be {@code null}
-     * @return a {@link Stream} of {@link InMemoryBlock} representing grouped record files
+     * @return a {@link Stream} of {@link RecordFileBlock} representing grouped record files
      *         found in the archive. The caller should consume or close the stream promptly.
      */
     @SuppressWarnings("unused")
-    public static Stream<InMemoryBlock> streamTarZstd(Path zstdFile) {
+    public static Stream<RecordFileBlock> streamTarZstd(Path zstdFile) {
         if (zstdFile == null) throw new IllegalArgumentException("zstdFile is null");
 
         final ZstCmdInputStream zstIn;
@@ -53,14 +53,14 @@ public class TarZstdDayReaderUsingExec {
 
         final Iterator<InMemoryFile> it = filesStream.iterator();
 
-        Spliterator<InMemoryBlock> spl = new Spliterator<>() {
+        Spliterator<RecordFileBlock> spl = new Spliterator<>() {
             private final List<InMemoryFile> buffer = new ArrayList<>();
-            private final Deque<InMemoryBlock> ready = new ArrayDeque<>();
+            private final Deque<RecordFileBlock> ready = new ArrayDeque<>();
             private String currentDir = null;
             private boolean finished = false;
 
             @Override
-            public boolean tryAdvance(Consumer<? super InMemoryBlock> action) {
+            public boolean tryAdvance(Consumer<? super RecordFileBlock> action) {
                 if (action == null) throw new NullPointerException();
                 if (finished) return false;
 
@@ -78,9 +78,9 @@ public class TarZstdDayReaderUsingExec {
                         currentDir = parentDir;
                     } else if (!currentDir.equals(parentDir)) {
                         // process buffered files for previous directory -> collect results into a temp list then enqueue
-                        List<InMemoryBlock> tmp = new ArrayList<>();
+                        List<RecordFileBlock> tmp = new ArrayList<>();
                         processDirectoryFiles(currentDir, buffer, tmp);
-                        for (InMemoryBlock b : tmp) ready.addLast(b);
+                        for (RecordFileBlock b : tmp) ready.addLast(b);
                         buffer.clear();
                         currentDir = parentDir;
                         // add the current file to the new buffer
@@ -98,9 +98,9 @@ public class TarZstdDayReaderUsingExec {
                 finished = true;
                 if (currentDir != null && !buffer.isEmpty()) {
                     // processDirectoryFiles expects a List<InMemoryBlock> for results; collect into a temporary list then move into deque
-                    List<InMemoryBlock> tmp = new ArrayList<>();
+                    List<RecordFileBlock> tmp = new ArrayList<>();
                     processDirectoryFiles(currentDir, buffer, tmp);
-                    for (InMemoryBlock b : tmp) ready.addLast(b);
+                    for (RecordFileBlock b : tmp) ready.addLast(b);
                     buffer.clear();
                 }
 
@@ -119,7 +119,7 @@ public class TarZstdDayReaderUsingExec {
             }
 
             @Override
-            public Spliterator<InMemoryBlock> trySplit() { return null; }
+            public Spliterator<RecordFileBlock> trySplit() { return null; }
 
             @Override
             public long estimateSize() { return Long.MAX_VALUE; }
@@ -141,16 +141,16 @@ public class TarZstdDayReaderUsingExec {
 
     /**
      * Decompresses the given {@code .tar.zstd} file and returns a list of
-     * {@link InMemoryBlock} grouped by the per-timestamp directory structure in the
+     * {@link RecordFileBlock} grouped by the per-timestamp directory structure in the
      * archive.
      *
      * @param zstdFile the path to a .tar.zstd archive; must not be {@code null}
-     * @return a {@link List} of {@link InMemoryBlock} representing grouped record files
+     * @return a {@link List} of {@link RecordFileBlock} representing grouped record files
      *         found in the archive.
      */
-    public static List<InMemoryBlock> readTarZstd(Path zstdFile) {
+    public static List<RecordFileBlock> readTarZstd(Path zstdFile) {
         if (zstdFile == null) throw new IllegalArgumentException("zstdFile is null");
-        final List<InMemoryBlock> results = new ArrayList<>();
+        final List<RecordFileBlock> results = new ArrayList<>();
 
         // Use ZstCmdInputStream to decompress and TarReader to stream tar entries.
         try (ZstCmdInputStream zstIn = new ZstCmdInputStream(zstdFile);
@@ -186,7 +186,7 @@ public class TarZstdDayReaderUsingExec {
 
     /**
      * Process a batch of files that belong to the same parent directory and append the resulting
-     * {@link InMemoryBlock} objects to {@code results}.
+     * {@link RecordFileBlock} objects to {@code results}.
      *
      * <p>This method implements the grouping and classification rules:
      * <ul>
@@ -199,7 +199,7 @@ public class TarZstdDayReaderUsingExec {
      *       classifies other {@code .rcd} files as other-record or sidecar files based on naming
      *       patterns.</li>
      *   <li>Primary sidecars are ordered by index (1..N) when present and attached to the
-     *       {@link InMemoryBlock} in index order.</li>
+     *       {@link RecordFileBlock} in index order.</li>
      * </ul>
      *
      * @param currentDir the parent directory path (as a string ending with '/'), may be {@code "/"}
@@ -207,11 +207,11 @@ public class TarZstdDayReaderUsingExec {
      *                   key for signatures that do not include timestamps in their names
      * @param currentFiles files read from the TAR that share the same parent directory; may include
      *                     {@code .rcd} and {@code .rcs_sig} files
-     * @param results the list to append created {@link InMemoryBlock} instances to
+     * @param results the list to append created {@link RecordFileBlock} instances to
      */
     @SuppressWarnings("ReplaceNullCheck")
     private static void processDirectoryFiles(
-            String currentDir, List<InMemoryFile> currentFiles, List<InMemoryBlock> results) {
+            String currentDir, List<InMemoryFile> currentFiles, List<RecordFileBlock> results) {
         if (currentFiles == null || currentFiles.isEmpty()) return;
 
         // Compute directory base key if directory name looks like a timestamp directory
@@ -352,7 +352,7 @@ public class TarZstdDayReaderUsingExec {
                 recordTime = Instant.EPOCH;
             }
 
-            InMemoryBlock set = InMemoryBlock.newInMemoryBlock(
+            RecordFileBlock set = RecordFileBlock.newInMemoryBlock(
                     recordTime, primaryRecord, otherRecordFiles, signatureFiles, primarySidecars, otherSidecarFiles);
 
             results.add(set);
