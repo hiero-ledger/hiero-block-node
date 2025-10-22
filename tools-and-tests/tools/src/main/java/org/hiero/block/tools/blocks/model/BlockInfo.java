@@ -1,5 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
+<<<<<<<< HEAD:tools-and-tests/tools/src/main/java/org/hiero/block/tools/blocks/model/BlockInfo.java
 package org.hiero.block.tools.blocks.model;
+========
+package org.hiero.block.tools.blocks;
+>>>>>>>> b4a66edb (Clean up of commands structure):tools-and-tests/tools/src/main/java/org/hiero/block/tools/blocks/BlockInfo.java
 
 import com.hedera.hapi.block.stream.Block;
 import com.hedera.hapi.block.stream.BlockItem;

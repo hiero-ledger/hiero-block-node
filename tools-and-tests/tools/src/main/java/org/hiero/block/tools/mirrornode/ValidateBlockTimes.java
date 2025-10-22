@@ -1,5 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
+<<<<<<<< HEAD:tools-and-tests/tools/src/main/java/org/hiero/block/tools/mirrornode/ValidateBlockTimes.java
 package org.hiero.block.tools.mirrornode;
+========
+package org.hiero.block.tools.commands.mirrornode;
+>>>>>>>> b4a66edb (Clean up of commands structure):tools-and-tests/tools/src/main/java/org/hiero/block/tools/commands/mirrornode/ValidateBlockTimes.java
 
 import static org.hiero.block.tools.records.RecordFileDates.blockTimeLongToRecordFilePrefix;
 
