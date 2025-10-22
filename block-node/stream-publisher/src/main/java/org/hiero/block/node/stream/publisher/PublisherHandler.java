@@ -230,9 +230,9 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
                 blockNumber = header.number();
                 // this means that we are starting a new block, so we can
                 // update the current streaming block number
-                final String traceMessage = "metric-end-to-end-latency-by-block-start {0},{1}ns";
+                final String traceMessage = "metric-end-to-end-latency-by-block-start block={0} nsTimestamp={1} handlerId={2}";
                 currentStreamingBlockHeaderReceivedTime = System.nanoTime();
-                LOGGER.log(TRACE, traceMessage, blockNumber, currentStreamingBlockHeaderReceivedTime);
+                LOGGER.log(TRACE, traceMessage, blockNumber, currentStreamingBlockHeaderReceivedTime, handlerId);
                 currentStreamingBlockNumber.set(blockNumber);
             } else {
                 LOGGER.log(
@@ -407,8 +407,8 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
             metrics.blockAcknowledgementsSent.increment(); // @todo(1415) add label
 
             final String ackMessage = "Sent acknowledgement for block {0} from handler {1}";
-            final String traceMessage = "metric-end-to-end-latency-by-block-end {0},{1}ns";
-            LOGGER.log(TRACE, traceMessage, newLastAcknowledgedBlockNumber, System.nanoTime());
+            final String traceMessage = "metric-end-to-end-latency-by-block-end block={0} nsTimestamp={1} handlerId={2}";
+            LOGGER.log(TRACE, traceMessage, newLastAcknowledgedBlockNumber, System.nanoTime(), handlerId);
             LOGGER.log(TRACE, ackMessage, newLastAcknowledgedBlockNumber, handlerId);
         }
     }
@@ -441,7 +441,7 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
             long start = System.nanoTime();
             replies.onNext(response);
             long duration = System.nanoTime() - start;
-            LOGGER.log(DEBUG, "Handler {0} replies.onNext took {1} ns", handlerId, duration);
+            LOGGER.log(DEBUG, "Handler {0} replies.onNext took {1} ns to send {2}", handlerId, duration, response);
             return true;
         } catch (UncheckedIOException e) {
             shutdown(); // this method is idempotent and can be called multiple times
@@ -457,7 +457,7 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
             return false;
         } catch (final RuntimeException e) {
             shutdown(); // this method is idempotent and can be called multiple times
-            final String message = "Failed to send response for handler %d: %s".formatted(handlerId, e.getMessage());
+            final String message = "Failed to send response '%s' for handler %d: %s".formatted(response, handlerId, e.getMessage());
             LOGGER.log(DEBUG, message, e);
             metrics.sendResponseFailed.increment(); // @todo(1415) add label
             return false;

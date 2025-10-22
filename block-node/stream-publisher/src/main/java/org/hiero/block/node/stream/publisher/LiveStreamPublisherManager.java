@@ -722,7 +722,7 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
                             // log the batch being forwarded to messaging facility from publisher plugin
                             LOGGER.log(
                                     TRACE,
-                                    "Forwarding batch for block {0} with {1} items",
+                                    "Forwarding batch for block={0} with blockItemSize={1}",
                                     currentBlockNumber,
                                     currentBatch.blockItems().size());
                             // send the batch to the messaging facility

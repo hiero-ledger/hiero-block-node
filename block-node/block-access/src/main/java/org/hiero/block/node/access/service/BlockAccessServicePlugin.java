@@ -43,7 +43,6 @@ public class BlockAccessServicePlugin implements BlockNodePlugin, BlockAccessSer
      * @return the response containing the block or an error status
      */
     public BlockResponse getBlock(BlockRequest request) {
-        LOGGER.log(TRACE, "Received BlockRequest for block number: {0}", request.blockNumber());
         requestCounter.increment();
 
         try {
@@ -59,7 +58,7 @@ public class BlockAccessServicePlugin implements BlockNodePlugin, BlockAccessSer
                     || (request.hasBlockNumber() && request.blockNumber() == -1)) {
                 blockNumberToRetrieve = blockProvider.availableBlocks().max();
                 LOGGER.log(
-                        TRACE, "Received 'retrieveLatest' BlockRequest, retrieving block: {0}", blockNumberToRetrieve);
+                        TRACE, "Received 'retrieveLatest' BlockRequest, retrieving blockNumber={0}", blockNumberToRetrieve);
             } else {
                 LOGGER.log(INFO, "Invalid request, 'retrieve_latest' or a valid 'block number' is required.");
                 return new BlockResponse(Code.INVALID_REQUEST, null);

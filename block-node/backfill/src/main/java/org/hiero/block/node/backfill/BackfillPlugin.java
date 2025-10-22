@@ -78,7 +78,7 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
         } else {
             // This should never happen (as the code is right now is impossible)
             // but we throw an exception to be safe in the future in case the enum is extended
-            LOGGER.log(INFO, "Unknown backfill type: {0}", t);
+            LOGGER.log(INFO, "Unknown backfill type={0}", t);
             throw new IllegalArgumentException("Unknown backfill type: " + t);
         }
     }
@@ -291,7 +291,7 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
                     LongRange gap = new LongRange(previousRangeEnd + 1, range.start() - 1);
                     detectedGaps.add(gap);
                     pendingBlocks += gap.size();
-                    LOGGER.log(TRACE, "Detected gap in historical blocks from {0} to {1}", gap.start(), gap.end());
+                    LOGGER.log(TRACE, "Detected gap in historical blocks from start={0} to end={1}", gap.start(), gap.end());
                 }
                 previousRangeEnd = range.end();
             }
@@ -299,7 +299,7 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
             // increase only if detectedGaps is not empty
             if (!detectedGaps.isEmpty()) backfillGapsDetected.add(detectedGaps.size());
 
-            LOGGER.log(TRACE, "Detected {0} gaps with {1} total missing blocks", detectedGaps.size(), pendingBlocks);
+            LOGGER.log(TRACE, "Detected gaps, numGaps={0} totalMissingBlocks={1}", detectedGaps.size(), pendingBlocks);
 
             // Process detected gaps
             if (!detectedGaps.isEmpty()) {
@@ -317,7 +317,7 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
     private void processDetectedGaps() throws ParseException, InterruptedException {
         // Process each gap
         for (LongRange gap : detectedGaps) {
-            LOGGER.log(TRACE, "Fetching blocks from {0} to {1}", gap.start(), gap.end());
+            LOGGER.log(TRACE, "Fetching blocks from start={0} to end={1}", gap.start(), gap.end());
             backfillGap(gap, BackfillType.AUTONOMOUS);
         }
     }
@@ -440,7 +440,7 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
             // Add more detailed logging for persistence notifications
             LOGGER.log(
                     TRACE,
-                    "Received {0} persisted notification for block {1}",
+                    "Received backfillType={0} persisted notification for blockNumber={1}",
                     backfillType,
                     notification.blockNumber());
 
@@ -458,9 +458,9 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
     @Override
     public void handleVerification(VerificationNotification notification) {
         if (notification.source() == BlockSource.BACKFILL) {
-            LOGGER.log(TRACE, "Received verification notification for block {0}", notification.blockNumber());
+            LOGGER.log(TRACE, "Received verification notification for blockNumber {0}", notification.blockNumber());
             if (!notification.success()) {
-                LOGGER.log(INFO, "Block {0} verification failed", notification.blockNumber());
+                LOGGER.log(INFO, "Block verification failed, blockNumber={0}", notification.blockNumber());
                 backfillFetchErrors.increment();
                 // lastly, count down the latch to signal that this block has been processed
                 BackfillType backfillType = getBackfillTypeForBlock(notification.blockNumber());
