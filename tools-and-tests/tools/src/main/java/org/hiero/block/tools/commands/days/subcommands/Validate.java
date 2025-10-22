@@ -20,8 +20,8 @@ import java.util.concurrent.atomic.AtomicReference;
 import org.hiero.block.tools.commands.days.model.AddressBookRegistry;
 import org.hiero.block.tools.commands.days.model.TarZstdDayReaderUsingExec;
 import org.hiero.block.tools.commands.days.model.TarZstdDayUtils;
-import org.hiero.block.tools.records.InMemoryBlock;
-import org.hiero.block.tools.records.InMemoryBlock.ValidationResult;
+import org.hiero.block.tools.records.RecordFileBlock;
+import org.hiero.block.tools.records.RecordFileBlock.ValidationResult;
 import org.hiero.block.tools.utils.PrettyPrint;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Model.CommandSpec;
@@ -51,7 +51,7 @@ public class Validate implements Runnable {
      * @param dayFile  for diagnostics (may be null for STREAM_END)
      * @param block    only for BLOCK
      */
-     private record Item(Kind kind, int dayIndex, Path dayFile, InMemoryBlock block) {
+     private record Item(Kind kind, int dayIndex, Path dayFile, RecordFileBlock block) {
         enum Kind {
             DAY_START,
             BLOCK,
@@ -63,7 +63,7 @@ public class Validate implements Runnable {
             return new Item(Kind.DAY_START, idx, file, null);
         }
 
-        static Item block(int idx, Path file, InMemoryBlock b) {
+        static Item block(int idx, Path file, RecordFileBlock b) {
             return new Item(Kind.BLOCK, idx, file, b);
         }
 
@@ -258,7 +258,7 @@ public class Validate implements Runnable {
                         progressAtStartOfDay = progress.get();
                     }
                     case BLOCK -> {
-                        final InMemoryBlock set = item.block;
+                        final RecordFileBlock set = item.block;
                         // update counters
                         progress.incrementAndGet();
                         try {

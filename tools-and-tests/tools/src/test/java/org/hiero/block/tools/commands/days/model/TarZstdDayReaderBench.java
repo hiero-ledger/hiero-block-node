@@ -2,7 +2,7 @@ package org.hiero.block.tools.commands.days.model;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
-import org.hiero.block.tools.records.InMemoryBlock;
+import org.hiero.block.tools.records.RecordFileBlock;
 
 /**
  * Standalone benchmark test class for benchmarking TarZstdDayReader. It reads a file and measures performance of
@@ -22,17 +22,17 @@ public class TarZstdDayReaderBench {
         try {
             long start = System.nanoTime();
             long totalBytes = TarZstdDayReader.readTarZstd(dayFile).stream()
-                .mapToLong(InMemoryBlock::getTotalSizeBytes).sum();
+                .mapToLong(RecordFileBlock::getTotalSizeBytes).sum();
             printResult("TarZstdDayReader List", start, System.nanoTime(), totalBytes, 1);
 
             start = System.nanoTime();
             totalBytes = TarZstdDayReaderUsingExec.readTarZstd(dayFile).stream()
-                .mapToLong(InMemoryBlock::getTotalSizeBytes).sum();
+                .mapToLong(RecordFileBlock::getTotalSizeBytes).sum();
             printResult("TarZstdDayReaderUsingExec List", start, System.nanoTime(), totalBytes, 1);
 
             start = System.nanoTime();
             totalBytes = TarZstdDayReaderUsingExec.streamTarZstd(dayFile)
-                .mapToLong(InMemoryBlock::getTotalSizeBytes).sum();
+                .mapToLong(RecordFileBlock::getTotalSizeBytes).sum();
             printResult("TarZstdDayReaderUsingExec Stream", start, System.nanoTime(), totalBytes, 1);
         } catch (Exception e) {
             System.err.println("Benchmark failed: " + e.getMessage());

@@ -8,7 +8,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Set;
-import org.hiero.block.tools.records.InMemoryBlock;
+import org.hiero.block.tools.records.RecordFileBlock;
 
 public class AddressBookTestHelper {
     // Set of blocks that contain all the file changes for the 2021-06-08 address book update
@@ -20,7 +20,7 @@ public class AddressBookTestHelper {
             "2021-06-08T17_35_56.045590000Z.rcd");
 
     public static void main(String[] args) {
-        List<InMemoryBlock> day = TarZstdDayReader.readTarZstd(Path.of("REAL_DATA/2021-06-08.tar.zstd"));
+        List<RecordFileBlock> day = TarZstdDayReader.readTarZstd(Path.of("REAL_DATA/2021-06-08.tar.zstd"));
 
         List<TransactionBody> addressBookTransactions = day.stream()
                 .filter(b -> REC_FILE_NAMES.contains(
