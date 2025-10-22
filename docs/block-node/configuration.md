@@ -33,13 +33,16 @@ Each plugin has its own properties, but this focuses on core options and core pl
 
 ### Server Configuration
 
-| ENV Variable                            | Description                          |   Default |
-|:----------------------------------------|:-------------------------------------|----------:|
-| SERVER_MAX_MESSAGE_SIZE_BYTES           | Max message size (bytes) for HTTP/2. | 4,194,304 |
-| SERVER_SOCKET_SEND_BUFFER_SIZE_BYTES    | Send buffer size (bytes).            |     32768 |
-| SERVER_SOCKET_RECEIVE_BUFFER_SIZE_BYTES | Receive buffer size (bytes).         |     32768 |
-| SERVER_PORT                             | Server listening port.               |     40840 |
-| SERVER_SHUTDOWN_DELAY_MILLIS            | Delay before shutdown (ms).          |       500 |
+| ENV Variable                            | Description                                  |   Default |
+|:----------------------------------------|:---------------------------------------------|----------:|
+| SERVER_MAX_MESSAGE_SIZE_BYTES           | Max message size (bytes) for HTTP/2.         | 4,194,304 |
+| SERVER_SOCKET_SEND_BUFFER_SIZE_BYTES    | Send buffer size (bytes).                    |     32768 |
+| SERVER_SOCKET_RECEIVE_BUFFER_SIZE_BYTES | Receive buffer size (bytes).                 |     32768 |
+| SERVER_PORT                             | Server listening port.                       |     40840 |
+| SERVER_SHUTDOWN_DELAY_MILLIS            | Delay before shutdown (ms).                  |       500 |
+| SERVER_MAX_TCP_CONNECTIONS              | Max TCP connections allowed.                 |      1000 |
+| SERVER_IDLE_CONNECTION_PERIOD_MINUTES   | Period for idle connections check (minutes). |         5 |
+| SERVER_IDLE_CONNECTION_TIMEOUT_MINUTES  | Timeout for idle connections (minutes).      |        30 |
 
 ### WebServerHttp2 Configuration
 

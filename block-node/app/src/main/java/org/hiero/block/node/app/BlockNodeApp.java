@@ -208,6 +208,9 @@ public class BlockNodeApp implements HealthFacility {
                         .sendBufferSize(serverConfig.socketSendBufferSizeBytes())
                         .receiveBufferSize(serverConfig.socketReceiveBufferSizeBytes())
                         .build())
+                .maxTcpConnections(serverConfig.maxTcpConnections())
+                .idleConnectionPeriod(Duration.ofMinutes(serverConfig.idleConnectionPeriodMinutes()))
+                .idleConnectionTimeout(Duration.ofMinutes(serverConfig.idleConnectionTimeoutMinutes()))
                 .build();
 
         // Init the app metrics
