@@ -10,9 +10,9 @@
 
 ## Overview
 
-This subproject provides command line tools for working with Block Stream files and maybe other things in the future. It
-uses [picocli](https://picocli.info) to provide a command line interface which makes it easy to extend and add new
-subcommands or options.
+This subproject provides command line tools for working with Block Stream files, Record Stream files and maybe other
+things in the future. It uses [picocli](https://picocli.info) to provide a command line interface which makes it easy to extend and add
+new subcommands or options.
 
 ## Running from command line
 
@@ -20,15 +20,36 @@ Refer to the [Quickstart](../../docs/tools/quickstart.md) for a quick guide on h
 
 ## Subcommands
 
-The following subcommands are available:
+The following top level subcommands are available:
+- `blocks` - Tools for working with block stream files
+- `records` - Tools for working with raw record stream files
+- `days` - Tools for working with days of record files compressed as tar.zstd files
+- `mirror` - Tools for working with mirror nodes to fetch data
+
+## Blocks Subcommands
+The following subcommands are available under the `blocks` top level command:
 - `json` - Converts a binary Block Stream to JSON
 - `info` - Prints info for block files
+
+## Records Subcommands
+The following subcommands are available under the `blocks` top level command:
+- `ls` - Lists the contents of record files
 - `record2block` - Converts a historical Record Stream files into blocks
 - `fetchRecordsCsv` - Download Mirror Node record table CSV dump from GCP bucket
+
+## Days Subcommands
+The following subcommands are available under the `blocks` top level command:
+- `ls` - Lists the contents of record files
+- `record2block` - Converts a historical Record Stream files into blocks
+
+## Mirror Node Subcommands
+The following subcommands are available under the `blocks` top level command:
 - `extractBlockTimes` - Extract block times from Mirror Node records csv file
 - `validateBlockTimes` - Validates a block times file as produced by `extractBlockTimes`
 - `addNewerBlockTimes` - Extends the block times file with newer block times
-- `days` - Tools for working with days of record files compressed as tar.zstd files
+- `fetchRecordsCsv` - Download Mirror Node record table CSV dump from GCP bucket
+
+---
 
 ### The `json` Subcommand
 

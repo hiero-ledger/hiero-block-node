@@ -1,23 +1,25 @@
 // SPDX-License-Identifier: Apache-2.0
-package org.hiero.block.tools.records;
+package org.hiero.block.tools.commands.mirrornode;
 
-import org.hiero.block.tools.commands.record2blocks.Record2BlockCommand;
+import org.hiero.block.tools.commands.record2blocks.gcp.AddNewerBlockTimes;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Model.CommandSpec;
 import picocli.CommandLine.Spec;
 
 /**
- * Top level command for working with record files, either .rcd or compressed .rcd.gz files.
+ * Top level command for working with mirror nodes to fetch data.
  */
 @Command(
-        name = "records",
-        description = "Tools for working with record files, .rcd or .rcd.gz",
+        name = "mirror",
+        description = "Works with mirror nodes to fetch data",
         subcommands = {
-            LsRecordFiles.class,
-            Record2BlockCommand.class,
+            ExtractBlockTimes.class,
+            ValidateBlockTimes.class,
+            AddNewerBlockTimes.class,
+            FetchMirrorNodeRecordsCsv.class,
         },
         mixinStandardHelpOptions = true)
-public class RecordsCommand implements Runnable {
+public class MirrorNodeCommand implements Runnable {
     @Spec
     CommandSpec spec;
 

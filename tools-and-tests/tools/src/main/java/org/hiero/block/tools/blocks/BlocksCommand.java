@@ -1,23 +1,22 @@
 // SPDX-License-Identifier: Apache-2.0
-package org.hiero.block.tools.records;
+package org.hiero.block.tools.blocks;
 
-import org.hiero.block.tools.commands.record2blocks.Record2BlockCommand;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Model.CommandSpec;
 import picocli.CommandLine.Spec;
 
 /**
- * Top level command for working with record files, either .rcd or compressed .rcd.gz files.
+ * Top level command for working with block stream files. Contains subcommands for various operations.
  */
 @Command(
-        name = "records",
-        description = "Tools for working with record files, .rcd or .rcd.gz",
+        name = "blocks",
+        description = "Works with block stream files",
         subcommands = {
-            LsRecordFiles.class,
-            Record2BlockCommand.class,
+            ConvertToJson.class,
+            Info.class,
         },
         mixinStandardHelpOptions = true)
-public class RecordsCommand implements Runnable {
+public class BlocksCommand implements Runnable {
     @Spec
     CommandSpec spec;
 

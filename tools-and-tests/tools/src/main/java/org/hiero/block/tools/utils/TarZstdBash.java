@@ -92,12 +92,4 @@ public final class TarZstdBash {
     private static String shq(String s) {
         return "'" + s.replace("'", "'\"'\"'") + "'";
     }
-
-    // Example
-    public static void main(String[] args) throws Exception {
-        Path workingDir = Paths.get("/data"); // parent dir
-        String inputDir = "mydir"; // relative to workingDir
-        String output = "/backups/mydir.tar.zst"; // any path
-        compressDirectory(workingDir, output, inputDir); // -10 -T0 --long=27, deterministic
-    }
 }
