@@ -169,13 +169,13 @@ blockNode:
       io.helidon.config.level: "SEVERE"
       io.helidon.security.level: "INFO"
       io.helidon.common.level: "INFO"
-      handlers: "java.util.logging.ConsoleHandler, java.util.logging.FileHandler"
+      handlers: "java.util.logging.ConsoleHandler, org.hiero.block.node.app.logging.RollingFileHandler"
       java.util.logging.ConsoleHandler.level: "FINEST"
       java.util.logging.ConsoleHandler.formatter: "java.util.logging.SimpleFormatter"
-      java.util.logging.FileHandler.pattern: "/opt/hiero/block-node/logs/blocknode-%g.log"
+      # FileHandler pattern uses %d for adding date, %g for generation number when rotating
+      java.util.logging.FileHandler.pattern: "/opt/hiero/block-node/logs/block-node-%d-%g.log"
       java.util.logging.FileHandler.append: "true"
       java.util.logging.FileHandler.limit: "5000000"
-      java.util.logging.FileHandler.count: "5"
       java.util.logging.FileHandler.level: "FINEST"
       java.util.logging.FileHandler.formatter: "java.util.logging.SimpleFormatter"
       # Override the chatty HTTP server internals
