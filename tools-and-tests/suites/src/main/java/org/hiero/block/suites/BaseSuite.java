@@ -13,6 +13,7 @@ import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import org.hiero.block.api.protoc.BlockAccessServiceGrpc;
 import org.hiero.block.api.protoc.BlockNodeServiceGrpc;
+import org.hiero.block.api.protoc.BlockStreamPublishServiceGrpc;
 import org.hiero.block.simulator.BlockStreamSimulatorApp;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -62,6 +63,9 @@ public abstract class BaseSuite {
     /** gRPC client stub for BlockNodeService */
     protected static BlockNodeServiceGrpc.BlockNodeServiceBlockingStub blockServiceStub;
 
+    /** gRPC client stub for BlockStreamPublishService */
+    protected BlockStreamPublishServiceGrpc.BlockStreamPublishServiceStub blockStreamPublishServiceStub;
+
     /** Map from port to BlockAccessService stub */
     protected Map<Integer, BlockAccessServiceGrpc.BlockAccessServiceBlockingStub> blockAccessStubs =
             new LinkedHashMap<>();
@@ -94,6 +98,7 @@ public abstract class BaseSuite {
         executorService = new ErrorLoggingExecutor();
         blockAccessStub = initializeBlockAccessGrpcClient();
         blockServiceStub = initializeBlockNodeServiceGrpcClient();
+        blockStreamPublishServiceStub = initializeBlockStreamPublishServiceGrpcClient();
     }
 
     /**
@@ -258,6 +263,14 @@ public abstract class BaseSuite {
         final int port = blockNodePort;
         channel = ManagedChannelBuilder.forAddress(host, port).usePlaintext().build();
         return BlockNodeServiceGrpc.newBlockingStub(channel);
+    }
+
+    protected static BlockStreamPublishServiceGrpc.BlockStreamPublishServiceStub
+            initializeBlockStreamPublishServiceGrpcClient() {
+        final String host = blockNodeContainer.getHost();
+        final int port = blockNodePort;
+        channel = ManagedChannelBuilder.forAddress(host, port).usePlaintext().build();
+        return BlockStreamPublishServiceGrpc.newStub(channel);
     }
 
     /**

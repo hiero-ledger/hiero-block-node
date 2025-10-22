@@ -128,6 +128,7 @@ Observes inbound streams from publishers.
 | Counter | `publisher_blocks_resend_sent`           | Block Resend messages sent                          |
 | Counter | `publisher_block_endofstream_sent`       | Block End-of-Stream messages sent                   |
 | Counter | `publisher_block_endstream_received`     | Block End-Stream messages received                  |
+| Counter | `publisher_receive_latency_ns`           | Time taken to receive a block (ns=nanoseconds)      |
 
 ---
 
@@ -155,6 +156,7 @@ Measures block‑verification throughput and success rate.
 | Counter | `verification_blocks_failed`   | Blocks that failed verification              |
 | Counter | `verification_blocks_error`    | Internal errors during verification          |
 | Counter | `verification_block_time`      | Verification time per block (ns=nanoseconds) |
+| Counter | `hashing_block_time`           | Hashing time per block (ns=nanoseconds)      |
 
 ---
 
@@ -163,14 +165,15 @@ Measures block‑verification throughput and success rate.
 **Plugin:** `block-providers/files.recent [block-node-blocks-file-recent]`
 Activity and utilization of the recent on‑disk tier.
 
-|  Type   |                 Name                 |               Description               |
-|---------|--------------------------------------|-----------------------------------------|
-| Counter | `files_recent_blocks_written`        | Blocks written to recent tier           |
-| Counter | `files_recent_blocks_read`           | Blocks read from recent tier            |
-| Counter | `files_recent_blocks_deleted`        | Blocks deleted from recent tier         |
-| Counter | `files_recent_blocks_deleted_failed` | Blocks failed deletion from recent tier |
-| Gauge   | `files_recent_blocks_stored`         | Blocks stored in recent tier            |
-| Gauge   | `files_recent_total_bytes_stored`    | Bytes stored in recent tier             |
+|  Type   |                    Name                    |                  Description                   |
+|---------|--------------------------------------------|------------------------------------------------|
+| Counter | `files_recent_blocks_written`              | Blocks written to recent tier                  |
+| Counter | `files_recent_blocks_read`                 | Blocks read from recent tier                   |
+| Counter | `files_recent_blocks_deleted`              | Blocks deleted from recent tier                |
+| Counter | `files_recent_blocks_deleted_failed`       | Blocks failed deletion from recent tier        |
+| Gauge   | `files_recent_blocks_stored`               | Blocks stored in recent tier                   |
+| Gauge   | `files_recent_total_bytes_stored`          | Bytes stored in recent tier                    |
+| Counter | `files_recent_persistence_time_latency_ns` | Time taken to persist a block (ns=nanoseconds) |
 
 ---
 

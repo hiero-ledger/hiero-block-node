@@ -222,20 +222,7 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
         if (blockNumber <= lastPersistedBlockNumber.get()) {
             return BlockAction.END_DUPLICATE;
         } else if (blockNumber > lastPersistedBlockNumber.get() && blockNumber < nextUnstreamedBlockNumber.get()) {
-            // current streaming number will always be within the range tested here.
-            // Except when we're awaiting the first block after restart and earliest
-            // managed block is higher than what the publisher offered here.
-            if (blockNumber < earliestManagedBlock
-                    && nextUnstreamedBlockNumber.get() == currentStreamingBlockNumber.get()
-                    // Handle an edge case where we need to accept a block before the earliest
-                    // managed block right after the node (re)started.
-                    && nextUnstreamedBlockNumber.compareAndSet(earliestManagedBlock, blockNumber)) {
-                currentStreamingBlockNumber.set(blockNumber);
-                metrics.lowestBlockNumber.set(blockNumber);
-                return addHandlerQueueForBlock(blockNumber, handlerId);
-            } else {
-                return BlockAction.SKIP;
-            }
+            return streamBeforeEMBOrElse(blockNumber, handlerId, BlockAction.SKIP);
         } else if (blockNumber == nextUnstreamedBlockNumber.get()) {
             return addHandlerQueueForBlock(blockNumber, handlerId);
         } else if (blockNumber > nextUnstreamedBlockNumber.get()) {
@@ -244,6 +231,27 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
             // This should not be possible, all cases that could reach here are
             // already handled above.
             return BlockAction.END_ERROR;
+        }
+    }
+
+    /**
+     * todo(1420) add documentation
+     */
+    private BlockAction streamBeforeEMBOrElse(
+            final long blockNumber, final long handlerId, final BlockAction elseAction) {
+        // current streaming number will always be within the range tested here.
+        // Except when we're awaiting the first block after restart and earliest
+        // managed block is higher than what the publisher offered here.
+        if (blockNumber < earliestManagedBlock
+                && nextUnstreamedBlockNumber.get() == currentStreamingBlockNumber.get()
+                // Handle an edge case where we need to accept a block before the earliest
+                // managed block right after the node (re)started.
+                && nextUnstreamedBlockNumber.compareAndSet(earliestManagedBlock, blockNumber)) {
+            currentStreamingBlockNumber.set(blockNumber);
+            metrics.lowestBlockNumber.set(blockNumber);
+            return addHandlerQueueForBlock(blockNumber, handlerId);
+        } else {
+            return elseAction;
         }
     }
 

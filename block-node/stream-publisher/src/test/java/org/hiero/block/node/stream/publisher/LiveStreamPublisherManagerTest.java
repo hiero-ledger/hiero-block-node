@@ -25,6 +25,7 @@ import org.hiero.block.node.app.fixtures.async.BlockingExecutor;
 import org.hiero.block.node.app.fixtures.async.TestThreadPoolManager;
 import org.hiero.block.node.app.fixtures.blocks.SimpleTestBlockItemBuilder;
 import org.hiero.block.node.app.fixtures.pipeline.TestResponsePipeline;
+import org.hiero.block.node.app.fixtures.plugintest.SimpleBlockRangeSet;
 import org.hiero.block.node.app.fixtures.plugintest.SimpleInMemoryHistoricalBlockFacility;
 import org.hiero.block.node.app.fixtures.plugintest.TestBlockMessagingFacility;
 import org.hiero.block.node.spi.BlockNodeContext;
@@ -45,6 +46,7 @@ import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
+import org.junit.jupiter.params.provider.ValueSource;
 
 /**
  * Tests for the {@link LiveStreamPublisherManager}.
@@ -210,13 +212,27 @@ class LiveStreamPublisherManagerTest {
              * number is lower or equal to the latest known block number and
              * previous action is {@code null}.
              */
-            @Test
+            @ParameterizedTest
+            @ValueSource(
+                    longs = {
+                        0L, 1L, 2L, 3L, 4L, 5L,
+                    })
             @DisplayName(
                     "getActionForBlock() returns END_DUPLICATE when the provided block number is lower or equal to the latest known block number and previous action is NULL")
-            void testGetActionNullPreviousActionDUPLICATE() {
-                // Initially, the latest known block number is -1L.
-                // Call with lower than latest known block number.
-                final BlockAction actual = toTest.getActionForBlock(-2L, null, publisherHandlerId);
+            void testGetActionNullPreviousActionDUPLICATE(final long blockNumber) {
+                // First, we need to have some blocks available
+                final SimpleBlockRangeSet availableBlocks = new SimpleBlockRangeSet();
+                final long firstPersistedBlock = 0L;
+                final long lastPersistedBlock = 5L;
+                availableBlocks.add(firstPersistedBlock, lastPersistedBlock);
+                historicalBlockFacility.setTemporaryAvailableBlocks(availableBlocks);
+                assertThat(historicalBlockFacility.availableBlocks().contains(firstPersistedBlock, lastPersistedBlock))
+                        .isTrue();
+                // Then, we can send a persisted notification which will update the latest persisted block number, this
+                // is critical to pass this test. No matter if the latest persisted is set during plugin startup or
+                // via a notification, the result has to be the same.
+                toTest.handlePersisted(new PersistedNotification(lastPersistedBlock, true, 0, BlockSource.UNKNOWN));
+                final BlockAction actual = toTest.getActionForBlock(blockNumber, null, publisherHandlerId);
                 // Assert
                 assertThat(actual).isEqualTo(BlockAction.END_DUPLICATE);
             }

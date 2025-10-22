@@ -4,6 +4,7 @@ package org.hiero.block.node.stream.publisher;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatNoException;
 import static org.assertj.core.api.Assertions.assertThatNullPointerException;
+import static org.hiero.block.node.spi.BlockNodePlugin.METRICS_CATEGORY;
 
 import com.swirlds.metrics.api.Counter.Config;
 import com.swirlds.metrics.impl.DefaultCounter;
@@ -210,7 +211,7 @@ class PublisherHandlerTest {
                 final int streamedBlockNumber = 0;
                 final BlockItemUnparsed[] blockItems =
                         SimpleTestBlockItemBuilder.createNumberOfVerySimpleBlocksUnparsed(
-                                streamedBlockNumber, streamedBlockNumber + 1);
+                                streamedBlockNumber, streamedBlockNumber);
                 final BlockItemSetUnparsed blockItemSet =
                         BlockItemSetUnparsed.newBuilder().blockItems(blockItems).build();
                 final PublishStreamRequestUnparsed request = PublishStreamRequestUnparsed.newBuilder()
@@ -244,7 +245,7 @@ class PublisherHandlerTest {
                 final int streamedBlockNumber = 0;
                 final BlockItemUnparsed[] blockItems =
                         SimpleTestBlockItemBuilder.createNumberOfVerySimpleBlocksUnparsed(
-                                streamedBlockNumber, streamedBlockNumber + 1);
+                                streamedBlockNumber, streamedBlockNumber);
                 final BlockItemSetUnparsed blockItemSet =
                         BlockItemSetUnparsed.newBuilder().blockItems(blockItems).build();
                 final PublishStreamRequestUnparsed request = PublishStreamRequestUnparsed.newBuilder()
@@ -282,7 +283,7 @@ class PublisherHandlerTest {
                 final int streamedBlockNumber = 0;
                 final BlockItemUnparsed[] blockItems =
                         SimpleTestBlockItemBuilder.createNumberOfVerySimpleBlocksUnparsed(
-                                streamedBlockNumber, streamedBlockNumber + 1);
+                                streamedBlockNumber, streamedBlockNumber);
                 final BlockItemSetUnparsed blockItemSet =
                         BlockItemSetUnparsed.newBuilder().blockItems(blockItems).build();
                 final PublishStreamRequestUnparsed request = PublishStreamRequestUnparsed.newBuilder()
@@ -326,7 +327,7 @@ class PublisherHandlerTest {
                 final int expectedStreamedBlockNumber = 0;
                 final BlockItemUnparsed[] blockItems =
                         SimpleTestBlockItemBuilder.createNumberOfVerySimpleBlocksUnparsed(
-                                expectedStreamedBlockNumber, expectedStreamedBlockNumber + 1);
+                                expectedStreamedBlockNumber, expectedStreamedBlockNumber);
                 final BlockItemSetUnparsed blockItemSet =
                         BlockItemSetUnparsed.newBuilder().blockItems(blockItems).build();
                 final PublishStreamRequestUnparsed request = PublishStreamRequestUnparsed.newBuilder()
@@ -381,7 +382,7 @@ class PublisherHandlerTest {
                 final int streamedBlockNumber = 0;
                 final BlockItemUnparsed[] blockItems =
                         SimpleTestBlockItemBuilder.createNumberOfVerySimpleBlocksUnparsed(
-                                streamedBlockNumber, streamedBlockNumber + 1);
+                                streamedBlockNumber, streamedBlockNumber);
                 final BlockItemSetUnparsed blockItemSet =
                         BlockItemSetUnparsed.newBuilder().blockItems(blockItems).build();
                 final PublishStreamRequestUnparsed request = PublishStreamRequestUnparsed.newBuilder()
@@ -417,7 +418,7 @@ class PublisherHandlerTest {
                 final int streamedBlockNumber = 0;
                 final BlockItemUnparsed[] blockItems =
                         SimpleTestBlockItemBuilder.createNumberOfVerySimpleBlocksUnparsedWithBrokenProofs(
-                                streamedBlockNumber, streamedBlockNumber + 1);
+                                streamedBlockNumber, streamedBlockNumber);
                 final BlockItemSetUnparsed blockItemSet =
                         BlockItemSetUnparsed.newBuilder().blockItems(blockItems).build();
                 final PublishStreamRequestUnparsed request = PublishStreamRequestUnparsed.newBuilder()
@@ -452,7 +453,7 @@ class PublisherHandlerTest {
                 final int streamedBlockNumber = 0;
                 final BlockItemUnparsed[] blockItems =
                         SimpleTestBlockItemBuilder.createNumberOfVerySimpleBlocksUnparsed(
-                                streamedBlockNumber, streamedBlockNumber + 1);
+                                streamedBlockNumber, streamedBlockNumber);
                 final int mid = blockItems.length / 2;
                 // Build the first request with the first half of the block items
                 final BlockItemSetUnparsed blockItemSet1 = BlockItemSetUnparsed.newBuilder()
@@ -499,7 +500,7 @@ class PublisherHandlerTest {
                 final int streamedBlockNumber = 0;
                 final BlockItemUnparsed[] blockItems =
                         SimpleTestBlockItemBuilder.createNumberOfVerySimpleBlocksUnparsed(
-                                streamedBlockNumber, streamedBlockNumber + 1);
+                                streamedBlockNumber, streamedBlockNumber);
                 final int mid = blockItems.length / 2;
                 // Build the first request with the first half of the block items
                 final BlockItemSetUnparsed blockItemSet1 = BlockItemSetUnparsed.newBuilder()
@@ -554,7 +555,7 @@ class PublisherHandlerTest {
                 final int streamedBlockNumber = 0;
                 final BlockItemUnparsed[] blockItems =
                         SimpleTestBlockItemBuilder.createNumberOfVerySimpleBlocksUnparsed(
-                                streamedBlockNumber, streamedBlockNumber + 1);
+                                streamedBlockNumber, streamedBlockNumber);
                 final BlockItemSetUnparsed blockItemSet =
                         BlockItemSetUnparsed.newBuilder().blockItems(blockItems).build();
                 final PublishStreamRequestUnparsed request = PublishStreamRequestUnparsed.newBuilder()
@@ -587,7 +588,7 @@ class PublisherHandlerTest {
                 final int streamedBlockNumber = 0;
                 final BlockItemUnparsed[] blockItems =
                         SimpleTestBlockItemBuilder.createNumberOfVerySimpleBlocksUnparsed(
-                                streamedBlockNumber, streamedBlockNumber + 1);
+                                streamedBlockNumber, streamedBlockNumber);
                 final BlockItemSetUnparsed blockItemSet =
                         BlockItemSetUnparsed.newBuilder().blockItems(blockItems).build();
                 final PublishStreamRequestUnparsed request = PublishStreamRequestUnparsed.newBuilder()
@@ -628,7 +629,7 @@ class PublisherHandlerTest {
                 final int streamedBlockNumber = 0;
                 final BlockItemUnparsed[] blockItems =
                         SimpleTestBlockItemBuilder.createNumberOfVerySimpleBlocksUnparsed(
-                                streamedBlockNumber, streamedBlockNumber + 1);
+                                streamedBlockNumber, streamedBlockNumber);
                 final BlockItemSetUnparsed blockItemSet =
                         BlockItemSetUnparsed.newBuilder().blockItems(blockItems).build();
                 final PublishStreamRequestUnparsed request = PublishStreamRequestUnparsed.newBuilder()
@@ -669,7 +670,7 @@ class PublisherHandlerTest {
                 final int streamedBlockNumber = 0;
                 final BlockItemUnparsed[] blockItems =
                         SimpleTestBlockItemBuilder.createNumberOfVerySimpleBlocksUnparsed(
-                                streamedBlockNumber, streamedBlockNumber + 1);
+                                streamedBlockNumber, streamedBlockNumber);
                 final BlockItemSetUnparsed blockItemSet =
                         BlockItemSetUnparsed.newBuilder().blockItems(blockItems).build();
                 final PublishStreamRequestUnparsed request = PublishStreamRequestUnparsed.newBuilder()
@@ -702,7 +703,7 @@ class PublisherHandlerTest {
                 final int streamedBlockNumber = 0;
                 final BlockItemUnparsed[] blockItems =
                         SimpleTestBlockItemBuilder.createNumberOfVerySimpleBlocksUnparsed(
-                                streamedBlockNumber, streamedBlockNumber + 1);
+                                streamedBlockNumber, streamedBlockNumber);
                 final BlockItemSetUnparsed blockItemSet =
                         BlockItemSetUnparsed.newBuilder().blockItems(blockItems).build();
                 final PublishStreamRequestUnparsed request = PublishStreamRequestUnparsed.newBuilder()
@@ -748,7 +749,7 @@ class PublisherHandlerTest {
                 final int streamedBlockNumber = 0;
                 final BlockItemUnparsed[] blockItems =
                         SimpleTestBlockItemBuilder.createNumberOfVerySimpleBlocksUnparsed(
-                                streamedBlockNumber, streamedBlockNumber + 1);
+                                streamedBlockNumber, streamedBlockNumber);
                 final BlockItemSetUnparsed blockItemSet =
                         BlockItemSetUnparsed.newBuilder().blockItems(blockItems).build();
                 final PublishStreamRequestUnparsed request = PublishStreamRequestUnparsed.newBuilder()
@@ -792,7 +793,7 @@ class PublisherHandlerTest {
                 final int streamedBlockNumber = 0;
                 final BlockItemUnparsed[] blockItems =
                         SimpleTestBlockItemBuilder.createNumberOfVerySimpleBlocksUnparsed(
-                                streamedBlockNumber, streamedBlockNumber + 1);
+                                streamedBlockNumber, streamedBlockNumber);
                 final BlockItemSetUnparsed blockItemSet =
                         BlockItemSetUnparsed.newBuilder().blockItems(blockItems).build();
                 final PublishStreamRequestUnparsed request = PublishStreamRequestUnparsed.newBuilder()
@@ -827,7 +828,7 @@ class PublisherHandlerTest {
                 final int streamedBlockNumber = 0;
                 final BlockItemUnparsed[] blockItems =
                         SimpleTestBlockItemBuilder.createNumberOfVerySimpleBlocksUnparsed(
-                                streamedBlockNumber, streamedBlockNumber + 1);
+                                streamedBlockNumber, streamedBlockNumber);
                 final BlockItemSetUnparsed blockItemSet =
                         BlockItemSetUnparsed.newBuilder().blockItems(blockItems).build();
                 final PublishStreamRequestUnparsed request = PublishStreamRequestUnparsed.newBuilder()
@@ -874,7 +875,7 @@ class PublisherHandlerTest {
                 final int streamedBlockNumber = 0;
                 final BlockItemUnparsed[] blockItems =
                         SimpleTestBlockItemBuilder.createNumberOfVerySimpleBlocksUnparsed(
-                                streamedBlockNumber, streamedBlockNumber + 1);
+                                streamedBlockNumber, streamedBlockNumber);
                 final BlockItemSetUnparsed blockItemSet =
                         BlockItemSetUnparsed.newBuilder().blockItems(blockItems).build();
                 final PublishStreamRequestUnparsed request = PublishStreamRequestUnparsed.newBuilder()
@@ -918,7 +919,7 @@ class PublisherHandlerTest {
                 final int streamedBlockNumber = 0;
                 final BlockItemUnparsed[] blockItems =
                         SimpleTestBlockItemBuilder.createNumberOfVerySimpleBlocksUnparsed(
-                                streamedBlockNumber, streamedBlockNumber + 1);
+                                streamedBlockNumber, streamedBlockNumber);
                 final BlockItemSetUnparsed blockItemSet =
                         BlockItemSetUnparsed.newBuilder().blockItems(blockItems).build();
                 final PublishStreamRequestUnparsed request = PublishStreamRequestUnparsed.newBuilder()
@@ -953,7 +954,7 @@ class PublisherHandlerTest {
                 final int streamedBlockNumber = 0;
                 final BlockItemUnparsed[] blockItems =
                         SimpleTestBlockItemBuilder.createNumberOfVerySimpleBlocksUnparsed(
-                                streamedBlockNumber, streamedBlockNumber + 1);
+                                streamedBlockNumber, streamedBlockNumber);
                 final BlockItemSetUnparsed blockItemSet =
                         BlockItemSetUnparsed.newBuilder().blockItems(blockItems).build();
                 final PublishStreamRequestUnparsed request = PublishStreamRequestUnparsed.newBuilder()
@@ -999,7 +1000,7 @@ class PublisherHandlerTest {
                 final int streamedBlockNumber = 0;
                 final BlockItemUnparsed[] blockItems =
                         SimpleTestBlockItemBuilder.createNumberOfVerySimpleBlocksUnparsed(
-                                streamedBlockNumber, streamedBlockNumber + 1);
+                                streamedBlockNumber, streamedBlockNumber);
                 final BlockItemSetUnparsed blockItemSet =
                         BlockItemSetUnparsed.newBuilder().blockItems(blockItems).build();
                 final PublishStreamRequestUnparsed request = PublishStreamRequestUnparsed.newBuilder()
@@ -1043,7 +1044,7 @@ class PublisherHandlerTest {
                 final int streamedBlockNumber = 0;
                 final BlockItemUnparsed[] blockItems =
                         SimpleTestBlockItemBuilder.createNumberOfVerySimpleBlocksUnparsed(
-                                streamedBlockNumber, streamedBlockNumber + 1);
+                                streamedBlockNumber, streamedBlockNumber);
                 final BlockItemSetUnparsed blockItemSet =
                         BlockItemSetUnparsed.newBuilder().blockItems(blockItems).build();
                 final PublishStreamRequestUnparsed request = PublishStreamRequestUnparsed.newBuilder()
@@ -1078,7 +1079,7 @@ class PublisherHandlerTest {
                 final int streamedBlockNumber = 0;
                 final BlockItemUnparsed[] blockItems =
                         SimpleTestBlockItemBuilder.createNumberOfVerySimpleBlocksUnparsed(
-                                streamedBlockNumber, streamedBlockNumber + 1);
+                                streamedBlockNumber, streamedBlockNumber);
                 final BlockItemSetUnparsed blockItemSet =
                         BlockItemSetUnparsed.newBuilder().blockItems(blockItems).build();
                 final PublishStreamRequestUnparsed request = PublishStreamRequestUnparsed.newBuilder()
@@ -1124,7 +1125,7 @@ class PublisherHandlerTest {
                 final int streamedBlockNumber = 0;
                 final BlockItemUnparsed[] blockItems =
                         SimpleTestBlockItemBuilder.createNumberOfVerySimpleBlocksUnparsed(
-                                streamedBlockNumber, streamedBlockNumber + 1);
+                                streamedBlockNumber, streamedBlockNumber);
                 final BlockItemSetUnparsed blockItemSet =
                         BlockItemSetUnparsed.newBuilder().blockItems(blockItems).build();
                 final PublishStreamRequestUnparsed request = PublishStreamRequestUnparsed.newBuilder()
@@ -1167,7 +1168,7 @@ class PublisherHandlerTest {
                 final int streamedBlockNumber = 0;
                 final BlockItemUnparsed[] blockItems =
                         SimpleTestBlockItemBuilder.createNumberOfVerySimpleBlocksUnparsed(
-                                streamedBlockNumber, streamedBlockNumber + 1);
+                                streamedBlockNumber, streamedBlockNumber);
                 // Remove the first item, which is the block header
                 final BlockItemUnparsed[] blockItemsToSend = Arrays.copyOfRange(blockItems, 1, blockItems.length);
                 final BlockItemSetUnparsed blockItemSet = BlockItemSetUnparsed.newBuilder()
@@ -1200,7 +1201,7 @@ class PublisherHandlerTest {
                 final int streamedBlockNumber = 0;
                 final BlockItemUnparsed[] blockItems =
                         SimpleTestBlockItemBuilder.createNumberOfVerySimpleBlocksUnparsed(
-                                streamedBlockNumber, streamedBlockNumber + 1);
+                                streamedBlockNumber, streamedBlockNumber);
                 // Remove the first item, which is the block header
                 final BlockItemUnparsed[] blockItemsToSend = Arrays.copyOfRange(blockItems, 1, blockItems.length);
                 final BlockItemSetUnparsed blockItemSet = BlockItemSetUnparsed.newBuilder()
@@ -1237,7 +1238,7 @@ class PublisherHandlerTest {
                 final int streamedBlockNumber = 0;
                 final BlockItemUnparsed[] blockItems =
                         SimpleTestBlockItemBuilder.createNumberOfVerySimpleBlocksUnparsed(
-                                streamedBlockNumber, streamedBlockNumber + 1);
+                                streamedBlockNumber, streamedBlockNumber);
                 // Remove the first item, which is the block header
                 final BlockItemUnparsed[] blockItemsToSend = Arrays.copyOfRange(blockItems, 1, blockItems.length);
                 final BlockItemSetUnparsed blockItemSet = BlockItemSetUnparsed.newBuilder()
@@ -1280,7 +1281,7 @@ class PublisherHandlerTest {
                 final int expectedStreamedBlockNumber = 0;
                 final BlockItemUnparsed[] blockItems =
                         SimpleTestBlockItemBuilder.createNumberOfVerySimpleBlocksUnparsed(
-                                expectedStreamedBlockNumber, expectedStreamedBlockNumber + 1);
+                                expectedStreamedBlockNumber, expectedStreamedBlockNumber);
                 // Remove the first item, which is the block header
                 final BlockItemUnparsed[] blockItemsToSend = Arrays.copyOfRange(blockItems, 1, blockItems.length);
                 final BlockItemSetUnparsed blockItemSet = BlockItemSetUnparsed.newBuilder()
@@ -1328,7 +1329,7 @@ class PublisherHandlerTest {
                 final int expectedStreamedBlockNumber = 0;
                 final BlockItemUnparsed[] blockItems =
                         SimpleTestBlockItemBuilder.createNumberOfVerySimpleBlocksUnparsed(
-                                expectedStreamedBlockNumber, expectedStreamedBlockNumber + 1);
+                                expectedStreamedBlockNumber, expectedStreamedBlockNumber);
                 // Remove the first item, which is the block header
                 final BlockItemUnparsed[] blockItemsToSend = Arrays.copyOfRange(blockItems, 1, blockItems.length);
                 final BlockItemSetUnparsed blockItemSet = BlockItemSetUnparsed.newBuilder()
@@ -1387,7 +1388,7 @@ class PublisherHandlerTest {
                 final int expectedStreamedBlockNumber = 0;
                 final BlockItemUnparsed[] blockItems =
                         SimpleTestBlockItemBuilder.createNumberOfVerySimpleBlocksUnparsed(
-                                expectedStreamedBlockNumber, expectedStreamedBlockNumber + 1);
+                                expectedStreamedBlockNumber, expectedStreamedBlockNumber);
                 // Remove the first item, which is the block header
                 final BlockItemUnparsed[] blockItemsToSend = Arrays.copyOfRange(blockItems, 1, blockItems.length);
                 final BlockItemSetUnparsed blockItemSet = BlockItemSetUnparsed.newBuilder()
@@ -1451,7 +1452,7 @@ class PublisherHandlerTest {
                 final int streamedBlockNumber = 0;
                 final BlockItemUnparsed[] blockItems =
                         SimpleTestBlockItemBuilder.createNumberOfVerySimpleBlocksUnparsed(
-                                streamedBlockNumber, streamedBlockNumber + 1);
+                                streamedBlockNumber, streamedBlockNumber);
                 // Send the first half of the items, header included
                 final BlockItemUnparsed[] blockItemsToSend = Arrays.copyOfRange(blockItems, 0, blockItems.length / 2);
                 final BlockItemSetUnparsed blockItemSet = BlockItemSetUnparsed.newBuilder()
@@ -1493,7 +1494,7 @@ class PublisherHandlerTest {
                 final int streamedBlockNumber = 0;
                 final BlockItemUnparsed[] blockItems =
                         SimpleTestBlockItemBuilder.createNumberOfVerySimpleBlocksUnparsed(
-                                streamedBlockNumber, streamedBlockNumber + 1);
+                                streamedBlockNumber, streamedBlockNumber);
                 // Send the first half of the items, header included
                 final BlockItemUnparsed[] blockItemsToSend = Arrays.copyOfRange(blockItems, 0, blockItems.length / 2);
                 final BlockItemSetUnparsed blockItemSet = BlockItemSetUnparsed.newBuilder()
@@ -1545,7 +1546,7 @@ class PublisherHandlerTest {
                 final int streamedBlockNumber = 0;
                 final BlockItemUnparsed[] blockItems =
                         SimpleTestBlockItemBuilder.createNumberOfVerySimpleBlocksUnparsed(
-                                streamedBlockNumber, streamedBlockNumber + 1);
+                                streamedBlockNumber, streamedBlockNumber);
                 // Send the first half of the items, header included
                 final BlockItemUnparsed[] blockItemsToSend = Arrays.copyOfRange(blockItems, 0, blockItems.length / 2);
                 final BlockItemSetUnparsed blockItemSet = BlockItemSetUnparsed.newBuilder()
@@ -1593,7 +1594,7 @@ class PublisherHandlerTest {
                 final int streamedBlockNumber = 0;
                 final BlockItemUnparsed[] blockItems =
                         SimpleTestBlockItemBuilder.createNumberOfVerySimpleBlocksUnparsedWithBrokenHeaders(
-                                streamedBlockNumber, streamedBlockNumber + 1);
+                                streamedBlockNumber, streamedBlockNumber);
                 final BlockItemSetUnparsed blockItemSet =
                         BlockItemSetUnparsed.newBuilder().blockItems(blockItems).build();
                 final PublishStreamRequestUnparsed request = PublishStreamRequestUnparsed.newBuilder()
@@ -1623,7 +1624,7 @@ class PublisherHandlerTest {
                 final int streamedBlockNumber = 0;
                 final BlockItemUnparsed[] blockItems =
                         SimpleTestBlockItemBuilder.createNumberOfVerySimpleBlocksUnparsedWithBrokenHeaders(
-                                streamedBlockNumber, streamedBlockNumber + 1);
+                                streamedBlockNumber, streamedBlockNumber);
                 final BlockItemSetUnparsed blockItemSet =
                         BlockItemSetUnparsed.newBuilder().blockItems(blockItems).build();
                 final PublishStreamRequestUnparsed request = PublishStreamRequestUnparsed.newBuilder()
@@ -1660,7 +1661,7 @@ class PublisherHandlerTest {
                 final int streamedBlockNumber = 0;
                 final BlockItemUnparsed[] blockItems =
                         SimpleTestBlockItemBuilder.createNumberOfVerySimpleBlocksUnparsedWithBrokenHeaders(
-                                streamedBlockNumber, streamedBlockNumber + 1);
+                                streamedBlockNumber, streamedBlockNumber);
                 final BlockItemSetUnparsed blockItemSet =
                         BlockItemSetUnparsed.newBuilder().blockItems(blockItems).build();
                 final PublishStreamRequestUnparsed request = PublishStreamRequestUnparsed.newBuilder()
@@ -1695,7 +1696,7 @@ class PublisherHandlerTest {
                 final int streamedBlockNumber = 0;
                 final BlockItemUnparsed[] blockItems =
                         SimpleTestBlockItemBuilder.createNumberOfVerySimpleBlocksUnparsedWithNullHeaderBytes(
-                                streamedBlockNumber, streamedBlockNumber + 1);
+                                streamedBlockNumber, streamedBlockNumber);
                 final BlockItemSetUnparsed blockItemSet =
                         BlockItemSetUnparsed.newBuilder().blockItems(blockItems).build();
                 final PublishStreamRequestUnparsed request = PublishStreamRequestUnparsed.newBuilder()
@@ -1724,7 +1725,7 @@ class PublisherHandlerTest {
                 final int streamedBlockNumber = 0;
                 final BlockItemUnparsed[] blockItems =
                         SimpleTestBlockItemBuilder.createNumberOfVerySimpleBlocksUnparsedWithNullHeaderBytes(
-                                streamedBlockNumber, streamedBlockNumber + 1);
+                                streamedBlockNumber, streamedBlockNumber);
                 final BlockItemSetUnparsed blockItemSet =
                         BlockItemSetUnparsed.newBuilder().blockItems(blockItems).build();
                 final PublishStreamRequestUnparsed request = PublishStreamRequestUnparsed.newBuilder()
@@ -1760,7 +1761,7 @@ class PublisherHandlerTest {
                 final int streamedBlockNumber = 0;
                 final BlockItemUnparsed[] blockItems =
                         SimpleTestBlockItemBuilder.createNumberOfVerySimpleBlocksUnparsedWithNullHeaderBytes(
-                                streamedBlockNumber, streamedBlockNumber + 1);
+                                streamedBlockNumber, streamedBlockNumber);
                 final BlockItemSetUnparsed blockItemSet =
                         BlockItemSetUnparsed.newBuilder().blockItems(blockItems).build();
                 final PublishStreamRequestUnparsed request = PublishStreamRequestUnparsed.newBuilder()
@@ -2204,13 +2205,14 @@ class PublisherHandlerTest {
      */
     private MetricsHolder createMetrics() {
         return new MetricsHolder(
-                new DefaultCounter(new Config("category", "name")),
-                new DefaultCounter(new Config("category", "name")),
-                new DefaultCounter(new Config("category", "name")),
-                new DefaultCounter(new Config("category", "name")),
-                new DefaultCounter(new Config("category", "name")),
-                new DefaultCounter(new Config("category", "name")),
-                new DefaultCounter(new Config("category", "name")),
-                new DefaultCounter(new Config("category", "name")));
+                new DefaultCounter(new Config(METRICS_CATEGORY, "publisher_block_items_received")),
+                new DefaultCounter(new Config(METRICS_CATEGORY, "publisher_blocks_ack_sent")),
+                new DefaultCounter(new Config(METRICS_CATEGORY, "publisher_stream_errors")),
+                new DefaultCounter(new Config(METRICS_CATEGORY, "publisher_blocks_skips_sent")),
+                new DefaultCounter(new Config(METRICS_CATEGORY, "publisher_blocks_resend_sent")),
+                new DefaultCounter(new Config(METRICS_CATEGORY, "publisher_block_endofstream_sent")),
+                new DefaultCounter(new Config(METRICS_CATEGORY, "publisher_block_send_response_failed")),
+                new DefaultCounter(new Config(METRICS_CATEGORY, "publisher_block_endstream_received")),
+                new DefaultCounter(new Config(METRICS_CATEGORY, "publisher_receive_latency_ns")));
     }
 }
