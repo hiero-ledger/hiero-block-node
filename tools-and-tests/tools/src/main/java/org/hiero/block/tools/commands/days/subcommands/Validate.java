@@ -1,11 +1,17 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.tools.commands.days.subcommands;
 
+import com.google.gson.Gson;
+import com.google.gson.GsonBuilder;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import java.io.File;
 import java.io.FileWriter;
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Instant;
+import java.util.HexFormat;
 import java.util.List;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.LinkedBlockingQueue;
@@ -23,33 +29,34 @@ import picocli.CommandLine.Option;
 import picocli.CommandLine.Parameters;
 import picocli.CommandLine.Spec;
 
+import static java.nio.file.StandardOpenOption.CREATE;
+import static java.nio.file.StandardOpenOption.TRUNCATE_EXISTING;
+
 /**
  * Validate blockchain in record file blocks in day files, computing and checking running hash.
  */
 @SuppressWarnings("CallToPrintStackTrace")
 @Command(name = "validate", description = "Validate blockchain in record file blocks in day files")
 public class Validate implements Runnable {
+    /** Zero hash for initial carry over */
     private static final byte[] ZERO_HASH = new byte[48];
 
-    // Simple wrapper for producer-consumer communication (day boundaries + blocks)
-    private static final class Item {
+    /** Gson instance for Status JSON serialization */
+    private static final Gson GSON = new GsonBuilder().create();
+
+    /**
+     * Simple wrapper for producer-consumer communication (day boundaries + blocks)
+     *
+     * @param dayIndex index into dayPaths
+     * @param dayFile  for diagnostics (may be null for STREAM_END)
+     * @param block    only for BLOCK
+     */
+     private record Item(Kind kind, int dayIndex, Path dayFile, InMemoryBlock block) {
         enum Kind {
             DAY_START,
             BLOCK,
             DAY_END,
             STREAM_END
-        }
-
-        final Kind kind;
-        final int dayIndex; // index into dayPaths
-        final Path dayFile; // for diagnostics (may be null for STREAM_END)
-        final InMemoryBlock block; // only for BLOCK
-
-        Item(Kind kind, int dayIndex, Path dayFile, InMemoryBlock block) {
-            this.kind = kind;
-            this.dayIndex = dayIndex;
-            this.dayFile = dayFile;
-            this.block = block;
         }
 
         static Item dayStart(int idx, Path file) {
@@ -69,6 +76,53 @@ public class Validate implements Runnable {
         }
     }
 
+    /**
+     * Simple status object saved to compressedDaysDir/validateCmdStatus.json to allow resuming.
+     * <p>Note: JSON (de)serialization handled by Gson via field reflection.</p>
+     */
+    @SuppressWarnings("ClassCanBeRecord")
+    private static final class Status {
+        final int dayIndex;
+        final String recordFileTime; // ISO-8601 from Instant.toString()
+        final String endRunningHashHex;
+
+        Status(int dayIndex, String recordFileTime, String endRunningHashHex) {
+            this.dayIndex = dayIndex;
+            this.recordFileTime = recordFileTime;
+            this.endRunningHashHex = endRunningHashHex;
+        }
+
+        Instant recordInstant() {
+            return Instant.parse(recordFileTime);
+        }
+
+        byte[] hashBytes() {
+            return HexFormat.of().parseHex(endRunningHashHex);
+        }
+
+        private static void writeStatusFile(Path statusFile, Status s) {
+            if (statusFile == null || s == null) return;
+            try {
+                String json = GSON.toJson(s);
+                Files.writeString(statusFile, json, StandardCharsets.UTF_8, CREATE, TRUNCATE_EXISTING);
+            } catch (IOException e) {
+                System.err.println("Failed to write status file " + statusFile + ": " + e.getMessage());
+                e.printStackTrace();
+            }
+        }
+
+        private static Status readStatusFile(Path statusFile) {
+            try {
+                if (statusFile == null || !Files.exists(statusFile)) return null;
+                String content = Files.readString(statusFile, StandardCharsets.UTF_8);
+                return GSON.fromJson(content, Status.class);
+            } catch (Exception e) {
+                System.err.println("Failed to read/parse status file " + statusFile + ": " + e.getMessage());
+                return null;
+            }
+        }
+    }
+
     @Spec
     CommandSpec spec;
 
@@ -77,21 +131,37 @@ public class Validate implements Runnable {
             description = "Write warnings to this file, rather than ignoring them")
     private File warningFile = null;
 
-    @Parameters(index = "0..*", description = "Files or directories to process")
-    private final File[] compressedDayOrDaysDirs = new File[0];
+    @Parameters(index = "0", description = "Directories of days to process")
+    @SuppressWarnings("unused") // assigned reflectively by picocli
+    private File compressedDaysDir;
 
     @Override
     public void run() {
         // create AddressBookRegistry to load address books as needed during validation
         final AddressBookRegistry addressBookRegistry = new AddressBookRegistry();
         // If no inputs are provided, print usage help for this subcommand
-        if (compressedDayOrDaysDirs.length == 0) {
+        if (compressedDaysDir == null) {
             spec.commandLine().usage(spec.commandLine().getOut());
             return;
         }
+
+        final Path statusFile = compressedDaysDir.toPath().resolve("validateCmdStatus.json");
+        final Status resumeStatus = Status.readStatusFile(statusFile);
+
         final AtomicReference<byte[]> carryOverHash = new AtomicReference<>(ZERO_HASH);
-        System.out.println("Starting hash[" + Bytes.wrap(carryOverHash.get()) + "]");
-        final List<Path> dayPaths = TarZstdDayUtils.sortedDayPaths(compressedDayOrDaysDirs);
+        if (resumeStatus != null) {
+            byte[] hb = resumeStatus.hashBytes();
+            if (hb.length > 0) carryOverHash.set(hb);
+            System.out.printf("Resuming at %s with hash[%s]%n",
+                resumeStatus.recordFileTime,
+                resumeStatus.endRunningHashHex.substring(0, 8));
+        } else {
+            System.out.println("Starting at genesis with hash[" + Bytes.wrap(carryOverHash.get()) + "]");
+        }
+
+        final AtomicReference<Status> lastGood = new AtomicReference<>(resumeStatus);
+
+        final List<Path> dayPaths = TarZstdDayUtils.sortedDayPaths(new File[]{compressedDaysDir});
         // Estimation/ETA support
         final long startNanos = System.nanoTime();
         final long INITIAL_ESTIMATE_PER_DAY = (24L * 60L * 60L) / 5L; // one every 5 seconds for a whole day
@@ -102,29 +172,51 @@ public class Validate implements Runnable {
         // Producer-consumer queue with bounded capacity for backpressure
         final BlockingQueue<Item> queue = new LinkedBlockingQueue<>(100_000);
 
+        // Register shutdown hook to persist last good status on JVM exit (Ctrl+C, etc.)
+        Runtime.getRuntime().addShutdownHook(new Thread(() -> {
+            Status s = lastGood.get();
+            if (s != null) {
+                System.err.println("Shutdown: writing status to " + statusFile);
+                Status.writeStatusFile(statusFile, s);
+            }
+        }, "validate-shutdown-hook"));
+
         // Reader thread: reads .tar.zstd day files and enqueues blocks
+        final int startDay = Math.max(0, resumeStatus != null ? resumeStatus.dayIndex : 0);
         final Thread reader = new Thread(
                 () -> {
                     try {
-                        for (int day = 0; day < dayPaths.size(); day++) {
+                        for (int day = startDay; day < dayPaths.size(); day++) {
                             final Path dayPath = dayPaths.get(day);
                             queue.put(Item.dayStart(day, dayPath));
                             try (var stream = TarZstdDayReaderUsingExec.streamTarZstd(dayPath)) {
                                 final int dayIdx = day; // capture effectively final for lambda
-                                // capture effectively final for lambda
+                                // capture resumeStatus directly
                                 stream.forEach(set -> {
-                                    try {
-                                        queue.put(Item.block(dayIdx, dayPath, set));
-                                    } catch (InterruptedException ie) {
-                                        Thread.currentThread().interrupt();
-                                        throw new RuntimeException(
-                                                "Interrupted while enqueueing block from " + dayPath, ie);
-                                    }
+                                     try {
+                                         // If resuming and this is the resume day, skip blocks up to and including the
+                                         // recorded recordFileTime
+                                         if (resumeStatus != null && dayIdx == resumeStatus.dayIndex) {
+                                            Instant ri = resumeStatus.recordInstant();
+                                            if (!set.recordFileTime().isAfter(ri)) {
+                                                // skip this block (it was already processed)
+                                                return;
+                                            }
+                                         }
+                                         queue.put(Item.block(dayIdx, dayPath, set));
+                                     } catch (InterruptedException ie) {
+                                         Thread.currentThread().interrupt();
+                                         throw new RuntimeException(
+                                                 "Interrupted while enqueueing block from " + dayPath, ie);
+                                     }
                                 });
                             } catch (Exception ex) {
                                 PrettyPrint.clearProgress();
                                 System.err.println("Failed processing day file: " + dayPath + ": " + ex.getMessage());
                                 ex.printStackTrace();
+                                // Persist status and exit
+                                Status s = lastGood.get();
+                                if (s != null) Status.writeStatusFile(statusFile, s);
                                 System.exit(1);
                             }
                             // signal day end
@@ -134,6 +226,8 @@ public class Validate implements Runnable {
                         Thread.currentThread().interrupt();
                         PrettyPrint.clearProgress();
                         System.err.println("Reader thread interrupted");
+                        Status s = lastGood.get();
+                        if (s != null) Status.writeStatusFile(statusFile, s);
                         System.exit(1);
                     } finally {
                         try {
@@ -184,6 +278,9 @@ public class Validate implements Runnable {
                                 System.err.println(
                                         "Validation failed for " + set.recordFileTime() + ":\n" + vr.warningMessages());
                                 System.out.flush();
+                                // Persist last good and exit
+                                Status s = lastGood.get();
+                                if (s != null) Status.writeStatusFile(statusFile, s);
                                 System.exit(1);
                             }
                             // use ValidationResult to update address book if needed
@@ -195,6 +292,11 @@ public class Validate implements Runnable {
                             }
                             // update carry over to current block end-running-hash for next iteration
                             carryOverHash.set(vr.endRunningHash());
+
+                            // Update last good processed block (in-memory only, not writing to disk here)
+                            String endHashHex = HexFormat.of().formatHex(vr.endRunningHash());
+                            lastGood.set(new Status(item.dayIndex, set.recordFileTime().toString(), endHashHex));
+
                             // Build progress string showing time and hashes (shortened to 8 chars for readability)
                             final String progressString = String.format(
                                     "%s carry[%s] next[%s]",
@@ -206,7 +308,7 @@ public class Validate implements Runnable {
                             final long totalProgressFinal = totalProgress.get();
                             double percent = ((double) processedSoFarAcrossAll / (double) totalProgressFinal) * 100.0;
                             long remainingMillis =
-                                    computeRemainingMIllies(processedSoFarAcrossAll, totalProgressFinal, elapsedMillis);
+                                    computeRemainingMilliseconds(processedSoFarAcrossAll, totalProgressFinal, elapsedMillis);
                             // Only print progress once per consensus-minute of blocks processed. Use epoch-second / 60
                             // to compute the minute bucket for the block's consensus time.
                             long blockMinute = set.recordFileTime().getEpochSecond() / 60L;
@@ -218,6 +320,9 @@ public class Validate implements Runnable {
                             PrettyPrint.clearProgress();
                             System.err.println("Validation threw for " + set.recordFileTime() + ": " + ex.getMessage());
                             ex.printStackTrace();
+                            // Persist last good and exit
+                            Status s = lastGood.get();
+                            if (s != null) Status.writeStatusFile(statusFile, s);
                             System.exit(1);
                         }
                     }
@@ -235,6 +340,8 @@ public class Validate implements Runnable {
             Thread.currentThread().interrupt();
             PrettyPrint.clearProgress();
             System.err.println("Validation interrupted");
+            Status s = lastGood.get();
+            if (s != null) Status.writeStatusFile(statusFile, s);
             System.exit(1);
         } catch (IOException e) {
             throw new RuntimeException(e);
@@ -245,6 +352,10 @@ public class Validate implements Runnable {
         System.out.println(
                 "Validation complete. Days processed: " + dayCount + " , Blocks processed: " + progress.get());
 
+        // On normal completion write final status (last good)
+        Status sFinal = lastGood.get();
+        if (sFinal != null) Status.writeStatusFile(statusFile, sFinal);
+
         // Ensure reader finished
         try {
             reader.join();
@@ -253,7 +364,15 @@ public class Validate implements Runnable {
         }
     }
 
-    private static long computeRemainingMIllies(
+    /**
+     * Compute remaining milliseconds based on progress so far, total progress expected, and elapsed time.
+     *
+     * @param processedSoFarAcrossAll number of units processed so far
+     * @param totalProgressFinal      total number of units expected
+     * @param elapsedMillis           elapsed time in milliseconds
+     * @return estimated remaining time in milliseconds
+     */
+    private static long computeRemainingMilliseconds(
             long processedSoFarAcrossAll, long totalProgressFinal, long elapsedMillis) {
         long remainingMillis;
         if (processedSoFarAcrossAll > 0) {
