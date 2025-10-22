@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
-package org.hiero.block.tools.utils.mirrornode;
+package org.hiero.block.tools.commands.mirrornode;
 
-import static org.hiero.block.tools.utils.mirrornode.MirrorNodeUtils.MAINNET_MIRROR_NODE_API_URL;
+import static org.hiero.block.tools.commands.mirrornode.MirrorNodeUtils.MAINNET_MIRROR_NODE_API_URL;
 
 import com.google.gson.JsonObject;
 import com.hedera.pbj.runtime.io.buffer.Bytes;

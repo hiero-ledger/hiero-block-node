@@ -148,6 +148,9 @@ public class Validate implements Runnable {
 
         long progressAtStartOfDay = 0L;
         int currentDay = -1;
+        // Track the last consensus-minute (epoch minute) we reported progress for so we only print
+        // once per minute of consensus time.
+        long lastReportedMinute = Long.MIN_VALUE;
 
         try (FileWriter warningWriter = warningFile != null ? new FileWriter(warningFile, true) : null) {
             // Consumer loop: validate blocks and update progress/ETA
@@ -204,7 +207,13 @@ public class Validate implements Runnable {
                             double percent = ((double) processedSoFarAcrossAll / (double) totalProgressFinal) * 100.0;
                             long remainingMillis =
                                     computeRemainingMIllies(processedSoFarAcrossAll, totalProgressFinal, elapsedMillis);
-                            PrettyPrint.printProgressWithEta(percent, progressString, remainingMillis);
+                            // Only print progress once per consensus-minute of blocks processed. Use epoch-second / 60
+                            // to compute the minute bucket for the block's consensus time.
+                            long blockMinute = set.recordFileTime().getEpochSecond() / 60L;
+                            if (blockMinute != lastReportedMinute) {
+                                PrettyPrint.printProgressWithEta(percent, progressString, remainingMillis);
+                                lastReportedMinute = blockMinute;
+                            }
                         } catch (Exception ex) {
                             PrettyPrint.clearProgress();
                             System.err.println("Validation threw for " + set.recordFileTime() + ": " + ex.getMessage());

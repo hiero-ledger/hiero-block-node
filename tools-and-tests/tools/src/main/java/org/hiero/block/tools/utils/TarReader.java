@@ -18,18 +18,20 @@ import org.hiero.block.tools.records.InMemoryFile;
  * reported by the tar header and passes that array directly to the {@link InMemoryFile} constructor.
  */
 public class TarReader {
+    /** The canonical tar block size in bytes (512). Used for header and padding calculations. */
     private static final int BLOCK_SIZE = 512;
 
     /**
      * Reads the contents of a tar archive from the given InputStream and returns a stream of InMemoryFile objects. Uses
      * a streaming approach with Spliterator to handle large archives efficiently.
-     *
-     * The returned Stream is auto-closeable and will close the provided InputStream when the stream is closed.
-     *
-     * Only regular files are returned; directory entries and other non-regular entries are skipped.
+     * <p>
+     * The returned Stream is auto-closeable and will close the provided InputStream when the stream is closed.</p>
+     * <p>
+     * Only regular files are returned; directory entries and other non-regular entries are skipped.</p>
      *
      * @param input the InputStream of the tar archive
      * @return a Stream of InMemoryFile objects representing the files in the tar archive
+     * @throws NullPointerException if input is null
      */
     public static Stream<InMemoryFile> readTarContents(InputStream input) {
         Objects.requireNonNull(input, "input cannot be null");
@@ -45,16 +47,44 @@ public class TarReader {
         });
     }
 
-    // Internal spliterator that reads tar entries lazily from the InputStream
+    /** Internal spliterator that reads tar entries lazily from the InputStream */
     private static final class TarSpliterator implements Spliterator<InMemoryFile> {
+        /** The underlying InputStream providing tar archive data. */
         private final InputStream in;
+
+        /** Flag indicating whether the end of the archive has been reached. */
         private boolean finished = false;
+
+        /** If a GNU long name ('L') record was encountered this holds the next real entry's name. */
         private String pendingLongName = null;
 
+        /**
+         * Creates a new TarSpliterator that reads entries from the provided InputStream.
+         *
+         * @param in the InputStream containing the tar archive (must not be null)
+         */
         TarSpliterator(InputStream in) {
             this.in = in;
         }
 
+        /**
+         * Attempts to advance the spliterator by reading the next regular file entry from the tar stream.
+         * <p>
+         * This method will skip non-regular entries (directories, symlinks, etc.) and will honour GNU long-name
+         * records (typeflag 'L') by using the subsequent long name for the next entry. When a regular file entry is
+         * encountered this method reads its data fully into a byte[] and passes an {@link InMemoryFile} to the given
+         * action.
+         * <p>
+         * The returned boolean follows the {@link Spliterator#tryAdvance} contract: true if an element was produced,
+         * false if no more elements are available.</p>
+         * <p>
+         * Any IO errors encountered while reading will be wrapped in a RuntimeException.</p>
+         *
+         * @param action a Consumer that accepts the produced InMemoryFile
+         * @return true if a file was produced and the action invoked, false when the archive is exhausted
+         * @throws NullPointerException if action is null
+         * @throws RuntimeException wrapping an IOException on read failures
+         */
         @Override
         public boolean tryAdvance(java.util.function.Consumer<? super InMemoryFile> action) {
             Objects.requireNonNull(action);
@@ -62,8 +92,8 @@ public class TarReader {
             try {
                 while (true) {
                     byte[] header = new byte[BLOCK_SIZE];
-                    int hread = readFully(header);
-                    if (hread == 0) {
+                    int headRead = readFully(header);
+                    if (headRead == 0) {
                         finished = true;
                         return false;
                     }
@@ -88,8 +118,7 @@ public class TarReader {
                         // consume padding
                         skipPadding(size);
                         // parse as trimmed string (stop at first NUL)
-                        String longName = extractStringFromBytes(nameBytes);
-                        pendingLongName = longName;
+                        pendingLongName = extractStringFromBytes(nameBytes);
                         // continue loop to read the next header for the real file
                         continue;
                     }
@@ -137,15 +166,40 @@ public class TarReader {
             }
         }
 
+        /**
+         * Splitting is not supported for this spliterator because the underlying InputStream is sequential.
+         *
+         * @return null to indicate this spliterator cannot be split
+         */
         @Override
         public Spliterator<InMemoryFile> trySplit() { return null; }
 
+        /**
+         * Returns an estimate of the remaining size. The implementation cannot know the number of entries in advance
+         * without reading the stream, so it returns {@code Long.MAX_VALUE} to satisfy the contract.
+         *
+         * @return an estimated size (here Long.MAX_VALUE)
+         */
         @Override
         public long estimateSize() { return Long.MAX_VALUE; }
 
+        /**
+         * Returns the characteristics of this spliterator. This implementation does not report any specific
+         * characteristics (e.g. SIZED or SUBSIZED) because the source is a streaming InputStream.
+         *
+         * @return an int bitmask of characteristics (0 indicates none)
+         */
         @Override
         public int characteristics() { return 0; }
 
+        /**
+         * Reads up to buf.length bytes into buf and returns the number of bytes actually read. This may be less than
+         * the requested length if the underlying stream reaches EOF.
+         *
+         * @param buf destination buffer
+         * @return number of bytes read, possibly zero if EOF is reached immediately
+         * @throws IOException if an I/O error occurs
+         */
         private int readFully(byte[] buf) throws IOException {
             int off = 0;
             int len = buf.length;
@@ -158,6 +212,13 @@ public class TarReader {
             return off; // number of bytes read
         }
 
+        /**
+         * Reads exactly buf.length bytes into buf or throws an IOException if EOF is encountered before the
+         * requested number of bytes are available.
+         *
+         * @param buf destination buffer to fill fully
+         * @throws IOException if EOF is reached before filling the buffer or another I/O error occurs
+         */
         private void readExactly(byte[] buf) throws IOException {
             int off = 0;
             int len = buf.length;
@@ -169,6 +230,12 @@ public class TarReader {
             }
         }
 
+        /**
+         * Reads and discards exactly n bytes from the stream. Used to skip the body of entries that are not retained.
+         *
+         * @param n number of bytes to skip
+         * @throws IOException if EOF is reached before skipping n bytes or another I/O error occurs
+         */
         private void skipFully(long n) throws IOException {
             long remaining = n;
             byte[] tmp = new byte[8192];
@@ -180,6 +247,13 @@ public class TarReader {
             }
         }
 
+        /**
+         * Skips the padding bytes after an entry to align the stream to the next 512-byte block.
+         * For a size that is an exact multiple of {@link #BLOCK_SIZE} no padding is skipped.
+         *
+         * @param size the size of the entry whose padding should be skipped
+         * @throws IOException if an I/O error occurs while skipping padding
+         */
         private void skipPadding(long size) throws IOException {
             long rem = size % BLOCK_SIZE;
             if (rem == 0) return;
@@ -200,11 +274,25 @@ public class TarReader {
             }
         }
 
+        /**
+         * Returns true if every byte in the buffer is zero.
+         *
+         * @param buf buffer to inspect
+         * @return true if all bytes are zero, false otherwise
+         */
         private static boolean isAllZero(byte[] buf) {
             for (byte b : buf) if (b != 0) return false;
             return true;
         }
 
+        /**
+         * Reads a NUL-terminated or space-padded ASCII string from a header buffer region and trims whitespace.
+         *
+         * @param buf header buffer
+         * @param off offset within buffer where the string starts
+         * @param len maximum length of the field
+         * @return the parsed string, trimmed
+         */
         private static String readString(byte[] buf, int off, int len) {
             int end = off;
             int max = off + len;
@@ -212,12 +300,28 @@ public class TarReader {
             return new String(buf, off, end - off).trim();
         }
 
+        /**
+         * Extracts a string from a byte array stopping at the first NUL (0) byte. Does not trim the result.
+         *
+         * @param buf source bytes
+         * @return string built from bytes up to first NUL
+         */
         private static String extractStringFromBytes(byte[] buf) {
             int end = 0;
             while (end < buf.length && buf[end] != 0) end++;
             return new String(buf, 0, end);
         }
 
+        /**
+         * Parses an octal number stored as ASCII characters in the specified region of the buffer. Leading spaces
+         * and NULs are skipped.
+         *
+         * @param buf source buffer containing ASCII octal digits
+         * @param off offset where the octal field starts
+         * @param len length of the octal field
+         * @return parsed numeric value
+         */
+        @SuppressWarnings("SameParameterValue")
         private static long parseOctal(byte[] buf, int off, int len) {
             long result = 0L;
             int end = off + len;

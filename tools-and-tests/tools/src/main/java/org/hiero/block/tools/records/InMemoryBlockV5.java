@@ -85,7 +85,7 @@ public class InMemoryBlockV5 extends InMemoryBlock {
         try {
             final BufferedData in = BufferedData.wrap(recordFileBytes);
             boolean isValid = true;
-            final StringBuilder warnings = new StringBuilder();
+            final StringBuffer warnings = new StringBuffer();
             // compute the entire file hash
             final byte[] entireFileHash = hashSha384(recordFileBytes);
             // Version already read by factory, but the file begins with version int (5)
@@ -196,10 +196,9 @@ public class InMemoryBlockV5 extends InMemoryBlock {
      * @throws IOException if an I/O error occurs reading a signature file
      */
     private boolean validateSignatures(
-            NodeAddressBook addressBook, StringBuilder warningMessages, byte[] entireFileHash) throws IOException {
+            NodeAddressBook addressBook, StringBuffer warningMessages, byte[] entireFileHash) throws IOException {
         if (addressBook != null && !signatureFiles().isEmpty()) {
-            int validSignatureCount = 0;
-            for (InMemoryFile sigFile : signatureFiles()) {
+            final int validSignatureCount = signatureFiles().stream().parallel().mapToInt(sigFile -> {
                 try (DataInputStream sin = new DataInputStream(new ByteArrayInputStream(sigFile.data()))) {
                     final int firstByte = sin.read();
                     if (firstByte != 5) {
@@ -207,7 +206,7 @@ public class InMemoryBlockV5 extends InMemoryBlock {
                                 .append("Unexpected signature file first byte (expected 5) in ")
                                 .append(sigFile.path())
                                 .append("\n");
-                        continue;
+                        return 0;
                     }
                     final int objStreamVer = sin.readInt();
                     if (objStreamVer != RECORD_STREAM_OBJECT_CLASS_VERSION) {
@@ -215,7 +214,7 @@ public class InMemoryBlockV5 extends InMemoryBlock {
                                 .append("Unexpected object stream version (expected 1) in ")
                                 .append(sigFile.path())
                                 .append("\n");
-                        continue;
+                        return 0;
                     }
                     final byte[] fileHashFromSig = readV5HashObject(sin);
                     if (!Arrays.equals(fileHashFromSig, entireFileHash)) {
@@ -223,7 +222,7 @@ public class InMemoryBlockV5 extends InMemoryBlock {
                                 .append("Signature file hash does not match computed entire file hash for ")
                                 .append(sigFile.path())
                                 .append("\n");
-                        continue;
+                        return 0;
                     }
                     // read signature object
                     final long sigClassId = sin.readLong();
@@ -232,7 +231,7 @@ public class InMemoryBlockV5 extends InMemoryBlock {
                                 .append("Invalid signature object class ID in ")
                                 .append(sigFile.path())
                                 .append("\n");
-                        continue;
+                        return 0;
                     }
                     final int sigClassVer = sin.readInt();
                     if (sigClassVer != RECORD_STREAM_OBJECT_CLASS_VERSION) {
@@ -240,7 +239,7 @@ public class InMemoryBlockV5 extends InMemoryBlock {
                                 .append("Invalid signature object class version in ")
                                 .append(sigFile.path())
                                 .append("\n");
-                        continue;
+                        return 0;
                     }
                     final int sigType = sin.readInt();
                     if (sigType != RECORD_STREAM_OBJECT_CLASS_VERSION) {
@@ -248,7 +247,7 @@ public class InMemoryBlockV5 extends InMemoryBlock {
                                 .append("Invalid signature type in ")
                                 .append(sigFile.path())
                                 .append("\n");
-                        continue;
+                        return 0;
                     }
                     final int sigLen = sin.readInt();
                     final int checksum = sin.readInt();
@@ -257,7 +256,7 @@ public class InMemoryBlockV5 extends InMemoryBlock {
                                 .append("Invalid checksum in ")
                                 .append(sigFile.path())
                                 .append("\n");
-                        continue;
+                        return 0;
                     }
                     final byte[] signatureBytes = new byte[sigLen];
                     sin.readFully(signatureBytes);
@@ -269,7 +268,7 @@ public class InMemoryBlockV5 extends InMemoryBlock {
                                 .append("Unable to extract node account number from signature filename: ")
                                 .append(sigFile.path())
                                 .append("\n");
-                        continue;
+                        return 0;
                     }
                     // get public key
                     String rsaPubKey;
@@ -282,7 +281,7 @@ public class InMemoryBlockV5 extends InMemoryBlock {
                                 .append(" in provided address book; file ")
                                 .append(sigFile.path())
                                 .append("\n");
-                        continue;
+                        return 0;
                     }
                     if (rsaPubKey == null || rsaPubKey.isEmpty()) {
                         warningMessages
@@ -291,7 +290,7 @@ public class InMemoryBlockV5 extends InMemoryBlock {
                                 .append("; file ")
                                 .append(sigFile.path())
                                 .append("\n");
-                        continue;
+                        return 0;
                     }
 
                     final boolean verified = verifyRsaSha384(rsaPubKey, fileHashFromSig, signatureBytes);
@@ -302,9 +301,9 @@ public class InMemoryBlockV5 extends InMemoryBlock {
                                 .append(" (file ")
                                 .append(sigFile.path())
                                 .append(")\n");
-                        continue;
+                        return 0;
                     }
-                    validSignatureCount++;
+                    return 1; // valid signature
                 } catch (Exception e) {
                     warningMessages
                             .append("Error processing signature file ")
@@ -312,8 +311,9 @@ public class InMemoryBlockV5 extends InMemoryBlock {
                             .append(": ")
                             .append(e.getMessage())
                             .append("\n");
+                    return 0;
                 }
-            }
+            }).sum();
             final int totalNodeCount = addressBook.nodeAddress().size();
             final int requiredSignatures = (totalNodeCount / 3) + RECORD_STREAM_OBJECT_CLASS_VERSION;
             if (validSignatureCount < requiredSignatures) {

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-package org.hiero.block.tools.utils.mirrornode;
+package org.hiero.block.tools.commands.mirrornode;
 
 import com.google.gson.Gson;
 import com.google.gson.JsonObject;

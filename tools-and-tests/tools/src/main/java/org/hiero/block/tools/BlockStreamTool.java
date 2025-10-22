@@ -1,15 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.tools;
 
+import org.hiero.block.tools.blocks.BlocksCommand;
 import org.hiero.block.tools.commands.ConvertToJson;
 import org.hiero.block.tools.commands.Info;
 import org.hiero.block.tools.commands.NetworkCapacity;
 import org.hiero.block.tools.commands.days.DaysCommand;
-import org.hiero.block.tools.commands.record2blocks.Record2BlockCommand;
-import org.hiero.block.tools.commands.record2blocks.gcp.AddNewerBlockTimes;
-import org.hiero.block.tools.commands.record2blocks.mirrornode.ExtractBlockTimes;
-import org.hiero.block.tools.commands.record2blocks.mirrornode.FetchMirrorNodeRecordsCsv;
-import org.hiero.block.tools.commands.record2blocks.mirrornode.ValidateBlockTimes;
+import org.hiero.block.tools.commands.mirrornode.MirrorNodeCommand;
 import org.hiero.block.tools.records.RecordsCommand;
 import picocli.CommandLine;
 import picocli.CommandLine.Command;
@@ -23,6 +20,7 @@ import picocli.CommandLine.Command;
         mixinStandardHelpOptions = true,
         version = "BlockStreamTool 0.1",
         subcommands = {
+            BlocksCommand.class,
             RecordsCommand.class,
             ConvertToJson.class,
             Info.class,
@@ -32,7 +30,8 @@ import picocli.CommandLine.Command;
             ValidateBlockTimes.class,
             AddNewerBlockTimes.class,
             NetworkCapacity.class,
-            DaysCommand.class
+            DaysCommand.class,
+            MirrorNodeCommand.class
         })
 public final class BlockStreamTool {
 

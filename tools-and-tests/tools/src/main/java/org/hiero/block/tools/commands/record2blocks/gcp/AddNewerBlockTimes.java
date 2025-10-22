@@ -14,7 +14,7 @@ import java.time.format.DateTimeFormatter;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
 import org.hiero.block.tools.records.RecordFileDates;
-import org.hiero.block.tools.utils.mirrornode.FetchBlockQuery;
+import org.hiero.block.tools.commands.mirrornode.FetchBlockQuery;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Help.Ansi;
 import picocli.CommandLine.Option;
