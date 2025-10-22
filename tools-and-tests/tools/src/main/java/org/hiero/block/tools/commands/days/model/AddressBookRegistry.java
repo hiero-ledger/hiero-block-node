@@ -198,6 +198,32 @@ public class AddressBookRegistry {
     }
 
     /**
+     * Get the node ID for a node in the address book. First find the node in the address book using one of the two
+     * ways node account numbers are in address book. Then get node ID from the nodeId field of the NodeAddress. If the
+     * nodeId field is not set (older address books), derive it from the account number - 3.
+     *
+     * @param addressBook the address book to use to find the node
+     * @param shard the shard number of the node
+     * @param realm the realm number of the node
+     * @param number the node number of the node
+     * @return the node ID for the node
+     */
+    public static long nodeIdForNode(
+        final NodeAddressBook addressBook, final long shard, final long realm, final long number) {
+        // we assume shard and realm are always 0 for now, so we only use the number
+        if (shard != 0 || realm != 0) {
+            throw new IllegalArgumentException("Only shard 0 and realm 0 are supported");
+        }
+        long addressBookNodeId = addressBook.nodeAddress().stream()
+            .filter(na -> getNodeAccountId(na) == number)
+            .findFirst()
+            .orElseThrow()
+            .nodeId();
+        // For older address books where nodeId is not set, derive it from account number - 3
+        return addressBookNodeId > 0 ? addressBookNodeId : number - 3;
+    }
+
+    /**
      * Get the node ID from a NodeAddress. The node ID can be found in one of three places:
      * <ul>
      *   <li>The nodeId field of the NodeAddress (if present)</li>
