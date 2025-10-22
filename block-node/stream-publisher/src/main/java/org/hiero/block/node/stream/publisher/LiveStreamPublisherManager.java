@@ -231,6 +231,7 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
                     // managed block right after the node (re)started.
                     && nextUnstreamedBlockNumber.compareAndSet(earliestManagedBlock, blockNumber)) {
                 currentStreamingBlockNumber.set(blockNumber);
+                metrics.lowestBlockNumber.set(blockNumber);
                 return addHandlerQueueForBlock(blockNumber, handlerId);
             } else {
                 return BlockAction.SKIP;
@@ -250,7 +251,6 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
      * todo(1420) add documentation
      */
     private BlockAction addHandlerQueueForBlock(final long blockNumber, final long handlerId) {
-        metrics.lowestBlockNumber.set(blockNumber);
         if (nextUnstreamedBlockNumber.compareAndSet(blockNumber, blockNumber + 1L)) {
             final String handlerQueueName = getQueueNameForHandlerId(handlerId);
             // Exception, using var here for an expected null value to avoid excessive wrapping.
