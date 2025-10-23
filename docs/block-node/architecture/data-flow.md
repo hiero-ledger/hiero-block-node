@@ -1,8 +1,10 @@
-# BlockNode Data Flow
+# BlockNode API Data Flows
 
 This document describes multiple data flows between system components using its event-driven architecture.
 
-## Block Item Publish Data Flow Overview
+## Block Stream Publish API Flow
+
+** Overview should cover block items flow, merkle tree building, verification, persistence, and notification. **
 
 ```mermaid
 ---
@@ -36,5 +38,11 @@ Note: Each plugin processes items independently making use of thread isolation
 4. **Plugins** process Block Items according to their logic (e.g., storing, verifying, publishing, etc.).
 5. Back pressure is applied if any plugin is slow, ensuring system stability.
 
+## Block Access API Flow
 
+
+## Block Stream Subscription API Flow
+
+
+##Backfilling Flow
 
