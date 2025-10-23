@@ -175,6 +175,8 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
             } finally {
                 shutdown();
             }
+        } else if (request.hasEndOfBlock()) {
+            // @todo(1626) Do nothing for now.
         } else {
             // this should never happen
             sendEndAndResetState(Code.ERROR);
