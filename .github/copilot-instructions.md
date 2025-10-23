@@ -1,6 +1,12 @@
 # Project-specific Copilot instructions
 
-This addendum provides explicit, actionable guidance for generating Java source that matches this repository's coding style and formatting rules.
+## How to build and run
+- when working with gradle module `:tools-and-tests:tools` it is actually `:tools`. Default full build task is
+  `shadowJar` which builds all modules and creates an "all-in-one" jar `tools-and-tests/tools/build/libs/tools-0.21.0-SNAPSHOT-all.jar`.
+- to run the block CLI tool `:tools` after building, use: `java -jar  tools-and-tests/tools/build/libs/tools-0.21.0-SNAPSHOT-all.jar [args]`
+
+## Coding style and conventions
+This provides explicit, actionable guidance for generating Java source that matches this repository's coding style and formatting rules.
 
 - File header and license:
     - Every Java source file must start with the SPDX license header exactly as a single-line comment:

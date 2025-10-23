@@ -31,7 +31,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import org.hiero.block.tools.blocks.BlockWriter.BlockPath;
-import org.hiero.block.tools.commands.record2blocks.gcp.MainNetBucket;
+import org.hiero.block.tools.utils.gcp.MainNetBucket;
 import org.hiero.block.tools.commands.record2blocks.model.BlockInfo;
 import org.hiero.block.tools.commands.record2blocks.model.BlockTimes;
 import org.hiero.block.tools.commands.record2blocks.model.ChainFile;

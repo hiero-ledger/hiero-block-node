@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.tools.commands.mirrornode;
 
-import org.hiero.block.tools.commands.record2blocks.gcp.AddNewerBlockTimes;
+import org.hiero.block.tools.commands.record2blocks.AddNewerBlockTimes;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Model.CommandSpec;
 import picocli.CommandLine.Spec;
@@ -17,6 +17,7 @@ import picocli.CommandLine.Spec;
             ValidateBlockTimes.class,
             AddNewerBlockTimes.class,
             FetchMirrorNodeRecordsCsv.class,
+            ExtractDayBlocks.class
         },
         mixinStandardHelpOptions = true)
 public class MirrorNodeCommand implements Runnable {
