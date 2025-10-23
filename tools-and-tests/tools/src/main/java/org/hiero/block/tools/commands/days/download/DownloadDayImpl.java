@@ -132,7 +132,9 @@ public class DownloadDayImpl {
                 filesByBlock.keySet().stream().sorted().toList();
         // Use Storage client to stream each blob into memory, check MD5, (ungzip if needed), and write to tar
         final Storage storage =
-                StorageOptions.newBuilder().setProjectId(GCP_PROJECT_ID).build().getService();
+                StorageOptions.grpc()
+                    .setProjectId(GCP_PROJECT_ID)
+                    .build().getService();
         // precompute total blocks count to drive per-block progress
         int totalBlocks = sortedBlocks.size();
         AtomicLong blocksProcessed = new AtomicLong(0);
