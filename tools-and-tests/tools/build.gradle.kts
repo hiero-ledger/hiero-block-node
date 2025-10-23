@@ -22,6 +22,7 @@ tasks.test {
 
 mainModuleInfo {
     requires("org.hiero.block.protobuf.pbj")
+    requires("org.hiero.block.node.base")
     requires("com.hedera.pbj.runtime")
     requires("com.github.luben.zstd_jni")
     requires("com.google.api.gax")

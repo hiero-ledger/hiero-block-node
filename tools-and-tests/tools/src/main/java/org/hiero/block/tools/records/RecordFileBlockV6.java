@@ -4,12 +4,19 @@ package org.hiero.block.tools.records;
 import static org.hiero.block.tools.utils.Sha384.sha384Digest;
 
 import com.hedera.hapi.block.stream.experimental.Block;
+import com.hedera.hapi.block.stream.experimental.BlockFooter;
+import com.hedera.hapi.block.stream.experimental.BlockItem;
+import com.hedera.hapi.block.stream.experimental.BlockItem.ItemOneOfType;
+import com.hedera.hapi.block.stream.experimental.BlockProof;
+import com.hedera.hapi.block.stream.experimental.BlockProof.ProofOneOfType;
+import com.hedera.hapi.block.stream.experimental.SignedRecordFileProof;
 import com.hedera.hapi.node.base.NodeAddressBook;
 import com.hedera.hapi.node.base.SemanticVersion;
 import com.hedera.hapi.node.base.Transaction;
 import com.hedera.hapi.node.transaction.TransactionBody;
 import com.hedera.hapi.streams.RecordStreamFile;
 import com.hedera.hapi.streams.RecordStreamItem;
+import com.hedera.pbj.runtime.OneOf;
 import com.hedera.pbj.runtime.ParseException;
 import com.hedera.pbj.runtime.io.stream.ReadableStreamingData;
 import java.io.ByteArrayInputStream;
@@ -75,7 +82,54 @@ public class RecordFileBlockV6 extends RecordFileBlock {
     public Block toWrappedBlock(final long blockNumber,
         final byte[] previousBlockHash, final byte[] rootHashOfBlockHashesMerkleTree,
         final NodeAddressBook addressBook) throws IOException {
-
+        final byte[] bytes = primaryRecordFile.data();
+        try (final DataInputStream in = new DataInputStream(new ByteArrayInputStream(bytes))) {
+            // read and verify header
+            final int fileVersion = in.readInt();
+            if (fileVersion != 6) {
+                throw new IOException("Invalid v6 record file version: " + fileVersion);
+            }
+            // parse protobuf RecordStreamFile
+            RecordStreamFile recordStreamFile = RecordStreamFile.PROTOBUF.parse(new ReadableStreamingData(in));
+            // compute entire file SHA-384 for signature verification
+            final MessageDigest sha384 = sha384Digest();
+            final byte[] entireFileHash = sha384.digest(bytes);
+            // check or set block number
+            if (recordStreamFile.blockNumber() > 0) {
+                if(recordStreamFile.blockNumber() != blockNumber) {
+                    throw new IOException(
+                        "Provided block number " + blockNumber + " does not match record file block number " +
+                            recordStreamFile.blockNumber());
+                }
+            } else {
+                // older v5 record stream files do not have block number
+                recordStreamFile = recordStreamFile.copyBuilder().blockNumber(blockNumber).build();
+            }
+            // convert signatures into block proof
+            final List<com.hedera.hapi.block.stream.experimental.RecordFileSignature> signatures = signatureFiles().stream()
+                    .parallel()
+                    .map(sf -> new ParsedSignatureFile(addressBook, sf))
+                    .filter(psf -> psf.isValid(entireFileHash))
+                    .map(ParsedSignatureFile::toRecordFileSignature)
+                    .toList();
+            final BlockProof blockProof = new BlockProof(new OneOf<>(
+                    ProofOneOfType.SIGNED_RECORD_FILE_PROOF,
+                    new SignedRecordFileProof(6, signatures)));
+            // create footer
+            final BlockFooter blockFooter = new BlockFooter(
+                    com.hedera.pbj.runtime.io.buffer.Bytes.wrap(previousBlockHash),
+                    com.hedera.pbj.runtime.io.buffer.Bytes.wrap(rootHashOfBlockHashesMerkleTree),
+                    null
+            );
+            // create and return the Block
+            return new Block(List.of(
+                    new BlockItem(new OneOf<>(ItemOneOfType.RECORD_FILE, recordStreamFile)),
+                    new BlockItem(new OneOf<>(ItemOneOfType.BLOCK_FOOTER, blockFooter)),
+                    new BlockItem(new OneOf<>(ItemOneOfType.BLOCK_PROOF, blockProof))
+            ));
+        } catch (ParseException e) {
+            throw new IOException(e);
+        }
     }
 
     /**
