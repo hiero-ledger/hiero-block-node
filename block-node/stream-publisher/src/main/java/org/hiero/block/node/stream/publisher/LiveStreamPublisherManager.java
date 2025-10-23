@@ -347,7 +347,9 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
             // This should result in new data being available, so we
             // count down the data ready latch.
             signalDataReady();
-            metrics.highestBlockNumber.set(blockNumber);
+            if (blockNumber > metrics.highestBlockNumber.get()) {
+                metrics.highestBlockNumber.set(blockNumber);
+            }
             // We're one of the handlers currently streaming, keep going.
             return BlockAction.ACCEPT;
         } else if (blockNumber == nextUnstreamedBlockNumber.get()) {
