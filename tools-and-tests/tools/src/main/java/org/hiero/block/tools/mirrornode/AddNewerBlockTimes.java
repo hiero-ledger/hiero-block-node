@@ -1,5 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
+<<<<<<<< HEAD:tools-and-tests/tools/src/main/java/org/hiero/block/tools/mirrornode/AddNewerBlockTimes.java
 package org.hiero.block.tools.mirrornode;
+========
+package org.hiero.block.tools.commands.record2blocks;
+>>>>>>>> b49a1dae (progress on downloader v2):tools-and-tests/tools/src/main/java/org/hiero/block/tools/commands/record2blocks/AddNewerBlockTimes.java
 
 import static org.hiero.block.tools.records.RecordFileDates.blockTimeLongToInstant;
 import static org.hiero.block.tools.records.RecordFileDates.extractRecordFileTime;
@@ -13,7 +17,11 @@ import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
+<<<<<<<< HEAD:tools-and-tests/tools/src/main/java/org/hiero/block/tools/mirrornode/AddNewerBlockTimes.java
 import org.hiero.block.tools.metadata.MetadataFiles;
+========
+import org.hiero.block.tools.utils.gcp.MainNetBucket;
+>>>>>>>> b49a1dae (progress on downloader v2):tools-and-tests/tools/src/main/java/org/hiero/block/tools/commands/record2blocks/AddNewerBlockTimes.java
 import org.hiero.block.tools.records.RecordFileDates;
 import org.hiero.block.tools.utils.gcp.MainNetBucket;
 import picocli.CommandLine.Command;
