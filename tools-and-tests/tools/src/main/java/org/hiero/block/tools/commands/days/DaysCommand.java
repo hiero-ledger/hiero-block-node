@@ -7,6 +7,7 @@ import org.hiero.block.tools.commands.days.subcommands.DownloadDays;
 import org.hiero.block.tools.commands.days.subcommands.Ls;
 import org.hiero.block.tools.commands.days.subcommands.LsDayListing;
 import org.hiero.block.tools.commands.days.subcommands.PrintListing;
+import org.hiero.block.tools.commands.days.subcommands.ToWrappedBlocksCommand;
 import org.hiero.block.tools.commands.days.subcommands.Validate;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Model.CommandSpec;
@@ -27,7 +28,8 @@ import picocli.CommandLine.Spec;
             DownloadDay.class,
             DownloadDays.class,
             PrintListing.class,
-            LsDayListing.class
+            LsDayListing.class,
+            ToWrappedBlocksCommand.class
         },
         mixinStandardHelpOptions = true)
 public class DaysCommand implements Runnable {
