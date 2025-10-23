@@ -1,15 +1,19 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.tools.commands.days.subcommands;
 
+import static org.hiero.block.tools.commands.days.download.DownloadConstants.GCP_PROJECT_ID;
 import static org.hiero.block.tools.commands.days.download.DownloadDayImplV2.downloadDay;
 import static org.hiero.block.tools.commands.mirrornode.DayBlockInfo.loadDayBlockInfoMap;
 
+import com.google.cloud.storage.Storage;
+import com.google.cloud.storage.StorageOptions;
 import java.io.File;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.Map;
 import org.hiero.block.tools.commands.mirrornode.BlockTimeReader;
 import org.hiero.block.tools.commands.mirrornode.DayBlockInfo;
+import org.hiero.block.tools.utils.gcp.ConcurrentDownloadManager;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Option;
 import picocli.CommandLine.Parameters;
@@ -31,7 +35,7 @@ public class DownloadDaysV2 implements Runnable {
     @Option(
             names = {"-t", "--threads"},
             description = "How many days to download in parallel")
-    private int threads = Runtime.getRuntime().availableProcessors();
+    private int threads = 64;
 
     @Parameters(index = "0", description = "From year to download")
     private int fromYear = 2019;
@@ -53,11 +57,11 @@ public class DownloadDaysV2 implements Runnable {
 
     @Override
     public void run() {
-        try (BlockTimeReader blockTimeReader = new BlockTimeReader()){
+        try (BlockTimeReader blockTimeReader = new BlockTimeReader();
+            Storage storage = StorageOptions.grpc().setAttemptDirectPath(false).setProjectId(GCP_PROJECT_ID).build().getService();
+            ConcurrentDownloadManager downloadManager = ConcurrentDownloadManager.newBuilder(storage).setInitialConcurrency(threads).build()) {
             // Load day block info map
             final Map<LocalDate, DayBlockInfo> daysInfo = loadDayBlockInfoMap();
-
-
             final var days = LocalDate.of(fromYear, fromMonth, fromDay)
                     .datesUntil(LocalDate.of(toYear, toMonth, toDay).plusDays(1))
                     .toList();
@@ -69,6 +73,7 @@ public class DownloadDaysV2 implements Runnable {
                 DayBlockInfo dayBlockInfo = daysInfo.get(localDate);
                 try {
                     previousRecordHash = downloadDay(
+                        downloadManager,
                             dayBlockInfo,
                             blockTimeReader,
                             listingDir.toPath(),
