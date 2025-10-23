@@ -7,7 +7,7 @@ import com.hedera.pbj.runtime.io.stream.ReadableStreamingData;
 import java.io.DataInputStream;
 import java.io.IOException;
 import java.util.HexFormat;
-import org.hiero.block.tools.commands.record2blocks.gcp.MainNetBucket;
+import org.hiero.block.tools.utils.gcp.MainNetBucket;
 import org.hiero.block.tools.records.SerializationV5Utils;
 
 /**
