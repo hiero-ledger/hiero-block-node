@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.tools.commands.mirrornode;
 
+import static org.hiero.block.tools.commands.mirrornode.BlockTimeReader.DEFAULT_BLOCK_TIMES_PATH;
 import static org.hiero.block.tools.records.RecordFileDates.recordFileNameToBlockTimeLong;
 
 import java.io.BufferedReader;
@@ -43,7 +44,7 @@ public class ExtractBlockTimes implements Runnable {
     @Option(
             names = {"--block-times"},
             description = "Path to the block times \".bin\" file.")
-    private Path blockTimesFile = Path.of("data/block_times.bin");
+    private Path blockTimesFile = DEFAULT_BLOCK_TIMES_PATH;
 
     /**
      * Read the record file table CSV file and extract the block times into a file.

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-package org.hiero.block.tools.utils;
+package org.hiero.block.tools.utils.gcp;
 
 import com.google.cloud.storage.BlobInfo;
 import com.google.cloud.storage.transfermanager.DownloadResult;
