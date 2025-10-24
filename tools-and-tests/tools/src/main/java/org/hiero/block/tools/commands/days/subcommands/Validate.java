@@ -1,6 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.tools.commands.days.subcommands;
 
+import static java.nio.file.StandardOpenOption.CREATE;
+import static java.nio.file.StandardOpenOption.TRUNCATE_EXISTING;
+import static java.time.ZoneOffset.UTC;
+import static org.hiero.block.tools.commands.days.model.TarZstdDayUtils.parseDayFromFileName;
+import static org.hiero.block.tools.records.RecordFileUtils.extractRecordFileTime;
+
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
@@ -11,8 +17,11 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Instant;
+import java.time.LocalDate;
+import java.util.Arrays;
 import java.util.HexFormat;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.atomic.AtomicLong;
@@ -20,6 +29,7 @@ import java.util.concurrent.atomic.AtomicReference;
 import org.hiero.block.tools.commands.days.model.AddressBookRegistry;
 import org.hiero.block.tools.commands.days.model.TarZstdDayReaderUsingExec;
 import org.hiero.block.tools.commands.days.model.TarZstdDayUtils;
+import org.hiero.block.tools.commands.mirrornode.DayBlockInfo;
 import org.hiero.block.tools.records.RecordFileBlock;
 import org.hiero.block.tools.records.RecordFileBlock.ValidationResult;
 import org.hiero.block.tools.utils.PrettyPrint;
@@ -28,9 +38,6 @@ import picocli.CommandLine.Model.CommandSpec;
 import picocli.CommandLine.Option;
 import picocli.CommandLine.Parameters;
 import picocli.CommandLine.Spec;
-
-import static java.nio.file.StandardOpenOption.CREATE;
-import static java.nio.file.StandardOpenOption.TRUNCATE_EXISTING;
 
 /**
  * Validate blockchain in record file blocks in day files, computing and checking running hash.
@@ -137,18 +144,38 @@ public class Validate implements Runnable {
 
     @Override
     public void run() {
-        // create AddressBookRegistry to load address books as needed during validation
-        final AddressBookRegistry addressBookRegistry = new AddressBookRegistry();
         // If no inputs are provided, print usage help for this subcommand
         if (compressedDaysDir == null) {
             spec.commandLine().usage(spec.commandLine().getOut());
             return;
         }
-
+        // create AddressBookRegistry to load address books as needed during validation
+        final Path addressBookFile = compressedDaysDir.toPath().resolve("addressBookHistory.json");
+        final AddressBookRegistry addressBookRegistry = Files.exists(addressBookFile) ?
+            new AddressBookRegistry(addressBookFile) : new AddressBookRegistry();
+        // load mirror node day info if available (not required)
+        Map<LocalDate, DayBlockInfo> tempDayInfo;
+        try {
+            tempDayInfo = DayBlockInfo.loadDayBlockInfoMap();
+        } catch (Exception e) {
+            System.out.println("Failed to load day block info map so ignoring");
+            tempDayInfo = null;
+        }
+        final Map<LocalDate, DayBlockInfo> dayInfo = tempDayInfo;
+        // load resume status if available
         final Path statusFile = compressedDaysDir.toPath().resolve("validateCmdStatus.json");
         final Status resumeStatus = Status.readStatusFile(statusFile);
-
-        final AtomicReference<byte[]> carryOverHash = new AtomicReference<>(ZERO_HASH);
+        // atomic reference for last good status
+        final AtomicReference<Status> lastGood = new AtomicReference<>(resumeStatus);
+        // load all the day paths
+        final List<Path> dayPaths = TarZstdDayUtils.sortedDayPaths(new File[]{compressedDaysDir});
+        if (dayPaths.isEmpty()) {
+            System.out.println("No day files found in " + compressedDaysDir);
+            return;
+        }
+        // atomic reference for carry over hash between blocks
+        final AtomicReference<byte[]> carryOverHash = new AtomicReference<>();
+        // if resuming, set carry over hash from last status
         if (resumeStatus != null) {
             byte[] hb = resumeStatus.hashBytes();
             if (hb.length > 0) carryOverHash.set(hb);
@@ -156,12 +183,28 @@ public class Validate implements Runnable {
                 resumeStatus.recordFileTime,
                 resumeStatus.endRunningHashHex.substring(0, 8));
         } else {
-            System.out.println("Starting at genesis with hash[" + Bytes.wrap(carryOverHash.get()) + "]");
+            // check if we are starting at genesis
+            if (dayPaths.getFirst().getFileName().toString().startsWith("2019-09-13")) {
+                carryOverHash.set(ZERO_HASH);
+                System.out.println("Starting at genesis with hash[" + Bytes.wrap(carryOverHash.get()) + "]");
+            } else if (dayInfo != null) {
+                // not starting at genesis, so try to get prior day's last block hash from mirror node data
+                LocalDate firstDayDate = parseDayFromFileName(dayPaths.getFirst().getFileName().toString());
+                LocalDate priorDayDate = firstDayDate.minusDays(1);
+                DayBlockInfo priorDayInfo = dayInfo.get(priorDayDate);
+                if (priorDayInfo != null) {
+                    byte[] priorHash = HexFormat.of().parseHex(priorDayInfo.lastBlockHash);
+                    carryOverHash.set(priorHash);
+                    System.out.printf("Starting at %s with mirror node last hash[%s]%n",
+                        firstDayDate,
+                        Bytes.wrap(carryOverHash.get()));
+                } else {
+                    carryOverHash.set(null);
+                    System.out.println("No prior day info for " + priorDayDate +
+                        ", cannot validate first block's previous hash");
+                }
+            }
         }
-
-        final AtomicReference<Status> lastGood = new AtomicReference<>(resumeStatus);
-
-        final List<Path> dayPaths = TarZstdDayUtils.sortedDayPaths(new File[]{compressedDaysDir});
         // Estimation/ETA support
         final long startNanos = System.nanoTime();
         final long INITIAL_ESTIMATE_PER_DAY = (24L * 60L * 60L) / 5L; // one every 5 seconds for a whole day
@@ -178,6 +221,8 @@ public class Validate implements Runnable {
             if (s != null) {
                 System.err.println("Shutdown: writing status to " + statusFile);
                 Status.writeStatusFile(statusFile, s);
+                System.err.println("Shutdown: address book to " + addressBookFile);
+                addressBookRegistry.saveAddressBookRegistryToJsonFile(addressBookFile);
             }
         }, "validate-shutdown-hook"));
 
@@ -217,6 +262,7 @@ public class Validate implements Runnable {
                                 // Persist status and exit
                                 Status s = lastGood.get();
                                 if (s != null) Status.writeStatusFile(statusFile, s);
+                                addressBookRegistry.saveAddressBookRegistryToJsonFile(addressBookFile);
                                 System.exit(1);
                             }
                             // signal day end
@@ -228,6 +274,7 @@ public class Validate implements Runnable {
                         System.err.println("Reader thread interrupted");
                         Status s = lastGood.get();
                         if (s != null) Status.writeStatusFile(statusFile, s);
+                        addressBookRegistry.saveAddressBookRegistryToJsonFile(addressBookFile);
                         System.exit(1);
                     } finally {
                         try {
@@ -247,6 +294,7 @@ public class Validate implements Runnable {
         long lastReportedMinute = Long.MIN_VALUE;
 
         try (FileWriter warningWriter = warningFile != null ? new FileWriter(warningFile, true) : null) {
+            final AtomicLong blockInDayCounter = new AtomicLong(0L);
             // Consumer loop: validate blocks and update progress/ETA
             while (true) {
                 final Item item = queue.take();
@@ -256,36 +304,69 @@ public class Validate implements Runnable {
                     case DAY_START -> {
                         currentDay = item.dayIndex;
                         progressAtStartOfDay = progress.get();
+                        blockInDayCounter.set(0L);
                     }
                     case BLOCK -> {
-                        final RecordFileBlock set = item.block;
+                        final RecordFileBlock block = item.block;
                         // update counters
                         progress.incrementAndGet();
                         try {
                             // previous block hash from prior iteration (carry over)
                             final byte[] previousBlockHash = carryOverHash.get();
-                            // Validate the block using InMemoryBlock.validate which performs internal checks
+                            // Validate the block using RecordFileBlock.validate which performs internal checks
                             final ValidationResult vr =
-                                    set.validate(previousBlockHash, addressBookRegistry.getCurrentAddressBook());
+                                    block.validate(previousBlockHash, addressBookRegistry.getCurrentAddressBook());
                             if (warningWriter != null && !vr.warningMessages().isEmpty()) {
                                 warningWriter.write(
-                                        "Warnings for " + set.recordFileTime() + ":\n" + vr.warningMessages() + "\n");
+                                        "Warnings for " + block.recordFileTime() + ":\n" + vr.warningMessages() + "\n");
                                 warningWriter.flush();
                             }
                             // check overall validity and fail if not valid
                             if (!vr.isValid()) {
                                 PrettyPrint.clearProgress();
                                 System.err.println(
-                                        "Validation failed for " + set.recordFileTime() + ":\n" + vr.warningMessages());
+                                        "Validation failed for " + block.recordFileTime() + ":\n" + vr.warningMessages());
                                 System.out.flush();
                                 // Persist last good and exit
                                 Status s = lastGood.get();
                                 if (s != null) Status.writeStatusFile(statusFile, s);
+                                addressBookRegistry.saveAddressBookRegistryToJsonFile(addressBookFile);
                                 System.exit(1);
+                            }
+                            // check if this is the first block of the first day and validate hash against mirror
+                            // node data if so
+                            if (blockInDayCounter.get() == 0L && dayInfo != null) {
+                                // we are the first block of a day (not the first day), so we have computed the prior
+                                // day's last hash, so we can compare that to one from mirror node data if available
+                                LocalDate dayDate = parseDayFromFileName(item.dayFile.getFileName().toString());
+                                DayBlockInfo thisDaysInfo = dayInfo.get(dayDate);
+                                // make sure the block is the first block of the day by checking its time is within
+                                // 10 seconds of midnight
+                                if (block.recordFileTime().isBefore(
+                                        dayDate.atStartOfDay(UTC).plusSeconds(10).toInstant())) {
+                                    // now we can compare hashes
+                                    byte[] expectedHash = HexFormat.of().parseHex(thisDaysInfo.firstBlockHash);
+                                    if (!Arrays.equals(vr.endRunningHash(), expectedHash)) {
+                                        PrettyPrint.clearProgress();
+                                        System.err.printf(
+                                            "Validation failed for %s: first block of day has previous hash[%s] but "
+                                                + "expected[%s] from mirror node data%n",
+                                            dayDate,
+                                            Bytes.wrap(vr.endRunningHash()),
+                                            Bytes.wrap(expectedHash));
+                                        System.out.flush();
+                                        // Persist last good and exit
+                                        Status s = lastGood.get();
+                                        if (s != null)
+                                            Status.writeStatusFile(statusFile, s);
+                                        addressBookRegistry.saveAddressBookRegistryToJsonFile(addressBookFile);
+                                        System.exit(1);
+                                    }
+                                }
                             }
                             // use ValidationResult to update address book if needed
                             String addressBookChanges =
-                                    addressBookRegistry.updateAddressBook(vr.addressBookTransactions());
+                                    addressBookRegistry.updateAddressBook(block.recordFileTime(), vr.addressBookTransactions());
                             if (warningWriter != null && addressBookChanges != null) {
                                 warningWriter.write(addressBookChanges + "\n");
                                 warningWriter.flush();
@@ -295,12 +376,12 @@ public class Validate implements Runnable {
 
                             // Update last good processed block (in-memory only, not writing to disk here)
                             String endHashHex = HexFormat.of().formatHex(vr.endRunningHash());
-                            lastGood.set(new Status(item.dayIndex, set.recordFileTime().toString(), endHashHex));
+                            lastGood.set(new Status(item.dayIndex, block.recordFileTime().toString(), endHashHex));
 
                             // Build progress string showing time and hashes (shortened to 8 chars for readability)
                             final String progressString = String.format(
                                     "%s carry[%s] next[%s]",
-                                    set.recordFileTime(), shortHash(previousBlockHash), shortHash(vr.endRunningHash()));
+                                    block.recordFileTime(), shortHash(previousBlockHash), shortHash(vr.endRunningHash()));
                             // Estimate totals and ETA
                             final long elapsedMillis = (System.nanoTime() - startNanos) / 1_000_000L;
                             // Progress percent and remaining
@@ -311,20 +392,22 @@ public class Validate implements Runnable {
                                     computeRemainingMilliseconds(processedSoFarAcrossAll, totalProgressFinal, elapsedMillis);
                             // Only print progress once per consensus-minute of blocks processed. Use epoch-second / 60
                             // to compute the minute bucket for the block's consensus time.
-                            long blockMinute = set.recordFileTime().getEpochSecond() / 60L;
+                            long blockMinute = block.recordFileTime().getEpochSecond() / 60L;
                             if (blockMinute != lastReportedMinute) {
                                 PrettyPrint.printProgressWithEta(percent, progressString, remainingMillis);
                                 lastReportedMinute = blockMinute;
                             }
                         } catch (Exception ex) {
                             PrettyPrint.clearProgress();
-                            System.err.println("Validation threw for " + set.recordFileTime() + ": " + ex.getMessage());
+                            System.err.println("Validation threw for " + block.recordFileTime() + ": " + ex.getMessage());
                             ex.printStackTrace();
                             // Persist last good and exit
                             Status s = lastGood.get();
                             if (s != null) Status.writeStatusFile(statusFile, s);
+                            addressBookRegistry.saveAddressBookRegistryToJsonFile(addressBookFile);
                             System.exit(1);
                         }
+                        blockInDayCounter.incrementAndGet();
                     }
                     case DAY_END -> {
                         // After finishing the day, update aggregates
@@ -342,6 +425,7 @@ public class Validate implements Runnable {
             System.err.println("Validation interrupted");
             Status s = lastGood.get();
             if (s != null) Status.writeStatusFile(statusFile, s);
+            addressBookRegistry.saveAddressBookRegistryToJsonFile(addressBookFile);
             System.exit(1);
         } catch (IOException e) {
             throw new RuntimeException(e);
@@ -355,6 +439,7 @@ public class Validate implements Runnable {
         // On normal completion write final status (last good)
         Status sFinal = lastGood.get();
         if (sFinal != null) Status.writeStatusFile(statusFile, sFinal);
+        addressBookRegistry.saveAddressBookRegistryToJsonFile(addressBookFile);
 
         // Ensure reader finished
         try {
