@@ -1,10 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.tools.records;
 
+import static java.time.ZoneOffset.UTC;
+
 import java.nio.file.Path;
 import java.time.Instant;
 import java.time.LocalDateTime;
-import java.time.ZoneOffset;
 import java.time.format.DateTimeParseException;
 import java.util.HashMap;
 import java.util.List;
@@ -17,6 +18,7 @@ import org.hiero.block.tools.commands.days.listing.ListingRecordFile;
  * Utility class for extracting consensus timestamps from Hedera record file names and paths.
  */
 public class RecordFileUtils {
+    /** Pattern to match record file names with timestamp */
     private static final Pattern RECORD_FILE_NAME_PATTERN =
             Pattern.compile("(\\d{4}-\\d{2}-\\d{2}T\\d{2}_\\d{2}_\\d{2}\\.\\d+Z)");
 
@@ -83,7 +85,7 @@ public class RecordFileUtils {
                     .replace('_', ':');
         }
         try {
-            return LocalDateTime.ofInstant(Instant.parse(dateString), ZoneOffset.UTC);
+            return LocalDateTime.ofInstant(Instant.parse(dateString), UTC);
         } catch (DateTimeParseException e) {
             throw new RuntimeException(
                     "Invalid record file name: \"" + recordOrSidecarFileName + "\" - dateString=\"" + dateString + "\"",

@@ -32,6 +32,7 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.HexFormat;
 import java.util.List;
 import org.hiero.block.tools.commands.days.model.AddressBookRegistry;
 
@@ -221,7 +222,9 @@ public class RecordFileBlockV2 extends RecordFileBlock {
                     && startRunningHash.length > 0
                     && !Arrays.equals(startRunningHash, previousHash)) {
                 isValid = false;
-                warningMessages.append("Start running hash does not match previous hash in v2 record file\n");
+                warningMessages.append("Start running hash does not match previous hash in v2 record file\n"+
+                    "  Expected: " + HexFormat.of().formatHex(startRunningHash) + "\n" +
+                    "  Found:    " + HexFormat.of().formatHex(previousHash) + "\n");
             }
             // The hash for v2 files is the hash(header, hash(content)) this is different to other versions
             // the block hash is not available in the file so we have to calculate it

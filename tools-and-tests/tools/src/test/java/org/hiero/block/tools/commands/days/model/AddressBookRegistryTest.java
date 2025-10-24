@@ -8,6 +8,7 @@ import com.hedera.hapi.node.transaction.TransactionBody;
 import com.hedera.pbj.runtime.ParseException;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import com.hedera.pbj.runtime.io.stream.ReadableStreamingData;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import org.junit.jupiter.api.Test;
@@ -43,7 +44,7 @@ public class AddressBookRegistryTest {
                 transactionBodies.add(TransactionBody.PROTOBUF.parse(tbBytes));
             }
             AddressBookRegistry addressBookRegistry = new AddressBookRegistry();
-            String changes = addressBookRegistry.updateAddressBook(transactionBodies);
+            String changes = addressBookRegistry.updateAddressBook(Instant.now(), transactionBodies);
             System.out.println("changes = " + changes);
             // check changes contains expected updates
             //            Node 16 added with key ac367eb1

@@ -70,6 +70,11 @@ public class ParsedSignatureFile {
                     // Read 48-byte file hash
                     fileHashFromSig = new byte[SHA_384_HASH_SIZE];
                     sin.readFully(fileHashFromSig);
+                    // Read signature marker
+                    byte marker = sin.readByte();
+                    if (marker != 3) {
+                        throw new IOException("Invalid signature marker byte in "+sigFile.path());
+                    }
                     // Read signature length and signature bytes
                     final int sigLen = sin.readInt();
                     signatureBytes = new byte[sigLen];
@@ -121,7 +126,8 @@ public class ParsedSignatureFile {
                 }
             }
         } catch (Exception e) {
-            throw new RuntimeException("Error processing signature file "+sigFile.path(),e);
+            throw new RuntimeException("Error processing signature file "+sigFile.path()+
+                " because: "+e.getMessage(),e);
         }
     }
 
