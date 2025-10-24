@@ -94,7 +94,7 @@ public class ThroughputMetrics {
         final Instant start = firstByteAt.get();
         final Instant end = lastByteAt.get();
         if (start == null || end == null) {
-            System.out.println(role + " stopped (no data)");
+            System.out.printf("%s stopped (no data)%n", role);
             return;
         }
 
@@ -103,7 +103,7 @@ public class ThroughputMetrics {
         final double totalMB = bytes / (1024.0 * 1024.0);
         final double mbps = totalMB / totalSeconds;
 
-        System.out.println("=== FINAL " + role + " THROUGHPUT REPORT ===");
+        System.out.printf("=== FINAL %s THROUGHPUT REPORT ===%n", role);
         System.out.printf("Total bytes: %d (%.2f MB)%n", bytes, totalMB);
         System.out.printf("Total time (first->last byte): %.2f seconds%n", totalSeconds);
         System.out.printf("Average throughput: %.2f MB/s%n", mbps);
