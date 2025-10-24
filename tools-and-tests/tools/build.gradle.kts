@@ -32,6 +32,7 @@ mainModuleInfo {
     requires("com.google.gson")
     requires("info.picocli")
     requires("org.apache.commons.compress")
+    requires("com.google.common.jimfs")
     runtimeOnly("com.swirlds.config.impl")
     runtimeOnly("io.grpc.netty")
     runtimeOnly("com.hedera.pbj.grpc.helidon.config")
