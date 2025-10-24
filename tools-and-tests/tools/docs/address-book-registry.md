@@ -1,5 +1,8 @@
 # Address Book Update Rules and Implementation Guide
 
+> [!NOTE]
+> This is AI generated from mirror node repository code and tests. It was helpful for AI to read when impementing address book update code. It has not been fully fact checked.
+
 This document summarizes how Hedera node address books are managed in the mirror node today and distills those rules into a concrete, actionable spec for implementing an in-memory AddressBookRegistry.updateAddressBook(List<TransactionBody>) in another project.
 
 It draws from the mirror node importer code and tests:
