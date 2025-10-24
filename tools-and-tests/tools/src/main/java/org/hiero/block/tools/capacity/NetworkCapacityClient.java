@@ -21,8 +21,11 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Flow;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
+import java.util.concurrent.locks.LockSupport;
 import java.util.stream.Collectors;
 import java.util.zip.GZIPInputStream;
 import org.hiero.block.api.BlockItemSet;
@@ -49,7 +52,7 @@ public class NetworkCapacityClient {
 
     public void run() throws IOException {
         System.out.println("Starting Network Capacity Client");
-        System.out.println("Recording folder: " + recordingFolder);
+        System.out.printf("Recording folder %s%n", recordingFolder);
 
         // No explicit start; metrics starts on first data seen.
         BlockStreamPublishClient publishClient = createPublishClient();
@@ -102,7 +105,7 @@ public class NetworkCapacityClient {
             return;
         }
 
-        System.out.println("Found " + blockFiles.size() + " block files to stream");
+        System.out.printf("Found %d block files to stream.%n", blockFiles.size());
 
         CompletableFuture<Void> streamingComplete = new CompletableFuture<>();
         ResponseHandler responseHandler = new ResponseHandler(streamingComplete);
@@ -112,9 +115,9 @@ public class NetworkCapacityClient {
             try {
                 streamBlockFile(blockFile, requestPipeline);
                 // Optional pacing; consider removing for tight windows
-                Thread.sleep(10);
-            } catch (Exception e) {
-                System.err.println("Error streaming file " + blockFile + ": " + e.getMessage());
+                LockSupport.parkNanos(10_000_000);
+            } catch (RuntimeException | ParseException e) {
+                System.err.printf("Error streaming file %s due to %s%n", blockFile, e);
             }
         }
 
@@ -122,8 +125,8 @@ public class NetworkCapacityClient {
 
         try {
             streamingComplete.get(Duration.ofMinutes(5).toMillis(), TimeUnit.MILLISECONDS);
-        } catch (Exception e) {
-            System.err.println("Error waiting for stream completion: " + e.getMessage());
+        } catch (RuntimeException | InterruptedException | ExecutionException | TimeoutException e) {
+            System.err.printf("Error waiting for stream completion due to %s%n", e);
         }
     }
 
@@ -173,8 +176,8 @@ public class NetworkCapacityClient {
             batchCount++;
         }
 
-        System.out.println("Sent " + batchCount + " batches for block: " + blockNumber + " of size " + blockData.length
-                + " bytes");
+        System.out.printf(
+                "Sent %d batches for block %d with size %d bytes.", batchCount, blockNumber, blockData.length);
         metrics.incrementBlocks();
         metrics.reportPeriodic();
     }
