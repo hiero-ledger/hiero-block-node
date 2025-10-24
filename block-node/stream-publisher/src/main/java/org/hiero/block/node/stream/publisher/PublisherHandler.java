@@ -693,6 +693,7 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
             LOGGER.log(INFO, "Handler %d is ending mid-block %d".formatted(handlerId, blockNumber));
             publisherManager.handlerIsEnding(blockNumber, handlerId);
         }
+        metrics.endStreamsReceived.increment();
         return new EndStreamResult(true);
     }
 

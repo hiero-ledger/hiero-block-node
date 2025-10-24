@@ -175,28 +175,9 @@
     {
       "id": 10,
       "type": "stat",
-      "title": "Current Block # Inbound",
-      "datasource": { "uid": "prometheus" },
-      "gridPos": { "h": 6, "w": 6, "x": 6, "y": 18 },
-      "targets": [
-        { "expr": "hiero_block_node_publisher_current_block_number_inbound", "refId": "A" }
-      ],
-      "fieldConfig": {
-        "defaults": { "unit": "none", "decimals": 0 },
-        "overrides": []
-      },
-      "options": {
-        "reduceOptions": { "calcs": ["lastNotNull"] },
-        "textMode": "auto",
-        "orientation": "vertical"
-      }
-    },
-    {
-      "id": 11,
-      "type": "stat",
       "title": "Highest Block # Inbound",
       "datasource": { "uid": "prometheus" },
-      "gridPos": { "h": 6, "w": 6, "x": 12, "y": 18 },
+      "gridPos": { "h": 6, "w": 6, "x": 6, "y": 18 },
       "targets": [
         { "expr": "hiero_block_node_publisher_highest_block_number_inbound", "refId": "A" }
       ],
@@ -211,13 +192,13 @@
       }
     },
     {
-      "id": 12,
+      "id": 11,
       "type": "stat",
       "title": "Latest Block # Ack Sent",
       "datasource": { "uid": "prometheus" },
-      "gridPos": { "h": 6, "w": 6, "x": 18, "y": 18 },
+      "gridPos": { "h": 6, "w": 6, "x": 12, "y": 18 },
       "targets": [
-        { "expr": "hiero_block_node_publisher_latest_block_number_ack_sent", "refId": "A" }
+        { "expr": "hiero_block_node_publisher_latest_block_number_acknowledged", "refId": "A" }
       ],
       "fieldConfig": {
         "defaults": { "unit": "none", "decimals": 0 },
@@ -230,14 +211,14 @@
       }
     },
     {
-      "id": 13,
+      "id": 12,
       "type": "row",
       "title": "Connections & Errors",
       "collapsed": false,
       "gridPos": { "h": 1, "w": 24, "x": 0, "y": 24 }
     },
     {
-      "id": 14,
+      "id": 13,
       "type": "stat",
       "title": "Open Connections",
       "datasource": { "uid": "prometheus" },
@@ -256,7 +237,7 @@
       }
     },
     {
-      "id": 15,
+      "id": 14,
       "type": "timeseries",
       "title": "Stream Errors /s",
       "datasource": { "uid": "prometheus" },
