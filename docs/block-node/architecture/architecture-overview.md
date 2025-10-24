@@ -9,8 +9,10 @@ components and to clients using a plugin-based architecture for additional servi
 - **Plugin System:** All major features are implemented as plugins, conforming to the `BlockNodePlugin` interface.
   Plugins are dynamically loaded and initialized at startup.
 - **Messaging:** The `BlockMessagingFacility` is responsible for distributing event messages (via LMAX Disruptor) to registered handlers defined in plugins.
-- **Block Management:** Historical block creation is managed by `HistoricalBlockFacilityImpl`, which aggregates multiple
-  block providers and exposes a unified view of available blocks.
+- **Block Management:** Block storage and access is managed by implementation of `BlockProviderPlugin` and one
+  implementation of the `HistoricalBlockFacility`, which aggregate multiple block providers and exposes a unified view of available blocks.
+- **BlockVerification:** Blocks are verified for integrity using the `VerificationServicePlugin` which build the virtual
+  merkle tree and validate the block proof prior to persistence.
 
 ## Modules
 
@@ -38,50 +40,10 @@ The following modules provide additional functionality and are loaded as plugins
 
 ## System Architecture Diagram
 
-```mermaid
----
-config:
-  theme: redux
-  layout: elk
----
-flowchart TD
- subgraph subGraph0["gRPC Publisher Client"]
-        Q["gRPC BlockStreamPublish Request"]
-  end
- subgraph subGraph1["gRPC Subscriber Client"]
-        R["gRPC BlockStreamSubscribe Request"]
-  end
- subgraph subGraph2["gRPC Block Client"]
-        S["gRPC BlockAccess Request"]
-        T["gRPC NodeStatus Request"]
-  end
- subgraph X["BlockNode Core Modules"]
-        B["SPI"]
-        C["BlockMessagingFacility"]
-        D["BlockProviders"]
-        E["Messaging"]
-        F["Health"]
-  end
- subgraph Y["BlockNode Add-On Modules"]
-        G["BlockAccess"]
-        H["S3-Archive"]
-        I["ServerStatus"]
-        J["StreamPublisher"]
-        K["StreamSubscriber"]
-        L["Verification"]
-  end
- subgraph subGraph4["BlockNode Server"]
-        A["BlockNodeApp"]
-        X
-        Y
-  end
-    A --> X & Y
-    Q <--> J
-    R <--> K
-    S <--> G
-    T <--> I
-```
+The overall architecture of BlockNode is illustrated below:
 ![block-node-app-logic](./../../assets/block-node-app-logic.svg)
+or
+![block-node-app-logic-1](./../../assets/block-node-app-logic-1.svg)
 
 Additional details regarding Service interactions are illustrated in [Block-Node-Nano-Services](./../../assets/Block-Node-Nano-Services.svg) diagram.
 
