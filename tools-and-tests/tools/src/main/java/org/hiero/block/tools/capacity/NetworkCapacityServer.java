@@ -33,7 +33,7 @@ public class NetworkCapacityServer {
     }
 
     public void start() {
-        System.out.println("Starting Network Capacity Server on port " + port);
+        System.out.printf("Starting Network Capacity Server on port %d%n", port);
         // No explicit start; metrics begins on first data arrival.
 
         final PbjConfig pbjConfig = PbjConfig.builder()
@@ -65,11 +65,11 @@ public class NetworkCapacityServer {
                 .build();
 
         webServer.start();
-        System.out.println("Network Capacity Server started on port " + port);
+        System.out.printf("Network Capacity Server started on port %d%n", port);
     }
 
     public void stop() {
-        System.out.println("Shutting down Network Capacity Server on port " + port);
+        System.out.printf("Shutting down Network Capacity Server on port %d%n", port);
         // Do not report final here; each stream reports its own final cleanly.
         if (webServer != null) {
             webServer.stop();
@@ -117,7 +117,7 @@ public class NetworkCapacityServer {
                                 blockItems.blockItems().getFirst().blockHeader().number();
                         hasReceivedBlockHeader = true;
                         currentBlockItems.clear();
-                        System.out.println("[SERVER] Receiving block " + currentBlockNumber);
+                        System.out.printf("[SERVER] Receiving block %d%n", currentBlockNumber);
                     }
 
                     // Accumulate items
@@ -144,14 +144,14 @@ public class NetworkCapacityServer {
                     }
                 }
             } catch (Exception e) {
-                System.err.println("Error processing request: " + e.getMessage());
+                System.err.printf("Error processing request: %s%n", e.getMessage());
                 e.printStackTrace();
             }
         }
 
         @Override
         public void onError(final Throwable throwable) {
-            System.err.println("Error in stream: " + throwable.getMessage());
+            System.err.printf("Error in stream: %s%n", throwable.getMessage());
             metrics.reportFinal();
         }
 

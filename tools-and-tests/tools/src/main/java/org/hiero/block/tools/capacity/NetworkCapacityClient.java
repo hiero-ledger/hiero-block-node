@@ -101,7 +101,7 @@ public class NetworkCapacityClient {
                 .collect(Collectors.toList());
 
         if (blockFiles.isEmpty()) {
-            System.err.println("No block files found in " + recordingFolder);
+            System.err.printf("No block files found in %s%n", recordingFolder);
             return;
         }
 
@@ -140,7 +140,8 @@ public class NetworkCapacityClient {
         long blockNumber = block.items().getFirst().blockHeader().number();
 
         List<BlockItem> items = block.items();
-        System.out.println("Streaming block from file: " + blockFile.getFileName() + " (" + items.size() + " items)");
+        System.out.printf(
+                "Streaming block from file: %s (%d items)%n", blockFile.getFileName(), items.size());
 
         final long maxMessageSizeBytes = config.serverMaxMessageSizeBytes();
         int i = 0;
@@ -208,7 +209,7 @@ public class NetworkCapacityClient {
 
         @Override
         public void onError(Throwable throwable) {
-            System.err.println("Error receiving response: " + throwable.getMessage());
+            System.err.printf("Error receiving response: %s%n", throwable.getMessage());
             completionFuture.completeExceptionally(throwable);
         }
 

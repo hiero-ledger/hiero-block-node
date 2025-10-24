@@ -50,11 +50,11 @@ public class NetworkCapacity implements Runnable {
         try {
             validateParameters();
             // Print the mode
-            System.out.println("Running in " + mode + " mode");
+            System.out.printf("Running in %s mode%n", mode);
             // print the config file path
-            System.out.println("Using configuration file: " + configFile);
+            System.out.printf("Using configuration file: %s%n", configFile);
             // print the config details
-            System.out.println("Configuration file:" + Files.readString(configFile));
+            System.out.printf("Configuration file: %s%n", Files.readString(configFile));
 
             if ("server".equalsIgnoreCase(mode)) {
                 runServer();
@@ -64,8 +64,7 @@ public class NetworkCapacity implements Runnable {
                 throw new IllegalArgumentException("Invalid mode: " + mode + ". Must be 'server' or 'client'");
             }
         } catch (Exception e) {
-            String errorMsg = "Error running NetworkCapacity command: " + e.getMessage();
-            System.err.println(errorMsg);
+            System.err.printf("Error running NetworkCapacity command: %s%n", e.getMessage());
             e.printStackTrace();
         }
     }
@@ -101,7 +100,7 @@ public class NetworkCapacity implements Runnable {
                 HelidonWebServerConfig.JSON.parse(Bytes.wrap(Files.readAllBytes(configFile)));
 
         // Log the config loaded
-        System.out.println("Client configuration loaded: " + webServerConfig);
+        System.out.printf("Client configuration loaded: %s%n", webServerConfig);
 
         NetworkCapacityServer server = new NetworkCapacityServer(port, webServerConfig);
         server.start();
@@ -125,7 +124,7 @@ public class NetworkCapacity implements Runnable {
                 HelidonWebClientConfig.JSON.parse(Bytes.wrap(Files.readAllBytes(configFile)));
 
         // Log the config loaded
-        System.out.println("Client configuration loaded: " + clientConfig);
+        System.out.printf("Client configuration loaded: %s%n", clientConfig);
 
         NetworkCapacityClient client = new NetworkCapacityClient(clientConfig, recordingFolder, serverAddress, port);
         client.run();
