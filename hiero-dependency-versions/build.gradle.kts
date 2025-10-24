@@ -1,11 +1,4 @@
 // SPDX-License-Identifier: Apache-2.0
-plugins {
-    id("org.hiero.gradle.base.lifecycle")
-    id("org.hiero.gradle.base.jpms-modules")
-    id("org.hiero.gradle.check.spotless")
-    id("org.hiero.gradle.check.spotless-kotlin")
-}
-
 dependencies {
     api(platform("io.netty:netty-bom:4.2.6.Final"))
     api(platform("com.google.cloud:libraries-bom:26.68.0"))
@@ -15,9 +8,7 @@ dependencies.constraints {
     val daggerVersion = "2.57.2"
     val grpcIoVersion = "1.75.0"
     val helidonVersion = "4.3.1"
-    // When Upgrading pbjVersion, also need to update pbjCompiler version on
-    // block-node/protobuf-pbj/build.gradle.kts
-    val pbjVersion = "0.12.1"
+    val pbjVersion = pluginVersions.version("com.hedera.pbj.pbj-compiler")
     val protobufVersion = "4.32.1"
     val swirldsVersion = "0.61.3"
     val mockitoVersion = "5.20.0"
@@ -34,7 +25,6 @@ dependencies.constraints {
     api("com.google.protobuf:protobuf-java-util:$protobufVersion") {
         because("com.google.protobuf.util")
     }
-    api("com.google.protobuf:protoc:$protobufVersion") { because("google.proto") }
     api("com.hedera.pbj:pbj-grpc-client-helidon:${pbjVersion}") {
         because("com.hedera.pbj.grpc.client.helidon")
     }
@@ -48,9 +38,6 @@ dependencies.constraints {
     api("com.swirlds:swirlds-config-impl:$swirldsVersion") { because("com.swirlds.config.impl") }
     api("io.helidon.logging:helidon-logging-jul:$helidonVersion") {
         because("io.helidon.logging.jul")
-    }
-    api("io.helidon.webserver:helidon-webserver-grpc:$helidonVersion") {
-        because("io.helidon.webserver.grpc")
     }
     api("io.helidon.webserver:helidon-webserver:$helidonVersion") {
         because("io.helidon.webserver")
@@ -97,4 +84,8 @@ dependencies.constraints {
     api("com.google.jimfs:jimfs:1.3.1") { because("com.google.common.jimfs") }
     api("io.minio:minio:8.5.17") { because("io.minio") }
     api("com.squareup.okio:okio-jvm:3.16.0") { because("okio") } // required by minio
+
+    // Versions of additional tools that are not part of the product or test module paths
+    api("com.google.protobuf:protoc:${protobufVersion}")
+    tasks.checkVersionConsistency { excludes.add("com.google.protobuf:protoc") }
 }
