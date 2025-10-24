@@ -73,7 +73,7 @@ val createDockerImage: TaskProvider<Exec> =
 
 tasks.register<Exec>("startDockerContainerNetworkCapacityServer") {
     description =
-        "Starts the docker BlocksStream Tools with networkCapacity server modde and current defaults"
+        "Starts the docker BlocksStream Tools with networkCapacity server mode and current defaults"
     group = "docker"
 
     dependsOn(createDockerImage)
@@ -87,7 +87,7 @@ tasks.register<Exec>("startDockerContainerNetworkCapacityServer") {
 
 tasks.register<Exec>("startDockerContainerNetworkCapacityClient") {
     description =
-        "Starts the docker BlocksStream Tools with networkCapacity server modde and current defaults"
+        "Starts the docker BlocksStream Tools with networkCapacity in client mode and current defaults"
     group = "docker"
 
     dependsOn(createDockerImage)

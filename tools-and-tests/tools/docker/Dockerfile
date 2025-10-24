@@ -1,5 +1,5 @@
 # Use Eclipse Temurin with Java 21 as the base image
-FROM eclipse-temurin:21
+FROM eclipse-temurin:25
 
 # Define version
 ARG VERSION

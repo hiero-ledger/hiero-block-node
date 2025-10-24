@@ -126,8 +126,9 @@ public class NetworkCapacityServer {
                     // Detect end of a block
                     if (blockItems.blockItems().getLast().hasBlockProof() && hasReceivedBlockHeader) {
                         metrics.incrementBlocks();
-                        System.out.println("[SERVER] Completed block " + currentBlockNumber + " (Total: "
-                                + metrics.getTotalBlocks() + ")");
+                        System.out.printf(
+                                "[SERVER] Completed block %d (Total %d).",
+                                currentBlockNumber, metrics.getTotalBlocks());
 
                         // Send acknowledgement
                         PublishStreamResponse response = PublishStreamResponse.newBuilder()
