@@ -182,34 +182,11 @@ message StateProofRequest {
     bytes state_key = 2;
 }
 
-message StateProof {
-    /**
-     * The block number at which the proof is requested.
-     */
-    uint64 block_number = 1;
-
-    /**
-     * The value of the state item proved.
-     */
-    bytes value = 2;
-
-    /**
-     * A list of sibling hashes forming the Merkle proof.
-     * <p>
-     * These hashes are used to reconstruct the Merkle root, ensuring the state item
-     * is included in the corresponding Merkle tree.
-     */
-    repeated com.hedera.hapi.block.stream.MerkleSiblingHash sibling_hashes = 3;
-
-    /**
-     * The digital signature over the state proof data.
-     * <p>
-     * This signature confirms the integrity and origin of the state proof.
-     */
-    bytes block_signature = 4;
-}
-
 message StateProofResponse {
+    message StateProofPlaceholder {
+        // Placeholder until the Block Stream definition for StateProof is available.
+    }
+
     enum Code {
         /**
          * The response code is unspecified.
@@ -246,7 +223,7 @@ message StateProofResponse {
      * If the request is successful, this field contains the state item, its
      * Merkle sibling hashes, and the digital signature.
      */
-    StateProof state_proof = 2;
+    StateProofPlaceholder state_proof = 2;
 }
 
 /**
