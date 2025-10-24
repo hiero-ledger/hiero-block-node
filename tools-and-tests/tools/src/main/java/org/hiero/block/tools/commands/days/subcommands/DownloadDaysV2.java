@@ -9,11 +9,12 @@ import com.google.cloud.storage.Storage;
 import com.google.cloud.storage.StorageOptions;
 import java.io.File;
 import java.time.LocalDate;
-import java.time.LocalDateTime;
 import java.util.Map;
 import org.hiero.block.tools.commands.mirrornode.BlockTimeReader;
 import org.hiero.block.tools.commands.mirrornode.DayBlockInfo;
 import org.hiero.block.tools.utils.gcp.ConcurrentDownloadManager;
+import org.hiero.block.tools.utils.gcp.ConcurrentDownloadManagerTransferManager;
+import org.hiero.block.tools.utils.gcp.ConcurrentDownloadManagerVirtualThreads;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Option;
 import picocli.CommandLine.Parameters;
@@ -59,7 +60,8 @@ public class DownloadDaysV2 implements Runnable {
     public void run() {
         try (BlockTimeReader blockTimeReader = new BlockTimeReader();
             Storage storage = StorageOptions.grpc().setAttemptDirectPath(false).setProjectId(GCP_PROJECT_ID).build().getService();
-            ConcurrentDownloadManager downloadManager = ConcurrentDownloadManager.newBuilder(storage).setInitialConcurrency(threads).build()) {
+//            ConcurrentDownloadManager downloadManager = ConcurrentDownloadManagerVirtualThreads.newBuilder(storage).setInitialConcurrency(threads).build()) {
+            ConcurrentDownloadManager downloadManager = new ConcurrentDownloadManagerTransferManager()) {
             // Load day block info map
             final Map<LocalDate, DayBlockInfo> daysInfo = loadDayBlockInfoMap();
             final var days = LocalDate.of(fromYear, fromMonth, fromDay)

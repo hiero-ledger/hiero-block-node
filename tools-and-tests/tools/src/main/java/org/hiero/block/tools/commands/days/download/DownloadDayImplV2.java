@@ -188,7 +188,6 @@ public class DownloadDayImplV2 {
 
         // validate and write completed blocks in order as they finish downloading
         try (ConcurrentTarZstdWriter writer = new ConcurrentTarZstdWriter(finalOutFile)) {
-            List<Long> waitTimes = new ArrayList<>();
             // process pending blocks while the producer is still running or while there is work in the queue
             while (!downloadQueueingFuture.isDone() || !pending.isEmpty()) {
                 // wait up to 1s for a block; if none available and producer still running, loop again
@@ -204,7 +203,6 @@ public class DownloadDayImplV2 {
                     continue;
                 }
                  // wait for its downloads to complete for this block
-                long startWaitMillis = System.currentTimeMillis();
                  try {
                      CompletableFuture.allOf(ready.futures.toArray(new CompletableFuture[0])).join();
                  } catch (CompletionException ce) {
@@ -212,7 +210,6 @@ public class DownloadDayImplV2 {
                      ce.printStackTrace();
                      throw new RuntimeException("Failed downloading block " + ready.blockTime, ce.getCause());
                  }
-                waitTimes.add(System.currentTimeMillis() - startWaitMillis);
                 // convert the downloaded files into InMemoryFiles with destination paths, unzipped if needed and
                 //  validate md5 hashes
                 final List<InMemoryFile> inMemoryFilesForWriting = new ArrayList<>();
@@ -238,11 +235,10 @@ public class DownloadDayImplV2 {
                 for (InMemoryFile imf : inMemoryFilesForWriting) writer.putEntry(imf);
                 // print progress
                 printProgress(blocksProcessed, blocksQueuedForDownload, totalBlocks, dayIndex, daySharePercent,
-                    overallStartMillis, dayString+" - "+waitTimes.stream().mapToLong(Long::longValue).summaryStatistics(), ready.blockTime, downloadManager);
+                    overallStartMillis, dayString, ready.blockTime, downloadManager);
             }
             // Ensure producer exceptions are propagated instead of being silently ignored.
             downloadQueueingFuture.join();
-            System.err.println("downloadQueueingFuture.isDone() "+downloadQueueingFuture.isDone()+" - pending.size() = " +  pending.size());
         } catch (Exception e) {
             clearProgress();
             e.printStackTrace();
