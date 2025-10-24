@@ -13,7 +13,6 @@ import java.util.Map;
 import org.hiero.block.tools.commands.mirrornode.BlockTimeReader;
 import org.hiero.block.tools.commands.mirrornode.DayBlockInfo;
 import org.hiero.block.tools.utils.gcp.ConcurrentDownloadManager;
-import org.hiero.block.tools.utils.gcp.ConcurrentDownloadManagerTransferManager;
 import org.hiero.block.tools.utils.gcp.ConcurrentDownloadManagerVirtualThreads;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Option;
@@ -60,8 +59,7 @@ public class DownloadDaysV2 implements Runnable {
     public void run() {
         try (BlockTimeReader blockTimeReader = new BlockTimeReader();
             Storage storage = StorageOptions.grpc().setAttemptDirectPath(false).setProjectId(GCP_PROJECT_ID).build().getService();
-//            ConcurrentDownloadManager downloadManager = ConcurrentDownloadManagerVirtualThreads.newBuilder(storage).setInitialConcurrency(threads).build()) {
-            ConcurrentDownloadManager downloadManager = new ConcurrentDownloadManagerTransferManager()) {
+            ConcurrentDownloadManager downloadManager = ConcurrentDownloadManagerVirtualThreads.newBuilder(storage).setInitialConcurrency(threads).build()) {
             // Load day block info map
             final Map<LocalDate, DayBlockInfo> daysInfo = loadDayBlockInfoMap();
             final var days = LocalDate.of(fromYear, fromMonth, fromDay)
@@ -75,7 +73,7 @@ public class DownloadDaysV2 implements Runnable {
                 DayBlockInfo dayBlockInfo = daysInfo.get(localDate);
                 try {
                     previousRecordHash = downloadDay(
-                        downloadManager,
+                            downloadManager,
                             dayBlockInfo,
                             blockTimeReader,
                             listingDir.toPath(),
@@ -83,6 +81,7 @@ public class DownloadDaysV2 implements Runnable {
                             localDate.getYear(),
                             localDate.getMonthValue(),
                             localDate.getDayOfMonth(),
+                            previousRecordHash,
                             totalDays,
                             i, // progressStart as day index (0-based)
                             overallStartMillis);
