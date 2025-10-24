@@ -6,6 +6,7 @@ import com.google.cloud.storage.StorageException;
 import java.io.Closeable;
 import java.io.IOException;
 import java.net.SocketTimeoutException;
+import java.nio.file.Path;
 import java.time.Duration;
 import java.util.Objects;
 import java.util.Random;
@@ -20,6 +21,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Predicate;
 import org.hiero.block.tools.commands.days.download.DownloadConstants;
+import org.hiero.block.tools.records.InMemoryFile;
 
 /**
  * ConcurrentDownloadManager (Java 21, virtual threads)
@@ -200,14 +202,14 @@ public final class ConcurrentDownloadManager implements AutoCloseable, Closeable
      *
      * <pre>{@code
      * List<BlobId> batch = ...;
-     * List<CompletableFuture<byte[]>> futures = new ArrayList<>();
+     * List<CompletableFuture<InMemoryFile>> futures = new ArrayList<>();
      * for (BlobId id : batch) {
      *   futures.add(manager.downloadAsync(id.getBucket(), id.getName()));
      * }
      * CompletableFuture.allOf(futures.toArray(CompletableFuture[]::new)).join();
      * // Now process in-order:
      * for (int i = 0; i < batch.size(); i++) {
-     *   byte[] data = futures.get(i).join();
+     *   InMemoryFile data = futures.get(i).join();
      *   // process data...
      * }
      * }</pre>
@@ -218,7 +220,7 @@ public final class ConcurrentDownloadManager implements AutoCloseable, Closeable
      * @throws IllegalStateException if the manager is closed
      */
     @SuppressWarnings("unused")
-    public CompletableFuture<byte[]> downloadAsync(String bucketName, String objectName) {
+    public CompletableFuture<InMemoryFile> downloadAsync(String bucketName, String objectName) {
         if (closed) throw new IllegalStateException("Manager is closed");
         return CompletableFuture.supplyAsync(() -> {
             gate.acquire();
@@ -254,7 +256,7 @@ public final class ConcurrentDownloadManager implements AutoCloseable, Closeable
     // ===== Core download with retry/backoff =====
 
     /** Bytes variant for {@link #downloadAsync(String, String)}. */
-    private byte[] downloadWithRetryBytes(String bucketName, String objectName) {
+    private InMemoryFile downloadWithRetryBytes(String bucketName, String objectName) {
         int attempt = 0;
         long nextBackoffMs = retryPolicy.initialBackoff.toMillis();
         Random jitter = ThreadLocalRandom.current();
@@ -265,7 +267,7 @@ public final class ConcurrentDownloadManager implements AutoCloseable, Closeable
                 byte[] data = storage.readAllBytes(bucketName, objectName, BLOB_SOURCE_OPTION);
                 bytesDownloaded.addAndGet(data.length);
                 objectsCompleted.incrementAndGet();
-                return data;
+                return new InMemoryFile(Path.of(objectName), data);
             } catch (Throwable t) {
                 boolean retriable = retryPolicy.isRetriable(t);
                 errorWindow.recordError(retriable);
