@@ -68,18 +68,12 @@ mainModuleInfo {
 testModuleInfo {
     requires("org.hiero.block.node.app.test.fixtures")
 
-    requires("io.grpc")
     requires("org.junit.jupiter.api")
     requires("org.junit.jupiter.params")
     requires("org.mockito")
     requires("org.assertj.core")
-    requires("io.helidon.http.media")
     requires("io.helidon.webclient.http2")
-    requires("io.grpc.netty")
-    requires("com.google.protobuf.util")
-    requires("com.hedera.pbj.grpc.helidon.config")
     requires("com.hedera.pbj.grpc.client.helidon")
-    requires("com.hedera.pbj.grpc.helidon")
     requires("io.helidon.webclient.grpc")
 
     exportsTo("com.swirlds.config.impl")
