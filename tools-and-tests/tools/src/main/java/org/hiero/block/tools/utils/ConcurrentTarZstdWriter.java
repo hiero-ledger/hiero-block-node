@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.tools.utils;
 
+import com.github.luben.zstd.RecyclingBufferPool;
 import com.github.luben.zstd.ZstdOutputStream;
+import java.io.BufferedOutputStream;
 import java.io.OutputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -49,13 +51,15 @@ public class ConcurrentTarZstdWriter implements AutoCloseable {
         this.outFile = outFile;
         this.partialOutFile = outFile.getParent().resolve(outFile.getFileName() + "_partial");
         this.fout = Files.newOutputStream(partialOutFile);
-        this.zOut = new ZstdOutputStream(fout, /*level*/ 6);
-        this.tar = new TarArchiveOutputStream(zOut);
+        this.zOut = new ZstdOutputStream(new BufferedOutputStream(fout, 1024*1024*128),
+            RecyclingBufferPool.INSTANCE, /*level*/ 3);
+        this.tar = new TarArchiveOutputStream(new BufferedOutputStream(zOut, 1024*1024*128));
         tar.setLongFileMode(TarArchiveOutputStream.LONGFILE_POSIX);
         // start writer thread
         this.writerThread = new Thread(
                 () -> {
                     try {
+                        final java.util.ArrayList<InMemoryFile> batch = new java.util.ArrayList<>(100);
                         while (true) {
                             InMemoryFile file;
                             try {
@@ -71,13 +75,18 @@ public class ConcurrentTarZstdWriter implements AutoCloseable {
                                 if (closed.get() && filesToWrite.isEmpty()) break;
                                 continue;
                             }
-                            // process the file
-                            TarArchiveEntry entry =
-                                    new TarArchiveEntry(file.path().toString());
-                            entry.setSize(file.data().length);
-                            tar.putArchiveEntry(entry);
-                            tar.write(file.data());
-                            tar.closeArchiveEntry();
+                            // drain up to 100 files at once for batch processing
+                            batch.clear();
+                            batch.add(file);
+                            filesToWrite.drainTo(batch, 99);
+                            // process the batch
+                            for (InMemoryFile f : batch) {
+                                TarArchiveEntry entry = new TarArchiveEntry(f.path().toString());
+                                entry.setSize(f.data().length);
+                                tar.putArchiveEntry(entry);
+                                tar.write(f.data());
+                                tar.closeArchiveEntry();
+                            }
                         }
                     } catch (Throwable t) {
                         // record the error for later rethrow in close()
