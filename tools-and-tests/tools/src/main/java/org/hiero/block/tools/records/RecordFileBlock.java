@@ -10,6 +10,7 @@ import java.io.IOException;
 import java.time.Instant;
 import java.util.List;
 import java.util.Objects;
+import java.util.concurrent.CopyOnWriteArrayList;
 
 /**
  * In-memory representation of a set of record files for a block. Typically, a 2 or 5 seconds period of consensus time.
@@ -284,10 +285,33 @@ public abstract class RecordFileBlock {
         throws IOException {
         if (addressBook != null && !signatureFiles().isEmpty()) {
             try {
+                final CopyOnWriteArrayList<String> signatureErrors = new CopyOnWriteArrayList<>();
                 final long validSignatureCount = signatureFiles().stream().parallel()
-                    .map(sigFile -> new ParsedSignatureFile(addressBook, sigFile))
-                    .filter(sf -> sf.isValid(recordFileSignedHash))
+                    .map(sigFile -> {
+                        try {
+                            return new ParsedSignatureFile(addressBook, sigFile);
+                        } catch (Exception e) {
+                            signatureErrors.add("Error parsing signature file " + sigFile.path() + ": " + e.getMessage());
+                            return null;
+                        }
+                    })
+                    .filter(sf -> {
+                        if (sf == null) {
+                            return false;
+                        }
+                        try {
+                            return sf.isValid(recordFileSignedHash);
+                        } catch (Exception e) {
+                            signatureErrors.add("Error validating signature @ " + recordFileTime + " for node "+
+                                sf.nodeId()+": " + e.getMessage());
+                            return false;
+                        }
+                    })
                     .count();
+                // append any signature parsing/validation errors
+                for (String err : signatureErrors) {
+                    warningMessages.append(err).append("\n");
+                }
                 final int totalNodeCount = addressBook.nodeAddress().size();
                 final int requiredSignatures = (totalNodeCount / 3) + 1;
                 if (validSignatureCount < requiredSignatures) {
@@ -304,6 +328,7 @@ public abstract class RecordFileBlock {
                 return true;
             } catch (Exception e) {
                 warningMessages.append("Error validating signatures: "+e.getMessage()+"\n");
+                e.printStackTrace();
                 return false;
             }
         }

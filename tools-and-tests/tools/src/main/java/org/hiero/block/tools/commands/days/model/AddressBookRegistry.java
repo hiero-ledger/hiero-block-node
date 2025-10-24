@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.tools.commands.days.model;
 
+import static org.hiero.block.tools.utils.TimeUtils.GENESIS_TIMESTAMP;
+import static org.hiero.block.tools.utils.TimeUtils.toTimestamp;
+
 import com.hedera.hapi.node.base.NodeAddress;
 import com.hedera.hapi.node.base.NodeAddressBook;
 import com.hedera.hapi.node.base.Transaction;
@@ -9,12 +12,19 @@ import com.hedera.hapi.node.transaction.TransactionBody;
 import com.hedera.pbj.runtime.ParseException;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import com.hedera.pbj.runtime.io.stream.ReadableStreamingData;
+import com.hedera.pbj.runtime.io.stream.WritableStreamingData;
 import java.io.ByteArrayOutputStream;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import org.hiero.block.internal.AddressBookHistory;
+import org.hiero.block.internal.DatedNodeAddressBook;
 
 /**
  * Registry of address books, starting with the Genesis address book.
@@ -22,19 +32,47 @@ import java.util.Objects;
  * The current address book is the most recently added address book.
  */
 public class AddressBookRegistry {
-    private final List<NodeAddressBook> addressBooks = new ArrayList<>();
+    private final List<DatedNodeAddressBook> addressBooks = new ArrayList<>();
     // Maintain partial payloads for file id 2 only. Only completed parses for 0.0.102 are appended to addressBooks to
     // keep getCurrentAddressBook() aligned with authoritative book semantics.
     private ByteArrayOutputStream partialFileUpload = null;
+
+
 
     /**
      * Create a new AddressBookRegistry instance and load the Genesis address book.
      */
     public AddressBookRegistry() {
         try {
-            addressBooks.add(loadGenesisAddressBook());
+            addressBooks.add(new DatedNodeAddressBook(GENESIS_TIMESTAMP,loadGenesisAddressBook()));
         } catch (ParseException e) {
             throw new RuntimeException("Error loading Genesis Address Book", e);
+        }
+    }
+
+    /**
+     * Create a new AddressBookRegistry instance loading from JSON file.
+     */
+    public AddressBookRegistry(Path jsonFile) {
+        try (var in = new ReadableStreamingData(Files.newInputStream(jsonFile))) {
+            AddressBookHistory history = AddressBookHistory.JSON.parse(in);
+            addressBooks.addAll(history.addressBooks());
+        } catch (IOException | ParseException e) {
+            throw new RuntimeException("Error loading Address Book History JSON file "+jsonFile, e);
+        }
+    }
+
+    /**
+     * Save the address book registry to a JSON file.
+     *
+     * @param file the path to the JSON file
+     */
+    public void saveAddressBookRegistryToJsonFile(Path file) {
+        try(var out = new WritableStreamingData(Files.newOutputStream(file))) {
+            AddressBookHistory history = new AddressBookHistory(addressBooks);
+            AddressBookHistory.JSON.write(history, out);
+        } catch (IOException e) {
+            throw new RuntimeException(e);
         }
     }
 
@@ -44,7 +82,7 @@ public class AddressBookRegistry {
      * @return the current address book
      */
     public NodeAddressBook getCurrentAddressBook() {
-        return addressBooks.getLast();
+        return addressBooks.getLast().addressBook();
     }
 
     /**
@@ -66,7 +104,7 @@ public class AddressBookRegistry {
      * @return a string describing the changes made to the address book, or a null string if no changes were made
      */
     @SuppressWarnings("DataFlowIssue")
-    public String updateAddressBook(List<TransactionBody> addressBookTransactions) {
+    public String updateAddressBook(Instant blockInstant, List<TransactionBody> addressBookTransactions) {
         final NodeAddressBook currentBook = getCurrentAddressBook();
         NodeAddressBook newAddressBook = currentBook;
         // Walk through transactions in order, maintaining a buffer for 0.0.102. Only successful 0.0.102 parses produce
@@ -103,7 +141,7 @@ public class AddressBookRegistry {
             }
         }
         if (newAddressBook != currentBook) {
-            addressBooks.add(newAddressBook);
+            addressBooks.add(new DatedNodeAddressBook(toTimestamp(blockInstant),newAddressBook));
             // Update changes description
             return "Address Book Changed, via file update:\n" + addressBookChanges(currentBook, newAddressBook);
         }
@@ -214,11 +252,11 @@ public class AddressBookRegistry {
         if (shard != 0 || realm != 0) {
             throw new IllegalArgumentException("Only shard 0 and realm 0 are supported");
         }
-        long addressBookNodeId = addressBook.nodeAddress().stream()
+        final NodeAddress nodeAddress = addressBook.nodeAddress().stream()
             .filter(na -> getNodeAccountId(na) == number)
             .findFirst()
-            .orElseThrow()
-            .nodeId();
+            .orElse(null);
+        long addressBookNodeId = nodeAddress == null ? -1 : nodeAddress.nodeId();
         // For older address books where nodeId is not set, derive it from account number - 3
         return addressBookNodeId > 0 ? addressBookNodeId : number - 3;
     }
