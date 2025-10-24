@@ -90,12 +90,13 @@ public class DownloadDayImplV2 {
             final int year,
             final int month,
             final int day,
+            final byte[] previousRecordFileHash,
             final long totalDays,
             final int dayIndex,
             final long overallStartMillis)
             throws Exception {
         // the running blockchain hash from previous record file, null means unknown (first block of chain, or starting mid-chain)
-        byte[] prevRecordFileHash = null;
+        byte[] prevRecordFileHash = previousRecordFileHash;
         // load record file listings and group by ListingRecordFile.timestamp
         final List<ListingRecordFile> allDaysFiles = loadRecordsFileForDay(listingDir, year, month, day);
         final Map<LocalDateTime, List<ListingRecordFile>> filesByBlock =
