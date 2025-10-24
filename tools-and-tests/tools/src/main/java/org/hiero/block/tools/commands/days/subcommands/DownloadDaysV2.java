@@ -83,7 +83,6 @@ public class DownloadDaysV2 implements Runnable {
                             localDate.getDayOfMonth(),
                             totalDays,
                             i, // progressStart as day index (0-based)
-                            threads,
                             overallStartMillis);
                 } catch (Exception e) {
                     e.printStackTrace();
