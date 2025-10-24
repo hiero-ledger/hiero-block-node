@@ -462,7 +462,7 @@ public class BlockStreamSubscriberSession implements Callable<BlockStreamSubscri
                 if (!(nextBlockToSend.get() < 0 || nextBlockToSend.get() >= getLatestHistoricalBlock())) {
                     // We cannot get the block needed, something has failed.
                     // close the stream with an "unavailable" response.
-                    final String message = "Unable to read historical block {0}.";
+                    final String message = "Unable to read historical block, nextBlockToSend={0}.";
                     LOGGER.log(Level.INFO, message, nextBlockToSend);
                     close(SubscribeStreamResponse.Code.NOT_AVAILABLE);
                 } else {

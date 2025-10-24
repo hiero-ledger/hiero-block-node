@@ -27,7 +27,7 @@ import org.hiero.block.node.verification.session.VerificationSession;
 /** Provides implementation for the health endpoints of the server. */
 @SuppressWarnings("unused")
 public class VerificationServicePlugin implements BlockNodePlugin, BlockItemHandler, BlockNotificationHandler {
-    private static final String COMPLETED_MESSAGE = "Verified backfill block items for block {0} with success={1}";
+    private static final String COMPLETED_MESSAGE = "Verified backfill block items for block={0} with success={1}";
     /** The logger for this class. */
     private final System.Logger LOGGER = System.getLogger(getClass().getName());
     /** The block node context, for access to core facilities. */
@@ -169,10 +169,10 @@ public class VerificationServicePlugin implements BlockNodePlugin, BlockItemHand
                     if (notification.success()) {
                         verificationBlocksVerified.increment();
                         // send the notification to the block messaging service
-                        LOGGER.log(TRACE, "Sending verification notification for block number {0}", currentBlockNumber);
+                        LOGGER.log(TRACE, "Sending verification notification for blockNumber={0}", currentBlockNumber);
                         context.blockMessaging().sendBlockVerification(notification);
                     } else {
-                        LOGGER.log(INFO, "Verification failed for block number {0}", currentBlockNumber);
+                        LOGGER.log(INFO, "Verification failed for blockNumber={0}", currentBlockNumber);
                         sendFailureNotification(currentBlockNumber, BlockSource.PUBLISHER);
                     }
                 }
@@ -183,7 +183,7 @@ public class VerificationServicePlugin implements BlockNodePlugin, BlockItemHand
             long blockWorkEndTime = System.nanoTime() - startVerificationHandlingTime;
             LOGGER.log(
                     TRACE,
-                    "Finished verification handling block items for block number: {0}, and it took {1} ns",
+                    "Finished verification handling block items for blockNumber={0} nsVerificationDuration={1}",
                     currentBlockNumber,
                     blockWorkEndTime);
             verificationBlockTime.add(blockWorkEndTime);
@@ -210,7 +210,7 @@ public class VerificationServicePlugin implements BlockNodePlugin, BlockItemHand
     public void handleBackfilled(BackfilledBlockNotification notification) {
         try {
             // log the backfilled block notification received
-            LOGGER.log(TRACE, "Received backfill notification for block number {0}", notification.blockNumber());
+            LOGGER.log(TRACE, "Received backfill notification for blockNumber={0}", notification.blockNumber());
             // create a new verification session for the backfilled block
             BlockHeader blockHeader = BlockHeader.PROTOBUF.parse(
                     notification.block().blockItems().getFirst().blockHeader());

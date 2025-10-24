@@ -233,7 +233,7 @@ public final class BlockFileRecentPlugin implements BlockProviderPlugin, BlockNo
             } else {
                 LOGGER.log(
                         WARNING,
-                        "Failed to find verified block file: {0}",
+                        "Failed to find verified block file: fileName={0}",
                         verifiedBlockPath.toAbsolutePath().toString());
             }
         }
