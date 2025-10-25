@@ -223,12 +223,14 @@ The backfill plugin supports granular configuration of gRPC client parameters. O
 #### Example Configuration
 
 **Using default overall timeout:**
+
 ```yaml
 backfill:
   grpcOverallTimeout: 60000
 ```
 
 **Overriding specific timeouts:**
+
 ```yaml
 backfill:
   grpcOverallTimeout: 60000
@@ -238,12 +240,14 @@ backfill:
 ```
 
 **Partial overrides (others fall back to overall timeout):**
+
 ```yaml
 backfill:
   grpcOverallTimeout: 60000
   grpcConnectTimeout: 20000  # Only override connection timeout
   # grpcReadTimeout and grpcPollWaitTime will use grpcOverallTimeout (60000ms)
 ```
+
 
 This allows operators to fine-tune gRPC client behavior for different network conditions or backfill scenarios without requiring code changes.
 
