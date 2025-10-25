@@ -119,7 +119,7 @@ public class BlockNodeAppE2ETest {
     }
 
     private PbjGrpcClient createGrpcClient() {
-        final Duration timeoutDuration = Duration.ofMillis(30000);
+        final Duration timeoutDuration = Duration.ofSeconds(30);
         final Tls tls = Tls.builder().enabled(false).build();
         final WebClient webClient = WebClient.builder()
                 .baseUri("http://localhost:40840")
@@ -133,7 +133,7 @@ public class BlockNodeAppE2ETest {
                 .build();
 
         final PbjGrpcClientConfig grpcConfig =
-                new PbjGrpcClientConfig(timeoutDuration, tls, Optional.of(""), "application/grpc");
+                new PbjGrpcClientConfig(timeoutDuration, tls, OPTIONS.authority(), OPTIONS.contentType());
 
         return new PbjGrpcClient(webClient, grpcConfig);
     }
@@ -218,7 +218,7 @@ public class BlockNodeAppE2ETest {
         assertThat(responseObserver.getOnCompleteCalls().get()).isEqualTo(0);
         assertThat(responseObserver.getClientEndStreamCalls().get()).isEqualTo(0);
 
-        // stream same block contents and confirm response
+        // publish same block contents and confirm response
         requestStream.onNext(request);
         // short pause to allow async startup tasks to complete
         Thread.sleep(100);
