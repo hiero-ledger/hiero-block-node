@@ -1,13 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.tools.commands.record2blocks.model;
 
-import static org.hiero.block.tools.commands.record2blocks.util.RecordFileDates.blockTimeInstantToLong;
-import static org.hiero.block.tools.commands.record2blocks.util.RecordFileDates.extractRecordFileTime;
+import static org.hiero.block.tools.records.RecordFileDates.blockTimeInstantToLong;
+import static org.hiero.block.tools.records.RecordFileDates.extractRecordFileTime;
 
 import java.io.InputStream;
 import java.io.Serializable;
 import java.util.regex.Pattern;
-import org.hiero.block.tools.commands.record2blocks.gcp.MainNetBucket;
+import org.hiero.block.tools.utils.gcp.MainNetBucket;
 
 /**
  * Represents a file in the record stream blockchain.
