@@ -367,6 +367,64 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, BlockingExecutor
     }
 
     @Test
+    @DisplayName("Test backfill with gRPC client configuration overrides")
+    void testBackfillWithGrpcConfigOverrides() throws InterruptedException {
+        // Block Node sources
+        String blockNodeSourcesPath =
+                getClass().getClassLoader().getResource("block-nodes.json").getFile();
+
+        // BN 1
+        final HistoricalBlockFacility historicalBlockFacilityForServer = getHistoricalBlockFacility(0, 50);
+        TestBlockNodeServer testBlockNodeServer = new TestBlockNodeServer(40800, historicalBlockFacilityForServer);
+
+        // Config Override with custom gRPC timeouts
+        Map<String, String> configOverride = BackfillConfigBuilder.NewBuilder()
+                .backfillSourcePath(blockNodeSourcesPath)
+                .fetchBatchSize(10)
+                .initialDelay(500) // start quickly
+                .grpcConnectTimeout(30000) // 30 seconds
+                .grpcReadTimeout(45000) // 45 seconds
+                .grpcPollWaitTime(20000) // 20 seconds
+                .build();
+
+        // create a historical block facility for the plugin (should have a GAP)
+        final HistoricalBlockFacility historicalBlockFacilityForPlugin = getHistoricalBlockFacility(20, 30);
+
+        // start the plugin
+        start(new BackfillPlugin(), historicalBlockFacilityForPlugin, configOverride);
+
+        // expected blocks to backfill (0-19 inclusive, so 20 blocks)
+        int expectedBlocksToBackfill = 20;
+
+        CountDownLatch countDownLatch = new CountDownLatch(expectedBlocksToBackfill);
+        // register the backfill handler
+        registerDefaultTestBackfillHandler();
+        // register the verification handler
+        registerDefaultTestVerificationHandler(countDownLatch);
+
+        boolean backfillSuccess =
+                countDownLatch.await(2, TimeUnit.MINUTES);
+
+        // Assertions
+        assertEquals(true, backfillSuccess);
+        assertEquals(0, countDownLatch.getCount(), "Count down latch should be 0 after backfill");
+
+        // Verify sent verifications
+        assertEquals(
+                expectedBlocksToBackfill,
+                blockMessaging.getSentPersistedNotifications().size(),
+                "Should have sent " + expectedBlocksToBackfill + " persisted notifications");
+        assertEquals(
+                expectedBlocksToBackfill,
+                blockMessaging.getSentVerificationNotifications().size(),
+                "Should have sent " + expectedBlocksToBackfill + " verification notifications");
+
+        // clean up
+        testBlockNodeServer.stop();
+        plugin.stop();
+    }
+
+    @Test
     @DisplayName("Backfill Autonomous, GAP available within 2 different backfill sources")
     void testBackfillPartialAvailableSourcesForGap() throws InterruptedException {
 
@@ -531,6 +589,9 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, BlockingExecutor
         private long startBlock = 0L;
         private long endBlock = -1L; // -1 means no end block, backfill until the latest block
         private int perBlockProcessingTimeout = 500; // half second
+        private int grpcConnectTimeout = -1; // -1 means use overall timeout
+        private int grpcReadTimeout = -1; // -1 means use overall timeout
+        private int grpcPollWaitTime = -1; // -1 means use overall timeout
 
         private BackfillConfigBuilder() {
             // private to force use of NewBuilder()
@@ -590,6 +651,21 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, BlockingExecutor
             return this;
         }
 
+        public BackfillConfigBuilder grpcConnectTimeout(int value) {
+            this.grpcConnectTimeout = value;
+            return this;
+        }
+
+        public BackfillConfigBuilder grpcReadTimeout(int value) {
+            this.grpcReadTimeout = value;
+            return this;
+        }
+
+        public BackfillConfigBuilder grpcPollWaitTime(int value) {
+            this.grpcPollWaitTime = value;
+            return this;
+        }
+
         public Map<String, String> build() {
             if (backfillSourcePath == null || backfillSourcePath.isBlank()) {
                 throw new IllegalStateException("backfillSourcePath is required");
@@ -605,7 +681,10 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, BlockingExecutor
                     "backfill.scanInterval", String.valueOf(scanIntervalMs),
                     "backfill.startBlock", String.valueOf(startBlock),
                     "backfill.endBlock", String.valueOf(endBlock),
-                    "backfill.perBlockProcessingTimeout", String.valueOf(perBlockProcessingTimeout));
+                    "backfill.perBlockProcessingTimeout", String.valueOf(perBlockProcessingTimeout),
+                    "backfill.grpcConnectTimeout", String.valueOf(grpcConnectTimeout),
+                    "backfill.grpcReadTimeout", String.valueOf(grpcReadTimeout),
+                    "backfill.grpcPollWaitTime", String.valueOf(grpcPollWaitTime));
         }
     }
 }

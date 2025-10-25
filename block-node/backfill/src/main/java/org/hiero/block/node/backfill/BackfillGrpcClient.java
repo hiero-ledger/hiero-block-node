@@ -53,7 +53,11 @@ public class BackfillGrpcClient {
      */
     private final int initialRetryDelayMs;
     /** Connection timeout in milliseconds for gRPC calls to block nodes. */
-    private final int connectionTimeoutSeconds;
+    private final int connectionTimeoutMs;
+    /** Read timeout in milliseconds for gRPC calls to block nodes. */
+    private final int readTimeoutMs;
+    /** Poll wait time in milliseconds for gRPC calls to block nodes. */
+    private final int pollWaitTimeMs;
     /** Enable TLS for secure connections to block nodes. */
     private final boolean enableTls;
     /** Current status of the Block Node Clients */
@@ -68,20 +72,31 @@ public class BackfillGrpcClient {
      * Constructor for BackfillGrpcClient.
      *
      * @param blockNodePreferenceFilePath the path to the block node preference file
+     * @param maxRetries maximum number of retries for fetching blocks
+     * @param backfillRetriesCounter counter for tracking retry metrics
+     * @param retryInitialDelayMs initial delay in milliseconds before retrying
+     * @param connectionTimeoutMs connection timeout in milliseconds for gRPC calls
+     * @param readTimeoutMs read timeout in milliseconds for gRPC calls
+     * @param pollWaitTimeMs poll wait time in milliseconds for gRPC calls
+     * @param enableTls whether to enable TLS for secure connections
      */
     public BackfillGrpcClient(
             Path blockNodePreferenceFilePath,
             int maxRetries,
             Counter backfillRetriesCounter,
             int retryInitialDelayMs,
-            int connectionTimeoutSeconds,
+            int connectionTimeoutMs,
+            int readTimeoutMs,
+            int pollWaitTimeMs,
             boolean enableTls)
             throws IOException, ParseException {
         this.blockNodeSource = BackfillSource.JSON.parse(Bytes.wrap(Files.readAllBytes(blockNodePreferenceFilePath)));
         this.maxRetries = maxRetries;
         this.initialRetryDelayMs = retryInitialDelayMs;
         this.backfillRetries = backfillRetriesCounter;
-        this.connectionTimeoutSeconds = connectionTimeoutSeconds;
+        this.connectionTimeoutMs = connectionTimeoutMs;
+        this.readTimeoutMs = readTimeoutMs;
+        this.pollWaitTimeMs = pollWaitTimeMs;
         this.enableTls = enableTls;
 
         for (BackfillSourceConfig node : blockNodeSource.nodes()) {
@@ -209,7 +224,7 @@ public class BackfillGrpcClient {
      */
     private BlockNodeClient getNodeClient(BackfillSourceConfig node) {
         return nodeClientMap.computeIfAbsent(
-                node, BlockNodeClient -> new BlockNodeClient(node, connectionTimeoutSeconds, enableTls));
+                node, BlockNodeClient -> new BlockNodeClient(node, connectionTimeoutMs, readTimeoutMs, pollWaitTimeMs, enableTls));
     }
 
     /**

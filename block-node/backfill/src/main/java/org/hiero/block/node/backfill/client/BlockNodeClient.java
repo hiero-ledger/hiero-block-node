@@ -28,23 +28,29 @@ public class BlockNodeClient {
      * Constructs a BlockNodeClient using the provided configuration.
      *
      * @param blockNodeConfig the configuration for the block node, including address and port
+     * @param connectionTimeoutMs connection timeout in milliseconds
+     * @param readTimeoutMs read timeout in milliseconds
+     * @param pollWaitTimeMs poll wait time in milliseconds
+     * @param enableTls whether to enable TLS for secure connections
      */
-    public BlockNodeClient(BackfillSourceConfig blockNodeConfig, int timeoutMs, boolean enableTls) {
+    public BlockNodeClient(BackfillSourceConfig blockNodeConfig, int connectionTimeoutMs, int readTimeoutMs, int pollWaitTimeMs, boolean enableTls) {
 
-        final Duration timeoutDuration = Duration.ofMillis(timeoutMs);
+        final Duration connectTimeout = Duration.ofMillis(connectionTimeoutMs);
+        final Duration readTimeout = Duration.ofMillis(readTimeoutMs);
+        final Duration pollWaitTime = Duration.ofMillis(pollWaitTimeMs);
 
         final Tls tls = Tls.builder().enabled(enableTls).build();
         final PbjGrpcClientConfig grpcConfig =
-                new PbjGrpcClientConfig(timeoutDuration, tls, Optional.of(""), "application/grpc");
+                new PbjGrpcClientConfig(readTimeout, tls, Optional.of(""), "application/grpc");
 
         final WebClient webClient = WebClient.builder()
                 .baseUri("http://" + blockNodeConfig.address() + ":" + blockNodeConfig.port())
                 .tls(tls)
                 .protocolConfigs(List.of(GrpcClientProtocolConfig.builder()
                         .abortPollTimeExpired(false)
-                        .pollWaitTime(timeoutDuration)
+                        .pollWaitTime(pollWaitTime)
                         .build()))
-                .connectTimeout(timeoutDuration)
+                .connectTimeout(connectTimeout)
                 .build();
 
         PbjGrpcClient pbjGrpcClient = new PbjGrpcClient(webClient, grpcConfig);

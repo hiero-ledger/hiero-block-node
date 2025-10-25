@@ -178,12 +178,25 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
 
         // Initialize the gRPC client
         try {
+            // Determine timeout values: use specific overrides if set, otherwise fall back to grpcOverallTimeout
+            final int connectTimeout = backfillConfiguration.grpcConnectTimeout() > 0
+                    ? backfillConfiguration.grpcConnectTimeout()
+                    : backfillConfiguration.grpcOverallTimeout();
+            final int readTimeout = backfillConfiguration.grpcReadTimeout() > 0
+                    ? backfillConfiguration.grpcReadTimeout()
+                    : backfillConfiguration.grpcOverallTimeout();
+            final int pollWaitTime = backfillConfiguration.grpcPollWaitTime() > 0
+                    ? backfillConfiguration.grpcPollWaitTime()
+                    : backfillConfiguration.grpcOverallTimeout();
+
             backfillGrpcClientAutonomous = new BackfillGrpcClient(
                     blockNodeSourcesPath,
                     backfillConfiguration.maxRetries(),
                     this.backfillRetries,
                     backfillConfiguration.initialRetryDelay(),
-                    backfillConfiguration.grpcOverallTimeout(),
+                    connectTimeout,
+                    readTimeout,
+                    pollWaitTime,
                     backfillConfiguration.enableTLS());
 
             backfillGrpcClientOnDemand = new BackfillGrpcClient(
@@ -191,10 +204,14 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
                     backfillConfiguration.maxRetries(),
                     this.backfillRetries,
                     backfillConfiguration.initialRetryDelay(),
-                    backfillConfiguration.grpcOverallTimeout(),
+                    connectTimeout,
+                    readTimeout,
+                    pollWaitTime,
                     backfillConfiguration.enableTLS());
 
             LOGGER.log(TRACE, "Initialized gRPC client with sources path: {0}", blockNodeSourcesPath);
+            LOGGER.log(TRACE, "gRPC client timeouts - connect: {0}ms, read: {1}ms, pollWait: {2}ms", 
+                    connectTimeout, readTimeout, pollWaitTime);
         } catch (Exception e) {
             LOGGER.log(INFO, "Failed to initialize gRPC client: {0}", e.getMessage());
             hasBNSourcesPath = false;

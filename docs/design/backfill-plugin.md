@@ -207,6 +207,46 @@ flowchart TD
 
 ** Name is the internal label for the node given by the operator, is only used for observability (logging and tracking) purposes.
 
+### gRPC Client Configuration Overrides
+
+The backfill plugin supports granular configuration of gRPC client parameters. Operators can override specific timeout values without needing a new software release.
+
+#### Configuration Parameters
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `backfill.grpcOverallTimeout` | 60000 | Default timeout in milliseconds for all gRPC operations (connect, read, poll) |
+| `backfill.grpcConnectTimeout` | -1 | Connection timeout in milliseconds. If set to -1 or not specified, uses `grpcOverallTimeout` |
+| `backfill.grpcReadTimeout` | -1 | Read timeout in milliseconds. If set to -1 or not specified, uses `grpcOverallTimeout` |
+| `backfill.grpcPollWaitTime` | -1 | Poll wait time in milliseconds. If set to -1 or not specified, uses `grpcOverallTimeout` |
+
+#### Example Configuration
+
+**Using default overall timeout:**
+```yaml
+backfill:
+  grpcOverallTimeout: 60000
+```
+
+**Overriding specific timeouts:**
+```yaml
+backfill:
+  grpcOverallTimeout: 60000
+  grpcConnectTimeout: 30000  # 30 seconds for connection
+  grpcReadTimeout: 90000     # 90 seconds for read operations
+  grpcPollWaitTime: 45000    # 45 seconds for polling
+```
+
+**Partial overrides (others fall back to overall timeout):**
+```yaml
+backfill:
+  grpcOverallTimeout: 60000
+  grpcConnectTimeout: 20000  # Only override connection timeout
+  # grpcReadTimeout and grpcPollWaitTime will use grpcOverallTimeout (60000ms)
+```
+
+This allows operators to fine-tune gRPC client behavior for different network conditions or backfill scenarios without requiring code changes.
+
 ## Exceptions
 
 Since the whole process is asynchronous, the plugin will not throw exceptions directly, but will log errors and retry fetching blocks based on the configuration, after a certain number of retries it will log the error and continue the next iteration after the configured interval.
