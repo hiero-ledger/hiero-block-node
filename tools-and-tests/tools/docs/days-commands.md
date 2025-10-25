@@ -11,6 +11,7 @@ Available subcommands:
 - `download-days-v2` - Download many days (v2, newer implementation)
 - `print-listing` - Print the listing for a given day from listing files
 - `ls-day-listing` - Print all files in the listing for a day
+- `split-files-listing` - Split a giant JSON listing (files.json) into per-day binary listing files
 - `wrap` - Convert record file blocks in day files into wrapped block stream blocks
 
 Below are brief descriptions and usage for each.
@@ -150,6 +151,34 @@ Options:
 
 ---
 
+### `split-files-listing`
+
+Split a giant JSON listing (for example the output of `rclone lsjson`) into per-day binary listing files. The command parses the JSON listing, creates RecordFile objects for each entry, and writes them into day-specific binary files using the `DayListingFileWriter`.
+
+Usage:
+
+```
+days split-files-listing [-l <listingDir>] <files.json>
+```
+
+Options:
+- `-l`, `--listing-dir <listingDir>` — Directory where listing files are stored (default: `listingsByDay`).
+- `<files.json>` — The JSON listing file to read (default: `files.json`).
+
+Notes:
+- The command expects the JSON to be in the same format produced by `rclone lsjson`.
+- It will create binary `.bin` day files under the provided listing directory, one file per UTC day.
+- The operation can be very slow for large listings. The implementation's Javadoc notes that generating the JSON with rclone for the whole mirror took approximately two weeks in one environment; plan accordingly.
+
+Example rclone command used to generate the JSON listing (from the command Javadoc):
+
+```
+nohup rclone lsjson -R --hash --no-mimetype --no-modtime --gcs-user-project <PROJECT> \
+    "gcp:hedera-mainnet-streams/recordstreams" > files.json &
+```
+
+---
+
 ### `wrap`
 
 Convert record file blocks contained in day archives into wrapped block stream `Block` protobufs and write them out either as unzipped compressed files or grouped zipped batches via the `BlockWriter`.
@@ -163,4 +192,3 @@ days wrap [-w <warningsFile>] [-u] <compressedDaysDir> <outputBlocksDir>
 Options:
 - `-w`, `--warnings-file <file>` — Write warnings to this file.
 - `-u`, `--unzipped` — Write output files unzipped (ZSTD per block) instead of as zipped batches.
-
