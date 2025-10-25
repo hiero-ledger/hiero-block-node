@@ -248,7 +248,6 @@ backfill:
   # grpcReadTimeout and grpcPollWaitTime will use grpcOverallTimeout (60000ms)
 ```
 
-
 This allows operators to fine-tune gRPC client behavior for different network conditions or backfill scenarios without requiring code changes.
 
 ## Exceptions
