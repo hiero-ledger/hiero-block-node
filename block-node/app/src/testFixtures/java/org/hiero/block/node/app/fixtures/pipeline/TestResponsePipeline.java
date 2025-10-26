@@ -5,6 +5,7 @@ import com.hedera.pbj.runtime.grpc.Pipeline;
 import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Flow.Subscription;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -19,6 +20,8 @@ public class TestResponsePipeline<R> implements Pipeline<R> {
     private final List<R> onNextCalls = new CopyOnWriteArrayList<>();
     private final List<Subscription> onSubscriptionCalls = new CopyOnWriteArrayList<>();
     private final List<Throwable> onErrorCalls = new CopyOnWriteArrayList<>();
+    private CountDownLatch onNextLatch;
+    private CountDownLatch onCompleteLatch;
 
     @Override
     public void clientEndStreamReceived() {
@@ -28,6 +31,9 @@ public class TestResponsePipeline<R> implements Pipeline<R> {
     @Override
     public void onNext(final R item) {
         onNextCalls.add(Objects.requireNonNull(item));
+        if (onNextLatch != null) {
+            onNextLatch.countDown();
+        }
     }
 
     @Override
@@ -43,6 +49,9 @@ public class TestResponsePipeline<R> implements Pipeline<R> {
     @Override
     public void onComplete() {
         onCompleteCalls.incrementAndGet();
+        if (onCompleteLatch != null) {
+            onCompleteLatch.countDown();
+        }
     }
 
     public AtomicInteger getClientEndStreamCalls() {
@@ -63,6 +72,16 @@ public class TestResponsePipeline<R> implements Pipeline<R> {
 
     public List<Throwable> getOnErrorCalls() {
         return onErrorCalls;
+    }
+
+    public CountDownLatch setAndGetOnNextLatch(int count) {
+        onNextLatch = new CountDownLatch(count);
+        return onNextLatch;
+    }
+
+    public CountDownLatch setAndGetOnCompleteLatch(int count) {
+        onCompleteLatch = new CountDownLatch(count);
+        return onCompleteLatch;
     }
 
     /**

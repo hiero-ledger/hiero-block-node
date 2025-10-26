@@ -25,9 +25,8 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.concurrent.CountDownLatch;
 import java.util.function.Function;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 import org.hiero.block.api.*;
 import org.hiero.block.node.app.fixtures.blocks.SimpleTestBlockItemBuilder;
 import org.hiero.block.node.app.fixtures.pipeline.TestResponsePipeline;
@@ -46,7 +45,6 @@ import org.junit.jupiter.api.Test;
  */
 public class BlockNodeAppE2ETest {
 
-    private static final Logger log = LogManager.getLogger(BlockNodeAppE2ETest.class);
     private static String BLOCKS_DATA_DIR_PATH = "build/tmp/data";
     private static final MediaType APPLICATION_GRPC_PROTO = HttpMediaType.create("application/grpc+proto");
     private static final ServerStatusRequest SIMPLE_SERVER_STAUS_REQUEST =
@@ -185,8 +183,18 @@ public class BlockNodeAppE2ETest {
         assertThat(blockResponse.status()).isEqualTo(BlockResponse.Code.NOT_AVAILABLE);
     }
 
+    /* Test multiple scenarios in one area without mocks to allow for easy step through when troubleshooting behaviour
+     * Scenarios covered:
+     * 1. Mimicking CN and publishing a new genesis block to BN and confirming acknowledgement response
+     * 2. Publishing a duplicate genesis block and confirming duplicate block response and stream closure
+     * 3. Requesting server status to confirm block 0 is reflected in status
+     * 4. Requesting genesis block via getBlock to confirm block is stored and retrievable
+     * 5. Mimicking MN and subscribing to block stream from block 0 and confirming receipt of block 0
+     * 6. Mimicking MN and subscribing to live block stream and confirming receipt of newly published block
+     */
     @Test
     void publishBlockStreams() throws InterruptedException {
+        // ==== Scenario 1: Publish new genesis block and confirm acknowledgement response ====
         BlockStreamPublishServiceInterface.BlockStreamPublishServiceClient blockStreamPublishServiceClient =
                 new BlockStreamPublishServiceInterface.BlockStreamPublishServiceClient(
                         publishBlockStreamPbjGrpcClient, OPTIONS);
@@ -201,11 +209,10 @@ public class BlockNodeAppE2ETest {
         PublishStreamRequest request = PublishStreamRequest.newBuilder()
                 .blockItems(BlockItemSet.newBuilder().blockItems(blockItems).build())
                 .build();
+        CountDownLatch publishCountDownLatch = responseObserver.setAndGetOnNextLatch(1);
         requestStream.onNext(request);
 
-        // short pause to allow async startup tasks to complete
-        Thread.sleep(500);
-
+        publishCountDownLatch.await(); // wait for acknowledgement response
         assertThat(responseObserver.getOnNextCalls())
                 .hasSize(1)
                 .first()
@@ -218,10 +225,11 @@ public class BlockNodeAppE2ETest {
         assertThat(responseObserver.getOnCompleteCalls().get()).isEqualTo(0);
         assertThat(responseObserver.getClientEndStreamCalls().get()).isEqualTo(0);
 
-        // publish same block contents and confirm response
+        // ==== Scenario 2: Publish duplicate genesis block and confirm duplicate block response and stream closure ===
+        CountDownLatch publishCompleteCountDownLatch = responseObserver.setAndGetOnCompleteLatch(1);
         requestStream.onNext(request);
-        // short pause to allow async startup tasks to complete
-        Thread.sleep(100);
+
+        publishCompleteCountDownLatch.await(); // wait for onComplete caused by duplicate response
 
         // Assert that no responses have been sent.
         assertThat(responseObserver.getOnNextCalls())
@@ -237,7 +245,7 @@ public class BlockNodeAppE2ETest {
         assertThat(responseObserver.getOnCompleteCalls().get()).isEqualTo(1);
         assertThat(responseObserver.getClientEndStreamCalls().get()).isEqualTo(0);
 
-        // check status shows block 0 available
+        // ==== Scenario 3: Get server status and confirm block 0 is reflected in status ====
         BlockNodeServiceInterface.BlockNodeServiceClient blockNodeServiceClient =
                 new BlockNodeServiceInterface.BlockNodeServiceClient(serverStatusPbjGrpcClient, OPTIONS);
         final ServerStatusResponse nodeStatusPostBlock0 =
@@ -246,7 +254,7 @@ public class BlockNodeAppE2ETest {
         assertThat(nodeStatusPostBlock0.firstAvailableBlock()).isEqualTo(0);
         assertThat(nodeStatusPostBlock0.lastAvailableBlock()).isEqualTo(0);
 
-        // getBlock for block 0 and confirm contents
+        // ==== Scenario 4: Get block 0 via getBlock and confirm block items ====
         BlockAccessServiceInterface.BlockAccessServiceClient blockAccessServiceClient =
                 new BlockAccessServiceInterface.BlockAccessServiceClient(getBlockPbjGrpcClient, OPTIONS);
         final BlockResponse block0Response = blockAccessServiceClient.getBlock(
@@ -257,48 +265,89 @@ public class BlockNodeAppE2ETest {
         assertNotNull(block0Response.block().items());
         assertThat(block0Response.block().items()).hasSize(blockItems.length);
 
-        // subscribe to block stream from block 0 and confirm we receive block 0
+        // ==== Scenario 5: Subscribe to block stream from block 0 and confirm receipt of block 0 ===
         BlockStreamSubscribeServiceInterface.BlockStreamSubscribeServiceClient blockStreamSubscribeServiceClient =
                 new BlockStreamSubscribeServiceInterface.BlockStreamSubscribeServiceClient(
                         subscribeBlockStreamPbjGrpcClient, OPTIONS);
         TestResponsePipeline<SubscribeStreamResponse> subscribeResponseObserver = new TestResponsePipeline<>();
 
-        final SubscribeStreamRequest subscribeRequest = SubscribeStreamRequest.newBuilder()
+        final SubscribeStreamRequest subscribeRequest1 = SubscribeStreamRequest.newBuilder()
                 .startBlockNumber(blockNumber)
                 .build();
-        blockStreamSubscribeServiceClient.subscribeBlockStream(subscribeRequest, subscribeResponseObserver);
 
-        // short pause to allow async startup tasks to complete
-        Thread.sleep(100);
+        final CountDownLatch blockItemsSubscribe1Latch = subscribeResponseObserver.setAndGetOnNextLatch(2);
+        blockStreamSubscribeServiceClient.subscribeBlockStream(subscribeRequest1, subscribeResponseObserver);
+
+        blockItemsSubscribe1Latch.await();
+        assertThat(subscribeResponseObserver.getOnNextCalls()).hasSize(2); // block items & success status
+        assertThat(subscribeResponseObserver.getOnCompleteCalls().get()).isEqualTo(1);
+
+        final SubscribeStreamResponse subscribeResponse0 =
+                subscribeResponseObserver.getOnNextCalls().get(0);
+        assertThat(subscribeResponse0.blockItems().blockItems()).hasSize(blockItems.length);
+
+        // ==== Scenario 6: Subscribe to live block stream and confirm receipt of newly published block ===
+        final SubscribeStreamRequest subscribeRequest2 = SubscribeStreamRequest.newBuilder()
+                .startBlockNumber(1L)
+                .endBlockNumber(-1L) // subscribe to all future blocks
+                .build();
+        final CountDownLatch blockItemsSubscribe2Latch = subscribeResponseObserver.setAndGetOnNextLatch(1);
+        // run blockStreamSubscribeServiceClient.subscribeBlockStrea in its own thread to avoid blocking
+        new Thread(() -> {
+                    try {
+                        blockStreamSubscribeServiceClient.subscribeBlockStream(
+                                subscribeRequest2, subscribeResponseObserver);
+                    } catch (Exception e) {
+                        fail("Exception in subscribeBlockStream: " + e.getMessage());
+                    }
+                })
+                .start();
+
+        // publish block 1 and confirm subscriber receives it
+        final long blockNumber1 = 1;
+        BlockItem[] blockItems1 = SimpleTestBlockItemBuilder.createSimpleBlockWithNumber(blockNumber1);
+        PublishStreamRequest request2 = PublishStreamRequest.newBuilder()
+                .blockItems(BlockItemSet.newBuilder().blockItems(blockItems1).build())
+                .build();
+
+        // use a new client to publish block 1 as the existing client was closed on duplicate block publish.
+        TestResponsePipeline<PublishStreamResponse> responseObserver2 = new TestResponsePipeline<>();
+        final Pipeline<? super PublishStreamRequest> requestStream2 =
+                blockStreamPublishServiceClient.publishBlockStream(responseObserver2);
+        final CountDownLatch blockItemsPublish2Latch = responseObserver2.setAndGetOnNextLatch(1);
+        requestStream2.onNext(request2);
+
+        blockItemsSubscribe2Latch.await(); // wait for subscriber to receive unverified block items
+        blockItemsPublish2Latch.await(); // wait for publisher to observe block item sets
+
+        assertThat(responseObserver2.getOnNextCalls())
+                .hasSize(1)
+                .first()
+                .returns(PublishStreamResponse.ResponseOneOfType.ACKNOWLEDGEMENT, responseKindExtractor)
+                .returns(1L, acknowledgementBlockNumberExtractor);
+
+        // Assert no other responses sent
+        assertThat(responseObserver2.getOnErrorCalls()).isEmpty();
+        assertThat(responseObserver2.getOnSubscriptionCalls()).isEmpty();
+        assertThat(responseObserver2.getOnCompleteCalls().get()).isEqualTo(0);
+        assertThat(responseObserver2.getClientEndStreamCalls().get()).isEqualTo(0);
+
+        final SubscribeStreamResponse subscribeResponse1 =
+                subscribeResponseObserver.getOnNextCalls().get(2);
+        assertThat(subscribeResponse1.blockItems().blockItems()).hasSize(blockItems1.length);
+
         assertThat(subscribeResponseObserver.getOnNextCalls())
-                .hasSize(2); // round headers seem to me missing, this should be 3
-
-        // todo: oncomplete seems to be called prematurely, investigate
-        //        assertThat(subscribeResponseObserver.getOnCompleteCalls().get()).isEqualTo(0);
-
-        //        final SubscribeStreamResponse subscribeResponse0 = subscribeResponseObserver.getOnNextCalls().get(0);
-        //        assertThat(subscribeResponse0.blockItems().blockItems()).hasSize(blockItems.length);
-        //
-        //        // publish block 1 and confirm subscriber receives it
-        //        final long blockNumber1 = 1;
-        //        BlockItem[] blockItems1 = SimpleTestBlockItemBuilder.createSimpleBlockWithNumber(blockNumber1);
-        //        PublishStreamRequest request1 = PublishStreamRequest.newBuilder()
-        //            .blockItems(BlockItemSet.newBuilder().blockItems(blockItems1).build())
-        //            .build();
-        //
-        //
-        //        requestStream.onNext(request1);
-        //        // short pause to allow async startup tasks to complete
-        //        Thread.sleep(500);
-        //
-        //        assertThat(subscribeResponseObserver.getOnNextCalls())
-        //                .hasSize(2)
-        //                .element(3)
-        //                .satisfies(response -> {
-        //                    assertThat(response.blockItems().blockItems()).hasSize(blockItems1.length);
-        //
-        // assertThat(response.blockItems().blockItems().getFirst().blockHeader().number()).isEqualTo(blockNumber1);
-        //                });
+                .hasSize(3) // block 0 items, success status and block 1 items
+                .element(2)
+                .satisfies(response -> {
+                    assertThat(response.blockItems().blockItems()).hasSize(blockItems1.length);
+                    assertThat(response.blockItems()
+                                    .blockItems()
+                                    .getFirst()
+                                    .blockHeader()
+                                    .number())
+                            .isEqualTo(blockNumber1);
+                });
 
         // close the client connections
         blockStreamPublishServiceClient.close();
