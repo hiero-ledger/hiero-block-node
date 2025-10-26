@@ -193,7 +193,7 @@ public class BlockNodeAppE2ETest {
      * 6. Mimicking MN and subscribing to live block stream and confirming receipt of newly published block
      */
     @Test
-    void publishBlockStreams() throws InterruptedException {
+    void e2eBlockStreamsBaseScenarios() throws InterruptedException {
         // ==== Scenario 1: Publish new genesis block and confirm acknowledgement response ====
         BlockStreamPublishServiceInterface.BlockStreamPublishServiceClient blockStreamPublishServiceClient =
                 new BlockStreamPublishServiceInterface.BlockStreamPublishServiceClient(
