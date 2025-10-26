@@ -1,0 +1,11 @@
+{
+  "flowControlTimeoutMillis": 15000,
+  "initialWindowSize": 65535,
+  "maxFrameSize": 16384,
+  "maxHeaderListSize": -1,
+  "pingEnabled": false,
+  "pingTimeoutMillis": 500,
+  "readTimeoutMillis": 10000,
+  "priorKnowledge": false,
+  "serverMaxMessageSizeBytes": 1048576
+}
