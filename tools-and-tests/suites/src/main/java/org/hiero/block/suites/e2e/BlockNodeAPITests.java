@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-package org.hiero.block.node.app;
+package org.hiero.block.suites.e2e;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assertions.*;
@@ -28,10 +28,11 @@ import java.util.Optional;
 import java.util.concurrent.CountDownLatch;
 import java.util.function.Function;
 import org.hiero.block.api.*;
-import org.hiero.block.node.app.fixtures.blocks.SimpleTestBlockItemBuilder;
-import org.hiero.block.node.app.fixtures.pipeline.TestResponsePipeline;
+import org.hiero.block.node.app.BlockNodeApp;
 import org.hiero.block.node.spi.ServiceLoaderFunction;
 import org.hiero.block.node.spi.health.HealthFacility.State;
+import org.hiero.block.suites.utils.BlockItemBuilderUtils;
+import org.hiero.block.suites.utils.ResponsePipelineUtils;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -43,7 +44,7 @@ import org.junit.jupiter.api.Test;
  * Both Helidon Http2Client and PbjGrpcClient approaches are provided to perform gRPC requests.
  * Cleans up the BlockNodeApp and the store of blocks after each test.
  */
-public class BlockNodeE2EAPITest {
+public class BlockNodeAPITests {
 
     private static String BLOCKS_DATA_DIR_PATH = "build/tmp/data";
     private static final MediaType APPLICATION_GRPC_PROTO = HttpMediaType.create("application/grpc+proto");
@@ -95,13 +96,6 @@ public class BlockNodeE2EAPITest {
 
             // verify running state and some basic internals
             assertEquals(State.RUNNING, app.blockNodeState());
-            assertNotNull(app.blockNodeContext, "BlockNodeContext should be available");
-            assertNotNull(app.metricsProvider, "Metrics provider should be initialized");
-            assertFalse(app.loadedPlugins.isEmpty(), "At least one plugin should be loaded");
-            assertEquals(State.RUNNING, app.blockNodeContext.serverHealth().blockNodeState());
-            assertTrue(
-                    app.loadedPlugins.size() > 3,
-                    "At least one option plugin should be loaded in addition to BlockMessagingFacility, HistoricalBlockFacilityImpl and a BlockProvidersPlugin");
 
             publishBlockStreamPbjGrpcClient = createGrpcClient();
             subscribeBlockStreamPbjGrpcClient = createGrpcClient();
@@ -199,12 +193,12 @@ public class BlockNodeE2EAPITest {
                 new BlockStreamPublishServiceInterface.BlockStreamPublishServiceClient(
                         publishBlockStreamPbjGrpcClient, OPTIONS);
 
-        TestResponsePipeline<PublishStreamResponse> responseObserver = new TestResponsePipeline<>();
+        ResponsePipelineUtils<PublishStreamResponse> responseObserver = new ResponsePipelineUtils<>();
         final Pipeline<? super PublishStreamRequest> requestStream =
                 blockStreamPublishServiceClient.publishBlockStream(responseObserver);
 
         final long blockNumber = 0;
-        BlockItem[] blockItems = SimpleTestBlockItemBuilder.createSimpleBlockWithNumber(blockNumber);
+        BlockItem[] blockItems = BlockItemBuilderUtils.createSimpleBlockWithNumber(blockNumber);
         // change to List to allow multiple items
         PublishStreamRequest request = PublishStreamRequest.newBuilder()
                 .blockItems(BlockItemSet.newBuilder().blockItems(blockItems).build())
@@ -269,7 +263,7 @@ public class BlockNodeE2EAPITest {
         BlockStreamSubscribeServiceInterface.BlockStreamSubscribeServiceClient blockStreamSubscribeServiceClient =
                 new BlockStreamSubscribeServiceInterface.BlockStreamSubscribeServiceClient(
                         subscribeBlockStreamPbjGrpcClient, OPTIONS);
-        TestResponsePipeline<SubscribeStreamResponse> subscribeResponseObserver = new TestResponsePipeline<>();
+        ResponsePipelineUtils<SubscribeStreamResponse> subscribeResponseObserver = new ResponsePipelineUtils<>();
 
         final SubscribeStreamRequest subscribeRequest1 = SubscribeStreamRequest.newBuilder()
                 .startBlockNumber(blockNumber)
@@ -305,13 +299,13 @@ public class BlockNodeE2EAPITest {
 
         // publish block 1 and confirm subscriber receives it
         final long blockNumber1 = 1;
-        BlockItem[] blockItems1 = SimpleTestBlockItemBuilder.createSimpleBlockWithNumber(blockNumber1);
+        BlockItem[] blockItems1 = BlockItemBuilderUtils.createSimpleBlockWithNumber(blockNumber1);
         PublishStreamRequest request2 = PublishStreamRequest.newBuilder()
                 .blockItems(BlockItemSet.newBuilder().blockItems(blockItems1).build())
                 .build();
 
         // use a new client to publish block 1 as the existing client was closed on duplicate block publish.
-        TestResponsePipeline<PublishStreamResponse> responseObserver2 = new TestResponsePipeline<>();
+        ResponsePipelineUtils<PublishStreamResponse> responseObserver2 = new ResponsePipelineUtils<>();
         final Pipeline<? super PublishStreamRequest> requestStream2 =
                 blockStreamPublishServiceClient.publishBlockStream(responseObserver2);
         final CountDownLatch blockItemsPublish2Latch = responseObserver2.setAndGetOnNextLatch(1);
