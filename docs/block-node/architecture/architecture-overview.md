@@ -51,6 +51,7 @@ or
 Additional details regarding Service interactions are illustrated in [Block-Node-Nano-Services](./../../assets/Block-Node-Nano-Services.svg) diagram.
 
 ## Plugins
+
 BlockNode's functionality is extended through a variety of plugins, each implementing the `BlockNodePlugin` interface.
 Key plugins include:
 - **BackfillPlugin:** Guarantees the stored block stream is complete by retrieving missing blocks from other Block Nodes.
@@ -70,10 +71,12 @@ For additional details on plugins, refer to the [Plugins](./plugins.md).
 
 1. **Startup:** `BlockNodeApp` loads configuration, loads plugins, registers API services and starts the web server.
 2. **Event Distribution:** Distribute events from APIs and internal notifications.
-  - Incoming gRPC block streams from a publisher are received and passed to the `BlockMessagingFacility`.
-  - Block items are distributed via a block items ring buffer to registered plugins.
-  - Plugins may publish notification events to the `BlockMessagingFacility`.
-  - Notifications are distributed via a notification ring buffer to registered plugins.
+
+- Incoming gRPC block streams from a publisher are received and passed to the `BlockMessagingFacility`.
+- Block items are distributed via a block items ring buffer to registered plugins.
+- Plugins may publish notification events to the `BlockMessagingFacility`.
+- Notifications are distributed via a notification ring buffer to registered plugins.
+
 3. **Plugin Processing:** Each registered plugin processes block items and notifications independently, enabling
    dynamic, asynchronous, and extensible workflows.
 
@@ -82,11 +85,11 @@ For additional details on plugins, refer to the [Plugins](./plugins.md).
 Multiple API data flows occur within BlockNode, primarily centered around block item processing and distribution.
 Key flows include:
 - **Block Stream Publish API Flow:** Incoming block items from gRPC streams are handled via the `StreamPublisherPlugin`
-  and distributed to plugins via the `BlockMessagingFacility`.
+and distributed to plugins via the `BlockMessagingFacility`.
 - **Block Access API Flow:** Block access requests from gRPC clients are routed to the appropriate block provider
-  plugins for retrieval.
+plugins for retrieval.
 - **Block Stream Subscription API Flow:** The unverified block stream is served to subscribers via the
-  `SubscriberServicePlugin`.
+`SubscriberServicePlugin`.
 - **Backfilling Flow:** Missing historical blocks are retrieved by the `BackfillPlugin`.
 
 These flows are illustrated in detail in the [Data Flow](data-flow.md) document.

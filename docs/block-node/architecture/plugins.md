@@ -16,10 +16,10 @@ All major features are implemented as plugins, allowing developers to add, modif
 ## Plugin Lifecycle
 
 1. **Discovery:** On startup, the `BlockNodeApp` scans for available plugins implementing `BlockNodePlugin` using JPMS
-  ServiceLoader.
+   ServiceLoader.
 2. **Initialization:** Each plugin is initialized with the application context and appropriate service routing builders.
 3. **Start:** Plugins are started, enabling them to register to receive and process events and interact with other
-  components.
+   components.
 4. **Stop:** On shutdown, plugins are stopped gracefully.
 
 ## Adding a New Plugin
@@ -28,7 +28,7 @@ To add a new plugin:
 
 1. Implement the `BlockNodePlugin` interface in your module.
 2. Optionally, implement specialized interfaces (e.g., `BlockProviderPlugin`, `HistoricalBlockFacility` or
-  `BlockMessagingFacility`) if your plugin replaces or extends block management and messaging capabilities.
+   `BlockMessagingFacility`) if your plugin replaces or extends block management and messaging capabilities.
 3. Optionally, implement additional interfaces (e.g., a protobuf `ServiceInterface`) for additional capabilities.
 
 ![block-node-plugin-class-diagram](./../../assets/block-node-plugin-class-diagram.svg)

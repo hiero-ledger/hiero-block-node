@@ -23,6 +23,7 @@ downstream applications to access block and state information.
 Refer to the [Quickstart](quickstart.md) for a quick guide on how to get started with the application.
 
 ## High-Level Architecture
+
 BlockNode is a modular, event-driven network-server built on the [Helidon](https://helidon.io/) framework.
 The system is highly extensible, allowing developers to add and remove functionality via plugins.
 
