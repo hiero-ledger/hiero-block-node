@@ -35,6 +35,7 @@ import org.hiero.block.suites.utils.BlockItemBuilderUtils;
 import org.hiero.block.suites.utils.ResponsePipelineUtils;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 
 /**
@@ -44,6 +45,7 @@ import org.junit.jupiter.api.Test;
  * Both Helidon Http2Client and PbjGrpcClient approaches are provided to perform gRPC requests.
  * Cleans up the BlockNodeApp and the store of blocks after each test.
  */
+@Tag("api")
 public class BlockNodeAPITests {
 
     private static String BLOCKS_DATA_DIR_PATH = "build/tmp/data";

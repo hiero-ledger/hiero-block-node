@@ -32,7 +32,24 @@ tasks.register<Test>("runSuites") {
     //    This might mean duplication, which is perfectly fine.
     dependsOn(":block-node-app:createDockerImage")
 
-    useJUnitPlatform()
+    useJUnitPlatform() {
+        excludeTags("api")
+    }
+    testLogging { events("passed", "skipped", "failed") }
+    testClassesDirs = sourceSets["main"].output.classesDirs
+    classpath = sourceSets["main"].runtimeClasspath
+
+    // Pass the block-node version as a system property
+    systemProperty("block.node.version", project(":block-node-app").version.toString())
+}
+
+tasks.register<Test>("runAPISuites") {
+    description = "Runs API E2E Test Suites"
+    group = "api"
+
+    useJUnitPlatform() {
+        includeTags("api")
+    }
     testLogging { events("passed", "skipped", "failed") }
     testClassesDirs = sourceSets["main"].output.classesDirs
     classpath = sourceSets["main"].runtimeClasspath
