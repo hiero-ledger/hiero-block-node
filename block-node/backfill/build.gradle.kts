@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 plugins {
     id("org.hiero.gradle.module.library")
-    id("com.hedera.pbj.pbj-compiler") version "0.12.1"
+    id("com.hedera.pbj.pbj-compiler")
 }
 
 description = "Hiero Block Node Backfill Plugin"

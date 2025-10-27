@@ -248,6 +248,7 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
                 // managed block right after the node (re)started.
                 && nextUnstreamedBlockNumber.compareAndSet(earliestManagedBlock, blockNumber)) {
             currentStreamingBlockNumber.set(blockNumber);
+            metrics.lowestBlockNumber.set(blockNumber);
             return addHandlerQueueForBlock(blockNumber, handlerId);
         } else {
             return elseAction;
@@ -346,6 +347,9 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
             // This should result in new data being available, so we
             // count down the data ready latch.
             signalDataReady();
+            if (blockNumber > metrics.highestBlockNumber.get()) {
+                metrics.highestBlockNumber.set(blockNumber);
+            }
             // We're one of the handlers currently streaming, keep going.
             return BlockAction.ACCEPT;
         } else if (blockNumber == nextUnstreamedBlockNumber.get()) {
@@ -391,7 +395,6 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
             //     completed block, and retain data in queue(s) for
             //     completed-but-not-forwarded blocks).
 
-            // @todo(1414)
             // @todo(1415) Remove this log when the related tickets are done.
             LOGGER.log(
                     DEBUG,
@@ -591,6 +594,7 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
                         handler.sendAcknowledgement(newLastPersistedBlock);
                     });
                     lastPersistedBlockNumber.set(newLastPersistedBlock);
+                    metrics.latestBlockNumberAcknowledged.set(newLastPersistedBlock);
                 }
             } else {
                 queueByBlockMap.clear();
@@ -769,7 +773,6 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
      * blockItemsMessaged - Number of block items delivered to the messaging service
      * currentPublisherCount - Number of currently connected publishers
      * lowestBlockNumber - Lowest incoming block number
-     * currentBlockNumber - Current incoming block number
      * highestBlockNumber - Highest incoming block number
      * latestBlockNumberAcknowledged - The latest block number acknowledged
      * blocksClosedComplete - Number of blocks received complete (with both header and proof)
@@ -780,7 +783,6 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
             Counter blockBatchesMessaged,
             LongGauge currentPublisherCount,
             LongGauge lowestBlockNumber,
-            LongGauge currentBlockNumber,
             LongGauge highestBlockNumber,
             LongGauge latestBlockNumberAcknowledged,
             Counter blocksClosedComplete,
@@ -807,9 +809,6 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
             final LongGauge lowestBlockNumber =
                     metrics.getOrCreate(new LongGauge.Config(METRICS_CATEGORY, "publisher_lowest_block_number_inbound")
                             .withDescription("Oldest inbound block number"));
-            final LongGauge currentBlockNumber =
-                    metrics.getOrCreate(new LongGauge.Config(METRICS_CATEGORY, "publisher_current_block_number_inbound")
-                            .withDescription("Current block number from handled publisher"));
             final LongGauge highestBlockNumber =
                     metrics.getOrCreate(new LongGauge.Config(METRICS_CATEGORY, "publisher_highest_block_number_inbound")
                             .withDescription("Newest inbound block number"));
@@ -821,7 +820,6 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
                     blockBatchesMessaged,
                     numberOfProducers,
                     lowestBlockNumber,
-                    currentBlockNumber,
                     highestBlockNumber,
                     latestBlockNumberAcknowledged,
                     blocksClosedComplete,
