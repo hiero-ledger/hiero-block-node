@@ -13,6 +13,7 @@ import java.util.concurrent.atomic.AtomicInteger;
  * A simple test implementation of the {@link Pipeline} interface. It keeps
  * track of the calls made to its methods and allows for assertions to be
  * made on the calls made to it.
+ * Inspired by TestResponsePipeline in block-node-app testFixtures.
  */
 public class ResponsePipelineUtils<R> implements Pipeline<R> {
     private final AtomicInteger clientEndStreamCalls = new AtomicInteger(0);

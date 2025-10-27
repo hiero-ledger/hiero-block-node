@@ -133,7 +133,7 @@ public class BlockNodeAPITests {
     @AfterEach
     void afterEach() {
         if (app != null && app.blockNodeState() != State.SHUTTING_DOWN) {
-            app.shutdown("BlockNodeAppIntegrationTest", "test-teardown");
+            app.shutdown("BlockNodeApITest", "API test teardown");
         }
     }
 

@@ -24,6 +24,7 @@ import org.hiero.block.node.spi.blockmessaging.BlockItems;
 
 /**
  * A utility class to create sample BlockItem objects for testing purposes.
+ * Inspired by BlockItemBuilderUtils in block-node-app testFixtures.
  */
 public final class BlockItemBuilderUtils {
     private static final Bytes RANDOM_HALF_MB;

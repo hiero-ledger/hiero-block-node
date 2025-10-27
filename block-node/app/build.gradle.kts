@@ -72,12 +72,6 @@ testModuleInfo {
     requires("org.junit.jupiter.params")
     requires("org.mockito")
     requires("org.assertj.core")
-    requires("io.helidon.webclient.http2")
-    requires("com.hedera.pbj.grpc.client.helidon")
-    requires("io.helidon.webclient.grpc")
-    requires("io.helidon.common.media.type")
-    requires("io.helidon.common.tls")
-    requires("io.helidon.http")
 
     exportsTo("com.swirlds.config.impl")
 }
