@@ -79,7 +79,8 @@ public class BlockNodeApp implements HealthFacility {
      * @param shouldExitJvmOnShutdown if true, the JVM will exit on shutdown, otherwise it will not
      * @throws IOException if there is an error starting the server
      */
-    BlockNodeApp(final ServiceLoaderFunction serviceLoader, final boolean shouldExitJvmOnShutdown) throws IOException {
+    public BlockNodeApp(final ServiceLoaderFunction serviceLoader, final boolean shouldExitJvmOnShutdown)
+            throws IOException {
         this.shouldExitJvmOnShutdown = shouldExitJvmOnShutdown;
         // ==== LOAD LOGGING CONFIG ====================================================================================
         final boolean externalLogging = System.getProperty("java.util.logging.config.file") != null;

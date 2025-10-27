@@ -17,6 +17,11 @@ mainModuleInfo {
     runtimeOnly("org.junit.platform.launcher")
     runtimeOnly("org.testcontainers")
     runtimeOnly("com.swirlds.config.impl")
+    runtimeOnly("io.helidon.common.media.type")
+    runtimeOnly("io.helidon.common.tls")
+    runtimeOnly("io.helidon.http")
+    runtimeOnly("io.helidon.webclient.http2")
+    runtimeOnly("org.hiero.block.protobuf.pbj")
 }
 
 tasks.register<Test>("runSuites") {
