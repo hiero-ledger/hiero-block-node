@@ -29,6 +29,8 @@ public class PublishClientManager implements SimulatorModeHandler {
     private final GrpcConfig grpcConfig;
     private final SimulatorStartupData startupData;
     private AtomicBoolean streamEnabled;
+    private final PublishStreamGrpcClient injectedClient;
+    private final boolean reuseInjectedClient;
 
     private PublishStreamGrpcClient currentClient;
     private PublisherClientModeHandler currentHandler;
@@ -49,6 +51,8 @@ public class PublishClientManager implements SimulatorModeHandler {
         this.metricsService = metricsService;
         this.startupData = startupData;
         this.streamEnabled = streamEnabled;
+        this.injectedClient = publishStreamGrpcClient;
+        this.reuseInjectedClient = !(publishStreamGrpcClient instanceof PublishStreamGrpcClientImpl);
         this.currentClient = publishStreamGrpcClient;
         this.currentHandler = publisherClientModeHandler;
         currentHandler.setPublishClientManager(this);
@@ -135,8 +139,12 @@ public class PublishClientManager implements SimulatorModeHandler {
 
     private void initializeNewClientAndHandler() {
         streamEnabled = new AtomicBoolean(true);
-        currentClient = new PublishStreamGrpcClientImpl(
-                grpcConfig, blockStreamConfig, metricsService, streamEnabled, startupData);
+        if (reuseInjectedClient) {
+            currentClient = injectedClient;
+        } else {
+            currentClient = new PublishStreamGrpcClientImpl(
+                    grpcConfig, blockStreamConfig, metricsService, streamEnabled, startupData);
+        }
         currentHandler =
                 new PublisherClientModeHandler(blockStreamConfig, currentClient, blockStreamManager, metricsService);
 

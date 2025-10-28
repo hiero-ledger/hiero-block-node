@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 dependencies {
     api(platform("io.netty:netty-bom:4.2.6.Final"))
-    api(platform("com.google.cloud:libraries-bom:26.68.0"))
+    api(platform("com.google.cloud:libraries-bom:26.70.0"))
 }
 
 dependencies.constraints {
@@ -83,7 +83,7 @@ dependencies.constraints {
     }
     api("com.google.jimfs:jimfs:1.3.1") { because("com.google.common.jimfs") }
     api("io.minio:minio:8.5.17") { because("io.minio") }
-    api("com.squareup.okio:okio-jvm:3.16.0") { because("okio") } // required by minio
+    api("com.squareup.okio:okio-jvm:3.16.2") { because("okio") } // required by minio
 
     // Versions of additional tools that are not part of the product or test module paths
     api("com.google.protobuf:protoc:${protobufVersion}")
