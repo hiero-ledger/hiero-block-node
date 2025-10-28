@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.suites.e2e;
 
+import static java.util.concurrent.locks.LockSupport.parkNanos;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -350,5 +351,68 @@ public class BlockNodeAPITests {
         blockStreamSubscribeServiceClient.close();
         blockAccessServiceClient.close();
         blockNodeServiceClient.close();
+    }
+
+    @Test
+    void swappedPublisherConnection() throws InterruptedException {
+        BlockStreamPublishServiceInterface.BlockStreamPublishServiceClient initialPublishClient =
+            new BlockStreamPublishServiceInterface.BlockStreamPublishServiceClient(
+                publishBlockStreamPbjGrpcClient, OPTIONS);
+
+        ResponsePipelineUtils<PublishStreamResponse> initialResponseObserver = new ResponsePipelineUtils<>();
+        final Pipeline<? super PublishStreamRequest> requestStream =
+            initialPublishClient.publishBlockStream(initialResponseObserver);
+
+        final long blockNumber = 0;
+        BlockItem[] blockItems = BlockItemBuilderUtils.createSimpleBlockWithNumber(blockNumber);
+        // build request with incomplete block (missing proof)
+        PublishStreamRequest request = PublishStreamRequest.newBuilder()
+            .blockItems(BlockItemSet.newBuilder().blockItems(blockItems[0], blockItems[1]).build())
+            .build();
+        requestStream.onNext(request);
+
+        // sleep briefly to allow processing
+        parkNanos(10_000_000_000L);
+
+        assertThat(initialResponseObserver.getOnNextCalls())
+            .hasSize(0); // no responses should be sent yet
+
+        // Assert no other responses sent
+        assertThat(initialResponseObserver.getOnErrorCalls()).isEmpty();
+        assertThat(initialResponseObserver.getOnSubscriptionCalls()).isEmpty();
+        assertThat(initialResponseObserver.getOnCompleteCalls().get()).isEqualTo(0);
+        assertThat(initialResponseObserver.getClientEndStreamCalls().get()).isEqualTo(0);
+
+        // on the swapped connection, send the complete block including proof
+        BlockStreamPublishServiceInterface.BlockStreamPublishServiceClient mewPublishClient =
+            new BlockStreamPublishServiceInterface.BlockStreamPublishServiceClient(
+                createGrpcClient(), OPTIONS);
+
+        ResponsePipelineUtils<PublishStreamResponse> newResponseObserver = new ResponsePipelineUtils<>();
+        final Pipeline<? super PublishStreamRequest> newRequestStream =
+            initialPublishClient.publishBlockStream(newResponseObserver);
+
+
+        PublishStreamRequest swappedRequest = PublishStreamRequest.newBuilder()
+            .blockItems(BlockItemSet.newBuilder().blockItems(blockItems).build())
+            .build();
+
+        CountDownLatch publishCompleteCountDownLatch = initialResponseObserver.setAndGetOnCompleteLatch(1);
+        newRequestStream.onNext(swappedRequest);
+
+        publishCompleteCountDownLatch.await(); // wait for onComplete caused by duplicate response
+
+        // Assert that no responses have been sent.
+        assertThat(newResponseObserver.getOnNextCalls())
+            .hasSize(1)
+            .element(0)
+            .returns(PublishStreamResponse.ResponseOneOfType.ACKNOWLEDGEMENT, responseKindExtractor)
+            .returns(1L, acknowledgementBlockNumberExtractor);
+
+        // Assert no other responses sent
+        assertThat(newResponseObserver.getOnErrorCalls()).isEmpty();
+        assertThat(newResponseObserver.getOnSubscriptionCalls()).isEmpty();
+        assertThat(initialResponseObserver.getOnCompleteCalls().get()).isEqualTo(0);
+        assertThat(newResponseObserver.getClientEndStreamCalls().get()).isEqualTo(0);
     }
 }
