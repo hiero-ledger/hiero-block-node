@@ -10,14 +10,18 @@ import com.hedera.hapi.block.stream.Block;
 import com.hedera.hapi.block.stream.BlockItem;
 import com.hedera.pbj.runtime.ParseException;
 import com.hedera.pbj.runtime.UncheckedParseException;
+import com.hedera.pbj.runtime.grpc.Pipeline;
 import com.hedera.pbj.runtime.grpc.ServiceInterface;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.Flow.Subscription;
 import java.util.function.Function;
 import org.assertj.core.api.InstanceOfAssertFactories;
 import org.hiero.block.api.BlockItemSet;
@@ -74,15 +78,68 @@ class StreamPublisherPluginTest {
     @Nested
     @DisplayName("Plugin Tests")
     class PluginTest extends GrpcPluginTestBase<StreamPublisherPlugin, ExecutorService> {
+        private final SimpleInMemoryHistoricalBlockFacility historicalBlockFacility;
+
         /**
          * Constructor for the plugin tests.
          */
         PluginTest() {
             super(Executors.newSingleThreadExecutor());
+            historicalBlockFacility = new SimpleInMemoryHistoricalBlockFacility();
             final StreamPublisherPlugin toTest = new StreamPublisherPlugin();
-            final SimpleInMemoryHistoricalBlockFacility historicalBlockFacility =
-                    new SimpleInMemoryHistoricalBlockFacility();
             start(toTest, toTest.methods().getFirst(), historicalBlockFacility);
+        }
+
+        private void reopenPublishStream() {
+            fromPluginBytes = new ArrayList<>();
+            fromPluginPipe = new Pipeline<>() {
+                @Override
+                public void clientEndStreamReceived() {
+                    LOGGER.log(System.Logger.Level.TRACE, "clientEndStreamReceived");
+                }
+
+                @Override
+                public void onNext(Bytes item) {
+                    fromPluginBytes.add(item);
+                }
+
+                @Override
+                public void onSubscribe(Subscription subscription) {
+                    LOGGER.log(System.Logger.Level.TRACE, "onSubscribe");
+                }
+
+                @Override
+                public void onError(Throwable throwable) {
+                    throw new AssertionError("Unexpected error from plugin", throwable);
+                }
+
+                @Override
+                public void onComplete() {
+                    LOGGER.log(System.Logger.Level.TRACE, "onComplete");
+                }
+            };
+            final ServiceInterface.RequestOptions options = new ServiceInterface.RequestOptions() {
+                @Override
+                public Optional<String> authority() {
+                    return Optional.empty();
+                }
+
+                @Override
+                public boolean isProtobuf() {
+                    return true;
+                }
+
+                @Override
+                public boolean isJson() {
+                    return false;
+                }
+
+                @Override
+                public String contentType() {
+                    return "application/grpc";
+                }
+            };
+            toPluginPipe = serviceInterface.open(plugin.methods().getFirst(), options, fromPluginPipe);
         }
 
         /**
@@ -209,6 +266,85 @@ class StreamPublisherPluginTest {
                     .isNotNull()
                     .returns(ResponseOneOfType.ACKNOWLEDGEMENT, responseKindExtractor)
                     .returns(0L, acknowledgementBlockNumberExtractor);
+        }
+
+        @Test
+        @DisplayName("Test resend block after incomplete stream and reconnect")
+        void testResendBlockAfterIncompleteStreamReconnect() {
+            // Stream block 0 to completion and verify the acknowledgement. This establishes
+            // normal behaviour before we simulate a mid-stream disconnect.
+            final BlockItemUnparsed[] firstBlock = SimpleTestBlockItemBuilder.createSimpleBlockUnparsedWithNumber(0);
+            final PublishStreamRequestUnparsed firstRequest = PublishStreamRequestUnparsed.newBuilder()
+                    .blockItems(BlockItemSetUnparsed.newBuilder()
+                            .blockItems(firstBlock)
+                            .build())
+                    .build();
+            toPluginPipe.onNext(PublishStreamRequestUnparsed.PROTOBUF.toBytes(firstRequest));
+            parkNanos(500_000_000L);
+            assertThat(fromPluginBytes)
+                    .hasSize(1)
+                    .first()
+                    .extracting(bytesToPublishStreamResponseMapper)
+                    .isNotNull()
+                    .returns(ResponseOneOfType.ACKNOWLEDGEMENT, responseKindExtractor)
+                    .returns(0L, acknowledgementBlockNumberExtractor);
+            fromPluginBytes.clear();
+
+            // Begin streaming block 1 but stop before the proof to mimic the publisher
+            // dropping the connection mid-block. The in-memory historical facility is
+            // temporarily disabled so it will ignore the partial block.
+            historicalBlockFacility.setDisablePlugin();
+
+            final BlockItemUnparsed[] secondBlock = SimpleTestBlockItemBuilder.createSimpleBlockUnparsedWithNumber(1);
+            final PublishStreamRequestUnparsed secondBlockHeaderRequest = PublishStreamRequestUnparsed.newBuilder()
+                    .blockItems(BlockItemSetUnparsed.newBuilder()
+                            .blockItems(secondBlock[0])
+                            .build())
+                    .build();
+            toPluginPipe.onNext(PublishStreamRequestUnparsed.PROTOBUF.toBytes(secondBlockHeaderRequest));
+            final PublishStreamRequestUnparsed secondBlockRoundRequest = PublishStreamRequestUnparsed.newBuilder()
+                    .blockItems(BlockItemSetUnparsed.newBuilder()
+                            .blockItems(secondBlock[1])
+                            .build())
+                    .build();
+            toPluginPipe.onNext(PublishStreamRequestUnparsed.PROTOBUF.toBytes(secondBlockRoundRequest));
+            parkNanos(200_000_000L);
+            toPluginPipe.clientEndStreamReceived();
+            parkNanos(200_000_000L);
+            fromPluginBytes.clear();
+            historicalBlockFacility.clearDisablePlugin();
+            // Open a fresh stream to simulate a new publisher connection carrying on with
+            // block 1.
+            reopenPublishStream();
+
+            // Resend block 1 in the usual three batches (header, round, proof). With the bug
+            // fixed the plugin should now accept the resend and acknowledge block 1.
+            final PublishStreamRequestUnparsed retryHeaderRequest = PublishStreamRequestUnparsed.newBuilder()
+                    .blockItems(BlockItemSetUnparsed.newBuilder()
+                            .blockItems(secondBlock[0])
+                            .build())
+                    .build();
+            toPluginPipe.onNext(PublishStreamRequestUnparsed.PROTOBUF.toBytes(retryHeaderRequest));
+            final PublishStreamRequestUnparsed retryRoundRequest = PublishStreamRequestUnparsed.newBuilder()
+                    .blockItems(BlockItemSetUnparsed.newBuilder()
+                            .blockItems(secondBlock[1])
+                            .build())
+                    .build();
+            toPluginPipe.onNext(PublishStreamRequestUnparsed.PROTOBUF.toBytes(retryRoundRequest));
+            final PublishStreamRequestUnparsed retryProofRequest = PublishStreamRequestUnparsed.newBuilder()
+                    .blockItems(BlockItemSetUnparsed.newBuilder()
+                            .blockItems(secondBlock[2])
+                            .build())
+                    .build();
+            toPluginPipe.onNext(PublishStreamRequestUnparsed.PROTOBUF.toBytes(retryProofRequest));
+            parkNanos(500_000_000L);
+
+            assertThat(fromPluginBytes).isNotEmpty();
+            final PublishStreamResponse response = bytesToPublishStreamResponseMapper.apply(fromPluginBytes.getLast());
+            assertThat(response)
+                    .isNotNull()
+                    .returns(ResponseOneOfType.ACKNOWLEDGEMENT, responseKindExtractor)
+                    .returns(1L, acknowledgementBlockNumberExtractor);
         }
     }
 

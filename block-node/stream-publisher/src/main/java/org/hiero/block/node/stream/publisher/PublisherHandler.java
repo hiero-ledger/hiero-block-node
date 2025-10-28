@@ -728,6 +728,15 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
      * Any cleanup that is needed should be done here.
      */
     private void shutdown() {
+        final long blockInProgress = currentStreamingBlockNumber.get();
+        if (blockInProgress != UNKNOWN_BLOCK_NUMBER) {
+            try {
+                publisherManager.handlerIsEnding(blockInProgress, handlerId);
+                publisherManager.closeBlock(null, handlerId);
+            } catch (final RuntimeException e) {
+                LOGGER.log(WARNING, "Exception during handler ending for handler %d".formatted(handlerId), e);
+            }
+        }
         // reset state
         resetState();
         try {
