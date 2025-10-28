@@ -291,7 +291,11 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
                     LongRange gap = new LongRange(previousRangeEnd + 1, range.start() - 1);
                     detectedGaps.add(gap);
                     pendingBlocks += gap.size();
-                    LOGGER.log(TRACE, "Detected gap in historical blocks from start={0} to end={1}", gap.start(), gap.end());
+                    LOGGER.log(
+                            TRACE,
+                            "Detected gap in historical blocks from start={0} to end={1}",
+                            gap.start(),
+                            gap.end());
                 }
                 previousRangeEnd = range.end();
             }
