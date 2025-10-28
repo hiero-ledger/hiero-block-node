@@ -728,9 +728,15 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
      * Any cleanup that is needed should be done here.
      */
     private void shutdown() {
-        // reset state
-        resetState();
         try {
+            final long blockInProgress = currentStreamingBlockNumber.get();
+            if (blockInProgress != UNKNOWN_BLOCK_NUMBER) {
+                publisherManager.handlerIsEnding(blockInProgress, handlerId);
+                publisherManager.closeBlock(null, handlerId);
+            }
+            // reset state
+            resetState();
+
             // This method is called when the handler is removed from the manager.
             // We should clean up any resources that are no longer needed.
             publisherManager.removeHandler(handlerId);
