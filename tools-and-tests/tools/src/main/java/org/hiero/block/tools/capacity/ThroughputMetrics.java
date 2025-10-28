@@ -18,8 +18,8 @@ public class ThroughputMetrics {
     private final AtomicInteger totalBlocksAcked = new AtomicInteger(0);
 
     // Actual data window
-    private final AtomicReference<Instant> firstByteAt = new AtomicReference<>(null);
-    private final AtomicReference<Instant> lastByteAt = new AtomicReference<>(null);
+    private final AtomicReference<Instant> firstByteInWindow = new AtomicReference<>(null);
+    private final AtomicReference<Instant> lastByteInWindow = new AtomicReference<>(null);
 
     // Periodic delta tracking
     private final AtomicLong bytesAtLastReport = new AtomicLong(0);
@@ -37,10 +37,10 @@ public class ThroughputMetrics {
 
     private void markFirstData() {
         final Instant now = Instant.now();
-        if (firstByteAt.compareAndSet(null, now)) {
+        if (firstByteInWindow.compareAndSet(null, now)) {
             lastReportTime = now;
         }
-        lastByteAt.set(now);
+        lastByteInWindow.set(now);
     }
 
     public void addBytes(long bytes) {
@@ -91,8 +91,8 @@ public class ThroughputMetrics {
     }
 
     public void reportFinal() {
-        final Instant start = firstByteAt.get();
-        final Instant end = lastByteAt.get();
+        final Instant start = firstByteInWindow.get();
+        final Instant end = lastByteInWindow.get();
         if (start == null || end == null) {
             System.out.printf("%s stopped (no data)%n", role);
             return;

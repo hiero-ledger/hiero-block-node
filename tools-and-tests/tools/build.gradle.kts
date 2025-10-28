@@ -2,7 +2,7 @@
 plugins {
     id("application")
     id("org.hiero.gradle.module.library")
-    id("com.hedera.pbj.pbj-compiler") version "0.12.1"
+    id("com.hedera.pbj.pbj-compiler")
     id("org.hiero.gradle.feature.legacy-classpath") // due to 'com.google.cloud.storage'
     id("org.hiero.gradle.feature.shadow")
 }
@@ -36,6 +36,8 @@ mainModuleInfo {
     requires("io.helidon.webclient.http2")
     requires("org.antlr.antlr4.runtime")
 }
+
+testModuleInfo { requires("org.junit.jupiter.api") }
 
 pbj { generateTestClasses = false }
 

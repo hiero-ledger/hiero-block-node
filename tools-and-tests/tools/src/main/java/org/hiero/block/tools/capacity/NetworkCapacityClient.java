@@ -114,8 +114,8 @@ public class NetworkCapacityClient {
         for (Path blockFile : blockFiles) {
             try {
                 streamBlockFile(blockFile, requestPipeline);
-                // Optional pacing; consider removing for tight windows
-                LockSupport.parkNanos(10_000_000);
+                // small block delay between each block file
+                LockSupport.parkNanos(config.delayBetweenBlocksMs() * 1_000_000L);
             } catch (RuntimeException | ParseException e) {
                 System.err.printf("Error streaming file %s due to %s%n", blockFile, e);
             }

@@ -7,5 +7,6 @@
   "pingTimeoutMillis": 500,
   "readTimeoutMillis": 10000,
   "priorKnowledge": false,
-  "serverMaxMessageSizeBytes": 1048576
+  "serverMaxMessageSizeBytes": 1048576,
+  "delayBetweenBlocksMs": 10
 }

@@ -97,8 +97,7 @@ public class NetworkCapacityServer {
         @Override
         public void clientEndStreamReceived() {
             Pipeline.super.clientEndStreamReceived();
-            System.out.println("Client half-closed the stream");
-            // Do not report final here; we finalize in onComplete() to ensure replies are sent.
+            System.out.println("Client sent EndStream response");
         }
 
         @Override
