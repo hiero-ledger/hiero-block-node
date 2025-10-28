@@ -5,11 +5,11 @@ import com.hedera.hapi.block.stream.BlockItem;
 import com.hedera.pbj.grpc.helidon.PbjRouting;
 import com.hedera.pbj.grpc.helidon.config.PbjConfig;
 import com.hedera.pbj.runtime.grpc.Pipeline;
-import com.hedera.pbj.runtime.io.buffer.Bytes;
 import io.helidon.webserver.ConnectionConfig;
 import io.helidon.webserver.WebServer;
 import io.helidon.webserver.WebServerConfig;
 import io.helidon.webserver.http2.Http2Config;
+import java.net.SocketException;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
@@ -104,8 +104,8 @@ public class NetworkCapacityServer {
         public void onNext(final PublishStreamRequest req) {
             try {
                 // Count serialized payload bytes as received
-                Bytes requestBytes = PublishStreamRequest.PROTOBUF.toBytes(req);
-                metrics.addBytes(requestBytes.length());
+                int requestLength = PublishStreamRequest.PROTOBUF.measureRecord(req);
+                metrics.addBytes(requestLength);
                 metrics.reportPeriodic();
 
                 BlockItemSet blockItems = req.blockItems();
@@ -126,7 +126,7 @@ public class NetworkCapacityServer {
                     if (blockItems.blockItems().getLast().hasBlockProof() && hasReceivedBlockHeader) {
                         metrics.incrementBlocks();
                         System.out.printf(
-                                "[SERVER] Completed block %d (Total %d).",
+                                "[SERVER] Completed block %d (Total %d).%n",
                                 currentBlockNumber, metrics.getTotalBlocks());
 
                         // Send acknowledgement
@@ -142,7 +142,12 @@ public class NetworkCapacityServer {
                         hasReceivedBlockHeader = false;
                     }
                 }
-            } catch (Exception e) {
+            } catch (RuntimeException e) {
+                if (socketClosed(e)) {
+                    System.out.println("Client connection closed; generating final throughput report.");
+                    metrics.reportFinal();
+                    return;
+                }
                 System.err.printf("Error processing request: %s%n", e.getMessage());
                 e.printStackTrace();
             }
@@ -158,6 +163,18 @@ public class NetworkCapacityServer {
         public void onComplete() {
             System.out.println("Stream completed");
             metrics.reportFinal(); // Single, authoritative final report for this stream
+        }
+
+        private boolean socketClosed(Throwable throwable) {
+            Throwable current = throwable;
+            while (current != null) {
+                if (current instanceof SocketException socket
+                        && "Socket closed".equalsIgnoreCase(socket.getMessage())) {
+                    return true;
+                }
+                current = current.getCause();
+            }
+            return false;
         }
     }
 }

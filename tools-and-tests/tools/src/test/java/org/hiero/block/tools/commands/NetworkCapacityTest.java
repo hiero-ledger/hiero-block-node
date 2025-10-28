@@ -52,7 +52,8 @@ class NetworkCapacityTest {
         assertEquals(0, result.exitCode());
         assertTrue(
                 result.stderr()
-                        .contains("Error running NetworkCapacity command: Recording folder is required for client mode"),
+                        .contains(
+                                "Error running NetworkCapacity command: Recording folder is required for client mode"),
                 () -> "stderr was:\n" + result.stderr());
     }
 
@@ -74,8 +75,9 @@ class NetworkCapacityTest {
 
         assertEquals(0, result.exitCode());
         assertTrue(
-                result.stderr().contains(
-                        "Error running NetworkCapacity command: Recording folder does not exist or is not a directory"),
+                result.stderr()
+                        .contains(
+                                "Error running NetworkCapacity command: Recording folder does not exist or is not a directory"),
                 () -> "stderr was:\n" + result.stderr());
     }
 
@@ -95,7 +97,8 @@ class NetworkCapacityTest {
 
         assertEquals(0, result.exitCode());
         assertTrue(
-                result.stderr().contains("Error running NetworkCapacity command: Server address is required for client mode"),
+                result.stderr()
+                        .contains("Error running NetworkCapacity command: Server address is required for client mode"),
                 () -> "stderr was:\n" + result.stderr());
     }
 
@@ -103,8 +106,8 @@ class NetworkCapacityTest {
     void missingConfigFileIsReported() throws Exception {
         Path missingConfig = tempDir.resolve("missing-config.json");
 
-        ExecutionResult result = executeCommand(
-                "--mode", "server", "--config", missingConfig.toString(), "--port", "5041");
+        ExecutionResult result =
+                executeCommand("--mode", "server", "--config", missingConfig.toString(), "--port", "5041");
 
         assertEquals(0, result.exitCode());
         assertTrue(

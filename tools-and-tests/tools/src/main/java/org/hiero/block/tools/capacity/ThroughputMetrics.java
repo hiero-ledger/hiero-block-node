@@ -60,11 +60,15 @@ public class ThroughputMetrics {
     }
 
     public void reportPeriodic() {
-        if (lastReportTime == null) return;
+        if (lastReportTime == null) {
+            return;
+        }
 
         final Instant now = Instant.now();
         final Duration since = Duration.between(lastReportTime, now);
-        if (since.getSeconds() < reportIntervalSeconds) return;
+        if (since.toMillis() < reportIntervalSeconds * 1_000L) {
+            return;
+        }
 
         final long bytesNow = totalBytes.get();
         final int blocksNow = totalBlocks.get();
@@ -74,17 +78,18 @@ public class ThroughputMetrics {
         final int blocksDelta = blocksNow - blocksAtLastReport.getAndSet(blocksNow);
         final int ackedDelta = ackedNow - ackedAtLastReport.getAndSet(ackedNow);
 
-        final double secs = Math.max(1e-9, since.toMillis() / 1000.0);
-        final double mbDelta = bytesDelta / (1024.0 * 1024.0);
-        final double mbps = mbDelta / secs;
+        final long millis = Math.max(1L, since.toMillis());
+        final long kbDelta = bytesDelta / 1_024L;
+        final long kbps = (kbDelta * 1_000L) / millis;
 
         if ("CLIENT".equals(role)) {
             System.out.printf(
-                    "[%s] %.2f MB/s | +%.2f MB in %.2fs %n",
-                    role, mbps, mbDelta, secs, blocksDelta, ackedDelta, totalBlocksAcked.get(), totalBlocks.get());
+                    "[%s] ΔKB: %,6d | KB/s: %,6d | ΔBlocks: %,3d | ΔACKs: %,3d | Totals ACKed/Blocks: %,d/%,d%n",
+                    role, kbDelta, kbps, blocksDelta, ackedDelta, totalBlocksAcked.get(), totalBlocks.get());
         } else {
             System.out.printf(
-                    "[%s] %.2f MB/s | +%.2f MB in %.2fs %n", role, mbps, mbDelta, secs, blocksDelta, totalBlocks.get());
+                    "[%s] ΔKB: %,6d | KB/s: %,6d | ΔBlocks: %,3d | Total blocks: %,d%n",
+                    role, kbDelta, kbps, blocksDelta, totalBlocks.get());
         }
 
         lastReportTime = now;
@@ -99,24 +104,25 @@ public class ThroughputMetrics {
         }
 
         final long bytes = totalBytes.get();
-        double totalSeconds = Math.max(1e-9, Duration.between(start, end).toMillis() / 1000.0);
-        final double totalMB = bytes / (1024.0 * 1024.0);
-        final double mbps = totalMB / totalSeconds;
+        final long totalMillis = Math.max(0L, Duration.between(start, end).toMillis());
+        final long totalKb = bytes / 1_024L;
+        final long kbps = totalMillis == 0L ? 0L : (totalKb * 1_000L) / totalMillis;
 
         System.out.printf("=== FINAL %s THROUGHPUT REPORT ===%n", role);
-        System.out.printf("Total bytes: %d (%.2f MB)%n", bytes, totalMB);
-        System.out.printf("Total time (first->last byte): %.2f seconds%n", totalSeconds);
-        System.out.printf("Average throughput: %.2f MB/s%n", mbps);
+        System.out.printf("Total bytes: %,9d (%,6d KB)%n", bytes, totalKb);
+        System.out.printf("Total time (first->last byte): %,6d milliseconds%n", totalMillis);
+        System.out.printf("Average throughput: %,6d KB/s%n", kbps);
 
         if ("CLIENT".equals(role)) {
-            System.out.printf("Total blocks sent: %d%n", totalBlocks.get());
-            System.out.printf("Total blocks ACKed: %d%n", totalBlocksAcked.get());
+            System.out.printf("Total blocks sent: %,d%n", totalBlocks.get());
+            System.out.printf("Total blocks ACKed: %,d%n", totalBlocksAcked.get());
             if (totalBlocks.get() > 0) {
-                final double avgPerBlock = totalSeconds / totalBlocks.get();
-                System.out.printf("Average time per block: %.3f seconds%n", avgPerBlock);
+                final long avgPerBlock = totalMillis / totalBlocks.get();
+                System.out.printf(
+                        "Average time per block: %3d.%03d seconds%n", avgPerBlock / 1_000L, avgPerBlock % 1_000L);
             }
         } else {
-            System.out.printf("Total blocks received: %d%n", totalBlocks.get());
+            System.out.printf("Total blocks received: %,d%n", totalBlocks.get());
         }
     }
 

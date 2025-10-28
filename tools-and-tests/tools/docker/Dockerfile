@@ -1,4 +1,4 @@
-# Use Eclipse Temurin with Java 21 as the base image
+# Use Eclipse Temurin with Java 25 as the base image
 FROM eclipse-temurin:25
 
 # Define version

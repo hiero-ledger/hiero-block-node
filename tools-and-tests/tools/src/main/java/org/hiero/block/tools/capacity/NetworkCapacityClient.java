@@ -140,24 +140,22 @@ public class NetworkCapacityClient {
         long blockNumber = block.items().getFirst().blockHeader().number();
 
         List<BlockItem> items = block.items();
-        System.out.printf(
-                "Streaming block from file: %s (%d items)%n", blockFile.getFileName(), items.size());
+        System.out.printf("Streaming block from file: %s (%d items)%n", blockFile.getFileName(), items.size());
 
         final long maxMessageSizeBytes = config.serverMaxMessageSizeBytes();
-        int i = 0;
         int batchCount = 0;
 
-        while (i < items.size()) {
+        for (int i = 0; i < items.size(); ) {
             List<BlockItem> batch = new ArrayList<>();
             long currentBatchSizeBytes = 0;
 
             // Build batch until we approach the max message size
             while (i < items.size()) {
                 BlockItem item = items.get(i);
-                long itemSizeBytes = BlockItem.PROTOBUF.toBytes(item).length();
+                int itemSizeBytes = BlockItem.PROTOBUF.measureRecord(item);
 
                 // If adding this item would exceed max size and batch is not empty, break
-                if (currentBatchSizeBytes + itemSizeBytes > maxMessageSizeBytes && !batch.isEmpty()) {
+                if (!batch.isEmpty() && currentBatchSizeBytes + itemSizeBytes > maxMessageSizeBytes) {
                     break;
                 }
 
@@ -171,14 +169,14 @@ public class NetworkCapacityClient {
             PublishStreamRequest request =
                     PublishStreamRequest.newBuilder().blockItems(itemSet).build();
             // Count serialized payload bytes (consistent with server)
-            Bytes requestBytes = PublishStreamRequest.PROTOBUF.toBytes(request);
-            metrics.addBytes(requestBytes.length());
+            int requestLength = PublishStreamRequest.PROTOBUF.measureRecord(request);
+            metrics.addBytes(requestLength);
             requestPipeline.onNext(request);
             batchCount++;
         }
 
         System.out.printf(
-                "Sent %d batches for block %d with size %d bytes.", batchCount, blockNumber, blockData.length);
+                "Sent %d batches for block %d with size %d bytes.%n", batchCount, blockNumber, blockData.length);
         metrics.incrementBlocks();
         metrics.reportPeriodic();
     }
@@ -209,7 +207,7 @@ public class NetworkCapacityClient {
 
         @Override
         public void onError(Throwable throwable) {
-            System.err.printf("Error receiving response: %s%n", throwable.getMessage());
+            System.err.printf("Error receiving response: %s.%n", throwable);
             completionFuture.completeExceptionally(throwable);
         }
 
