@@ -22,38 +22,6 @@ env:
   GRADLE_EXEC: "ionice -c 2 -n 2 nice -n 19 ./gradlew "
 
 jobs:
-  e2e-tests:
-    timeout-minutes: 30
-    runs-on: hiero-block-node-linux-medium
-    steps:
-      - name: Harden Runner
-        uses: step-security/harden-runner@f4a75cfd619ee5ce8d5b864b0d183aff3c69b55a # v2.13.1
-        with:
-          egress-policy: audit
-
-      - name: Checkout code
-        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
-        with:
-          fetch-depth: 0
-
-      - name: Expand Shallow Clone for Spotless
-        run: |
-          if [ -f .git/shallow ]; then
-            git fetch --unshallow --no-recurse-submodules
-          else
-            echo "Repository is not shallow, no need to unshallow."
-          fi
-
-      - name: Set up JDK 21
-        uses: actions/setup-java@dded0888837ed1f317902acf8a20df0ad188d165 # v5.0.0
-        with:
-          distribution: "temurin"
-          java-version: "21.0.6"
-
-      - name: Run Acceptance Tests
-        id: acceptance-tests
-        run: ${GRADLE_EXEC} runSuites
-
   api-tests:
     timeout-minutes: 30
     runs-on: hiero-block-node-linux-medium
@@ -85,3 +53,36 @@ jobs:
       - name: Run API E2E Tests
         id: api-e2e-tests
         run: ${GRADLE_EXEC} runAPISuites
+
+  e2e-tests:
+    needs: api-tests # run after api-tests to avoid port clashes, can explore parallelization later
+    timeout-minutes: 30
+    runs-on: hiero-block-node-linux-medium
+    steps:
+      - name: Harden Runner
+        uses: step-security/harden-runner@f4a75cfd619ee5ce8d5b864b0d183aff3c69b55a # v2.13.1
+        with:
+          egress-policy: audit
+
+      - name: Checkout code
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+        with:
+          fetch-depth: 0
+
+      - name: Expand Shallow Clone for Spotless
+        run: |
+          if [ -f .git/shallow ]; then
+            git fetch --unshallow --no-recurse-submodules
+          else
+            echo "Repository is not shallow, no need to unshallow."
+          fi
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@dded0888837ed1f317902acf8a20df0ad188d165 # v5.0.0
+        with:
+          distribution: "temurin"
+          java-version: "21.0.6"
+
+      - name: Run Acceptance Tests
+        id: acceptance-tests
+        run: ${GRADLE_EXEC} runSuites
