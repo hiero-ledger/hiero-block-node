@@ -175,18 +175,19 @@ public class VerificationServicePlugin implements BlockNodePlugin, BlockItemHand
                         LOGGER.log(INFO, "Verification failed for blockNumber={0}", currentBlockNumber);
                         sendFailureNotification(currentBlockNumber, BlockSource.PUBLISHER);
                     }
+
+                    // end working time
+                    long blockWorkEndTime = System.nanoTime() - startVerificationHandlingTime;
+                    LOGGER.log(
+                      TRACE,
+                      "Finished verification handling block items for blockNumber={0} nsVerificationDuration={1}",
+                      currentBlockNumber,
+                      blockWorkEndTime);
+                    verificationBlockTime.add(blockWorkEndTime);
                 }
             } else {
                 sendFailureNotification(currentBlockNumber, BlockSource.PUBLISHER);
             }
-            // end working time
-            long blockWorkEndTime = System.nanoTime() - startVerificationHandlingTime;
-            LOGGER.log(
-                    TRACE,
-                    "Finished verification handling block items for blockNumber={0} nsVerificationDuration={1}",
-                    currentBlockNumber,
-                    blockWorkEndTime);
-            verificationBlockTime.add(blockWorkEndTime);
         } catch (final RuntimeException | ParseException e) {
             LOGGER.log(WARNING, "Failed to verify BlockItems.", e);
             sendFailureNotification(currentBlockNumber, BlockSource.PUBLISHER);

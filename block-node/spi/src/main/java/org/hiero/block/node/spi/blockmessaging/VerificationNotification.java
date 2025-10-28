@@ -10,6 +10,8 @@ import com.hedera.pbj.runtime.io.buffer.Bytes;
  * @param blockNumber the block number this notification is for
  * @param blockHash   the hash of the block, if the type is BLOCK_VERIFIED
  * @param block       the block, if the type is BLOCK_VERIFIED
+ *                    @param source      the source of the block
+ *                                       to-do add duration for time verification took
  */
 public record VerificationNotification(
         boolean success,
