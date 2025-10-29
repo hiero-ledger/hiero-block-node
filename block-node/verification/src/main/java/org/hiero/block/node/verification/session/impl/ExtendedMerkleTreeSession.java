@@ -33,7 +33,7 @@ public class ExtendedMerkleTreeSession implements VerificationSession {
     public ExtendedMerkleTreeSession(final long blockNumber, final BlockSource blockSource, final String extraBytes) {
         this.blockNumber = blockNumber;
         this.blockSource = blockSource;
-        LOGGER.log(INFO, "Created ExtendedMerkleTreeVerificationSessionV0680 for block {0}", blockNumber);
+        LOGGER.log(INFO, "Created ExtendedMerkleTreeSession for block {0}", blockNumber);
     }
 
     // todo(1661) implement the real logic here, for now just return true if last item has block proof.

@@ -719,7 +719,7 @@ public class BlockStreamSubscriberSession implements Callable<BlockStreamSubscri
                 // assume the node crashed, so we must not print a stack trace.
                 final String messageFormat = "Client connection is already closed %d: %s";
                 final String message = messageFormat.formatted(sessionContext.clientId, e.getMessage());
-                LOGGER.log(Level.DEBUG, message);
+                LOGGER.log(Level.DEBUG, message, e);
             } catch (final RuntimeException e) {
                 // If the response cannot be sent, log and suppress this exception.
                 final String message = "Suppressed client error when sending end stream response for client %d%n%s";
@@ -767,7 +767,7 @@ public class BlockStreamSubscriberSession implements Callable<BlockStreamSubscri
             // assume the node crashed, so we must not print a stack trace.
             final String messageFormat = "Client closed the connection when sending block items for client %d: %s";
             final String message = messageFormat.formatted(sessionContext.clientId, e.getMessage());
-            LOGGER.log(Level.DEBUG, message);
+            LOGGER.log(Level.DEBUG, message, e);
             close(null); // cannot send the end stream response, just close the stream.
         } catch (RuntimeException e) {
             // If the pipeline is in an error state; close this session.

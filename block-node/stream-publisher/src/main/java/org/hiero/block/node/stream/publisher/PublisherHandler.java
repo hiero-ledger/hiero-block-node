@@ -231,7 +231,7 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
                 // this means that we are starting a new block, so we can
                 // update the current streaming block number
                 final String traceMessage =
-                        "metric-end-to-end-latency-by-block-start block={0} nsTimestamp={1} handlerId={2}";
+                        "metric-end-to-end-latency-by-block-start block={0,number,#} nsTimestamp={1,number,#} handlerId={2}";
                 currentStreamingBlockHeaderReceivedTime = System.nanoTime();
                 LOGGER.log(TRACE, traceMessage, blockNumber, currentStreamingBlockHeaderReceivedTime, handlerId);
                 currentStreamingBlockNumber.set(blockNumber);
@@ -407,9 +407,9 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
                     .clear();
             metrics.blockAcknowledgementsSent.increment(); // @todo(1415) add label
 
-            final String ackMessage = "Sent acknowledgement for block {0} from handler {1}";
+            final String ackMessage = "Sent acknowledgement for block {0,number,#} from handler {1}";
             final String traceMessage =
-                    "metric-end-to-end-latency-by-block-end block={0} nsTimestamp={1} handlerId={2}";
+                    "metric-end-to-end-latency-by-block-end block={0,number,#} nsTimestamp={1,number,#} handlerId={2}";
             LOGGER.log(TRACE, traceMessage, newLastAcknowledgedBlockNumber, System.nanoTime(), handlerId);
             LOGGER.log(TRACE, ackMessage, newLastAcknowledgedBlockNumber, handlerId);
         }
@@ -443,7 +443,13 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
             long start = System.nanoTime();
             replies.onNext(response);
             long duration = System.nanoTime() - start;
-            LOGGER.log(DEBUG, "Handler {0} replies.onNext took {1} ns to send {2}", handlerId, duration, response);
+            final String entryMessage = "Handler {0} replies.onNext took {1,number,#} ns to send {2}";
+            LOGGER.log(
+                    DEBUG,
+                    entryMessage,
+                    handlerId,
+                    duration,
+                    response.response().kind());
             return true;
         } catch (UncheckedIOException e) {
             shutdown(); // this method is idempotent and can be called multiple times
@@ -454,13 +460,13 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
             final String messageFormat = "Publisher closed the connection unexpectedly for client %d: %s";
             final String exceptionMessage = e.getCause() != null ? e.getCause().getMessage() : e.getMessage();
             final String message = messageFormat.formatted(handlerId, exceptionMessage);
-            LOGGER.log(Level.DEBUG, message);
+            LOGGER.log(Level.DEBUG, message, e);
             metrics.sendResponseFailed.increment(); // @todo(1415) add label
             return false;
         } catch (final RuntimeException e) {
             shutdown(); // this method is idempotent and can be called multiple times
-            final String message =
-                    "Failed to send response '%s' for handler %d: %s".formatted(response, handlerId, e.getMessage());
+            final String message = "Failed to send response '%s' for handler %d: %s"
+                    .formatted(response.response().kind(), handlerId, e.getMessage());
             LOGGER.log(DEBUG, message, e);
             metrics.sendResponseFailed.increment(); // @todo(1415) add label
             return false;
@@ -560,13 +566,13 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
             publisherManager.closeBlock(BlockProof.PROTOBUF.parse(blockProofBytes), handlerId);
         } catch (final ParseException e) {
             publisherManager.closeBlock(null, handlerId);
-            LOGGER.log(INFO, "Failed to parse block proof: {}", e.getMessage());
+            LOGGER.log(INFO, "Failed to parse block proof: {}", e.getMessage(), e);
         }
         long proofReceivedTime = System.nanoTime() - currentStreamingBlockHeaderReceivedTime;
         metrics.receiveBlockTimeLatencyNs.add(proofReceivedTime);
         LOGGER.log(
                 TRACE,
-                "Publisher Handler {0} Received block proof for block: {1}, and it took {2}ns",
+                "Publisher Handler {0} Received block proof for block: {1,number,#}, and it took {2,number,#} ns",
                 handlerId,
                 blockNumber,
                 proofReceivedTime);

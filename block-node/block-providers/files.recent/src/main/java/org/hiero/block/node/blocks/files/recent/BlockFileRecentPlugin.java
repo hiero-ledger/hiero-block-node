@@ -285,7 +285,7 @@ public final class BlockFileRecentPlugin implements BlockProviderPlugin, BlockNo
             persistenceLatencyNs.add(totalTime);
             LOGGER.log(
                     TRACE,
-                    "Persistence Handle verification finished for block {0}, and it took {1} ns to complete",
+                    "Persistence Handle verification finished for block {0,number,#}, and it took {1,number,#} ns to complete",
                     notification.blockNumber(),
                     totalTime);
         } catch (final RuntimeException e) {
