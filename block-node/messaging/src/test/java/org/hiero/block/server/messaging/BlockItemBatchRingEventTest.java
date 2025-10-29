@@ -46,7 +46,7 @@ public class BlockItemBatchRingEventTest {
         assertEquals(
                 "BlockItemBatchRingEvent{BlockItems[blockItems=["
                         + items.stream().map(BlockItemUnparsed::toString).collect(Collectors.joining(", "))
-                        + "], block=0]}",
+                        + "], blockNumber=0]}",
                 event.toString(),
                 "The toString method should return a non-empty string");
     }
