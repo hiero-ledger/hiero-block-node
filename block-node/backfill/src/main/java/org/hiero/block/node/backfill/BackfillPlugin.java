@@ -78,7 +78,7 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
         } else {
             // This should never happen (as the code is right now is impossible)
             // but we throw an exception to be safe in the future in case the enum is extended
-            LOGGER.log(INFO, "Unknown backfill type: {0}", t);
+            LOGGER.log(INFO, "Unknown backfill type={0}", t);
             throw new IllegalArgumentException("Unknown backfill type: " + t);
         }
     }
@@ -196,7 +196,7 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
 
             LOGGER.log(TRACE, "Initialized gRPC client with sources path: {0}", blockNodeSourcesPath);
         } catch (Exception e) {
-            LOGGER.log(INFO, "Failed to initialize gRPC client: {0}", e.getMessage());
+            LOGGER.log(INFO, "Failed to initialize gRPC client: {0}", e);
             hasBNSourcesPath = false;
             return;
         }
@@ -291,7 +291,11 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
                     LongRange gap = new LongRange(previousRangeEnd + 1, range.start() - 1);
                     detectedGaps.add(gap);
                     pendingBlocks += gap.size();
-                    LOGGER.log(TRACE, "Detected gap in historical blocks from {0} to {1}", gap.start(), gap.end());
+                    LOGGER.log(
+                            TRACE,
+                            "Detected gap in historical blocks from start={0,number,#} to end={1,number,#}",
+                            gap.start(),
+                            gap.end());
                 }
                 previousRangeEnd = range.end();
             }
@@ -299,7 +303,7 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
             // increase only if detectedGaps is not empty
             if (!detectedGaps.isEmpty()) backfillGapsDetected.add(detectedGaps.size());
 
-            LOGGER.log(TRACE, "Detected {0} gaps with {1} total missing blocks", detectedGaps.size(), pendingBlocks);
+            LOGGER.log(TRACE, "Detected gaps, numGaps={0} totalMissingBlocks={1}", detectedGaps.size(), pendingBlocks);
 
             // Process detected gaps
             if (!detectedGaps.isEmpty()) {
@@ -309,7 +313,7 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
             }
             autonomousError = false;
         } catch (Exception e) {
-            LOGGER.log(TRACE, "Error during backfill autonomous process: {0}", e.getMessage());
+            LOGGER.log(TRACE, "Error during backfill autonomous process: {0}", e);
             autonomousError = true;
         }
     }
@@ -317,7 +321,7 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
     private void processDetectedGaps() throws ParseException, InterruptedException {
         // Process each gap
         for (LongRange gap : detectedGaps) {
-            LOGGER.log(TRACE, "Fetching blocks from {0} to {1}", gap.start(), gap.end());
+            LOGGER.log(TRACE, "Fetching blocks from start={0} to end={1}", gap.start(), gap.end());
             backfillGap(gap, BackfillType.AUTONOMOUS);
         }
     }
@@ -440,7 +444,7 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
             // Add more detailed logging for persistence notifications
             LOGGER.log(
                     TRACE,
-                    "Received {0} persisted notification for block {1}",
+                    "Received backfillType={0} persisted notification for block={1,number,#}",
                     backfillType,
                     notification.blockNumber());
 
@@ -458,9 +462,9 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
     @Override
     public void handleVerification(VerificationNotification notification) {
         if (notification.source() == BlockSource.BACKFILL) {
-            LOGGER.log(TRACE, "Received verification notification for block {0}", notification.blockNumber());
+            LOGGER.log(TRACE, "Received verification notification for block {0,number,#}", notification.blockNumber());
             if (!notification.success()) {
-                LOGGER.log(INFO, "Block {0} verification failed", notification.blockNumber());
+                LOGGER.log(INFO, "Block verification failed, block={0,number,#}", notification.blockNumber());
                 backfillFetchErrors.increment();
                 // lastly, count down the latch to signal that this block has been processed
                 BackfillType backfillType = getBackfillTypeForBlock(notification.blockNumber());
@@ -479,7 +483,7 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
         LongRange gap = new LongRange(lastPersistedBlock + 1, newestBlockKnown);
         LOGGER.log(
                 TRACE,
-                "Detected new block known to network: {0}, starting backfill task for gap: {1}",
+                "Detected new block known to network: {0,number,#}, starting backfill task for gap: {1}",
                 newestBlockKnown,
                 gap);
 
@@ -507,7 +511,7 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
                         LOGGER.log(TRACE, "Starting on-demand backfill for gap: {0}", gap);
                         backfillGap(gap, BackfillType.ON_DEMAND);
                     } catch (ParseException | InterruptedException | RuntimeException e) {
-                        LOGGER.log(TRACE, "Error backfilling gap {0}: {1}", gap, e.getMessage());
+                        LOGGER.log(TRACE, "Error backfilling gap {0}: {1}", gap, e);
                         backfillFetchErrors.add(1);
                         onDemandError = true;
                         onDemandBackfillStartBlock.set(-1); // Reset on error to allow new backfills
@@ -515,7 +519,7 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
                 });
 
             } catch (RuntimeException e) {
-                LOGGER.log(TRACE, "Error scheduling backfill for gap {0}: {1}", gap, e.getMessage());
+                LOGGER.log(TRACE, "Error scheduling backfill for gap {0}: {1}", gap, e);
                 backfillFetchErrors.add(1);
                 onDemandError = true;
                 onDemandBackfillStartBlock.set(-1); // Reset on error to allow new backfills

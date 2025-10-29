@@ -229,7 +229,7 @@ public class BlockNodeApp implements HealthFacility {
      * and starts the metrics.
      */
     void start() {
-        LOGGER.log(INFO, LIGHT_GREEN + "Starting BlockNode Server on port {0}", serverConfig.port());
+        LOGGER.log(INFO, LIGHT_GREEN + "Starting BlockNode Server on port {0,number,#}", serverConfig.port());
         // Start the web server
         webServer.start();
         // Start metrics
@@ -245,7 +245,7 @@ public class BlockNodeApp implements HealthFacility {
         // log the server has started
         LOGGER.log(
                 INFO,
-                LIGHT_GREEN + "Started BlockNode Server : State = {0}, Historic blocks = {1}",
+                LIGHT_GREEN + "Started BlockNode Server : State={0} HistoricBlockRange={1}",
                 state.get(),
                 historicalBlockFacility
                         .availableBlocks()
@@ -285,7 +285,7 @@ public class BlockNodeApp implements HealthFacility {
     @Override
     public void shutdown(String className, String reason) {
         state.set(State.SHUTTING_DOWN);
-        LOGGER.log(INFO, "Shutting down, reason: {0}, class: {1}", reason, className);
+        LOGGER.log(INFO, "Shutting down, reason={0} class={1}", reason, className);
         // wait for the shutdown delay
         try {
             Thread.sleep(serverConfig.shutdownDelayMillis());

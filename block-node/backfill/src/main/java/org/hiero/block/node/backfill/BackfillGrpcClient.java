@@ -124,7 +124,11 @@ public class BackfillGrpcClient {
      * @return A list of blocks fetched from the block nodes, or an empty list if no blocks were found
      */
     public List<BlockUnparsed> fetchBlocks(LongRange blockRange) {
-        LOGGER.log(INFO, "Requesting blocks for range: {0} to {1}", blockRange.start(), blockRange.end());
+        LOGGER.log(
+                INFO,
+                "Requesting blocks for range start={0,number,#} to end={1,number,#}",
+                blockRange.start(),
+                blockRange.end());
 
         // only use nodes that are ACTIVE or UNKNOWN
         List<BackfillSourceConfig> activeOrUnknownNodes = new ArrayList<>();
@@ -170,10 +174,10 @@ public class BackfillGrpcClient {
 
                         LOGGER.log(
                                 INFO,
-                                "Failed to fetch blocks from node {0}:{1}, error: {2}",
+                                "Failed to fetch blocks from node address={0} port={1,number,#} error={2}",
                                 node.address(),
                                 node.port(),
-                                e.getMessage());
+                                e);
 
                     } else {
                         long delay = Math.multiplyExact(initialRetryDelayMs, attempt);

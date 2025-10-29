@@ -101,7 +101,7 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, BlockingExecutor
 
     @Test
     @DisplayName("Priority 1 BN is unavailable, fallback to 2nd priority BN")
-    void testSecondarySourceBakcfill() throws InterruptedException {
+    void testSecondarySourceBackfill() throws InterruptedException {
 
         // Block Node sources
         // Set up a backfill source with two nodes, one primary and one secondary

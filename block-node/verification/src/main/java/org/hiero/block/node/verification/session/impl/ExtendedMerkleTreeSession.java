@@ -33,19 +33,19 @@ public class ExtendedMerkleTreeSession implements VerificationSession {
     public ExtendedMerkleTreeSession(final long blockNumber, final BlockSource blockSource, final String extraBytes) {
         this.blockNumber = blockNumber;
         this.blockSource = blockSource;
-        LOGGER.log(INFO, "Created ExtendedMerkleTreeVerificationSessionV0680 for block {}", blockNumber);
+        LOGGER.log(INFO, "Created ExtendedMerkleTreeSession for block {0}", blockNumber);
     }
 
     // todo(1661) implement the real logic here, for now just return true if last item has block proof.
     @Override
     public VerificationNotification processBlockItems(List<BlockItemUnparsed> blockItems) throws ParseException {
         this.blockItems.addAll(blockItems);
-        LOGGER.log(TRACE, "Processed {} block items for block {}", blockItems.size(), blockNumber);
+        LOGGER.log(TRACE, "Processed {0} block items for block {1}", blockItems.size(), blockNumber);
         if (blockItems.getLast().hasBlockProof()) {
             BlockUnparsed block =
                     BlockUnparsed.newBuilder().blockItems(this.blockItems).build();
             Bytes blockHash = Bytes.wrap("0x00");
-            LOGGER.log(TRACE, "Returning always True verification notification for block {}", blockNumber);
+            LOGGER.log(TRACE, "Returning always True verification notification for block {0}", blockNumber);
             return new VerificationNotification(true, blockNumber, blockHash, block, blockSource);
         }
         return null;
