@@ -55,6 +55,9 @@ public class BlockNodeAPITests {
     private static final Options OPTIONS =
             new Options(Optional.empty(), ServiceInterface.RequestOptions.APPLICATION_GRPC);
 
+    // Get server port from environment variable overrides
+    private final String serverPort = System.getenv("SERVER_PORT");
+
     // EXTRACTORS
     private final Function<PublishStreamResponse, PublishStreamResponse.ResponseOneOfType> responseKindExtractor =
             response -> response.response().kind();
@@ -116,7 +119,7 @@ public class BlockNodeAPITests {
         final Duration timeoutDuration = Duration.ofSeconds(30);
         final Tls tls = Tls.builder().enabled(false).build();
         final WebClient webClient = WebClient.builder()
-                .baseUri("http://localhost:40840")
+                .baseUri("http://localhost:" + serverPort)
                 .tls(tls)
                 .protocolConfigs(List.of(GrpcClientProtocolConfig.builder()
                         .abortPollTimeExpired(false)
@@ -142,7 +145,7 @@ public class BlockNodeAPITests {
     @Test
     void http2ClientPublishBlockStreamGet() {
         Http2Client http2Client =
-                Http2Client.builder().baseUri("http://localhost:40840").build();
+                Http2Client.builder().baseUri("http://localhost:" + serverPort).build();
 
         // Http2Client exposes low-level HTTP/2 access so we can test configs without gRPC overhead
         try (var response = http2Client

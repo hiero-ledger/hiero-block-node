@@ -55,7 +55,6 @@ jobs:
         run: ${GRADLE_EXEC} runAPISuites
 
   e2e-tests:
-    needs: api-tests # run after api-tests to avoid port clashes, can explore parallelization later
     timeout-minutes: 30
     runs-on: hiero-block-node-linux-medium
     steps:
@@ -85,4 +84,4 @@ jobs:
 
       - name: Run Acceptance Tests
         id: acceptance-tests
-        run: ${GRADLE_EXEC} runSuites
+        run: SERVER_PORT=40481 ${GRADLE_EXEC} runSuites # run on non-default port to avoid parallel run conflicts
