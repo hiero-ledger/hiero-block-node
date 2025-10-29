@@ -23,6 +23,7 @@ env:
 
 jobs:
   api-tests:
+    needs: e2e-tests
     timeout-minutes: 30
     runs-on: hiero-block-node-linux-medium
     steps:
