@@ -77,14 +77,14 @@ public final class StreamPublisherPlugin implements BlockNodePlugin, BlockStream
         final BlockStreamPublishServiceMethod blockStreamPublisherServiceMethod =
                 (BlockStreamPublishServiceMethod) method;
 
-        int maxMessageSize = context.configuration().getConfigData(ServerConfig.class).maxMessageSizeBytes() - 16;
+        int maxMessageSize = context.configuration().getConfigData(ServerConfig.class).maxMessageSizeBytes() - 16384;
 
 
         return switch (blockStreamPublisherServiceMethod) {
             case publishBlockStream ->
                 Pipelines.<PublishStreamRequestUnparsed, PublishStreamResponse>bidiStreaming()
                         //.mapRequest(PublishStreamRequestUnparsed.PROTOBUF::parse)
-                        .mapRequest(bytes -> PublishStreamRequestUnparsed.PROTOBUF.parse(bytes.toReadableSequentialData(), false, false, Integer.MAX_VALUE, maxMessageSize))
+                        .mapRequest(bytes -> PublishStreamRequestUnparsed.PROTOBUF.parse(bytes.toReadableSequentialData(), false, false, maxMessageSize/8, maxMessageSize))
                         .method(this::initiatePublisherHandler)
                         .respondTo(replies)
                         .mapResponse(PublishStreamResponse.PROTOBUF::toBytes)
