@@ -45,8 +45,6 @@ The following modules provide additional functionality and are loaded as plugins
 
 The overall architecture of BlockNode is illustrated below:
 ![block-node-app-logic](./../../assets/block-node-app-logic.svg)
-or
-![block-node-app-logic-1](./../../assets/block-node-app-logic-1.svg)
 
 Additional details regarding Service interactions are illustrated in [Block-Node-Nano-Services](./../../assets/Block-Node-Nano-Services.svg) diagram.
 
