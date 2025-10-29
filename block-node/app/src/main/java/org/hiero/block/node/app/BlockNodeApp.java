@@ -229,7 +229,7 @@ public class BlockNodeApp implements HealthFacility {
      * Starts the block node server. This method initializes all the plugins, starts the web server,
      * and starts the metrics.
      */
-    void start() {
+    public void start() {
         LOGGER.log(INFO, LIGHT_GREEN + "Starting BlockNode Server on port {0,number,#}", serverConfig.port());
         // Start the web server
         webServer.start();
