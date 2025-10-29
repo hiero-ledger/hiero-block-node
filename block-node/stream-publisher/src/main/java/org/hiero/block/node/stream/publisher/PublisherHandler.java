@@ -566,7 +566,7 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
             publisherManager.closeBlock(BlockProof.PROTOBUF.parse(blockProofBytes), handlerId);
         } catch (final ParseException e) {
             publisherManager.closeBlock(null, handlerId);
-            LOGGER.log(INFO, "Failed to parse block proof: {}", e.getMessage(), e);
+            LOGGER.log(INFO, "Failed to parse block proof: {}", e);
         }
         long proofReceivedTime = System.nanoTime() - currentStreamingBlockHeaderReceivedTime;
         metrics.receiveBlockTimeLatencyNs.add(proofReceivedTime);

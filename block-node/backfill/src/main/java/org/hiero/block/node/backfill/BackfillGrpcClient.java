@@ -177,7 +177,6 @@ public class BackfillGrpcClient {
                                 "Failed to fetch blocks from node address={0} port={1,number,#} error={2}",
                                 node.address(),
                                 node.port(),
-                                e.getMessage(),
                                 e);
 
                     } else {

@@ -196,7 +196,7 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
 
             LOGGER.log(TRACE, "Initialized gRPC client with sources path: {0}", blockNodeSourcesPath);
         } catch (Exception e) {
-            LOGGER.log(INFO, "Failed to initialize gRPC client: {0}", e.getMessage(), e);
+            LOGGER.log(INFO, "Failed to initialize gRPC client: {0}", e);
             hasBNSourcesPath = false;
             return;
         }
@@ -313,7 +313,7 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
             }
             autonomousError = false;
         } catch (Exception e) {
-            LOGGER.log(TRACE, "Error during backfill autonomous process: {0}", e.getMessage(), e);
+            LOGGER.log(TRACE, "Error during backfill autonomous process: {0}", e);
             autonomousError = true;
         }
     }
@@ -511,7 +511,7 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
                         LOGGER.log(TRACE, "Starting on-demand backfill for gap: {0}", gap);
                         backfillGap(gap, BackfillType.ON_DEMAND);
                     } catch (ParseException | InterruptedException | RuntimeException e) {
-                        LOGGER.log(TRACE, "Error backfilling gap {0}: {1}", gap, e.getMessage(), e);
+                        LOGGER.log(TRACE, "Error backfilling gap {0}: {1}", gap, e);
                         backfillFetchErrors.add(1);
                         onDemandError = true;
                         onDemandBackfillStartBlock.set(-1); // Reset on error to allow new backfills
@@ -519,7 +519,7 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
                 });
 
             } catch (RuntimeException e) {
-                LOGGER.log(TRACE, "Error scheduling backfill for gap {0}: {1}", gap, e.getMessage(), e);
+                LOGGER.log(TRACE, "Error scheduling backfill for gap {0}: {1}", gap, e);
                 backfillFetchErrors.add(1);
                 onDemandError = true;
                 onDemandBackfillStartBlock.set(-1); // Reset on error to allow new backfills
