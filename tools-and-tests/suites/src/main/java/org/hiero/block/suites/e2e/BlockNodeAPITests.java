@@ -58,9 +58,7 @@ public class BlockNodeAPITests {
             new Options(Optional.empty(), ServiceInterface.RequestOptions.APPLICATION_GRPC);
 
     // Get server port from environment variable overrides
-    private final String serverPort = System.getenv("SERVER_PORT") == null
-            ? "40840"
-            : System.getenv("SERVER_PORT");
+    private final String serverPort = System.getenv("SERVER_PORT") == null ? "40840" : System.getenv("SERVER_PORT");
 
     // EXTRACTORS
     private final Function<PublishStreamResponse, PublishStreamResponse.ResponseOneOfType> responseKindExtractor =
@@ -363,21 +361,21 @@ public class BlockNodeAPITests {
     @Test
     void swappedPublisherConnection() {
         BlockStreamPublishServiceInterface.BlockStreamPublishServiceClient initialPublishClient =
-            new BlockStreamPublishServiceInterface.BlockStreamPublishServiceClient(
-                publishBlockStreamPbjGrpcClient, OPTIONS);
+                new BlockStreamPublishServiceInterface.BlockStreamPublishServiceClient(
+                        publishBlockStreamPbjGrpcClient, OPTIONS);
 
         ResponsePipelineUtils<PublishStreamResponse> initialResponseObserver = new ResponsePipelineUtils<>();
         final Pipeline<? super PublishStreamRequest> requestStream =
-            initialPublishClient.publishBlockStream(initialResponseObserver);
+                initialPublishClient.publishBlockStream(initialResponseObserver);
 
         final long blockNumber = 0;
         BlockItem[] blockItems = BlockItemBuilderUtils.createSimpleBlockWithNumber(blockNumber);
         // build request with incomplete block (missing proof)
         PublishStreamRequest request = PublishStreamRequest.newBuilder()
-            .blockItems(BlockItemSet.newBuilder()
-                .blockItems(blockItems[0], blockItems[1])
-                .build())
-            .build();
+                .blockItems(BlockItemSet.newBuilder()
+                        .blockItems(blockItems[0], blockItems[1])
+                        .build())
+                .build();
 
         requestStream.onNext(request);
 
@@ -397,15 +395,15 @@ public class BlockNodeAPITests {
 
         // on the swapped connection, send the complete block including proof
         BlockStreamPublishServiceInterface.BlockStreamPublishServiceClient newPublishClient =
-            new BlockStreamPublishServiceInterface.BlockStreamPublishServiceClient(createGrpcClient(), OPTIONS);
+                new BlockStreamPublishServiceInterface.BlockStreamPublishServiceClient(createGrpcClient(), OPTIONS);
 
         ResponsePipelineUtils<PublishStreamResponse> newResponseObserver = new ResponsePipelineUtils<>();
         final Pipeline<? super PublishStreamRequest> newRequestStream =
-            newPublishClient.publishBlockStream(newResponseObserver);
+                newPublishClient.publishBlockStream(newResponseObserver);
 
         PublishStreamRequest swappedRequest = PublishStreamRequest.newBuilder()
-            .blockItems(BlockItemSet.newBuilder().blockItems(blockItems).build())
-            .build();
+                .blockItems(BlockItemSet.newBuilder().blockItems(blockItems).build())
+                .build();
 
         newRequestStream.onNext(swappedRequest);
 
@@ -414,10 +412,10 @@ public class BlockNodeAPITests {
 
         // Assert that no responses have been sent.
         assertThat(newResponseObserver.getOnNextCalls())
-            .hasSize(1)
-            .element(0)
-            .returns(PublishStreamResponse.ResponseOneOfType.ACKNOWLEDGEMENT, responseKindExtractor)
-            .returns(1L, acknowledgementBlockNumberExtractor);
+                .hasSize(1)
+                .element(0)
+                .returns(PublishStreamResponse.ResponseOneOfType.ACKNOWLEDGEMENT, responseKindExtractor)
+                .returns(1L, acknowledgementBlockNumberExtractor);
 
         // Assert no other responses sent
         assertThat(newResponseObserver.getOnErrorCalls()).isEmpty();
