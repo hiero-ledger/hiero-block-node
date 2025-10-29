@@ -2,8 +2,9 @@
 package org.hiero.block.node.app.logging;
 
 import java.io.IOException;
-import java.text.SimpleDateFormat;
-import java.util.Date;
+import java.time.Instant;
+import java.time.ZoneOffset;
+import java.time.format.DateTimeFormatter;
 import java.util.logging.FileHandler;
 import java.util.logging.LogManager;
 
@@ -16,14 +17,17 @@ public class RollingFileHandler extends FileHandler {
 
     public RollingFileHandler() throws IOException {
         super(
-            fileName(LogManager.getLogManager().getProperty("java.util.logging.FileHandler.pattern")),
-            Integer.parseInt(LogManager.getLogManager().getProperty("java.util.logging.FileHandler.limit")),
-            Integer.parseInt(LogManager.getLogManager().getProperty("java.util.logging.FileHandler.count")),
-            Boolean.parseBoolean(LogManager.getLogManager().getProperty("java.util.logging.FileHandler.append")));
+                fileName(LogManager.getLogManager().getProperty("java.util.logging.FileHandler.pattern")),
+                Integer.parseInt(LogManager.getLogManager().getProperty("java.util.logging.FileHandler.limit")),
+                Integer.parseInt(LogManager.getLogManager().getProperty("java.util.logging.FileHandler.count")),
+                Boolean.parseBoolean(LogManager.getLogManager().getProperty("java.util.logging.FileHandler.append")));
     }
 
     private static String fileName(String pattern) {
-        final String fileName = pattern.replace("%d", new SimpleDateFormat("yyyy-MM-dd").format(new Date()));
+        DateTimeFormatter formatter =
+                DateTimeFormatter.ofPattern("yyyy-MM-dd").withZone(ZoneOffset.UTC);
+
+        final String fileName = pattern.replace("%d", formatter.format(Instant.now()));
 
         // check if the directory exists, if not create it
         final java.io.File file = new java.io.File(fileName);

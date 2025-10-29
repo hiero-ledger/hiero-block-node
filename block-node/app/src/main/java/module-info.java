@@ -29,5 +29,6 @@ module org.hiero.block.node.app {
     requires static transitive com.github.spotbugs.annotations;
     requires static java.compiler;
 
-    exports org.hiero.block.node.app.logging to java.logging;
+    exports org.hiero.block.node.app.logging to
+            java.logging;
 }
