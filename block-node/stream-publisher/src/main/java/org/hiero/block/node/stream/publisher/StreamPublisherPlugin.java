@@ -77,7 +77,7 @@ public final class StreamPublisherPlugin implements BlockNodePlugin, BlockStream
         final BlockStreamPublishServiceMethod blockStreamPublisherServiceMethod =
                 (BlockStreamPublishServiceMethod) method;
 
-        int maxMessageSize =
+        final int maxMessageSize =
                 context.configuration().getConfigData(ServerConfig.class).maxMessageSizeBytes() - 16384;
 
         return switch (blockStreamPublisherServiceMethod) {
