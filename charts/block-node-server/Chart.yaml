@@ -20,7 +20,7 @@ dependencies:
   - name: kube-prometheus-stack
     alias: kubepromstack
     condition: kubepromstack.enabled
-    version: "51.2.0"  # Use the latest stable version
+    version: "78.4.0"  # Use the latest stable version
     repository: "https://prometheus-community.github.io/helm-charts"
   - name: "loki"
     condition: loki.enabled

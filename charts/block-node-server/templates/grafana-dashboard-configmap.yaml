@@ -13,5 +13,16 @@ data:
   block-node-dashboard.json: {{ .Files.Get "dashboards/block-node-server.json" | quote }}
   node-exporter-dashboard.json: {{ .Files.Get "dashboards/node-exporter-full.json" | quote }}
   kubernetes-views-pods.json : {{ .Files.Get "dashboards/kubernetes-views-pods.json" | quote }}
+  performance-metrics.json : {{ .Files.Get "dashboards/performance-metrics.json" | quote }}
+  app-core.json : {{ .Files.Get "dashboards/Hiero-Block-Node-Plugins/app-core.json" | quote }}
+  backfill.json : {{ .Files.Get "dashboards/Hiero-Block-Node-Plugins/backfill.json" | quote }}
+  block-access-service.json : {{ .Files.Get "dashboards/Hiero-Block-Node-Plugins/block-access-service.json" | quote }}
+  block-node-service.json : {{ .Files.Get "dashboards/Hiero-Block-Node-Plugins/block-node-service.json" | quote }}
+  block-provider-files-historic.json : {{ .Files.Get "dashboards/Hiero-Block-Node-Plugins/block-provider-files-historic.json" | quote }}
+  block-provider-files-recent.json : {{ .Files.Get "dashboards/Hiero-Block-Node-Plugins/block-provider-files-recent.json" | quote }}
+  messaging-facility.json : {{ .Files.Get "dashboards/Hiero-Block-Node-Plugins/messaging-facility.json" | quote }}
+  stream-publisher.json : {{ .Files.Get "dashboards/Hiero-Block-Node-Plugins/stream-publisher.json" | quote }}
+  stream-subscriber.json : {{ .Files.Get "dashboards/Hiero-Block-Node-Plugins/stream-subscriber.json" | quote }}
+  verification.json : {{ .Files.Get "dashboards/Hiero-Block-Node-Plugins/verification.json" | quote }}
 
 {{- end }}
