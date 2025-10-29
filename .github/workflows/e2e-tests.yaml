@@ -52,7 +52,7 @@ jobs:
 
       - name: Run API E2E Tests
         id: api-e2e-tests
-        run: ${GRADLE_EXEC} runAPISuites
+        run: SERVER_PORT=40481 ${GRADLE_EXEC} runAPISuites
 
   e2e-tests:
     timeout-minutes: 30
@@ -84,4 +84,4 @@ jobs:
 
       - name: Run Acceptance Tests
         id: acceptance-tests
-        run: SERVER_PORT=40481 ${GRADLE_EXEC} runSuites # run on non-default port to avoid parallel run conflicts
+        run: ${GRADLE_EXEC} runSuites # run on non-default port to avoid parallel run conflicts
