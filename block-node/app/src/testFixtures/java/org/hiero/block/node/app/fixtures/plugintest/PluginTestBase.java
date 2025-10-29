@@ -88,7 +88,8 @@ public abstract class PluginTestBase<P extends BlockNodePlugin, E extends Execut
                 .withConfigDataType(com.swirlds.common.metrics.config.MetricsConfig.class)
                 .withConfigDataType(org.hiero.block.node.app.config.node.NodeConfig.class)
                 .withConfigDataTypes(plugin.configDataTypes().toArray(new Class[0]))
-                .withConfigDataType(com.swirlds.common.metrics.platform.prometheus.PrometheusConfig.class);
+                .withConfigDataType(com.swirlds.common.metrics.platform.prometheus.PrometheusConfig.class)
+                .withConfigDataType(org.hiero.block.node.app.config.ServerConfig.class);
         if (configOverrides != null) {
             for (Entry<String, String> override : configOverrides.entrySet()) {
                 configurationBuilder = configurationBuilder.withValue(override.getKey(), override.getValue());
