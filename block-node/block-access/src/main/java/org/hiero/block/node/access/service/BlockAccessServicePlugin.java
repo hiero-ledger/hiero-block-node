@@ -59,7 +59,7 @@ public class BlockAccessServicePlugin implements BlockNodePlugin, BlockAccessSer
                 blockNumberToRetrieve = blockProvider.availableBlocks().max();
                 LOGGER.log(
                         TRACE,
-                        "Received 'retrieveLatest' BlockRequest, retrieving blockNumber={0}",
+                        "Received 'retrieveLatest' BlockRequest, retrieving block={0}",
                         blockNumberToRetrieve);
             } else {
                 LOGGER.log(INFO, "Invalid request, 'retrieve_latest' or a valid 'block number' is required.");

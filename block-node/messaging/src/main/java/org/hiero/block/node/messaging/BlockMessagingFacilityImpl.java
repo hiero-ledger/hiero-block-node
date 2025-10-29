@@ -309,7 +309,7 @@ public class BlockMessagingFacilityImpl implements BlockMessagingFacility {
         // log sending of block items with details
         LOGGER.log(
                 TRACE,
-                "Sending block items: size={0} isStartOfNewBlock={1} isEndOfBlock={2}, blockNumber={3}",
+                "Sending block items: size={0} isStartOfNewBlock={1} isEndOfBlock={2}, block={3}",
                 blockItemsSize,
                 blockItems.isStartOfNewBlock(),
                 blockItems.isEndOfBlock(),

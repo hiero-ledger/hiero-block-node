@@ -444,7 +444,7 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
             // Add more detailed logging for persistence notifications
             LOGGER.log(
                     TRACE,
-                    "Received backfillType={0} persisted notification for blockNumber={1}",
+                    "Received backfillType={0} persisted notification for block={1}",
                     backfillType,
                     notification.blockNumber());
 
@@ -462,9 +462,9 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
     @Override
     public void handleVerification(VerificationNotification notification) {
         if (notification.source() == BlockSource.BACKFILL) {
-            LOGGER.log(TRACE, "Received verification notification for blockNumber {0}", notification.blockNumber());
+            LOGGER.log(TRACE, "Received verification notification for block {0}", notification.blockNumber());
             if (!notification.success()) {
-                LOGGER.log(INFO, "Block verification failed, blockNumber={0}", notification.blockNumber());
+                LOGGER.log(INFO, "Block verification failed, block={0}", notification.blockNumber());
                 backfillFetchErrors.increment();
                 // lastly, count down the latch to signal that this block has been processed
                 BackfillType backfillType = getBackfillTypeForBlock(notification.blockNumber());
