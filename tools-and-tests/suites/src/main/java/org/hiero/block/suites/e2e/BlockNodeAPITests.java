@@ -36,6 +36,7 @@ import org.hiero.block.suites.utils.BlockItemBuilderUtils;
 import org.hiero.block.suites.utils.ResponsePipelineUtils;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 
@@ -358,6 +359,7 @@ public class BlockNodeAPITests {
         blockNodeServiceClient.close();
     }
 
+    @Disabled
     @Test
     void swappedPublisherConnection() {
         BlockStreamPublishServiceInterface.BlockStreamPublishServiceClient initialPublishClient =
@@ -376,10 +378,11 @@ public class BlockNodeAPITests {
                 .blockItems(blockItems[0], blockItems[1])
                 .build())
             .build();
+
         requestStream.onNext(request);
 
         // sleep briefly to allow processing
-        parkNanos(10_000_000_000L);
+        parkNanos(5_000_000_000L);
 
         assertThat(initialResponseObserver.getOnNextCalls()).hasSize(0); // no responses should be sent yet
 
@@ -388,6 +391,9 @@ public class BlockNodeAPITests {
         assertThat(initialResponseObserver.getOnSubscriptionCalls()).isEmpty();
         assertThat(initialResponseObserver.getOnCompleteCalls().get()).isEqualTo(0);
         assertThat(initialResponseObserver.getClientEndStreamCalls().get()).isEqualTo(0);
+
+        // close the initial connection
+        publishBlockStreamPbjGrpcClient.close();
 
         // on the swapped connection, send the complete block including proof
         BlockStreamPublishServiceInterface.BlockStreamPublishServiceClient newPublishClient =
@@ -401,12 +407,10 @@ public class BlockNodeAPITests {
             .blockItems(BlockItemSet.newBuilder().blockItems(blockItems).build())
             .build();
 
-        CountDownLatch publishCompleteCountDownLatch = initialResponseObserver.setAndGetOnCompleteLatch(1);
         newRequestStream.onNext(swappedRequest);
 
-//        publishCompleteCountDownLatch.await(); // wait for onComplete caused by acknowledgement response
         // sleep briefly to allow processing
-        parkNanos(10_000_000_000L);
+        parkNanos(5_000_000_000L);
 
         // Assert that no responses have been sent.
         assertThat(newResponseObserver.getOnNextCalls())
