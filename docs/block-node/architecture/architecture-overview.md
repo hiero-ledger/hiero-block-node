@@ -55,7 +55,7 @@ Key plugins include:
 - **BackfillPlugin:** Guarantees the stored block stream is complete by retrieving missing blocks from other Block Nodes.
 - **BlockAccessServicePlugin:** Provides a block retrieval API.
 - **BlocksFilesHistoricPlugin:** Handles block persistence and retrieval of older persisted blocks.
-- **BlocksFilesRecentPlugin:** Handles block persistence, retrieval, and deletion of recently streamed blocks.
+- **BlocksFilesRecentPlugin:** Handles block persistence, retrieval, and retention policies of recently streamed blocks.
 - **HealthServicePlugin:** Provides kubernetes health check endpoints.
 - **S3ArchivePlugin:** Archives blocks to S3 API compatible remote storage services.
 - **ServerStatusServicePlugin:** Provides block node status API endpoints.

@@ -1,7 +1,7 @@
 # Server
 
 The Block Node Server Application is designed to handle the block streams output of a Hiero Consensus Node, parsing and
-storing the blocks and network state information. It may also optionally provide many value adding APIs to allow
+storing the blocks and network state information. It may also, optionally, provide many value adding APIs to allow
 downstream applications to access block and state information.
 
 ![block-node-network-architecture](./../assets/block-node-network-architecture.svg)
