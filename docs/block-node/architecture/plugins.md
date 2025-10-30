@@ -19,7 +19,7 @@ All major features are implemented as plugins, allowing developers to add, modif
    ServiceLoader.
 2. **Initialization:** Each plugin is initialized with the application context and appropriate service routing builders.
 3. **Start:** Plugins are started, enabling them to register for events, process events, and interact with other
-components.
+   components.
 4. **Stop:** On shutdown, plugins are stopped gracefully.
 
 ## Adding a New Plugin
