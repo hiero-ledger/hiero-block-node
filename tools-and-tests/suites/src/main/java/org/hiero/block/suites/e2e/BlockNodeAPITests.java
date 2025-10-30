@@ -28,7 +28,20 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.CountDownLatch;
 import java.util.function.Function;
-import org.hiero.block.api.*;
+
+import org.hiero.block.api.BlockAccessServiceInterface;
+import org.hiero.block.api.BlockItemSet;
+import org.hiero.block.api.BlockNodeServiceInterface;
+import org.hiero.block.api.BlockRequest;
+import org.hiero.block.api.BlockResponse;
+import org.hiero.block.api.BlockStreamPublishServiceInterface;
+import org.hiero.block.api.BlockStreamSubscribeServiceInterface;
+import org.hiero.block.api.PublishStreamRequest;
+import org.hiero.block.api.PublishStreamResponse;
+import org.hiero.block.api.ServerStatusRequest;
+import org.hiero.block.api.ServerStatusResponse;
+import org.hiero.block.api.SubscribeStreamRequest;
+import org.hiero.block.api.SubscribeStreamResponse;
 import org.hiero.block.node.app.BlockNodeApp;
 import org.hiero.block.node.spi.ServiceLoaderFunction;
 import org.hiero.block.node.spi.health.HealthFacility.State;
@@ -391,7 +404,7 @@ public class BlockNodeAPITests {
         assertThat(initialResponseObserver.getClientEndStreamCalls().get()).isEqualTo(0);
 
         // close the initial connection
-        publishBlockStreamPbjGrpcClient.close();
+        publishBlockStreamPbjGrpcClient.close(); // to-do: figure out why this close is not triggering a block close
 
         // on the swapped connection, send the complete block including proof
         BlockStreamPublishServiceInterface.BlockStreamPublishServiceClient newPublishClient =
