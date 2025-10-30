@@ -14,6 +14,7 @@ import org.hiero.block.api.BlockStreamPublishServiceInterface;
 import org.hiero.block.api.PublishStreamRequest;
 import org.hiero.block.api.PublishStreamResponse;
 import org.hiero.block.internal.PublishStreamRequestUnparsed;
+import org.hiero.block.node.app.config.ServerConfig;
 import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.BlockNodePlugin;
 import org.hiero.block.node.spi.ServiceBuilder;
@@ -75,10 +76,15 @@ public final class StreamPublisherPlugin implements BlockNodePlugin, BlockStream
             @NonNull final Pipeline<? super Bytes> replies) {
         final BlockStreamPublishServiceMethod blockStreamPublisherServiceMethod =
                 (BlockStreamPublishServiceMethod) method;
+
+        final int maxMessageSize =
+                context.configuration().getConfigData(ServerConfig.class).maxMessageSizeBytes() - 16384;
+
         return switch (blockStreamPublisherServiceMethod) {
             case publishBlockStream ->
                 Pipelines.<PublishStreamRequestUnparsed, PublishStreamResponse>bidiStreaming()
-                        .mapRequest(PublishStreamRequestUnparsed.PROTOBUF::parse)
+                        .mapRequest(bytes -> PublishStreamRequestUnparsed.PROTOBUF.parse(
+                                bytes.toReadableSequentialData(), false, false, maxMessageSize / 8, maxMessageSize))
                         .method(this::initiatePublisherHandler)
                         .respondTo(replies)
                         .mapResponse(PublishStreamResponse.PROTOBUF::toBytes)
