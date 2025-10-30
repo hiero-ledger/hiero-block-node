@@ -69,12 +69,10 @@ For additional details on plugins, refer to the [Plugins](./plugins.md).
 
 1. **Startup:** `BlockNodeApp` loads configuration, loads plugins, registers API services and starts the web server.
 2. **Event Distribution:** Distribute events from APIs and internal notifications.
-
-- Incoming gRPC block streams from a publisher are received and passed to the `BlockMessagingFacility`.
-- Block items are distributed via a block items ring buffer to registered plugins.
-- Plugins may publish notification events to the `BlockMessagingFacility`.
-- Notifications are distributed via a notification ring buffer to registered plugins.
-
+   - Incoming gRPC block streams from a publisher are received and passed to the `BlockMessagingFacility`.
+   - Block items are distributed via a block items ring buffer to registered plugins.
+   - Plugins may publish notification events to the `BlockMessagingFacility`.
+   - Notifications are distributed via a notification ring buffer to registered plugins.
 3. **Plugin Processing:** Each registered plugin processes block items and notifications independently, enabling
    dynamic, asynchronous, and extensible workflows.
 

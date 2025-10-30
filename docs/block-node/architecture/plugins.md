@@ -11,7 +11,7 @@ All major features are implemented as plugins, allowing developers to add, modif
   (block items or notifications) to registered handlers (other plugins/components).
   - This facility is how plugins communicate data and events between plugins.
   - This facility may be replaced, but a single implementation must be present in any Block Node.
-- **Service Loading:** Plugins are discovered and loaded dynamically at startup using the JPMS a service loader.
+- **Service Loading:** Plugins are discovered and loaded dynamically at startup using a JPMS a service loader.
 
 ## Plugin Lifecycle
 
