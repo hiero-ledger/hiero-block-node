@@ -7,15 +7,15 @@ on:
       block-node-helm-chart-version:
         description: "Block Node Helm Chart Version"
         required: true
-        default: "v0.19.1"
+        default: "v0.21.2"
       consensus-node-release-tag:
         description: "Consensus Node Release Tag"
         required: true
-        default: "v0.66.0"
+        default: "v0.67.2"
       mirror-node-release-tag:
         description: "Mirror Node Release Tag (for now ignored since using XIN Image)"
         required: true
-        default: "v0.139.0"
+        default: "v0.141.0"
       solo-network-size:
         description: "Solo Network Size (Number of Consensus Nodes)"
         required: true
