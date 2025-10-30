@@ -276,6 +276,39 @@ class BlockFileHistoricPluginTest {
             }
         }
 
+        @Test
+        @DisplayName("Test zip successful archival after failed batch")
+        void testZipRangeHappyPathNotGettingStuckAfterFail() throws IOException {
+            // generate first 19 blocks from numbers 0-19 and add them to the
+            // test historical block facility
+            // skip block 4 to simulate missing block
+            for (int i = 0; i < 20; i++) {
+                if (i == 4) {
+                    continue;
+                }
+                final BlockItemUnparsed[] block = SimpleTestBlockItemBuilder.createSimpleBlockUnparsedWithNumber(i);
+                testHistoricalBlockFacility.handleBlockItemsReceived(new BlockItems(List.of(block), i), false);
+            }
+            // assert that none of the first 20 blocks are zipped yet
+            for (int i = 0; i < 20; i++) {
+                assertThat(BlockPath.computeExistingBlockPath(testConfig, i)).isNull();
+            }
+            // send a block persisted notification for the range we just created
+            blockMessaging.sendBlockPersisted(
+                    new PersistedNotification(19, true, toTest.defaultPriority() + 1, BlockSource.PUBLISHER));
+            // execute serially to ensure all tasks are completed
+            pluginExecutor.executeSerially();
+
+            // assert that the first 10 blocks are not zipped because of missing block 4
+            for (int i = 0; i < 10; i++) {
+                assertThat(BlockPath.computeExistingBlockPath(testConfig, i)).isNull();
+            }
+            // assert that the next block range is zipped
+            for (int i = 10; i < 20; i++) {
+                assertThat(BlockPath.computeExistingBlockPath(testConfig, i)).isNotNull();
+            }
+        }
+
         /**
          * This test aims to verify that the plugin can handle a simple range of
          * blocks that have been persisted and a notification is sent to the
