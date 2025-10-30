@@ -28,7 +28,7 @@ import org.hiero.block.simulator.config.types.StreamingMode;
  */
 @ConfigData("blockStream")
 public record BlockStreamConfig(
-        @Loggable @ConfigProperty(defaultValue = "PUBLISHER_SERVER") SimulatorMode simulatorMode,
+        @Loggable @ConfigProperty(defaultValue = "PUBLISHER_CLIENT") SimulatorMode simulatorMode,
         @Loggable @ConfigProperty(defaultValue = "10") int lastKnownStatusesCapacity,
         @Loggable @ConfigProperty(defaultValue = "1_500_000") int delayBetweenBlockItems,
         @Loggable @ConfigProperty(defaultValue = "100_000") int maxBlockItemsToStream,

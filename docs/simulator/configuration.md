@@ -14,7 +14,7 @@ Uses the prefix `blockStream` so all properties should start with `blockStream.`
 
 | Key                            | Description                                                                                                                         |      Default Value |
 |:-------------------------------|:------------------------------------------------------------------------------------------------------------------------------------|-------------------:|
-| `simulatorMode`                | The desired simulator mode to use, it can be `CONSUMER`, `PUBLISHER_CLIENT` or `PUBLISHER_SERVER`.                                  | `PUBLISHER_SERVER` |
+| `simulatorMode`                | The desired simulator mode to use, it can be `CONSUMER`, `PUBLISHER_CLIENT` or `PUBLISHER_SERVER`.                                  | `PUBLISHER_CLIENT` |
 | `lastKnownStatusesCapacity`    | The store capacity for the last known statuses.                                                                                     |               `10` |
 | `delayBetweenBlockItems`       | The delay between each block item in nanoseconds, only applicable when streamingMode is `CONSTANT_RATE`                             |        `1_500_000` |
 | `maxBlockItemsToStream`        | The maximum number of block items to stream before stopping                                                                         |          `100_000` |
