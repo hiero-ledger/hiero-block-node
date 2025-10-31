@@ -96,11 +96,6 @@ jobs:
       - name: Create Mirror Values Override File
         run: |
           cat <<EOF > mirror-bn-values.yaml
-            importer:
-              image:
-                registry: docker.io
-                repository: xinatswirlds/importer
-                tag: 8b691c40c
             config:
               hiero:
                 mirror:
@@ -144,7 +139,7 @@ jobs:
           solo consensus network deploy --deployment "${DEPLOYMENT}" --pvcs true --node-aliases "${NODE_IDENTIFIERS}" --release-tag "${{ inputs.consensus-node-release-tag }}"
           solo consensus node setup --node-aliases "${NODE_IDENTIFIERS}" --deployment "${DEPLOYMENT}" --release-tag "${{ inputs.consensus-node-release-tag }}"
           solo consensus node start --deployment "${DEPLOYMENT}" --node-aliases "${NODE_IDENTIFIERS}"
-          solo mirror node add --deployment "${DEPLOYMENT}" --pinger --cluster-ref "${CLUSTER_REFERENCE}" --enable-ingress -f mirror-bn-values.yaml
+          solo mirror node add --deployment "${DEPLOYMENT}" --pinger --cluster-ref "${CLUSTER_REFERENCE}" --enable-ingress --mirror-node-version "${{ inputs.mirror-node-release-tag }} -f mirror-bn-values.yaml
           # solo mirror node add --deployment "${DEPLOYMENT}" --mirror-node-version "${{ inputs.mirror-node-release-tag }}" --pinger --cluster-ref "${CLUSTER_REFERENCE}" --enable-ingress -f mirror-bn-values.yaml
           solo relay node add --deployment "${DEPLOYMENT}" --node-aliases "${NODE_IDENTIFIERS}" --cluster-ref "${CLUSTER_REFERENCE}"
           solo explorer node add --deployment "${DEPLOYMENT}" --cluster-ref "${CLUSTER_REFERENCE}"
@@ -252,6 +247,11 @@ jobs:
             exit 1
           fi
           echo "LastBlock is ${LAST_BLOCK}"
+
+      - name: show running pods and services
+        run: |
+          kubectl get pods -n ${NAMESPACE}
+          kubectl get svc -n ${NAMESPACE}
 
       - name: Port Forward to Mirror Node
         run: |
