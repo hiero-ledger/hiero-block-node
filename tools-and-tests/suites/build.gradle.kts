@@ -17,6 +17,11 @@ mainModuleInfo {
     runtimeOnly("org.junit.platform.launcher")
     runtimeOnly("org.testcontainers")
     runtimeOnly("com.swirlds.config.impl")
+    runtimeOnly("io.helidon.common.media.type")
+    runtimeOnly("io.helidon.common.tls")
+    runtimeOnly("io.helidon.http")
+    runtimeOnly("io.helidon.webclient.http2")
+    runtimeOnly("org.hiero.block.protobuf.pbj")
 }
 
 tasks.register<Test>("runSuites") {
@@ -27,7 +32,20 @@ tasks.register<Test>("runSuites") {
     //    This might mean duplication, which is perfectly fine.
     dependsOn(":block-node-app:createDockerImage")
 
-    useJUnitPlatform()
+    useJUnitPlatform() { excludeTags("api") }
+    testLogging { events("passed", "skipped", "failed") }
+    testClassesDirs = sourceSets["main"].output.classesDirs
+    classpath = sourceSets["main"].runtimeClasspath
+
+    // Pass the block-node version as a system property
+    systemProperty("block.node.version", project(":block-node-app").version.toString())
+}
+
+tasks.register<Test>("runAPISuites") {
+    description = "Runs API E2E Test Suites"
+    group = "api"
+
+    useJUnitPlatform() { includeTags("api") }
     testLogging { events("passed", "skipped", "failed") }
     testClassesDirs = sourceSets["main"].output.classesDirs
     classpath = sourceSets["main"].runtimeClasspath
