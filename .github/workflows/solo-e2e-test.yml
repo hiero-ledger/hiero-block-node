@@ -139,7 +139,7 @@ jobs:
           solo consensus network deploy --deployment "${DEPLOYMENT}" --pvcs true --node-aliases "${NODE_IDENTIFIERS}" --release-tag "${{ inputs.consensus-node-release-tag }}"
           solo consensus node setup --node-aliases "${NODE_IDENTIFIERS}" --deployment "${DEPLOYMENT}" --release-tag "${{ inputs.consensus-node-release-tag }}"
           solo consensus node start --deployment "${DEPLOYMENT}" --node-aliases "${NODE_IDENTIFIERS}"
-          solo mirror node add --deployment "${DEPLOYMENT}" --pinger --cluster-ref "${CLUSTER_REFERENCE}" --enable-ingress --mirror-node-version "${{ inputs.mirror-node-release-tag }} -f mirror-bn-values.yaml
+          solo mirror node add --deployment "${DEPLOYMENT}" --pinger --cluster-ref "${CLUSTER_REFERENCE}" --enable-ingress --mirror-node-version "${{ inputs.mirror-node-release-tag }}" -f mirror-bn-values.yaml
           # solo mirror node add --deployment "${DEPLOYMENT}" --mirror-node-version "${{ inputs.mirror-node-release-tag }}" --pinger --cluster-ref "${CLUSTER_REFERENCE}" --enable-ingress -f mirror-bn-values.yaml
           solo relay node add --deployment "${DEPLOYMENT}" --node-aliases "${NODE_IDENTIFIERS}" --cluster-ref "${CLUSTER_REFERENCE}"
           solo explorer node add --deployment "${DEPLOYMENT}" --cluster-ref "${CLUSTER_REFERENCE}"
