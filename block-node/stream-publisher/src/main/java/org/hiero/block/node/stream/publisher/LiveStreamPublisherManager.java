@@ -173,7 +173,6 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
             itemsRemoved++;
             last = queue.peekLast();
         }
-        // @todo(1416) add an "items discarded" metric.
         return itemsRemoved > 0;
     }
 
@@ -380,15 +379,13 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
     @Override
     public void closeBlock(final BlockProof blockEndProof, final long handlerId) {
         checkLogAndRestartForwarderTask();
-        // @todo(1416) complete tasks that do not require the block proof data here (before this line).
         if (blockEndProof == null) {
             // No point logging here, as the handler would have done that.
             // here we just update metrics.
             metrics.blocksClosedIncomplete.increment();
         } else {
             metrics.blocksClosedComplete.increment();
-            // @todo(1416) Also log completed blocks metric and any other relevant
-            //     actions. Also check if we have incomplete blocks lower than the
+            // @todo(1239) Also check if we have incomplete blocks lower than the
             //     block that completed, and possibly enter the resend process to
             //     have handlers go back and get the block that was too slow resent
             //     from a different publisher (don't forget to keep/track last

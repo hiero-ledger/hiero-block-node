@@ -1915,7 +1915,7 @@ class PublisherHandlerTest {
              * that {@link PublishStreamResponse.EndOfStream}
              * response is returned with any code to shut down the handler even
              * if the request is invalid as specified by
-             * {@link PublisherHandler#isEndStreamRequestValid(EndStream.Code, long, long)}.
+             * {@code PublisherHandler.isEndStreamRequestValid}.
              */
             @ParameterizedTest()
             @EnumSource(EndStream.Code.class)
@@ -2192,7 +2192,6 @@ class PublisherHandlerTest {
             }
         }
 
-        // @todo(1416)
         // @todo(1263)
         //    tests to add:
         //    add tests for EndStream requests when they become available
@@ -2207,6 +2206,7 @@ class PublisherHandlerTest {
         return new MetricsHolder(
                 new DefaultCounter(new Config(METRICS_CATEGORY, "publisher_block_items_received")),
                 new DefaultCounter(new Config(METRICS_CATEGORY, "publisher_blocks_ack_sent")),
+                new DefaultCounter(new Config(METRICS_CATEGORY, "publisher_sets_dropped")),
                 new DefaultCounter(new Config(METRICS_CATEGORY, "publisher_stream_errors")),
                 new DefaultCounter(new Config(METRICS_CATEGORY, "publisher_blocks_skips_sent")),
                 new DefaultCounter(new Config(METRICS_CATEGORY, "publisher_blocks_resend_sent")),
