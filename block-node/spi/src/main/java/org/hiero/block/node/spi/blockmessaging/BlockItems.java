@@ -38,6 +38,8 @@ public record BlockItems(List<BlockItemUnparsed> blockItems, long blockNumber) {
     /**
      * Helper method to check if this set of items is the end of a block, this is true of last item is a block proof.
      *
+     * Note, this will change at some future point, when we fully handle multiple block proofs.
+     *
      * @return true if last item is a block proof, false otherwise.
      */
     public boolean isEndOfBlock() {

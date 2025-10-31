@@ -164,7 +164,6 @@ public class BlockStreamSubscribeUnparsedClient {
             try {
                 if (resp.hasBlockItems()) {
                     final List<BlockItemUnparsed> frame = resp.blockItems().blockItems();
-
                     if (frame.getFirst().hasBlockHeader()) {
                         final long expected = ctx.expectedBlockNumber;
                         final long actual = extractBlockNumberFromBlockHeader(frame.getFirst());
@@ -175,26 +174,21 @@ public class BlockStreamSubscribeUnparsedClient {
                         }
                         // Start a new block: reuse the buffer and populate it.
                         ctx.currentBlockItems.clear();
-                        ctx.currentBlockItems.addAll(frame);
-                    } else {
-                        // Continuation: append to the same buffer.
-                        ctx.currentBlockItems.addAll(frame);
                     }
-
-                    if (frame.getLast().hasBlockProof()) {
-                        // Snapshot the current items to avoid retaining the large buffer in the finished block.
-                        final List<BlockItemUnparsed> snapshot = List.copyOf(ctx.currentBlockItems);
-                        ctx.blocks.add(
-                                BlockUnparsed.newBuilder().blockItems(snapshot).build());
-                        ctx.currentBlockItems.clear();
-                        ctx.expectedBlockNumber++;
-                    }
-
+                    // Continuation: append everything to the buffer.
+                    ctx.currentBlockItems.addAll(frame);
                 } else if (resp.hasStatus()) {
                     final SubscribeStreamResponse.Code code = resp.status();
                     if (code != SubscribeStreamResponse.Code.SUCCESS) {
                         ctx.fail(new RuntimeException("Received error code: " + code));
                     }
+                } else if (resp.hasEndOfBlock()) {
+                    // Snapshot the current items to avoid retaining the large buffer in the finished block.
+                    final List<BlockItemUnparsed> snapshot = List.copyOf(ctx.currentBlockItems);
+                    ctx.blocks.add(
+                            BlockUnparsed.newBuilder().blockItems(snapshot).build());
+                    ctx.currentBlockItems.clear();
+                    ctx.expectedBlockNumber++;
                 } else {
                     ctx.fail(new RuntimeException("Received unexpected response without block items or code"));
                 }
