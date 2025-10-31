@@ -28,7 +28,6 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.CountDownLatch;
 import java.util.function.Function;
-
 import org.hiero.block.api.BlockAccessServiceInterface;
 import org.hiero.block.api.BlockItemSet;
 import org.hiero.block.api.BlockNodeServiceInterface;
@@ -49,7 +48,6 @@ import org.hiero.block.suites.utils.BlockItemBuilderUtils;
 import org.hiero.block.suites.utils.ResponsePipelineUtils;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 
@@ -72,6 +70,9 @@ public class BlockNodeAPITests {
 
     // Get server port from environment variable overrides
     private final String serverPort = System.getenv("SERVER_PORT") == null ? "40840" : System.getenv("SERVER_PORT");
+
+    final String serverStatusMethodPath =
+            BlockNodeServiceInterface.FULL_NAME + "/" + BlockNodeServiceInterface.BlockNodeServiceMethod.serverStatus;
 
     // EXTRACTORS
     private final Function<PublishStreamResponse, PublishStreamResponse.ResponseOneOfType> responseKindExtractor =
@@ -158,7 +159,7 @@ public class BlockNodeAPITests {
     }
 
     @Test
-    void http2ClientPublishBlockStreamGet() {
+    void http2ClientServerStatusGet() {
         Http2Client http2Client =
                 Http2Client.builder().baseUri("http://localhost:" + serverPort).build();
 
@@ -166,7 +167,7 @@ public class BlockNodeAPITests {
         try (var response = http2Client
                 .method(Method.create("GET"))
                 .contentType(APPLICATION_GRPC_PROTO)
-                .path("/org.hiero.block.api.BlockNodeService/serverStatus")
+                .path(serverStatusMethodPath)
                 .request()) {
 
             // Only a post should be supported.
@@ -370,9 +371,8 @@ public class BlockNodeAPITests {
         blockNodeServiceClient.close();
     }
 
-    @Disabled
     @Test
-    void swappedPublisherConnection() {
+    void swappedPublisherConnection() throws InterruptedException {
         BlockStreamPublishServiceInterface.BlockStreamPublishServiceClient initialPublishClient =
                 new BlockStreamPublishServiceInterface.BlockStreamPublishServiceClient(
                         publishBlockStreamPbjGrpcClient, OPTIONS);
@@ -404,7 +404,27 @@ public class BlockNodeAPITests {
         assertThat(initialResponseObserver.getClientEndStreamCalls().get()).isEqualTo(0);
 
         // close the initial connection
-        publishBlockStreamPbjGrpcClient.close(); // to-do: figure out why this close is not triggering a block close
+        // send endStream before closing connection
+        PublishStreamRequest endStreamRequest = PublishStreamRequest.newBuilder()
+                .endStream(PublishStreamRequest.EndStream.newBuilder()
+                        .endCode(PublishStreamRequest.EndStream.Code.RESET)
+                        .build())
+                .build();
+
+        // get countdown latch for onComplete
+        CountDownLatch initialOnCompleteLatch = initialResponseObserver.setAndGetOnCompleteLatch(1);
+
+        requestStream.onNext(endStreamRequest);
+
+        initialOnCompleteLatch.await();
+
+        assertThat(initialResponseObserver.getOnNextCalls()).hasSize(0); // no responses should be sent yet
+
+        // Assert no other responses sent
+        assertThat(initialResponseObserver.getOnErrorCalls()).isEmpty();
+        assertThat(initialResponseObserver.getOnSubscriptionCalls()).isEmpty();
+        assertThat(initialResponseObserver.getOnCompleteCalls().get()).isEqualTo(1);
+        assertThat(initialResponseObserver.getClientEndStreamCalls().get()).isEqualTo(0);
 
         // on the swapped connection, send the complete block including proof
         BlockStreamPublishServiceInterface.BlockStreamPublishServiceClient newPublishClient =
@@ -428,12 +448,12 @@ public class BlockNodeAPITests {
                 .hasSize(1)
                 .element(0)
                 .returns(PublishStreamResponse.ResponseOneOfType.ACKNOWLEDGEMENT, responseKindExtractor)
-                .returns(1L, acknowledgementBlockNumberExtractor);
+                .returns(0L, acknowledgementBlockNumberExtractor);
 
         // Assert no other responses sent
         assertThat(newResponseObserver.getOnErrorCalls()).isEmpty();
         assertThat(newResponseObserver.getOnSubscriptionCalls()).isEmpty();
-        assertThat(initialResponseObserver.getOnCompleteCalls().get()).isEqualTo(0);
+        assertThat(initialResponseObserver.getOnCompleteCalls().get()).isEqualTo(1);
         assertThat(newResponseObserver.getClientEndStreamCalls().get()).isEqualTo(0);
     }
 }
