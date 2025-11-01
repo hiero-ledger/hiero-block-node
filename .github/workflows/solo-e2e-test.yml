@@ -7,15 +7,15 @@ on:
       block-node-helm-chart-version:
         description: "Block Node Helm Chart Version"
         required: true
-        default: "v0.17.1"
+        default: "v0.21.2"
       consensus-node-release-tag:
         description: "Consensus Node Release Tag"
         required: true
-        default: "v0.65.0"
+        default: "v0.67.2"
       mirror-node-release-tag:
         description: "Mirror Node Release Tag (for now ignored since using XIN Image)"
         required: true
-        default: "v0.137.0"
+        default: "v0.141.0"
       solo-network-size:
         description: "Solo Network Size (Number of Consensus Nodes)"
         required: true
@@ -24,6 +24,11 @@ on:
         description: "Solo CLI Version"
         required: false
         default: "latest"
+      run-tck-regression-tests:
+        description: "Run TCK regression test"
+        required: false
+        default: false
+        type: boolean
 
 defaults:
   run:
@@ -91,93 +96,11 @@ jobs:
         run: |
           npm i @hashgraph/solo@${{ inputs.solo-version }} -g
 
-      # create kind cluster
-      - name: Create Kind Cluster
-        run: |
-          kind create cluster -n "${CLUSTER_NAME}"
-          # wait for control plane
-          sleep 10
-
-      # use kubectl context
-      - name: Use kubectl context
-        run: |
-          kubectl config use-context "${CONTEXT}"
-
-      # solo init
-      - name: Solo Init
-        run: |
-          solo init
-
-      # solo cluster-ref connect (formerly `cluster-ref config connect`)
-      - name: Solo Cluster Ref Connect
-        run: |
-          solo cluster-ref connect --cluster-ref "${CLUSTER_REFERENCE}" --context "${CONTEXT}"
-          #v0.44.0/main
-          # solo cluster-ref config connect --cluster-ref "${CLUSTER_REFERENCE}" --context "${CONTEXT}"
-
-      # solo deployment create (formerly `deployment config create`)
-      - name: Solo Deployment Create
-        run: |
-          solo deployment create --deployment "${DEPLOYMENT}" --namespace "${NAMESPACE}"
-          #v0.44.0/main
-          # solo deployment config create --deployment "${DEPLOYMENT}" --namespace "${NAMESPACE}"
-
-      # solo deployment add-cluster (formerly `deployment cluster attach`)
-      - name: Solo Deployment Add Cluster
-        run: |
-          solo deployment add-cluster --deployment "${DEPLOYMENT}" --cluster-ref "${CLUSTER_REFERENCE}" --num-consensus-nodes "${{ inputs.solo-network-size }}"
-          #v0.44.0/main
-          # solo deployment cluster attach --deployment "${DEPLOYMENT}" --cluster-ref "${CLUSTER_REFERENCE}" --num-consensus-nodes "${{ inputs.solo-network-size }}"
-
-      # solo cluster-ref setup (formerly `cluster-ref config setup`)
-      - name: Solo Cluster Ref Setup
-        run: |
-          solo cluster-ref setup --cluster-ref "${CLUSTER_REFERENCE}"
-          #v0.44.0/main
-          # solo cluster-ref config setup -s "${CLUSTER_REFERENCE}"
-
-      # Solo Block Node Add (unchanged)
-      - name: Solo Block Node Add
-        run: |
-          solo block node add --deployment "${DEPLOYMENT}" --release-tag "${{ inputs.consensus-node-release-tag }}" --cluster-ref "${CLUSTER_REFERENCE}" --chart-version "${{ inputs.block-node-helm-chart-version }}"
-
-      # solo node keys (formerly `keys consensus generate`)
-      - name: Solo Node Keys
-        run: |
-          solo node keys --gossip-keys --tls-keys --deployment "${DEPLOYMENT}" --node-aliases "${NODE_IDENTIFIERS}"
-          #v0.44.0/main
-          # solo keys consensus generate --gossip-keys --tls-keys --deployment "${DEPLOYMENT}" --node-aliases "${NODE_IDENTIFIERS}"
-
-      # solo network deploy (formerly `consensus network deploy`)
-      - name: Solo Network Deploy
-        run: |
-          solo network deploy --deployment "${DEPLOYMENT}" --pvcs true --node-aliases "${NODE_IDENTIFIERS}" --release-tag "${{ inputs.consensus-node-release-tag }}"
-          #v0.44.0/main
-          # solo consensus network deploy --deployment "${DEPLOYMENT}" --pvcs true --node-aliases "${NODE_IDENTIFIERS}" --release-tag "${{ inputs.consensus-node-release-tag }}"
-
-      # solo node setup (formerly `consensus node setup`)
-      - name: Solo Node Setup
-        run: |
-          solo node setup --node-aliases "${NODE_IDENTIFIERS}" --deployment "${DEPLOYMENT}" --release-tag "${{ inputs.consensus-node-release-tag }}"
-          #v0.44.0/main
-          # solo consensus node setup --node-aliases "${NODE_IDENTIFIERS}" --deployment "${DEPLOYMENT}" --release-tag "${{ inputs.consensus-node-release-tag }}"
-
-      # solo node start (formerly `consensus node start`)
-      - name: Solo Node Start
-        run: |
-          solo node start --deployment "${DEPLOYMENT}" --node-aliases "${NODE_IDENTIFIERS}"
-          #v0.44.0/main
-          # solo consensus node start --deployment "${DEPLOYMENT}" --node-aliases "${NODE_IDENTIFIERS}"
-
+      # Prepare Overrides
       # Create Mirror Values Override File (uses BN service)
       - name: Create Mirror Values Override File
         run: |
           cat <<EOF > mirror-bn-values.yaml
-          importer:
-            image:
-              registry: docker.io
-              repository: xinatswirlds/importer
-              tag: e741ea2b2
             config:
               hiero:
                 mirror:
@@ -185,7 +108,7 @@ jobs:
                     block:
                       enabled: true
                       nodes:
-                        - host: block-node-0.${NAMESPACE}.svc.cluster.local
+                        - host: block-node-1.${NAMESPACE}.svc.cluster.local
                           port: 40840
                       sourceType: BLOCK_NODE
                     downloader:
@@ -201,26 +124,45 @@ jobs:
         run: |
           cat mirror-bn-values.yaml
 
-      # solo mirror-node deploy (formerly `mirror node add`)
-      - name: Solo Mirror Node Deploy
+      # Solo Cluster Setup
+      - name: Cluster setup (Kind + Solo)
         run: |
-          solo mirror-node deploy --deployment "${DEPLOYMENT}" --pinger --cluster-ref "${CLUSTER_REFERENCE}" --enable-ingress -f mirror-bn-values.yaml
-          #v0.44.0/main
-          # solo mirror node add --deployment "${DEPLOYMENT}" --pinger --cluster-ref "${CLUSTER_REFERENCE}" --enable-ingress -f mirror-bn-values.yaml
+          kind create cluster -n "${CLUSTER_NAME}"
+          sleep 10
+          kubectl config use-context "${CONTEXT}"
+          solo init
+          solo cluster-ref config connect --cluster-ref "${CLUSTER_REFERENCE}" --context "${CONTEXT}"
+          solo deployment config create --deployment "${DEPLOYMENT}" --namespace "${NAMESPACE}"
+          solo deployment cluster attach --deployment "${DEPLOYMENT}" --cluster-ref "${CLUSTER_REFERENCE}" --num-consensus-nodes "${{ inputs.solo-network-size }}"
+          solo cluster-ref config setup -s "${CLUSTER_REFERENCE}"
 
-      # solo relay deploy (formerly `relay node add`)
-      - name: Solo Relay Deploy
+      # Node Deployment
+      - name: Solo Nodes Deployment (BN, CN, MN)
         run: |
-          solo relay deploy --deployment "${DEPLOYMENT}" --node-aliases "${NODE_IDENTIFIERS}" --cluster-ref "${CLUSTER_REFERENCE}"
-          #v0.44.0/main
-          # solo relay node add --deployment "${DEPLOYMENT}" --node-aliases "${NODE_IDENTIFIERS}" --cluster-ref "${CLUSTER_REFERENCE}"
+          solo block node add --deployment "${DEPLOYMENT}" --release-tag "${{ inputs.consensus-node-release-tag }}" --cluster-ref "${CLUSTER_REFERENCE}" --chart-version "${{ inputs.block-node-helm-chart-version }}"
+          solo keys consensus generate --gossip-keys --tls-keys --deployment "${DEPLOYMENT}" --node-aliases "${NODE_IDENTIFIERS}"
+          solo consensus network deploy --deployment "${DEPLOYMENT}" --pvcs true --node-aliases "${NODE_IDENTIFIERS}" --release-tag "${{ inputs.consensus-node-release-tag }}"
+          solo consensus node setup --node-aliases "${NODE_IDENTIFIERS}" --deployment "${DEPLOYMENT}" --release-tag "${{ inputs.consensus-node-release-tag }}"
+          solo consensus node start --deployment "${DEPLOYMENT}" --node-aliases "${NODE_IDENTIFIERS}"
+          solo mirror node add --deployment "${DEPLOYMENT}" --pinger --cluster-ref "${CLUSTER_REFERENCE}" --enable-ingress --mirror-node-version "${{ inputs.mirror-node-release-tag }}" -f mirror-bn-values.yaml
+          solo relay node add --deployment "${DEPLOYMENT}" --node-aliases "${NODE_IDENTIFIERS}" --cluster-ref "${CLUSTER_REFERENCE}"
+          solo explorer node add --deployment "${DEPLOYMENT}" --cluster-ref "${CLUSTER_REFERENCE}"
+          sleep 10
 
-      # solo explorer deploy (formerly `explorer node add`)
-      - name: Solo Explorer Deploy
+      - name: show running pods and services
         run: |
-          solo explorer deploy --deployment "${DEPLOYMENT}" --cluster-ref "${CLUSTER_REFERENCE}"
-          #v0.44.0/main
-          # solo explorer node add --deployment "${DEPLOYMENT}" --cluster-ref "${CLUSTER_REFERENCE}"
+          kubectl get pods -n ${NAMESPACE}
+          kubectl get svc -n ${NAMESPACE}
+
+      # port forwards
+      - name: Solo Port forwards
+        run: |
+          kubectl port-forward svc/haproxy-node1-svc -n "${NAMESPACE}" 50211:50211 &
+          kubectl port-forward svc/mirror-1-monitor -n "${NAMESPACE}" 5600:80 &
+          kubectl port-forward svc/mirror-1-rest -n "${NAMESPACE}" 5551:80 &
+          kubectl port-forward svc/mirror-1-restjava -n "${NAMESPACE}" 8084:80 &
+          kubectl port-forward svc/block-node-1 -n "${NAMESPACE}" 40840:40840 &
+          sleep 5
 
       # ---- BN verification with grpcurl ----
 
@@ -247,13 +189,6 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y jq
-
-      - name: Port Forward to Block Node
-        run: |
-          kubectl port-forward --namespace "${NAMESPACE}" svc/block-node-0 40840:40840 &
-          echo $! > /tmp/pf.pid
-          # wait for port-forward to be established
-          sleep 10
 
       # Verify the BN is getting blocks
       - name: Get ServerStatus from Block Node
@@ -290,7 +225,7 @@ jobs:
           echo "LAST_AVAILABLE_BLOCK=$LAST_AVAILABLE_BLOCK" >> $GITHUB_ENV
 
       - name: Give some time to produce more blocks
-        run: sleep 500
+        run: sleep 200
 
       - name: Get first block from Block Node
         run: |
@@ -326,13 +261,6 @@ jobs:
           fi
           echo "LastBlock is ${LAST_BLOCK}"
 
-      - name: Port Forward to Mirror Node
-        run: |
-          kubectl port-forward --namespace "${NAMESPACE}" svc/mirror-rest  5551:80 &
-          echo $! > /tmp/pf.pid
-          # wait for port-forward to be established
-          sleep 10
-
       - name: Validate first block on Mirror Node
         run: |
           # Fetch the block number from Mirror Node
@@ -355,20 +283,139 @@ jobs:
 
           echo "Mirror Node first block matches Block Node first block ✅"
 
+      - name: Validate last block on Mirror Node
+        run: |
+          # Fetch the block number from Mirror Node
+          LAST_BLOCK_MIRROR=$(curl -s "http://127.0.0.1:5551/api/v1/blocks/$LAST_AVAILABLE_BLOCK" | jq -r '.number')
+
+          # Check if we got a value
+          if [ -z "$LAST_BLOCK_MIRROR" ]; then
+              echo "Error: LAST_BLOCK_MIRROR is empty"
+              exit 1
+          fi
+
+          echo "LAST_BLOCK_MIRROR is $LAST_BLOCK_MIRROR"
+          echo "LAST_AVAILABLE_BLOCK is $LAST_AVAILABLE_BLOCK"
+
+          # Validate that the Mirror Node block matches the Block Node last block
+          if [ "$LAST_BLOCK_MIRROR" != "$LAST_AVAILABLE_BLOCK" ]; then
+              echo "Error: Mirror Node last block ($LAST_BLOCK_MIRROR) does not match Block Node last block ($LAST_AVAILABLE_BLOCK)"
+              exit 1
+          fi
+
+          echo "Mirror Node last block matches Block Node last block ✅"
+
+      # TCK Regression Tests related steps
+      - name: Setup PNPM
+        if: ${{ inputs.run-tck-regression-tests }}
+        run: |
+          npm install -g pnpm
+
+      - name: Checkout Regression Code
+        if: ${{ inputs.run-tck-regression-tests }}
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          path: sdk-tck/regression
+          repository: hiero-ledger/hiero-sdk-tck
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Checkout Latest Tag (TCK)
+        if: ${{ inputs.run-tck-regression-tests }}
+        run: |
+          cd sdk-tck/regression
+          git fetch --tags
+          LATEST_TAG=$(git describe --tags `git rev-list --tags --max-count=1`)
+          echo "Latest TCK tag: $LATEST_TAG"
+          git checkout $LATEST_TAG
+
+      # Checkout the JS-SDK server
+      - name: Checkout JS-SDK Server
+        if: ${{ inputs.run-tck-regression-tests }}
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          path: sdk-tck/sdk-server
+          repository: hiero-ledger/hiero-sdk-js
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Checkout Latest Tag (JS-SDK)
+        if: ${{ inputs.run-tck-regression-tests }}
+        run: |
+          cd sdk-tck/sdk-server
+          git fetch --tags
+          LATEST_TAG=$(git describe --tags `git rev-list --tags --max-count=1`)
+          echo "Latest JS-SDK tag: $LATEST_TAG"
+          git checkout $LATEST_TAG
+
+      # Set up the npm dependencies and cache on the tck-client
+      - name: Set up the tck-client
+        if: ${{ inputs.run-tck-regression-tests }}
+        run: |
+          npm cache clean --force
+          npm install
+        working-directory: sdk-tck/regression
+
+      # Set up the npm dependencies and cache on the sdk-server
+      - name: Install NodeJS Dependencies (sdk-server)
+        if: ${{ inputs.run-tck-regression-tests }}
+        id: start-sdk-server
+        run: |
+          # Extract package versions from the parent package.json
+          SDK_VERSION=$(node -e "console.log(require('../package.json').version)")
+          LONG_VERSION=$(node -e "console.log(require('../package.json').dependencies.long)")
+          PROTO_VERSION=$(node -e "console.log(require('../package.json').dependencies['@hashgraph/proto'])")
+
+          echo "Using SDK version: $SDK_VERSION"
+          echo "Using long version: $LONG_VERSION"
+          echo "Using proto version: $PROTO_VERSION"
+
+          # Install with the extracted versions
+          pnpm add @hashgraph/sdk@^${SDK_VERSION} long@${LONG_VERSION} @hashgraph/proto@${PROTO_VERSION}
+          pnpm install
+          nohup pnpm start &
+          server_pid=$!
+          echo "pid=${server_pid}" >> "${GITHUB_OUTPUT}"
+        working-directory: sdk-tck/sdk-server/tck
+
+      # Start the TCK client
+      - name: Start tck-client
+        if: ${{ inputs.run-tck-regression-tests }}
+        env:
+          OPERATOR_ACCOUNT_ID: "0.0.2"
+          OPERATOR_ACCOUNT_PRIVATE_KEY: "302e020100300506032b65700422042091132178e72057a1d7528025956fe39b0b847f200ab59b2fdd367017f3087137"
+          JSON_RPC_SERVER_URL: "http://127.0.0.1:8544"
+          NODE_IP: "127.0.0.1:50211"
+          MIRROR_NODE_REST_URL: "http://127.0.0.1:5551"
+          MIRROR_NODE_REST_JAVA_URL: "http://127.0.0.1:8084"
+        run: |
+          solo ledger account create --dev --ed25519-private-key "${{ env.OPERATOR_ACCOUNT_PRIVATE_KEY }}" --deployment "${DEPLOYMENT}" --hbar-amount 1000000
+          cp .env.custom_node .env
+          npm run test:file src/tests/contract-service/test-contract-execute-transaction.ts
+        working-directory: sdk-tck/regression # required
+
+      - name: BN Based - SDK TCK Regression Test Report
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: ${{ !cancelled()  &&  inputs.run-tck-regression-tests }}
+        with:
+          name: SDK TCK Regression Test Report
+          path: "**/sdk-tck/regression/mochawesome-report/mochawesome.*"
+          retention-days: 7
+
       - name: Collect BN and MN Logs
         if: always()
         run: |
           # Get BN Logs
-          kubectl logs -n "${NAMESPACE}" -l "app.kubernetes.io/name=block-node-0" --all-containers --since=24h --timestamps --prefix --tail=-1 > bn0-logs.log
+          kubectl logs -n "${NAMESPACE}" -l "app.kubernetes.io/name=block-node-1" --all-containers --since=24h --timestamps --prefix --tail=-1 > bn0-logs.log
 
           # Get MN Logs
-          kubectl logs -n "${NAMESPACE}" -l "app.kubernetes.io/instance=mirror,app.kubernetes.io/component=importer" --all-containers --since=24h --timestamps --prefix --tail=-1 > mn0-logs.log
+          kubectl logs -n "${NAMESPACE}" -l "app.kubernetes.io/instance=mirror-1,app.kubernetes.io/component=importer" --all-containers --since=24h --timestamps --prefix --tail=-1 > mn0-logs.log
 
       - name: Collect CN Logs
         if: always()
         run: |
           # Get CN Logs
-          solo node logs -d "${DEPLOYMENT}" --dev -q
+          solo consensus diagnostics all --dev --deployment "${DEPLOYMENT}"
           BASE="${HOME}/.solo/logs/${NAMESPACE}"
           LOG_FOLDER=$(ls -1d "$BASE"/* | sort -r | head -n1)
           echo "Latest log folder is $LOG_FOLDER"
@@ -408,3 +455,16 @@ jobs:
             echo "- [Download CN-logs](${{ steps.upload_logs_cn.outputs.artifact-url }})"
 
           } >> "$GITHUB_STEP_SUMMARY"
+
+      # Stop the TCK Tests server
+      - name: Stop TCK Test Server
+        if: ${{ inputs.run-tck-regression-tests }}
+        run: |
+          echo ${{ steps.start-sdk-server.outputs.pid }}
+          kill -9 ${{ steps.start-sdk-server.outputs.pid }}
+
+      # Stop the solo nodes
+      - name: Stop solo
+        if: ${{ always() }}
+        run: |
+          kind delete cluster -n ${{ env.CLUSTER_NAME }}
