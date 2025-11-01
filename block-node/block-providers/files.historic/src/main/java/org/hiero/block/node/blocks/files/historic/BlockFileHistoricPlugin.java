@@ -375,7 +375,7 @@ public final class BlockFileHistoricPlugin implements BlockProviderPlugin, Block
                 // we have a gap in the batch, so we cannot zip it
                 final String message = "Batch of blocks [%d -> %d] has a gap, skipping zipping"
                         .formatted(batchFirstBlockNumber, batchLastBlockNumber);
-                LOGGER.log(DEBUG, message);
+                LOGGER.log(ERROR, message);
             } else {
                 // move the batch of blocks to a zip file
                 try {
