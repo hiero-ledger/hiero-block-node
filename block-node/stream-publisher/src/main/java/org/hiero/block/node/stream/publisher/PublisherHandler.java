@@ -115,7 +115,6 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
         // occurs. No other methods will be called by the Helidon layer after this.
         try {
             sendEndOfStream(Code.ERROR); // this might not succeed...
-            // @todo(1416) update metrics
         } finally {
             // Shut down this handler, even if sending the message failed
             // or metrics failed.
@@ -189,7 +188,6 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
     private void sendEndAndResetState(final Code endOfStreamCode) {
         try {
             sendEndOfStream(endOfStreamCode);
-            // @todo(1416) add metrics
             resetState();
         } finally {
             shutdown();
@@ -258,7 +256,7 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
             // for a block that should be skipped in the time it took for the
             // header batch to arrive and the "skip" response to be sent back,
             // due to network latency and processing time.
-            // @todo(1416) add metrics
+            metrics.blockItemSetsDropped.increment();
             LOGGER.log(DEBUG, "Handler {0} dropping batch because first block item is not BlockHeader", handlerId);
             return;
         }
@@ -307,7 +305,6 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
             // handle all possible end stream codes.
             handleValidEndStreamRequest(code, earliestAndLatestBlockNumbers, endStreamLatestBlockNumber);
         } else {
-            // @todo(1416) is this the correct log or action we need to take if the request is invalid?
             LOGGER.log(
                     INFO,
                     "Handler %d received an invalid EndStream request with code %s. %s"
@@ -779,6 +776,7 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
     public record MetricsHolder(
             Counter liveBlockItemsReceived,
             Counter blockAcknowledgementsSent,
+            Counter blockItemSetsDropped,
             Counter streamErrors,
             Counter blockSkipsSent,
             Counter blockResendsSent,
@@ -799,6 +797,9 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
             final Counter blockAcknowledgementsSent =
                     metrics.getOrCreate(new Counter.Config(METRICS_CATEGORY, "publisher_blocks_ack_sent")
                             .withDescription("Block‑ack messages sent"));
+            final Counter blockItemSetsDropped = metrics.getOrCreate(new Counter.Config(
+                            METRICS_CATEGORY, "publisher_stream_sets_dropped")
+                    .withDescription("Publisher block item sets dropped because the block is missing a header."));
             final Counter streamErrors =
                     metrics.getOrCreate(new Counter.Config(METRICS_CATEGORY, "publisher_stream_errors")
                             .withDescription("Publisher connection streams that end in an error"));
@@ -825,6 +826,7 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
             return new MetricsHolder(
                     liveBlockItemsReceived,
                     blockAcknowledgementsSent,
+                    blockItemSetsDropped,
                     streamErrors,
                     blockSkipsSent,
                     blockResendsSent,
