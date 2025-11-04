@@ -6,6 +6,7 @@ import static java.lang.System.Logger.Level.ERROR;
 import static java.lang.System.Logger.Level.INFO;
 import static java.lang.System.Logger.Level.TRACE;
 import static java.lang.System.Logger.Level.WARNING;
+import static org.hiero.block.node.base.BlockFile.nestedDirectoriesAllBlockNumbers;
 import static org.hiero.block.node.spi.blockmessaging.BlockSource.UNKNOWN;
 
 import com.hedera.hapi.block.stream.output.BlockHeader;
@@ -30,6 +31,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.atomic.AtomicLong;
 import org.hiero.block.internal.BlockUnparsed;
 import org.hiero.block.node.base.BlockFile;
+import org.hiero.block.node.base.CompressionType;
 import org.hiero.block.node.base.ranges.ConcurrentLongRangeSet;
 import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.ServiceBuilder;
@@ -40,7 +42,6 @@ import org.hiero.block.node.spi.blockmessaging.VerificationNotification;
 import org.hiero.block.node.spi.historicalblocks.BlockAccessor;
 import org.hiero.block.node.spi.historicalblocks.BlockProviderPlugin;
 import org.hiero.block.node.spi.historicalblocks.BlockRangeSet;
-import org.hiero.block.node.spi.historicalblocks.HistoricalBlockFacility;
 import org.hiero.block.node.spi.historicalblocks.LongRange;
 
 /**
@@ -111,11 +112,17 @@ public final class BlockFileHistoricPlugin implements BlockProviderPlugin, Block
             LOGGER.log(ERROR, "Could not create root directory", e);
             context.serverHealth().shutdown(name(), "Could not create root directory");
         }
-        //
-        //      nestedDirectoriesAllBlockNumbers(config.tempPath(), config.compression())
-        //        .forEach(blockNumber -> {
-        //          availableTemporaryBlocks.add(blockNumber);
-        //        });
+        try {
+            Files.createDirectories(config.tempPath());
+        } catch (IOException e) {
+            LOGGER.log(ERROR, "Could not create temp directory", e);
+            context.serverHealth().shutdown(name(), "Could not create temp directory");
+        }
+
+        nestedDirectoriesAllBlockNumbers(config.tempPath(), config.compression())
+                .forEach(blockNumber -> {
+                    availableTemporaryBlocks.add(blockNumber);
+                });
         // register to listen to block notifications
         context.blockMessaging().registerBlockNotificationHandler(this, false, "Blocks Files Historic");
         numberOfBlocksPerZipFile = (int) Math.pow(10, config.powersOfTenPerZipFileContents());
@@ -430,11 +437,13 @@ public final class BlockFileHistoricPlugin implements BlockProviderPlugin, Block
             final long batchFirstBlockNumber = batchRange.start();
             final long batchLastBlockNumber = batchRange.end();
             final List<BlockAccessor> batch = new ArrayList<>(numberOfBlocksPerZipFile);
-            final HistoricalBlockFacility historicalBlockFacility = context.historicalBlockProvider();
             // gather batch, if there are no gaps, then we can proceed with zipping
             for (long blockNumber = batchFirstBlockNumber; blockNumber <= batchLastBlockNumber; blockNumber++) {
-                final BlockAccessor currentAccessor = historicalBlockFacility.block(blockNumber);
-                if (currentAccessor == null) {
+                Path path = BlockFile.nestedDirectoriesBlockFilePath(
+                        config.tempPath(), blockNumber, config.compression(), config.maxFilesPerDir());
+                final BlockAccessor currentAccessor =
+                        new BlockFileBlockAccessor(path, CompressionType.ZSTD, blockNumber);
+                if (currentAccessor.block() == null) {
                     break;
                 } else {
                     batch.add(currentAccessor);
