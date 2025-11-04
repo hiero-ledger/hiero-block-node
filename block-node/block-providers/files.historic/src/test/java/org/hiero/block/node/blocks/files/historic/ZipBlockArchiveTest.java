@@ -59,8 +59,10 @@ class ZipBlockArchiveTest {
     void setup() throws IOException {
         jimFs = Jimfs.newFileSystem(com.google.common.jimfs.Configuration.unix());
         final Path blocksRoot = jimFs.getPath("/blocks");
+        final Path blocksTemp = jimFs.getPath("/blocks-temp");
         Files.createDirectories(blocksRoot);
-        testConfig = createTestConfiguration(blocksRoot, 1);
+        Files.createDirectories(blocksTemp);
+        testConfig = createTestConfiguration(blocksRoot, 1, blocksTemp);
         // we need this test context because we need the health facility to be
         // available for the tests to run
         testContext = new BlockNodeContext(null, null, new TestHealthFacility(), null, null, null, null);
@@ -477,8 +479,10 @@ class ZipBlockArchiveTest {
         return new ZipBlockAccessor(blockPath);
     }
 
-    private FilesHistoricConfig createTestConfiguration(final Path basePath, final int powersOfTenPerZipFileContents) {
+    private FilesHistoricConfig createTestConfiguration(
+            final Path basePath, final int powersOfTenPerZipFileContents, final Path blocksTemp) {
         // for simplicity let's use no compression
-        return new FilesHistoricConfig(basePath, CompressionType.NONE, powersOfTenPerZipFileContents, 0L);
+        return new FilesHistoricConfig(
+                basePath, CompressionType.NONE, powersOfTenPerZipFileContents, 0L, blocksTemp, 3);
     }
 }

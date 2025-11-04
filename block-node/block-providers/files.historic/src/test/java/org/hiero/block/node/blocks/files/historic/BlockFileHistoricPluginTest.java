@@ -55,6 +55,9 @@ import org.junit.jupiter.api.io.TempDir;
 class BlockFileHistoricPluginTest {
     /** TempDir for the current test */
     private final Path testTempDir;
+
+    private final Path blcoksTempDir;
+
     /** The test block messaging facility to use for testing. */
     private final SimpleInMemoryHistoricalBlockFacility testHistoricalBlockFacility;
     /** The test config to use for the plugin, overridable. */
@@ -65,13 +68,14 @@ class BlockFileHistoricPluginTest {
     /**
      * Construct test environment.
      */
-    BlockFileHistoricPluginTest(@TempDir final Path tempDir) {
+    BlockFileHistoricPluginTest(@TempDir final Path tempDir, @TempDir final Path blocksTempDir) {
         this.testTempDir = Objects.requireNonNull(tempDir);
+        this.blcoksTempDir = Objects.requireNonNull(blocksTempDir);
         // generate test config, for the purposes of this test, we will always
         // use 10 blocks per zip, assuming that the first zip file will contain
         // for example blocks 0-9, the second zip file will contain blocks 10-19
         // also we will not use compression, and we will use the jUnit temp dir
-        testConfig = new FilesHistoricConfig(this.testTempDir, CompressionType.NONE, 1, 10L);
+        testConfig = new FilesHistoricConfig(this.testTempDir, CompressionType.NONE, 1, 10L, this.blcoksTempDir, 3);
         // build the plugin using the test environment
         toTest = new BlockFileHistoricPlugin();
         // initialize an in memory historical block facility to use for testing
@@ -975,7 +979,7 @@ class BlockFileHistoricPluginTest {
         @DisplayName("Test retention policy threshold disabled")
         void testRetentionPolicyThresholdDisabled() throws IOException {
             // change the retention policy to be disabled
-            testConfig = new FilesHistoricConfig(testTempDir, CompressionType.NONE, 1, 0L);
+            testConfig = new FilesHistoricConfig(testTempDir, CompressionType.NONE, 1, 0L, blcoksTempDir, 3);
             // override the config in the plugin
             start(toTest, testHistoricalBlockFacility, getConfigOverrides());
             // generate first 150 blocks from numbers 0-149 and add them to the

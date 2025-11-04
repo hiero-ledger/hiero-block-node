@@ -4,13 +4,21 @@ package org.hiero.block.node.blocks.files.historic;
 import static java.lang.System.Logger.Level.DEBUG;
 import static java.lang.System.Logger.Level.ERROR;
 import static java.lang.System.Logger.Level.INFO;
+import static java.lang.System.Logger.Level.TRACE;
 import static java.lang.System.Logger.Level.WARNING;
+import static org.hiero.block.node.spi.blockmessaging.BlockSource.UNKNOWN;
 
+import com.hedera.hapi.block.stream.output.BlockHeader;
+import com.hedera.pbj.runtime.ParseException;
+import com.hedera.pbj.runtime.io.buffer.Bytes;
+import com.hedera.pbj.runtime.io.stream.WritableStreamingData;
 import com.swirlds.metrics.api.Counter;
 import com.swirlds.metrics.api.LongGauge;
 import com.swirlds.metrics.api.Metrics;
 import edu.umd.cs.findbugs.annotations.NonNull;
+import java.io.BufferedOutputStream;
 import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.lang.System.Logger.Level;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -20,12 +28,15 @@ import java.util.Objects;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.atomic.AtomicLong;
+import org.hiero.block.internal.BlockUnparsed;
+import org.hiero.block.node.base.BlockFile;
 import org.hiero.block.node.base.ranges.ConcurrentLongRangeSet;
 import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.ServiceBuilder;
 import org.hiero.block.node.spi.blockmessaging.BlockNotificationHandler;
 import org.hiero.block.node.spi.blockmessaging.BlockSource;
 import org.hiero.block.node.spi.blockmessaging.PersistedNotification;
+import org.hiero.block.node.spi.blockmessaging.VerificationNotification;
 import org.hiero.block.node.spi.historicalblocks.BlockAccessor;
 import org.hiero.block.node.spi.historicalblocks.BlockProviderPlugin;
 import org.hiero.block.node.spi.historicalblocks.BlockRangeSet;
@@ -49,6 +60,8 @@ public final class BlockFileHistoricPlugin implements BlockProviderPlugin, Block
     private int numberOfBlocksPerZipFile;
     /** The set of available blocks. */
     private final ConcurrentLongRangeSet availableBlocks = new ConcurrentLongRangeSet();
+    /** The set of available temporary blocks (not yet zipped). */
+    private final ConcurrentLongRangeSet availableTemporaryBlocks = new ConcurrentLongRangeSet();
     /** List of all zip ranges that are in progress, so we do not start a duplicate job. */
     private final CopyOnWriteArrayList<LongRange> inProgressZipRanges = new CopyOnWriteArrayList<>();
     /** Running total of bytes stored in the historic tier */
@@ -98,6 +111,11 @@ public final class BlockFileHistoricPlugin implements BlockProviderPlugin, Block
             LOGGER.log(ERROR, "Could not create root directory", e);
             context.serverHealth().shutdown(name(), "Could not create root directory");
         }
+        //
+        //      nestedDirectoriesAllBlockNumbers(config.tempPath(), config.compression())
+        //        .forEach(blockNumber -> {
+        //          availableTemporaryBlocks.add(blockNumber);
+        //        });
         // register to listen to block notifications
         context.blockMessaging().registerBlockNotificationHandler(this, false, "Blocks Files Historic");
         numberOfBlocksPerZipFile = (int) Math.pow(10, config.powersOfTenPerZipFileContents());
@@ -204,34 +222,90 @@ public final class BlockFileHistoricPlugin implements BlockProviderPlugin, Block
 
     // ==== BlockNotificationHandler Methods ===========================================================================
 
-    /**
-     * {@inheritDoc}
-     *
-     * Called on message handling thread. Each time any block provider persists one or more new blocks. We will also
-     * receive block persisted notifications from our self. So we only care about notifications from plugins with higher
-     * priority. As we will move blocks from higher priority plugins to zip files, once enough blocks are available.
-     */
     @Override
-    public void handlePersisted(PersistedNotification notification) {
+    public void handleVerification(VerificationNotification notification) {
+        if (notification != null && notification.success()) {
+            writeBlockToLivePath(notification.block(), notification.blockNumber(), notification.source());
+        }
+
         try {
-            // all operations are queued up here until we release the caller thread
-            // by the block messaging facility, so we can safely perform
-            // calculations and decide if we will submit a task or not
-            if (notification != null && notification.blockProviderPriority() > defaultPriority()) {
-                attemptZipping();
-                cleanup();
-            }
-            // @todo(1069) this is not enough of an assertion that the blocks
-            //     will be coming from the right place as notifications are
-            //     async and things can happen, when we get the accessors later,
-            //     we should be able to get accessors only from places that have
-            //     higher priority than us. We should probably have that as a
-            //     feature in the block accessor api. (meaning we should be able
-            //     to query the historical block facility for blocks that are
-            //     coming from higher priority plugins)
+            attemptZipping();
+            cleanup();
         } catch (final RuntimeException e) {
             final String message = "Failed to handle persistence notification due to %s".formatted(e);
             LOGGER.log(WARNING, message, e);
+        }
+    }
+
+    private void writeBlockToLivePath(final BlockUnparsed block, final long blockNumber, final BlockSource source) {
+        final BlockSource effectiveSource = source == null ? UNKNOWN : source;
+        if (block != null && block.blockItems() != null && !block.blockItems().isEmpty()) {
+            if (block.blockItems().getFirst().hasBlockHeader()) {
+                final BlockHeader header = getBlockHeader(block);
+                final long headerNumber = header == null ? -1 : header.number();
+                if (headerNumber != blockNumber) {
+                    LOGGER.log(
+                            WARNING,
+                            "Block number mismatch between notification {0} and block header {1}, not writing block",
+                            blockNumber,
+                            headerNumber);
+                    sendBlockNotification(blockNumber, false, effectiveSource);
+                } else {
+                    final Path verifiedBlockPath = BlockFile.nestedDirectoriesBlockFilePath(
+                            config.tempPath(), blockNumber, config.compression(), config.maxFilesPerDir());
+                    createDirectoryOrFail(verifiedBlockPath);
+                    writeBlockOrFail(block, blockNumber, effectiveSource, verifiedBlockPath);
+                }
+            } else {
+                LOGGER.log(INFO, "Block {0} has no block header, cannot write to live path", blockNumber);
+                sendBlockNotification(blockNumber, false, effectiveSource);
+            }
+        } else {
+            sendBlockNotification(blockNumber, false, effectiveSource);
+        }
+    }
+
+    private BlockHeader getBlockHeader(final BlockUnparsed block) {
+        Bytes headerBytes = block.blockItems().getFirst().blockHeader();
+        try {
+            return BlockHeader.PROTOBUF.parse(headerBytes);
+        } catch (final ParseException e) {
+            LOGGER.log(INFO, "Failed to parse block header", e);
+            return null;
+        }
+    }
+
+    private void sendBlockNotification(final long number, final boolean succeeded, final BlockSource source) {
+        context.blockMessaging()
+                .sendBlockPersisted(new PersistedNotification(number, succeeded, defaultPriority(), source));
+    }
+
+    private void createDirectoryOrFail(final Path verifiedBlockPath) {
+        try {
+            // create parent directory if it does not exist
+            Files.createDirectories(verifiedBlockPath.getParent());
+        } catch (final IOException e) {
+            final String message = "Failed to create directories for path %s due to %s"
+                    .formatted(verifiedBlockPath.toAbsolutePath(), e);
+            LOGGER.log(WARNING, message, e);
+            throw new UncheckedIOException(e);
+        }
+    }
+
+    private void writeBlockOrFail(
+            final BlockUnparsed block, final long blockNumber, final BlockSource source, final Path verifiedBlockPath) {
+        try (final WritableStreamingData streamingData = new WritableStreamingData(new BufferedOutputStream(
+                config.compression().wrapStream(Files.newOutputStream(verifiedBlockPath)), 16384))) {
+            BlockUnparsed.PROTOBUF.write(block, streamingData);
+            streamingData.flush();
+            streamingData.close();
+            LOGGER.log(TRACE, "Wrote verified block {0} to file {1}", blockNumber, verifiedBlockPath.toAbsolutePath());
+            // update the oldest and newest verified block numbers
+            availableTemporaryBlocks.add(blockNumber);
+        } catch (final IOException e) {
+            final String message = "Failed to write file for block %d due to %s".formatted(blockNumber, e);
+            LOGGER.log(WARNING, message, e);
+            sendBlockNotification(blockNumber, false, source);
         }
     }
 
@@ -244,15 +318,11 @@ public final class BlockFileHistoricPlugin implements BlockProviderPlugin, Block
         // the start of the next batch of blocks to zip
         long minBlockNumber = availableBlocks.max() + 1;
         long maxBlockNumber = minBlockNumber + numberOfBlocksPerZipFile - 1;
-        // make sure the historical block facility has a higher max than our
-        // desired batch max
-        final BlockRangeSet historicalAvailable =
-                context.historicalBlockProvider().availableBlocks();
         // while we can zip blocks, we must keep zipping
         // we loop here because the historical block facility can have
         // multiple batches of blocks available for zipping potentially, so we
         // need to queue them all up
-        while (historicalAvailable.max() >= maxBlockNumber) {
+        while (availableTemporaryBlocks.max() >= maxBlockNumber) {
             // since we know that we have a power of 10 number of blocks per zip file,
             // we know our batch always starts with a number that is a multiple of
             // numberOfBlocksPerZipFile, so we can check if the start is valid
@@ -264,7 +334,7 @@ public final class BlockFileHistoricPlugin implements BlockProviderPlugin, Block
             // we can do a quick pre-check to see if the blocks are available
             // this pre-check asserts the min and max are contained however,
             // not the whole range, this will be asserted when we gather the batch
-            final boolean blocksAvailablePreCheck = historicalAvailable.contains(minBlockNumber, maxBlockNumber);
+            final boolean blocksAvailablePreCheck = availableTemporaryBlocks.contains(minBlockNumber, maxBlockNumber);
             if (isValidStart && blocksAvailablePreCheck) {
                 final LongRange batchRange = new LongRange(minBlockNumber, maxBlockNumber);
                 // move the batch of blocks to a zip file
