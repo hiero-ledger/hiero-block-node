@@ -257,11 +257,7 @@ class ZipBlockArchive {
      * @return {@code true} if the file was successfully moved out of the active path, {@code false} otherwise
      */
     private boolean handleCorruptedZipFile(final Path corruptedZip, final ZipException cause) {
-        LOGGER.log(
-                WARNING,
-                "Detected corrupted zip file: {0}, attempting self-healing move",
-                corruptedZip,
-                cause);
+        LOGGER.log(WARNING, "Detected corrupted zip file: {0}, attempting self-healing move", corruptedZip, cause);
         try {
             final Path quarantineDir = corruptedZip.getParent().resolve("corrupted");
             Files.createDirectories(quarantineDir);
