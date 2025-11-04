@@ -4,6 +4,7 @@ package org.hiero.block.suites.grpc.positive;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.io.IOException;
 import java.net.HttpURLConnection;
 import org.hiero.block.suites.BaseSuite;
 import org.junit.jupiter.api.DisplayName;
@@ -58,11 +59,10 @@ public class PositiveServerAvailabilityTests extends BaseSuite {
      * <p>The test asserts that /healthz/readyz REST endpoint returns HTTP 200 Status</p>
      * <p>The test asserts that /healthz/livez REST endpoint returns HTTP 200 Status</p>
      *
-     * @throws Exception catch all exceptions
      */
     @Test
     @DisplayName("Verify /healthz endpoints")
-    public void verifyHealthzEndpoints() throws Exception {
+    public void verifyHealthzEndpoints() throws IOException {
         final String host = "localhost";
         final int port = blockNodeContainer.getExposedPorts().getFirst();
         final String baseUrl = String.format("http://%s:%d", host, port);
@@ -85,11 +85,10 @@ public class PositiveServerAvailabilityTests extends BaseSuite {
     /**
      * Test should verify the metrics endpoints of the REST API.
      *
-     * @throws Exception catch all exceptions
      */
     @Test
     @DisplayName("Verify /metrics endpoint")
-    public void verifyMetricsEndpoint() throws Exception {
+    public void verifyMetricsEndpoint() throws IOException {
         final String host = "localhost";
         final int port = 16007;
         final String baseUrl = String.format("http://%s:%d", host, port);

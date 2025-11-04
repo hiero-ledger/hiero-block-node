@@ -11,8 +11,11 @@ import io.minio.ListObjectsArgs;
 import io.minio.MakeBucketArgs;
 import io.minio.MinioClient;
 import io.minio.PutObjectArgs;
+import io.minio.errors.MinioException;
 import java.io.ByteArrayInputStream;
+import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.security.GeneralSecurityException;
 import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
@@ -43,7 +46,7 @@ public class S3ClientTest {
 
     @SuppressWarnings({"resource", "HttpUrlsUsage"})
     @BeforeAll
-    void setup() throws Exception {
+    void setup() throws S3ClientException, IOException, GeneralSecurityException, MinioException {
         // Start MinIO container
         minioContainer = new GenericContainer<>("minio/minio:latest")
                 .withCommand("server /data")
@@ -75,7 +78,7 @@ public class S3ClientTest {
      */
     @Test
     @DisplayName("Test listObjects() correctly returns existing objects in a bucket")
-    void testList() throws Exception {
+    void testList() throws S3ClientException, IOException, GeneralSecurityException, MinioException {
         // Setup
         final String content = "Hello, MinIO!";
         final String keyPrefix = "block-";
@@ -121,7 +124,7 @@ public class S3ClientTest {
      */
     @Test
     @DisplayName("Test listObjects() returns empty  when no objects are found")
-    void testListNonExistentObjects() throws Exception {
+    void testListNonExistentObjects() throws S3ClientException, IOException {
         try (final S3Client s3Client = client()) {
             // Call
             final List<String> actual = s3Client.listObjects("non-existent-prefix", 100);
@@ -140,7 +143,7 @@ public class S3ClientTest {
      */
     @Test
     @DisplayName("Test multipart upload")
-    void testMultipartUpload() throws Exception {
+    void testMultipartUpload() throws S3ClientException, IOException, GeneralSecurityException, MinioException {
         // Setup
         final String key = "testMultipartUploadSuccess.txt";
         // check that the object does not exist before the test
@@ -190,7 +193,7 @@ public class S3ClientTest {
      */
     @Test
     @DisplayName("Test upload of a large file")
-    void testUploadFile() throws Exception {
+    void testUploadFile() throws S3ClientException, IOException, GeneralSecurityException, MinioException {
         // Setup
         final int testContentSize = 8 * 1024 * 1024 + 826;
         final String key = "uploadOfLargeFileSuccessful.txt";
@@ -251,7 +254,8 @@ public class S3ClientTest {
      */
     @Test
     @DisplayName("Test upload and download of a text file")
-    void testTextFileUploadAndDownload() throws Exception {
+    void testTextFileUploadAndDownload()
+            throws S3ClientException, IOException, GeneralSecurityException, MinioException {
         // Setup
         final String key = "uploadSimpleTextFile.txt";
         final String expected = "Hello, MinIO!";
@@ -292,7 +296,7 @@ public class S3ClientTest {
      */
     @Test
     @DisplayName("Test listMultipartUpload() will correctly return existing multipart uploads")
-    void testListMultipartUploads() throws Exception {
+    void testListMultipartUploads() throws S3ClientException, IOException, GeneralSecurityException, MinioException {
         // Setup
         final String key = "testListMultipartUploads.txt";
         try (final S3Client s3Client = client()) {
@@ -327,7 +331,8 @@ public class S3ClientTest {
      */
     @Test
     @DisplayName("Test listMultipartUpload() will correctly return existing multipart uploads")
-    void testListMultipartUploadsMultiKeyValue() throws Exception {
+    void testListMultipartUploadsMultiKeyValue()
+            throws S3ClientException, IOException, GeneralSecurityException, MinioException {
         // Setup
         final String key1 = "testListMultipartUploads1.txt";
         final String key2 = "testListMultipartUploads2.txt";
@@ -362,7 +367,7 @@ public class S3ClientTest {
      */
     @Test
     @DisplayName("Test abortMultipartUpload() will correctly abort an existing multipart upload")
-    void testAbortMultipartUpload() throws Exception {
+    void testAbortMultipartUpload() throws S3ClientException, IOException, GeneralSecurityException, MinioException {
         // Setup
         final String key = "testAbortMultipartUpload.txt";
         try (final S3Client s3Client = client()) {
@@ -404,7 +409,8 @@ public class S3ClientTest {
      */
     @Test
     @DisplayName("Test abortMultipartUpload() will correctly abort an existing multipart upload with multiple parts")
-    void testAbortMultipartUploadMultiKeyValue() throws Exception {
+    void testAbortMultipartUploadMultiKeyValue()
+            throws S3ClientException, IOException, GeneralSecurityException, MinioException {
         // Setup
         final String key1 = "testAbortMultipartUploads1.txt";
         final String key2 = "testAbortMultipartUploads2.txt";
@@ -456,7 +462,7 @@ public class S3ClientTest {
      */
     @Test
     @DisplayName("Test fetching a non-existent object")
-    void testFetchNonExistentObject() throws Exception {
+    void testFetchNonExistentObject() throws S3ClientException, IOException {
         try (final S3Client s3Client = client()) {
             assertNull(s3Client.downloadTextFile("non-existent-object.txt"));
         }

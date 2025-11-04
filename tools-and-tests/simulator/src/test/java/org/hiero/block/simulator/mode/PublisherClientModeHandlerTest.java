@@ -16,6 +16,7 @@ import com.swirlds.config.api.Configuration;
 import java.io.IOException;
 import java.util.Map;
 import org.hiero.block.simulator.config.data.BlockStreamConfig;
+import org.hiero.block.simulator.exception.BlockSimulatorParsingException;
 import org.hiero.block.simulator.fixtures.TestUtils;
 import org.hiero.block.simulator.generator.BlockStreamManager;
 import org.hiero.block.simulator.grpc.PublishStreamGrpcClient;
@@ -53,7 +54,8 @@ public class PublisherClientModeHandlerTest {
     }
 
     @Test
-    void testStartWithMillisPerBlockStreaming_WithBlocks() throws Exception {
+    void testStartWithMillisPerBlockStreamingWithBlocks()
+            throws InterruptedException, BlockSimulatorParsingException, IOException {
         blockStreamManager = getTestBlockStreamManager(2);
         publisherClientModeHandler = new PublisherClientModeHandler(
                 blockStreamConfig, publishStreamGrpcClient, blockStreamManager, metricsService);
@@ -71,7 +73,8 @@ public class PublisherClientModeHandlerTest {
     }
 
     @Test
-    void testStartWithMillisPerBlockStreaming_NoBlocks() throws Exception {
+    void testStartWithMillisPerBlockStreamingNoBlocks()
+            throws InterruptedException, BlockSimulatorParsingException, IOException {
         blockStreamManager = getTestBlockStreamManager(0);
         publisherClientModeHandler = new PublisherClientModeHandler(
                 blockStreamConfig, publishStreamGrpcClient, blockStreamManager, metricsService);
@@ -82,7 +85,8 @@ public class PublisherClientModeHandlerTest {
     }
 
     @Test
-    void testStartWithMillisPerBlockStreaming_ShouldPublishFalse() throws Exception {
+    void testStartWithMillisPerBlockStreamingShouldPublishFalse()
+            throws InterruptedException, BlockSimulatorParsingException, IOException {
         blockStreamManager = getTestBlockStreamManager(2);
         publisherClientModeHandler = new PublisherClientModeHandler(
                 blockStreamConfig, publishStreamGrpcClient, blockStreamManager, metricsService);
@@ -96,7 +100,8 @@ public class PublisherClientModeHandlerTest {
     }
 
     @Test
-    void testStartWithMillisPerBlockStreaming_NoBlocksAndShouldPublishFalse() throws Exception {
+    void testStartWithMillisPerBlockStreamingNoBlocksAndShouldPublishFalse()
+            throws InterruptedException, BlockSimulatorParsingException, IOException {
         blockStreamManager = getTestBlockStreamManager(0);
         publisherClientModeHandler = new PublisherClientModeHandler(
                 blockStreamConfig, publishStreamGrpcClient, blockStreamManager, metricsService);
@@ -108,7 +113,8 @@ public class PublisherClientModeHandlerTest {
     }
 
     @Test
-    void testStartWithConstantRateStreaming_WithinMaxItems() throws Exception {
+    void testStartWithConstantRateStreamingWithinMaxItems()
+            throws InterruptedException, BlockSimulatorParsingException, IOException {
         blockStreamManager = getTestBlockStreamManager(2);
         Configuration configuration = TestUtils.getTestConfiguration(Map.of(
                 "blockStream.streamingMode",
@@ -134,7 +140,8 @@ public class PublisherClientModeHandlerTest {
     }
 
     @Test
-    void testStartWithConstantRateStreaming_ExceedingMaxItems() throws Exception {
+    void testStartWithConstantRateStreamingExceedingMaxItems()
+            throws InterruptedException, BlockSimulatorParsingException, IOException {
         blockStreamManager = getTestBlockStreamManager(4);
         Configuration configuration = TestUtils.getTestConfiguration(Map.of(
                 "blockStream.streamingMode",
@@ -163,7 +170,8 @@ public class PublisherClientModeHandlerTest {
     }
 
     @Test
-    void testStartWithConstantRateStreaming_NoBlocks() throws Exception {
+    void testStartWithConstantRateStreamingNoBlocks()
+            throws InterruptedException, BlockSimulatorParsingException, IOException {
         blockStreamManager = getTestBlockStreamManager(0);
         Configuration configuration =
                 TestUtils.getTestConfiguration(Map.of("blockStream.streamingMode", "CONSTANT_RATE"));
@@ -177,7 +185,8 @@ public class PublisherClientModeHandlerTest {
     }
 
     @Test
-    void testStartWithExceptionDuringStreaming() throws Exception {
+    void testStartWithExceptionDuringStreaming()
+            throws InterruptedException, BlockSimulatorParsingException, IOException {
         blockStreamManager = mock(BlockStreamManager.class);
         publisherClientModeHandler = new PublisherClientModeHandler(
                 blockStreamConfig, publishStreamGrpcClient, blockStreamManager, metricsService);
@@ -192,7 +201,8 @@ public class PublisherClientModeHandlerTest {
     }
 
     @Test
-    void testMillisPerBlockStreaming_streamSuccessBecomesFalse() throws Exception {
+    void testMillisPerBlockStreamingStreamSuccessBecomesFalse()
+            throws InterruptedException, BlockSimulatorParsingException, IOException {
         blockStreamManager = getTestBlockStreamManager(2);
         publisherClientModeHandler = new PublisherClientModeHandler(
                 blockStreamConfig, publishStreamGrpcClient, blockStreamManager, metricsService);
@@ -210,7 +220,8 @@ public class PublisherClientModeHandlerTest {
     }
 
     @Test
-    void testConstantRateStreaming_streamSuccessBecomesFalse() throws Exception {
+    void testConstantRateStreamingStreamSuccessBecomesFalse()
+            throws InterruptedException, BlockSimulatorParsingException, IOException {
         blockStreamManager = getTestBlockStreamManager(2);
         Configuration configuration = TestUtils.getTestConfiguration(Map.of(
                 "blockStream.streamingMode",

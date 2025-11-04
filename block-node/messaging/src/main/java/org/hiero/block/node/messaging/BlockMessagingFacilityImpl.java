@@ -688,9 +688,8 @@ public class BlockMessagingFacilityImpl implements BlockMessagingFacility {
          * @param sequence   of the event being processed
          * @param endOfBatch flag to indicate if this is the last event in a batch from the {@link RingBuffer}
          * @param percentageBehindRingHead percentage 0.0 to 100.0 behind the ring head this handler is
-         * @throws Exception if the EventHandler would like the exception handled further up the chain.
          */
-        void onEvent(T event, long sequence, boolean endOfBatch, double percentageBehindRingHead) throws Exception;
+        void onEvent(T event, long sequence, boolean endOfBatch, double percentageBehindRingHead);
     }
 
     /**
