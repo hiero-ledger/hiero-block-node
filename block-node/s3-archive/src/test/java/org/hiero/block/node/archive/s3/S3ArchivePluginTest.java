@@ -1,17 +1,22 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.node.archive.s3;
 
+import static java.util.concurrent.locks.LockSupport.parkNanos;
 import static org.hiero.block.node.app.fixtures.blocks.SimpleTestBlockItemBuilder.createNumberOfVerySimpleBlocksUnparsed;
 import static org.hiero.block.node.archive.s3.S3ArchivePlugin.LATEST_ARCHIVED_BLOCK_FILE;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import io.minio.BucketExistsArgs;
 import io.minio.DownloadObjectArgs;
 import io.minio.GetObjectArgs;
 import io.minio.ListObjectsArgs;
 import io.minio.MakeBucketArgs;
 import io.minio.MinioClient;
+import io.minio.RemoveBucketArgs;
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStreamReader;
@@ -26,38 +31,43 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 import java.util.stream.StreamSupport;
 import org.hiero.block.internal.BlockItemUnparsed;
-import org.hiero.block.node.app.fixtures.async.BlockingExecutor;
 import org.hiero.block.node.app.fixtures.plugintest.PluginTestBase;
 import org.hiero.block.node.app.fixtures.plugintest.SimpleInMemoryHistoricalBlockFacility;
 import org.hiero.block.node.spi.blockmessaging.BlockItems;
+import org.hiero.block.node.spi.blockmessaging.BlockSource;
+import org.hiero.block.node.spi.blockmessaging.PersistedNotification;
 import org.hiero.block.node.spi.historicalblocks.BlockAccessor.Format;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.Timeout;
 import org.junit.jupiter.api.io.TempDir;
 import org.testcontainers.containers.GenericContainer;
 
 /**
  * Unit tests for the {@link S3ArchivePlugin} class.
  */
+@Timeout(value = 5, unit = TimeUnit.SECONDS)
 @SuppressWarnings("SameParameterValue")
-class S3ArchivePluginTest extends PluginTestBase<S3ArchivePlugin, BlockingExecutor> {
+class S3ArchivePluginTest extends PluginTestBase<S3ArchivePlugin, ExecutorService> {
     private static final Instant START_TIME =
             ZonedDateTime.of(2025, 1, 1, 0, 0, 0, 0, ZoneOffset.UTC).toInstant();
     private static final String BUCKET_NAME = "test-bucket";
     private static final int MINIO_ROOT_PORT = 9000;
     private static final String MINIO_ROOT_USER = "minioadmin";
     private static final String MINIO_ROOT_PASSWORD = "minioadmin";
-    public static final Duration ONE_DAY = Duration.of(1, ChronoUnit.DAYS);
+    private static final Duration ONE_DAY = Duration.of(1, ChronoUnit.DAYS);
+    private static final long TASK_AWAIT_NANOS = 500_000_000L;
     private final MinioClient minioClient;
-    private final BlockingExecutor pluginExecutor;
 
     @SuppressWarnings("resource")
     public S3ArchivePluginTest() throws Exception {
-        super(new BlockingExecutor(new LinkedBlockingQueue<>()));
+        super(Executors.newSingleThreadExecutor());
         // Start MinIO container
         GenericContainer<?> minioContainer = new GenericContainer<>("minio/minio:latest")
                 .withCommand("server /data")
@@ -72,7 +82,7 @@ class S3ArchivePluginTest extends PluginTestBase<S3ArchivePlugin, BlockingExecut
                 .credentials(MINIO_ROOT_USER, MINIO_ROOT_PASSWORD)
                 .build();
         // Create a bucket
-        minioClient.makeBucket(MakeBucketArgs.builder().bucket(BUCKET_NAME).build());
+        createTestBucket();
         // Initialize the plugin and set any required configuration
         start(
                 new S3ArchivePlugin(),
@@ -83,7 +93,6 @@ class S3ArchivePluginTest extends PluginTestBase<S3ArchivePlugin, BlockingExecut
                         "archive.bucketName", BUCKET_NAME,
                         "archive.accessKey", MINIO_ROOT_USER,
                         "archive.secretKey", MINIO_ROOT_PASSWORD));
-        pluginExecutor = testThreadPoolManager.executor();
     }
 
     @Test
@@ -91,8 +100,11 @@ class S3ArchivePluginTest extends PluginTestBase<S3ArchivePlugin, BlockingExecut
     void startWithSingleBatch(@TempDir Path tempDir) throws Exception {
         // create 10 sample blocks, this should trigger the plugin to archive them
         sendBlocks(START_TIME, 0, 9);
-        // execute archive task
-        pluginExecutor.executeSerially();
+        // await archive task to complete
+        parkNanos(TASK_AWAIT_NANOS);
+        // send another persisted notification to trigger the executor service
+        // cleanup and ensure the task ran
+        plugin.handlePersisted(new PersistedNotification(0L, true, 0, BlockSource.UNKNOWN));
         // read the lastest block file and check its content
         assertEquals("9", getLastArchivedBlockFile());
         // check that the plugin has archived the blocks
@@ -151,10 +163,13 @@ class S3ArchivePluginTest extends PluginTestBase<S3ArchivePlugin, BlockingExecut
     @Test
     @DisplayName("ArchivePlugin should upload multiple tar files for multiple batches of blocks")
     void doTenBatches() {
-        // create 10 sample blocks, this should trigger the plugin to archive them
+        // create 100 sample blocks, this should trigger the plugin to archive them
         sendBlocks(START_TIME, 0, 99);
-        // execute archive task
-        pluginExecutor.executeSerially();
+        // await archive task to complete
+        parkNanos(TASK_AWAIT_NANOS * 2);
+        // send another persisted notification to trigger the executor service
+        // cleanup and ensure the task ran
+        plugin.handlePersisted(new PersistedNotification(0L, true, 0, BlockSource.UNKNOWN));
         // read the lastest block file and check its content
         assertEquals("99", getLastArchivedBlockFile());
         // check that the plugin has archived the blocks
@@ -180,6 +195,38 @@ class S3ArchivePluginTest extends PluginTestBase<S3ArchivePlugin, BlockingExecut
                 allObjects.contains("blocks/2025/03/2025-03-22_00-00-00_0000000000000000080-0000000000000000089.tar"));
         assertTrue(
                 allObjects.contains("blocks/2025/04/2025-04-01_00-00-00_0000000000000000090-0000000000000000099.tar"));
+    }
+
+    @Test
+    @DisplayName("ArchivePlugin fails to upload a batch does not throw")
+    void testFailUpload() throws Exception {
+        assertDoesNotThrow(() -> {
+            // remove the bucket to produce an exceptional result
+            removeTestBucket();
+            // create 10 sample blocks, this should trigger the plugin to archive them
+            sendBlocks(START_TIME, 0, 9);
+            // await archive task to complete
+            parkNanos(TASK_AWAIT_NANOS);
+            // send another persisted notification to trigger the executor service
+            // cleanup and ensure the task ran
+            plugin.handlePersisted(new PersistedNotification(0L, true, 0, BlockSource.UNKNOWN));
+            assertFalse(testBucketExists());
+        });
+    }
+
+    private void createTestBucket() throws Exception {
+        minioClient.makeBucket(MakeBucketArgs.builder().bucket(BUCKET_NAME).build());
+        assertTrue(testBucketExists());
+    }
+
+    private void removeTestBucket() throws Exception {
+        minioClient.removeBucket(RemoveBucketArgs.builder().bucket(BUCKET_NAME).build());
+        assertFalse(testBucketExists());
+    }
+
+    private boolean testBucketExists() throws Exception {
+        return minioClient.bucketExists(
+                BucketExistsArgs.builder().bucket(BUCKET_NAME).build());
     }
 
     /**

@@ -18,6 +18,7 @@ module org.hiero.block.node.archive.s3cloud {
     requires org.hiero.block.node.base;
     requires org.hiero.block.protobuf.pbj;
     requires com.github.spotbugs.annotations;
+    requires java.logging;
     requires java.management;
     requires java.net.http;
     requires java.xml;
