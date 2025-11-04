@@ -984,4 +984,58 @@ class BlockFileHistoricPluginTest {
             }
         }
     }
+
+    /**
+     * Regression tests.
+     */
+    @Nested
+    @DisplayName("Regression Tests")
+    final class RegressionTests extends PluginTestBase<BlockFileHistoricPlugin, BlockingExecutor> {
+        /** The test historical block facility scoped to this regression scenario. */
+        private final SimpleInMemoryHistoricalBlockFacility regressionHistoricalBlockFacility =
+                new SimpleInMemoryHistoricalBlockFacility();
+
+        RegressionTests() {
+            super(new BlockingExecutor(new LinkedBlockingQueue<>()));
+        }
+
+        private Map<String, String> buildConfigOverrides(final FilesHistoricConfig config) {
+            final Entry<String, String> rootPath =
+                    Map.entry("files.historic.rootPath", config.rootPath().toString());
+            final Entry<String, String> compression =
+                    Map.entry("files.historic.compression", config.compression().name());
+            final Entry<String, String> powersOfTenPerZipFileContents = Map.entry(
+                    "files.historic.powersOfTenPerZipFileContents",
+                    String.valueOf(config.powersOfTenPerZipFileContents()));
+            final Entry<String, String> blockRetentionThreshold = Map.entry(
+                    "files.historic.blockRetentionThreshold", String.valueOf(config.blockRetentionThreshold()));
+            return Map.ofEntries(rootPath, compression, powersOfTenPerZipFileContents, blockRetentionThreshold);
+        }
+
+        @Test
+        @DisplayName("init quarantines corrupted zip file without shutting down")
+        void initDeletesCorruptedZipWithoutShutdown() throws IOException {
+            final Path corruptedRoot = testTempDir.resolve("corrupted-zip-root");
+            testConfig = new FilesHistoricConfig(corruptedRoot, CompressionType.NONE, 1, 10L);
+
+            final BlockPath corruptedZipLocation = BlockPath.computeBlockPath(testConfig, 0L);
+            Files.createDirectories(corruptedZipLocation.dirPath());
+            // Intentionally write non-zip data so opening it as a FileSystem fails.
+            Files.writeString(corruptedZipLocation.zipFilePath(), "this-is-not-a-valid-zip");
+
+            final BlockFileHistoricPlugin pluginUnderTest = new BlockFileHistoricPlugin();
+            start(pluginUnderTest, regressionHistoricalBlockFacility, buildConfigOverrides(testConfig));
+
+            final TestHealthFacility healthFacility = (TestHealthFacility) blockNodeContext.serverHealth();
+            assertThat(healthFacility.shutdownCalled.get()).isFalse();
+            assertThat(Files.exists(corruptedZipLocation.zipFilePath())).isFalse();
+            final Path quarantinedZip = corruptedZipLocation
+                    .zipFilePath()
+                    .getParent()
+                    .resolve("corrupted")
+                    .resolve(corruptedZipLocation.zipFilePath().getFileName());
+            assertThat(Files.exists(quarantinedZip)).isTrue();
+            assertThat(pluginUnderTest.availableBlocks().size()).isZero();
+        }
+    }
 }

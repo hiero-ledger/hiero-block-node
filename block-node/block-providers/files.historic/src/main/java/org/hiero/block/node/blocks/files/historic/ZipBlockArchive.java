@@ -2,6 +2,7 @@
 package org.hiero.block.node.blocks.files.historic;
 
 import static java.lang.System.Logger.Level.ERROR;
+import static java.lang.System.Logger.Level.INFO;
 import static java.lang.System.Logger.Level.WARNING;
 import static org.hiero.block.node.base.BlockFile.blockNumberFromFile;
 import static org.hiero.block.node.blocks.files.historic.BlockPath.computeBlockPath;
@@ -16,7 +17,9 @@ import java.nio.file.FileSystem;
 import java.nio.file.FileSystems;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
+import java.text.MessageFormat;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Objects;
@@ -25,6 +28,7 @@ import java.util.stream.Stream;
 import java.util.zip.CRC32;
 import java.util.zip.Deflater;
 import java.util.zip.ZipEntry;
+import java.util.zip.ZipException;
 import java.util.zip.ZipOutputStream;
 import org.hiero.block.node.base.BlockFile;
 import org.hiero.block.node.spi.BlockNodeContext;
@@ -143,7 +147,7 @@ class ZipBlockArchive {
                 List<Path> childFiles = childFilesStream.toList();
                 // check if we are a directory of directories
                 final Optional<Path> min = childFiles.stream()
-                        .filter(Files::isDirectory)
+                        .filter(this::isNumericDirectory)
                         .min(Comparator.comparingLong(
                                 path -> Long.parseLong(path.getFileName().toString())));
                 if (min.isPresent()) {
@@ -158,11 +162,17 @@ class ZipBlockArchive {
                                 return Long.parseLong(fileName.substring(0, fileName.indexOf('s')));
                             }));
                     if (zipFilePath.isPresent()) {
-                        try (final FileSystem zipFs = FileSystems.newFileSystem(zipFilePath.get());
+                        final Path candidateZip = zipFilePath.get();
+                        try (final FileSystem zipFs = FileSystems.newFileSystem(candidateZip);
                                 final Stream<Path> entries = Files.list(zipFs.getPath("/"))) {
                             return entries.mapToLong(entry -> blockNumberFromFile(entry.getFileName()))
                                     .min()
                                     .orElse(-1);
+                        } catch (final ZipException zipException) {
+                            if (handleCorruptedZipFile(candidateZip, zipException)) {
+                                continue;
+                            }
+                            return -1;
                         }
                     } else {
                         // no zip files found in min directory
@@ -195,7 +205,7 @@ class ZipBlockArchive {
                 List<Path> childFiles = childFilesStream.toList();
                 // check if we are a directory of directories
                 final Optional<Path> max = childFiles.stream()
-                        .filter(Files::isDirectory)
+                        .filter(this::isNumericDirectory)
                         .max(Comparator.comparingLong(
                                 path -> Long.parseLong(path.getFileName().toString())));
                 if (max.isPresent()) {
@@ -210,11 +220,17 @@ class ZipBlockArchive {
                                 return Long.parseLong(fileName.substring(0, fileName.indexOf('s')));
                             }));
                     if (zipFilePath.isPresent()) {
-                        try (final FileSystem zipFs = FileSystems.newFileSystem(zipFilePath.get());
+                        final Path candidateZip = zipFilePath.get();
+                        try (final FileSystem zipFs = FileSystems.newFileSystem(candidateZip);
                                 final Stream<Path> entries = Files.list(zipFs.getPath("/"))) {
                             return entries.mapToLong(entry -> blockNumberFromFile(entry.getFileName()))
                                     .max()
                                     .orElse(-1);
+                        } catch (final ZipException zipException) {
+                            if (handleCorruptedZipFile(candidateZip, zipException)) {
+                                continue;
+                            }
+                            return -1;
                         }
                     } else {
                         // no zip files found in max directory
@@ -231,6 +247,57 @@ class ZipBlockArchive {
             }
         }
         return -1;
+    }
+
+    /**
+     * Attempt to quarantine a corrupted zip file and decide whether processing can continue.
+     *
+     * @param corruptedZip the path to the corrupted zip file
+     * @param cause the {@link ZipException} that was thrown when attempting to read the file
+     * @return {@code true} if the file was successfully moved out of the active path, {@code false} otherwise
+     */
+    private boolean handleCorruptedZipFile(final Path corruptedZip, final ZipException cause) {
+        LOGGER.log(
+                WARNING,
+                "Detected corrupted zip file: {0}, attempting self-healing move",
+                corruptedZip,
+                cause);
+        try {
+            final Path quarantineDir = corruptedZip.getParent().resolve("corrupted");
+            Files.createDirectories(quarantineDir);
+            final Path quarantinedZip = quarantineDir.resolve(corruptedZip.getFileName());
+            Files.move(corruptedZip, quarantinedZip, StandardCopyOption.REPLACE_EXISTING);
+            LOGGER.log(INFO, "Moved corrupted zip file to quarantine: {0} -> {1}", corruptedZip, quarantinedZip);
+            return true;
+        } catch (final IOException deletionException) {
+            LOGGER.log(
+                    ERROR,
+                    MessageFormat.format("Failed to move corrupted zip file: {0}", corruptedZip),
+                    deletionException);
+            context.serverHealth()
+                    .shutdown(
+                            ZipBlockArchive.class.getName(),
+                            "Unable to move corrupted zip file: "
+                                    + corruptedZip
+                                    + " because "
+                                    + deletionException.getMessage());
+            return false;
+        }
+    }
+
+    /**
+     * Checks whether the provided path represents a directory that follows the numeric naming scheme used for block
+     * hierarchies.
+     *
+     * @param candidate the path to inspect
+     * @return {@code true} if the directory name is purely numeric, {@code false} otherwise
+     */
+    private boolean isNumericDirectory(final Path candidate) {
+        if (!Files.isDirectory(candidate)) {
+            return false;
+        }
+        final String name = candidate.getFileName().toString();
+        return !name.isEmpty() && name.chars().allMatch(Character::isDigit);
     }
 
     /**
