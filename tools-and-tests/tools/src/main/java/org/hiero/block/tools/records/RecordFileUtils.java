@@ -117,11 +117,27 @@ public class RecordFileUtils {
     }
 
     /**
-     * Find the most common of each Sidecar index in the given list of files of the given type. Sidecar files are named
-     * like "2023-04-25T17_48_38.002085562Z_01.rcd.gz" where the index is the number after the "Z_" and before the ".rcd".
+     * Find the most common of each Sidecar index in the given list of files of the given type.
+     * Sidecar files are named like "2023-04-25T17_48_38.002085562Z_01.rcd.gz" where the index is the
+     * number after the "Z_" and before the ".rcd". Sidecar indexes are assumed to be sequential starting from 1.
+     *
+     * <p>The method returns a zero-based array where element 0 corresponds to the most common sidecar for
+     * sidecar index 1, element 1 corresponds to sidecar index 2, and so on. The array length equals the maximum
+     * sidecar index found among the provided files. If no sidecar files are found, an empty array is returned.
+     *
+     * <p>"Most common" is determined by counting occurrences of files (by ListingRecordFile equality) for each
+     * index and selecting the one with the largest count. In case of a tie, the file with the lowest MD5 hex
+     * string (lexicographically) is selected.
+     *
+     * <p>If there are missing indexes between 1 and the maximum index, the method will throw an
+     * {@link IllegalArgumentException} listing the missing and found indexes. The rationale is that sidecar
+     * indexes must start at 1 and be contiguous up to the maximum; gaps typically indicate incomplete or
+     * inconsistent listings and should be handled by the caller.
      *
      * @param files the list of RecordFile objects to search
-     * @return the array of the most common sidecar RecordFiles one of each index, or empty list if none found
+     * @return a zero-based array of the most common sidecar RecordFiles, where index 0 is for sidecar 1; empty
+     *         array if none found
+     * @throws IllegalArgumentException if a sidecar file name cannot be parsed or if there are missing indexes
      */
     public static ListingRecordFile[] findMostCommonSidecars(List<ListingRecordFile> files) {
         // find all sidecar indexes
@@ -144,13 +160,32 @@ public class RecordFileUtils {
                 throw new IllegalArgumentException("Invalid sidecar file name: " + fileName, e);
             }
         }
-        // create result array
-        final ListingRecordFile[] result = new ListingRecordFile[sidecarsByIndex.size()];
-        // for each index, find the most common sidecar
+        if (sidecarsByIndex.isEmpty()) {
+            return new ListingRecordFile[0];
+        }
+        // Determine the maximum index so we can create a zero-based array where index N maps to array[N-1]
+        int maxIndex = sidecarsByIndex.keySet().stream().mapToInt(Integer::intValue).max().orElse(0);
+        // If there are missing indexes between 1 and maxIndex, that's an unexpected gap; fail fast with helpful message
+        final List<Integer> missingIndexes = new java.util.ArrayList<>();
+        for (int i = 1; i <= maxIndex; i++) {
+            if (!sidecarsByIndex.containsKey(i)) {
+                missingIndexes.add(i);
+            }
+        }
+        if (!missingIndexes.isEmpty()) {
+            throw new IllegalArgumentException(
+                    "Missing sidecar indexes " + missingIndexes + "; found indexes " + sidecarsByIndex.keySet()
+                            + ". Sidecar indexes must start at 1 and be contiguous up to the maximum index.");
+        }
+        final ListingRecordFile[] result = new ListingRecordFile[maxIndex];
+        // for each index, find the most common sidecar and place it at position (index - 1)
         for (Map.Entry<Integer, List<ListingRecordFile>> entry : sidecarsByIndex.entrySet()) {
             int idx = entry.getKey();
             List<ListingRecordFile> sidecars = entry.getValue();
-            result[idx] = findMostCommonByType(sidecars, ListingRecordFile.Type.RECORD_SIDECAR);
+            ListingRecordFile mostCommon = findMostCommonByType(sidecars, ListingRecordFile.Type.RECORD_SIDECAR);
+            if (mostCommon != null) {
+                result[idx - 1] = mostCommon;
+            }
         }
         return result;
     }
