@@ -1029,11 +1029,9 @@ class BlockFileHistoricPluginTest {
             final TestHealthFacility healthFacility = (TestHealthFacility) blockNodeContext.serverHealth();
             assertThat(healthFacility.shutdownCalled.get()).isFalse();
             assertThat(Files.exists(corruptedZipLocation.zipFilePath())).isFalse();
-            final Path quarantinedZip = corruptedZipLocation
-                    .zipFilePath()
-                    .getParent()
+            final Path quarantinedZip = corruptedRoot
                     .resolve("corrupted")
-                    .resolve(corruptedZipLocation.zipFilePath().getFileName());
+                    .resolve(corruptedRoot.relativize(corruptedZipLocation.zipFilePath()));
             assertThat(Files.exists(quarantinedZip)).isTrue();
             assertThat(pluginUnderTest.availableBlocks().size()).isZero();
         }

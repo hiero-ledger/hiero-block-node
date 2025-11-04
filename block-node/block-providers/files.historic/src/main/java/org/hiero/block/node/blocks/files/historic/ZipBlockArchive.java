@@ -181,10 +181,11 @@ class ZipBlockArchive {
                 }
             } catch (final Exception e) {
                 LOGGER.log(ERROR, "Error reading directory: " + lowestPath, e);
-                context.serverHealth()
-                        .shutdown(
-                                ZipBlockArchive.class.getName(),
-                                "Error reading directory: " + lowestPath + " because " + e.getMessage());
+
+                final String shutdownMessage =
+                        MessageFormat.format("Error reading directory: {0} because {1}", lowestPath, e.getMessage());
+
+                context.serverHealth().shutdown(ZipBlockArchive.class.getName(), shutdownMessage);
                 lowestPath = null;
             }
         }
@@ -238,11 +239,12 @@ class ZipBlockArchive {
                     }
                 }
             } catch (final Exception e) {
-                LOGGER.log(ERROR, "Error reading directory: " + highestPath, e);
-                context.serverHealth()
-                        .shutdown(
-                                ZipBlockArchive.class.getName(),
-                                "Error reading directory: " + highestPath + " because " + e.getMessage());
+                LOGGER.log(ERROR, "Error reading directory: %s".formatted(highestPath), e);
+
+                final String shutdownMessage =
+                        MessageFormat.format("Error reading directory: {0} because {1}", highestPath, e.getMessage());
+
+                context.serverHealth().shutdown(ZipBlockArchive.class.getName(), shutdownMessage);
                 highestPath = null;
             }
         }
@@ -257,19 +259,18 @@ class ZipBlockArchive {
      * @return {@code true} if the file was successfully moved out of the active path, {@code false} otherwise
      */
     private boolean handleCorruptedZipFile(final Path corruptedZip, final ZipException cause) {
-        LOGGER.log(WARNING, "Detected corrupted zip file: {0}, attempting self-healing move", corruptedZip, cause);
+        final String warningMessage =
+                MessageFormat.format("Detected corrupted zip file: {0}, attempting self-healing move", corruptedZip);
+        LOGGER.log(WARNING, warningMessage, cause);
         try {
-            final Path quarantineDir = corruptedZip.getParent().resolve("corrupted");
-            Files.createDirectories(quarantineDir);
-            final Path quarantinedZip = quarantineDir.resolve(corruptedZip.getFileName());
+            final Path relativeZipPath = config.rootPath().relativize(corruptedZip);
+            final Path quarantinedZip = config.rootPath().resolve("corrupted").resolve(relativeZipPath);
+            Files.createDirectories(quarantinedZip.getParent());
             Files.move(corruptedZip, quarantinedZip, StandardCopyOption.REPLACE_EXISTING);
             LOGGER.log(INFO, "Moved corrupted zip file to quarantine: {0} -> {1}", corruptedZip, quarantinedZip);
             return true;
         } catch (final IOException deletionException) {
-            LOGGER.log(
-                    ERROR,
-                    MessageFormat.format("Failed to move corrupted zip file: {0}", corruptedZip),
-                    deletionException);
+            LOGGER.log(ERROR, "Failed to move corrupted zip file: %s".formatted(corruptedZip), deletionException);
             context.serverHealth()
                     .shutdown(
                             ZipBlockArchive.class.getName(),
