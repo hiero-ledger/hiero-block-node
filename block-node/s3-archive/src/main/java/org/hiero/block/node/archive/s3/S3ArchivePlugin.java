@@ -255,7 +255,7 @@ public class S3ArchivePlugin implements BlockNodePlugin, BlockNotificationHandle
         private static final String END_UPLOAD_MESSAGE = "Finished uploading archive block batch: {0} - {1}";
 
         @Override
-        public Void call() throws Exception {
+        public Void call() throws S3ClientInitializationException, S3ResponseException, IOException {
             // Check the nextBatchStartBlockNumber is less than lastArchivedBlockNumber, ie is this a duplicate
             // batch and
             // already been archived. That can happen as the archive job has not been completed for a batch and
@@ -266,16 +266,23 @@ public class S3ArchivePlugin implements BlockNodePlugin, BlockNotificationHandle
                 LOGGER.log(DEBUG, START_UPLOAD_MESSAGE, nextBatchStartBlockNumber, nextBatchEndBlockNumber);
                 try (final S3Client s3Client = createClient(archiveConfig)) {
                     // fetch the blocks from the persistence plugins and archive
-                    uploadBlocksTar(s3Client, nextBatchStartBlockNumber, nextBatchEndBlockNumber);
-                    // write the latest archived block number to the archive
-                    s3Client.uploadTextFile(
-                            LATEST_ARCHIVED_BLOCK_FILE,
-                            LATEST_FILE_STORAGE_CLASS,
-                            String.valueOf(nextBatchEndBlockNumber));
-                    // update the last archived block number
-                    lastArchivedBlockNumber.set(nextBatchEndBlockNumber);
-                    // log completed
-                    LOGGER.log(DEBUG, END_UPLOAD_MESSAGE, nextBatchStartBlockNumber, nextBatchEndBlockNumber);
+                    if (uploadBlocksTar(s3Client, nextBatchStartBlockNumber, nextBatchEndBlockNumber)) {
+                        // write the latest archived block number to the archive
+                        s3Client.uploadTextFile(
+                                LATEST_ARCHIVED_BLOCK_FILE,
+                                LATEST_FILE_STORAGE_CLASS,
+                                String.valueOf(nextBatchEndBlockNumber));
+                        // update the last archived block number
+                        lastArchivedBlockNumber.set(nextBatchEndBlockNumber);
+                        // log completed
+                        LOGGER.log(DEBUG, END_UPLOAD_MESSAGE, nextBatchStartBlockNumber, nextBatchEndBlockNumber);
+                    } else {
+                        LOGGER.log(
+                                INFO,
+                                "Could not upload archive block batch: {0} - {1}",
+                                nextBatchStartBlockNumber,
+                                nextBatchEndBlockNumber);
+                    }
                 }
             }
             return null;
@@ -291,9 +298,10 @@ public class S3ArchivePlugin implements BlockNodePlugin, BlockNotificationHandle
          * @param s3Client the S3 client to use for uploading the blocks
          * @param startBlockNumber the first block number to upload
          * @param endBlockNumber the last block number to upload, inclusive
+         * @return true if the upload was successful, false otherwise
          */
-        private void uploadBlocksTar(final S3Client s3Client, final long startBlockNumber, final long endBlockNumber)
-                throws IllegalStateException, S3ResponseException, IOException {
+        private boolean uploadBlocksTar(final S3Client s3Client, final long startBlockNumber, final long endBlockNumber)
+                throws S3ResponseException, IOException {
             // The HTTP client needs an Iterable of byte arrays, so create one from the blocks
             final List<BlockAccessor> accessors = new ArrayList<>();
             for (long i = startBlockNumber; i <= endBlockNumber; i++) {
@@ -302,15 +310,14 @@ public class S3ArchivePlugin implements BlockNodePlugin, BlockNotificationHandle
                     accessors.add(accessor);
                 } else {
                     LOGGER.log(WARNING, GAP_FOUND_MESSAGE, i, startBlockNumber, endBlockNumber);
-                    return;
+                    return false;
                 }
             }
             final Iterator<BlockAccessor> blocksIterator = accessors.iterator();
             final Iterator<byte[]> tarBlocks = new TaredBlockIterator(Format.ZSTD_PROTOBUF, blocksIterator);
             // fetch the first blocks consensus time so that we can place the file in a directory based on year and
             // month
-            final BlockUnparsed firstBlock =
-                    context.historicalBlockProvider().block(startBlockNumber).blockUnparsed();
+            final BlockUnparsed firstBlock = accessors.getFirst().blockUnparsed();
             final ZonedDateTime firstBlockConsensusTime;
             try {
                 final Bytes headerBytes = firstBlock.blockItems().getFirst().blockHeader();
@@ -340,6 +347,7 @@ public class S3ArchivePlugin implements BlockNodePlugin, BlockNotificationHandle
                     .formatted(basePath, yearMonthDate, filePrefix, startBlockNumberFormatted, endBlockNumberFormatted);
             // Upload the blocks to S3
             s3Client.uploadFile(objectKey, archiveConfig.storageClass(), tarBlocks, "application/x-tar");
+            return true;
         }
     }
 }

@@ -141,11 +141,9 @@ public final class S3Client implements AutoCloseable {
 
     /**
      * Closes the HTTP client.
-     *
-     * @throws Exception if an error occurs while closing the client
      */
     @Override
-    public void close() throws Exception {
+    public void close() {
         this.httpClient.close();
     }
 
@@ -595,7 +593,8 @@ public final class S3Client implements AutoCloseable {
                 case PUT -> requestBuilder.PUT(HttpRequest.BodyPublishers.ofByteArray(requestBody));
                 case GET -> requestBuilder.GET();
                 case DELETE -> requestBuilder.DELETE();
-                default -> throw new IllegalArgumentException("Unsupported HTTP method: " + httpMethod);};
+                default -> throw new IllegalArgumentException("Unsupported HTTP method: " + httpMethod);
+            };
             requestBuilder = requestBuilder.headers(localHeaders.entrySet().stream()
                     .flatMap(entry -> Stream.of(entry.getKey(), entry.getValue()))
                     .toArray(String[]::new));
