@@ -29,6 +29,7 @@ import java.util.Optional;
 import java.util.concurrent.CountDownLatch;
 import java.util.function.Function;
 import org.hiero.block.api.BlockAccessServiceInterface;
+import org.hiero.block.api.BlockEnd;
 import org.hiero.block.api.BlockItemSet;
 import org.hiero.block.api.BlockNodeServiceInterface;
 import org.hiero.block.api.BlockRequest;
@@ -226,6 +227,7 @@ public class BlockNodeAPITests {
                 .build();
         CountDownLatch publishCountDownLatch = responseObserver.setAndGetOnNextLatch(1);
         requestStream.onNext(request);
+        endBlock(blockNumber, requestStream);
 
         publishCountDownLatch.await(); // wait for acknowledgement response
         assertThat(responseObserver.getOnNextCalls())
@@ -243,10 +245,11 @@ public class BlockNodeAPITests {
         // ==== Scenario 2: Publish duplicate genesis block and confirm duplicate block response and stream closure ===
         CountDownLatch publishCompleteCountDownLatch = responseObserver.setAndGetOnCompleteLatch(1);
         requestStream.onNext(request);
+        endBlock(blockNumber, requestStream);
 
         publishCompleteCountDownLatch.await(); // wait for onComplete caused by duplicate response
 
-        // Assert that no responses have been sent.
+        // Assert that one more response is sent.
         assertThat(responseObserver.getOnNextCalls())
                 .hasSize(2)
                 .element(1)
@@ -294,7 +297,8 @@ public class BlockNodeAPITests {
         blockStreamSubscribeServiceClient.subscribeBlockStream(subscribeRequest1, subscribeResponseObserver);
 
         blockItemsSubscribe1Latch.await();
-        assertThat(subscribeResponseObserver.getOnNextCalls()).hasSize(2); // block items & success status
+        // block items, end block, and success status
+        assertThat(subscribeResponseObserver.getOnNextCalls()).hasSize(3);
         assertThat(subscribeResponseObserver.getOnCompleteCalls().get()).isEqualTo(1);
 
         final SubscribeStreamResponse subscribeResponse0 =
@@ -331,6 +335,7 @@ public class BlockNodeAPITests {
                 blockStreamPublishServiceClient.publishBlockStream(responseObserver2);
         final CountDownLatch blockItemsPublish2Latch = responseObserver2.setAndGetOnNextLatch(1);
         requestStream2.onNext(request2);
+        endBlock(blockNumber1, requestStream2);
 
         blockItemsSubscribe2Latch.await(); // wait for subscriber to receive unverified block items
         blockItemsPublish2Latch.await(); // wait for publisher to observe block item sets
@@ -348,12 +353,12 @@ public class BlockNodeAPITests {
         assertThat(responseObserver2.getClientEndStreamCalls().get()).isEqualTo(0);
 
         final SubscribeStreamResponse subscribeResponse1 =
-                subscribeResponseObserver.getOnNextCalls().get(2);
+                subscribeResponseObserver.getOnNextCalls().get(3);
         assertThat(subscribeResponse1.blockItems().blockItems()).hasSize(blockItems1.length);
 
         assertThat(subscribeResponseObserver.getOnNextCalls())
-                .hasSize(3) // block 0 items, success status and block 1 items
-                .element(2)
+                .hasSize(5) // block 0 items, end block 0, success status, block 1 items, and end block 1
+                .element(3)
                 .satisfies(response -> {
                     assertThat(response.blockItems().blockItems()).hasSize(blockItems1.length);
                     assertThat(response.blockItems()
@@ -369,6 +374,13 @@ public class BlockNodeAPITests {
         blockStreamSubscribeServiceClient.close();
         blockAccessServiceClient.close();
         blockNodeServiceClient.close();
+    }
+
+    private void endBlock(final long blockNumber, final Pipeline<? super PublishStreamRequest> requestStream) {
+        PublishStreamRequest request = PublishStreamRequest.newBuilder()
+                .endOfBlock(BlockEnd.newBuilder().blockNumber(blockNumber).build())
+                .build();
+        requestStream.onNext(request);
     }
 
     @Test
