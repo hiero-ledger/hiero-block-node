@@ -1,0 +1,63 @@
+$schema: "https://json-schema.org/draft/2020-12/schema"
+$title: "Network Topology Schema"
+$type: object
+$defs:
+    nodeRef:
+        type: string
+        description: "Reference to a node by its identifier"
+    address:
+        type: string
+        description: "Resolvable hostname or IP address of the node"
+        examples: ["localhost", "bn1.example.com"]
+    port:
+        type: integer
+        description: "TCP port the node listens on"
+        minimum: 1
+        maximum: 65535
+
+properties:
+    block_nodes:
+        type: object
+        description: "All Block Nodes (BN) available in the network"
+        patternProperties:
+            "^[a-zA-Z0-9_-]+$":
+                type: object
+                required: ["address", "port"]
+                properties:
+                    address:
+                        $ref: "#/$defs/address"
+                    port:
+                        $ref: "#/$defs/port"
+                    priority:
+                        type: integer
+                        description: "Optional connection priority"
+                        minimum: 1
+                    peers:
+                        type: array
+                        description: "List of other block-nodes this BN connects to"
+                        items:
+                            $ref: "#/$defs/nodeRef"
+                        uniqueItems: true
+                additionalProperties: false
+        additionalProperties: false
+
+    consensus_nodes:
+        type: object
+        description: "Consensus Nodes (CN) that connect to one or more Block Nodes"
+        patternProperties:
+            "^[a-zA-Z0-9_-]+$":
+                type: object
+                required: ["block_nodes"]
+                properties:
+                    block_nodes:
+                        type: array
+                        description: "List of block-node identifiers this CN connects to"
+                        items:
+                            $ref: "#/$defs/nodeRef"
+                        minItems: 1
+                        uniqueItems: true
+                additionalProperties: false
+        additionalProperties: false
+
+required: ["block_nodes", "consensus_nodes"]
+additionalProperties: false

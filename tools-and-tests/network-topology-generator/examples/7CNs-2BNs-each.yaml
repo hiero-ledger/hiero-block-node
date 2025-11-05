@@ -1,0 +1,30 @@
+block_nodes:
+    bn1a: { address: bn1a.example.com, port: 40800, peers: [bn1b] }
+    bn1b: { address: bn1b.example.com, port: 40801, peers: [bn1a] }
+
+    bn2a: { address: bn2a.example.com, port: 40802, peers: [bn2b] }
+    bn2b: { address: bn2b.example.com, port: 40803, peers: [bn2a] }
+
+    bn3a: { address: bn3a.example.com, port: 40804, peers: [bn3b] }
+    bn3b: { address: bn3b.example.com, port: 40805, peers: [bn3a] }
+
+    bn4a: { address: bn4a.example.com, port: 40806, peers: [bn4b] }
+    bn4b: { address: bn4b.example.com, port: 40807, peers: [bn4a] }
+
+    bn5a: { address: bn5a.example.com, port: 40808, peers: [bn5b] }
+    bn5b: { address: bn5b.example.com, port: 40809, peers: [bn5a] }
+
+    bn6a: { address: bn6a.example.com, port: 40810, peers: [bn6b] }
+    bn6b: { address: bn6b.example.com, port: 40811, peers: [bn6a] }
+
+    bn7a: { address: bn7a.example.com, port: 40812, peers: [bn7b] }
+    bn7b: { address: bn7b.example.com, port: 40813, peers: [bn7a] }
+
+consensus_nodes:
+    cn1: { block_nodes: [bn1a, bn1b] }
+    cn2: { block_nodes: [bn2a, bn2b] }
+    cn3: { block_nodes: [bn3a, bn3b] }
+    cn4: { block_nodes: [bn4a, bn4b] }
+    cn5: { block_nodes: [bn5a, bn5b] }
+    cn6: { block_nodes: [bn6a, bn6b] }
+    cn7: { block_nodes: [bn7a, bn7b] }
