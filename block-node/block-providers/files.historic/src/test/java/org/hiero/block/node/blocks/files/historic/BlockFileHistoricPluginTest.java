@@ -30,7 +30,6 @@ import org.hiero.block.node.app.fixtures.async.TestThreadPoolManager;
 import org.hiero.block.node.app.fixtures.blocks.SimpleTestBlockItemBuilder;
 import org.hiero.block.node.app.fixtures.plugintest.NoOpServiceBuilder;
 import org.hiero.block.node.app.fixtures.plugintest.PluginTestBase;
-import org.hiero.block.node.app.fixtures.plugintest.SimpleBlockRangeSet;
 import org.hiero.block.node.app.fixtures.plugintest.SimpleInMemoryHistoricalBlockFacility;
 import org.hiero.block.node.app.fixtures.plugintest.TestBlockMessagingFacility;
 import org.hiero.block.node.app.fixtures.plugintest.TestHealthFacility;
@@ -475,34 +474,26 @@ class BlockFileHistoricPluginTest {
             // test historical block facility
             for (int i = 0; i < 3; i++) {
                 final BlockItemUnparsed[] block = SimpleTestBlockItemBuilder.createSimpleBlockUnparsedWithNumber(i);
-                testHistoricalBlockFacility.handleBlockItemsReceived(new BlockItems(List.of(block), i), false);
+                blockMessaging.sendBlockVerification(new VerificationNotification(
+                        true, i, Bytes.EMPTY, new BlockUnparsed(List.of(block)), BlockSource.PUBLISHER));
             }
             // generate next blocks with a gap and make sure we reach the
             // threshold and add them to the test historical block facility
             // numbers 5-9
             for (int i = 5; i < 10; i++) {
                 final BlockItemUnparsed[] block = SimpleTestBlockItemBuilder.createSimpleBlockUnparsedWithNumber(i);
-                testHistoricalBlockFacility.handleBlockItemsReceived(new BlockItems(List.of(block), i), false);
+                blockMessaging.sendBlockVerification(new VerificationNotification(
+                        true, i, Bytes.EMPTY, new BlockUnparsed(List.of(block)), BlockSource.PUBLISHER));
             }
             // we now have blocks 0-2 and 5-9, so we have a gap
             // assert that none of the first 10 blocks are zipped yet
             for (int i = 0; i < 10; i++) {
                 assertThat(BlockPath.computeExistingBlockPath(testConfig, i)).isNull();
             }
-            // set a temporary override for the available blocks to contain
-            // the first 10 blocks, this will simulate that the precheck passes
-            // but later on we will still be able to detect the gap
-            final SimpleBlockRangeSet temporaryAvailableBlocks = new SimpleBlockRangeSet();
-            temporaryAvailableBlocks.add(0, 10);
-            testHistoricalBlockFacility.setTemporaryAvailableBlocks(temporaryAvailableBlocks);
-            // send a block persisted notification for the range we last created
-            blockMessaging.sendBlockPersisted(
-                    new PersistedNotification(9, true, toTest.defaultPriority() + 1, BlockSource.PUBLISHER));
             // assert that no zipping task was submitted
             final boolean anyTaskSubmitted = pluginExecutor.wasAnyTaskSubmitted();
-            assertThat(anyTaskSubmitted).isTrue();
-            // make sure the task is executed
-            pluginExecutor.executeSerially();
+            assertThat(anyTaskSubmitted).isFalse();
+
             // assert that the first 10 blocks are not zipped
             for (int i = 0; i < 10; i++) {
                 assertThat(BlockPath.computeExistingBlockPath(testConfig, i)).isNull();
@@ -835,7 +826,8 @@ class BlockFileHistoricPluginTest {
             // test historical block facility
             for (int i = 0; i < 150; i++) {
                 final BlockItemUnparsed[] block = SimpleTestBlockItemBuilder.createSimpleBlockUnparsedWithNumber(i);
-                testHistoricalBlockFacility.handleBlockItemsReceived(new BlockItems(List.of(block), i), false);
+                blockMessaging.sendBlockVerification(new VerificationNotification(
+                        true, i, Bytes.EMPTY, new BlockUnparsed(List.of(block)), BlockSource.PUBLISHER));
             }
             // assert that none of the first 150 blocks are zipped yet and are
             // not present in the available blocks
@@ -844,9 +836,6 @@ class BlockFileHistoricPluginTest {
                 assertThat(BlockPath.computeExistingBlockPath(testConfig, i)).isNull();
                 assertThat(plugin.availableBlocks().contains(i)).isFalse();
             }
-            // send a block persisted notification for the range we just created
-            blockMessaging.sendBlockPersisted(
-                    new PersistedNotification(149, true, toTest.defaultPriority() + 1, BlockSource.PUBLISHER));
             // execute serially to ensure all tasks are completed
             pluginExecutor.executeSerially();
             // assert that all blocks are now zipped and the available blocks
@@ -856,10 +845,13 @@ class BlockFileHistoricPluginTest {
                 assertThat(BlockPath.computeExistingBlockPath(testConfig, i)).isNotNull();
                 assertThat(plugin.availableBlocks().contains(i)).isTrue();
             }
-            // send another notification to trigger the retention policy, we do
-            // not need to actually persist the block
-            blockMessaging.sendBlockPersisted(
-                    new PersistedNotification(150, true, toTest.defaultPriority() + 1, BlockSource.PUBLISHER));
+
+            blockMessaging.sendBlockVerification(new VerificationNotification(
+                    true,
+                    150,
+                    Bytes.EMPTY,
+                    new BlockUnparsed(List.of(SimpleTestBlockItemBuilder.createSimpleBlockUnparsedWithNumber(150))),
+                    BlockSource.PUBLISHER));
             // assert that the size of the available blocks is now 100 (post retention policy cleanup)
             assertThat(plugin.availableBlocks().size()).isEqualTo(100);
             // assert that the first 50 blocks were cleaned up and that the
@@ -885,14 +877,15 @@ class BlockFileHistoricPluginTest {
         @DisplayName("Test retention policy threshold disabled")
         void testRetentionPolicyThresholdDisabled() throws IOException {
             // change the retention policy to be disabled
-            testConfig = new FilesHistoricConfig(testTempDir, CompressionType.NONE, 1, 0L, stagingPath, 3);
+            testConfig = new FilesHistoricConfig(testTempDir, CompressionType.ZSTD, 1, 0L, stagingPath, 3);
             // override the config in the plugin
             start(toTest, testHistoricalBlockFacility, getConfigOverrides());
             // generate first 150 blocks from numbers 0-149 and add them to the
             // test historical block facility
             for (int i = 0; i < 150; i++) {
                 final BlockItemUnparsed[] block = SimpleTestBlockItemBuilder.createSimpleBlockUnparsedWithNumber(i);
-                testHistoricalBlockFacility.handleBlockItemsReceived(new BlockItems(List.of(block), i), false);
+                blockMessaging.sendBlockVerification(new VerificationNotification(
+                        true, i, Bytes.EMPTY, new BlockUnparsed(List.of(block)), BlockSource.PUBLISHER));
             }
             // assert that none of the first 150 blocks are zipped yet and are
             // not present in the available blocks
@@ -901,9 +894,6 @@ class BlockFileHistoricPluginTest {
                 assertThat(BlockPath.computeExistingBlockPath(testConfig, i)).isNull();
                 assertThat(plugin.availableBlocks().contains(i)).isFalse();
             }
-            // send a block persisted notification for the range we just created
-            blockMessaging.sendBlockPersisted(
-                    new PersistedNotification(149, true, toTest.defaultPriority() + 1, BlockSource.PUBLISHER));
             // execute serially to ensure all tasks are completed
             pluginExecutor.executeSerially();
             // assert that all blocks are now zipped and the available blocks
@@ -915,8 +905,12 @@ class BlockFileHistoricPluginTest {
             }
             // send another notification to trigger the retention policy, we do
             // not need to actually persist the block
-            blockMessaging.sendBlockPersisted(
-                    new PersistedNotification(150, true, toTest.defaultPriority() + 1, BlockSource.PUBLISHER));
+            blockMessaging.sendBlockVerification(new VerificationNotification(
+                    true,
+                    150,
+                    Bytes.EMPTY,
+                    new BlockUnparsed(List.of(SimpleTestBlockItemBuilder.createSimpleBlockUnparsedWithNumber(150))),
+                    BlockSource.PUBLISHER));
             // assert that the size of the available blocks is still 150 (post retention policy cleanup)
             assertThat(plugin.availableBlocks().size()).isEqualTo(150);
             // assert that all the blocks are still zipped and that
