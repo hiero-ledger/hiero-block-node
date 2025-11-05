@@ -1,10 +1,16 @@
 ## Network Topology Generator
 
 This tool defines a shared network-topology format and utilities for validating
-and materialising test configurations. It currently ships with:
+and materialising test configurations. It currently includes:
 - `network-topology.schema.yaml` &mdash; the canonical schema shared across teams.
 - `examples/` &mdash; sample topologies that cover simple and larger network shapes.
 - `scripts/generate-configs.sh` &mdash; helper that renders node-specific configs from a topology file.
+
+This schema and tooling objective is to:
+- Provide a common format for defining network topologies across teams.
+- Enable easy validation of topologies against a shared schema.
+- Simplify generation of per-node configuration files for test deployments.
+- Facilitate sharing and reuse of network topologies in tests.
 
 ### Prerequisites
 
