@@ -139,7 +139,7 @@ class ZipBlockArchiveTest {
          * health facility if an exception occurs.
          */
         @Test
-        @DisplayName("Test minStoredBlockNumber() Does Not shuts down server if exception occurs")
+        @DisplayName("Test minStoredBlockNumber() Does Not shut down server if exception occurs")
         void testMinStoredWithException() throws IOException {
             // create test environment, in this case we simply create an empty zip file which will produce
             // an exception when we attempt to look for an entry inside
@@ -222,7 +222,7 @@ class ZipBlockArchiveTest {
          * health facility if an exception occurs.
          */
         @Test
-        @DisplayName("Test maxStoredBlockNumber() does not shuts down server if exception occurs")
+        @DisplayName("Test maxStoredBlockNumber() does not shut down server if exception occurs")
         void testMaxStoredWithException() throws IOException {
             // create test environment, in this case we simply create an empty zip file which will produce
             // an exception when we attempt to look for an entry inside
