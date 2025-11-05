@@ -468,6 +468,16 @@ public final class BlockFileHistoricPlugin implements BlockProviderPlugin, Block
                     totalBytesStored.addAndGet(zipFileSize);
                     // Increment the blocks written counter
                     blocksWrittenCounter.add(numberOfBlocksPerZipFile);
+
+                    for (long blockNumber = batchFirstBlockNumber; blockNumber <= batchLastBlockNumber; blockNumber++) {
+                        Path path = BlockFile.nestedDirectoriesBlockFilePath(
+                                config.tempPath(), blockNumber, config.compression(), config.maxFilesPerDir());
+                        if (Files.exists(path)) {
+                            Files.delete(path);
+                            availableTemporaryBlocks.remove(blockNumber);
+                        }
+                    }
+
                 } catch (final IOException e) {
                     final String message = "Failed to move batch of blocks [%d -> %d] to zip file"
                             .formatted(batchFirstBlockNumber, batchLastBlockNumber);
