@@ -9,7 +9,7 @@ and materialising test configurations. It currently ships with:
 ### Prerequisites
 
 - `yq` (YAML processor) and `jq` (JSON processor) used by the generator script.
-- A JSON/YAML Schema validator (`yajsv` or `jsonschema`) to lint topologies against the schema.
+- A JSON/YAML Schema validator (for example `check-jsonschema`) to lint topologies against the schema.
 
 On macOS you can install the CLI dependencies with Homebrew:
 
@@ -51,6 +51,27 @@ Larger example:
 scripts/generate-configs.sh examples/7CNs-2BNs-each.yaml
 ```
 
+Shared priorities example:
+
+```bash
+scripts/generate-configs.sh examples/4CNs-4BNs-shared-priority.yaml
+```
+
+YAML supports connection-local priorities in two syntaxes. Both of the following
+produce peers with priority `1` when generating the BN configs:
+
+```yaml
+peers:
+  - bn2: 1           # shorthand single-key map (preferred for quick edits)
+  - node: bn3        # explicit object form for richer tooling support
+    priority: 1
+```
+
+`consensus_nodes.*.block_nodes` accepts the same forms, so you can reuse priorities
+when mapping consensus nodes to block nodes. See
+`examples/4CNs-4BNs-shared-priority.yaml` for a complete topology showcasing
+shared priorities across multiple links.
+
 The script writes JSON configs under `out/<node>/config.json`. Example output for the `cn1`
 node in the `simple-1-1` topology:
 
@@ -65,3 +86,8 @@ node in the `simple-1-1` topology:
   ]
 }
 ```
+
+Priorities are resolved in the following order when rendering configs:
+1. Connection-level override (from the peer/block list entry)
+2. The referenced block node's `priority` property
+3. Default incremental order within the list

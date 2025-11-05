@@ -5,6 +5,27 @@ $defs:
     nodeRef:
         type: string
         description: "Reference to a node by its identifier"
+    nodeLink:
+        type: object
+        description: "Reference to a node with an optional connection priority override"
+        required: ["node"]
+        properties:
+            node:
+                $ref: "#/$defs/nodeRef"
+            priority:
+                type: integer
+                minimum: 1
+        additionalProperties: false
+    nodePriorityEntry:
+        type: object
+        description: "Single-key map associating a node with a priority"
+        minProperties: 1
+        maxProperties: 1
+        propertyNames:
+            pattern: "^[a-zA-Z0-9_-]+$"
+        additionalProperties:
+            type: integer
+            minimum: 1
     address:
         type: string
         description: "Resolvable hostname or IP address of the node"
@@ -36,7 +57,10 @@ properties:
                         type: array
                         description: "List of other block-nodes this BN connects to"
                         items:
-                            $ref: "#/$defs/nodeRef"
+                            anyOf:
+                                - $ref: "#/$defs/nodeRef"
+                                - $ref: "#/$defs/nodeLink"
+                                - $ref: "#/$defs/nodePriorityEntry"
                         uniqueItems: true
                 additionalProperties: false
         additionalProperties: false
@@ -53,7 +77,10 @@ properties:
                         type: array
                         description: "List of block-node identifiers this CN connects to"
                         items:
-                            $ref: "#/$defs/nodeRef"
+                            anyOf:
+                                - $ref: "#/$defs/nodeRef"
+                                - $ref: "#/$defs/nodeLink"
+                                - $ref: "#/$defs/nodePriorityEntry"
                         minItems: 1
                         uniqueItems: true
                 additionalProperties: false
