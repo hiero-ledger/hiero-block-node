@@ -113,13 +113,13 @@ public final class BlockFileHistoricPlugin implements BlockProviderPlugin, Block
             context.serverHealth().shutdown(name(), "Could not create root directory");
         }
         try {
-            Files.createDirectories(config.tempPath());
+            Files.createDirectories(config.stagingPath());
         } catch (IOException e) {
             LOGGER.log(ERROR, "Could not create temp directory", e);
             context.serverHealth().shutdown(name(), "Could not create temp directory");
         }
 
-        nestedDirectoriesAllBlockNumbers(config.tempPath(), config.compression())
+        nestedDirectoriesAllBlockNumbers(config.stagingPath(), config.compression())
                 .forEach(blockNumber -> {
                     availableTemporaryBlocks.add(blockNumber);
                 });
@@ -259,7 +259,7 @@ public final class BlockFileHistoricPlugin implements BlockProviderPlugin, Block
                     sendBlockNotification(blockNumber, false, effectiveSource);
                 } else {
                     final Path verifiedBlockPath = BlockFile.nestedDirectoriesBlockFilePath(
-                            config.tempPath(), blockNumber, config.compression(), config.maxFilesPerDir());
+                            config.stagingPath(), blockNumber, config.compression(), config.maxFilesPerDir());
                     createDirectoryOrFail(verifiedBlockPath);
                     writeBlockOrFail(block, blockNumber, effectiveSource, verifiedBlockPath);
                 }
@@ -440,7 +440,7 @@ public final class BlockFileHistoricPlugin implements BlockProviderPlugin, Block
             // gather batch, if there are no gaps, then we can proceed with zipping
             for (long blockNumber = batchFirstBlockNumber; blockNumber <= batchLastBlockNumber; blockNumber++) {
                 Path path = BlockFile.nestedDirectoriesBlockFilePath(
-                        config.tempPath(), blockNumber, config.compression(), config.maxFilesPerDir());
+                        config.stagingPath(), blockNumber, config.compression(), config.maxFilesPerDir());
                 final BlockAccessor currentAccessor =
                         new BlockFileBlockAccessor(path, CompressionType.ZSTD, blockNumber);
                 if (currentAccessor.block() == null) {
@@ -471,7 +471,7 @@ public final class BlockFileHistoricPlugin implements BlockProviderPlugin, Block
 
                     for (long blockNumber = batchFirstBlockNumber; blockNumber <= batchLastBlockNumber; blockNumber++) {
                         Path path = BlockFile.nestedDirectoriesBlockFilePath(
-                                config.tempPath(), blockNumber, config.compression(), config.maxFilesPerDir());
+                                config.stagingPath(), blockNumber, config.compression(), config.maxFilesPerDir());
                         if (Files.exists(path)) {
                             Files.delete(path);
                             availableTemporaryBlocks.remove(blockNumber);

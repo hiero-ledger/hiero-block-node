@@ -56,7 +56,7 @@ class BlockFileHistoricPluginTest {
     /** TempDir for the current test */
     private final Path testTempDir;
 
-    private final Path blcoksTempDir;
+    private final Path stagingPath;
 
     /** The test block messaging facility to use for testing. */
     private final SimpleInMemoryHistoricalBlockFacility testHistoricalBlockFacility;
@@ -70,12 +70,12 @@ class BlockFileHistoricPluginTest {
      */
     BlockFileHistoricPluginTest(@TempDir final Path tempDir, @TempDir final Path blocksTempDir) {
         this.testTempDir = Objects.requireNonNull(tempDir);
-        this.blcoksTempDir = Objects.requireNonNull(blocksTempDir);
+        this.stagingPath = Objects.requireNonNull(blocksTempDir);
         // generate test config, for the purposes of this test, we will always
         // use 10 blocks per zip, assuming that the first zip file will contain
         // for example blocks 0-9, the second zip file will contain blocks 10-19
         // also we will not use compression, and we will use the jUnit temp dir
-        testConfig = new FilesHistoricConfig(this.testTempDir, CompressionType.NONE, 1, 10L, this.blcoksTempDir, 3);
+        testConfig = new FilesHistoricConfig(this.testTempDir, CompressionType.NONE, 1, 10L, this.stagingPath, 3);
         // build the plugin using the test environment
         toTest = new BlockFileHistoricPlugin();
         // initialize an in memory historical block facility to use for testing
@@ -117,11 +117,12 @@ class BlockFileHistoricPluginTest {
          */
         @Test
         @DisplayName("Test init does not throw when ServiceBuilder is null (currently unused)")
-        void testInitNullServiceBuilder(@TempDir final Path tempDir) {
+        void testInitNullServiceBuilder(@TempDir final Path tempDir, @TempDir final Path stagingPath) {
             // setup a local valid context
             final Configuration configuration = ConfigurationBuilder.create()
                     .withConfigDataType(FilesHistoricConfig.class)
                     .withValue("files.historic.rootPath", tempDir.toString())
+                    .withValue("files.historic.stagingPath", stagingPath.toString())
                     .build();
             final Metrics metricsMock = mock(Metrics.class);
             final HistoricalBlockFacility historicalBlockProvider = new SimpleInMemoryHistoricalBlockFacility();
@@ -163,6 +164,8 @@ class BlockFileHistoricPluginTest {
         private Map<String, String> getConfigOverrides() {
             final Entry<String, String> rootPath =
                     Map.entry("files.historic.rootPath", testConfig.rootPath().toString());
+            final Entry<String, String> stagingPath = Map.entry(
+                    "files.historic.stagingPath", testConfig.stagingPath().toString());
             final Entry<String, String> compression = Map.entry(
                     "files.historic.compression", testConfig.compression().name());
             final Entry<String, String> powersOfTenPerZipFileContents = Map.entry(
@@ -170,7 +173,8 @@ class BlockFileHistoricPluginTest {
                     String.valueOf(testConfig.powersOfTenPerZipFileContents()));
             final Entry<String, String> blockRetentionThreshold = Map.entry(
                     "files.historic.blockRetentionThreshold", String.valueOf(testConfig.blockRetentionThreshold()));
-            return Map.ofEntries(rootPath, compression, powersOfTenPerZipFileContents, blockRetentionThreshold);
+            return Map.ofEntries(
+                    rootPath, stagingPath, compression, powersOfTenPerZipFileContents, blockRetentionThreshold);
         }
 
         /**
@@ -979,7 +983,7 @@ class BlockFileHistoricPluginTest {
         @DisplayName("Test retention policy threshold disabled")
         void testRetentionPolicyThresholdDisabled() throws IOException {
             // change the retention policy to be disabled
-            testConfig = new FilesHistoricConfig(testTempDir, CompressionType.NONE, 1, 0L, blcoksTempDir, 3);
+            testConfig = new FilesHistoricConfig(testTempDir, CompressionType.NONE, 1, 0L, stagingPath, 3);
             // override the config in the plugin
             start(toTest, testHistoricalBlockFacility, getConfigOverrides());
             // generate first 150 blocks from numbers 0-149 and add them to the

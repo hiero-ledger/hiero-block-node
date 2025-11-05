@@ -33,7 +33,7 @@ public record FilesHistoricConfig(
         @Loggable @ConfigProperty(defaultValue = "ZSTD") CompressionType compression,
         @Loggable @ConfigProperty(defaultValue = "4") @Min(1) @Max(6) int powersOfTenPerZipFileContents,
         @Loggable @ConfigProperty(defaultValue = "0") long blockRetentionThreshold,
-        @Loggable @ConfigProperty(defaultValue = "/opt/hiero/block-node/data/historic-temp") Path tempPath,
+        @Loggable @ConfigProperty(defaultValue = "/opt/hiero/block-node/data/historic/staging") Path stagingPath,
         @Loggable @ConfigProperty(defaultValue = "3") int maxFilesPerDir) {
     /**
      * Constructor.
