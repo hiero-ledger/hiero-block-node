@@ -11,6 +11,7 @@ import static org.hiero.block.tools.utils.PrettyPrint.clearProgress;
 import static org.hiero.block.tools.utils.PrettyPrint.prettyPrintFileSize;
 import static org.hiero.block.tools.utils.PrettyPrint.printProgressWithEta;
 
+import java.io.EOFException;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -216,18 +217,24 @@ public class DownloadDayImplV2 {
                 final List<InMemoryFile> inMemoryFilesForWriting = new ArrayList<>();
                 for (int i = 0; i < ready.orderedFiles.size(); i++) {
                     final ListingRecordFile lr = ready.orderedFiles.get(i);
-                    final InMemoryFile downloadedFile = ready.futures.get(i).join();
-                    if (!Md5Checker.checkMd5(lr.md5Hex(), downloadedFile.data())) {
-                        throw new IOException("MD5 mismatch for blob " + (BUCKET_PATH_PREFIX + lr.path()));
-                    }
-                    byte[] contentBytes = downloadedFile.data();
                     String filename = lr.path().substring(lr.path().lastIndexOf('/') + 1);
-                    if (filename.endsWith(".gz")) {
-                        contentBytes = Gzip.ungzipInMemory(contentBytes);
-                        filename = filename.replaceAll("\\.gz$", "");
+                    try {
+                        final InMemoryFile downloadedFile = ready.futures.get(i).join();
+                        if (!Md5Checker.checkMd5(lr.md5Hex(), downloadedFile.data())) {
+                            throw new IOException("MD5 mismatch for blob " + (BUCKET_PATH_PREFIX + lr.path()));
+                        }
+                        byte[] contentBytes = downloadedFile.data();
+                        if (filename.endsWith(".gz")) {
+                            contentBytes = Gzip.ungzipInMemory(contentBytes);
+                            filename = filename.replaceAll("\\.gz$", "");
+                        }
+                        final Path newFilePath = computeNewFilePath(lr, mostCommonFiles, filename);
+                        inMemoryFilesForWriting.add(new InMemoryFile(newFilePath, contentBytes));
+                    } catch (EOFException eofe) {
+                        // ignore corrupted gzip files
+                        System.err.println("Warning: Skipping corrupted gzip file ["+filename+"] for block " +
+                            ready.blockNumber + " time " + ready.blockTime + ": " + eofe.getMessage());
                     }
-                    final Path newFilePath = computeNewFilePath(lr, mostCommonFiles, filename);
-                    inMemoryFilesForWriting.add(new InMemoryFile(newFilePath, contentBytes));
                 }
                 // validate block hashes
                 prevRecordFileHash = validateBlockHashes(ready.blockNumber, inMemoryFilesForWriting, prevRecordFileHash,
