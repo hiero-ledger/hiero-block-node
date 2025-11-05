@@ -269,13 +269,9 @@ class ZipBlockArchive {
             return true;
         } catch (final IOException deletionException) {
             LOGGER.log(ERROR, "Failed to move corrupted zip file: %s".formatted(corruptedZip), deletionException);
-            context.serverHealth()
-                    .shutdown(
-                            ZipBlockArchive.class.getName(),
-                            "Unable to move corrupted zip file: "
-                                    + corruptedZip
-                                    + " because "
-                                    + deletionException.getMessage());
+            String shutdownMessage =
+                    "Unable to move corrupted zip file: %s because %s".formatted(corruptedZip, deletionException);
+            context.serverHealth().shutdown(ZipBlockArchive.class.getName(), shutdownMessage);
             return false;
         }
     }
