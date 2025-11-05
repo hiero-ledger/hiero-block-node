@@ -1014,7 +1014,7 @@ class BlockFileHistoricPluginTest {
 
         @Test
         @DisplayName("init moves corrupted zip file without shutting down")
-        void initDeletesCorruptedZipWithoutShutdown() throws IOException {
+        void initMovesCorruptedZipWithoutShutdown() throws IOException {
             final Path corruptedRoot = testTempDir.resolve("corrupted-zip-root");
             testConfig = new FilesHistoricConfig(corruptedRoot, CompressionType.NONE, 1, 10L);
 
