@@ -15,10 +15,12 @@ for bn in $(yq -r '.block_nodes | keys[]' "$TOPOLOGY_FILE"); do
 
   peers=$(yq -r ".block_nodes[\"$bn\"].peers[]" "$TOPOLOGY_FILE" 2>/dev/null || true)
   json="["
+  prio=1
   for peer in $peers; do
     addr=$(yq -r ".block_nodes[\"$peer\"].address" "$TOPOLOGY_FILE")
     port=$(yq -r ".block_nodes[\"$peer\"].port" "$TOPOLOGY_FILE")
-    json+="$(jq -nc --arg a "$addr" --argjson p "$port" '{address:$a,port:$p}'),"
+    json+="$(jq -nc --arg a "$addr" --argjson p "$port" --argjson pr "$prio" '{address:$a,port:$p,priority:$pr}'),"
+    prio=$((prio+1))
   done
   json="${json%,}]"
   [[ "$json" == "[" ]] && json="[]"
