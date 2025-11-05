@@ -48,7 +48,7 @@ Each plugin has its own properties, but this focuses on core options and core pl
 
 | ENV Variable                          | Description                                                                  |   Default |
 |:--------------------------------------|:-----------------------------------------------------------------------------|----------:|
-| SERVER_HTTP2_FLOW_CONTROL_TIMEOUT     | Outbound flow control blocking timeout (ms).                                 |        50 |
+| SERVER_HTTP2_FLOW_CONTROL_TIMEOUT     | Outbound flow control blocking timeout (ms).                                 |      1000 |
 | SERVER_HTTP2_INITIAL_WINDOW_SIZE      | Sender's maximum window size (bytes) for stream-level flow control.          | 1,048,576 |
 | SERVER_HTTP2_MAX_CONCURRENT_STREAMS   | Max concurrent streams the server will allow.                                |         8 |
 | SERVER_HTTP2_MAX_EMPTY_FRAMES         | Max consecutive empty frames allowed on connection.                          |        10 |
