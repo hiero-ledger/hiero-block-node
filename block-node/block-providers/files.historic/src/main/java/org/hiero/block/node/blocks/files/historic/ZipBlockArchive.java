@@ -240,10 +240,8 @@ class ZipBlockArchive {
                 }
             } catch (final Exception e) {
                 LOGGER.log(ERROR, "Error reading directory: %s".formatted(highestPath), e);
-
                 final String shutdownMessage =
-                        MessageFormat.format("Error reading directory: {0} because {1}", highestPath, e.getMessage());
-
+                        "Error reading directory: %s because %s".formatted(highestPath, e.getMessage());
                 context.serverHealth().shutdown(ZipBlockArchive.class.getName(), shutdownMessage);
                 highestPath = null;
             }
@@ -260,7 +258,7 @@ class ZipBlockArchive {
      */
     private boolean handleCorruptedZipFile(final Path corruptedZip, final ZipException cause) {
         final String warningMessage =
-                MessageFormat.format("Detected corrupted zip file: {0}, attempting self-healing move", corruptedZip);
+                "Detected corrupted zip file: %s, attempting self-healing move".formatted(corruptedZip);
         LOGGER.log(WARNING, warningMessage, cause);
         try {
             final Path relativeZipPath = config.rootPath().relativize(corruptedZip);
