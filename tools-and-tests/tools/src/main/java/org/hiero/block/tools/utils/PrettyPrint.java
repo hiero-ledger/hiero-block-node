@@ -184,4 +184,27 @@ public class PrettyPrint {
         char unit = "KMGTPE".charAt(exp - 1);
         return String.format("%.1f %sB", sizeInBytes / Math.pow(1024, exp), unit);
     }
+
+    /**
+     * Compute remaining milliseconds based on progress so far, total progress expected, and elapsed time.
+     *
+     * @param processedSoFarAcrossAll number of units processed so far
+     * @param totalProgressFinal      total number of units expected
+     * @param elapsedMillis           elapsed time in milliseconds
+     * @return estimated remaining time in milliseconds
+     */
+    public static long computeRemainingMilliseconds(
+            long processedSoFarAcrossAll, long totalProgressFinal, long elapsedMillis) {
+        long remainingMillis;
+        if (processedSoFarAcrossAll > 0) {
+            long remainingUnits = totalProgressFinal - processedSoFarAcrossAll;
+            remainingMillis = (long) ((elapsedMillis * (double) remainingUnits) / (double) processedSoFarAcrossAll);
+            if (remainingMillis < 0) {
+                remainingMillis = 0;
+            }
+        } else {
+            remainingMillis = Long.MAX_VALUE; // unknown ETA at the very start
+        }
+        return remainingMillis;
+    }
 }
