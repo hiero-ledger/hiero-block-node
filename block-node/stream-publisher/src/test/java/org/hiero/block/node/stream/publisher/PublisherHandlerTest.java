@@ -2284,6 +2284,55 @@ class PublisherHandlerTest {
                 assertThat(repliesPipeline.getOnErrorCalls()).isEmpty();
                 assertThat(repliesPipeline.getOnSubscriptionCalls()).isEmpty();
             }
+
+            /**
+             * Test flow:
+             * <ul>
+             *   <li>Pre-assert: reply pipeline has no prior responses; capture current ack metric.</li>
+             *   <li>Invoke {@code sendAcknowledgement(blockNumber)} twice for the SAME block.</li>
+             *   <li>Assert: two ACK responses are emitted in order and both carry the same {@code blockNumber}.</li>
+             *   <li>Assert: {@code blockAcknowledgementsSent} increments by 2; no other side effects.</li>
+             * </ul>
+             * Rationale: guards against regressions where duplicate ACKs for the same block are coalesced or rejected.
+             */
+            @Test
+            @DisplayName("duplicate acknowledgements for same block produce two ACKs and increment metrics twice")
+            void testSendAcknowledgementDuplicateForSameBlock() {
+                // Pre-assert: clean state and capture baseline for ack metric
+                repliesPipeline.getOnNextCalls().clear();
+                final long beforeAcks = metrics.blockAcknowledgementsSent().get();
+
+                // Act: two acknowledgements for the SAME block number
+                final long blockNumber = 42L;
+                toTest.sendAcknowledgement(blockNumber);
+                toTest.sendAcknowledgement(blockNumber);
+
+                // Assert: two ACKs in order with identical block numbers
+                assertThat(repliesPipeline.getOnNextCalls()).hasSize(2);
+                assertThat(repliesPipeline.getOnNextCalls().get(0))
+                        .returns(ResponseOneOfType.ACKNOWLEDGEMENT, responseKindExtractor)
+                        .returns(blockNumber, acknowledgementBlockNumberExtractor);
+                assertThat(repliesPipeline.getOnNextCalls().get(1))
+                        .returns(ResponseOneOfType.ACKNOWLEDGEMENT, responseKindExtractor)
+                        .returns(blockNumber, acknowledgementBlockNumberExtractor);
+
+                // Metrics increment by 2 for two calls
+                assertThat(metrics.blockAcknowledgementsSent().get()).isEqualTo(beforeAcks + 2);
+
+                // No completion/error/subscription side-effects from acks
+                assertThat(repliesPipeline.getOnCompleteCalls().get()).isZero();
+                assertThat(repliesPipeline.getOnErrorCalls()).isEmpty();
+                assertThat(repliesPipeline.getOnSubscriptionCalls()).isEmpty();
+
+                // Other counters remain unchanged
+                assertThat(metrics.liveBlockItemsReceived().get()).isEqualTo(0);
+                assertThat(metrics.streamErrors().get()).isEqualTo(0);
+                assertThat(metrics.blockSkipsSent().get()).isEqualTo(0);
+                assertThat(metrics.blockResendsSent().get()).isEqualTo(0);
+                assertThat(metrics.endOfStreamsSent().get()).isEqualTo(0);
+                assertThat(metrics.sendResponseFailed().get()).isEqualTo(0);
+                assertThat(metrics.endStreamsReceived().get()).isEqualTo(0);
+            }
         }
 
         /**
