@@ -16,6 +16,7 @@ import io.grpc.Server;
 import io.grpc.ServerBuilder;
 import io.grpc.stub.StreamObserver;
 import java.io.IOException;
+import org.hiero.block.api.protoc.BlockEnd;
 import org.hiero.block.api.protoc.BlockItemSet;
 import org.hiero.block.api.protoc.BlockStreamSubscribeServiceGrpc;
 import org.hiero.block.api.protoc.SubscribeStreamRequest;
@@ -77,6 +78,11 @@ public class ConsumerStreamGrpcClientImplTest {
 
                             responseObserver.onNext(SubscribeStreamResponse.newBuilder()
                                     .setBlockItems(blockItems)
+                                    .build());
+                            final BlockEnd endOfBlock =
+                                    BlockEnd.newBuilder().setBlockNumber(i).build();
+                            responseObserver.onNext(SubscribeStreamResponse.newBuilder()
+                                    .setEndOfBlock(endOfBlock)
                                     .build());
                         }
 

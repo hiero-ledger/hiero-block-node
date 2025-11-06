@@ -3,11 +3,14 @@ package org.hiero.block.node.stream.subscriber;
 
 import static java.util.concurrent.locks.LockSupport.parkNanos;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.fail;
 import static org.hiero.block.node.app.fixtures.TestUtils.enableDebugLogging;
 import static org.hiero.block.node.app.fixtures.blocks.SimpleTestBlockItemBuilder.toBlockItems;
 
 import com.hedera.hapi.block.stream.Block;
 import com.hedera.hapi.block.stream.BlockItem;
+import com.hedera.hapi.block.stream.output.BlockHeader;
+import com.hedera.pbj.runtime.ParseException;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import java.util.List;
 import java.util.concurrent.ExecutorService;
@@ -44,7 +47,7 @@ class SubscriberServicePluginTest {
     private static final Function<Bytes, SubscribeStreamResponse> responseExtractor = bytes -> {
         try {
             return SubscribeStreamResponse.PROTOBUF.parse(bytes);
-        } catch (final Exception e) {
+        } catch (final ParseException e) {
             throw new RuntimeException(e);
         }
     };
@@ -121,7 +124,7 @@ class SubscriberServicePluginTest {
                         // Send the request
                         toPluginPipe.onNext(SubscribeStreamRequest.PROTOBUF.toBytes(request));
                         // Wait for responses
-                        final int expectedResponses = 2; // one with items, one with success status
+                        final int expectedResponses = 3; // one with items, end of block, one with success status
                         awaitResponse(fromPluginBytes, expectedResponses);
                         // Assert responses count and status success
                         assertThat(fromPluginBytes)
@@ -174,7 +177,7 @@ class SubscriberServicePluginTest {
                         final List<BlockItem> expected = blockOne.getFirst().items();
                         historicalBlockFacility.handleBlockItemsReceived(toBlockItems(expected));
                         // Wait for responses
-                        final int expectedResponses = 2; // one with items, one with success status
+                        final int expectedResponses = 3; // one with items, end of block, one with success status
                         awaitResponse(fromPluginBytes, expectedResponses);
                         // Assert responses count and status success
                         assertThat(fromPluginBytes)
@@ -230,7 +233,7 @@ class SubscriberServicePluginTest {
                         final List<BlockItem> expected = blockOne.getFirst().items();
                         blockMessaging.sendBlockItems(toBlockItems(expected));
                         // Wait for responses
-                        final int expectedResponses = 2; // one with items, one with success status
+                        final int expectedResponses = 3; // one with items, end of block, one with success status
                         awaitResponse(fromPluginBytes, expectedResponses);
                         // Assert responses count and status success
                         assertThat(fromPluginBytes)
@@ -302,8 +305,8 @@ class SubscriberServicePluginTest {
                         // one is for the rest of the block items, the other is
                         // the success status
                         awaitResponse(fromPluginBytes, 2);
-                        // Assert total expected responses count and status success
-                        final int expectedResponses = 3;
+                        // Assert total expected responses count, end of block, and status success
+                        final int expectedResponses = 4;
                         awaitResponse(fromPluginBytes, expectedResponses);
                         // Assert responses count and status success
                         assertThat(fromPluginBytes)
@@ -359,8 +362,8 @@ class SubscriberServicePluginTest {
                         // Send the request
                         toPluginPipe.onNext(SubscribeStreamRequest.PROTOBUF.toBytes(request));
                         // Wait for responses
-                        final int expectedResponses =
-                                blocksZeroToTwo.size() + 1; // three with items, one with success status
+                        final int expectedResponses = (2 * blocksZeroToTwo.size())
+                                + 1; // three with items and end of block, one with success status
                         awaitResponse(fromPluginBytes, expectedResponses);
                         // Assert responses count and status success
                         assertThat(fromPluginBytes)
@@ -411,8 +414,8 @@ class SubscriberServicePluginTest {
                             historicalBlockFacility.handleBlockItemsReceived(toBlockItems(block.items()));
                         }
                         // Wait for responses
-                        final int expectedResponses =
-                                blocksOneToTwo.size() + 1; // two with items, one with success status
+                        final int expectedResponses = (2 * blocksOneToTwo.size())
+                                + 1; // two with items and end of block, one with success status
                         awaitResponse(fromPluginBytes, expectedResponses);
                         // Assert responses count and status success
                         assertThat(fromPluginBytes)
@@ -466,8 +469,8 @@ class SubscriberServicePluginTest {
                             blockMessaging.sendBlockItems(toBlockItems(block.items()));
                         }
                         // Wait for responses
-                        final int expectedResponses =
-                                blocksOneToTwo.size() + 1; // two with items, one with success status
+                        final int expectedResponses = (2 * blocksOneToTwo.size())
+                                + 1; // two with items and end of block, one with success status
                         awaitResponse(fromPluginBytes, expectedResponses);
                         // Assert responses count and status success
                         assertThat(fromPluginBytes)
@@ -516,7 +519,8 @@ class SubscriberServicePluginTest {
                         // Send the request
                         toPluginPipe.onNext(SubscribeStreamRequest.PROTOBUF.toBytes(request));
                         // Wait for responses
-                        final int expectedBlockItemResponses = blocksZeroToTwo.size(); // three with items
+                        final int expectedBlockItemResponses =
+                                2 * blocksZeroToTwo.size(); // three with items and end block
                         awaitResponse(fromPluginBytes, expectedBlockItemResponses);
                         // now we need to stop the plugin to end the open range request and
                         // receive the success status response
@@ -574,7 +578,8 @@ class SubscriberServicePluginTest {
                             historicalBlockFacility.handleBlockItemsReceived(toBlockItems(block.items()));
                         }
                         // Wait for responses
-                        final int expectedBlockItemResponses = blocksOneToTwo.size(); // two with items
+                        final int expectedBlockItemResponses =
+                                2 * blocksOneToTwo.size(); // two with items and end block
                         awaitResponse(fromPluginBytes, expectedBlockItemResponses);
                         // now we need to stop the plugin to end the open range request and
                         // receive the success status response
@@ -635,7 +640,8 @@ class SubscriberServicePluginTest {
                             blockMessaging.sendBlockItems(toBlockItems(block.items()));
                         }
                         // Wait for responses
-                        final int expectedBlockItemResponses = blocksOneToTwo.size(); // two with items
+                        final int expectedBlockItemResponses =
+                                2 * blocksOneToTwo.size(); // two with items and end block
                         awaitResponse(fromPluginBytes, expectedBlockItemResponses);
                         // now we need to stop the plugin to end the open range request and
                         // receive the success status response
@@ -691,8 +697,8 @@ class SubscriberServicePluginTest {
                         // Send the request
                         toPluginPipe.onNext(SubscribeStreamRequest.PROTOBUF.toBytes(request));
                         // Wait for responses
-                        final int expectedResponses =
-                                blocksZeroToTwo.size() + 1; // three with items, one with success status
+                        final int expectedResponses = (2 * blocksZeroToTwo.size())
+                                + 1; // three with items and end block, one with success status
                         awaitResponse(fromPluginBytes, expectedResponses);
                         // Assert responses count and status success
                         assertThat(fromPluginBytes)
@@ -745,7 +751,7 @@ class SubscriberServicePluginTest {
                         }
                         // Wait for responses
                         final int expectedResponses =
-                                blocksZeroToTwo.size() + 1; // three with items, one with success status
+                                (2 * blocksZeroToTwo.size()) + 1; // three with items, one with success status
                         awaitResponse(fromPluginBytes, expectedResponses);
                         // Assert responses count and status success
                         assertThat(fromPluginBytes)
@@ -800,8 +806,8 @@ class SubscriberServicePluginTest {
                             blockMessaging.sendBlockItems(toBlockItems(block.items()));
                         }
                         // Wait for responses
-                        final int expectedResponses =
-                                blocksZeroToTwo.size() + 1; // three with items, one with success status
+                        final int expectedResponses = (2 * blocksZeroToTwo.size())
+                                + 1; // three with items and end of block, one with success status
                         awaitResponse(fromPluginBytes, expectedResponses);
                         // Assert responses count and status success
                         assertThat(fromPluginBytes)
@@ -850,12 +856,13 @@ class SubscriberServicePluginTest {
                             blockMessaging.sendBlockItems(toBlockItems(block.items()));
                         }
                         // Wait for responses for block items
-                        final int expectedBlockItemResponses = blocksZeroToTwo.size(); // three with items
+                        final int expectedBlockItemResponses =
+                                2 * blocksZeroToTwo.size(); // three with items and end block
                         awaitResponse(fromPluginBytes, expectedBlockItemResponses);
                         // now we need to stop the plugin to end the live stream request and
                         // receive the success status response
                         plugin.stop();
-                        final int expectedResponses = expectedBlockItemResponses + 1; // three with items, one
+                        final int expectedResponses = expectedBlockItemResponses + 1;
                         // Assert responses count and status success
                         assertThat(fromPluginBytes).hasSize(expectedResponses);
                         // Extract and assert block items response
@@ -904,8 +911,8 @@ class SubscriberServicePluginTest {
                         // now we need to stop the plugin to end the live stream request and
                         // receive the success status response
                         plugin.stop();
-                        final int expectedResponses =
-                                blocksZeroToTwo.size() + 1; // three with items, one with success status
+                        final int expectedResponses = (2 * blocksZeroToTwo.size())
+                                + 1; // three with items and end of block, one with success status
                         // Assert responses count and status success
                         assertThat(fromPluginBytes)
                                 .hasSize(expectedResponses)
@@ -955,7 +962,8 @@ class SubscriberServicePluginTest {
                             blockMessaging.sendBlockItems(toBlockItems(block.items()));
                         }
                         // Wait for responses for block items
-                        final int expectedBlockItemResponses = blocksOneToTwo.size(); // two with items
+                        final int expectedBlockItemResponses =
+                                2 * blocksOneToTwo.size(); // two with items and end block
                         awaitResponse(fromPluginBytes, expectedBlockItemResponses);
                         // now we need to stop the plugin to end the live stream request and
                         // receive the success status response
@@ -1027,7 +1035,7 @@ class SubscriberServicePluginTest {
                 @DisplayName("Test Subscriber: Invalid Request")
                 void testSubscriberInvalidRequest(final SubscribeStreamRequest request, final Code expectedCode) {
                     toPluginPipe.onNext(SubscribeStreamRequest.PROTOBUF.toBytes(request));
-                    final int expectedResponses = 1;
+                    final int expectedResponses = 1; // one error status
                     awaitResponse(fromPluginBytes, expectedResponses);
                     assertThat(fromPluginBytes)
                             .hasSize(expectedResponses)
@@ -1048,7 +1056,7 @@ class SubscriberServicePluginTest {
                 void testSubscriberValidRequestCannotFulfill(
                         final SubscribeStreamRequest request, final Code expectedCode) {
                     toPluginPipe.onNext(SubscribeStreamRequest.PROTOBUF.toBytes(request));
-                    final int expectedResponses = 1;
+                    final int expectedResponses = 1; // one failure status
                     awaitResponse(fromPluginBytes, expectedResponses);
                     assertThat(fromPluginBytes)
                             .hasSize(1)
@@ -1121,14 +1129,33 @@ class SubscriberServicePluginTest {
     private static void assertBlockItemsMatch(final List<Block> expectedBlocks, final List<Bytes> blocksFromPipeline) {
         final List<List<BlockItem>> expectedBlockItems =
                 expectedBlocks.stream().map(Block::items).toList();
-        for (int i = 0; i < expectedBlockItems.size(); i++) {
-            final List<BlockItem> expected = expectedBlockItems.get(i);
-            final List<BlockItem> actual = responseExtractor
-                    .apply(blocksFromPipeline.get(i))
-                    .blockItems()
-                    .blockItems();
-            assertBlockReceived(expected, actual);
+        // Block items and end of block for each block
+        long currentBlockNumber = -1;
+        for (int i = 0, j = 0; i < expectedBlockItems.size(); i++) {
+            final SubscribeStreamResponse subscribeResponse = responseExtractor.apply(blocksFromPipeline.get(i));
+            if (subscribeResponse.hasBlockItems()) {
+                final List<BlockItem> actual = subscribeResponse.blockItems().blockItems();
+                final List<BlockItem> expected = expectedBlockItems.get(j++);
+                assertBlockReceived(expected, actual);
+                final BlockItem first = actual.getFirst();
+                if (first.hasBlockHeader()) {
+                    BlockHeader header = first.blockHeader();
+                    currentBlockNumber = header.number();
+                }
+                final BlockItem last = actual.getLast();
+            } else if (subscribeResponse.hasEndOfBlock()) {
+                assertEndOfBlock(subscribeResponse, currentBlockNumber);
+                currentBlockNumber = -1;
+            } else {
+                fail("Unexpected response type %s."
+                        .formatted(subscribeResponse.response().kind()));
+            }
         }
+    }
+
+    private static void assertEndOfBlock(final SubscribeStreamResponse response, final long blockNumber) {
+        assertThat(response.hasEndOfBlock());
+        assertThat(response.endOfBlock().blockNumber()).isEqualTo(blockNumber);
     }
 
     private static void assertBlockReceived(final List<BlockItem> expected, final List<BlockItem> actual) {

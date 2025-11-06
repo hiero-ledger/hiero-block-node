@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.node.stream.publisher.fixtures;
 
-import com.hedera.hapi.block.stream.BlockProof;
 import com.hedera.pbj.runtime.grpc.Pipeline;
 import edu.umd.cs.findbugs.annotations.NonNull;
 import java.util.ArrayList;
@@ -32,8 +31,6 @@ public class TestStreamPublisherManager implements StreamPublisherManager {
     """;
     /** The map of calls to closeBlock, with the handler id as key and the number of calls as value. */
     final Map<Long, Integer> closeBlockCalls = new LinkedHashMap<>();
-    /** The map of calls to closeBlock with null proof bytes, with the handler id as key and the number of calls as value. */
-    final Map<Long, Integer> nullCloseBlockCalls = new LinkedHashMap<>();
     /** The list of publisher handlers managed by this manager. This could be a map with handler id as key if needed */
     private final List<PublisherHandler> publisherHandlers = new ArrayList<>();
     /** The test block messaging facility used by this manager. */
@@ -69,13 +66,9 @@ public class TestStreamPublisherManager implements StreamPublisherManager {
     }
 
     @Override
-    public void closeBlock(final BlockProof blockEndProof, final long handlerId) {
+    public void closeBlock(final long handlerId) {
         // Increment the number of calls for the handler id
-        if (blockEndProof == null) {
-            nullCloseBlockCalls.merge(handlerId, 1, Integer::sum);
-        } else {
-            closeBlockCalls.merge(handlerId, 1, Integer::sum);
-        }
+        closeBlockCalls.merge(handlerId, 1, Integer::sum);
     }
 
     @Override
@@ -130,24 +123,12 @@ public class TestStreamPublisherManager implements StreamPublisherManager {
     /**
      * Fixture method to get the number of calls to closeBlock for a handler.
      * <p>
-     * Returns the number of calls to {@link #closeBlock(BlockProof, long)}
+     * Returns the number of calls to {@link #closeBlock(long)}
      * made by the handler with the given ID. If the handler ID is not found,
      * returns -1.
      */
     public int closeBlockCallsForHandler(final long handlerId) {
         return closeBlockCalls.getOrDefault(handlerId, -1);
-    }
-
-    /**
-     * Fixture method to get the number of calls to closeBlock with null proof
-     * for a handler.
-     * <p>
-     * Returns the number of calls to {@link #closeBlock(BlockProof, long)}
-     * made by the handler with the given ID, where the proof was null.
-     * If the handler ID is not found, returns -1.
-     */
-    public int nullCloseBlockCallsForHandler(final long handlerId) {
-        return nullCloseBlockCalls.getOrDefault(handlerId, -1);
     }
 
     /**

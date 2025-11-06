@@ -4,8 +4,8 @@ package org.hiero.block.node.stream.publisher;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatNoException;
 import static org.assertj.core.api.Assertions.assertThatNullPointerException;
+import static org.hiero.block.node.stream.publisher.fixtures.PublishApiUtility.endThisBlock;
 
-import com.hedera.hapi.block.stream.BlockProof;
 import com.swirlds.config.api.Configuration;
 import com.swirlds.metrics.api.Metrics;
 import java.util.Arrays;
@@ -485,12 +485,12 @@ class LiveStreamPublisherManagerTest {
         }
 
         /**
-         * Tests for {@link LiveStreamPublisherManager#closeBlock(BlockProof, long)}.
+         * Tests for {@link LiveStreamPublisherManager#closeBlock(long)}.
          */
         @Nested
         @DisplayName("closeBlock() Tests")
         class CloseBlockTests {
-            // @todo(1416) cannot test this yet, because the method is not implemented.
+            // @todo(1416) Need to add tests for this method.
         }
 
         /**
@@ -528,6 +528,7 @@ class LiveStreamPublisherManagerTest {
                 // manager for a block action for block 0L and at that point it
                 // was the next expected block.
                 publisherHandler.onNext(request);
+                endThisBlock(publisherHandler, streamedBlockNumber);
                 // Build a verification notification with passed verification.
                 // Source must be publisher.
                 final VerificationNotification notification =
@@ -574,6 +575,7 @@ class LiveStreamPublisherManagerTest {
                 // manager for a block action for block 0L and at that point it
                 // was the next expected block.
                 publisherHandler.onNext(request);
+                endThisBlock(publisherHandler, streamedBlockNumber);
                 // Now we need to send a PersistedNotification, so that the
                 // latest known block number will be updated to 0L.
                 final PersistedNotification persistedNotification =
@@ -633,6 +635,7 @@ class LiveStreamPublisherManagerTest {
                 // manager for a block action for block 0L and at that point it
                 // was the next expected block.
                 publisherHandler.onNext(request);
+                endThisBlock(publisherHandler, streamedBlockNumber);
                 // We need to send a PersistedNotification first, so that the latest known block number will be updated
                 // to 0L.
                 final PersistedNotification persistedNotification =
@@ -744,6 +747,7 @@ class LiveStreamPublisherManagerTest {
                 // manager for a block action for block 0L and at that point it
                 // was the next expected block.
                 publisherHandler.onNext(request);
+                endThisBlock(publisherHandler, streamedBlockNumber);
                 // Now, the publisher has sent the targeted block with broken proof.
                 // We can now build a verification notification with failed verification.
                 final VerificationNotification notification =
@@ -798,6 +802,7 @@ class LiveStreamPublisherManagerTest {
                 // manager for a block action for block 0L and at that point it
                 // was the next expected block.
                 publisherHandler2.onNext(request);
+                endThisBlock(publisherHandler2, streamedBlockNumber);
                 // Build a verification notification with failed verification.
                 final VerificationNotification notification =
                         new VerificationNotification(false, streamedBlockNumber, null, null, BlockSource.PUBLISHER);
@@ -865,6 +870,7 @@ class LiveStreamPublisherManagerTest {
                 // manager for a block action for block 0L and at that point it
                 // was the next expected block.
                 publisherHandler2.onNext(request);
+                endThisBlock(publisherHandler2, streamedBlockNumber);
                 // Then, we need to simulate that the publisher has sent a block with invalid proof, i.e. call
                 // handleVerification with failed verification.
                 // Build a verification notification with failed verification.
@@ -910,6 +916,7 @@ class LiveStreamPublisherManagerTest {
                 assertThat(messagingFacility.getSentBlockItems()).isNotNull().isEmpty();
                 // We send the request to the publisher handler.
                 publisherHandler.onNext(request);
+                endThisBlock(publisherHandler, streamedBlockNumber);
                 // We run the queued messaging forwarder to update the current streaming block number.
                 // We need to run the task async, because the loop (managed by config) is way too big to block on.
                 // We will however wait for one second to ensure the task is run.
@@ -1083,6 +1090,7 @@ class LiveStreamPublisherManagerTest {
                         .build();
                 // We send the request to the publisher handler.
                 publisherHandler.onNext(request);
+                endThisBlock(publisherHandler, streamedBlockNumber);
                 // Now we need to build an end stream request
                 final EndStream endStream = EndStream.newBuilder()
                         .endCode(code)
@@ -1107,6 +1115,7 @@ class LiveStreamPublisherManagerTest {
                 // we expect to get a SKIP, the block was complete, next expected is +1L.
                 // We use the second publisher as the first one is already shut down.
                 publisherHandler2.onNext(request);
+                endThisBlock(publisherHandler, streamedBlockNumber);
                 assertThat(responsePipeline2.getOnNextCalls())
                         .hasSize(1)
                         .first()
@@ -1176,6 +1185,7 @@ class LiveStreamPublisherManagerTest {
                         .blockItems(fullBlockSet)
                         .build();
                 publisherHandler2.onNext(requestFullBlock);
+                endThisBlock(publisherHandler, streamedBlockNumber);
                 // We run the queued messaging forwarder to update the current streaming block number.
                 // We need to run the task async, because the loop (managed by config) is way too big to block on.
                 // We will however wait for one second to ensure the task is run.

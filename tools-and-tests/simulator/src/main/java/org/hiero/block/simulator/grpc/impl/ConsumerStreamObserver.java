@@ -18,6 +18,7 @@ import java.util.Set;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.atomic.AtomicLong;
 import org.hiero.block.api.protoc.SubscribeStreamResponse;
+import org.hiero.block.api.protoc.SubscribeStreamResponse.ResponseCase;
 import org.hiero.block.simulator.config.data.ConsumerConfig;
 import org.hiero.block.simulator.config.types.SlowDownType;
 import org.hiero.block.simulator.metrics.MetricsService;
@@ -79,10 +80,12 @@ public class ConsumerStreamObserver implements StreamObserver<SubscribeStreamRes
         lastKnownStatuses.add(subscribeStreamResponse.toString());
 
         switch (responseType) {
-            case STATUS -> LOGGER.log(INFO, "Received Response: " + subscribeStreamResponse);
+            case STATUS -> LOGGER.log(INFO, "Received Response " + subscribeStreamResponse);
             case BLOCK_ITEMS ->
                 processBlockItems(subscribeStreamResponse.getBlockItems().getBlockItemsList());
-            default -> throw new IllegalArgumentException("Unknown response type: " + responseType);
+            case ResponseCase.END_OF_BLOCK ->
+                metricsService.get(LiveBlocksConsumed).increment();
+            default -> throw new IllegalArgumentException("Unknown response type " + responseType);
         }
     }
 
@@ -115,21 +118,19 @@ public class ConsumerStreamObserver implements StreamObserver<SubscribeStreamRes
         }
 
         blockItems.stream().filter(BlockItem::hasBlockProof).forEach(blockItem -> {
-            metricsService.get(LiveBlocksConsumed).increment();
-
             long blockNumber = blockItem.getBlockProof().getBlock();
-            LOGGER.log(INFO, "Received block number: " + blockNumber);
+            LOGGER.log(INFO, "Received block proof number {0,number,#}.", blockNumber);
             logNonAscendingBlockNumbers(blockNumber);
         });
     }
 
     private void logNonAscendingBlockNumbers(long blockNumber) {
-        if (blocksConsumed.get() == 0) {
+        if (blocksConsumed.get() == 0L) {
             // Set the first block number in case we started
             // a recording in the middle when running a range.
             // e.g. blocks 1000-2000 - don't assume we're starting
             // with block 1
-            blocksConsumed.set(blockNumber);
+            blocksConsumed.compareAndSet(0L, blockNumber);
         } else {
             long count = blocksConsumed.incrementAndGet();
             if (count != blockNumber) {

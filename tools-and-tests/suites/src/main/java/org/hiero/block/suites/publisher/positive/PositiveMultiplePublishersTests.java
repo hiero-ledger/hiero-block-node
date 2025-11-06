@@ -2,6 +2,7 @@
 package org.hiero.block.suites.publisher.positive;
 
 import static org.hiero.block.api.protoc.BlockResponse.Code.NOT_FOUND;
+import static org.hiero.block.api.protoc.BlockResponse.Code.SUCCESS;
 import static org.hiero.block.suites.utils.BlockAccessUtils.getBlock;
 import static org.hiero.block.suites.utils.BlockAccessUtils.getLatestBlock;
 import static org.hiero.block.suites.utils.BlockSimulatorUtils.createBlockSimulator;
@@ -21,6 +22,7 @@ import java.util.Objects;
 import java.util.concurrent.Future;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.stream.Stream;
+import org.hiero.block.api.protoc.BlockAccessServiceGrpc.BlockAccessServiceBlockingStub;
 import org.hiero.block.api.protoc.BlockResponse;
 import org.hiero.block.api.protoc.BlockResponse.Code;
 import org.hiero.block.api.protoc.PublishStreamResponse;
@@ -172,31 +174,29 @@ public class PositiveMultiplePublishersTests extends BaseSuite {
         restartBlockNode(0);
         Thread.sleep(9000);
 
-        long block0 = getBlock(blockAccessStubs.get(8082), 0)
-                .getBlock()
-                .getItemsList()
-                .getFirst()
-                .getBlockHeader()
-                .getNumber();
+        // pre-define response variables for simplicity.
+        BlockResponse expectedBlock = null;
+        long blockNumber = -1;
 
-        long block1 = getBlock(blockAccessStubs.get(8082), 1)
-                .getBlock()
-                .getItemsList()
-                .getFirst()
-                .getBlockHeader()
-                .getNumber();
-
-        long block2 = getBlock(blockAccessStubs.get(8082), 2)
-                .getBlock()
-                .getItemsList()
-                .getFirst()
-                .getBlockHeader()
-                .getNumber();
+        getAndAssertSingleBlock(blockAccessStubs, 0);
+        getAndAssertSingleBlock(blockAccessStubs, 1);
+        getAndAssertSingleBlock(blockAccessStubs, 2);
 
         teardownBlockNodes();
-        assertEquals(0, block0);
-        assertEquals(1, block1);
-        assertEquals(2, block2);
+    }
+
+    private static void getAndAssertSingleBlock(
+            final Map<Integer, BlockAccessServiceBlockingStub> blockAccessStubs, long blockNumberRequested) {
+        final BlockResponse expectedBlock;
+        expectedBlock = getBlock(blockAccessStubs.get(8082), blockNumberRequested);
+        assertEquals(SUCCESS, expectedBlock.getStatus());
+        long blockNumberReceived = expectedBlock
+                .getBlock()
+                .getItemsList()
+                .getFirst()
+                .getBlockHeader()
+                .getNumber();
+        assertEquals(blockNumberRequested, blockNumberReceived);
     }
 
     @Test

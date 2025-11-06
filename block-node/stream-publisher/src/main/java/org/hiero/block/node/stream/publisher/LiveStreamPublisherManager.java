@@ -8,7 +8,6 @@ import static java.lang.System.Logger.Level.WARNING;
 import static org.hiero.block.node.spi.BlockNodePlugin.METRICS_CATEGORY;
 import static org.hiero.block.node.spi.BlockNodePlugin.UNKNOWN_BLOCK_NUMBER;
 
-import com.hedera.hapi.block.stream.BlockProof;
 import com.hedera.pbj.runtime.grpc.Pipeline;
 import com.swirlds.metrics.api.Counter;
 import com.swirlds.metrics.api.LongGauge;
@@ -173,7 +172,6 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
             itemsRemoved++;
             last = queue.peekLast();
         }
-        // @todo(1416) add an "items discarded" metric.
         return itemsRemoved > 0;
     }
 
@@ -322,6 +320,7 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
      * when interrupt is used as a signal rather than signaling the `Condition`
      * variable.</blockquote>
      */
+    @SuppressWarnings("AwaitNotInLoop")
     private void waitForDataReady() {
         dataReadyLock.lock();
         try {
@@ -375,33 +374,14 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
     // fails to parse. This _is not an error_ and we should still forward
     // the block to messaging and treat the block as completed, we just
     // won't do anything that requires parsing the block proof. It is
-    // possible the parsing failed in the publisher but will still
-    // succeed in the verification plugin.
+    // possible the parsing failed in the publisher or that we are simply
+    // responding to a `EndOfBlock` message.
     @Override
-    public void closeBlock(final BlockProof blockEndProof, final long handlerId) {
+    public void closeBlock(final long handlerId) {
         checkLogAndRestartForwarderTask();
-        // @todo(1416) complete tasks that do not require the block proof data here (before this line).
-        if (blockEndProof == null) {
-            // No point logging here, as the handler would have done that.
-            // here we just update metrics.
-            metrics.blocksClosedIncomplete.increment();
-        } else {
-            metrics.blocksClosedComplete.increment();
-            // @todo(1416) Also log completed blocks metric and any other relevant
-            //     actions. Also check if we have incomplete blocks lower than the
-            //     block that completed, and possibly enter the resend process to
-            //     have handlers go back and get the block that was too slow resent
-            //     from a different publisher (don't forget to keep/track last
-            //     completed block, and retain data in queue(s) for
-            //     completed-but-not-forwarded blocks).
-
-            // @todo(1415) Remove this log when the related tickets are done.
-            LOGGER.log(
-                    DEBUG,
-                    "Completed blocks: {0}, Incompleted blocks: {1}",
-                    metrics.blocksClosedComplete.get(),
-                    metrics.blocksClosedIncomplete.get());
-        }
+        metrics.blocksClosedComplete.increment();
+        // @todo(1415) Remove this log when the related tickets are done.
+        LOGGER.log(DEBUG, "Completed blocks {0}", metrics.blocksClosedComplete.get());
     }
 
     /// Check the queue forwarder task and start, or restart, if it is
@@ -775,8 +755,7 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
      * lowestBlockNumber - Lowest incoming block number
      * highestBlockNumber - Highest incoming block number
      * latestBlockNumberAcknowledged - The latest block number acknowledged
-     * blocksClosedComplete - Number of blocks received complete (with both header and proof)
-     * blocksClosedIncomplete - Number of blocks received incomplete (missing header or proof)
+     * blocksClosedComplete - Number of blocks received complete (with both header and end of block)
      */
     public record MetricsHolder(
             Counter blockItemsMessaged,
@@ -785,8 +764,7 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
             LongGauge lowestBlockNumber,
             LongGauge highestBlockNumber,
             LongGauge latestBlockNumberAcknowledged,
-            Counter blocksClosedComplete,
-            Counter blocksClosedIncomplete) {
+            Counter blocksClosedComplete) {
         /**
          * todo(1420) add documentation
          */
@@ -800,9 +778,6 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
             final Counter blocksClosedComplete =
                     metrics.getOrCreate(new Counter.Config(METRICS_CATEGORY, "publisher_blocks_closed_complete")
                             .withDescription("Blocks received complete (with both header and proof) by any Handler"));
-            final Counter blocksClosedIncomplete =
-                    metrics.getOrCreate(new Counter.Config(METRICS_CATEGORY, "publisher_blocks_closed_incomplete")
-                            .withDescription("Blocks received incomplete (missing header or proof) by any Handler"));
             final LongGauge numberOfProducers =
                     metrics.getOrCreate(new LongGauge.Config(METRICS_CATEGORY, "publisher_open_connections")
                             .withDescription("Connected publishers"));
@@ -822,8 +797,7 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
                     lowestBlockNumber,
                     highestBlockNumber,
                     latestBlockNumberAcknowledged,
-                    blocksClosedComplete,
-                    blocksClosedIncomplete);
+                    blocksClosedComplete);
         }
     }
 }

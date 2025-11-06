@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.node.stream.publisher;
 
-import com.hedera.hapi.block.stream.BlockProof;
 import com.hedera.pbj.runtime.grpc.Pipeline;
 import edu.umd.cs.findbugs.annotations.NonNull;
 import edu.umd.cs.findbugs.annotations.Nullable;
@@ -47,7 +46,7 @@ public interface StreamPublisherManager extends BlockNotificationHandler {
     /**
      * Close a block for a handler.
      */
-    void closeBlock(@Nullable final BlockProof blockEndProof, final long handlerId);
+    void closeBlock(final long handlerId);
 
     /**
      * Return the latest known valid and persisted block number.

@@ -5,6 +5,7 @@ import org.hiero.block.node.spi.historicalblocks.BlockProviderPlugin;
 import org.hiero.block.node.spi.historicalblocks.HistoricalBlockFacility;
 
 module org.hiero.block.node.app {
+    exports org.hiero.block.node.app;
     // it is expected the app module will never export any packages, only use others
     uses HistoricalBlockFacility;
     uses BlockMessagingFacility;
