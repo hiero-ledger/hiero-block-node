@@ -35,7 +35,7 @@ public class DownloadDaysV2 implements Runnable {
     @Option(
             names = {"-t", "--threads"},
             description = "How many days to download in parallel")
-    private int threads = 64;
+    private int threads = 1000;
 
     @Parameters(index = "0", description = "From year to download")
     private int fromYear = 2019;
@@ -59,7 +59,9 @@ public class DownloadDaysV2 implements Runnable {
     public void run() {
         try (BlockTimeReader blockTimeReader = new BlockTimeReader();
             Storage storage = StorageOptions.grpc().setAttemptDirectPath(false).setProjectId(GCP_PROJECT_ID).build().getService();
-            ConcurrentDownloadManager downloadManager = ConcurrentDownloadManagerVirtualThreads.newBuilder(storage).setInitialConcurrency(threads).build()) {
+            ConcurrentDownloadManager downloadManager = ConcurrentDownloadManagerVirtualThreads.newBuilder(storage)
+                .setInitialConcurrency(64)
+                .setMaxConcurrency(threads).build()) {
             // Load day block info map
             final Map<LocalDate, DayBlockInfo> daysInfo = loadDayBlockInfoMap();
             final var days = LocalDate.of(fromYear, fromMonth, fromDay)
