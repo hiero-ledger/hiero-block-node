@@ -14,7 +14,6 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Objects;
 import org.hiero.block.common.utils.Preconditions;
-import org.hiero.block.internal.BlockUnparsed;
 import org.hiero.block.node.base.CompressionType;
 import org.hiero.block.node.spi.historicalblocks.BlockAccessor;
 
@@ -71,22 +70,6 @@ final class BlockFileBlockAccessor implements BlockAccessor {
         try {
             final Bytes rawData = blockBytes(Format.PROTOBUF);
             return rawData == null ? null : Block.PROTOBUF.parse(rawData);
-        } catch (final UncheckedIOException | ParseException e) {
-            LOGGER.log(WARNING, FAILED_TO_PARSE_MESSAGE.formatted(blockFilePath), e);
-            return null;
-        }
-    }
-
-    /**
-     * {@inheritDoc}
-     * <p>Note, we only override here to change the logging message.
-     * The method should be otherwise identical to the default.
-     */
-    @Override
-    public BlockUnparsed blockUnparsed() {
-        try {
-            final Bytes rawData = blockBytes(Format.PROTOBUF);
-            return rawData == null ? null : BlockUnparsed.PROTOBUF.parse(rawData);
         } catch (final UncheckedIOException | ParseException e) {
             LOGGER.log(WARNING, FAILED_TO_PARSE_MESSAGE.formatted(blockFilePath), e);
             return null;

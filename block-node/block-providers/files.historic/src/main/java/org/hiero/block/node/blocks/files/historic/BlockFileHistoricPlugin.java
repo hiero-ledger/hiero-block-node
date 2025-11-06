@@ -232,7 +232,7 @@ public final class BlockFileHistoricPlugin implements BlockProviderPlugin, Block
     @Override
     public void handleVerification(VerificationNotification notification) {
         if (notification != null && notification.success()) {
-            writeBlockToLivePath(notification.block(), notification.blockNumber(), notification.source());
+            writeBlockToStagingPath(notification.block(), notification.blockNumber(), notification.source());
         }
 
         try {
@@ -244,7 +244,7 @@ public final class BlockFileHistoricPlugin implements BlockProviderPlugin, Block
         }
     }
 
-    private void writeBlockToLivePath(final BlockUnparsed block, final long blockNumber, final BlockSource source) {
+    private void writeBlockToStagingPath(final BlockUnparsed block, final long blockNumber, final BlockSource source) {
         final BlockSource effectiveSource = source == null ? UNKNOWN : source;
         if (block != null && block.blockItems() != null && !block.blockItems().isEmpty()) {
             if (block.blockItems().getFirst().hasBlockHeader()) {
@@ -256,19 +256,15 @@ public final class BlockFileHistoricPlugin implements BlockProviderPlugin, Block
                             "Block number mismatch between notification {0} and block header {1}, not writing block",
                             blockNumber,
                             headerNumber);
-                    sendBlockNotification(blockNumber, false, effectiveSource);
                 } else {
                     final Path verifiedBlockPath = BlockFile.nestedDirectoriesBlockFilePath(
                             config.stagingPath(), blockNumber, config.compression(), config.maxFilesPerDir());
                     createDirectoryOrFail(verifiedBlockPath);
-                    writeBlockOrFail(block, blockNumber, effectiveSource, verifiedBlockPath);
+                    writeBlockOrFail(block, blockNumber, verifiedBlockPath);
                 }
             } else {
-                LOGGER.log(INFO, "Block {0} has no block header, cannot write to live path", blockNumber);
-                sendBlockNotification(blockNumber, false, effectiveSource);
+                LOGGER.log(INFO, "Block {0} has no block header, cannot write to staging path", blockNumber);
             }
-        } else {
-            sendBlockNotification(blockNumber, false, effectiveSource);
         }
     }
 
@@ -280,11 +276,6 @@ public final class BlockFileHistoricPlugin implements BlockProviderPlugin, Block
             LOGGER.log(INFO, "Failed to parse block header", e);
             return null;
         }
-    }
-
-    private void sendBlockNotification(final long number, final boolean succeeded, final BlockSource source) {
-        context.blockMessaging()
-                .sendBlockPersisted(new PersistedNotification(number, succeeded, defaultPriority(), source));
     }
 
     private void createDirectoryOrFail(final Path verifiedBlockPath) {
@@ -299,8 +290,7 @@ public final class BlockFileHistoricPlugin implements BlockProviderPlugin, Block
         }
     }
 
-    private void writeBlockOrFail(
-            final BlockUnparsed block, final long blockNumber, final BlockSource source, final Path verifiedBlockPath) {
+    private void writeBlockOrFail(final BlockUnparsed block, final long blockNumber, final Path verifiedBlockPath) {
         try (final WritableStreamingData streamingData = new WritableStreamingData(new BufferedOutputStream(
                 config.compression().wrapStream(Files.newOutputStream(verifiedBlockPath)), 16384))) {
             BlockUnparsed.PROTOBUF.write(block, streamingData);
@@ -312,7 +302,6 @@ public final class BlockFileHistoricPlugin implements BlockProviderPlugin, Block
         } catch (final IOException e) {
             final String message = "Failed to write file for block %d due to %s".formatted(blockNumber, e);
             LOGGER.log(WARNING, message, e);
-            sendBlockNotification(blockNumber, false, source);
         }
     }
 
