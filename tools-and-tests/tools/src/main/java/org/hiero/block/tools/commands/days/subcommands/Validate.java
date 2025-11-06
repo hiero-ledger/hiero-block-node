@@ -5,7 +5,6 @@ import static java.nio.file.StandardOpenOption.CREATE;
 import static java.nio.file.StandardOpenOption.TRUNCATE_EXISTING;
 import static java.time.ZoneOffset.UTC;
 import static org.hiero.block.tools.commands.days.model.TarZstdDayUtils.parseDayFromFileName;
-import static org.hiero.block.tools.records.RecordFileUtils.extractRecordFileTime;
 
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
@@ -389,7 +388,7 @@ public class Validate implements Runnable {
                             final long totalProgressFinal = totalProgress.get();
                             double percent = ((double) processedSoFarAcrossAll / (double) totalProgressFinal) * 100.0;
                             long remainingMillis =
-                                    computeRemainingMilliseconds(processedSoFarAcrossAll, totalProgressFinal, elapsedMillis);
+                                    PrettyPrint.computeRemainingMilliseconds(processedSoFarAcrossAll, totalProgressFinal, elapsedMillis);
                             // Only print progress once per consensus-minute of blocks processed. Use epoch-second / 60
                             // to compute the minute bucket for the block's consensus time.
                             long blockMinute = block.recordFileTime().getEpochSecond() / 60L;
@@ -447,29 +446,6 @@ public class Validate implements Runnable {
         } catch (InterruptedException ignored) {
             Thread.currentThread().interrupt();
         }
-    }
-
-    /**
-     * Compute remaining milliseconds based on progress so far, total progress expected, and elapsed time.
-     *
-     * @param processedSoFarAcrossAll number of units processed so far
-     * @param totalProgressFinal      total number of units expected
-     * @param elapsedMillis           elapsed time in milliseconds
-     * @return estimated remaining time in milliseconds
-     */
-    private static long computeRemainingMilliseconds(
-            long processedSoFarAcrossAll, long totalProgressFinal, long elapsedMillis) {
-        long remainingMillis;
-        if (processedSoFarAcrossAll > 0) {
-            long remainingUnits = totalProgressFinal - processedSoFarAcrossAll;
-            remainingMillis = (long) ((elapsedMillis * (double) remainingUnits) / (double) processedSoFarAcrossAll);
-            if (remainingMillis < 0) {
-                remainingMillis = 0;
-            }
-        } else {
-            remainingMillis = Long.MAX_VALUE; // unknown ETA at the very start
-        }
-        return remainingMillis;
     }
 
     /**
