@@ -19,7 +19,6 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
-import java.text.MessageFormat;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Objects;
@@ -182,8 +181,7 @@ class ZipBlockArchive {
             } catch (final Exception e) {
                 LOGGER.log(ERROR, "Error reading directory: " + lowestPath, e);
 
-                final String shutdownMessage =
-                        MessageFormat.format("Error reading directory: {0} because {1}", lowestPath, e.getMessage());
+                final String shutdownMessage = "Error reading directory %s because %s.".formatted(lowestPath, e);
 
                 context.serverHealth().shutdown(ZipBlockArchive.class.getName(), shutdownMessage);
                 lowestPath = null;
