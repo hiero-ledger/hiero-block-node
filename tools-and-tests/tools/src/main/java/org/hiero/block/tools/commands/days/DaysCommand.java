@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.tools.commands.days;
 
+import org.hiero.block.tools.commands.days.subcommands.CleanDayOfBadRecordSets;
 import org.hiero.block.tools.commands.days.subcommands.Compress;
 import org.hiero.block.tools.commands.days.subcommands.DownloadDay;
 import org.hiero.block.tools.commands.days.subcommands.DownloadDays;
@@ -34,7 +35,8 @@ import picocli.CommandLine.Spec;
         PrintListing.class,
         LsDayListing.class,
         ToWrappedBlocksCommand.class,
-        SplitJsonToDayFiles.class
+        SplitJsonToDayFiles.class,
+        CleanDayOfBadRecordSets.class
     },
     mixinStandardHelpOptions = true)
 public class DaysCommand implements Runnable {
