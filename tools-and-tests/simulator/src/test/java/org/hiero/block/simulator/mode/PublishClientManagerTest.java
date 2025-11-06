@@ -27,6 +27,7 @@ import org.hiero.block.simulator.config.data.GrpcConfig;
 import org.hiero.block.simulator.config.data.SimulatorStartupDataConfig;
 import org.hiero.block.simulator.config.data.UnorderedStreamConfig;
 import org.hiero.block.simulator.config.types.EndStreamMode;
+import org.hiero.block.simulator.exception.BlockSimulatorParsingException;
 import org.hiero.block.simulator.generator.BlockStreamManager;
 import org.hiero.block.simulator.generator.CraftBlockStreamManager;
 import org.hiero.block.simulator.grpc.PublishStreamGrpcClient;
@@ -83,7 +84,7 @@ class PublishClientManagerTest {
     }
 
     @Test
-    void handleEndOfStreamOnSuccess() throws Exception {
+    void handleEndOfStreamOnSuccess() throws BlockSimulatorParsingException, IOException, InterruptedException {
         Block nextBlock = createBlocks(0, 1);
         PublishStreamResponse response = mock(PublishStreamResponse.class);
         PublishStreamResponse.EndOfStream endOfStream = mock(PublishStreamResponse.EndOfStream.class);
@@ -100,7 +101,7 @@ class PublishClientManagerTest {
     }
 
     @Test
-    void handleEndOfStreamOnBehind() throws Exception {
+    void handleEndOfStreamOnBehind() throws BlockSimulatorParsingException, IOException, InterruptedException {
         Block nextBlock = createBlocks(0, 1);
         PublishStreamResponse response = mock(PublishStreamResponse.class);
         PublishStreamResponse.EndOfStream endOfStream = mock(PublishStreamResponse.EndOfStream.class);
@@ -117,7 +118,7 @@ class PublishClientManagerTest {
     }
 
     @Test
-    void handleEndOfStreamOnDuplicateBlock() throws Exception {
+    void handleEndOfStreamOnDuplicateBlock() throws BlockSimulatorParsingException, IOException, InterruptedException {
         Block nextBlock = createBlocks(0, 1);
         PublishStreamResponse response = mock(PublishStreamResponse.class);
         PublishStreamResponse.EndOfStream endOfStream = mock(PublishStreamResponse.EndOfStream.class);
@@ -134,7 +135,7 @@ class PublishClientManagerTest {
     }
 
     @Test
-    void handleEndOfStreamOnTimeout() throws Exception {
+    void handleEndOfStreamOnTimeout() throws BlockSimulatorParsingException, IOException, InterruptedException {
         Block nextBlock = createBlocks(0, 1);
         PublishStreamResponse response = mock(PublishStreamResponse.class);
         PublishStreamResponse.EndOfStream endOfStream = mock(PublishStreamResponse.EndOfStream.class);
@@ -151,7 +152,7 @@ class PublishClientManagerTest {
     }
 
     @Test
-    void handleEndOfStreamOnBadBlockProof() throws Exception {
+    void handleEndOfStreamOnBadBlockProof() throws BlockSimulatorParsingException, IOException, InterruptedException {
         Block nextBlock = createBlocks(0, 1);
         PublishStreamResponse response = mock(PublishStreamResponse.class);
         PublishStreamResponse.EndOfStream endOfStream = mock(PublishStreamResponse.EndOfStream.class);
@@ -168,7 +169,7 @@ class PublishClientManagerTest {
     }
 
     @Test
-    void handleEndOfStreamOnInternalError() throws Exception {
+    void handleEndOfStreamOnInternalError() throws BlockSimulatorParsingException, IOException, InterruptedException {
         Block nextBlock = createBlocks(0, 1);
         PublishStreamResponse response = mock(PublishStreamResponse.class);
         PublishStreamResponse.EndOfStream endOfStream = mock(PublishStreamResponse.EndOfStream.class);
@@ -185,7 +186,8 @@ class PublishClientManagerTest {
     }
 
     @Test
-    void handleEndOfStreamOnPersistenceFailed() throws Exception {
+    void handleEndOfStreamOnPersistenceFailed()
+            throws BlockSimulatorParsingException, IOException, InterruptedException {
         Block nextBlock = createBlocks(0, 1);
         PublishStreamResponse response = mock(PublishStreamResponse.class);
         PublishStreamResponse.EndOfStream endOfStream = mock(PublishStreamResponse.EndOfStream.class);
@@ -202,7 +204,7 @@ class PublishClientManagerTest {
     }
 
     @Test
-    void handleResendBlock() throws Exception {
+    void handleResendBlock() throws BlockSimulatorParsingException, IOException, InterruptedException {
         Block nextBlock = createBlocks(0, 1);
         PublishStreamResponse response = mock(PublishStreamResponse.class);
         PublishStreamResponse.ResendBlock resendBlock = mock(PublishStreamResponse.ResendBlock.class);
@@ -218,7 +220,7 @@ class PublishClientManagerTest {
     }
 
     @Test
-    void handleSkipBlock() throws Exception {
+    void handleSkipBlock() throws BlockSimulatorParsingException, IOException, InterruptedException {
         Block nextBlock = createBlocks(0, 1);
         PublishStreamResponse response = mock(PublishStreamResponse.class);
         PublishStreamResponse.SkipBlock skipBlock = mock(PublishStreamResponse.SkipBlock.class);
@@ -235,7 +237,8 @@ class PublishClientManagerTest {
 
     @ParameterizedTest
     @MethodSource("provideEndStreamMode")
-    void sendEndStream(EndStreamMode endStreamMode, EndStream.Code endStreamCode) throws Exception {
+    void sendEndStream(EndStreamMode endStreamMode, EndStream.Code endStreamCode)
+            throws BlockSimulatorParsingException, IOException, InterruptedException {
         publishClientManager.sendEndStream(endStreamMode);
         verify(publishStreamGrpcClient).handleEndStreamModeIfSet(endStreamCode);
     }

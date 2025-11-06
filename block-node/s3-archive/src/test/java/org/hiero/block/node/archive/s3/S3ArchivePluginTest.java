@@ -17,11 +17,13 @@ import io.minio.ListObjectsArgs;
 import io.minio.MakeBucketArgs;
 import io.minio.MinioClient;
 import io.minio.RemoveBucketArgs;
+import io.minio.errors.MinioException;
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.security.GeneralSecurityException;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneOffset;
@@ -66,7 +68,7 @@ class S3ArchivePluginTest extends PluginTestBase<S3ArchivePlugin, ExecutorServic
     private final MinioClient minioClient;
 
     @SuppressWarnings("resource")
-    public S3ArchivePluginTest() throws Exception {
+    public S3ArchivePluginTest() throws GeneralSecurityException, IOException, MinioException {
         super(Executors.newSingleThreadExecutor());
         // Start MinIO container
         GenericContainer<?> minioContainer = new GenericContainer<>("minio/minio:latest")
@@ -97,7 +99,7 @@ class S3ArchivePluginTest extends PluginTestBase<S3ArchivePlugin, ExecutorServic
 
     @Test
     @DisplayName("ArchivePlugin should upload a tar file for single batch of blocks")
-    void startWithSingleBatch(@TempDir Path tempDir) throws Exception {
+    void startWithSingleBatch(@TempDir Path tempDir) throws IOException, InterruptedException {
         // create 10 sample blocks, this should trigger the plugin to archive them
         sendBlocks(START_TIME, 0, 9);
         // await archive task to complete
@@ -214,17 +216,17 @@ class S3ArchivePluginTest extends PluginTestBase<S3ArchivePlugin, ExecutorServic
         });
     }
 
-    private void createTestBucket() throws Exception {
+    private void createTestBucket() throws GeneralSecurityException, IOException, MinioException {
         minioClient.makeBucket(MakeBucketArgs.builder().bucket(BUCKET_NAME).build());
         assertTrue(testBucketExists());
     }
 
-    private void removeTestBucket() throws Exception {
+    private void removeTestBucket() throws GeneralSecurityException, IOException, MinioException {
         minioClient.removeBucket(RemoveBucketArgs.builder().bucket(BUCKET_NAME).build());
         assertFalse(testBucketExists());
     }
 
-    private boolean testBucketExists() throws Exception {
+    private boolean testBucketExists() throws GeneralSecurityException, IOException, MinioException {
         return minioClient.bucketExists(
                 BucketExistsArgs.builder().bucket(BUCKET_NAME).build());
     }
