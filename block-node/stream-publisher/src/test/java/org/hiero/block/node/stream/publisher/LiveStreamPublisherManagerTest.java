@@ -533,7 +533,8 @@ class LiveStreamPublisherManagerTest {
                     // Sleep briefly to avoid a hot spin while still reacting quickly when the metric changes.
                     Thread.sleep(10L);
                 }
-                // If we reach here, the timeout elapsed without observing an increment; let the caller assert as needed.
+                // If we reach here, the timeout elapsed without observing an increment; let the caller assert as
+                // needed.
             }
 
             /**
@@ -546,7 +547,8 @@ class LiveStreamPublisherManagerTest {
                 final long blockNum = 0L;
 
                 // Build at least one synthetic block item for the block we will close.
-                final BlockItemUnparsed[] items = SimpleTestBlockItemBuilder.createSimpleBlockUnparsedWithNumber(blockNum);
+                final BlockItemUnparsed[] items =
+                        SimpleTestBlockItemBuilder.createSimpleBlockUnparsedWithNumber(blockNum);
                 // Wrap items into a request payload for the publisher.
                 final PublishStreamRequestUnparsed req = PublishStreamRequestUnparsed.newBuilder()
                         .blockItems(BlockItemSetUnparsed.newBuilder()
@@ -572,11 +574,13 @@ class LiveStreamPublisherManagerTest {
                 // Close the block; this should increment the immediate metric synchronously.
                 toTest.closeBlock(blockNum);
 
-                // Immediate metric should reflect one close; the messaging facility remains empty until the forwarder runs.
+                // Immediate metric should reflect one close; the messaging facility remains empty until the forwarder
+                // runs.
                 assertThat(managerMetrics.blocksClosedComplete().get()).isEqualTo(beforeClosed + 1);
                 assertThat(messagingFacility.getSentBlockItems()).isEmpty();
 
-                // Ask the test executor to drain queued tasks; allow-empty=true avoids throwing when queue is momentarily empty.
+                // Ask the test executor to drain queued tasks; allow-empty=true avoids throwing when queue is
+                // momentarily empty.
                 drainExecutorQuietly(1_000L);
                 // Wait (up to 3s) for the batches metric to increase beyond its baseline.
                 awaitBatchesIncrement(beforeBatches, 3_000L);
@@ -586,8 +590,10 @@ class LiveStreamPublisherManagerTest {
                 // The in-memory messaging facility should now contain exactly two batches for this block.
                 assertThat(messagingFacility.getSentBlockItems()).hasSize(2);
                 // Each batch should contain the same number of items we enqueued.
-                assertThat(messagingFacility.getSentBlockItems().get(0).blockItems()).hasSize(items.length);
-                assertThat(messagingFacility.getSentBlockItems().get(1).blockItems()).hasSize(items.length);
+                assertThat(messagingFacility.getSentBlockItems().get(0).blockItems())
+                        .hasSize(items.length);
+                assertThat(messagingFacility.getSentBlockItems().get(1).blockItems())
+                        .hasSize(items.length);
             }
 
             /**
@@ -705,8 +711,10 @@ class LiveStreamPublisherManagerTest {
                 assertThat(managerMetrics.blockBatchesMessaged().get()).isEqualTo(beforeBatches + 4);
                 assertThat(messagingFacility.getSentBlockItems()).hasSize(4);
                 // Validate the two new batches (indices 2 and 3) have the expected item count.
-                assertThat(messagingFacility.getSentBlockItems().get(2).blockItems()).hasSize(items1.length);
-                assertThat(messagingFacility.getSentBlockItems().get(3).blockItems()).hasSize(items1.length);
+                assertThat(messagingFacility.getSentBlockItems().get(2).blockItems())
+                        .hasSize(items1.length);
+                assertThat(messagingFacility.getSentBlockItems().get(3).blockItems())
+                        .hasSize(items1.length);
             }
 
             /**
@@ -739,7 +747,8 @@ class LiveStreamPublisherManagerTest {
                 final long beforeBatches = managerMetrics.blockBatchesMessaged().get();
                 final long beforeClosed = managerMetrics.blocksClosedComplete().get();
 
-                // Call closeBlock multiple times before draining; implementation should record only one completion immediately.
+                // Call closeBlock multiple times before draining; implementation should record only one completion
+                // immediately.
                 toTest.closeBlock(blockNum);
                 toTest.closeBlock(blockNum);
                 toTest.closeBlock(blockNum);
@@ -757,7 +766,12 @@ class LiveStreamPublisherManagerTest {
                 assertThat(managerMetrics.blockBatchesMessaged().get()).isGreaterThan(beforeBatches);
                 assertThat(messagingFacility.getSentBlockItems()).isNotEmpty();
                 // And that the first batch has exactly the number of items we published.
-                assertThat(messagingFacility.getSentBlockItems().get(0).blockItems().size()).isEqualTo(items.length);
+                assertThat(messagingFacility
+                                .getSentBlockItems()
+                                .get(0)
+                                .blockItems()
+                                .size())
+                        .isEqualTo(items.length);
             }
         }
 
