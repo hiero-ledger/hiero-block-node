@@ -15,6 +15,7 @@ tasks.withType<JavaExec>().configureEach {
     modularity.inferModulePath = true
     val serverDataDir = layout.buildDirectory.get().dir("block-node-storage")
     environment("FILES_HISTORIC_ROOT_PATH", "${serverDataDir}/files-historic")
+    environment("FILES_HISTORIC_STAGING_PATH", "${serverDataDir}/files-historic-staging")
     environment("FILES_RECENT_LIVE_ROOT_PATH", "${serverDataDir}/files-live")
     environment("FILES_RECENT_UNVERIFIED_ROOT_PATH", "${serverDataDir}/files-unverified")
 }
@@ -36,6 +37,7 @@ tasks.register<JavaExec>("runWithCleanStorage") {
         }
     }
     environment("FILES_HISTORIC_ROOT_PATH", "${serverDataDir}/files-historic")
+    environment("FILES_HISTORIC_STAGING_PATH", "${serverDataDir}/files-historic-staging")
     environment("FILES_RECENT_LIVE_ROOT_PATH", "${serverDataDir}/files-live")
     environment("FILES_RECENT_UNVERIFIED_ROOT_PATH", "${serverDataDir}/files-unverified")
 }
