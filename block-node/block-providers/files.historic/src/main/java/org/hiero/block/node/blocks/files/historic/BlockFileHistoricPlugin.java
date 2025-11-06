@@ -7,7 +7,6 @@ import static java.lang.System.Logger.Level.INFO;
 import static java.lang.System.Logger.Level.TRACE;
 import static java.lang.System.Logger.Level.WARNING;
 import static org.hiero.block.node.base.BlockFile.nestedDirectoriesAllBlockNumbers;
-import static org.hiero.block.node.spi.blockmessaging.BlockSource.UNKNOWN;
 
 import com.hedera.hapi.block.stream.output.BlockHeader;
 import com.hedera.pbj.runtime.ParseException;
@@ -245,7 +244,6 @@ public final class BlockFileHistoricPlugin implements BlockProviderPlugin, Block
     }
 
     private void writeBlockToStagingPath(final BlockUnparsed block, final long blockNumber, final BlockSource source) {
-        final BlockSource effectiveSource = source == null ? UNKNOWN : source;
         if (block != null && block.blockItems() != null && !block.blockItems().isEmpty()) {
             if (block.blockItems().getFirst().hasBlockHeader()) {
                 final BlockHeader header = getBlockHeader(block);

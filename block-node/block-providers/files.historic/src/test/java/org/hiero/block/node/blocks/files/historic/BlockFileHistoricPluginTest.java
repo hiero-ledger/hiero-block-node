@@ -54,7 +54,7 @@ import org.junit.jupiter.api.io.TempDir;
 class BlockFileHistoricPluginTest {
     /** TempDir for the current test */
     private final Path testTempDir;
-
+    /** Staging path for the current test */
     private final Path stagingPath;
 
     /** The test block messaging facility to use for testing. */
@@ -67,9 +67,9 @@ class BlockFileHistoricPluginTest {
     /**
      * Construct test environment.
      */
-    BlockFileHistoricPluginTest(@TempDir final Path tempDir, @TempDir final Path blocksTempDir) {
+    BlockFileHistoricPluginTest(@TempDir final Path tempDir, @TempDir final Path stagingPath) {
         this.testTempDir = Objects.requireNonNull(tempDir);
-        this.stagingPath = Objects.requireNonNull(blocksTempDir);
+        this.stagingPath = Objects.requireNonNull(stagingPath);
         // generate test config, for the purposes of this test, we will always
         // use 10 blocks per zip, assuming that the first zip file will contain
         // for example blocks 0-9, the second zip file will contain blocks 10-19
@@ -187,7 +187,7 @@ class BlockFileHistoricPluginTest {
          */
         @Test
         @DisplayName("Test happy path zip successful archival")
-        void testZipRangeHappyPathArchival() throws IOException, InterruptedException {
+        void testZipRangeHappyPathArchival() throws IOException {
             // generate first 10 blocks from numbers 0-9 and add them to the
             // test historical block facility
             for (int i = 0; i < 10; i++) {

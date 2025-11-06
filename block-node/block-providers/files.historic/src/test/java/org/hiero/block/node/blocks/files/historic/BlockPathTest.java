@@ -38,8 +38,8 @@ class BlockPathTest {
     private FileSystem jimfs;
     /** The temporary directory for the test. */
     private Path tempDir;
-
-    private Path blocksTempDir;
+    /** The block staging path for the test. */
+    private Path blockStagingPath;
 
     /** Set up the test environment before each test. */
     @BeforeEach
@@ -47,10 +47,10 @@ class BlockPathTest {
         // Initialize the in-memory file system
         jimfs = Jimfs.newFileSystem(Configuration.unix());
         tempDir = jimfs.getPath("/blocks");
-        blocksTempDir = jimfs.getPath("/blocks-temp");
+        blockStagingPath = jimfs.getPath("/blocks-staging");
 
         Files.createDirectories(tempDir);
-        Files.createDirectories(blocksTempDir);
+        Files.createDirectories(blockStagingPath);
     }
 
     /** Tear down the test environment after each test. */
@@ -236,7 +236,7 @@ class BlockPathTest {
             final Path expectedDirPath = expectedZipFilePath.getParent();
             // create the config to use for the test, resolve paths with jimfs
             final FilesHistoricConfig testConfig = new FilesHistoricConfig(
-                    tempDir, expectedCompressionType, digitsPerZipFileContents, 0L, blocksTempDir, 3);
+                    tempDir, expectedCompressionType, digitsPerZipFileContents, 0L, blockStagingPath, 3);
             final BlockPath actual = BlockPath.computeBlockPath(testConfig, blockNumber);
             assertThat(actual)
                     .isNotNull()
@@ -272,7 +272,7 @@ class BlockPathTest {
             // create the config to use for the test, resolve paths temp dir as jimfs does not support
             // the File abstraction
             final FilesHistoricConfig testConfig = new FilesHistoricConfig(
-                    tempDir, expectedCompressionType, digitsPerZipFileContents, 0L, blocksTempDir, 3);
+                    tempDir, expectedCompressionType, digitsPerZipFileContents, 0L, blockStagingPath, 3);
             // create the zip file and directory and add entry
             createZipAndAddEntry(expectedDirPath, expectedZipFilePath, expectedBlockFileName);
             // call
@@ -320,7 +320,7 @@ class BlockPathTest {
             // create the config to use for the test, resolve paths temp dir as jimfs does not support
             // the File abstraction
             final FilesHistoricConfig testConfig = new FilesHistoricConfig(
-                    tempDir, differentCompressionType, digitsPerZipFileContents, 0L, blocksTempDir, 3);
+                    tempDir, differentCompressionType, digitsPerZipFileContents, 0L, blockStagingPath, 3);
             // create the zip file and directory and add entry
             createZipAndAddEntry(expectedDirPath, expectedZipFilePath, expectedBlockFileName);
             // call
@@ -351,7 +351,7 @@ class BlockPathTest {
             final CompressionType expectedCompressionType = argAccessor.get(4, CompressionType.class);
             final int digitsPerZipFileContents = argAccessor.getInteger(5);
             final FilesHistoricConfig testConfig = new FilesHistoricConfig(
-                    tempDir, expectedCompressionType, digitsPerZipFileContents, 0L, blocksTempDir, 3);
+                    tempDir, expectedCompressionType, digitsPerZipFileContents, 0L, blockStagingPath, 3);
             // call
             final BlockPath actual = BlockPath.computeExistingBlockPath(testConfig, blockNumber);
             assertThat(actual).isNull();
@@ -379,7 +379,7 @@ class BlockPathTest {
             final Path expectedDirPath = expectedZipFilePath.getParent();
             // create the config to use for the test
             final FilesHistoricConfig testConfig = new FilesHistoricConfig(
-                    tempDir, expectedCompressionType, digitsPerZipFileContents, 0L, blocksTempDir, 3);
+                    tempDir, expectedCompressionType, digitsPerZipFileContents, 0L, blockStagingPath, 3);
             // create the zip file and directory and add entry
             createZipAndAddEntry(expectedDirPath, expectedZipFilePath, "nonexistent.blk.zstd");
             // call

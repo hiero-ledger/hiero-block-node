@@ -59,7 +59,7 @@ class ZipBlockArchiveTest {
     void setup() throws IOException {
         jimFs = Jimfs.newFileSystem(com.google.common.jimfs.Configuration.unix());
         final Path blocksRoot = jimFs.getPath("/blocks");
-        final Path blocksTemp = jimFs.getPath("/blocks-temp");
+        final Path blocksTemp = jimFs.getPath("/blocks-staging");
         Files.createDirectories(blocksRoot);
         Files.createDirectories(blocksTemp);
         testConfig = createTestConfiguration(blocksRoot, 1, blocksTemp);
