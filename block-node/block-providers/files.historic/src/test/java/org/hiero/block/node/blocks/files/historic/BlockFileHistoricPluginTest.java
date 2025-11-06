@@ -36,7 +36,6 @@ import org.hiero.block.node.app.fixtures.plugintest.TestHealthFacility;
 import org.hiero.block.node.base.CompressionType;
 import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.ServiceBuilder;
-import org.hiero.block.node.spi.blockmessaging.BlockItems;
 import org.hiero.block.node.spi.blockmessaging.BlockSource;
 import org.hiero.block.node.spi.blockmessaging.PersistedNotification;
 import org.hiero.block.node.spi.blockmessaging.VerificationNotification;
@@ -328,16 +327,14 @@ class BlockFileHistoricPluginTest {
             final List<BlockUnparsed> expectedBlocks = new ArrayList<>();
             for (int i = 0; i < 10; i++) {
                 final BlockItemUnparsed[] block = SimpleTestBlockItemBuilder.createSimpleBlockUnparsedWithNumber(i);
-                testHistoricalBlockFacility.handleBlockItemsReceived(new BlockItems(List.of(block), i), false);
+                blockMessaging.sendBlockVerification(new VerificationNotification(
+                        true, i, Bytes.EMPTY, new BlockUnparsed(List.of(block)), BlockSource.PUBLISHER));
                 expectedBlocks.add(new BlockUnparsed(List.of(block)));
             }
             // assert that none of the first 10 blocks are zipped yet
             for (int i = 0; i < 10; i++) {
                 assertThat(BlockPath.computeExistingBlockPath(testConfig, i)).isNull();
             }
-            // send a block persisted notification for the range we just created
-            blockMessaging.sendBlockPersisted(
-                    new PersistedNotification(9, true, toTest.defaultPriority() + 1, BlockSource.PUBLISHER));
             // execute serially to ensure all tasks are completed
             pluginExecutor.executeSerially();
             // assert the contents of the zip file
@@ -347,7 +344,8 @@ class BlockFileHistoricPluginTest {
                     // assert that the zip entry exists
                     final Path zipEntryPath = zipFs.getPath(blockPath.blockFileName());
                     assertThat(zipEntryPath).exists().isRegularFile();
-                    final byte[] zipEntryBytes = Files.readAllBytes(zipEntryPath);
+                    final byte[] zipEntryBytes =
+                            blockPath.compressionType().decompress(Files.readAllBytes(zipEntryPath));
                     final BlockUnparsed actual = BlockUnparsed.PROTOBUF.parse(Bytes.wrap(zipEntryBytes));
                     assertThat(actual).isEqualTo(expectedBlocks.get(i));
                     // assert that the block file exists
