@@ -27,14 +27,14 @@ import org.hiero.block.tools.records.InMemoryFile;
  * ----------------------------------------------------
  * High-throughput concurrent downloader for Google Cloud Storage (GCS) objects
  * from hosts OUTSIDE GCP, tuned for billions of small files (1 KB – 3 MB).
- *
+ * <pre>
  * Design overview:
  *  - Uses Java 21 virtual threads (Loom) for lightweight, massive concurrency.
  *    Concurrency is still bounded by an adaptive gate (AIMD control) so we
  *    never exceed what GCS (or your network) will tolerate.
  *  - Per-object exponential backoff with full jitter following GCS guidance:
- *      https://cloud.google.com/storage/docs/request-rate
- *      https://cloud.google.com/storage/docs/retry-strategy
+ *      <a href="https://cloud.google.com/storage/docs/request-rate">request-rate</a>
+ *      <a href="https://cloud.google.com/storage/docs/retry-strategy">retry-strategy</a>
  *  - Detects common rate-limit/server/network conditions (HTTP 408/429/5xx,
  *    SocketTimeoutException, IOExceptions) — including patterns like
  *    RetryBudgetExhausted/Read timed out observed in google-cloud-storage.
@@ -85,6 +85,7 @@ import org.hiero.block.tools.records.InMemoryFile;
  *       // ...convert/process/write later...
  *     }
  *   }
+ * </pre>
  */
 public final class ConcurrentDownloadManagerVirtualThreads implements
     ConcurrentDownloadManager {
@@ -269,6 +270,32 @@ public final class ConcurrentDownloadManagerVirtualThreads implements
                 objectsCompleted.incrementAndGet();
                 return new InMemoryFile(Path.of(objectName), data);
             } catch (Throwable t) {
+                // Special handling for GCS PERMISSION_DENIED: back-off all downloads for 15 minutes
+                // and retry up to 10 times, printing a warning to System.err.
+                StorageException se = rootStorageException(t);
+                if (se != null && se.getMessage() != null && se.getMessage().toUpperCase().contains("PERMISSION_DENIED")) {
+                    final int permissionDeniedMaxAttempts = 10;
+                    System.err.println("[WARN] Permission denied from GCS while downloading '" + objectName
+                        + "' (attempt " + attempt + " of " + permissionDeniedMaxAttempts + "). Backing off all downloads for 15 minutes before retrying.");
+                    // Reduce concurrency to minimum to relieve pressure and mark cooldown to pause ramp-up
+                    try {
+                        gate.setLimit(1); // set to 1 will be clamped to minLimit inside AdaptiveGate
+                    } catch (Exception ignore) {
+                        // ignore any unexpected failure setting gate limit
+                    }
+                    errorWindow.startCooldown(Duration.ofMinutes(15));
+
+                    if (attempt >= permissionDeniedMaxAttempts) {
+                        maybeCutConcurrency(t);
+                        if (t instanceof RuntimeException re) throw re;
+                        throw new CompletionException(t);
+                    }
+                    // Sleep for the full 15 minutes (in ms) before next retry for this object
+                    quietlySleep(Duration.ofMinutes(15).toMillis());
+                    // restart loop to retry
+                    continue;
+                }
+
                 boolean retriable = retryPolicy.isRetriable(t);
                 errorWindow.recordError(retriable);
                 if (!retriable || attempt >= retryPolicy.maxAttempts) {
@@ -334,6 +361,11 @@ public final class ConcurrentDownloadManagerVirtualThreads implements
         return null;
     }
 
+    /**
+     * Sleep quietly, restoring interrupt status if interrupted.
+     *
+     * @param ms milliseconds to sleep
+     */
     private static void quietlySleep(long ms) {
         try { Thread.sleep(ms); } catch (InterruptedException ie) { Thread.currentThread().interrupt(); }
     }
@@ -399,18 +431,9 @@ public final class ConcurrentDownloadManagerVirtualThreads implements
     }
 
     /** Simple container for retry/backoff knobs and predicate. */
-    private static final class RetryPolicy {
-        final int maxAttempts;
-        final Duration initialBackoff;
-        final Duration maxBackoff;
-        final Predicate<Throwable> retriable;
-        RetryPolicy(int maxAttempts, Duration initialBackoff, Duration maxBackoff, Predicate<Throwable> retriable) {
-            this.maxAttempts = maxAttempts;
-            this.initialBackoff = initialBackoff;
-            this.maxBackoff = maxBackoff;
-            this.retriable = retriable;
-        }
-        boolean isRetriable(Throwable t) { return retriable.test(t); }
+    private record RetryPolicy(int maxAttempts, Duration initialBackoff, Duration maxBackoff,
+                               Predicate<Throwable> retriable) {
+        boolean isRetriable(Throwable t) {return retriable.test(t);}
     }
 
     /** Adaptive concurrency gate with AIMD control. */
@@ -453,8 +476,7 @@ public final class ConcurrentDownloadManagerVirtualThreads implements
         }
         void setLimit(int newLimit) {
             synchronized (lock) {
-                int clamped = Math.max(minLimit, Math.min(maxLimit, newLimit));
-                limit = clamped;
+                limit = Math.max(minLimit, Math.min(maxLimit, newLimit));
                 lock.notifyAll();
             }
         }
