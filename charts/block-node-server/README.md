@@ -223,7 +223,7 @@ Error: failed to perform "fetchReference" on source: ghcr.io/hiero-ledger/hiero-
 
 **Cause:**
 
-The specified chart version does not exist in the registry, or the OCI registry path has changed.
+The specified chart version or name does not exist in the registry, or the OCI registry path has changed.
 
 **Solution:**
 
