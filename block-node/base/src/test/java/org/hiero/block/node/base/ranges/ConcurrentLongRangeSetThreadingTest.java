@@ -7,11 +7,13 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.DisplayName;
@@ -35,7 +37,7 @@ class ConcurrentLongRangeSetThreadingTest {
     @Test
     @DisplayName("Concurrent additions should not lose or corrupt data")
     @Timeout(value = 10, unit = TimeUnit.SECONDS)
-    void testConcurrentAdditions() throws Exception {
+    void testConcurrentAdditions() throws ExecutionException, InterruptedException {
         final ConcurrentLongRangeSet set = new ConcurrentLongRangeSet();
         final CountDownLatch startLatch = new CountDownLatch(1);
         final List<Future<?>> futures = new ArrayList<>();
@@ -89,7 +91,7 @@ class ConcurrentLongRangeSetThreadingTest {
     @Test
     @DisplayName("Concurrent removals should not corrupt data")
     @Timeout(value = 10, unit = TimeUnit.SECONDS)
-    void testConcurrentRemovals() throws Exception {
+    void testConcurrentRemovals() throws ExecutionException, InterruptedException {
         // Initialize with a large continuous range
         final ConcurrentLongRangeSet set = new ConcurrentLongRangeSet(0, THREAD_COUNT * OPERATIONS_PER_THREAD * 2L - 1);
 
@@ -135,7 +137,7 @@ class ConcurrentLongRangeSetThreadingTest {
     @Test
     @DisplayName("Concurrent mixed operations should not corrupt data")
     @Timeout(value = 10, unit = TimeUnit.SECONDS)
-    void testConcurrentMixedOperations() throws Exception {
+    void testConcurrentMixedOperations() throws ExecutionException, InterruptedException {
         final ConcurrentLongRangeSet set = new ConcurrentLongRangeSet();
         final CountDownLatch startLatch = new CountDownLatch(1);
         final List<Future<?>> futures = new ArrayList<>();
@@ -192,7 +194,7 @@ class ConcurrentLongRangeSetThreadingTest {
     @Test
     @DisplayName("High contention operations should complete without deadlock or corruption")
     @Timeout(value = 15, unit = TimeUnit.SECONDS)
-    void testHighContention() throws Exception {
+    void testHighContention() throws ExecutionException, InterruptedException {
         final ConcurrentLongRangeSet set = new ConcurrentLongRangeSet();
         final CountDownLatch startLatch = new CountDownLatch(1);
         final List<Future<?>> futures = new ArrayList<>();
@@ -247,7 +249,7 @@ class ConcurrentLongRangeSetThreadingTest {
     @Test
     @DisplayName("Operations should be lock-free")
     @Timeout(value = 10, unit = TimeUnit.SECONDS)
-    void testOperationsAreLockFree() throws Exception {
+    void testOperationsAreLockFree() throws ExecutionException, InterruptedException, TimeoutException {
         final ConcurrentLongRangeSet set = new ConcurrentLongRangeSet();
         final AtomicBoolean slowThreadRunning = new AtomicBoolean(true);
         final AtomicInteger completedOperations = new AtomicInteger(0);
@@ -313,7 +315,7 @@ class ConcurrentLongRangeSetThreadingTest {
     @ValueSource(ints = {1, 2, 4, 8, 16})
     @DisplayName("Performance should scale reasonably with thread count")
     @Timeout(value = 30, unit = TimeUnit.SECONDS)
-    void testConcurrentPerformance(int threadCount) throws Exception {
+    void testConcurrentPerformance(int threadCount) throws ExecutionException, InterruptedException {
         // Skip this test if we don't have enough cores for the higher thread counts
         if (threadCount > Runtime.getRuntime().availableProcessors() * 2) {
             return;

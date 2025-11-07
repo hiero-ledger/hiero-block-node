@@ -106,7 +106,7 @@ class PublishStreamObserverTest {
     }
 
     @Test
-    void verifyUpdateLatestAckBlockStartupDataHandlesIOException() throws Exception {
+    void verifyUpdateLatestAckBlockStartupDataHandlesIOException() throws IOException {
         PublishStreamResponse response = PublishStreamResponse.newBuilder()
                 .setAcknowledgement(
                         PublishStreamResponse.BlockAcknowledgement.newBuilder().setBlockNumber(12345L))

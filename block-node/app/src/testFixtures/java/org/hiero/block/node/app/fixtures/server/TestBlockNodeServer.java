@@ -34,6 +34,7 @@ public class TestBlockNodeServer {
                     if (historicalBlockFacility
                             .availableBlocks()
                             .contains(request.startBlockNumber(), request.endBlockNumber())) {
+                        // publishes one set of block items and an EndOfBlock response for each block
                         for (long i = request.startBlockNumber(); i <= request.endBlockNumber(); i++) {
                             replies.onNext(SubscribeStreamResponse.newBuilder()
                                     .blockItems(BlockItemSet.newBuilder()
