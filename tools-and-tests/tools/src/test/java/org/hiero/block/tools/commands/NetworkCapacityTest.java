@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.ByteArrayOutputStream;
+import java.io.IOException;
 import java.io.PrintStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -22,13 +23,13 @@ class NetworkCapacityTest {
     private Path configFile;
 
     @BeforeEach
-    void setUp() throws Exception {
+    void setUp() throws IOException {
         configFile = Files.createTempFile(tempDir, "network-capacity-config", ".json");
         Files.writeString(configFile, "{}");
     }
 
     @Test
-    void serverModeWithoutPortPrintsHelpfulError() throws Exception {
+    void serverModeWithoutPortPrintsHelpfulError() {
         ExecutionResult result = executeCommand("--mode", "server", "--config", configFile.toString());
 
         assertEquals(0, result.exitCode());
@@ -38,7 +39,7 @@ class NetworkCapacityTest {
     }
 
     @Test
-    void clientModeWithoutRecordingFolderPrintsHelpfulError() throws Exception {
+    void clientModeWithoutRecordingFolderPrintsHelpfulError() {
         ExecutionResult result = executeCommand(
                 "--mode",
                 "client",
@@ -58,7 +59,7 @@ class NetworkCapacityTest {
     }
 
     @Test
-    void clientModeWithMissingFolderReportsError() throws Exception {
+    void clientModeWithMissingFolderReportsError() {
         Path missingFolder = tempDir.resolve("missing-recordings");
 
         ExecutionResult result = executeCommand(
@@ -82,7 +83,7 @@ class NetworkCapacityTest {
     }
 
     @Test
-    void clientModeWithoutServerAddressPrintsHelpfulError() throws Exception {
+    void clientModeWithoutServerAddressPrintsHelpfulError() throws IOException {
         Path recordings = Files.createDirectory(tempDir.resolve("recordings"));
 
         ExecutionResult result = executeCommand(
@@ -103,7 +104,7 @@ class NetworkCapacityTest {
     }
 
     @Test
-    void missingConfigFileIsReported() throws Exception {
+    void missingConfigFileIsReported() {
         Path missingConfig = tempDir.resolve("missing-config.json");
 
         ExecutionResult result =
@@ -116,7 +117,7 @@ class NetworkCapacityTest {
     }
 
     @Test
-    void invalidModeIsReported() throws Exception {
+    void invalidModeIsReported() {
         ExecutionResult result = executeCommand("--mode", "invalid", "--config", configFile.toString());
 
         assertEquals(0, result.exitCode());
@@ -146,9 +147,7 @@ class NetworkCapacityTest {
         }
 
         return new ExecutionResult(
-                exitCode,
-                new String(stdout.toByteArray(), StandardCharsets.UTF_8),
-                new String(stderr.toByteArray(), StandardCharsets.UTF_8));
+                exitCode, stdout.toString(StandardCharsets.UTF_8), stderr.toString(StandardCharsets.UTF_8));
     }
 
     private static final class ExecutionResult {
