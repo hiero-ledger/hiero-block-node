@@ -937,6 +937,8 @@ class BlockFileHistoricPluginTest {
         private Map<String, String> buildConfigOverrides(final FilesHistoricConfig config) {
             final Entry<String, String> rootPath =
                     Map.entry("files.historic.rootPath", config.rootPath().toString());
+            final Entry<String, String> stagingPath = Map.entry(
+                    "files.historic.stagingPath", testConfig.stagingPath().toString());
             final Entry<String, String> compression =
                     Map.entry("files.historic.compression", config.compression().name());
             final Entry<String, String> powersOfTenPerZipFileContents = Map.entry(
@@ -944,14 +946,15 @@ class BlockFileHistoricPluginTest {
                     String.valueOf(config.powersOfTenPerZipFileContents()));
             final Entry<String, String> blockRetentionThreshold = Map.entry(
                     "files.historic.blockRetentionThreshold", String.valueOf(config.blockRetentionThreshold()));
-            return Map.ofEntries(rootPath, compression, powersOfTenPerZipFileContents, blockRetentionThreshold);
+            return Map.ofEntries(
+                    rootPath, stagingPath, compression, powersOfTenPerZipFileContents, blockRetentionThreshold);
         }
 
         @Test
         @DisplayName("init moves corrupted zip file without shutting down")
         void initMovesCorruptedZipWithoutShutdown() throws IOException {
             final Path corruptedRoot = testTempDir.resolve("corrupted-zip-root");
-            testConfig = new FilesHistoricConfig(corruptedRoot, CompressionType.NONE, 1, 10L);
+            testConfig = new FilesHistoricConfig(corruptedRoot, CompressionType.NONE, 1, 10L, stagingPath, 3);
 
             final BlockPath corruptedZipLocation = BlockPath.computeBlockPath(testConfig, 0L);
             Files.createDirectories(corruptedZipLocation.dirPath());
