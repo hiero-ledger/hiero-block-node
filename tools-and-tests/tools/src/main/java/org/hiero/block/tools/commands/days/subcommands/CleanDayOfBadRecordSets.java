@@ -67,6 +67,9 @@ public class CleanDayOfBadRecordSets implements Runnable {
                 if (hasBadRecordSet) {
                     badDayPaths.add(dayFile);
                 }
+            } catch (Exception e) {
+                PrettyPrint.clearProgress();
+                System.err.printf("Skipping, Error scanning day file %s: %s%n", dayFile, e);
             }
         }
         PrettyPrint.clearProgress();
