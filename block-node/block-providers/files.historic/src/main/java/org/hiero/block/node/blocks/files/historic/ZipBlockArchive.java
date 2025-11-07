@@ -144,6 +144,7 @@ class ZipBlockArchive {
                 // check if we are a directory of directories
                 final Optional<Path> min = childFiles.stream()
                         .filter(Files::isDirectory)
+                        .filter(path -> !path.equals(config.stagingPath()))
                         .min(Comparator.comparingLong(
                                 path -> Long.parseLong(path.getFileName().toString())));
                 if (min.isPresent()) {
@@ -196,6 +197,7 @@ class ZipBlockArchive {
                 // check if we are a directory of directories
                 final Optional<Path> max = childFiles.stream()
                         .filter(Files::isDirectory)
+                        .filter(path -> !path.equals(config.stagingPath()))
                         .max(Comparator.comparingLong(
                                 path -> Long.parseLong(path.getFileName().toString())));
                 if (max.isPresent()) {
