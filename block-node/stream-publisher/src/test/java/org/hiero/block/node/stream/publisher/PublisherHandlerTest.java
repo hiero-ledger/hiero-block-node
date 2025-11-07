@@ -2089,20 +2089,21 @@ class PublisherHandlerTest {
         }
 
         /**
-         * Test flow:
-         * <ul>
-         *   <li>Pre-assert the reply pipeline has had no interactions.</li>
-         *   <li>Invoke {@code onComplete()}.</li>
-         *   <li>Assert the pipeline completed exactly once.</li>
-         *   <li>Post-assert no other interactions occurred (no onNext/onError/onSubscribe/clientEndStream).</li>
-         * </ul>
+         * Requirement: When {@link PublisherHandler#onComplete()} is invoked, it must signal the completion of the reply
+         * pipeline exactly once and perform no other side effects.
+         *
+         * Verification strategy: Begin from a clean state, invoke {@link PublisherHandler#onComplete()}, then assert
+         * exactly one completion event and that onNext/onError/onSubscription/client-end-stream counters remain unchanged.
+         *
+         * Brittleness: This test assumes the pipeline only completes without triggering additional interactions.
+         * If future implementations legitimately emit auxiliary signals (e.g., cleanup metrics or async hooks),
+         * the assertions should be updated accordingly.
          */
         @Nested
         @DisplayName("onComplete() Tests")
         class OnCompleteTests {
             /**
-             * This test aims to assert that the {@link PublisherHandler#onComplete()} method
-             * correctly removes the handler from the manager and completes the pipeline.
+             * Verifies that onComplete() completes the reply pipeline without any extra interactions.
              */
             @Test
             @DisplayName("Test onComplete() completes pipeline without extra interactions")
@@ -2122,17 +2123,21 @@ class PublisherHandlerTest {
         }
 
         /**
-         * Test flow:
-         * <ul>
-         *   <li>Pre-assert that the reply pipeline has had no interactions.</li>
-         *   <li>Create a minimal {@link Subscription} implementation.</li>
-         *   <li>Call {@code onSubscribe(sub)} and assert no exception is thrown.</li>
-         *   <li>Post-assert that the reply pipeline still has no interactions.</li>
-         * </ul>
+         * Requirement: {@link PublisherHandler#onSubscribe(org.reactivestreams.Subscription)} must be a no-op:
+         * it should not throw, and it must produce no protocol responses or reply-pipeline side effects.
+         *
+         * Verification strategy: Start from a clean reply pipeline, pass a minimal no-op {@link org.reactivestreams.Subscription}
+         * to {@code onSubscribe(...)}, assert no exception is thrown, and then assert zero interactions across
+         * onNext/onError/onSubscription/onComplete and client-end-stream counters.
+         *
+         * Brittleness: If a future implementation legitimately requests/cancels on the Subscription or emits
+         * metrics-only signals, the assertions may need to be relaxed to permit those benign effects while still
+         * forbidding any protocol responses or completion.
          */
         @Nested
         @DisplayName("onSubscribe() Tests")
         class OnSubscribeTests {
+            /** Verifies that onSubscribe() throws no exceptions and leaves the reply pipeline untouched. */
             @Test
             @DisplayName("onSubscribe() performs no side effects")
             void testOnSubscribeDoesNothing() {
@@ -2169,17 +2174,25 @@ class PublisherHandlerTest {
         }
 
         /**
-         * Test flow:
-         * <ul>
-         *   <li>Pre-assert the reply pipeline has had no interactions.</li>
-         *   <li>Invoke {@code clientEndStreamReceived()}.</li>
-         *   <li>Assert the pipeline completed exactly once.</li>
-         *   <li>Post-assert no other interactions occurred (no onNext/onError/onSubscribe/clientEndStream).</li>
-         * </ul>
+         * Requirement: Client end-of-stream must complete the reply pipeline and emit
+         * no protocol responses.
+         *
+         * How this test proves it: Pre-assert the pipeline has had no prior
+         * interactions, call {@link PublisherHandler#clientEndStreamReceived()}, then
+         * assert exactly one completion and that onNext/onError/onSubscription and
+         * client-end-stream counters remain unchanged.
+         *
+         * Brittleness: Will fail if the handler begins emitting any responses or
+         * callbacks during client EOS. Such a change should be accompanied by an
+         * updated contract and revised assertions.
          */
         @Nested
         @DisplayName("clientEndStreamReceived() Tests")
         class ClientEndStreamReceivedTests {
+
+            /**
+             * Verifies that calling clientEndStreamReceived() completes the pipeline and sends no other responses.
+             */
             @Test
             @DisplayName("clientEndStreamReceived() completes pipeline without extra interactions")
             void testClientEndStreamReceivedCompletesPipeline() {
@@ -2205,18 +2218,22 @@ class PublisherHandlerTest {
         }
 
         /**
-         * Test flow:
-         * <ul>
-         *   <li>Pre-assert metrics and reply pipeline have no prior effects.</li>
-         *   <li>Invoke {@code sendAcknowledgement(blockNumber)}.</li>
-         *   <li>Assert a single ACKNOWLEDGEMENT response with the same {@code blockNumber}.</li>
-         *   <li>Assert {@code blockAcknowledgementsSent} incremented and no other interactions.</li>
-         * </ul>
+         * Requirement: When an acknowledgement is sent for a given block number, the handler must emit exactly one
+         * {@link org.hiero.block.api.PublishStreamResponse.Acknowledgement} response containing the same block number
+         * and increment the {@code blockAcknowledgementsSent} metric by one.
+         *
+         * Verification strategy: Begin from a clean state, invoke {@link PublisherHandler#sendAcknowledgement(long)}, then
+         * assert that a single ACK response with the expected block number was produced and metrics updated accordingly.
+         *
+         * Brittleness: This test assumes a one-to-one mapping between invocation and ACK. If batching or deduplication
+         * behavior is introduced, assertions should be revised to match the updated contract.
          */
         @Nested
         @DisplayName("sendAcknowledgement() Tests")
         class SendAcknowledgementTests {
-
+            /**
+             * Verifies that sendAcknowledgement() emits a single ACK for the given block number and increments metrics.
+             */
             @Test
             @DisplayName("sends ACK response and updates metrics for given block number")
             void testSendAcknowledgementSendsAckAndUpdatesMetrics() {
@@ -2254,11 +2271,14 @@ class PublisherHandlerTest {
                 assertThat(repliesPipeline.getOnCompleteCalls().get()).isZero();
             }
 
+            /**
+             * Verifies that two sequential sendAcknowledgement calls emit two ACKs in order and
+             * increment the acknowledgements metric by 2.
+             */
             @Test
             @DisplayName("multiple calls produce multiple ACKs in order and increment metrics per call")
             void testSendAcknowledgementMultipleCalls() {
-                // Pre-assert: clean state
-                repliesPipeline.getOnNextCalls().clear();
+                // Pre-assert: capture baseline for ack metric
                 final long beforeAcks = metrics.blockAcknowledgementsSent().get();
 
                 // Act: two acknowledgements
@@ -2286,20 +2306,13 @@ class PublisherHandlerTest {
             }
 
             /**
-             * Test flow:
-             * <ul>
-             *   <li>Pre-assert: reply pipeline has no prior responses; capture current ack metric.</li>
-             *   <li>Invoke {@code sendAcknowledgement(blockNumber)} twice for the SAME block.</li>
-             *   <li>Assert: two ACK responses are emitted in order and both carry the same {@code blockNumber}.</li>
-             *   <li>Assert: {@code blockAcknowledgementsSent} increments by 2; no other side effects.</li>
-             * </ul>
-             * Rationale: guards against regressions where duplicate ACKs for the same block are coalesced or rejected.
+             * Verifies that duplicate acknowledgements for the same block still produce two ACKs
+             * and increment the acknowledgements metric twice.
              */
             @Test
             @DisplayName("duplicate acknowledgements for same block produce two ACKs and increment metrics twice")
             void testSendAcknowledgementDuplicateForSameBlock() {
-                // Pre-assert: clean state and capture baseline for ack metric
-                repliesPipeline.getOnNextCalls().clear();
+                // Pre-assert: capture baseline for ack metric
                 final long beforeAcks = metrics.blockAcknowledgementsSent().get();
 
                 // Act: two acknowledgements for the SAME block number

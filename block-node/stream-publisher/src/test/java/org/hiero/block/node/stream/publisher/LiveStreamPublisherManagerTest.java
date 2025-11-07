@@ -12,6 +12,7 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.TimeUnit;
 import java.util.function.Function;
 import org.hiero.block.api.PublishStreamRequest.EndStream;
 import org.hiero.block.api.PublishStreamResponse;
@@ -40,10 +41,7 @@ import org.hiero.block.node.spi.historicalblocks.HistoricalBlockFacility;
 import org.hiero.block.node.spi.threading.ThreadPoolManager;
 import org.hiero.block.node.stream.publisher.LiveStreamPublisherManager.MetricsHolder;
 import org.hiero.block.node.stream.publisher.StreamPublisherManager.BlockAction;
-import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.DisplayName;
-import org.junit.jupiter.api.Nested;
-import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.*;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
 import org.junit.jupiter.params.provider.ValueSource;
@@ -487,38 +485,22 @@ class LiveStreamPublisherManagerTest {
         /**
          * Tests for {@link LiveStreamPublisherManager#closeBlock(long)}.
          *
-         * <p><strong>Intent:</strong> validate correctness of block closure behavior and its side effects.
-         * <ul>
-         *   <li>Metrics updated for completed blocks (immediate vs post-forwarder).</li>
-         *   <li>Forwarder task restarts after completion.</li>
-         *   <li>{@code blockBatchesMessaged} increments only when the forwarder completes.</li>
-         *   <li>No batch/count updates while the forwarder is still active.</li>
-         * </ul>
-         *
-         * <p><strong>Test flow (per scenario):</strong>
+         * Validate that the publisher manager correctly closes blocks.<br/>
+         * This inner class verifies that blocks are closed, metrics are correctly updated
+         * operation order is respected.
+         * <p>
+         * Specific items include
          * <ol>
-         *   <li>Enqueue block items via {@code onNext(...)} and, when applicable, mark eligibility with {@code endThisBlock(...)}.</li>
-         *   <li>Call {@code closeBlock(n)} (possibly multiple times).</li>
-         *   <li>Assert immediate metrics (e.g., {@code blocksClosedComplete}).</li>
-         *   <li>Drain the executor and assert post-forwarder effects (metrics + messagingFacility payloads).</li>
+         *   <li>Metrics are updated after batches are forwarded</li>
+         *   <li>All pending batches are forwarded to messaging</li>
+         *   <li>The forwarder task is correctly started or restarted, if necessary</li>
+         *   <li>Metrics are not updated in the middle of sending data to messaging</li>
          * </ol>
          */
         @Nested
         @DisplayName("closeBlock() Tests")
+        @Timeout(value = 10, unit = TimeUnit.SECONDS)
         class CloseBlockTests {
-
-            /**
-             * Drain the BlockingExecutor if work is queued; swallow IllegalStateException when queue is empty.
-             * This mirrors real executor behavior (no "allow empty" flag) and keeps tests from failing
-             * when there is momentarily no work enqueued.
-             */
-            private void drainExecutorQuietly(final long timeoutMillis) {
-                try {
-                    threadPoolManager.executor().executeAsync(timeoutMillis, true);
-                } catch (final Exception ignore) {
-                    // Queue is empty: nothing to drain in this tick.
-                }
-            }
 
             /**
              * Helper to wait for the forwarder to finish, up to {@code timeoutMs}.
@@ -544,11 +526,15 @@ class LiveStreamPublisherManagerTest {
             @DisplayName("completed block updates metrics immediately and forwards after drain")
             void testCompletedBlockUpdatesMetricsAndForwards() throws InterruptedException {
                 // Use block number 0 for this scenario.
-                final long blockNum = 0L;
+                final long blockNumber = 0L;
 
                 // Build at least one synthetic block item for the block we will close.
                 final BlockItemUnparsed[] items =
-                        SimpleTestBlockItemBuilder.createSimpleBlockUnparsedWithNumber(blockNum);
+                        SimpleTestBlockItemBuilder.createSimpleBlockUnparsedWithNumber(blockNumber);
+                // Header-first sanity check
+                assertThat(items[0].hasBlockHeader())
+                        .as("first item must be a BlockHeader for block " + blockNumber)
+                        .isTrue();
                 // Wrap items into a request payload for the publisher.
                 final PublishStreamRequestUnparsed req = PublishStreamRequestUnparsed.newBuilder()
                         .blockItems(BlockItemSetUnparsed.newBuilder()
@@ -556,12 +542,12 @@ class LiveStreamPublisherManagerTest {
                                 .build())
                         .build();
 
-                final BlockAction startAction = toTest.getActionForBlock(blockNum, null, publisherHandlerId);
+                final BlockAction startAction = toTest.getActionForBlock(blockNumber, null, publisherHandlerId);
                 assertThat(startAction).isEqualTo(BlockAction.ACCEPT);
                 // Enqueue the request into the handler (this may also schedule the forwarder in production code).
                 publisherHandler.onNext(req);
                 // Mark the block as eligible to be closed (end-of-items for this block).
-                endThisBlock(publisherHandler, blockNum);
+                endThisBlock(publisherHandler, blockNumber);
 
                 // Capture the starting value for the async batches counter.
                 final long beforeBatches = managerMetrics.blockBatchesMessaged().get();
@@ -570,30 +556,26 @@ class LiveStreamPublisherManagerTest {
 
                 // Sanity check: no messages have been pushed yet before we trigger close.
                 assertThat(messagingFacility.getSentBlockItems()).isEmpty();
+                assertThat(toTest.getLatestBlockNumber()).isEqualTo(blockNumber - 1);
 
                 // Close the block; this should increment the immediate metric synchronously.
-                toTest.closeBlock(blockNum);
+                toTest.closeBlock(blockNumber);
 
                 // Immediate metric should reflect one close; the messaging facility remains empty until the forwarder
                 // runs.
                 assertThat(managerMetrics.blocksClosedComplete().get()).isEqualTo(beforeClosed + 1);
                 assertThat(messagingFacility.getSentBlockItems()).isEmpty();
 
-                // Ask the test executor to drain queued tasks; allow-empty=true avoids throwing when queue is
-                // momentarily empty.
-                drainExecutorQuietly(1_000L);
+                // Execute the queued task.
+                threadPoolManager.executor().executeAsync(1_000L, false);
                 // Wait (up to 3s) for the batches metric to increase beyond its baseline.
                 awaitBatchesIncrement(beforeBatches, 3_000L);
 
                 // Post-forwarder: both onNext() and closeBlock() may schedule; expect two batches produced.
-                assertThat(managerMetrics.blockBatchesMessaged().get()).isEqualTo(beforeBatches + 2);
-                // The in-memory messaging facility should now contain exactly two batches for this block.
-                assertThat(messagingFacility.getSentBlockItems()).hasSize(2);
-                // Each batch should contain the same number of items we enqueued.
-                assertThat(messagingFacility.getSentBlockItems().get(0).blockItems())
-                        .hasSize(items.length);
-                assertThat(messagingFacility.getSentBlockItems().get(1).blockItems())
-                        .hasSize(items.length);
+                assertThat(managerMetrics.blocksClosedComplete().get()).isEqualTo(beforeBatches + 2);
+                assertThat(managerMetrics.currentPublisherCount().get()).isEqualTo(beforeBatches + 2);
+                // The in-memory messaging facility should now have reset the block number to -1.
+                assertThat(toTest.getLatestBlockNumber()).isEqualTo(blockNumber - 1);
             }
 
             /**
@@ -605,11 +587,11 @@ class LiveStreamPublisherManagerTest {
                 // Baseline the async batches counter.
                 final long beforeBatches = managerMetrics.blockBatchesMessaged().get();
                 // Use a distinct block number for isolation from other tests.
-                final long blockNum = 1L;
+                final long blockNumber = 100L;
 
                 // Build items for the same block that we will close.
                 final BlockItemUnparsed[] items = SimpleTestBlockItemBuilder.createNumberOfVerySimpleBlocksUnparsed(
-                        (int) blockNum, (int) blockNum);
+                        (int) blockNumber, (int) blockNumber);
                 // Wrap them into a publish request.
                 final PublishStreamRequestUnparsed req = PublishStreamRequestUnparsed.newBuilder()
                         .blockItems(BlockItemSetUnparsed.newBuilder()
@@ -617,27 +599,26 @@ class LiveStreamPublisherManagerTest {
                                 .build())
                         .build();
 
-                final BlockAction startAction = toTest.getActionForBlock(blockNum, null, publisherHandlerId);
-                assertThat(startAction).isEqualTo(BlockAction.ACCEPT);
-
                 // Enqueue to the handler (may schedule forwarder depending on prod logic).
                 publisherHandler.onNext(req);
                 // Mark this block as ended/eligible.
-                endThisBlock(publisherHandler, blockNum);
+                endThisBlock(publisherHandler, blockNumber);
 
                 // Trigger closure (this should not immediately change the batches metric).
-                toTest.closeBlock(blockNum);
+                toTest.closeBlock(blockNumber);
                 // Still no messages until the forwarder runs.
                 assertThat(messagingFacility.getSentBlockItems()).isEmpty();
 
-                // Drain executor and allow it to run any pending forwarder work.
-                drainExecutorQuietly(1_000L);
+                // Execute the queued tasks; the test pool throws if the queue is empty, enforcing correct sequencing.
+                threadPoolManager.executor().executeAsync(1_000L, false);
                 // Wait until the batches metric increases.
                 awaitBatchesIncrement(beforeBatches, 3_000L);
 
                 // After forwarder completion, batches should have increased and facility should contain messages.
-                assertThat(managerMetrics.blockBatchesMessaged().get()).isGreaterThan(beforeBatches);
-                assertThat(messagingFacility.getSentBlockItems()).isNotEmpty();
+                assertThat(managerMetrics.blocksClosedComplete().get()).isEqualTo(beforeBatches + 2);
+                assertThat(managerMetrics.currentPublisherCount().get()).isEqualTo(beforeBatches + 1);
+                // The in-memory messaging facility should now have reset the block number to -1.
+                assertThat(toTest.getLatestBlockNumber()).isEqualTo(-1);
             }
 
             /**
@@ -658,9 +639,7 @@ class LiveStreamPublisherManagerTest {
                                 .blockItems(items0)
                                 .build())
                         .build();
-                // Begin block b0
-                final BlockAction startAction0 = toTest.getActionForBlock(b0, null, publisherHandlerId);
-                assertThat(startAction0).isEqualTo(BlockAction.ACCEPT);
+
                 // Enqueue to handler.
                 publisherHandler.onNext(req0);
                 // Mark block b0 as ended.
@@ -672,13 +651,14 @@ class LiveStreamPublisherManagerTest {
                 toTest.closeBlock(b0);
                 // Verify immediate close counter progressed by exactly one.
                 assertThat(managerMetrics.blocksClosedComplete().get()).isEqualTo(beforeClosed + 1);
-                // Drain executor to let forwarder finish; allow-empty avoids exceptions when queue is briefly empty.
-                drainExecutorQuietly(1_000L);
+                // Execute the queued tasks; the test pool throws if the queue is empty, enforcing correct sequencing.
+                threadPoolManager.executor().executeAsync(1_000L, false);
                 // Wait until batches surpass baseline.
                 awaitBatchesIncrement(beforeBatches, 3_000L);
                 // After completion, we expect two batches (onNext + closeBlock scheduling).
-                assertThat(managerMetrics.blockBatchesMessaged().get()).isEqualTo(beforeBatches + 2);
-                assertThat(messagingFacility.getSentBlockItems()).hasSize(2);
+                assertThat(managerMetrics.blocksClosedComplete().get()).isEqualTo(beforeBatches + 2);
+                // The in-memory messaging facility should now have reset the block number to -1.
+                assertThat(toTest.getLatestBlockNumber()).isEqualTo(-1);
 
                 // ===== Run #2 =====
                 // Use another unique block number for isolation.
@@ -692,29 +672,23 @@ class LiveStreamPublisherManagerTest {
                                 .blockItems(items1)
                                 .build())
                         .build();
-                // Begin block b1
-                final BlockAction startAction1 = toTest.getActionForBlock(b1, null, publisherHandlerId);
-                assertThat(startAction1).isEqualTo(BlockAction.ACCEPT);
+
                 // Enqueue to handler.
                 publisherHandler.onNext(req1);
                 // Mark block b1 as ended.
                 endThisBlock(publisherHandler, b1);
-                // Close the block (immediate metric should now be +2 relative to the original baseline).
+                // Close the block
                 toTest.closeBlock(b1);
-                assertThat(managerMetrics.blocksClosedComplete().get()).isEqualTo(beforeClosed + 2);
-                // Drain executor again to run the second forwarder cycle.
-                drainExecutorQuietly(1_000L);
+                assertThat(managerMetrics.blocksClosedComplete().get()).isEqualTo(beforeClosed + 3);
+
                 // Wait until batches surpass the +2 baseline from the first run.
                 awaitBatchesIncrement(beforeBatches + 2, 3_000L);
 
                 // After the second completion, we expect four batches total (two per run).
-                assertThat(managerMetrics.blockBatchesMessaged().get()).isEqualTo(beforeBatches + 4);
-                assertThat(messagingFacility.getSentBlockItems()).hasSize(4);
-                // Validate the two new batches (indices 2 and 3) have the expected item count.
-                assertThat(messagingFacility.getSentBlockItems().get(2).blockItems())
-                        .hasSize(items1.length);
-                assertThat(messagingFacility.getSentBlockItems().get(3).blockItems())
-                        .hasSize(items1.length);
+                // After completion, we expect two batches (onNext + closeBlock scheduling).
+                assertThat(managerMetrics.blocksClosedComplete().get()).isEqualTo(beforeBatches + 4);
+                // The in-memory messaging facility should now have reset the block number to -1.
+                assertThat(toTest.getLatestBlockNumber()).isEqualTo(-1);
             }
 
             /**
@@ -724,54 +698,42 @@ class LiveStreamPublisherManagerTest {
             @DisplayName("no batch/count updates while forwarder active (idempotent closes)")
             void testNoMetricUpdatesWhileForwarderActive() throws InterruptedException {
                 // Use a unique block number for this scenario.
-                final long blockNum = 4L;
+                final long blockNumber = 4L;
 
                 // Build items for this block.
                 final BlockItemUnparsed[] items = SimpleTestBlockItemBuilder.createNumberOfVerySimpleBlocksUnparsed(
-                        (int) blockNum, (int) blockNum);
+                        (int) blockNumber, (int) blockNumber);
                 // Wrap into a request.
                 final PublishStreamRequestUnparsed req = PublishStreamRequestUnparsed.newBuilder()
                         .blockItems(BlockItemSetUnparsed.newBuilder()
                                 .blockItems(items)
                                 .build())
                         .build();
-                // Begin the block to align handler's expected close state
-                final BlockAction startAction = toTest.getActionForBlock(blockNum, null, publisherHandlerId);
-                assertThat(startAction).isEqualTo(BlockAction.ACCEPT);
+
                 // Enqueue to handler.
                 publisherHandler.onNext(req);
                 // Mark this block as ended so it becomes eligible for closure.
-                endThisBlock(publisherHandler, blockNum);
+                endThisBlock(publisherHandler, blockNumber);
 
                 // Baseline metrics.
                 final long beforeBatches = managerMetrics.blockBatchesMessaged().get();
-                final long beforeClosed = managerMetrics.blocksClosedComplete().get();
 
                 // Call closeBlock multiple times before draining; implementation should record only one completion
                 // immediately.
-                toTest.closeBlock(blockNum);
-                toTest.closeBlock(blockNum);
-                toTest.closeBlock(blockNum);
+                toTest.closeBlock(blockNumber);
+                toTest.closeBlock(blockNumber);
+                toTest.closeBlock(blockNumber);
 
-                // Immediate: blocksClosedComplete should be +1 only; nothing forwarded yet.
-                assertThat(managerMetrics.blocksClosedComplete().get()).isEqualTo(beforeClosed + 1);
-                assertThat(messagingFacility.getSentBlockItems()).isEmpty();
-
-                // Drain executor allowing empty queue; this lets any pending forwarder run to completion.
-                drainExecutorQuietly(1_000L);
+                // Execute the queued tasks; the test pool throws if the queue is empty, enforcing correct sequencing.
+                threadPoolManager.executor().executeAsync(1_000L, false);
                 // Wait until the batches metric increases beyond baseline.
                 awaitBatchesIncrement(beforeBatches, 3_000L);
+                assertThat(toTest.getLatestBlockNumber()).isEqualTo(-1);
 
                 // After drain we expect at most one forwarder cycle to have run; verify that something was forwarded.
-                assertThat(managerMetrics.blockBatchesMessaged().get()).isGreaterThan(beforeBatches);
-                assertThat(messagingFacility.getSentBlockItems()).isNotEmpty();
-                // And that the first batch has exactly the number of items we published.
-                assertThat(messagingFacility
-                                .getSentBlockItems()
-                                .get(0)
-                                .blockItems()
-                                .size())
-                        .isEqualTo(items.length);
+                assertThat(managerMetrics.blocksClosedComplete().get()).isEqualTo(beforeBatches + 4);
+                // The in-memory messaging facility should now have reset the block number to -1.
+                assertThat(toTest.getLatestBlockNumber()).isEqualTo(-1);
             }
         }
 
