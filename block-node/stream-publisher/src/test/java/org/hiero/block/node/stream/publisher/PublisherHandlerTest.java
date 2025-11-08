@@ -2095,9 +2095,6 @@ class PublisherHandlerTest {
          * Verification strategy: Begin from a clean state, invoke {@link PublisherHandler#onComplete()}, then assert
          * exactly one completion event and that onNext/onError/onSubscription/client-end-stream counters remain unchanged.
          *
-         * Brittleness: This test assumes the pipeline only completes without triggering additional interactions.
-         * If future implementations legitimately emit auxiliary signals (e.g., cleanup metrics or async hooks),
-         * the assertions should be updated accordingly.
          */
         @Nested
         @DisplayName("onComplete() Tests")
@@ -2130,9 +2127,6 @@ class PublisherHandlerTest {
          * to {@code onSubscribe(...)}, assert no exception is thrown, and then assert zero interactions across
          * onNext/onError/onSubscription/onComplete and client-end-stream counters.
          *
-         * Brittleness: If a future implementation legitimately requests/cancels on the Subscription or emits
-         * metrics-only signals, the assertions may need to be relaxed to permit those benign effects while still
-         * forbidding any protocol responses or completion.
          */
         @Nested
         @DisplayName("onSubscribe() Tests")
@@ -2182,9 +2176,6 @@ class PublisherHandlerTest {
          * assert exactly one completion and that onNext/onError/onSubscription and
          * client-end-stream counters remain unchanged.
          *
-         * Brittleness: Will fail if the handler begins emitting any responses or
-         * callbacks during client EOS. Such a change should be accompanied by an
-         * updated contract and revised assertions.
          */
         @Nested
         @DisplayName("clientEndStreamReceived() Tests")
@@ -2225,8 +2216,6 @@ class PublisherHandlerTest {
          * Verification strategy: Begin from a clean state, invoke {@link PublisherHandler#sendAcknowledgement(long)}, then
          * assert that a single ACK response with the expected block number was produced and metrics updated accordingly.
          *
-         * Brittleness: This test assumes a one-to-one mapping between invocation and ACK. If batching or deduplication
-         * behavior is introduced, assertions should be revised to match the updated contract.
          */
         @Nested
         @DisplayName("sendAcknowledgement() Tests")
