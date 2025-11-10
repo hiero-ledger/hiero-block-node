@@ -215,6 +215,23 @@ public abstract class RecordFileBlock {
                 otherRecordFiles.isEmpty() ? "" : ", other record files=" + otherRecordFiles.size());
     }
 
+    /**
+     * Extended toString including parsed record file information.
+     *
+     * @return the extended string representation
+     */
+    public String toStringExtended() {
+        RecordFileInfo information = RecordFileInfo.parse(primaryRecordFile.data());
+        return String.format(
+                "-- RecordFileSet @ %-32s :: primary=%b, signatures=%2d%s%s",
+                recordFileTime,
+                primaryRecordFile != null,
+                signatureFiles.size(),
+                primarySidecarFiles.isEmpty() ? "" : ", primary sidecars=" + primarySidecarFiles.size(),
+                otherRecordFiles.isEmpty() ? "" : ", other record files=" + otherRecordFiles.size()+
+                "\n    - "+information.toString().replace("\n", "\n    - "));
+    }
+
     public Instant recordFileTime() {
         return recordFileTime;
     }
