@@ -22,9 +22,7 @@ import org.hiero.block.node.spi.historicalblocks.BlockAccessor;
  * optional compression types on that file. It aims to provide the most efficient transfer for each combination of
  * input and output formats.
  */
-final class BlockFileBlockAccessor implements BlockAccessor {
-    /** The size of the buffer used for reading and writing files. */
-    private static final int BUFFER_SIZE = 1024 * 1024;
+final class BlockFileAccessor implements BlockAccessor {
     /** Message logged when the protobuf codec fails to parse data */
     private static final String FAILED_TO_PARSE_MESSAGE = "Failed to parse block from file %s.";
     /** Message logged when data cannot be read from a block file */
@@ -39,13 +37,13 @@ final class BlockFileBlockAccessor implements BlockAccessor {
     private final long blockNumber;
 
     /**
-     * Constructs a BlockFileBlockAccessor with the specified block file path and compression type.
+     * Constructs a BlockFileAccessor with the specified block file path and compression type.
      *
      * @param blockFilePath   the path to the block file, must exist
      * @param compressionType the compression type used for the block file
      * @param blockNumber     the block number of the block
      */
-    BlockFileBlockAccessor(
+    BlockFileAccessor(
             @NonNull final Path blockFilePath, @NonNull final CompressionType compressionType, final long blockNumber) {
         this.blockFilePath = Preconditions.requireRegularFile(blockFilePath);
         this.compressionType = Objects.requireNonNull(compressionType);

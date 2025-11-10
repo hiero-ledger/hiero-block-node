@@ -28,6 +28,7 @@ import java.util.Objects;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.atomic.AtomicLong;
+import org.hiero.block.internal.BlockItemUnparsed;
 import org.hiero.block.internal.BlockUnparsed;
 import org.hiero.block.node.base.BlockFile;
 import org.hiero.block.node.base.CompressionType;
@@ -61,7 +62,7 @@ public final class BlockFileHistoricPlugin implements BlockProviderPlugin, Block
     /** The set of available blocks. */
     private final ConcurrentLongRangeSet availableBlocks = new ConcurrentLongRangeSet();
     /** The set of available temporary blocks (not yet zipped). */
-    private final ConcurrentLongRangeSet availableTemporaryBlocks = new ConcurrentLongRangeSet();
+    private final ConcurrentLongRangeSet availableStagedBlocks = new ConcurrentLongRangeSet();
     /** List of all zip ranges that are in progress, so we do not start a duplicate job. */
     private final CopyOnWriteArrayList<LongRange> inProgressZipRanges = new CopyOnWriteArrayList<>();
     /** Running total of bytes stored in the historic tier */
@@ -114,13 +115,13 @@ public final class BlockFileHistoricPlugin implements BlockProviderPlugin, Block
         try {
             Files.createDirectories(config.stagingPath());
         } catch (IOException e) {
-            LOGGER.log(ERROR, "Could not create temp directory", e);
-            context.serverHealth().shutdown(name(), "Could not create temp directory");
+            LOGGER.log(ERROR, "Could not create staging directory", e);
+            context.serverHealth().shutdown(name(), "Could not create staging directory");
         }
 
         nestedDirectoriesAllBlockNumbers(config.stagingPath(), config.compression())
                 .forEach(blockNumber -> {
-                    availableTemporaryBlocks.add(blockNumber);
+                    availableStagedBlocks.add(blockNumber);
                 });
         // register to listen to block notifications
         context.blockMessaging().registerBlockNotificationHandler(this, false, "Blocks Files Historic");
@@ -231,7 +232,7 @@ public final class BlockFileHistoricPlugin implements BlockProviderPlugin, Block
     @Override
     public void handleVerification(VerificationNotification notification) {
         if (notification != null && notification.success()) {
-            writeBlockToStagingPath(notification.block(), notification.blockNumber(), notification.source());
+            writeBlockToStagingPath(notification.block(), notification.blockNumber());
         }
 
         try {
@@ -243,27 +244,32 @@ public final class BlockFileHistoricPlugin implements BlockProviderPlugin, Block
         }
     }
 
-    private void writeBlockToStagingPath(final BlockUnparsed block, final long blockNumber, final BlockSource source) {
-        if (block != null && block.blockItems() != null && !block.blockItems().isEmpty()) {
-            if (block.blockItems().getFirst().hasBlockHeader()) {
-                final BlockHeader header = getBlockHeader(block);
-                final long headerNumber = header == null ? -1 : header.number();
-                if (headerNumber != blockNumber) {
-                    LOGGER.log(
-                            WARNING,
-                            "Block number mismatch between notification {0} and block header {1}, not writing block",
-                            blockNumber,
-                            headerNumber);
-                } else {
-                    final Path verifiedBlockPath = BlockFile.nestedDirectoriesBlockFilePath(
-                            config.stagingPath(), blockNumber, config.compression(), config.maxFilesPerDir());
-                    createDirectoryOrFail(verifiedBlockPath);
-                    writeBlockOrFail(block, blockNumber, verifiedBlockPath);
-                }
-            } else {
-                LOGGER.log(INFO, "Block {0} has no block header, cannot write to staging path", blockNumber);
-            }
+    private void writeBlockToStagingPath(final BlockUnparsed block, final long blockNumber) {
+        if (block == null || block.blockItems() == null || block.blockItems().isEmpty()) {
+            return;
         }
+
+        BlockItemUnparsed firstItem = block.blockItems().getFirst();
+        if (!firstItem.hasBlockHeader()) {
+            LOGGER.log(INFO, "Block {0} has no block header, cannot write to staging path", blockNumber);
+            return;
+        }
+
+        final BlockHeader header = getBlockHeader(block);
+        final long headerNumber = header == null ? -1 : header.number();
+        if (headerNumber != blockNumber) {
+            LOGGER.log(
+                    WARNING,
+                    "Block number mismatch between notification {0} and block header {1}, not writing block",
+                    blockNumber,
+                    headerNumber);
+            return;
+        }
+
+        final Path verifiedBlockPath = BlockFile.nestedDirectoriesBlockFilePath(
+                config.stagingPath(), blockNumber, config.compression(), config.maxFilesPerDir());
+        createDirectoryOrFail(verifiedBlockPath);
+        writeBlockOrFail(block, blockNumber, verifiedBlockPath);
     }
 
     private BlockHeader getBlockHeader(final BlockUnparsed block) {
@@ -296,7 +302,7 @@ public final class BlockFileHistoricPlugin implements BlockProviderPlugin, Block
             streamingData.close();
             LOGGER.log(TRACE, "Wrote verified block {0} to file {1}", blockNumber, verifiedBlockPath.toAbsolutePath());
             // update the oldest and newest verified block numbers
-            availableTemporaryBlocks.add(blockNumber);
+            availableStagedBlocks.add(blockNumber);
         } catch (final IOException e) {
             final String message = "Failed to write file for block %d due to %s".formatted(blockNumber, e);
             LOGGER.log(WARNING, message, e);
@@ -316,7 +322,7 @@ public final class BlockFileHistoricPlugin implements BlockProviderPlugin, Block
         // we loop here because the historical block facility can have
         // multiple batches of blocks available for zipping potentially, so we
         // need to queue them all up
-        while (availableTemporaryBlocks.max() >= maxBlockNumber) {
+        while (availableStagedBlocks.max() >= maxBlockNumber) {
             // since we know that we have a power of 10 number of blocks per zip file,
             // we know our batch always starts with a number that is a multiple of
             // numberOfBlocksPerZipFile, so we can check if the start is valid
@@ -328,7 +334,7 @@ public final class BlockFileHistoricPlugin implements BlockProviderPlugin, Block
             // we can do a quick pre-check to see if the blocks are available
             // this pre-check asserts the min and max are contained however,
             // not the whole range, this will be asserted when we gather the batch
-            final boolean blocksAvailablePreCheck = availableTemporaryBlocks.contains(minBlockNumber, maxBlockNumber);
+            final boolean blocksAvailablePreCheck = availableStagedBlocks.contains(minBlockNumber, maxBlockNumber);
             if (isValidStart && blocksAvailablePreCheck) {
                 final LongRange batchRange = new LongRange(minBlockNumber, maxBlockNumber);
                 // move the batch of blocks to a zip file
@@ -428,8 +434,7 @@ public final class BlockFileHistoricPlugin implements BlockProviderPlugin, Block
             for (long blockNumber = batchFirstBlockNumber; blockNumber <= batchLastBlockNumber; blockNumber++) {
                 Path path = BlockFile.nestedDirectoriesBlockFilePath(
                         config.stagingPath(), blockNumber, config.compression(), config.maxFilesPerDir());
-                final BlockAccessor currentAccessor =
-                        new BlockFileBlockAccessor(path, CompressionType.ZSTD, blockNumber);
+                final BlockAccessor currentAccessor = new BlockFileAccessor(path, CompressionType.ZSTD, blockNumber);
                 if (currentAccessor.block() == null) {
                     break;
                 } else {
@@ -461,7 +466,7 @@ public final class BlockFileHistoricPlugin implements BlockProviderPlugin, Block
                                 config.stagingPath(), blockNumber, config.compression(), config.maxFilesPerDir());
                         if (Files.exists(path)) {
                             Files.delete(path);
-                            availableTemporaryBlocks.remove(blockNumber);
+                            availableStagedBlocks.remove(blockNumber);
                         }
                     }
 
