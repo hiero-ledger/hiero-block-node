@@ -54,7 +54,6 @@ import org.junit.jupiter.api.io.TempDir;
 class BlockFileHistoricPluginTest {
     /** TempDir for the current test */
     private final Path testTempDir;
-
     /** The test block messaging facility to use for testing. */
     private final SimpleInMemoryHistoricalBlockFacility testHistoricalBlockFacility;
     /** The test config to use for the plugin, overridable. */
