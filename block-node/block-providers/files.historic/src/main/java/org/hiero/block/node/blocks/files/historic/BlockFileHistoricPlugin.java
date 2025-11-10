@@ -246,6 +246,7 @@ public final class BlockFileHistoricPlugin implements BlockProviderPlugin, Block
         }
     }
 
+    // ==== Private Methods ============================================================================================
     private void writeBlockToStagingPath(final BlockUnparsed block, final long blockNumber) {
         if (block == null || block.blockItems() == null || block.blockItems().isEmpty()) {
             return;
@@ -311,7 +312,6 @@ public final class BlockFileHistoricPlugin implements BlockProviderPlugin, Block
         }
     }
 
-    // ==== Private Methods ============================================================================================
     private void attemptZipping() {
         // compute the min and max block in next batch to zip
         // since we ensure no gaps in the zip file are possible, and also we

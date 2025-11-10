@@ -45,7 +45,6 @@ class BlockPathTest {
         // Initialize the in-memory file system
         jimfs = Jimfs.newFileSystem(Configuration.unix());
         tempDir = jimfs.getPath("/blocks");
-
         Files.createDirectories(tempDir);
     }
 
