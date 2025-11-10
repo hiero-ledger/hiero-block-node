@@ -71,6 +71,8 @@ public final class BlockFileHistoricPlugin implements BlockProviderPlugin, Block
     private FilesHistoricConfig config;
     /** The Storage Retention Policy Threshold */
     private long blockRetentionThreshold;
+    /** Path for staging verified blocks before they are zipped */
+    private Path stagingPath;
 
     // Metrics
     /** Counter for blocks written to the historic tier */
@@ -103,6 +105,7 @@ public final class BlockFileHistoricPlugin implements BlockProviderPlugin, Block
         this.context = Objects.requireNonNull(context);
         config = context.configuration().getConfigData(FilesHistoricConfig.class);
         blockRetentionThreshold = config.blockRetentionThreshold();
+        stagingPath = config.rootPath().resolve("staging");
         // Initialize metrics
         initMetrics(context.metrics());
         // create plugin data root directory if it does not exist
@@ -113,16 +116,15 @@ public final class BlockFileHistoricPlugin implements BlockProviderPlugin, Block
             context.serverHealth().shutdown(name(), "Could not create root directory");
         }
         try {
-            Files.createDirectories(config.stagingPath());
+            Files.createDirectories(stagingPath);
         } catch (IOException e) {
             LOGGER.log(ERROR, "Could not create staging directory", e);
             context.serverHealth().shutdown(name(), "Could not create staging directory");
         }
 
-        nestedDirectoriesAllBlockNumbers(config.stagingPath(), config.compression())
-                .forEach(blockNumber -> {
-                    availableStagedBlocks.add(blockNumber);
-                });
+        nestedDirectoriesAllBlockNumbers(stagingPath, config.compression()).forEach(blockNumber -> {
+            availableStagedBlocks.add(blockNumber);
+        });
         // register to listen to block notifications
         context.blockMessaging().registerBlockNotificationHandler(this, false, "Blocks Files Historic");
         numberOfBlocksPerZipFile = (int) Math.pow(10, config.powersOfTenPerZipFileContents());
@@ -267,7 +269,7 @@ public final class BlockFileHistoricPlugin implements BlockProviderPlugin, Block
         }
 
         final Path verifiedBlockPath = BlockFile.nestedDirectoriesBlockFilePath(
-                config.stagingPath(), blockNumber, config.compression(), config.maxFilesPerDir());
+                stagingPath, blockNumber, config.compression(), config.maxFilesPerDir());
         createDirectoryOrFail(verifiedBlockPath);
         writeBlockOrFail(block, blockNumber, verifiedBlockPath);
     }
@@ -433,7 +435,7 @@ public final class BlockFileHistoricPlugin implements BlockProviderPlugin, Block
             // gather batch, if there are no gaps, then we can proceed with zipping
             for (long blockNumber = batchFirstBlockNumber; blockNumber <= batchLastBlockNumber; blockNumber++) {
                 Path path = BlockFile.nestedDirectoriesBlockFilePath(
-                        config.stagingPath(), blockNumber, config.compression(), config.maxFilesPerDir());
+                        stagingPath, blockNumber, config.compression(), config.maxFilesPerDir());
                 final BlockAccessor currentAccessor = new BlockFileAccessor(path, CompressionType.ZSTD, blockNumber);
                 if (currentAccessor.block() == null) {
                     break;
@@ -463,7 +465,7 @@ public final class BlockFileHistoricPlugin implements BlockProviderPlugin, Block
 
                     for (long blockNumber = batchFirstBlockNumber; blockNumber <= batchLastBlockNumber; blockNumber++) {
                         Path path = BlockFile.nestedDirectoriesBlockFilePath(
-                                config.stagingPath(), blockNumber, config.compression(), config.maxFilesPerDir());
+                                stagingPath, blockNumber, config.compression(), config.maxFilesPerDir());
                         if (Files.exists(path)) {
                             Files.delete(path);
                             availableStagedBlocks.remove(blockNumber);

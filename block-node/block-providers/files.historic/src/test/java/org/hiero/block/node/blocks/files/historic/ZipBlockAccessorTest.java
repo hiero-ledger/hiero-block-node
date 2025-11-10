@@ -45,8 +45,6 @@ class ZipBlockAccessorTest {
     private FilesHistoricConfig defaultConfig;
     /** The temporary directory used for the test. */
     private Path tempDir;
-    /** The block staging path used for the test. */
-    private Path blockStagingPath;
 
     /** Set up the test environment before each test. */
     @BeforeEach
@@ -55,10 +53,9 @@ class ZipBlockAccessorTest {
         jimfs = Jimfs.newFileSystem(
                 Configuration.unix()); // Set the default configuration for the test, use jimfs for paths
         tempDir = jimfs.getPath("/blocks");
-        blockStagingPath = jimfs.getPath("/blocks-staging");
         Files.createDirectories(tempDir);
         defaultConfig =
-                createTestConfiguration(tempDir, getDefaultConfiguration().compression(), blockStagingPath);
+                createTestConfiguration(tempDir, getDefaultConfiguration().compression());
     }
 
     /**
@@ -124,7 +121,7 @@ class ZipBlockAccessorTest {
         void testBlockBytesHappyPathFormat(final CompressionType compressionType) throws IOException {
             // build a test block
             final BlockItem[] blockItems = SimpleTestBlockItemBuilder.createNumberOfVerySimpleBlocks(1);
-            final FilesHistoricConfig testConfig = createTestConfiguration(tempDir, compressionType, blockStagingPath);
+            final FilesHistoricConfig testConfig = createTestConfiguration(tempDir, compressionType);
             final BlockPath blockPath = BlockPath.computeBlockPath(
                     testConfig, blockItems[0].blockHeader().number());
             final Block block = new Block(List.of(blockItems));
@@ -152,7 +149,7 @@ class ZipBlockAccessorTest {
         void testBlockBytesZSTDPROTOBUFFormat(final CompressionType compressionType) throws IOException {
             // build a test block
             final BlockItem[] blockItems = SimpleTestBlockItemBuilder.createNumberOfVerySimpleBlocks(1);
-            final FilesHistoricConfig testConfig = createTestConfiguration(tempDir, compressionType, blockStagingPath);
+            final FilesHistoricConfig testConfig = createTestConfiguration(tempDir, compressionType);
             final BlockPath blockPath = BlockPath.computeBlockPath(
                     testConfig, blockItems[0].blockHeader().number());
             final Block block = new Block(List.of(blockItems));
@@ -183,7 +180,7 @@ class ZipBlockAccessorTest {
         void testBlockBytesProtobufFormat(final CompressionType compressionType) throws IOException {
             // build a test block
             final BlockItem[] blockItems = SimpleTestBlockItemBuilder.createNumberOfVerySimpleBlocks(1);
-            final FilesHistoricConfig testConfig = createTestConfiguration(tempDir, compressionType, blockStagingPath);
+            final FilesHistoricConfig testConfig = createTestConfiguration(tempDir, compressionType);
             final BlockPath blockPath = BlockPath.computeBlockPath(
                     testConfig, blockItems[0].blockHeader().number());
             final Block block = new Block(List.of(blockItems));
@@ -210,7 +207,7 @@ class ZipBlockAccessorTest {
         void testBlock(final CompressionType compressionType) throws IOException {
             // build a test block
             final BlockItem[] blockItems = SimpleTestBlockItemBuilder.createNumberOfVerySimpleBlocks(1);
-            final FilesHistoricConfig testConfig = createTestConfiguration(tempDir, compressionType, blockStagingPath);
+            final FilesHistoricConfig testConfig = createTestConfiguration(tempDir, compressionType);
             final BlockPath blockPath = BlockPath.computeBlockPath(
                     testConfig, blockItems[0].blockHeader().number());
             final Block expected = new Block(List.of(blockItems));
@@ -232,7 +229,7 @@ class ZipBlockAccessorTest {
         void testBlockUnparsed(final CompressionType compressionType) throws IOException, ParseException {
             // build a test block
             final BlockItemUnparsed[] blockItems = SimpleTestBlockItemBuilder.createNumberOfVerySimpleBlocksUnparsed(1);
-            final FilesHistoricConfig testConfig = createTestConfiguration(tempDir, compressionType, blockStagingPath);
+            final FilesHistoricConfig testConfig = createTestConfiguration(tempDir, compressionType);
             final Bytes blockHeaderBytes = blockItems[0].blockHeader();
             final long blockNumber =
                     BlockHeader.PROTOBUF.parse(blockHeaderBytes).number();
@@ -292,15 +289,13 @@ class ZipBlockAccessorTest {
         return new ZipBlockAccessor(blockPath);
     }
 
-    private FilesHistoricConfig createTestConfiguration(
-            final Path basePath, final CompressionType compressionType, final Path blocksTempPath) {
+    private FilesHistoricConfig createTestConfiguration(final Path basePath, final CompressionType compressionType) {
         final FilesHistoricConfig localDefaultConfig = getDefaultConfiguration();
         return new FilesHistoricConfig(
                 basePath,
                 compressionType,
                 localDefaultConfig.powersOfTenPerZipFileContents(),
                 localDefaultConfig.blockRetentionThreshold(),
-                blocksTempPath,
                 localDefaultConfig.maxFilesPerDir());
     }
 

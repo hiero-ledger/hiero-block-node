@@ -38,8 +38,6 @@ class BlockPathTest {
     private FileSystem jimfs;
     /** The temporary directory for the test. */
     private Path tempDir;
-    /** The block staging path for the test. */
-    private Path blockStagingPath;
 
     /** Set up the test environment before each test. */
     @BeforeEach
@@ -47,10 +45,8 @@ class BlockPathTest {
         // Initialize the in-memory file system
         jimfs = Jimfs.newFileSystem(Configuration.unix());
         tempDir = jimfs.getPath("/blocks");
-        blockStagingPath = jimfs.getPath("/blocks-staging");
 
         Files.createDirectories(tempDir);
-        Files.createDirectories(blockStagingPath);
     }
 
     /** Tear down the test environment after each test. */
@@ -235,8 +231,8 @@ class BlockPathTest {
             final Path expectedZipFilePath = jimfs.getPath(tempDir + expectedRelativeZipFilePathStr);
             final Path expectedDirPath = expectedZipFilePath.getParent();
             // create the config to use for the test, resolve paths with jimfs
-            final FilesHistoricConfig testConfig = new FilesHistoricConfig(
-                    tempDir, expectedCompressionType, digitsPerZipFileContents, 0L, blockStagingPath, 3);
+            final FilesHistoricConfig testConfig =
+                    new FilesHistoricConfig(tempDir, expectedCompressionType, digitsPerZipFileContents, 0L, 3);
             final BlockPath actual = BlockPath.computeBlockPath(testConfig, blockNumber);
             assertThat(actual)
                     .isNotNull()
@@ -271,8 +267,8 @@ class BlockPathTest {
             final Path expectedDirPath = expectedZipFilePath.getParent();
             // create the config to use for the test, resolve paths temp dir as jimfs does not support
             // the File abstraction
-            final FilesHistoricConfig testConfig = new FilesHistoricConfig(
-                    tempDir, expectedCompressionType, digitsPerZipFileContents, 0L, blockStagingPath, 3);
+            final FilesHistoricConfig testConfig =
+                    new FilesHistoricConfig(tempDir, expectedCompressionType, digitsPerZipFileContents, 0L, 3);
             // create the zip file and directory and add entry
             createZipAndAddEntry(expectedDirPath, expectedZipFilePath, expectedBlockFileName);
             // call
@@ -319,8 +315,8 @@ class BlockPathTest {
                     .orElseThrow();
             // create the config to use for the test, resolve paths temp dir as jimfs does not support
             // the File abstraction
-            final FilesHistoricConfig testConfig = new FilesHistoricConfig(
-                    tempDir, differentCompressionType, digitsPerZipFileContents, 0L, blockStagingPath, 3);
+            final FilesHistoricConfig testConfig =
+                    new FilesHistoricConfig(tempDir, differentCompressionType, digitsPerZipFileContents, 0L, 3);
             // create the zip file and directory and add entry
             createZipAndAddEntry(expectedDirPath, expectedZipFilePath, expectedBlockFileName);
             // call
@@ -350,8 +346,8 @@ class BlockPathTest {
             final Long blockNumber = argAccessor.getLong(3);
             final CompressionType expectedCompressionType = argAccessor.get(4, CompressionType.class);
             final int digitsPerZipFileContents = argAccessor.getInteger(5);
-            final FilesHistoricConfig testConfig = new FilesHistoricConfig(
-                    tempDir, expectedCompressionType, digitsPerZipFileContents, 0L, blockStagingPath, 3);
+            final FilesHistoricConfig testConfig =
+                    new FilesHistoricConfig(tempDir, expectedCompressionType, digitsPerZipFileContents, 0L, 3);
             // call
             final BlockPath actual = BlockPath.computeExistingBlockPath(testConfig, blockNumber);
             assertThat(actual).isNull();
@@ -378,8 +374,8 @@ class BlockPathTest {
             final Path expectedZipFilePath = tempDir.resolve(tempDir + expectedRelativeZipFilePathStr);
             final Path expectedDirPath = expectedZipFilePath.getParent();
             // create the config to use for the test
-            final FilesHistoricConfig testConfig = new FilesHistoricConfig(
-                    tempDir, expectedCompressionType, digitsPerZipFileContents, 0L, blockStagingPath, 3);
+            final FilesHistoricConfig testConfig =
+                    new FilesHistoricConfig(tempDir, expectedCompressionType, digitsPerZipFileContents, 0L, 3);
             // create the zip file and directory and add entry
             createZipAndAddEntry(expectedDirPath, expectedZipFilePath, "nonexistent.blk.zstd");
             // call
