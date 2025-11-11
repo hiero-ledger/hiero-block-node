@@ -1,0 +1,60 @@
+version: '3'
+
+dotenv: ['.env']
+
+tasks:
+    load-kubectl-helm:
+        cmds:
+            - mkdir -p ${HOME}/.kube
+            - sudo cp /etc/kubernetes/admin.conf ${HOME}/.kube/config
+            - sudo chown $(id -un):$(id -un) ${HOME}/.kube/config
+            - export PATH="/opt/solo/provisioner/sandbox/bin:${PATH}"
+            - command -v helm
+            - kubectl config get-clusters
+            - mkdir values-override
+
+    helm-release:
+        cmds:
+            - kubectl create namespace $NAMESPACE
+            - kubectl apply -f values-override/host-path.yaml
+            - helm install $RELEASE oci://ghcr.io/hiero-ledger/hiero-block-node/block-node-server --version $VERSION -n $NAMESPACE --values values-override/bare-metal-values.yaml
+            - kubectl annotate -n $NAMESPACE service $RELEASE-block-node-server "metallb.io/address-pool=public-address-pool"
+            - sleep 90
+            - kubectl get all -n $NAMESPACE
+
+    helm-upgrade:
+        cmds:
+            - helm upgrade $RELEASE oci://ghcr.io/hiero-ledger/hiero-block-node/block-node-server --version $VERSION -n $NAMESPACE  --install --values values-override/bare-metal-values.yaml
+            - kubectl get all -n $NAMESPACE
+
+    reset-file-store:
+        cmds:
+            - kubectl -n ${NAMESPACE} exec ${POD} -- sh -c 'rm -rf /opt/hiero/block-node/data/live/* /opt/hiero/block-node/data/historic/*'
+            - kubectl -n ${NAMESPACE} delete pod $POD
+
+    setup-grpcurl:
+        cmds:
+            - curl -L https://github.com/fullstorydev/grpcurl/releases/download/v1.8.7/grpcurl_1.8.7_linux_x86_64.tar.gz -o grpcurl.tar.gz
+            - sudo tar -xzf grpcurl.tar.gz -C /usr/local/bin grpcurl
+            - rm grpcurl.tar.gz
+
+    setup-bn-proto:
+        cmds:
+            - curl -L https://github.com/hiero-ledger/hiero-block-node/releases/download/v$VERSION/block-node-protobuf-$VERSION.tgz -o block-node-protobuf-$VERSION.tgz
+            - tar -xzf block-node-protobuf-$VERSION.tgz -C ~/block-node-protobuf-$VERSION
+            - rm block-node-protobuf-$VERSION.tgz
+
+    reset-upgrade:
+        cmds:
+            - kubectl -n ${NAMESPACE} exec ${POD} -- sh -c 'rm -rf /opt/hiero/block-node/data/live/* /opt/hiero/block-node/data/historic/*'
+            - kubectl -n ${NAMESPACE} delete pod $POD
+            - helm upgrade $RELEASE oci://ghcr.io/hiero-ledger/hiero-block-node/block-node-server --version $VERSION -n $NAMESPACE  --install --values values-override/bare-metal-values.yaml
+            - sleep 90
+            - kubectl get all -n $NAMESPACE
+
+    clear-release:
+        cmds:
+            - helm uninstall $RELEASE -n $NAMESPACE
+            - kubectl delete pvc -n $NAMESPACE live-storage-pvc logging-storage-pvc archive-storage-pvc
+            - kubectl delete pv -n $NAMESPACE archive-storage-pv live-storage-pv logging-storage-pv
+            - kubectl delete namespace $NAMESPACE

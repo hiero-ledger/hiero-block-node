@@ -1,0 +1,47 @@
+blockNode:
+    config:
+        BLOCK_NODE_EARLIEST_MANAGED_BLOCK: "100000000"
+        MESSAGING_BLOCK_NOTIFICATION_QUEUE_SIZE: "512"
+        logs:
+            level: "INFO"
+            loggingProperties:
+                org.hiero.block.level: "FINEST"
+                java.util.logging.ConsoleHandler.level: "FINEST"
+                java.util.logging.FileHandler.level: "FINEST"
+        initContainers:
+            - name: init-storage-dirs
+              image: docker.io/library/busybox:latest
+              command:
+                  - sh
+                  - -c
+                  - |
+                      chown 2000:2000 /live-pvc && \
+                      chmod 700 /live-pvc && \
+                      chown 2000:2000 /archive-pvc && \
+                      chmod 700 /archive-pvc && \
+                      chown 2000:2000 /logging-pvc && \
+                      chmod 700 /logging-pvc
+              volumeMounts:
+                  - name: live-storage
+                    mountPath: /live-pvc
+                  - name: archive-storage
+                    mountPath: /archive-pvc
+                  - name: logging-storage
+                    mountPath: /logging-pvc
+        persistence:
+            live:
+                create: false
+                existingClaim: live-storage-pvc
+                subPath: ""
+            archive:
+                create: false
+                existingClaim: archive-storage-pvc
+                subPath: ""
+            logging:
+                create: false
+                existingClaim: logging-storage-pvc
+                subPath: ""
+
+service:
+    type: LoadBalancer
+    port: 40840
