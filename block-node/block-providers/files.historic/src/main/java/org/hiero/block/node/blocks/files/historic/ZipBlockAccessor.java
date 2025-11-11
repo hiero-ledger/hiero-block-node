@@ -25,42 +25,51 @@ final class ZipBlockAccessor implements BlockAccessor {
     /** The logger for this class. */
     private final System.Logger LOGGER = System.getLogger(getClass().getName());
     /** Message logged when the protobuf codec fails to parse data */
-    private static final String FAILED_TO_PARSE_MESSAGE = "Failed to parse block from file %s.";
+    private static final String FAILED_TO_PARSE_MESSAGE =
+            "Failed to parse block: %s, zipFilePath: %s, zipEntryName: %s";
     /** Message logged when data cannot be read from a block file */
-    private static final String FAILED_TO_READ_MESSAGE = "Failed to read block from file %s.";
-    /** The block path. */
-    private final BlockPath blockPath;
+    private static final String FAILED_TO_READ_MESSAGE = "Failed to read block: %s, zipFilePath: %s, zipEntryName: %s";
+    /** Message logged when the provided path to a zip file is not a regular file or does not exist. */
+    private static final String INVALID_ZIP_FILE_PATH_MESSAGE =
+            "Provided path to zip file is not a regular file or does not exist: %s";
+    /** The absolute path to the zip file, used for logging. */
+    private final String absoluteZipFilePath;
+    /** All path and block information for the block accessed */
+    private final BlockPath blockPathData;
+    /** Block number this accessor manages. */
+    private final long blockNumber;
 
     /**
      * Constructs a ZipBlockAccessor with the specified block path.
      *
      * @param blockPath the block path
      */
-    ZipBlockAccessor(@NonNull final BlockPath blockPath) {
-        this.blockPath = Objects.requireNonNull(blockPath);
+    ZipBlockAccessor(@NonNull final BlockPath blockPath) throws IOException {
+        blockPathData = blockPath;
+        blockNumber = blockPath.blockNumber();
+        final Path zipFilePath = blockPath.zipFilePath();
+        this.absoluteZipFilePath = zipFilePath.toAbsolutePath().toString();
+        if (!Files.isRegularFile(zipFilePath)) {
+            final String msg = INVALID_ZIP_FILE_PATH_MESSAGE.formatted(zipFilePath);
+            throw new IOException(msg);
+        }
     }
 
-    /**
-     * {@inheritDoc}
-     */
     @Override
     public long blockNumber() {
-        // TODO maybe there is nice option here than having to parse the string
-        return Long.parseLong(blockPath.blockNumStr());
+        return blockNumber;
     }
 
-    /**
-     * {@inheritDoc}
-     */
     @Override
     public Bytes blockBytes(@NonNull final Format format) {
         Objects.requireNonNull(format);
-        CompressionType compressionType = blockPath.compressionType();
-        try (final FileSystem zipFs = FileSystems.newFileSystem(blockPath.zipFilePath())) {
-            final Path entry = zipFs.getPath(blockPath.blockFileName());
-            return getBytesFromPath(format, entry, compressionType);
+        String entryName = blockPathData.blockFileName();
+        try (final FileSystem zipFs = FileSystems.newFileSystem(blockPathData.zipFilePath())) {
+            final Path entry = zipFs.getPath(entryName);
+            return getBytesFromPath(format, entry, blockPathData.compressionType());
         } catch (final UncheckedIOException | IOException e) {
-            LOGGER.log(WARNING, FAILED_TO_READ_MESSAGE.formatted(blockPath), e);
+            final String message = FAILED_TO_READ_MESSAGE.formatted(blockNumber, absoluteZipFilePath, entryName);
+            LOGGER.log(WARNING, message, e);
             return null;
         }
     }
@@ -112,12 +121,18 @@ final class ZipBlockAccessor implements BlockAccessor {
             try {
                 return Block.JSON.toBytes(Block.PROTOBUF.parse(sourceData));
             } catch (final UncheckedIOException | ParseException e) {
-                final String message = FAILED_TO_PARSE_MESSAGE.formatted(blockPath);
+                String entryName = blockPathData.blockFileName();
+                final String message = FAILED_TO_PARSE_MESSAGE.formatted(blockNumber, absoluteZipFilePath, entryName);
                 LOGGER.log(WARNING, message, e);
                 return null;
             }
         } else {
             return null;
         }
+    }
+
+    @Override
+    public void close() {
+        // Nothing to do here at the moment.
     }
 }

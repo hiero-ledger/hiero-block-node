@@ -17,7 +17,6 @@ import java.time.Instant;
 import java.time.ZoneOffset;
 import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
-import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
 import java.util.concurrent.Callable;
@@ -43,6 +42,7 @@ import org.hiero.block.node.spi.blockmessaging.BlockNotificationHandler;
 import org.hiero.block.node.spi.blockmessaging.PersistedNotification;
 import org.hiero.block.node.spi.historicalblocks.BlockAccessor;
 import org.hiero.block.node.spi.historicalblocks.BlockAccessor.Format;
+import org.hiero.block.node.spi.historicalblocks.BlockAccessorBatch;
 
 /**
  * This a block node plugin that stores verified blocks in a cloud archive for disaster recovery and backup. It will
@@ -54,6 +54,9 @@ import org.hiero.block.node.spi.historicalblocks.BlockAccessor.Format;
 public class S3ArchivePlugin implements BlockNodePlugin, BlockNotificationHandler {
     /** The storage class used for uploading the lastest block file */
     public static final String LATEST_FILE_STORAGE_CLASS = "STANDARD";
+    /** A message logged when gaps are encountered while archiving */
+    private static final String GAP_FOUND_MESSAGE =
+            "Historical block {0} was not found! Cannot proceed to upload archive block batch: {1} - {2}";
     /** The logger for this class. */
     private final System.Logger LOGGER = System.getLogger(getClass().getName());
     /** The name of the file containing the latest archived block number. */
@@ -288,9 +291,6 @@ public class S3ArchivePlugin implements BlockNodePlugin, BlockNotificationHandle
             return null;
         }
 
-        private static final String GAP_FOUND_MESSAGE =
-                "Historical block {0} was not found! Cannot proceed to upload archive block batch: {1} - {2}";
-
         /**
          * Upload a batch of blocks to the tar archive in S3 bucket. This is called when a batch of blocks can
          * be archived.
@@ -303,51 +303,90 @@ public class S3ArchivePlugin implements BlockNodePlugin, BlockNotificationHandle
         private boolean uploadBlocksTar(final S3Client s3Client, final long startBlockNumber, final long endBlockNumber)
                 throws S3ResponseException, IOException {
             // The HTTP client needs an Iterable of byte arrays, so create one from the blocks
-            final List<BlockAccessor> accessors = new ArrayList<>();
-            for (long i = startBlockNumber; i <= endBlockNumber; i++) {
-                final BlockAccessor accessor = context.historicalBlockProvider().block(i);
-                if (accessor != null) {
-                    accessors.add(accessor);
-                } else {
-                    LOGGER.log(WARNING, GAP_FOUND_MESSAGE, i, startBlockNumber, endBlockNumber);
+            try (final BlockAccessorBatch blockAccessorBatch = gatherAccessors(startBlockNumber, endBlockNumber)) {
+                if (blockAccessorBatch.isEmpty()) {
                     return false;
+                } else {
+                    final Iterator<byte[]> tarBlocks =
+                            new TaredBlockIterator(Format.ZSTD_PROTOBUF, blockAccessorBatch.iterator());
+                    // fetch the first blocks consensus time so that we can place the file in a directory based on year
+                    // and
+                    // month
+                    final BlockUnparsed firstBlock =
+                            blockAccessorBatch.getFirst().blockUnparsed();
+                    final ZonedDateTime firstBlockConsensusTime;
+                    final Bytes headerBytes = firstBlock.blockItems().getFirst().blockHeader();
+                    if (headerBytes == null) {
+                        throw new IllegalStateException("Block header is null");
+                    }
+                    final BlockHeader header = BlockHeader.PROTOBUF.parse(headerBytes);
+                    if (header.blockTimestamp() == null) {
+                        throw new IllegalStateException("Block header firstTransactionConsensusTime is null");
+                    }
+                    firstBlockConsensusTime = ZonedDateTime.ofInstant(
+                            Instant.ofEpochSecond(
+                                    header.blockTimestamp().seconds(),
+                                    header.blockTimestamp().nanos()),
+                            ZoneOffset.UTC);
+                    // generate the object key
+                    // e.g. "blocks/2025/01/2025-01-01_00-00-00_0000000000000000000-0000000000000000009.tar"
+                    final String basePath = archiveConfig.basePath();
+                    final String yearMonthDate =
+                            YEAR_MONTH_FORMATTER.format(firstBlockConsensusTime); // this adds a slash
+                    final String filePrefix = FILE_PREFIX_FORMATTER.format(firstBlockConsensusTime);
+                    final String startBlockNumberFormatted = blockNumberFormated(startBlockNumber);
+                    final String endBlockNumberFormatted = blockNumberFormated(endBlockNumber);
+                    final String objectKey = "%s/%s/%s%s-%s.tar"
+                            .formatted(
+                                    basePath,
+                                    yearMonthDate,
+                                    filePrefix,
+                                    startBlockNumberFormatted,
+                                    endBlockNumberFormatted);
+                    // Upload the blocks to S3
+                    s3Client.uploadFile(objectKey, archiveConfig.storageClass(), tarBlocks, "application/x-tar");
+                    return true;
                 }
-            }
-            final Iterator<BlockAccessor> blocksIterator = accessors.iterator();
-            final Iterator<byte[]> tarBlocks = new TaredBlockIterator(Format.ZSTD_PROTOBUF, blocksIterator);
-            // fetch the first blocks consensus time so that we can place the file in a directory based on year and
-            // month
-            final BlockUnparsed firstBlock = accessors.getFirst().blockUnparsed();
-            final ZonedDateTime firstBlockConsensusTime;
-            try {
-                final Bytes headerBytes = firstBlock.blockItems().getFirst().blockHeader();
-                if (headerBytes == null) {
-                    throw new IllegalStateException("Block header is null");
-                }
-                final BlockHeader header = BlockHeader.PROTOBUF.parse(headerBytes);
-                if (header.blockTimestamp() == null) {
-                    throw new IllegalStateException("Block header firstTransactionConsensusTime is null");
-                }
-                firstBlockConsensusTime = ZonedDateTime.ofInstant(
-                        Instant.ofEpochSecond(
-                                header.blockTimestamp().seconds(),
-                                header.blockTimestamp().nanos()),
-                        ZoneOffset.UTC);
             } catch (final ParseException e) {
                 throw new IllegalStateException("Failed to parse Block Header from first block", e);
+            } catch (final S3ResponseException | IOException e) {
+                // in cases where upload is unsuccessful, we expect an
+                // S3ResponseException
+                final String message = "Failed to upload archive block batch: {0} - {1}";
+                LOGGER.log(Level.INFO, message, startBlockNumber, endBlockNumber);
+                return false;
             }
-            // generate the object key
-            // e.g. "blocks/2025/01/2025-01-01_00-00-00_0000000000000000000-0000000000000000009.tar"
-            final String basePath = archiveConfig.basePath();
-            final String yearMonthDate = YEAR_MONTH_FORMATTER.format(firstBlockConsensusTime); // this adds a slash
-            final String filePrefix = FILE_PREFIX_FORMATTER.format(firstBlockConsensusTime);
-            final String startBlockNumberFormatted = blockNumberFormated(startBlockNumber);
-            final String endBlockNumberFormatted = blockNumberFormated(endBlockNumber);
-            final String objectKey = "%s/%s/%s%s-%s.tar"
-                    .formatted(basePath, yearMonthDate, filePrefix, startBlockNumberFormatted, endBlockNumberFormatted);
-            // Upload the blocks to S3
-            s3Client.uploadFile(objectKey, archiveConfig.storageClass(), tarBlocks, "application/x-tar");
-            return true;
+        }
+
+        /**
+         * This method attempts to gather the block accessors for the given
+         * range of block numbers. The range must be gathered in full, no gaps
+         * are allowed to happen. If failure during gathering occurs or a gap
+         * is detected, this method will close any open accessors and return
+         * null. Otherwise, it will return a list of accessors for the requested
+         * range.
+         */
+        private BlockAccessorBatch gatherAccessors(final long startBlockNumber, final long endBlockNumber) {
+            final BlockAccessorBatch accessors = new BlockAccessorBatch();
+            try {
+                for (long i = startBlockNumber; i <= endBlockNumber; i++) {
+                    final BlockAccessor accessor =
+                            context.historicalBlockProvider().block(i);
+                    if (accessor != null) {
+                        accessors.add(accessor);
+                    } else {
+                        LOGGER.log(WARNING, GAP_FOUND_MESSAGE, i, startBlockNumber, endBlockNumber);
+                        accessors.close();
+                        break;
+                    }
+                }
+            } catch (final RuntimeException e) {
+                final String message = "Failed to gather block accessors for range: %d - %d"
+                        .formatted(startBlockNumber, endBlockNumber);
+                LOGGER.log(WARNING, message, e);
+                accessors.close();
+            }
+            return accessors;
         }
     }
 }

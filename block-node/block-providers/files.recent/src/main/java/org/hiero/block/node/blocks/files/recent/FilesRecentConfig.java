@@ -3,9 +3,8 @@ package org.hiero.block.node.blocks.files.recent;
 
 import com.swirlds.config.api.ConfigData;
 import com.swirlds.config.api.ConfigProperty;
+import com.swirlds.config.api.validation.annotation.Min;
 import java.nio.file.Path;
-import java.util.Objects;
-import org.hiero.block.common.utils.Preconditions;
 import org.hiero.block.node.base.CompressionType;
 import org.hiero.block.node.base.Loggable;
 
@@ -25,14 +24,4 @@ public record FilesRecentConfig(
         @Loggable @ConfigProperty(defaultValue = "/opt/hiero/block-node/data/live") Path liveRootPath,
         @Loggable @ConfigProperty(defaultValue = "ZSTD") CompressionType compression,
         @Loggable @ConfigProperty(defaultValue = "3") int maxFilesPerDir,
-        @Loggable @ConfigProperty(defaultValue = "96_000") long blockRetentionThreshold) {
-    /**
-     * Constructor.
-     */
-    public FilesRecentConfig {
-        Objects.requireNonNull(liveRootPath);
-        Objects.requireNonNull(compression);
-        Preconditions.requirePositive(maxFilesPerDir);
-        Preconditions.requireGreaterOrEqual(blockRetentionThreshold, 0L);
-    }
-}
+        @Loggable @ConfigProperty(defaultValue = "96_000") @Min(0) long blockRetentionThreshold) {}

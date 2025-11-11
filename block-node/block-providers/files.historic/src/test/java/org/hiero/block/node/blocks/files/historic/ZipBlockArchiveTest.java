@@ -17,7 +17,6 @@ import java.nio.file.FileSystems;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
@@ -32,6 +31,7 @@ import org.hiero.block.node.base.CompressionType;
 import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.historicalblocks.BlockAccessor;
 import org.hiero.block.node.spi.historicalblocks.BlockAccessor.Format;
+import org.hiero.block.node.spi.historicalblocks.BlockAccessorBatch;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -336,7 +336,7 @@ class ZipBlockArchiveTest {
 
         /**
          * This test aims to assert that the
-         * {@link ZipBlockArchive#writeNewZipFile(List)} will successfully
+         * {@link ZipBlockArchive#writeNewZipFile(BlockAccessorBatch)}  will successfully
          * create the target zip file
          */
         @Test
@@ -345,7 +345,7 @@ class ZipBlockArchiveTest {
             // setup
             final long firstBlockNumber = 0L;
             final int batchSize = (int) Math.pow(10, testConfig.powersOfTenPerZipFileContents());
-            final List<BlockAccessor> batch = new ArrayList<>();
+            final BlockAccessorBatch batch = new BlockAccessorBatch();
             for (int i = (int) firstBlockNumber; i < batchSize; i++) {
                 final List<BlockItem> blockItems = List.of(SimpleTestBlockItemBuilder.createSimpleBlockWithNumber(i));
                 batch.add(new InMemoryBlockAccessor(blockItems));
@@ -372,7 +372,7 @@ class ZipBlockArchiveTest {
 
         /**
          * This test aims to assert that the
-         * {@link ZipBlockArchive#writeNewZipFile(List)} will produce the right
+         * {@link ZipBlockArchive#writeNewZipFile(BlockAccessorBatch)} will produce the right
          * contents for the created zip file
          */
         @Test
@@ -382,7 +382,7 @@ class ZipBlockArchiveTest {
             final long firstBlockNumber = 0L;
             final int batchSize = (int) Math.pow(10, testConfig.powersOfTenPerZipFileContents());
             final Map<String, Bytes> first10BlocksWithExpectedEntryNames = new TreeMap<>();
-            final List<BlockAccessor> batch = new ArrayList<>();
+            final BlockAccessorBatch batch = new BlockAccessorBatch();
             for (int i = (int) firstBlockNumber; i < batchSize; i++) {
                 final List<BlockItem> blockItems = List.of(SimpleTestBlockItemBuilder.createSimpleBlockWithNumber(i));
                 final InMemoryBlockAccessor accessor = new InMemoryBlockAccessor(blockItems);
@@ -477,8 +477,9 @@ class ZipBlockArchiveTest {
         return new ZipBlockAccessor(blockPath);
     }
 
-    private FilesHistoricConfig createTestConfiguration(final Path basePath, final int powersOfTenPerZipFileContents) {
+    private FilesHistoricConfig createTestConfiguration(
+            final Path blocksRoot, final int powersOfTenPerZipFileContents) {
         // for simplicity let's use no compression
-        return new FilesHistoricConfig(basePath, CompressionType.NONE, powersOfTenPerZipFileContents, 0L, 3);
+        return new FilesHistoricConfig(blocksRoot, CompressionType.NONE, powersOfTenPerZipFileContents, 0L, 3);
     }
 }

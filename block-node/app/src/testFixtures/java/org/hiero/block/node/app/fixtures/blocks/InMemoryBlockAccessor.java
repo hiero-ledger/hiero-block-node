@@ -85,4 +85,9 @@ public final class InMemoryBlockAccessor implements BlockAccessor {
     private Bytes zstdCompressBytes(final Bytes bytes) {
         return Bytes.wrap(Zstd.compress(bytes.toByteArray()));
     }
+
+    @Override
+    public void close() {
+        // do nothing
+    }
 }

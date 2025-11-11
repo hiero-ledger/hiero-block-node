@@ -4,7 +4,14 @@ package org.hiero.block.node.app.fixtures.blocks;
 import com.hedera.hapi.block.stream.Block;
 import com.hedera.pbj.runtime.ParseException;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
+import edu.umd.cs.findbugs.annotations.NonNull;
+import edu.umd.cs.findbugs.annotations.Nullable;
 import java.io.IOException;
+import java.nio.file.FileVisitResult;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.SimpleFileVisitor;
+import java.nio.file.attribute.BasicFileAttributes;
 import java.util.zip.GZIPInputStream;
 import org.hiero.block.internal.BlockUnparsed;
 import org.hiero.block.node.app.fixtures.TestUtils;
@@ -110,6 +117,33 @@ public final class BlockUtils {
 
         public long getBlockNumber() {
             return blockNumber;
+        }
+    }
+
+    /**
+     * A simple file visitor to recursively delete files and directories up to
+     * the provided root.
+     */
+    private static class RecursiveFileDeleteVisitor extends SimpleFileVisitor<Path> {
+        @Override
+        @NonNull
+        public FileVisitResult visitFile(@NonNull final Path file, @NonNull final BasicFileAttributes attrs)
+                throws IOException {
+            Files.delete(file);
+            return FileVisitResult.CONTINUE;
+        }
+
+        @Override
+        @NonNull
+        public FileVisitResult postVisitDirectory(@NonNull final Path dir, @Nullable final IOException e)
+                throws IOException {
+            if (e == null) {
+                Files.delete(dir);
+                return FileVisitResult.CONTINUE;
+            } else {
+                // directory iteration failed
+                throw e;
+            }
         }
     }
 }

@@ -33,6 +33,7 @@ import org.hiero.block.node.base.BlockFile;
 import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.historicalblocks.BlockAccessor;
 import org.hiero.block.node.spi.historicalblocks.BlockAccessor.Format;
+import org.hiero.block.node.spi.historicalblocks.BlockAccessorBatch;
 
 /**
  * The ZipBlockArchive class provides methods for creating and managing zip files containing blocks.
@@ -68,10 +69,9 @@ class ZipBlockArchive {
      * @return The size of the zip file created
      * @throws IOException If an error occurs writing the block
      */
-    long writeNewZipFile(List<BlockAccessor> batch) throws IOException {
+    long writeNewZipFile(BlockAccessorBatch batch) throws IOException {
         // compute zip path
-        final BlockPath firstBlockPath =
-                computeBlockPath(config, batch.getFirst().blockNumber());
+        final BlockPath firstBlockPath = computeBlockPath(config, batch.getFirstBlockNumber());
         // create directories
         Files.createDirectories(firstBlockPath.dirPath());
         // create zip file
@@ -89,6 +89,9 @@ class ZipBlockArchive {
                 // it is here possible that the accessor will no longer be able to access the block
                 // because it is possible that the block has been deleted or has been moved
                 final Bytes bytes = blockAccessor.blockBytes(format);
+                // close the accessor as we are done with it and we need to free
+                // resources
+                blockAccessor.close();
                 // calculate CRC-32 checksum
                 final CRC32 crc = new CRC32();
                 crc.update(bytes.toByteArray());
@@ -124,11 +127,12 @@ class ZipBlockArchive {
      */
     BlockAccessor blockAccessor(long blockNumber) {
         try {
-            // get existing block path or null if we cannot find it
+            // get existing block path or null if we cannot find it or create accessor for
             final BlockPath blockPath = computeExistingBlockPath(config, blockNumber);
             return blockPath == null ? null : new ZipBlockAccessor(blockPath);
         } catch (final IOException e) {
-            throw new UncheckedIOException(e);
+            LOGGER.log(INFO, "Could not create zip block accessor", e);
+            return null;
         }
     }
 
