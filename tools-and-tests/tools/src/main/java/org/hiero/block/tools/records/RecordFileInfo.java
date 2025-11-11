@@ -4,11 +4,21 @@ package org.hiero.block.tools.records;
 import static org.hiero.block.tools.records.SerializationV5Utils.HASH_OBJECT_SIZE_BYTES;
 import static org.hiero.block.tools.records.SerializationV5Utils.readV5HashObject;
 
+import com.hedera.hapi.node.base.NodeAddressBook;
 import com.hedera.hapi.node.base.SemanticVersion;
 import com.hedera.hapi.streams.RecordStreamFile;
 import com.hedera.pbj.runtime.io.buffer.BufferedData;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.security.MessageDigest;
+import java.time.Instant;
+import java.util.Collections;
+import java.util.HexFormat;
+import java.util.List;
+import org.hiero.block.tools.commands.days.model.AddressBookRegistry;
 import org.hiero.block.tools.utils.PrettyPrint;
 
 /**
@@ -36,6 +46,42 @@ public record RecordFileInfo(
         byte[] recordFileContents) {
     /* The length of the header in a v2 record file */
     private static final int V2_HEADER_LENGTH = Integer.BYTES + Integer.BYTES + 1 + 48;
+
+    /** Debug main method for helping with parsing and validation issues */
+    public static void main(String[] args) throws Exception {
+        AddressBookRegistry addressBookRegistry = new AddressBookRegistry(
+            Path.of("REAL_DATA/addressBookHistory.json"));
+
+
+        Path dateDirPath = Path.of("REAL_DATA/2023-04-07T02_02_34.011568302Z");
+        Path rcdFilePath = dateDirPath.resolve("2023-04-07T02_02_34.011568302Z.rcd");
+        byte[] rcdData = Files.readAllBytes(rcdFilePath);
+        RecordFileInfo recordFileInfo = parse(rcdData);
+        System.out.println("recordFileInfo = " + recordFileInfo.prettyToString());
+        List<InMemoryFile> sigFiles  = Files.list(dateDirPath)
+            .filter(p -> p.getFileName().toString().endsWith(".rcs_sig"))
+            .map(p -> {
+                try {
+                    return new InMemoryFile(p,Files.readAllBytes(p));
+                } catch (IOException e) {
+                    throw new RuntimeException(e);
+                }
+            })
+            .toList();
+
+        RecordFileBlockV6 recordFileBlockV6 = new RecordFileBlockV6(
+            Instant.parse("2023-04-07T02:02:34.011568302Z"),
+            new InMemoryFile(rcdFilePath,rcdData),
+            Collections.emptyList(),
+            sigFiles,
+            Collections.emptyList(),
+            Collections.emptyList());
+        var validationResult = recordFileBlockV6.validate(
+            HexFormat.of().parseHex("b6bfad22957eb0b43531930f1a0f39a855a545ec4bd3150f9f835178783521da213b190266e8c80512e26ed1673b02c3"),
+            addressBookRegistry.getCurrentAddressBook()
+        );
+        System.out.println("validationResult = " + validationResult);
+    }
 
     /**
      * Parses the record file to extract the HAPI protocol version and the block hash.

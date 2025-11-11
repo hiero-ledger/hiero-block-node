@@ -5,6 +5,7 @@ import com.hedera.hapi.block.stream.experimental.Block;
 import com.hedera.hapi.node.base.NodeAddressBook;
 import com.hedera.hapi.node.base.SemanticVersion;
 import com.hedera.hapi.node.transaction.TransactionBody;
+import com.hedera.pbj.runtime.io.buffer.Bytes;
 import edu.umd.cs.findbugs.annotations.NonNull;
 import java.io.IOException;
 import java.time.Instant;
@@ -221,15 +222,24 @@ public abstract class RecordFileBlock {
      * @return the extended string representation
      */
     public String toStringExtended() {
-        RecordFileInfo information = RecordFileInfo.parse(primaryRecordFile.data());
-        return String.format(
-                "-- RecordFileSet @ %-32s :: primary=%b, signatures=%2d%s%s",
+        try {
+            RecordFileInfo information = RecordFileInfo.parse(primaryRecordFile.data());
+            return String.format(
+                "-- RecordFileSet @ %-32s :: signatures=%2d%s%s%n  -- %s",
                 recordFileTime,
-                primaryRecordFile != null,
+                signatureFiles.size(),
+                primarySidecarFiles.isEmpty() ? "" : ", primary sidecars=" + primarySidecarFiles.size(),
+                otherRecordFiles.isEmpty() ? "" : ", other record files=" + otherRecordFiles.size(),
+                    information.prettyToString().replace("\n", "\n     "));
+        } catch (Exception e) {
+            return String.format(
+                "-- RecordFileSet @ %-32s :: signatures=%2d%s%s",
+                recordFileTime,
                 signatureFiles.size(),
                 primarySidecarFiles.isEmpty() ? "" : ", primary sidecars=" + primarySidecarFiles.size(),
                 otherRecordFiles.isEmpty() ? "" : ", other record files=" + otherRecordFiles.size()+
-                "\n    - "+information.toString().replace("\n", "\n    - "));
+                    "\n    - Parsing FAILED: "+e.getMessage());
+        }
     }
 
     public Instant recordFileTime() {
@@ -349,6 +359,8 @@ public abstract class RecordFileBlock {
                 return false;
             }
         }
+        warningMessages.append("Missing signature files ["+signatureFiles().size()+"] or address book: "+
+            addressBook+"\n");
         return false;
     }
 }
