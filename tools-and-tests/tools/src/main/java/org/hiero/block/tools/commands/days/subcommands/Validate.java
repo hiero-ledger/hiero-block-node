@@ -53,11 +53,11 @@ public class Validate implements Runnable {
     /**
      * Simple wrapper for producer-consumer communication (day boundaries + blocks)
      *
-     * @param dayIndex index into dayPaths
-     * @param dayFile  for diagnostics (may be null for STREAM_END)
+     * @param dayDate  the date of the day being processed
+     * @param dayFile  for diagnostics (maybe null for STREAM_END)
      * @param block    only for BLOCK
      */
-     private record Item(Kind kind, int dayIndex, Path dayFile, RecordFileBlock block) {
+     private record Item(Kind kind, LocalDate dayDate, Path dayFile, RecordFileBlock block) {
         enum Kind {
             DAY_START,
             BLOCK,
@@ -65,20 +65,20 @@ public class Validate implements Runnable {
             STREAM_END
         }
 
-        static Item dayStart(int idx, Path file) {
-            return new Item(Kind.DAY_START, idx, file, null);
+        static Item dayStart(LocalDate date, Path file) {
+            return new Item(Kind.DAY_START, date, file, null);
         }
 
-        static Item block(int idx, Path file, RecordFileBlock b) {
-            return new Item(Kind.BLOCK, idx, file, b);
+        static Item block(LocalDate date, Path file, RecordFileBlock b) {
+            return new Item(Kind.BLOCK, date, file, b);
         }
 
-        static Item dayEnd(int idx, Path file) {
-            return new Item(Kind.DAY_END, idx, file, null);
+        static Item dayEnd(LocalDate date, Path file) {
+            return new Item(Kind.DAY_END, date, file, null);
         }
 
         static Item streamEnd() {
-            return new Item(Kind.STREAM_END, -1, null, null);
+            return new Item(Kind.STREAM_END, null, null, null);
         }
     }
 
@@ -88,14 +88,18 @@ public class Validate implements Runnable {
      */
     @SuppressWarnings("ClassCanBeRecord")
     private static final class Status {
-        final int dayIndex;
+        final String dayDate; // ISO-8601 LocalDate (e.g., "2019-09-13")
         final String recordFileTime; // ISO-8601 from Instant.toString()
         final String endRunningHashHex;
 
-        Status(int dayIndex, String recordFileTime, String endRunningHashHex) {
-            this.dayIndex = dayIndex;
+        Status(LocalDate dayDate, String recordFileTime, String endRunningHashHex) {
+            this.dayDate = dayDate.toString();
             this.recordFileTime = recordFileTime;
             this.endRunningHashHex = endRunningHashHex;
+        }
+
+        LocalDate dayLocalDate() {
+            return LocalDate.parse(dayDate);
         }
 
         Instant recordInstant() {
@@ -226,28 +230,48 @@ public class Validate implements Runnable {
         }, "validate-shutdown-hook"));
 
         // Reader thread: reads .tar.zstd day files and enqueues blocks
-        final int startDay = Math.max(0, resumeStatus != null ? resumeStatus.dayIndex : 0);
+        // If resuming, find the index of the day to resume from by matching the date
+        final int startDay;
+        if (resumeStatus != null) {
+            LocalDate resumeDate = resumeStatus.dayLocalDate();
+            int foundIndex = -1;
+            for (int i = 0; i < dayPaths.size(); i++) {
+                LocalDate dayDate = parseDayFromFileName(dayPaths.get(i).getFileName().toString());
+                if (dayDate.equals(resumeDate)) {
+                    foundIndex = i;
+                    break;
+                }
+            }
+            startDay = Math.max(0, foundIndex);
+            if (foundIndex < 0) {
+                System.err.println("Warning: Could not find resume day " + resumeDate + ", starting from beginning");
+            }
+        } else {
+            startDay = 0;
+        }
+
         final Thread reader = new Thread(
                 () -> {
                     try {
                         for (int day = startDay; day < dayPaths.size(); day++) {
                             final Path dayPath = dayPaths.get(day);
-                            queue.put(Item.dayStart(day, dayPath));
+                            final LocalDate dayDate = parseDayFromFileName(dayPath.getFileName().toString());
+                            queue.put(Item.dayStart(dayDate, dayPath));
                             try (var stream = TarZstdDayReaderUsingExec.streamTarZstd(dayPath)) {
-                                final int dayIdx = day; // capture effectively final for lambda
-                                // capture resumeStatus directly
+                                // capture for lambda
+                                final LocalDate currentDayDate = dayDate;
                                 stream.forEach(set -> {
                                      try {
                                          // If resuming and this is the resume day, skip blocks up to and including the
                                          // recorded recordFileTime
-                                         if (resumeStatus != null && dayIdx == resumeStatus.dayIndex) {
+                                         if (resumeStatus != null && currentDayDate.equals(resumeStatus.dayLocalDate())) {
                                             Instant ri = resumeStatus.recordInstant();
                                             if (!set.recordFileTime().isAfter(ri)) {
                                                 // skip this block (it was already processed)
                                                 return;
                                             }
                                          }
-                                         queue.put(Item.block(dayIdx, dayPath, set));
+                                         queue.put(Item.block(currentDayDate, dayPath, set));
                                      } catch (InterruptedException ie) {
                                          Thread.currentThread().interrupt();
                                          throw new RuntimeException(
@@ -265,7 +289,7 @@ public class Validate implements Runnable {
                                 System.exit(1);
                             }
                             // signal day end
-                            queue.put(Item.dayEnd(day, dayPath));
+                            queue.put(Item.dayEnd(dayDate, dayPath));
                         }
                     } catch (InterruptedException ie) {
                         Thread.currentThread().interrupt();
@@ -287,7 +311,7 @@ public class Validate implements Runnable {
         reader.start();
 
         long progressAtStartOfDay = 0L;
-        int currentDay = -1;
+        int currentDayCount = 0; // Track number of days processed so far
         // Track the last consensus-minute (epoch minute) we reported progress for so we only print
         // once per minute of consensus time.
         long lastReportedMinute = Long.MIN_VALUE;
@@ -301,7 +325,6 @@ public class Validate implements Runnable {
 
                 switch (item.kind) {
                     case DAY_START -> {
-                        currentDay = item.dayIndex;
                         progressAtStartOfDay = progress.get();
                         blockInDayCounter.set(0L);
                     }
@@ -375,7 +398,7 @@ public class Validate implements Runnable {
 
                             // Update last good processed block (in-memory only, not writing to disk here)
                             String endHashHex = HexFormat.of().formatHex(vr.endRunningHash());
-                            lastGood.set(new Status(item.dayIndex, block.recordFileTime().toString(), endHashHex));
+                            lastGood.set(new Status(item.dayDate, block.recordFileTime().toString(), endHashHex));
 
                             // Build progress string showing time and hashes (shortened to 8 chars for readability)
                             final String progressString = String.format(
@@ -410,9 +433,10 @@ public class Validate implements Runnable {
                     }
                     case DAY_END -> {
                         // After finishing the day, update aggregates
+                        currentDayCount++;
                         final long progressAtEndOfDay = progress.get();
                         final long blocksInDay = progressAtEndOfDay - progressAtStartOfDay;
-                        final long remainingDays = dayCount - (currentDay + 1);
+                        final long remainingDays = dayCount - currentDayCount;
                         // update total estimate based on actual blocks processed in this day
                         totalProgress.set(progressAtEndOfDay + (remainingDays * blocksInDay));
                     }
@@ -463,6 +487,7 @@ public class Validate implements Runnable {
     public static void main(String[] args) {
         Validate validator = new Validate();
         validator.compressedDaysDir = new File("REAL_DATA/days");
+//        validator.compressedDaysDir = new File("/Volumes/hedera/REAL_DATA");
         validator.run();
     }
 }
