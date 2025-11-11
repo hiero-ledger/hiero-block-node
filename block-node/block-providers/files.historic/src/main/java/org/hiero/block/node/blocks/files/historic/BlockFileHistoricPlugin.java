@@ -254,7 +254,7 @@ public final class BlockFileHistoricPlugin implements BlockProviderPlugin, Block
 
         BlockItemUnparsed firstItem = block.blockItems().getFirst();
         if (!firstItem.hasBlockHeader()) {
-            LOGGER.log(INFO, "Block {0} has no block header, cannot write to staging path", blockNumber);
+            LOGGER.log(WARNING, "Block {0} has no block header, cannot write to staging path", blockNumber);
             return;
         }
 
@@ -292,8 +292,8 @@ public final class BlockFileHistoricPlugin implements BlockProviderPlugin, Block
         } catch (final IOException e) {
             final String message = "Failed to create directories for path %s due to %s"
                     .formatted(verifiedBlockPath.toAbsolutePath(), e);
-            LOGGER.log(WARNING, message, e);
-            throw new UncheckedIOException(e);
+            LOGGER.log(INFO, message, e);
+            throw new UncheckedIOException(e.getMessage(), e);
         }
     }
 
@@ -436,7 +436,8 @@ public final class BlockFileHistoricPlugin implements BlockProviderPlugin, Block
             for (long blockNumber = batchFirstBlockNumber; blockNumber <= batchLastBlockNumber; blockNumber++) {
                 Path path = BlockFile.nestedDirectoriesBlockFilePath(
                         stagingPath, blockNumber, config.compression(), config.maxFilesPerDir());
-                final BlockAccessor currentAccessor = new BlockFileAccessor(path, CompressionType.ZSTD, blockNumber);
+                final BlockAccessor currentAccessor =
+                        new BlockStagingFileAccessor(path, CompressionType.ZSTD, blockNumber);
                 if (currentAccessor.block() == null) {
                     break;
                 } else {
@@ -448,7 +449,7 @@ public final class BlockFileHistoricPlugin implements BlockProviderPlugin, Block
                 // we have a gap in the batch, so we cannot zip it
                 final String message = "Batch of blocks [%d -> %d] has a gap, skipping zipping"
                         .formatted(batchFirstBlockNumber, batchLastBlockNumber);
-                LOGGER.log(ERROR, message);
+                LOGGER.log(INFO, message);
             } else {
                 // move the batch of blocks to a zip file
                 try {
