@@ -34,6 +34,7 @@ public class Ls implements Runnable {
 
     @Override
     public void run() {
+        System.out.println("extended = " + extended);
         // If no inputs are provided, print usage help for this subcommand
         if (compressedDayOrDaysDirs.length == 0) {
             spec.commandLine().usage(spec.commandLine().getOut());
