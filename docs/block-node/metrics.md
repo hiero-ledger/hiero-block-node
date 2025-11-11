@@ -233,3 +233,47 @@ Provides metrics related to the backfill process, including On-Demand and Histor
 | Counter | `backfill_retries`           | Total number of retries attempted during backfill                                                 |
 | Gauge   | `backfill_status`            | Current status of the backfill process (0=Idle, 1=Running, 2=Error, 3=On-Demand Error, 4=Unknown) |
 | Gauge   | `backfill_pending_blocks`    | Number of blocks pending to be backfilled                                                         |
+
+
+## Alerting Recommendations
+Alerting rules can be created in Prometheus based on these metrics to notify the operations team of potential issues.
+Utilizing Low (L), Medium (M) and High (H) severity levels, some recommended alerting rules include:
+
+
+Node Status: High level alerts for overall node health
+
+| Severity | Metric             | Alert Condition           |
+|----------|--------------------|---------------------------|
+| M        | `app_state_status` | If not equal to `RUNNING` |
+
+Publisher: Alerts related to publisher connections and performance
+
+| Severity | Metric                                      | Alert Condition                            |
+|----------|---------------------------------------------|--------------------------------------------|
+| L        | `publisher_open_connections`                | If value exceeds 40 or configure as needed |
+| M        | `publisher_receive_latency_ns`              | If value exceeds 5 s                       |
+
+Failures: Alerts for various failure metrics
+
+| Severity | Metric                                 | Alert Condition                                           |
+|----------|----------------------------------------|-----------------------------------------------------------|
+| M        | `verification_blocks_error`            | If errors during verification exceed 3 in last 60 s       |
+| M        | `publisher_block_send_response_failed` | If value exceeds 3 in the last 60s or configure as needed |
+| L        | `backfill_fetch_errors`                | If value exceeds 3 in the last 60s or configure as needed |
+| M        | `publisher_stream_errors`              | If value exceeds 3 in the last 60s or configure as needed |
+
+Messaging: Alerts for messaging service operations regarding block items and block notification
+
+| Severity | Metric                                      | Alert Condition                                  |
+|----------|---------------------------------------------|--------------------------------------------------|
+| L        | `messaging_item_queue_percent_used`         | If percentage exceeds 60% or configure as needed |
+| L        | `messaging_notification_queue_percent_used` | If percentage exceeds 60% or configure as needed |
+
+Latency: Alerts for latency metrics in receiving, hashing, verifying, and persisting blocks
+
+| Severity | Metric                                     | Alert Condition                             |
+|----------|--------------------------------------------|---------------------------------------------|
+| M        | `publisher_receive_latency_ns`             | If value exceeds 20s or configure as needed |
+| M        | `hashing_block_time`                       | If value exceeds 2s or configure as needed  |
+| M        | `verification_block_time`                  | If value exceeds 20s or configure as needed |
+| M        | `files_recent_persistence_time_latency_ns` | If value exceeds 20s or configure as needed |
