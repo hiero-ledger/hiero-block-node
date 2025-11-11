@@ -177,13 +177,9 @@ public class RecordFileBlockV6 extends RecordFileBlock {
             final byte[] endRunningHash = rsf.endObjectRunningHash().hash().toByteArray();
 
             // Validate sidecar hashes: compute SHA-384 of provided sidecar files and compare sets
-            final List<InMemoryFile> allSidecars = new ArrayList<>();
-            allSidecars.addAll(primarySidecarFiles());
-            allSidecars.addAll(otherSidecarFiles());
-
             final Set<String> providedSidecarHashes = new HashSet<>();
             sha384.reset();
-            for (InMemoryFile sc : allSidecars) {
+            for (InMemoryFile sc : primarySidecarFiles()) {
                 sha384.reset();
                 final byte[] hash = sha384.digest(sc.data());
                 providedSidecarHashes.add(HexFormat.of().formatHex(hash));
