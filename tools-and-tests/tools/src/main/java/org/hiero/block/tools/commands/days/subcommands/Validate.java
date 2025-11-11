@@ -459,4 +459,10 @@ public class Validate implements Runnable {
         final String s = Bytes.wrap(hash).toString();
         return s.length() <= 8 ? s : s.substring(0, 8);
     }
+
+    public static void main(String[] args) {
+        Validate validator = new Validate();
+        validator.compressedDaysDir = new File("REAL_DATA/days");
+        validator.run();
+    }
 }
