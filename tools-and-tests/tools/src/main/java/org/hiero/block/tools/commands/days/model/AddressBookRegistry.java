@@ -176,8 +176,8 @@ public class AddressBookRegistry {
                 throw new ParseException("Transaction has no body or signed bytes");
             }
             // check if this is a file update/append to file 0.0.102
-            if ((body.hasFileUpdate() && body.fileUpdate().fileID().fileNum() == 102)
-                    || (body.hasFileAppend() && body.fileAppend().fileID().fileNum() == 102)) {
+            if ((body.hasFileUpdate() && body.fileUpdate().hasFileID() && body.fileUpdate().fileID().fileNum() == 102)
+                    || (body.hasFileAppend() && body.fileAppend().hasFileID() && body.fileAppend().fileID().fileNum() == 102)) {
                 result.add(body);
             }
         }
