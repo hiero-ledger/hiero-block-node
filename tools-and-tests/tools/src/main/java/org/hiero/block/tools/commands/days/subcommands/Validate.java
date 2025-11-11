@@ -212,7 +212,7 @@ public class Validate implements Runnable {
         final AtomicLong progress = new AtomicLong(0);
 
         // Producer-consumer queue with bounded capacity for backpressure
-        final BlockingQueue<Item> queue = new LinkedBlockingQueue<>(30_000);
+        final BlockingQueue<Item> queue = new LinkedBlockingQueue<>(1_000);
 
         // Register shutdown hook to persist last good status on JVM exit (Ctrl+C, etc.)
         Runtime.getRuntime().addShutdownHook(new Thread(() -> {
