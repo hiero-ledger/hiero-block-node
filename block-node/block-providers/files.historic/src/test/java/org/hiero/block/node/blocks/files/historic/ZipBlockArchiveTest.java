@@ -17,7 +17,6 @@ import java.nio.file.FileSystems;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
@@ -32,6 +31,7 @@ import org.hiero.block.node.base.CompressionType;
 import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.historicalblocks.BlockAccessor;
 import org.hiero.block.node.spi.historicalblocks.BlockAccessor.Format;
+import org.hiero.block.node.spi.historicalblocks.BlockAccessorBatch;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -49,6 +49,8 @@ class ZipBlockArchiveTest {
     private FilesHistoricConfig testConfig;
     /** The in-memory filesystem used for testing. */
     private FileSystem jimFs;
+    /** The path to the links root directory used for testing. */
+    private Path linksTempDir;
     /** The {@link ZipBlockArchive} instance to be tested. */
     private ZipBlockArchive toTest;
 
@@ -56,10 +58,12 @@ class ZipBlockArchiveTest {
      * Environment setup before each test.
      */
     @BeforeEach
-    void setup() throws IOException {
+    void setUp() throws IOException {
         jimFs = Jimfs.newFileSystem(com.google.common.jimfs.Configuration.unix());
         final Path blocksRoot = jimFs.getPath("/blocks");
         Files.createDirectories(blocksRoot);
+        linksTempDir = blocksRoot.resolve("links");
+        Files.createDirectories(linksTempDir);
         testConfig = createTestConfiguration(blocksRoot, 1);
         // we need this test context because we need the health facility to be
         // available for the tests to run
@@ -336,17 +340,17 @@ class ZipBlockArchiveTest {
 
         /**
          * This test aims to assert that the
-         * {@link ZipBlockArchive#writeNewZipFile(List)} will successfully
+         * {@link ZipBlockArchive#writeNewZipFile(BlockAccessorBatch)}  will successfully
          * create the target zip file
          */
         @Test
         @DisplayName("Test writeNewZipFile() successfully creates the zip")
         void testZipSuccessfullyCreated() throws IOException {
             // setup
-            final long firstBlockNumber = 0L;
-            final int batchSize = (int) Math.pow(10, testConfig.powersOfTenPerZipFileContents());
-            final List<BlockAccessor> batch = new ArrayList<>();
-            for (int i = (int) firstBlockNumber; i < batchSize; i++) {
+            final int firstBlockNumber = 0;
+            final int batchSize = StrictMath.toIntExact(intPowerOfTen(testConfig.powersOfTenPerZipFileContents()));
+            final BlockAccessorBatch batch = new BlockAccessorBatch();
+            for (int i = firstBlockNumber; i < batchSize; i++) {
                 final List<BlockItem> blockItems = List.of(SimpleTestBlockItemBuilder.createSimpleBlockWithNumber(i));
                 batch.add(new InMemoryBlockAccessor(blockItems));
             }
@@ -372,18 +376,18 @@ class ZipBlockArchiveTest {
 
         /**
          * This test aims to assert that the
-         * {@link ZipBlockArchive#writeNewZipFile(List)} will produce the right
+         * {@link ZipBlockArchive#writeNewZipFile(BlockAccessorBatch)} will produce the right
          * contents for the created zip file
          */
         @Test
         @DisplayName("Test writeNewZipFile() zip file has the right contents")
         void testZipContents() throws IOException, ParseException {
             // setup
-            final long firstBlockNumber = 0L;
-            final int batchSize = (int) Math.pow(10, testConfig.powersOfTenPerZipFileContents());
+            final int firstBlockNumber = 0;
+            final int batchSize = StrictMath.toIntExact(intPowerOfTen(testConfig.powersOfTenPerZipFileContents()));
             final Map<String, Bytes> first10BlocksWithExpectedEntryNames = new TreeMap<>();
-            final List<BlockAccessor> batch = new ArrayList<>();
-            for (int i = (int) firstBlockNumber; i < batchSize; i++) {
+            final BlockAccessorBatch batch = new BlockAccessorBatch();
+            for (int i = firstBlockNumber; i < batchSize; i++) {
                 final List<BlockItem> blockItems = List.of(SimpleTestBlockItemBuilder.createSimpleBlockWithNumber(i));
                 final InMemoryBlockAccessor accessor = new InMemoryBlockAccessor(blockItems);
                 batch.add(accessor);
@@ -474,11 +478,34 @@ class ZipBlockArchiveTest {
             final byte[] fromZipEntry = Files.readAllBytes(entry);
             assertThat(fromZipEntry).isEqualTo(bytesToWrite);
         }
-        return new ZipBlockAccessor(blockPath);
+        return new ZipBlockAccessor(blockPath, linksTempDir);
     }
 
-    private FilesHistoricConfig createTestConfiguration(final Path basePath, final int powersOfTenPerZipFileContents) {
+    private FilesHistoricConfig createTestConfiguration(
+            final Path blocksRoot, final int powersOfTenPerZipFileContents) {
         // for simplicity let's use no compression
-        return new FilesHistoricConfig(basePath, CompressionType.NONE, powersOfTenPerZipFileContents, 0L, 3);
+        return new FilesHistoricConfig(blocksRoot, CompressionType.NONE, powersOfTenPerZipFileContents, 0L, 3);
+    }
+
+    /**
+     * Simple power of ten function that avoids the inaccuracies possible
+     * with floating point and also ensures the value must fit within
+     * a long.
+     *
+     * @param powerToCreate the exponent to raise 10 to.  This must be
+     *     between 1 and 18, inclusive.
+     * @return 10 raised to (powerToCreate), or -1 if the result would not
+     *     fit within a long primitive.
+     */
+    private long intPowerOfTen(final int powerToCreate) {
+        if (powerToCreate > 18 || powerToCreate < 1) {
+            return -1;
+        } else {
+            long currentTotal = 1;
+            for (int i = 0; i < powerToCreate; i++) {
+                currentTotal *= 10;
+            }
+            return currentTotal;
+        }
     }
 }

@@ -89,6 +89,22 @@ final class BlockStagingFileAccessor implements BlockAccessor {
     }
 
     /**
+     * {@inheritDoc}
+     * <p>
+     * Note, it is important that this _not_ remove the staging file. The
+     * attempt to create a zip might not have succeeded, so the files may
+     * need to remain in place (in fact that is perhaps more common than not)
+     * until the next attempt.
+     */
+    @Override
+    public void close() {}
+
+    @Override
+    public boolean isClosed() {
+        return false; // close does nothing, so this instance is always "open".
+    }
+
+    /**
      * Get the bytes from the specified path, converting to the desired format if necessary.
      *
      * @param responseFormat the desired format of the data

@@ -1,14 +1,24 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.node.base;
 
+import static java.nio.file.FileVisitResult.CONTINUE;
+
+import edu.umd.cs.findbugs.annotations.NonNull;
 import java.io.IOException;
+import java.io.UncheckedIOException;
+import java.lang.System.Logger;
+import java.lang.System.Logger.Level;
+import java.nio.file.FileVisitResult;
+import java.nio.file.FileVisitor;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.attribute.BasicFileAttributes;
 import java.text.DecimalFormat;
 import java.text.NumberFormat;
 import java.util.Comparator;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 
@@ -21,11 +31,14 @@ import java.util.Set;
 @SuppressWarnings("unused")
 public final class BlockFile {
     /** The logger for this class. */
-    private static final System.Logger LOGGER = System.getLogger(BlockFile.class.getName());
+    private static final Logger LOGGER = System.getLogger(BlockFile.class.getName());
     /** The format for block numbers in file names */
     private static final NumberFormat BLOCK_NUMBER_FORMAT = new DecimalFormat("0000000000000000000");
     /** The extension for compressed block files */
     public static final String BLOCK_FILE_EXTENSION = ".blk";
+    /** The maximum depth of directory to walk.
+     * This is the deepest path permitted if we set digits per directory to `1`. */
+    private static final int MAX_FILE_SEARCH_DEPTH = 20;
 
     /**
      * The block number format for use in file name. For example block 123 becomes "000000000000000123".
@@ -134,7 +147,7 @@ public final class BlockFile {
                     break;
                 }
             } catch (Exception e) {
-                LOGGER.log(System.Logger.Level.ERROR, "Error reading directory: " + lowestPath, e);
+                LOGGER.log(Level.ERROR, "Error reading directory: " + lowestPath, e);
                 // handle exception
                 break;
             }
@@ -178,7 +191,7 @@ public final class BlockFile {
                     break;
                 }
             } catch (Exception e) {
-                LOGGER.log(System.Logger.Level.ERROR, "Error reading directory: " + highestPath, e);
+                LOGGER.log(Level.ERROR, "Error reading directory: " + highestPath, e);
                 // handle exception
                 break;
             }
@@ -195,16 +208,18 @@ public final class BlockFile {
      * @return the minimum block number, or -1 if no block files are found
      */
     public static Set<Long> nestedDirectoriesAllBlockNumbers(Path basePath, CompressionType compressionType) {
-        final Set<Long> blockNumbers = new HashSet<>();
-        final String fullExtension = BLOCK_FILE_EXTENSION + compressionType.extension();
-        try (var stream = Files.walk(basePath)) {
-            stream.filter(Files::isRegularFile)
-                    .filter(path -> path.getFileName().toString().endsWith(fullExtension))
-                    .forEach(blockFile -> blockNumbers.add(blockNumberFromFile(blockFile)));
+        try {
+            final Set<Long> blockNumbers = new HashSet<>();
+            final String fullExtension = BLOCK_FILE_EXTENSION + compressionType.extension();
+            Files.walkFileTree(
+                    basePath,
+                    Set.of(),
+                    MAX_FILE_SEARCH_DEPTH,
+                    new BlockNumberCollectionVisitor(blockNumbers, fullExtension));
+            return blockNumbers;
         } catch (IOException e) {
-            throw new RuntimeException(e);
+            throw new UncheckedIOException(e);
         }
-        return blockNumbers;
     }
 
     /**
@@ -213,21 +228,63 @@ public final class BlockFile {
      * extension.
      *
      * @param file the path for file to extract the block number from
-     * @return the block number
+     * @return the block number, or `-1` if the file does not match the expected format
+     *     or the file base name does not parse as a `long` value.
      */
     public static long blockNumberFromFile(final Path file) {
-        return blockNumberFromFile(file.getFileName().toString());
+        try {
+            if (file != null && file.getFileName() != null) {
+                final String fileName = file.getFileName().toString();
+                if (fileName != null && fileName.indexOf('.') > 0) {
+                    return Long.parseLong(fileName.substring(0, fileName.indexOf('.')));
+                } else {
+                    return -1L;
+                }
+            } else {
+                return -1L;
+            }
+        } catch (NumberFormatException e) {
+            return -1L;
+        }
     }
 
-    /**
-     * Extracts the block number from a file name. The file name is expected to be in the format
-     * {@code "0000000000000000000.blk.xyz"} where the block number is the first 19 digits and the rest is the file
-     * extension.
-     *
-     * @param fileName the file name to extract the block number from
-     * @return the block number
-     */
-    public static long blockNumberFromFile(final String fileName) {
-        return Long.parseLong(fileName.substring(0, fileName.indexOf('.')));
+    private static class BlockNumberCollectionVisitor implements FileVisitor<Path> {
+        private final String blockFileExtension;
+        private final Set<Long> blockNumbersFound;
+
+        public BlockNumberCollectionVisitor(
+                @NonNull final Set<Long> blockNumbers, @NonNull final String fullExtension) {
+            blockFileExtension = Objects.requireNonNull(fullExtension);
+            blockNumbersFound = Objects.requireNonNull(blockNumbers);
+        }
+
+        @Override
+        public FileVisitResult preVisitDirectory(final Path dir, final BasicFileAttributes attrs) throws IOException {
+            Objects.requireNonNull(dir);
+            return CONTINUE;
+        }
+
+        @Override
+        public FileVisitResult visitFile(final Path file, final BasicFileAttributes attrs) throws IOException {
+            if (file.toString().endsWith(blockFileExtension)) {
+                blockNumbersFound.add(BlockFile.blockNumberFromFile(file));
+            }
+            return CONTINUE;
+        }
+
+        @Override
+        public FileVisitResult visitFileFailed(final Path file, final IOException exc) throws IOException {
+            throw Objects.requireNonNull(exc);
+        }
+
+        @Override
+        public FileVisitResult postVisitDirectory(final Path dir, final IOException exc) throws IOException {
+            if (exc == null) {
+                Objects.requireNonNull(dir);
+                return CONTINUE;
+            } else {
+                throw exc;
+            }
+        }
     }
 }

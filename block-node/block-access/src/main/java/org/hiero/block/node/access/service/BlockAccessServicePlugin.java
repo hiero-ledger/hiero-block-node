@@ -5,7 +5,6 @@ import static java.lang.System.Logger.Level.ERROR;
 import static java.lang.System.Logger.Level.INFO;
 import static java.lang.System.Logger.Level.TRACE;
 
-import com.hedera.hapi.block.stream.Block;
 import com.swirlds.metrics.api.Counter;
 import org.hiero.block.api.BlockAccessServiceInterface;
 import org.hiero.block.api.BlockRequest;
@@ -14,6 +13,7 @@ import org.hiero.block.api.BlockResponse.Code;
 import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.BlockNodePlugin;
 import org.hiero.block.node.spi.ServiceBuilder;
+import org.hiero.block.node.spi.historicalblocks.BlockAccessor;
 import org.hiero.block.node.spi.historicalblocks.HistoricalBlockFacility;
 
 /**
@@ -44,12 +44,10 @@ public class BlockAccessServicePlugin implements BlockNodePlugin, BlockAccessSer
      */
     public BlockResponse getBlock(BlockRequest request) {
         requestCounter.increment();
-
         try {
             long blockNumberToRetrieve;
             // The block number and retrieve latest are mutually exclusive in
             // the proto definition, so no need to check for that here.
-
             // if retrieveLatest is set, or the request is for the largest possible block number, get the latest block.
             if (request.hasBlockNumber() && request.blockNumber() >= 0) {
                 blockNumberToRetrieve = request.blockNumber();
@@ -63,7 +61,6 @@ public class BlockAccessServicePlugin implements BlockNodePlugin, BlockAccessSer
                 LOGGER.log(INFO, "Invalid request, 'retrieve_latest' or a valid 'block number' is required.");
                 return new BlockResponse(Code.INVALID_REQUEST, null);
             }
-
             // Check if block is within the available range
             if (!blockProvider.availableBlocks().contains(blockNumberToRetrieve)) {
                 long lowestBlockNumber = blockProvider.availableBlocks().min();
@@ -77,14 +74,21 @@ public class BlockAccessServicePlugin implements BlockNodePlugin, BlockAccessSer
                 responseCounterNotAvailable.increment();
                 return new BlockResponse(Code.NOT_AVAILABLE, null);
             }
-
             // Retrieve the block
-            Block block = blockProvider.block(blockNumberToRetrieve).block();
-            responseCounterSuccess.increment();
-            return new BlockResponse(Code.SUCCESS, block);
-
-        } catch (RuntimeException e) {
-            String message = "Failed to retrieve block number %d.".formatted(request.blockNumber());
+            try (final BlockAccessor accessor = blockProvider.block(blockNumberToRetrieve)) {
+                if (accessor != null) {
+                    // even though we have checked for the existence of the block
+                    // it may not be available anymore, so we have to ensure the accessor
+                    // still exists
+                    final BlockResponse response = new BlockResponse(Code.SUCCESS, accessor.block());
+                    responseCounterSuccess.increment();
+                    return response;
+                } else {
+                    return new BlockResponse(Code.NOT_FOUND, null);
+                }
+            }
+        } catch (final RuntimeException e) {
+            final String message = "Failed to retrieve block number %d.".formatted(request.blockNumber());
             LOGGER.log(ERROR, message, e);
             responseCounterNotFound.increment(); // Should this be a failure counter?
             return new BlockResponse(Code.NOT_FOUND, null);

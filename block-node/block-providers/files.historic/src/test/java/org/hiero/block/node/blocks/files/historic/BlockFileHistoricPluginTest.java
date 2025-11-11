@@ -52,8 +52,8 @@ import org.junit.jupiter.api.io.TempDir;
  */
 @DisplayName("BlockFileHistoricPlugin Tests")
 class BlockFileHistoricPluginTest {
-    /** TempDir for the current test */
-    private final Path testTempDir;
+    /** Data TempDir for the current test */
+    private final Path dataRoot;
     /** The test block messaging facility to use for testing. */
     private final SimpleInMemoryHistoricalBlockFacility testHistoricalBlockFacility;
     /** The test config to use for the plugin, overridable. */
@@ -64,17 +64,63 @@ class BlockFileHistoricPluginTest {
     /**
      * Construct test environment.
      */
-    BlockFileHistoricPluginTest(@TempDir final Path tempDir) {
-        this.testTempDir = Objects.requireNonNull(tempDir);
+    BlockFileHistoricPluginTest(@TempDir final Path tmpDir) {
+        dataRoot = Objects.requireNonNull(tmpDir).resolve("blocks");
         // generate test config, for the purposes of this test, we will always
         // use 10 blocks per zip, assuming that the first zip file will contain
         // for example blocks 0-9, the second zip file will contain blocks 10-19
         // also we will not use compression, and we will use the jUnit temp dir
-        testConfig = new FilesHistoricConfig(this.testTempDir, CompressionType.ZSTD, 1, 10L, 3);
+        testConfig = new FilesHistoricConfig(dataRoot, CompressionType.NONE, 1, 10L, 3);
         // build the plugin using the test environment
         toTest = new BlockFileHistoricPlugin();
         // initialize an in memory historical block facility to use for testing
         testHistoricalBlockFacility = new SimpleInMemoryHistoricalBlockFacility();
+    }
+
+    /**
+     * Config overrides for the test environment.
+     */
+    private Map<String, String> getConfigOverrides() {
+        final Entry<String, String> rootPath =
+                Map.entry("files.historic.rootPath", testConfig.rootPath().toString());
+        final Entry<String, String> compression =
+                Map.entry("files.historic.compression", testConfig.compression().name());
+        final Entry<String, String> powersOfTenPerZipFileContents = Map.entry(
+                "files.historic.powersOfTenPerZipFileContents",
+                String.valueOf(testConfig.powersOfTenPerZipFileContents()));
+        final Entry<String, String> blockRetentionThreshold = Map.entry(
+                "files.historic.blockRetentionThreshold", String.valueOf(testConfig.blockRetentionThreshold()));
+        return Map.ofEntries(rootPath, compression, powersOfTenPerZipFileContents, blockRetentionThreshold);
+    }
+
+    /**
+     * Nested class for plugin startup tests.
+     */
+    @Nested
+    @DisplayName("Startup Tests")
+    final class StartupTest extends PluginTestBase<BlockFileHistoricPlugin, BlockingExecutor> {
+        /**
+         * Test Constructor.
+         */
+        StartupTest() {
+            super(new BlockingExecutor(new LinkedBlockingQueue<>()));
+        }
+
+        /**
+         * This test aims to assert that the links and data root directories are
+         * created on plugin startup.
+         */
+        @Test
+        @DisplayName("Staging and data roots are created on startup")
+        void testStagingAndDataRootsCreated() throws IOException {
+            // Assert that the roots do not exist
+            assertThat(dataRoot).doesNotExist();
+            // Now start the plugin
+            start(toTest, testHistoricalBlockFacility, getConfigOverrides());
+            // Assert that the roots are created
+            assertThat(dataRoot).exists().isDirectory().isNotEmptyDirectory();
+            // assertThat(Files.list(dataRoot).toList()).hasSize(1).containsExactly(linksRoot);
+        }
     }
 
     /**
@@ -578,9 +624,10 @@ class BlockFileHistoricPluginTest {
             pluginExecutor.executeSerially();
             // assert the contents of the now available block accessors
             for (int i = 0; i < 10; i++) {
-                final BlockAccessor blockAccessor = toTest.block(i);
-                final BlockUnparsed actual = blockAccessor.blockUnparsed();
-                assertThat(actual).isEqualTo(expectedBlocks.get(i));
+                try (final BlockAccessor blockAccessor = toTest.block(i)) {
+                    final BlockUnparsed actual = blockAccessor.blockUnparsed();
+                    assertThat(actual).isEqualTo(expectedBlocks.get(i));
+                }
             }
         }
 
@@ -867,7 +914,7 @@ class BlockFileHistoricPluginTest {
         @DisplayName("Test retention policy threshold disabled")
         void testRetentionPolicyThresholdDisabled() throws IOException {
             // change the retention policy to be disabled
-            testConfig = new FilesHistoricConfig(testTempDir, CompressionType.ZSTD, 1, 0L, 3);
+            testConfig = new FilesHistoricConfig(dataRoot, CompressionType.NONE, 1, 0L, 3);
             // override the config in the plugin
             start(toTest, testHistoricalBlockFacility, getConfigOverrides());
             // generate first 150 blocks from numbers 0-149 and add them to the
@@ -942,7 +989,7 @@ class BlockFileHistoricPluginTest {
         @Test
         @DisplayName("init moves corrupted zip file without shutting down")
         void initMovesCorruptedZipWithoutShutdown() throws IOException {
-            final Path corruptedRoot = testTempDir.resolve("corrupted-zip-root");
+            final Path corruptedRoot = dataRoot.resolve("corrupted-zip-root");
             testConfig = new FilesHistoricConfig(corruptedRoot, CompressionType.NONE, 1, 10L, 3);
 
             final BlockPath corruptedZipLocation = BlockPath.computeBlockPath(testConfig, 0L);

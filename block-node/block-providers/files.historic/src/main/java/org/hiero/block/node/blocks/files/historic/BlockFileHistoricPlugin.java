@@ -6,6 +6,7 @@ import static java.lang.System.Logger.Level.ERROR;
 import static java.lang.System.Logger.Level.INFO;
 import static java.lang.System.Logger.Level.TRACE;
 import static java.lang.System.Logger.Level.WARNING;
+import static java.nio.file.FileVisitResult.CONTINUE;
 import static org.hiero.block.node.base.BlockFile.nestedDirectoriesAllBlockNumbers;
 
 import com.hedera.hapi.block.stream.output.BlockHeader;
@@ -16,22 +17,26 @@ import com.swirlds.metrics.api.Counter;
 import com.swirlds.metrics.api.LongGauge;
 import com.swirlds.metrics.api.Metrics;
 import edu.umd.cs.findbugs.annotations.NonNull;
+import edu.umd.cs.findbugs.annotations.Nullable;
 import java.io.BufferedOutputStream;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.lang.System.Logger.Level;
+import java.nio.file.FileVisitResult;
+import java.nio.file.FileVisitor;
 import java.nio.file.Files;
+import java.nio.file.LinkOption;
 import java.nio.file.Path;
-import java.util.ArrayList;
+import java.nio.file.attribute.BasicFileAttributes;
+import java.util.Deque;
 import java.util.List;
 import java.util.Objects;
-import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.ConcurrentLinkedDeque;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.atomic.AtomicLong;
 import org.hiero.block.internal.BlockItemUnparsed;
 import org.hiero.block.internal.BlockUnparsed;
 import org.hiero.block.node.base.BlockFile;
-import org.hiero.block.node.base.CompressionType;
 import org.hiero.block.node.base.ranges.ConcurrentLongRangeSet;
 import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.ServiceBuilder;
@@ -40,6 +45,7 @@ import org.hiero.block.node.spi.blockmessaging.BlockSource;
 import org.hiero.block.node.spi.blockmessaging.PersistedNotification;
 import org.hiero.block.node.spi.blockmessaging.VerificationNotification;
 import org.hiero.block.node.spi.historicalblocks.BlockAccessor;
+import org.hiero.block.node.spi.historicalblocks.BlockAccessorBatch;
 import org.hiero.block.node.spi.historicalblocks.BlockProviderPlugin;
 import org.hiero.block.node.spi.historicalblocks.BlockRangeSet;
 import org.hiero.block.node.spi.historicalblocks.LongRange;
@@ -49,6 +55,9 @@ import org.hiero.block.node.spi.historicalblocks.LongRange;
  * most compressed optimal way possible. It is designed to be used with the
  */
 public final class BlockFileHistoricPlugin implements BlockProviderPlugin, BlockNotificationHandler {
+    /** A message logged when gaps are encountered while archiving */
+    private static final String GAP_FOUND_MESSAGE =
+            "Staged block {0} was not found! Cannot proceed to upload archive block batch: {1} - {2}";
     /** The logger for this class. */
     private final System.Logger LOGGER = System.getLogger(getClass().getName());
     /** The executor service for moving blocks to zip files in a background thread. */
@@ -58,13 +67,13 @@ public final class BlockFileHistoricPlugin implements BlockProviderPlugin, Block
     /** The zip block archive. */
     private ZipBlockArchive zipBlockArchive;
     /** The number of blocks per zip file. */
-    private int numberOfBlocksPerZipFile;
+    private long numberOfBlocksPerZipFile;
     /** The set of available blocks. */
     private final ConcurrentLongRangeSet availableBlocks = new ConcurrentLongRangeSet();
     /** The set of available temporary blocks (not yet zipped). */
     private final ConcurrentLongRangeSet availableStagedBlocks = new ConcurrentLongRangeSet();
     /** List of all zip ranges that are in progress, so we do not start a duplicate job. */
-    private final CopyOnWriteArrayList<LongRange> inProgressZipRanges = new CopyOnWriteArrayList<>();
+    private final Deque<LongRange> inProgressZipRanges = new ConcurrentLinkedDeque<>();
     /** Running total of bytes stored in the historic tier */
     private final AtomicLong totalBytesStored = new AtomicLong(0);
     /** The config used for this plugin */
@@ -73,6 +82,8 @@ public final class BlockFileHistoricPlugin implements BlockProviderPlugin, Block
     private long blockRetentionThreshold;
     /** Path for staging verified blocks before they are zipped */
     private Path stagingPath;
+    /** root path for temporary hard links to zip files */
+    private Path linksRootPath;
 
     // Metrics
     /** Counter for blocks written to the historic tier */
@@ -102,61 +113,85 @@ public final class BlockFileHistoricPlugin implements BlockProviderPlugin, Block
      */
     @Override
     public void init(final BlockNodeContext context, final ServiceBuilder serviceBuilder) {
-        this.context = Objects.requireNonNull(context);
-        config = context.configuration().getConfigData(FilesHistoricConfig.class);
-        blockRetentionThreshold = config.blockRetentionThreshold();
-        stagingPath = config.rootPath().resolve("staging");
-        // Initialize metrics
-        initMetrics(context.metrics());
-        // create plugin data root directory if it does not exist
         try {
-            Files.createDirectories(config.rootPath());
+            this.context = Objects.requireNonNull(context);
+            config = context.configuration().getConfigData(FilesHistoricConfig.class);
+            blockRetentionThreshold = config.blockRetentionThreshold();
+            // Initialize metrics
+            initMetrics(context.metrics());
+            // create plugin data root directory if it does not exist
+            final Path dataRootPath = config.rootPath();
+            linksRootPath = dataRootPath.resolve("links");
+            stagingPath = dataRootPath.resolve("staging");
+            Files.createDirectories(stagingPath);
+            nestedDirectoriesAllBlockNumbers(stagingPath, config.compression()).forEach(blockNumber -> {
+                availableStagedBlocks.add(blockNumber);
+            });
+            // attempt to clear any existing links root directory
+            if (Files.isDirectory(linksRootPath, LinkOption.NOFOLLOW_LINKS)) {
+                Files.walkFileTree(linksRootPath, new RecursiveFileDeleteVisitor());
+            }
+            Files.createDirectories(dataRootPath);
+            Files.createDirectories(linksRootPath);
+            // register to listen to block notifications
+            context.blockMessaging().registerBlockNotificationHandler(this, false, "Blocks Files Historic");
+            numberOfBlocksPerZipFile = intPowerOfTen(config.powersOfTenPerZipFileContents());
+            // create the executor service for moving blocks to zip files
+            zipMoveExecutorService = context.threadPoolManager().createSingleThreadExecutor("FilesHistoricZipMove");
+            zipBlockArchive = new ZipBlockArchive(context, config);
+            // get the first and last block numbers from the zipBlockArchive
+            final long firstZippedBlock = zipBlockArchive.minStoredBlockNumber();
+            final long latestZippedBlock = zipBlockArchive.maxStoredBlockNumber();
+            // todo(1138) let's make sure that we have this case covered by an E2E
+            //   test where we will assert the correct behavior of the plugin after
+            //   a restart has happened. We will be able to correctly assert this
+            //   logic as we will be seeing a failing CI otherwise.
+            if (firstZippedBlock > latestZippedBlock) {
+                // we never expect to enter here, if we do, we have an issue that
+                // needs to be investigated
+                // the first zipped block number must always be less than or equal
+                // to the latest zipped block number
+                throw new IllegalStateException(
+                        "First zipped block number [%d] cannot be greater than the latest zipped block number [%d]"
+                                .formatted(firstZippedBlock, latestZippedBlock));
+            }
+            if (firstZippedBlock >= 0) {
+                // add the blocks to the available blocks only if the range is a valid one (positive)
+                availableBlocks.add(firstZippedBlock, latestZippedBlock);
+
+                // Initialize total bytes stored by querying the zip block archive
+                totalBytesStored.set(zipBlockArchive.calculateTotalStoredBytes());
+            }
+            // Register gauge updater
+            context.metrics().addUpdater(this::updateGauges);
         } catch (IOException e) {
-            LOGGER.log(ERROR, "Could not create root directory", e);
+            LOGGER.log(ERROR, "Could not initialize historic plugin due to I/O exception", e);
+            // ------------------------------------
+            // DO NOT shutdown the server, handle this correctly instead.
             context.serverHealth().shutdown(name(), "Could not create root directory");
         }
-        try {
-            Files.createDirectories(stagingPath);
-        } catch (IOException e) {
-            LOGGER.log(ERROR, "Could not create staging directory", e);
-            context.serverHealth().shutdown(name(), "Could not create staging directory");
-        }
+    }
 
-        nestedDirectoriesAllBlockNumbers(stagingPath, config.compression()).forEach(blockNumber -> {
-            availableStagedBlocks.add(blockNumber);
-        });
-        // register to listen to block notifications
-        context.blockMessaging().registerBlockNotificationHandler(this, false, "Blocks Files Historic");
-        numberOfBlocksPerZipFile = (int) Math.pow(10, config.powersOfTenPerZipFileContents());
-        // create the executor service for moving blocks to zip files
-        zipMoveExecutorService = context.threadPoolManager().createSingleThreadExecutor("FilesHistoricZipMove");
-        zipBlockArchive = new ZipBlockArchive(context, config);
-        // get the first and last block numbers from the zipBlockArchive
-        final long firstZippedBlock = zipBlockArchive.minStoredBlockNumber();
-        final long latestZippedBlock = zipBlockArchive.maxStoredBlockNumber();
-        // todo(1138) let's make sure that we have this case covered by an E2E
-        //   test where we will assert the correct behavior of the plugin after
-        //   a restart has happened. We will be able to correctly assert this
-        //   logic as we will be seeing a failing CI otherwise.
-        if (firstZippedBlock > latestZippedBlock) {
-            // we never expect to enter here, if we do, we have an issue that
-            // needs to be investigated
-            // the first zipped block number must always be less than or equal
-            // to the latest zipped block number
-            throw new IllegalStateException(
-                    "First zipped block number [%d] cannot be greater than the latest zipped block number [%d]"
-                            .formatted(firstZippedBlock, latestZippedBlock));
+    /**
+     * Simple power of ten function that avoids the inaccuracies possible
+     * with floating point and also ensures the value must fit within
+     * a long.
+     *
+     * @param powerToCreate the exponent to raise 10 to.  This must be
+     *     between 1 and 18, inclusive.
+     * @return 10 raised to (powerToCreate), or -1 if the result would not
+     *     fit within a long primitive.
+     */
+    private long intPowerOfTen(final int powerToCreate) {
+        if (powerToCreate > 18 || powerToCreate < 1) {
+            return -1;
+        } else {
+            long currentTotal = 1;
+            for (int i = 0; i < powerToCreate; i++) {
+                currentTotal *= 10;
+            }
+            return currentTotal;
         }
-        if (firstZippedBlock >= 0) {
-            // add the blocks to the available blocks only if the range is a valid one (positive)
-            availableBlocks.add(firstZippedBlock, latestZippedBlock);
-
-            // Initialize total bytes stored by querying the zip block archive
-            totalBytesStored.set(zipBlockArchive.calculateTotalStoredBytes());
-        }
-
-        // Register gauge updater
-        context.metrics().addUpdater(this::updateGauges);
     }
 
     /**
@@ -165,17 +200,13 @@ public final class BlockFileHistoricPlugin implements BlockProviderPlugin, Block
     private void initMetrics(Metrics metrics) {
         blocksWrittenCounter = metrics.getOrCreate(new Counter.Config(METRICS_CATEGORY, "files_historic_blocks_written")
                 .withDescription("Blocks written to files.historic provider"));
-
         blocksReadCounter = metrics.getOrCreate(new Counter.Config(METRICS_CATEGORY, "files_historic_blocks_read")
                 .withDescription("Blocks read from files.historic provider"));
-
         blocksStoredGauge = metrics.getOrCreate(new LongGauge.Config(METRICS_CATEGORY, "files_historic_blocks_stored")
                 .withDescription("Blocks stored in files.historic provider"));
-
         bytesStoredGauge =
                 metrics.getOrCreate(new LongGauge.Config(METRICS_CATEGORY, "files_historic_total_bytes_stored")
                         .withDescription("Bytes stored in files.historic provider"));
-
         zipsDeletedFailedCounter =
                 metrics.getOrCreate(new Counter.Config(METRICS_CATEGORY, "files_historic_zips_deleted_failed")
                         .withDescription("Zips failed deletion from files.historic provider"));
@@ -236,7 +267,6 @@ public final class BlockFileHistoricPlugin implements BlockProviderPlugin, Block
         if (notification != null && notification.success()) {
             writeBlockToStagingPath(notification.block(), notification.blockNumber());
         }
-
         try {
             attemptZipping();
             cleanup();
@@ -407,11 +437,8 @@ public final class BlockFileHistoricPlugin implements BlockProviderPlugin, Block
         // check if the batch of blocks is already in progress
         if (inProgressZipRanges.contains(batchRange)) {
             // if the batch is in progress, we must not submit a task
-            LOGGER.log(
-                    DEBUG,
-                    "Batch of blocks[{%1} -> {%2}] is already in progress",
-                    batchRange.start(),
-                    batchRange.end());
+            final String message = "Batch of blocks[{0} -> {1}] is already in progress";
+            LOGGER.log(DEBUG, message, batchRange.start(), batchRange.end());
         } else {
             // if the batch is not in progress, we must submit a task
             // add the batch of blocks to the in progress ranges
@@ -427,74 +454,123 @@ public final class BlockFileHistoricPlugin implements BlockProviderPlugin, Block
      * @param batchRange The range of blocks to move to zip file.
      */
     private void moveBatchOfBlocksToZipFile(final LongRange batchRange) {
-        try {
-            // first off, let's create our batch of blocks
-            final long batchFirstBlockNumber = batchRange.start();
-            final long batchLastBlockNumber = batchRange.end();
-            final List<BlockAccessor> batch = new ArrayList<>(numberOfBlocksPerZipFile);
-            // gather batch, if there are no gaps, then we can proceed with zipping
-            for (long blockNumber = batchFirstBlockNumber; blockNumber <= batchLastBlockNumber; blockNumber++) {
-                Path path = BlockFile.nestedDirectoriesBlockFilePath(
-                        stagingPath, blockNumber, config.compression(), config.maxFilesPerDir());
-                final BlockAccessor currentAccessor =
-                        new BlockStagingFileAccessor(path, CompressionType.ZSTD, blockNumber);
-                if (currentAccessor.block() == null) {
-                    break;
-                } else {
-                    batch.add(currentAccessor);
-                }
-            }
-            // if there are any gaps, then we cannot zip the batch
-            if (batch.size() != numberOfBlocksPerZipFile) {
-                // we have a gap in the batch, so we cannot zip it
-                final String message = "Batch of blocks [%d -> %d] has a gap, skipping zipping"
-                        .formatted(batchFirstBlockNumber, batchLastBlockNumber);
-                LOGGER.log(INFO, message);
+        // first off, let's create our batch of blocks
+        final long batchFirstBlockNumber = batchRange.start();
+        final long batchLastBlockNumber = batchRange.end();
+        try (final BlockAccessorBatch blockAccessors = gatherAccessors(batchFirstBlockNumber, batchLastBlockNumber)) {
+            if (blockAccessors.isEmpty()) {
+                final String message = "Could not get staged files for blocks {0} to {1}.";
+                LOGGER.log(INFO, message, batchFirstBlockNumber, batchLastBlockNumber);
             } else {
                 // move the batch of blocks to a zip file
-                try {
-                    final String message = "Moving batch of blocks [%d -> %d] to zip file"
-                            .formatted(batchFirstBlockNumber, batchLastBlockNumber);
-                    LOGGER.log(DEBUG, message);
-                    // Write the zip file and get result with file size
-                    final long zipFileSize = zipBlockArchive.writeNewZipFile(batch);
-                    // Metrics updates
-                    // Update total bytes stored with the new zip file size
-                    totalBytesStored.addAndGet(zipFileSize);
-                    // Increment the blocks written counter
-                    blocksWrittenCounter.add(numberOfBlocksPerZipFile);
-
-                    for (long blockNumber = batchFirstBlockNumber; blockNumber <= batchLastBlockNumber; blockNumber++) {
-                        Path path = BlockFile.nestedDirectoriesBlockFilePath(
-                                stagingPath, blockNumber, config.compression(), config.maxFilesPerDir());
-                        if (Files.exists(path)) {
-                            Files.delete(path);
-                            availableStagedBlocks.remove(blockNumber);
-                        }
+                final String startMessage = "Moving batch of blocks [{0} -> {1}] to zip file.";
+                LOGGER.log(TRACE, startMessage, batchFirstBlockNumber, batchLastBlockNumber);
+                // Write the zip file and get result with file size
+                final long zipFileSize = zipBlockArchive.writeNewZipFile(blockAccessors);
+                // Metrics updates
+                // Update total bytes stored with the new zip file size
+                totalBytesStored.addAndGet(zipFileSize);
+                // Increment the blocks written counter
+                blocksWrittenCounter.add(numberOfBlocksPerZipFile);
+                // -----------------------------------------------
+                // @todo Remove, make staging file accessor handle this, if reasonable
+                for (long blockNumber = batchFirstBlockNumber; blockNumber <= batchLastBlockNumber; blockNumber++) {
+                    Path path = BlockFile.nestedDirectoriesBlockFilePath(
+                            stagingPath, blockNumber, config.compression(), config.maxFilesPerDir());
+                    if (Files.exists(path)) {
+                        Files.delete(path);
+                        availableStagedBlocks.remove(blockNumber);
                     }
-
-                } catch (final IOException e) {
-                    final String message = "Failed to move batch of blocks [%d -> %d] to zip file"
-                            .formatted(batchFirstBlockNumber, batchLastBlockNumber);
-                    LOGGER.log(WARNING, message, e);
-                    return;
                 }
-                // if we have reached here, then the batch of blocks has been zipped,
-                // now we need to make some updates
-                // update the first and last block numbers
+                // -----------------------------------------------
+                // if we have reached here, then the batch of blocks has been
+                // zipped and the staging files removed.
+                // Now we need to update the first and last block numbers
                 availableBlocks.add(batchFirstBlockNumber, batchLastBlockNumber);
-                // log done
-                final String message = "Successfully moved batch of blocks[%d -> %d] to zip file"
-                        .formatted(batchFirstBlockNumber, batchLastBlockNumber);
-                LOGGER.log(Level.INFO, message);
+                final String successMessage = "Successfully moved batch of blocks[{0} -> {1}] to zip file.";
+                LOGGER.log(Level.TRACE, successMessage, batchFirstBlockNumber, batchLastBlockNumber);
                 // now all the blocks are in the zip file and accessible, send notification
+                // @todo is this needed? Does anything actually care when a zip file is completed?
                 context.blockMessaging()
                         .sendBlockPersisted(new PersistedNotification(
                                 batchLastBlockNumber, true, defaultPriority(), BlockSource.HISTORY));
             }
+        } catch (final IOException e) {
+            final String failMessage = "Failed to move batch of blocks [%d -> %d] to zip file"
+                    .formatted(batchFirstBlockNumber, batchLastBlockNumber);
+            LOGGER.log(WARNING, failMessage, e);
         } finally {
             // always make sure to remove the batch of blocks from in progress ranges
             inProgressZipRanges.remove(batchRange);
+        }
+    }
+
+    /**
+     * This method attempts to gather the block accessors for the given
+     * range of block numbers. The range must be gathered in full, no gaps
+     * are allowed to happen. If failure during gathering occurs or a gap
+     * is detected, this method will close any open accessors and return
+     * null. Otherwise, it will return a list of accessors for the requested
+     * range.
+     */
+    private BlockAccessorBatch gatherAccessors(final long startBlockNumber, final long endBlockNumber) {
+        final BlockAccessorBatch accessors = new BlockAccessorBatch();
+        try {
+            for (long i = startBlockNumber; i <= endBlockNumber; i++) {
+                Path path = BlockFile.nestedDirectoriesBlockFilePath(
+                        stagingPath, i, config.compression(), config.maxFilesPerDir());
+                final BlockAccessor accessor = new BlockStagingFileAccessor(path, config.compression(), i);
+                if (accessor != null) {
+                    accessors.add(accessor);
+                } else {
+                    LOGGER.log(WARNING, GAP_FOUND_MESSAGE, i, startBlockNumber, endBlockNumber);
+                    accessors.close();
+                    break;
+                }
+            }
+        } catch (final RuntimeException e) {
+            final String message =
+                    "Failed to gather block accessors for range: %d - %d".formatted(startBlockNumber, endBlockNumber);
+            LOGGER.log(WARNING, message, e);
+            accessors.close();
+        }
+        return accessors;
+    }
+
+    /**
+     * A basic file visitor to recursively delete files and directories up to
+     * the provided root.
+     */
+    private static class RecursiveFileDeleteVisitor implements FileVisitor<Path> {
+        @Override
+        public FileVisitResult preVisitDirectory(final Path dir, final BasicFileAttributes attrs) throws IOException {
+            Objects.requireNonNull(dir);
+            return CONTINUE;
+        }
+
+        @Override
+        @NonNull
+        public FileVisitResult visitFile(@NonNull final Path file, @NonNull final BasicFileAttributes attrs)
+                throws IOException {
+            Files.delete(Objects.requireNonNull(file));
+            return CONTINUE;
+        }
+
+        @Override
+        public FileVisitResult visitFileFailed(final Path file, final IOException exc) throws IOException {
+            throw Objects.requireNonNull(exc);
+        }
+
+        @Override
+        @NonNull
+        public FileVisitResult postVisitDirectory(@NonNull final Path dir, @Nullable final IOException e)
+                throws IOException {
+            if (e == null) {
+                Files.delete(Objects.requireNonNull(dir));
+                return CONTINUE;
+            } else {
+                throw e;
+            }
         }
     }
 }
