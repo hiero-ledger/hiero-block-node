@@ -726,7 +726,7 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
             try {
                 // onComplete call in finally block to ensure it is called
                 replies.onComplete();
-                // @todo(1757) How do we terminate the connection and ensure the socket is closed?
+                replies.closeConnection();
             } catch (final RuntimeException e) {
                 LOGGER.log(DEBUG, "Exception during calling onComplete for handler %d".formatted(handlerId), e);
             }
