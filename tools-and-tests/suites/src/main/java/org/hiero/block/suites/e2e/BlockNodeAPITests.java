@@ -331,8 +331,10 @@ public class BlockNodeAPITests {
 
         // use a new client to publish block 1 as the existing client was closed on duplicate block publish.
         ResponsePipelineUtils<PublishStreamResponse> responseObserver2 = new ResponsePipelineUtils<>();
+        BlockStreamPublishServiceInterface.BlockStreamPublishServiceClient blockStreamPublishServiceClient2 =
+                new BlockStreamPublishServiceInterface.BlockStreamPublishServiceClient(createGrpcClient(), OPTIONS);
         final Pipeline<? super PublishStreamRequest> requestStream2 =
-                blockStreamPublishServiceClient.publishBlockStream(responseObserver2);
+                blockStreamPublishServiceClient2.publishBlockStream(responseObserver2);
         final CountDownLatch blockItemsPublish2Latch = responseObserver2.setAndGetOnNextLatch(1);
         requestStream2.onNext(request2);
         endBlock(blockNumber1, requestStream2);
