@@ -30,104 +30,19 @@ import org.hiero.block.tools.utils.ZstCmdInputStream;
  */
 public class TarZstdDayReaderUsingExec {
 
-    public static void main(String[] args) {
-        Path fileA = Path.of("/Users/jasperpotts/code/hedera-block-node-2/REAL_DATA/days/2023-04-07.tar.zstd");
-        Path fileB = Path.of("/Volumes/hedera/REAL_DATA/2023-04-07.tar.zstd");
-
-        System.out.println("Comparing (streaming):");
-        System.out.println("  File A: " + fileA);
-        System.out.println("  File B: " + fileB);
-
-        int blockCount = 0;
-        int differences = 0;
-
-        try (Stream<RecordFileBlock> streamA = streamTarZstd(fileA);
-             Stream<RecordFileBlock> streamB = streamTarZstd(fileB)) {
-
-            Iterator<RecordFileBlock> iterA = streamA.iterator();
-            Iterator<RecordFileBlock> iterB = streamB.iterator();
-
-            while (iterA.hasNext() || iterB.hasNext()) {
-                // Check if one stream ended before the other
-                if (iterA.hasNext() && !iterB.hasNext()) {
-                    System.err.println("ERROR: File B ended at block " + blockCount + " but File A has more blocks");
-                    System.exit(1);
-                }
-                if (!iterA.hasNext() && iterB.hasNext()) {
-                    System.err.println("ERROR: File A ended at block " + blockCount + " but File B has more blocks");
-                    System.exit(1);
-                }
-
-                RecordFileBlock blockA = iterA.next();
-                RecordFileBlock blockB = iterB.next();
-
-                // Compare timestamps
-                if (!blockA.recordFileTime().equals(blockB.recordFileTime())) {
-                    System.err.println("ERROR: Block " + blockCount + " timestamp mismatch:");
-                    System.err.println("  File A: " + blockA.recordFileTime());
-                    System.err.println("  File B: " + blockB.recordFileTime());
-                    differences++;
-                }
-
-                // Compare primary record file data
-                byte[] dataA = blockA.primaryRecordFile().data();
-                byte[] dataB = blockB.primaryRecordFile().data();
-
-                if (dataA.length != dataB.length) {
-                    System.err.println("ERROR: Block " + blockCount + " (" + blockA.recordFileTime()
-                            + ") data length mismatch:");
-                    System.err.println("  File A: " + dataA.length + " bytes");
-                    System.err.println("  File B: " + dataB.length + " bytes");
-                    differences++;
-                } else if (!java.util.Arrays.equals(dataA, dataB)) {
-                    System.err.println("ERROR: Block " + blockCount + " (" + blockA.recordFileTime()
-                            + ") data content differs!");
-                    System.err.println("  Data length: " + dataA.length + " bytes");
-                    // Show first difference
-                    for (int j = 0; j < dataA.length; j++) {
-                        if (dataA[j] != dataB[j]) {
-                            System.err.println("  First difference at byte " + j + ": A=" + (dataA[j] & 0xFF) + " B="
-                                    + (dataB[j] & 0xFF));
-                            break;
-                        }
-                    }
-                    differences++;
-                }
-
-                // Compare file counts
-                if (blockA.signatureFiles().size() != blockB.signatureFiles().size()) {
-                    System.err.println("ERROR: Block " + blockCount + " (" + blockA.recordFileTime()
-                            + ") signature file count mismatch:");
-                    System.err.println("  File A: " + blockA.signatureFiles().size());
-                    System.err.println("  File B: " + blockB.signatureFiles().size());
-                    differences++;
-                }
-
-                if (blockA.primarySidecarFiles().size() != blockB.primarySidecarFiles().size()) {
-                    System.err.println("ERROR: Block " + blockCount + " (" + blockA.recordFileTime()
-                            + ") primary sidecar count mismatch:");
-                    System.err.println("  File A: " + blockA.primarySidecarFiles().size());
-                    System.err.println("  File B: " + blockB.primarySidecarFiles().size());
-                    differences++;
-                }
-
-                blockCount++;
-
-                // Print progress every 100 blocks
-                if (blockCount % 100 == 0) {
-                    System.out.println("Compared " + blockCount + " blocks so far...");
-                }
-            }
-        }
-
-        System.out.println("\nProcessed " + blockCount + " total blocks");
-
-        if (differences == 0) {
-            System.out.println("SUCCESS: All " + blockCount + " blocks are identical!");
-        } else {
-            System.err.println("FAILURE: Found " + differences + " differences in blocks");
-            System.exit(1);
-        }
+    /**
+     * Decompresses the given {@code .tar.zstd} file and returns a stream of
+     * {@link RecordFileBlock} grouped by the per-timestamp directory structure in the
+     * archive.
+     * <p>Uses subprocess-based decompression by default.</p>
+     *
+     * @param zstdFile the path to a .tar.zstd archive; must not be {@code null}
+     * @return a {@link Stream} of {@link RecordFileBlock} representing grouped record files
+     *         found in the archive. The caller should consume or close the stream promptly.
+     */
+    @SuppressWarnings("unused")
+    public static Stream<RecordFileBlock> streamTarZstd(Path zstdFile) {
+        return streamTarZstd(zstdFile, false);
     }
 
     /**
@@ -136,18 +51,26 @@ public class TarZstdDayReaderUsingExec {
      * archive.
      *
      * @param zstdFile the path to a .tar.zstd archive; must not be {@code null}
+     * @param useJni if true, use zstd-jni library; if false, use subprocess (ProcessBuilder)
      * @return a {@link Stream} of {@link RecordFileBlock} representing grouped record files
      *         found in the archive. The caller should consume or close the stream promptly.
      */
     @SuppressWarnings("unused")
-    public static Stream<RecordFileBlock> streamTarZstd(Path zstdFile) {
+    public static Stream<RecordFileBlock> streamTarZstd(Path zstdFile, boolean useJni) {
         if (zstdFile == null) throw new IllegalArgumentException("zstdFile is null");
 
-        final ZstCmdInputStream zstIn;
         final Stream<InMemoryFile> filesStream;
         try {
-            zstIn = new ZstCmdInputStream(zstdFile);
-            filesStream = TarReader.readTarContents(zstIn);
+            if (useJni) {
+                // Use zstd-jni library
+                java.io.InputStream zstIn = new java.io.FileInputStream(zstdFile.toFile());
+                java.io.InputStream decompressed = new com.github.luben.zstd.ZstdInputStream(zstIn);
+                filesStream = TarReader.readTarContents(decompressed);
+            } else {
+                // Use subprocess
+                ZstCmdInputStream zstIn = new ZstCmdInputStream(zstdFile);
+                filesStream = TarReader.readTarContents(zstIn);
+            }
         } catch (IOException e) {
             throw new RuntimeException("Failed to open zstd input: " + zstdFile, e);
         }
