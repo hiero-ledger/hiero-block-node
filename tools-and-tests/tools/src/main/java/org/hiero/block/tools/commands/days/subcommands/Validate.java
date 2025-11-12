@@ -141,6 +141,11 @@ public class Validate implements Runnable {
             description = "Write warnings to this file, rather than ignoring them")
     private File warningFile = null;
 
+    @Option(
+            names = {"-d", "--start-date"},
+            description = "Start validation from this date (format: YYYY-MM-DD), ignoring any resume status file")
+    private String startDate = null;
+
     @Parameters(index = "0", description = "Directories of days to process")
     @SuppressWarnings("unused") // assigned reflectively by picocli
     private File compressedDaysDir;
@@ -178,15 +183,51 @@ public class Validate implements Runnable {
         }
         // atomic reference for carry over hash between blocks
         final AtomicReference<byte[]> carryOverHash = new AtomicReference<>();
-        // if resuming, set carry over hash from last status
-        if (resumeStatus != null) {
+
+        // Determine the starting date (from --start-date option or resume status)
+        LocalDate actualStartDate = null;
+        if (startDate != null) {
+            try {
+                actualStartDate = LocalDate.parse(startDate);
+                System.out.println("Starting from date: " + actualStartDate);
+            } catch (Exception e) {
+                System.err.println("Invalid start date format: " + startDate + ". Expected YYYY-MM-DD");
+                System.exit(1);
+            }
+        } else if (resumeStatus != null) {
+            actualStartDate = resumeStatus.dayLocalDate();
+        }
+
+        // Set up carry over hash based on starting point
+        if (resumeStatus != null && startDate == null) {
+            // Normal resume from status file
             byte[] hb = resumeStatus.hashBytes();
             if (hb.length > 0) carryOverHash.set(hb);
             System.out.printf("Resuming at %s with hash[%s]%n",
                 resumeStatus.recordFileTime,
                 resumeStatus.endRunningHashHex.substring(0, 8));
+        } else if (actualStartDate != null && startDate != null) {
+            // Starting from explicit date - try to get prior day hash from mirror node
+            if (actualStartDate.equals(LocalDate.parse("2019-09-13"))) {
+                carryOverHash.set(ZERO_HASH);
+                System.out.println("Starting at genesis with hash[" + Bytes.wrap(carryOverHash.get()) + "]");
+            } else if (dayInfo != null) {
+                LocalDate priorDayDate = actualStartDate.minusDays(1);
+                DayBlockInfo priorDayInfo = dayInfo.get(priorDayDate);
+                if (priorDayInfo != null) {
+                    byte[] priorHash = HexFormat.of().parseHex(priorDayInfo.lastBlockHash);
+                    carryOverHash.set(priorHash);
+                    System.out.printf("Starting at %s with mirror node last hash[%s]%n",
+                        actualStartDate,
+                        Bytes.wrap(carryOverHash.get()));
+                } else {
+                    carryOverHash.set(null);
+                    System.out.println("No prior day info for " + priorDayDate +
+                        ", cannot validate first block's previous hash");
+                }
+            }
         } else {
-            // check if we are starting at genesis
+            // Starting from beginning without resume
             if (dayPaths.getFirst().getFileName().toString().startsWith("2019-09-13")) {
                 carryOverHash.set(ZERO_HASH);
                 System.out.println("Starting at genesis with hash[" + Bytes.wrap(carryOverHash.get()) + "]");
@@ -230,21 +271,27 @@ public class Validate implements Runnable {
         }, "validate-shutdown-hook"));
 
         // Reader thread: reads .tar.zstd day files and enqueues blocks
-        // If resuming, find the index of the day to resume from by matching the date
+        // Determine which day index to start from (based on --start-date or resume status)
         final int startDay;
-        if (resumeStatus != null) {
-            LocalDate resumeDate = resumeStatus.dayLocalDate();
+        if (actualStartDate != null) {
+            // Find the day file matching the start date (either from --start-date or resume status)
             int foundIndex = -1;
             for (int i = 0; i < dayPaths.size(); i++) {
                 LocalDate dayDate = parseDayFromFileName(dayPaths.get(i).getFileName().toString());
-                if (dayDate.equals(resumeDate)) {
+                if (dayDate.equals(actualStartDate) || dayDate.isAfter(actualStartDate)) {
                     foundIndex = i;
                     break;
                 }
             }
-            startDay = Math.max(0, foundIndex);
             if (foundIndex < 0) {
-                System.err.println("Warning: Could not find resume day " + resumeDate + ", starting from beginning");
+                System.err.println("Warning: Could not find day file for " + actualStartDate + " or later, starting from beginning");
+                startDay = 0;
+            } else {
+                startDay = foundIndex;
+                LocalDate actualDay = parseDayFromFileName(dayPaths.get(foundIndex).getFileName().toString());
+                if (!actualDay.equals(actualStartDate)) {
+                    System.out.println("Note: Exact date " + actualStartDate + " not found, starting from " + actualDay);
+                }
             }
         } else {
             startDay = 0;
@@ -258,20 +305,18 @@ public class Validate implements Runnable {
                             final LocalDate dayDate = parseDayFromFileName(dayPath.getFileName().toString());
                             queue.put(Item.dayStart(dayDate, dayPath));
                             try (var stream = TarZstdDayReaderUsingExec.streamTarZstd(dayPath)) {
-                                // capture for lambda
-                                final LocalDate currentDayDate = dayDate;
                                 stream.forEach(set -> {
                                      try {
-                                         // If resuming and this is the resume day, skip blocks up to and including the
-                                         // recorded recordFileTime
-                                         if (resumeStatus != null && currentDayDate.equals(resumeStatus.dayLocalDate())) {
+                                         // If resuming from status file (not --start-date) and this is the resume day,
+                                         // skip blocks up to and including the recorded recordFileTime
+                                         if (resumeStatus != null && startDate == null && dayDate.equals(resumeStatus.dayLocalDate())) {
                                             Instant ri = resumeStatus.recordInstant();
                                             if (!set.recordFileTime().isAfter(ri)) {
                                                 // skip this block (it was already processed)
                                                 return;
                                             }
                                          }
-                                         queue.put(Item.block(currentDayDate, dayPath, set));
+                                         queue.put(Item.block(dayDate, dayPath, set));
                                      } catch (InterruptedException ie) {
                                          Thread.currentThread().interrupt();
                                          throw new RuntimeException(
@@ -486,8 +531,9 @@ public class Validate implements Runnable {
 
     public static void main(String[] args) {
         Validate validator = new Validate();
-        validator.compressedDaysDir = new File("REAL_DATA/days");
-//        validator.compressedDaysDir = new File("/Volumes/hedera/REAL_DATA");
+        validator.startDate = "2023-04-07";
+//        validator.compressedDaysDir = new File("REAL_DATA/days");
+        validator.compressedDaysDir = new File("/Volumes/hedera/REAL_DATA");
         validator.run();
     }
 }
