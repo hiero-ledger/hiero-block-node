@@ -38,6 +38,16 @@ public class TarZstdDayUtils {
                 try (Stream<Path> fileStream = Files.walk(f.toPath())) {
                     fileStream
                             .filter(Files::isRegularFile)
+                            // Skip files in hidden directories (e.g., .rsync-partial, .tmp, etc.)
+                            .filter(p -> {
+                                for (int i = 0; i < p.getNameCount(); i++) {
+                                    String name = p.getName(i).toString();
+                                    if (name.startsWith(".")) {
+                                        return false; // skip hidden directories
+                                    }
+                                }
+                                return true;
+                            })
                             .filter(p -> DAY_FILE_PATTERN
                                     .matcher(p.getFileName().toString())
                                     .matches())

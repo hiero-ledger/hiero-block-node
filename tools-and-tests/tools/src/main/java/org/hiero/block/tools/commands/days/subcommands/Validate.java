@@ -146,6 +146,11 @@ public class Validate implements Runnable {
             description = "Start validation from this date (format: YYYY-MM-DD), ignoring any resume status file")
     private String startDate = null;
 
+    @Option(
+            names = {"--use-jni"},
+            description = "Use zstd-jni library instead of subprocess for decompression")
+    private boolean useJni = false;
+
     @Parameters(index = "0", description = "Directories of days to process")
     @SuppressWarnings("unused") // assigned reflectively by picocli
     private File compressedDaysDir;
@@ -206,7 +211,7 @@ public class Validate implements Runnable {
             System.out.printf("Resuming at %s with hash[%s]%n",
                 resumeStatus.recordFileTime,
                 resumeStatus.endRunningHashHex.substring(0, 8));
-        } else if (actualStartDate != null && startDate != null) {
+        } else if (actualStartDate != null) {
             // Starting from explicit date - try to get prior day hash from mirror node
             if (actualStartDate.equals(LocalDate.parse("2019-09-13"))) {
                 carryOverHash.set(ZERO_HASH);
@@ -304,7 +309,7 @@ public class Validate implements Runnable {
                             final Path dayPath = dayPaths.get(day);
                             final LocalDate dayDate = parseDayFromFileName(dayPath.getFileName().toString());
                             queue.put(Item.dayStart(dayDate, dayPath));
-                            try (var stream = TarZstdDayReaderUsingExec.streamTarZstd(dayPath)) {
+                            try (var stream = TarZstdDayReaderUsingExec.streamTarZstd(dayPath, useJni)) {
                                 stream.forEach(set -> {
                                      try {
                                          // If resuming from status file (not --start-date) and this is the resume day,
@@ -527,13 +532,5 @@ public class Validate implements Runnable {
         if (hash == null) return "null";
         final String s = Bytes.wrap(hash).toString();
         return s.length() <= 8 ? s : s.substring(0, 8);
-    }
-
-    public static void main(String[] args) {
-        Validate validator = new Validate();
-        validator.startDate = "2023-04-07";
-//        validator.compressedDaysDir = new File("REAL_DATA/days");
-        validator.compressedDaysDir = new File("/Volumes/hedera/REAL_DATA");
-        validator.run();
     }
 }
