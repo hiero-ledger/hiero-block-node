@@ -96,6 +96,7 @@ Currently, no specific options.
 | FILES_HISTORIC_COMPRESSION               | Compression type (e.g., ZSTD).                                |                                     |
 | FILES_HISTORIC_POWERS_OF_TEN             | Files per zip in powers of ten (1=10, 2=100, …, 6=1,000,000). |                                   4 |
 | FILES_HISTORIC_BLOCK_RETENTION_THRESHOLD | Number of zips to retain. 0 means keep indefinitely.          |                                   0 |
+| FILES_HISTORIC_MAX_FILES_PER_DIR         | Max files per directory to avoid filesystem issues.           |                                   3 |
 
 ### Files Recent Plugin Configuration
 
