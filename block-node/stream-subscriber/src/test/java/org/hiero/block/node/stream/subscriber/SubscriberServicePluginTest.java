@@ -982,6 +982,57 @@ class SubscriberServicePluginTest {
                         assertBlockItemsMatch(blocksOneToTwo, blockItemResponses);
                     }
                 }
+
+                /**
+                 * This test aims to assert that when we have blocks without
+                 * headers we don't send those partial blocks to the subscriber.
+                 */
+                @Test
+                @DisplayName("Test Subscriber: Valid Request Live Stream Subscription With Some Blocks Without Headers")
+                void testSuccessfulRequestLiveStreamWithBlockAndSomeBlocksWithoutHeadersSubscription() {
+                    // First we create the blocks
+                    final List<Block> blocksZeroToTwo =
+                            SimpleTestBlockItemBuilder.createNumberOfVerySimpleBlocksBatched(0, 2);
+                    // Then, we create the request for live stream
+                    final SubscribeStreamRequest request = SubscribeStreamRequest.newBuilder()
+                            .startBlockNumber(-1L)
+                            .endBlockNumber(-1L)
+                            .build();
+                    // Send the request
+                    toPluginPipe.onNext(SubscribeStreamRequest.PROTOBUF.toBytes(request));
+                    // Send a block 0
+                    final List<BlockItem> firstBlock =
+                            blocksZeroToTwo.getFirst().items();
+                    blockMessaging.sendBlockItems(toBlockItems(
+                            firstBlock,
+                            true,
+                            firstBlock.getFirst().blockHeader().number()));
+                    // Now supply the following blocks without headers
+                    final List<Block> blocksOneToTwo = blocksZeroToTwo.subList(1, blocksZeroToTwo.size());
+                    for (final Block block : blocksOneToTwo) {
+                        blockMessaging.sendBlockItems(toBlockItems(
+                                block.items(),
+                                false,
+                                firstBlock.getFirst().blockHeader().number()));
+                    }
+                    // Wait for responses for block items
+                    final int expectedBlockItemResponses = 2; // only one with items and end block
+                    awaitResponse(fromPluginBytes, expectedBlockItemResponses);
+                    // now we need to stop the plugin to end the live stream request and
+                    // receive the success status response
+                    plugin.stop();
+                    final int expectedResponses = expectedBlockItemResponses + 1; // items and one with success status
+                    // Assert responses count and status success
+                    assertThat(fromPluginBytes)
+                            .hasSize(expectedResponses)
+                            .last()
+                            .extracting(responseExtractor)
+                            .isNotNull()
+                            .returns(Code.SUCCESS, responseStatusExtractor);
+                    // Extract and assert block items response
+                    final List<Bytes> blockItemResponses = fromPluginBytes.subList(0, fromPluginBytes.size());
+                    assertBlockItemsMatch(List.of(blocksZeroToTwo.getFirst()), blockItemResponses);
+                }
             }
 
             /**
