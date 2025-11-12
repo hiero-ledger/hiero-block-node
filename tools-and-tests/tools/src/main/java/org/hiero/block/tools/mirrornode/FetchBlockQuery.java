@@ -6,6 +6,8 @@ import static org.hiero.block.tools.mirrornode.MirrorNodeUtils.MAINNET_MIRROR_NO
 import com.google.gson.JsonObject;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import java.util.HexFormat;
+import java.util.ArrayList;
+import java.util.List;
 
 /**
  * Query Mirror Node and fetch block information
@@ -36,6 +38,45 @@ public class FetchBlockQuery {
         final JsonObject json = MirrorNodeUtils.readUrl(url);
         final String hashStr = json.get("previous_hash").getAsString();
         return Bytes.wrap(HexFormat.of().parseHex(hashStr.substring(2))); // remove 0x prefix and parse
+    }
+
+    /**
+     * Get the latest blocks from the mirror node and return as list of objects.
+     *
+     * Example: GET blocks?limit=10&order=desc
+     *
+     * @param limit number of blocks to retrieve
+     * @param order  ordering of blocks
+     * @return a list of BlockInfo objects representing the latest blocks
+     */
+    public static List<BlockInfo> getLatestBlocks(int limit, MirrorNodeBlockQueryOrder order) {
+        final String url = MAINNET_MIRROR_NODE_API_URL +
+            "blocks?limit=" + limit +
+            "&order=" + order.name();
+        final JsonObject json = MirrorNodeUtils.readUrl(url);
+        List<BlockInfo> blocks = new ArrayList<>();
+
+        if (json.has("blocks") && json.get("blocks").isJsonArray()) {
+            json.getAsJsonArray("blocks").forEach(elem -> {
+                JsonObject b = elem.getAsJsonObject();
+                BlockInfo info = new BlockInfo();
+                info.count = b.has("count") ? b.get("count").getAsInt() : 0;
+                info.hapiVersion = b.has("hapi_version") ? b.get("hapi_version").getAsString() : null;
+                info.hash = b.has("hash") ? b.get("hash").getAsString() : null;
+                info.name = b.has("name") ? b.get("name").getAsString() : null;
+                info.number = b.has("number") ? b.get("number").getAsLong() : -1;
+                info.previousHash = b.has("previous_hash") ? b.get("previous_hash").getAsString() : null;
+                info.size = b.has("size") ? b.get("size").getAsLong() : 0;
+                info.gasUsed = b.has("gas_used") ? b.get("gas_used").getAsLong() : 0;
+                if (b.has("timestamp") && b.get("timestamp").isJsonObject()) {
+                    JsonObject ts = b.getAsJsonObject("timestamp");
+                    info.timestampFrom = ts.has("from") ? ts.get("from").getAsString() : null;
+                    info.timestampTo = ts.has("to") ? ts.get("to").getAsString() : null;
+                }
+                blocks.add(info);
+            });
+        }
+        return blocks;
     }
 
     /**
