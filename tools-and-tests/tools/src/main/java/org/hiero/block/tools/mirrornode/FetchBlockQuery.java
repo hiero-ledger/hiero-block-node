@@ -5,8 +5,8 @@ import static org.hiero.block.tools.mirrornode.MirrorNodeUtils.MAINNET_MIRROR_NO
 
 import com.google.gson.JsonObject;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
-import java.util.HexFormat;
 import java.util.ArrayList;
+import java.util.HexFormat;
 import java.util.List;
 
 /**
@@ -50,9 +50,7 @@ public class FetchBlockQuery {
      * @return a list of BlockInfo objects representing the latest blocks
      */
     public static List<BlockInfo> getLatestBlocks(int limit, MirrorNodeBlockQueryOrder order) {
-        final String url = MAINNET_MIRROR_NODE_API_URL +
-            "blocks?limit=" + limit +
-            "&order=" + order.name();
+        final String url = MAINNET_MIRROR_NODE_API_URL + "blocks?limit=" + limit + "&order=" + order.name();
         final JsonObject json = MirrorNodeUtils.readUrl(url);
         List<BlockInfo> blocks = new ArrayList<>();
 
@@ -65,7 +63,8 @@ public class FetchBlockQuery {
                 info.hash = b.has("hash") ? b.get("hash").getAsString() : null;
                 info.name = b.has("name") ? b.get("name").getAsString() : null;
                 info.number = b.has("number") ? b.get("number").getAsLong() : -1;
-                info.previousHash = b.has("previous_hash") ? b.get("previous_hash").getAsString() : null;
+                info.previousHash =
+                        b.has("previous_hash") ? b.get("previous_hash").getAsString() : null;
                 info.size = b.has("size") ? b.get("size").getAsLong() : 0;
                 info.gasUsed = b.has("gas_used") ? b.get("gas_used").getAsLong() : 0;
                 if (b.has("timestamp") && b.get("timestamp").isJsonObject()) {

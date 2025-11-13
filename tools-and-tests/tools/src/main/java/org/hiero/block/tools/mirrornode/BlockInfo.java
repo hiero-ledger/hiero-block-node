@@ -1,5 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.tools.commands.mirrornode;
-
 
 public class BlockInfo {
     public int count;
@@ -15,17 +15,16 @@ public class BlockInfo {
 
     @Override
     public String toString() {
-        return "BlockInfo{" +
-            "number=" + number +
-            ", name='" + name + '\'' +
-            ", hash='" + hash + '\'' +
-            ", previousHash='" + previousHash + '\'' +
-            ", count=" + count +
-            ", hapiVersion='" + hapiVersion + '\'' +
-            ", size=" + size +
-            ", gasUsed=" + gasUsed +
-            ", timestampFrom='" + timestampFrom + '\'' +
-            ", timestampTo='" + timestampTo + '\'' +
-            '}';
+        return "BlockInfo{" + "number="
+                + number + ", name='"
+                + name + '\'' + ", hash='"
+                + hash + '\'' + ", previousHash='"
+                + previousHash + '\'' + ", count="
+                + count + ", hapiVersion='"
+                + hapiVersion + '\'' + ", size="
+                + size + ", gasUsed="
+                + gasUsed + ", timestampFrom='"
+                + timestampFrom + '\'' + ", timestampTo='"
+                + timestampTo + '\'' + '}';
     }
 }
