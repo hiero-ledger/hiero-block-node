@@ -66,5 +66,7 @@ message BlockItemUnparsed {
         bytes block_proof = 9;
         bytes record_file = 10;
         bytes trace_data = 11;
+        bytes block_footer = 12;
+        bytes redacted_item = 19;
     }
 }

@@ -22,17 +22,17 @@ class BlockProofHandlerTest {
 
     @Test
     void testConstructorWithNullPreviousHash() {
-        assertThrows(NullPointerException.class, () -> new BlockProofHandler(null, currentBlockHash, blockNumber));
+        assertThrows(NullPointerException.class, () -> new BlockProofHandler(currentBlockHash, blockNumber));
     }
 
     @Test
     void testConstructorWithNullCurrentHash() {
-        assertThrows(NullPointerException.class, () -> new BlockProofHandler(previousBlockHash, null, blockNumber));
+        assertThrows(NullPointerException.class, () -> new BlockProofHandler(null, blockNumber));
     }
 
     @Test
     void testGetItem() {
-        BlockProofHandler handler = new BlockProofHandler(previousBlockHash, currentBlockHash, blockNumber);
+        BlockProofHandler handler = new BlockProofHandler(currentBlockHash, blockNumber);
         BlockItem item = handler.getItem();
 
         assertNotNull(item);
@@ -47,7 +47,7 @@ class BlockProofHandlerTest {
 
     @Test
     void testGetItemCaching() {
-        BlockProofHandler handler = new BlockProofHandler(previousBlockHash, currentBlockHash, blockNumber);
+        BlockProofHandler handler = new BlockProofHandler(currentBlockHash, blockNumber);
         BlockItem item1 = handler.getItem();
         BlockItem item2 = handler.getItem();
 
