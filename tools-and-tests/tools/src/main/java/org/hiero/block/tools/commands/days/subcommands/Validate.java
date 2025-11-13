@@ -57,7 +57,7 @@ public class Validate implements Runnable {
      * @param dayFile  for diagnostics (maybe null for STREAM_END)
      * @param block    only for BLOCK
      */
-     private record Item(Kind kind, LocalDate dayDate, Path dayFile, RecordFileBlock block) {
+    private record Item(Kind kind, LocalDate dayDate, Path dayFile, RecordFileBlock block) {
         enum Kind {
             DAY_START,
             BLOCK,
@@ -164,8 +164,8 @@ public class Validate implements Runnable {
         }
         // create AddressBookRegistry to load address books as needed during validation
         final Path addressBookFile = compressedDaysDir.toPath().resolve("addressBookHistory.json");
-        final AddressBookRegistry addressBookRegistry = Files.exists(addressBookFile) ?
-            new AddressBookRegistry(addressBookFile) : new AddressBookRegistry();
+        final AddressBookRegistry addressBookRegistry =
+                Files.exists(addressBookFile) ? new AddressBookRegistry(addressBookFile) : new AddressBookRegistry();
         // load mirror node day info if available (not required)
         Map<LocalDate, DayBlockInfo> tempDayInfo;
         try {
@@ -181,7 +181,7 @@ public class Validate implements Runnable {
         // atomic reference for last good status
         final AtomicReference<Status> lastGood = new AtomicReference<>(resumeStatus);
         // load all the day paths
-        final List<Path> dayPaths = TarZstdDayUtils.sortedDayPaths(new File[]{compressedDaysDir});
+        final List<Path> dayPaths = TarZstdDayUtils.sortedDayPaths(new File[] {compressedDaysDir});
         if (dayPaths.isEmpty()) {
             System.out.println("No day files found in " + compressedDaysDir);
             return;
@@ -208,9 +208,9 @@ public class Validate implements Runnable {
             // Normal resume from status file
             byte[] hb = resumeStatus.hashBytes();
             if (hb.length > 0) carryOverHash.set(hb);
-            System.out.printf("Resuming at %s with hash[%s]%n",
-                resumeStatus.recordFileTime,
-                resumeStatus.endRunningHashHex.substring(0, 8));
+            System.out.printf(
+                    "Resuming at %s with hash[%s]%n",
+                    resumeStatus.recordFileTime, resumeStatus.endRunningHashHex.substring(0, 8));
         } else if (actualStartDate != null) {
             // Starting from explicit date - try to get prior day hash from mirror node
             if (actualStartDate.equals(LocalDate.parse("2019-09-13"))) {
@@ -222,13 +222,13 @@ public class Validate implements Runnable {
                 if (priorDayInfo != null) {
                     byte[] priorHash = HexFormat.of().parseHex(priorDayInfo.lastBlockHash);
                     carryOverHash.set(priorHash);
-                    System.out.printf("Starting at %s with mirror node last hash[%s]%n",
-                        actualStartDate,
-                        Bytes.wrap(carryOverHash.get()));
+                    System.out.printf(
+                            "Starting at %s with mirror node last hash[%s]%n",
+                            actualStartDate, Bytes.wrap(carryOverHash.get()));
                 } else {
                     carryOverHash.set(null);
-                    System.out.println("No prior day info for " + priorDayDate +
-                        ", cannot validate first block's previous hash");
+                    System.out.println(
+                            "No prior day info for " + priorDayDate + ", cannot validate first block's previous hash");
                 }
             }
         } else {
@@ -238,19 +238,20 @@ public class Validate implements Runnable {
                 System.out.println("Starting at genesis with hash[" + Bytes.wrap(carryOverHash.get()) + "]");
             } else if (dayInfo != null) {
                 // not starting at genesis, so try to get prior day's last block hash from mirror node data
-                LocalDate firstDayDate = parseDayFromFileName(dayPaths.getFirst().getFileName().toString());
+                LocalDate firstDayDate =
+                        parseDayFromFileName(dayPaths.getFirst().getFileName().toString());
                 LocalDate priorDayDate = firstDayDate.minusDays(1);
                 DayBlockInfo priorDayInfo = dayInfo.get(priorDayDate);
                 if (priorDayInfo != null) {
                     byte[] priorHash = HexFormat.of().parseHex(priorDayInfo.lastBlockHash);
                     carryOverHash.set(priorHash);
-                    System.out.printf("Starting at %s with mirror node last hash[%s]%n",
-                        firstDayDate,
-                        Bytes.wrap(carryOverHash.get()));
+                    System.out.printf(
+                            "Starting at %s with mirror node last hash[%s]%n",
+                            firstDayDate, Bytes.wrap(carryOverHash.get()));
                 } else {
                     carryOverHash.set(null);
-                    System.out.println("No prior day info for " + priorDayDate +
-                        ", cannot validate first block's previous hash");
+                    System.out.println(
+                            "No prior day info for " + priorDayDate + ", cannot validate first block's previous hash");
                 }
             }
         }
@@ -268,15 +269,18 @@ public class Validate implements Runnable {
         final BlockingQueue<Item> queue = new LinkedBlockingQueue<>(1_000);
 
         // Register shutdown hook to persist last good status on JVM exit (Ctrl+C, etc.)
-        Runtime.getRuntime().addShutdownHook(new Thread(() -> {
-            Status s = lastGood.get();
-            if (s != null) {
-                System.err.println("Shutdown: writing status to " + statusFile);
-                Status.writeStatusFile(statusFile, s);
-                System.err.println("Shutdown: address book to " + addressBookFile);
-                addressBookRegistry.saveAddressBookRegistryToJsonFile(addressBookFile);
-            }
-        }, "validate-shutdown-hook"));
+        Runtime.getRuntime()
+                .addShutdownHook(new Thread(
+                        () -> {
+                            Status s = lastGood.get();
+                            if (s != null) {
+                                System.err.println("Shutdown: writing status to " + statusFile);
+                                Status.writeStatusFile(statusFile, s);
+                                System.err.println("Shutdown: address book to " + addressBookFile);
+                                addressBookRegistry.saveAddressBookRegistryToJsonFile(addressBookFile);
+                            }
+                        },
+                        "validate-shutdown-hook"));
 
         // Reader thread: reads .tar.zstd day files and enqueues blocks
         // Determine which day index to start from (based on --start-date or resume status)
@@ -285,20 +289,24 @@ public class Validate implements Runnable {
             // Find the day file matching the start date (either from --start-date or resume status)
             int foundIndex = -1;
             for (int i = 0; i < dayPaths.size(); i++) {
-                LocalDate dayDate = parseDayFromFileName(dayPaths.get(i).getFileName().toString());
+                LocalDate dayDate =
+                        parseDayFromFileName(dayPaths.get(i).getFileName().toString());
                 if (dayDate.equals(actualStartDate) || dayDate.isAfter(actualStartDate)) {
                     foundIndex = i;
                     break;
                 }
             }
             if (foundIndex < 0) {
-                System.err.println("Warning: Could not find day file for " + actualStartDate + " or later, starting from beginning");
+                System.err.println("Warning: Could not find day file for " + actualStartDate
+                        + " or later, starting from beginning");
                 startDay = 0;
             } else {
                 startDay = foundIndex;
-                LocalDate actualDay = parseDayFromFileName(dayPaths.get(foundIndex).getFileName().toString());
+                LocalDate actualDay = parseDayFromFileName(
+                        dayPaths.get(foundIndex).getFileName().toString());
                 if (!actualDay.equals(actualStartDate)) {
-                    System.out.println("Note: Exact date " + actualStartDate + " not found, starting from " + actualDay);
+                    System.out.println(
+                            "Note: Exact date " + actualStartDate + " not found, starting from " + actualDay);
                 }
             }
         } else {
@@ -310,26 +318,29 @@ public class Validate implements Runnable {
                     try {
                         for (int day = startDay; day < dayPaths.size(); day++) {
                             final Path dayPath = dayPaths.get(day);
-                            final LocalDate dayDate = parseDayFromFileName(dayPath.getFileName().toString());
+                            final LocalDate dayDate =
+                                    parseDayFromFileName(dayPath.getFileName().toString());
                             queue.put(Item.dayStart(dayDate, dayPath));
                             try (var stream = TarZstdDayReaderUsingExec.streamTarZstd(dayPath, useJni)) {
                                 stream.forEach(set -> {
-                                     try {
-                                         // If resuming from status file (not --start-date) and this is the resume day,
-                                         // skip blocks up to and including the recorded recordFileTime
-                                         if (resumeStatus != null && startDate == null && dayDate.equals(resumeStatus.dayLocalDate())) {
+                                    try {
+                                        // If resuming from status file (not --start-date) and this is the resume day,
+                                        // skip blocks up to and including the recorded recordFileTime
+                                        if (resumeStatus != null
+                                                && startDate == null
+                                                && dayDate.equals(resumeStatus.dayLocalDate())) {
                                             Instant ri = resumeStatus.recordInstant();
                                             if (!set.recordFileTime().isAfter(ri)) {
                                                 // skip this block (it was already processed)
                                                 return;
                                             }
-                                         }
-                                         queue.put(Item.block(dayDate, dayPath, set));
-                                     } catch (InterruptedException ie) {
-                                         Thread.currentThread().interrupt();
-                                         throw new RuntimeException(
-                                                 "Interrupted while enqueueing block from " + dayPath, ie);
-                                     }
+                                        }
+                                        queue.put(Item.block(dayDate, dayPath, set));
+                                    } catch (InterruptedException ie) {
+                                        Thread.currentThread().interrupt();
+                                        throw new RuntimeException(
+                                                "Interrupted while enqueueing block from " + dayPath, ie);
+                                    }
                                 });
                             } catch (Exception ex) {
                                 PrettyPrint.clearProgress();
@@ -399,8 +410,8 @@ public class Validate implements Runnable {
                             // check overall validity and fail if not valid
                             if (!vr.isValid()) {
                                 PrettyPrint.clearProgress();
-                                System.err.println(
-                                        "Validation failed for " + block.recordFileTime() + ":\n" + vr.warningMessages());
+                                System.err.println("Validation failed for " + block.recordFileTime() + ":\n"
+                                        + vr.warningMessages());
                                 System.out.flush();
                                 // Persist last good and exit
                                 Status s = lastGood.get();
@@ -413,35 +424,35 @@ public class Validate implements Runnable {
                             if (blockInDayCounter.get() == 0L && dayInfo != null) {
                                 // we are the first block of a day (not the first day), so we have computed the prior
                                 // day's last hash, so we can compare that to one from mirror node data if available
-                                LocalDate dayDate = parseDayFromFileName(item.dayFile.getFileName().toString());
+                                LocalDate dayDate = parseDayFromFileName(
+                                        item.dayFile.getFileName().toString());
                                 DayBlockInfo thisDaysInfo = dayInfo.get(dayDate);
                                 // make sure the block is the first block of the day by checking its time is within
                                 // 10 seconds of midnight
-                                if (block.recordFileTime().isBefore(
-                                        dayDate.atStartOfDay(UTC).plusSeconds(10).toInstant())) {
+                                if (block.recordFileTime()
+                                        .isBefore(dayDate.atStartOfDay(UTC)
+                                                .plusSeconds(10)
+                                                .toInstant())) {
                                     // now we can compare hashes
                                     byte[] expectedHash = HexFormat.of().parseHex(thisDaysInfo.firstBlockHash);
                                     if (!Arrays.equals(vr.endRunningHash(), expectedHash)) {
                                         PrettyPrint.clearProgress();
                                         System.err.printf(
-                                            "Validation failed for %s: first block of day has previous hash[%s] but "
-                                                + "expected[%s] from mirror node data%n",
-                                            dayDate,
-                                            Bytes.wrap(vr.endRunningHash()),
-                                            Bytes.wrap(expectedHash));
+                                                "Validation failed for %s: first block of day has previous hash[%s] but "
+                                                        + "expected[%s] from mirror node data%n",
+                                                dayDate, Bytes.wrap(vr.endRunningHash()), Bytes.wrap(expectedHash));
                                         System.out.flush();
                                         // Persist last good and exit
                                         Status s = lastGood.get();
-                                        if (s != null)
-                                            Status.writeStatusFile(statusFile, s);
+                                        if (s != null) Status.writeStatusFile(statusFile, s);
                                         addressBookRegistry.saveAddressBookRegistryToJsonFile(addressBookFile);
                                         System.exit(1);
                                     }
                                 }
                             }
                             // use ValidationResult to update address book if needed
-                            String addressBookChanges =
-                                    addressBookRegistry.updateAddressBook(block.recordFileTime(), vr.addressBookTransactions());
+                            String addressBookChanges = addressBookRegistry.updateAddressBook(
+                                    block.recordFileTime(), vr.addressBookTransactions());
                             if (warningWriter != null && addressBookChanges != null) {
                                 warningWriter.write(addressBookChanges + "\n");
                                 warningWriter.flush();
@@ -451,7 +462,8 @@ public class Validate implements Runnable {
 
                             // Update last good processed block (in-memory only, not writing to disk here)
                             String endHashHex = HexFormat.of().formatHex(vr.endRunningHash());
-                            lastGood.set(new Status(item.dayDate, block.recordFileTime().toString(), endHashHex));
+                            lastGood.set(new Status(
+                                    item.dayDate, block.recordFileTime().toString(), endHashHex));
 
                             // Calculate processing speed over last 10 seconds of wall clock time
                             final long currentRealTimeNanos = System.nanoTime();
@@ -473,25 +485,30 @@ public class Validate implements Runnable {
 
                             // Calculate speed if we have at least 1 second of real time elapsed since tracking point
                             if (realTimeSinceLastCalc >= 1_000_000_000L) { // At least 1 second
-                                long dataTimeElapsedMillis = block.recordFileTime().toEpochMilli() - lastSpeedCalcBlockTime.get().toEpochMilli();
+                                long dataTimeElapsedMillis =
+                                        block.recordFileTime().toEpochMilli()
+                                                - lastSpeedCalcBlockTime.get().toEpochMilli();
                                 long realTimeElapsedMillis = realTimeSinceLastCalc / 1_000_000L;
                                 double speedMultiplier =
-                                    (double) dataTimeElapsedMillis / (double) realTimeElapsedMillis;
+                                        (double) dataTimeElapsedMillis / (double) realTimeElapsedMillis;
                                 speedString = String.format(" speed %.1fx", speedMultiplier);
                             }
 
                             // Build progress string showing time and hashes (shortened to 8 chars for readability)
                             final String progressString = String.format(
                                     "%s carry[%s] next[%s]%s",
-                                    block.recordFileTime(), shortHash(previousBlockHash), shortHash(vr.endRunningHash()), speedString);
+                                    block.recordFileTime(),
+                                    shortHash(previousBlockHash),
+                                    shortHash(vr.endRunningHash()),
+                                    speedString);
                             // Estimate totals and ETA
                             final long elapsedMillis = (System.nanoTime() - startNanos) / 1_000_000L;
                             // Progress percent and remaining
                             final long processedSoFarAcrossAll = progress.get();
                             final long totalProgressFinal = totalProgress.get();
                             double percent = ((double) processedSoFarAcrossAll / (double) totalProgressFinal) * 100.0;
-                            long remainingMillis =
-                                    PrettyPrint.computeRemainingMilliseconds(processedSoFarAcrossAll, totalProgressFinal, elapsedMillis);
+                            long remainingMillis = PrettyPrint.computeRemainingMilliseconds(
+                                    processedSoFarAcrossAll, totalProgressFinal, elapsedMillis);
                             // Only print progress once per consensus-minute of blocks processed. Use epoch-second / 60
                             // to compute the minute bucket for the block's consensus time.
                             long blockMinute = block.recordFileTime().getEpochSecond() / 60L;
@@ -501,7 +518,8 @@ public class Validate implements Runnable {
                             }
                         } catch (Exception ex) {
                             PrettyPrint.clearProgress();
-                            System.err.println("Validation threw for " + block.recordFileTime() + ": " + ex.getMessage());
+                            System.err.println(
+                                    "Validation threw for " + block.recordFileTime() + ": " + ex.getMessage());
                             ex.printStackTrace();
                             // Persist last good and exit
                             Status s = lastGood.get();

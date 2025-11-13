@@ -37,14 +37,12 @@ public class AddressBookRegistry {
     // keep getCurrentAddressBook() aligned with authoritative book semantics.
     private ByteArrayOutputStream partialFileUpload = null;
 
-
-
     /**
      * Create a new AddressBookRegistry instance and load the Genesis address book.
      */
     public AddressBookRegistry() {
         try {
-            addressBooks.add(new DatedNodeAddressBook(GENESIS_TIMESTAMP,loadGenesisAddressBook()));
+            addressBooks.add(new DatedNodeAddressBook(GENESIS_TIMESTAMP, loadGenesisAddressBook()));
         } catch (ParseException e) {
             throw new RuntimeException("Error loading Genesis Address Book", e);
         }
@@ -58,7 +56,7 @@ public class AddressBookRegistry {
             AddressBookHistory history = AddressBookHistory.JSON.parse(in);
             addressBooks.addAll(history.addressBooks());
         } catch (IOException | ParseException e) {
-            throw new RuntimeException("Error loading Address Book History JSON file "+jsonFile, e);
+            throw new RuntimeException("Error loading Address Book History JSON file " + jsonFile, e);
         }
     }
 
@@ -68,7 +66,7 @@ public class AddressBookRegistry {
      * @param file the path to the JSON file
      */
     public void saveAddressBookRegistryToJsonFile(Path file) {
-        try(var out = new WritableStreamingData(Files.newOutputStream(file))) {
+        try (var out = new WritableStreamingData(Files.newOutputStream(file))) {
             AddressBookHistory history = new AddressBookHistory(addressBooks);
             AddressBookHistory.JSON.write(history, out);
         } catch (IOException e) {
@@ -141,7 +139,7 @@ public class AddressBookRegistry {
             }
         }
         if (newAddressBook != currentBook) {
-            addressBooks.add(new DatedNodeAddressBook(toTimestamp(blockInstant),newAddressBook));
+            addressBooks.add(new DatedNodeAddressBook(toTimestamp(blockInstant), newAddressBook));
             // Update changes description
             return "Address Book Changed, via file update:\n" + addressBookChanges(currentBook, newAddressBook);
         }
@@ -176,8 +174,12 @@ public class AddressBookRegistry {
                 throw new ParseException("Transaction has no body or signed bytes");
             }
             // check if this is a file update/append to file 0.0.102
-            if ((body.hasFileUpdate() && body.fileUpdate().hasFileID() && body.fileUpdate().fileID().fileNum() == 102)
-                    || (body.hasFileAppend() && body.fileAppend().hasFileID() && body.fileAppend().fileID().fileNum() == 102)) {
+            if ((body.hasFileUpdate()
+                            && body.fileUpdate().hasFileID()
+                            && body.fileUpdate().fileID().fileNum() == 102)
+                    || (body.hasFileAppend()
+                            && body.fileAppend().hasFileID()
+                            && body.fileAppend().fileID().fileNum() == 102)) {
                 result.add(body);
             }
         }
@@ -247,15 +249,15 @@ public class AddressBookRegistry {
      * @return the node ID for the node
      */
     public static long nodeIdForNode(
-        final NodeAddressBook addressBook, final long shard, final long realm, final long number) {
+            final NodeAddressBook addressBook, final long shard, final long realm, final long number) {
         // we assume shard and realm are always 0 for now, so we only use the number
         if (shard != 0 || realm != 0) {
             throw new IllegalArgumentException("Only shard 0 and realm 0 are supported");
         }
         final NodeAddress nodeAddress = addressBook.nodeAddress().stream()
-            .filter(na -> getNodeAccountId(na) == number)
-            .findFirst()
-            .orElse(null);
+                .filter(na -> getNodeAccountId(na) == number)
+                .findFirst()
+                .orElse(null);
         long addressBookNodeId = nodeAddress == null ? -1 : nodeAddress.nodeId();
         // For older address books where nodeId is not set, derive it from account number - 3
         return addressBookNodeId > 0 ? addressBookNodeId : number - 3;

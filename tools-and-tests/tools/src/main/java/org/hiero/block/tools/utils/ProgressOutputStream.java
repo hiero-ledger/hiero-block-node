@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.tools.utils;
 
 import java.io.FilterOutputStream;
@@ -60,8 +61,8 @@ public class ProgressOutputStream extends FilterOutputStream {
     private void printProgress() {
         if (bytesWritten % MB == 0) {
             System.out.printf(
-                "\rProgress: %.0f%% - %,d MB written of %s",
-                (bytesWritten / (double) size) * 100d, bytesWritten / MB, name);
+                    "\rProgress: %.0f%% - %,d MB written of %s",
+                    (bytesWritten / (double) size) * 100d, bytesWritten / MB, name);
         }
     }
 }

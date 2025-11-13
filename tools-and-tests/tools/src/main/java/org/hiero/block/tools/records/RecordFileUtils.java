@@ -164,7 +164,10 @@ public class RecordFileUtils {
             return new ListingRecordFile[0];
         }
         // Determine the maximum index so we can create a zero-based array where index N maps to array[N-1]
-        int maxIndex = sidecarsByIndex.keySet().stream().mapToInt(Integer::intValue).max().orElse(0);
+        int maxIndex = sidecarsByIndex.keySet().stream()
+                .mapToInt(Integer::intValue)
+                .max()
+                .orElse(0);
         // If there are missing indexes between 1 and maxIndex, that's an unexpected gap; fail fast with helpful message
         final List<Integer> missingIndexes = new java.util.ArrayList<>();
         for (int i = 1; i <= maxIndex; i++) {

@@ -76,14 +76,14 @@ public class TarZstdDayUtils {
         try {
             Matcher matcher = DAY_FILE_PATTERN.matcher(fileName);
             if (!matcher.matches()) {
-                throw new IllegalStateException("File name \"" + fileName+"\"does not match day file pattern");
+                throw new IllegalStateException("File name \"" + fileName + "\"does not match day file pattern");
             }
             return LocalDate.of(
-                Integer.parseInt(matcher.group(1)),
-                Integer.parseInt(matcher.group(2)),
-                Integer.parseInt(matcher.group(3)));
+                    Integer.parseInt(matcher.group(1)),
+                    Integer.parseInt(matcher.group(2)),
+                    Integer.parseInt(matcher.group(3)));
         } catch (IllegalStateException e) {
-            throw new IllegalArgumentException("Invalid .tar.zstd day file name: \"" + fileName+"\"", e);
+            throw new IllegalArgumentException("Invalid .tar.zstd day file name: \"" + fileName + "\"", e);
         }
     }
 }

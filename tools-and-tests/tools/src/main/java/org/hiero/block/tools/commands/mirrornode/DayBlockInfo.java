@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.tools.commands.mirrornode;
 
 import com.google.gson.GsonBuilder;
@@ -5,7 +6,6 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Instant;
 import java.time.LocalDate;
-import java.time.LocalDateTime;
 import java.util.Map;
 
 /**
@@ -15,6 +15,7 @@ public class DayBlockInfo {
     public static final Path DEFAULT_DAY_BLOCKS_PATH = Path.of("data/day_blocks.json");
     /** Representation of a calendar day and the first/last block info for that day (UTC). */
     public final int year;
+
     public final int month;
     public final int day;
     public long firstBlockNumber;
@@ -26,6 +27,7 @@ public class DayBlockInfo {
      * to JSON (transient) and are used only during aggregation.
      */
     public transient Instant firstBlockInstant;
+
     public transient Instant lastBlockInstant;
 
     /**
@@ -39,9 +41,14 @@ public class DayBlockInfo {
      * @param lastBlockNumber  the block number of the last block on this day
      * @param lastBlockHash    the running hash of the last block as hex string
      */
-    public DayBlockInfo(int year, int month, int day, long firstBlockNumber, String firstBlockHash,
-        long lastBlockNumber,
-        String lastBlockHash) {
+    public DayBlockInfo(
+            int year,
+            int month,
+            int day,
+            long firstBlockNumber,
+            String firstBlockHash,
+            long lastBlockNumber,
+            String lastBlockHash) {
         this.year = year;
         this.month = month;
         this.day = day;

@@ -11,7 +11,8 @@ import java.util.regex.Pattern;
 
 public class MirrorNodeUtils {
     public static final String MAINNET_MIRROR_NODE_API_URL = "https://mainnet-public.mirrornode.hedera.com/api/v1/";
-    public static final Pattern SYMANTIC_VERSION_PATTERN = Pattern.compile("^(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d*)$");
+    public static final Pattern SYMANTIC_VERSION_PATTERN =
+            Pattern.compile("^(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d*)$");
 
     /**
      * Read a URL and return the JSON object.

@@ -51,9 +51,9 @@ public class ConcurrentTarZstdWriter implements AutoCloseable {
         this.outFile = outFile;
         this.partialOutFile = outFile.getParent().resolve(outFile.getFileName() + "_partial");
         this.fout = Files.newOutputStream(partialOutFile);
-        this.zOut = new ZstdOutputStream(new BufferedOutputStream(fout, 1024*1024*128),
-            RecyclingBufferPool.INSTANCE, /*level*/ 3);
-        this.tar = new TarArchiveOutputStream(new BufferedOutputStream(zOut, 1024*1024*128));
+        this.zOut = new ZstdOutputStream(
+                new BufferedOutputStream(fout, 1024 * 1024 * 128), RecyclingBufferPool.INSTANCE, /*level*/ 3);
+        this.tar = new TarArchiveOutputStream(new BufferedOutputStream(zOut, 1024 * 1024 * 128));
         tar.setLongFileMode(TarArchiveOutputStream.LONGFILE_POSIX);
         // start writer thread
         this.writerThread = new Thread(
@@ -81,7 +81,8 @@ public class ConcurrentTarZstdWriter implements AutoCloseable {
                             filesToWrite.drainTo(batch, 99);
                             // process the batch
                             for (InMemoryFile f : batch) {
-                                TarArchiveEntry entry = new TarArchiveEntry(f.path().toString());
+                                TarArchiveEntry entry =
+                                        new TarArchiveEntry(f.path().toString());
                                 entry.setSize(f.data().length);
                                 tar.putArchiveEntry(entry);
                                 tar.write(f.data());

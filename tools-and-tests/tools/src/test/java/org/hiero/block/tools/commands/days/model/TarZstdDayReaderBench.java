@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.tools.commands.days.model;
 
 import java.nio.file.Files;
@@ -22,17 +23,20 @@ public class TarZstdDayReaderBench {
         try {
             long start = System.nanoTime();
             long totalBytes = TarZstdDayReader.readTarZstd(dayFile).stream()
-                .mapToLong(RecordFileBlock::getTotalSizeBytes).sum();
+                    .mapToLong(RecordFileBlock::getTotalSizeBytes)
+                    .sum();
             printResult("TarZstdDayReader List", start, System.nanoTime(), totalBytes, 1);
 
             start = System.nanoTime();
             totalBytes = TarZstdDayReaderUsingExec.readTarZstd(dayFile).stream()
-                .mapToLong(RecordFileBlock::getTotalSizeBytes).sum();
+                    .mapToLong(RecordFileBlock::getTotalSizeBytes)
+                    .sum();
             printResult("TarZstdDayReaderUsingExec List", start, System.nanoTime(), totalBytes, 1);
 
             start = System.nanoTime();
             totalBytes = TarZstdDayReaderUsingExec.streamTarZstd(dayFile)
-                .mapToLong(RecordFileBlock::getTotalSizeBytes).sum();
+                    .mapToLong(RecordFileBlock::getTotalSizeBytes)
+                    .sum();
             printResult("TarZstdDayReaderUsingExec Stream", start, System.nanoTime(), totalBytes, 1);
         } catch (Exception e) {
             System.err.println("Benchmark failed: " + e.getMessage());
@@ -45,7 +49,8 @@ public class TarZstdDayReaderBench {
         double seconds = (end - start) / 1_000_000_000.0;
         double mb = totalBytes / (1024.0 * 1024.0);
         double mbPerSec = seconds > 0 ? mb / seconds : Double.POSITIVE_INFINITY;
-        System.out.printf("Testing: %s, Read %,d blocks with %,d bytes (%.2f MB) in %.3f s -> %.2f MB/s%n",
-            testName, fileCount, totalBytes, mb, seconds, mbPerSec);
+        System.out.printf(
+                "Testing: %s, Read %,d blocks with %,d bytes (%.2f MB) in %.3f s -> %.2f MB/s%n",
+                testName, fileCount, totalBytes, mb, seconds, mbPerSec);
     }
 }

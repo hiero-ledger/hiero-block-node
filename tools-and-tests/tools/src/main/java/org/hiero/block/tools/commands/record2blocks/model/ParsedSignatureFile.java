@@ -7,8 +7,8 @@ import com.hedera.pbj.runtime.io.stream.ReadableStreamingData;
 import java.io.DataInputStream;
 import java.io.IOException;
 import java.util.HexFormat;
-import org.hiero.block.tools.utils.gcp.MainNetBucket;
 import org.hiero.block.tools.records.SerializationV5Utils;
+import org.hiero.block.tools.utils.gcp.MainNetBucket;
 
 /**
  * SignatureFile represents a Hedera record file signature file. There have been 3 versions of the signature files used

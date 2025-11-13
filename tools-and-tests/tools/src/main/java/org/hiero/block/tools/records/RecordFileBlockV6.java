@@ -24,7 +24,6 @@ import java.io.DataInputStream;
 import java.io.IOException;
 import java.security.MessageDigest;
 import java.time.Instant;
-import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.HexFormat;
 import java.util.List;
@@ -79,9 +78,12 @@ public class RecordFileBlockV6 extends RecordFileBlock {
      * @throws IOException if an I/O error occurs
      */
     @Override
-    public Block toWrappedBlock(final long blockNumber,
-        final byte[] previousBlockHash, final byte[] rootHashOfBlockHashesMerkleTree,
-        final NodeAddressBook addressBook) throws IOException {
+    public Block toWrappedBlock(
+            final long blockNumber,
+            final byte[] previousBlockHash,
+            final byte[] rootHashOfBlockHashesMerkleTree,
+            final NodeAddressBook addressBook)
+            throws IOException {
         final byte[] bytes = primaryRecordFile.data();
         try (final DataInputStream in = new DataInputStream(new ByteArrayInputStream(bytes))) {
             // read and verify header
@@ -96,37 +98,35 @@ public class RecordFileBlockV6 extends RecordFileBlock {
             final byte[] entireFileHash = sha384.digest(bytes);
             // check or set block number
             if (recordStreamFile.blockNumber() > 0) {
-                if(recordStreamFile.blockNumber() != blockNumber) {
-                    throw new IOException(
-                        "Provided block number " + blockNumber + " does not match record file block number " +
-                            recordStreamFile.blockNumber());
+                if (recordStreamFile.blockNumber() != blockNumber) {
+                    throw new IOException("Provided block number " + blockNumber
+                            + " does not match record file block number " + recordStreamFile.blockNumber());
                 }
             } else {
                 // older v5 record stream files do not have block number
-                recordStreamFile = recordStreamFile.copyBuilder().blockNumber(blockNumber).build();
+                recordStreamFile =
+                        recordStreamFile.copyBuilder().blockNumber(blockNumber).build();
             }
             // convert signatures into block proof
-            final List<com.hedera.hapi.block.stream.experimental.RecordFileSignature> signatures = signatureFiles().stream()
-                    .parallel()
-                    .map(sf -> new ParsedSignatureFile(addressBook, sf))
-                    .filter(psf -> psf.isValid(entireFileHash))
-                    .map(ParsedSignatureFile::toRecordFileSignature)
-                    .toList();
-            final BlockProof blockProof = new BlockProof(new OneOf<>(
-                    ProofOneOfType.SIGNED_RECORD_FILE_PROOF,
-                    new SignedRecordFileProof(6, signatures)));
+            final List<com.hedera.hapi.block.stream.experimental.RecordFileSignature> signatures =
+                    signatureFiles().stream()
+                            .parallel()
+                            .map(sf -> new ParsedSignatureFile(addressBook, sf))
+                            .filter(psf -> psf.isValid(entireFileHash))
+                            .map(ParsedSignatureFile::toRecordFileSignature)
+                            .toList();
+            final BlockProof blockProof = new BlockProof(
+                    new OneOf<>(ProofOneOfType.SIGNED_RECORD_FILE_PROOF, new SignedRecordFileProof(6, signatures)));
             // create footer
             final BlockFooter blockFooter = new BlockFooter(
                     com.hedera.pbj.runtime.io.buffer.Bytes.wrap(previousBlockHash),
                     com.hedera.pbj.runtime.io.buffer.Bytes.wrap(rootHashOfBlockHashesMerkleTree),
-                    null
-            );
+                    null);
             // create and return the Block
             return new Block(List.of(
                     new BlockItem(new OneOf<>(ItemOneOfType.RECORD_FILE, recordStreamFile)),
                     new BlockItem(new OneOf<>(ItemOneOfType.BLOCK_FOOTER, blockFooter)),
-                    new BlockItem(new OneOf<>(ItemOneOfType.BLOCK_PROOF, blockProof))
-            ));
+                    new BlockItem(new OneOf<>(ItemOneOfType.BLOCK_PROOF, blockProof))));
         } catch (ParseException e) {
             throw new IOException(e);
         }

@@ -16,8 +16,8 @@ import java.util.Spliterator;
 import java.util.function.Consumer;
 import java.util.stream.Stream;
 import java.util.stream.StreamSupport;
-import org.hiero.block.tools.records.RecordFileBlock;
 import org.hiero.block.tools.records.InMemoryFile;
+import org.hiero.block.tools.records.RecordFileBlock;
 import org.hiero.block.tools.utils.TarReader;
 import org.hiero.block.tools.utils.ZstCmdInputStream;
 
@@ -101,7 +101,8 @@ public class TarZstdDayReaderUsingExec {
                     if (currentDir == null) {
                         currentDir = parentDir;
                     } else if (!currentDir.equals(parentDir)) {
-                        // process buffered files for previous directory -> collect results into a temp list then enqueue
+                        // process buffered files for previous directory -> collect results into a temp list then
+                        // enqueue
                         List<RecordFileBlock> tmp = new ArrayList<>();
                         processDirectoryFiles(currentDir, buffer, tmp);
                         for (RecordFileBlock b : tmp) ready.addLast(b);
@@ -121,7 +122,8 @@ public class TarZstdDayReaderUsingExec {
                 // Reached end-of-input; process any remaining buffered files
                 finished = true;
                 if (currentDir != null && !buffer.isEmpty()) {
-                    // processDirectoryFiles expects a List<InMemoryBlock> for results; collect into a temporary list then move into deque
+                    // processDirectoryFiles expects a List<InMemoryBlock> for results; collect into a temporary list
+                    // then move into deque
                     List<RecordFileBlock> tmp = new ArrayList<>();
                     processDirectoryFiles(currentDir, buffer, tmp);
                     for (RecordFileBlock b : tmp) ready.addLast(b);
@@ -143,24 +145,29 @@ public class TarZstdDayReaderUsingExec {
             }
 
             @Override
-            public Spliterator<RecordFileBlock> trySplit() { return null; }
+            public Spliterator<RecordFileBlock> trySplit() {
+                return null;
+            }
 
             @Override
-            public long estimateSize() { return Long.MAX_VALUE; }
+            public long estimateSize() {
+                return Long.MAX_VALUE;
+            }
 
             @Override
-            public int characteristics() { return 0; }
+            public int characteristics() {
+                return 0;
+            }
         };
 
         // Build a stream from the spliterator and ensure underlying streams are closed when the stream is closed
-        return StreamSupport.stream(spl, false)
-                .onClose(() -> {
-                    try {
-                        filesStream.close(); // TarReader will close the zstIn when filesStream is closed
-                    } catch (Throwable t) {
-                        // swallow - closing best-effort
-                    }
-                });
+        return StreamSupport.stream(spl, false).onClose(() -> {
+            try {
+                filesStream.close(); // TarReader will close the zstIn when filesStream is closed
+            } catch (Throwable t) {
+                // swallow - closing best-effort
+            }
+        });
     }
 
     /**
@@ -178,7 +185,7 @@ public class TarZstdDayReaderUsingExec {
 
         // Use ZstCmdInputStream to decompress and TarReader to stream tar entries.
         try (ZstCmdInputStream zstIn = new ZstCmdInputStream(zstdFile);
-             Stream<InMemoryFile> files = TarReader.readTarContents(zstIn)) {
+                Stream<InMemoryFile> files = TarReader.readTarContents(zstIn)) {
 
             List<InMemoryFile> currentFiles = new ArrayList<>();
             String currentDir = null;
@@ -433,16 +440,16 @@ public class TarZstdDayReaderUsingExec {
         // Strip trailing _node_<id> where <id> is digits and '.'
         int nodeIdx = noExt.lastIndexOf("_node_");
         if (nodeIdx >= 0) {
-             boolean ok = true;
-             for (int i = nodeIdx + 6; i < end; i++) {
-                 char c = noExt.charAt(i);
-                 if (((c - '0') | ('9' - c)) < 0 && c != '.') { // fast digits-or-dot check
-                     ok = false;
-                     break;
-                 }
-             }
-             if (ok) end = nodeIdx;
-         }
+            boolean ok = true;
+            for (int i = nodeIdx + 6; i < end; i++) {
+                char c = noExt.charAt(i);
+                if (((c - '0') | ('9' - c)) < 0 && c != '.') { // fast digits-or-dot check
+                    ok = false;
+                    break;
+                }
+            }
+            if (ok) end = nodeIdx;
+        }
 
         // Strip trailing _<digits>
         int us = noExt.lastIndexOf('_', end - 1);

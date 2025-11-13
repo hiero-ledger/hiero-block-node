@@ -1,7 +1,7 @@
+// SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.tools.utils;
 
-import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.Assumptions;
+import static org.junit.jupiter.api.Assertions.*;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -10,8 +10,8 @@ import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-
-import static org.junit.jupiter.api.Assertions.*;
+import org.junit.jupiter.api.Assumptions;
+import org.junit.jupiter.api.Test;
 
 public class ZstCmdInputStreamTest {
 

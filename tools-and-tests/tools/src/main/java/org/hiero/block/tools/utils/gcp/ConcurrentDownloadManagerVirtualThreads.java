@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.tools.utils.gcp;
 
 import com.google.api.gax.retrying.RetrySettings;
@@ -87,11 +88,10 @@ import org.hiero.block.tools.records.InMemoryFile;
  *   }
  * </pre>
  */
-public final class ConcurrentDownloadManagerVirtualThreads implements
-    ConcurrentDownloadManager {
+public final class ConcurrentDownloadManagerVirtualThreads implements ConcurrentDownloadManager {
     /** GCP BlobSourceOption to use userProject for billing */
     public static final Storage.BlobSourceOption BLOB_SOURCE_OPTION =
-        Storage.BlobSourceOption.userProject(DownloadConstants.GCP_PROJECT_ID);
+            Storage.BlobSourceOption.userProject(DownloadConstants.GCP_PROJECT_ID);
 
     /** Google Cloud Storage client. All calls are idempotent GETs. */
     private final Storage storage;
@@ -149,19 +149,21 @@ public final class ConcurrentDownloadManagerVirtualThreads implements
 
         // Virtual-thread per task executor (Java 21).
         this.exec = Executors.newThreadPerTaskExecutor(
-            Thread.ofVirtual().name(b.threadNamePrefix + "-", 1).factory());
+                Thread.ofVirtual().name(b.threadNamePrefix + "-", 1).factory());
 
         // Small scheduled executor on platform threads.
-        this.scheduler = Executors.newScheduledThreadPool(
-            2, r -> {
-                Thread t = new Thread(r, b.threadNamePrefix + "-sched");
-                t.setDaemon(true);
-                return t;
-            });
+        this.scheduler = Executors.newScheduledThreadPool(2, r -> {
+            Thread t = new Thread(r, b.threadNamePrefix + "-sched");
+            t.setDaemon(true);
+            return t;
+        });
 
         this.gate = new AdaptiveGate(b.initialConcurrency, b.minConcurrency, b.maxConcurrency);
         this.retryPolicy = new RetryPolicy(
-            b.maxRetryAttempts, b.initialBackoff, b.maxBackoff, ConcurrentDownloadManagerVirtualThreads::defaultRetriable);
+                b.maxRetryAttempts,
+                b.initialBackoff,
+                b.maxBackoff,
+                ConcurrentDownloadManagerVirtualThreads::defaultRetriable);
         this.rampUpInterval = b.rampUpInterval;
         this.rampUpStep = b.rampUpStep;
         this.errorRateForCut = b.errorRateForCut;
@@ -170,11 +172,15 @@ public final class ConcurrentDownloadManagerVirtualThreads implements
         this.errorWindow = new ErrorWindow(b.errorWindowSeconds);
 
         // Periodic additive increase (AIMD) — disabled during cooldown.
-        scheduler.scheduleAtFixedRate(() -> {
-            if (closed) return;
-            if (errorWindow.inCooldownUntil > System.nanoTime()) return;
-            gate.increase(rampUpStep);
-        }, rampUpInterval.toMillis(), rampUpInterval.toMillis(), TimeUnit.MILLISECONDS);
+        scheduler.scheduleAtFixedRate(
+                () -> {
+                    if (closed) return;
+                    if (errorWindow.inCooldownUntil > System.nanoTime()) return;
+                    gate.increase(rampUpStep);
+                },
+                rampUpInterval.toMillis(),
+                rampUpInterval.toMillis(),
+                TimeUnit.MILLISECONDS);
 
         // Periodic error-window decay.
         scheduler.scheduleAtFixedRate(errorWindow::tick, 1, 1, TimeUnit.SECONDS);
@@ -185,7 +191,9 @@ public final class ConcurrentDownloadManagerVirtualThreads implements
      * @param storage configured {@link Storage} client. Prefer setting {@code maxAttempts=1}
      *                in {@link RetrySettings} so that this manager fully controls backoff.
      */
-    public static Builder newBuilder(Storage storage) { return new Builder(storage); }
+    public static Builder newBuilder(Storage storage) {
+        return new Builder(storage);
+    }
 
     // =====================
     // High-level APIs
@@ -223,18 +231,21 @@ public final class ConcurrentDownloadManagerVirtualThreads implements
     @SuppressWarnings("unused")
     public CompletableFuture<InMemoryFile> downloadAsync(String bucketName, String objectName) {
         if (closed) throw new IllegalStateException("Manager is closed");
-        return CompletableFuture.supplyAsync(() -> {
-            gate.acquire();
-            try {
-                return downloadWithRetryBytes(bucketName, objectName);
-            } finally {
-                gate.release();
-            }
-        }, exec);
+        return CompletableFuture.supplyAsync(
+                () -> {
+                    gate.acquire();
+                    try {
+                        return downloadWithRetryBytes(bucketName, objectName);
+                    } finally {
+                        gate.release();
+                    }
+                },
+                exec);
     }
 
     /** Close immediately, cancelling outstanding work and stopping background schedulers. */
-    @Override public void close() {
+    @Override
+    public void close() {
         closed = true;
         exec.shutdownNow();
         scheduler.shutdownNow();
@@ -243,16 +254,24 @@ public final class ConcurrentDownloadManagerVirtualThreads implements
     // ====== Helpers for progress ======
 
     /** @return bytes downloaded so far (best-effort) */
-    public long getBytesDownloaded() { return bytesDownloaded.get(); }
+    public long getBytesDownloaded() {
+        return bytesDownloaded.get();
+    }
 
     /** @return objects completed so far */
-    public long getObjectsCompleted() { return objectsCompleted.get(); }
+    public long getObjectsCompleted() {
+        return objectsCompleted.get();
+    }
 
     /** @return current concurrency limit */
-    public int getCurrentConcurrency() { return gate.getLimit(); }
+    public int getCurrentConcurrency() {
+        return gate.getLimit();
+    }
 
     /** @return max concurrency configured */
-    public int getMaxConcurrency() { return maxConcurrency; }
+    public int getMaxConcurrency() {
+        return maxConcurrency;
+    }
 
     // ===== Core download with retry/backoff =====
 
@@ -273,10 +292,13 @@ public final class ConcurrentDownloadManagerVirtualThreads implements
                 // Special handling for GCS PERMISSION_DENIED: back-off all downloads for 15 minutes
                 // and retry up to 10 times, printing a warning to System.err.
                 StorageException se = rootStorageException(t);
-                if (se != null && se.getMessage() != null && se.getMessage().toUpperCase().contains("PERMISSION_DENIED")) {
+                if (se != null
+                        && se.getMessage() != null
+                        && se.getMessage().toUpperCase().contains("PERMISSION_DENIED")) {
                     final int permissionDeniedMaxAttempts = 10;
                     System.err.println("[WARN] Permission denied from GCS while downloading '" + objectName
-                        + "' (attempt " + attempt + " of " + permissionDeniedMaxAttempts + "). Backing off all downloads for 15 minutes before retrying.");
+                            + "' (attempt " + attempt + " of " + permissionDeniedMaxAttempts
+                            + "). Backing off all downloads for 15 minutes before retrying.");
                     // Reduce concurrency to minimum to relieve pressure and mark cooldown to pause ramp-up
                     try {
                         gate.setLimit(1); // set to 1 will be clamped to minLimit inside AdaptiveGate
@@ -313,8 +335,7 @@ public final class ConcurrentDownloadManagerVirtualThreads implements
 
     /** AIMD cut logic shared across both variants. */
     private void maybeCutConcurrency(Throwable t) {
-        boolean shouldCut = isRateLimitedOrServerError(t) ||
-            errorWindow.currentErrorRate() >= errorRateForCut;
+        boolean shouldCut = isRateLimitedOrServerError(t) || errorWindow.currentErrorRate() >= errorRateForCut;
         if (!shouldCut) return;
         int before = gate.getLimit();
         int after = Math.max(gate.minLimit, (int) Math.floor(before * cutMultiplier));
@@ -339,8 +360,10 @@ public final class ConcurrentDownloadManagerVirtualThreads implements
             if (se.getCause() instanceof SocketTimeoutException) return true;
             if (se.getMessage() != null) {
                 String m = se.getMessage().toLowerCase();
-                if (m.contains("retrybudgetexhausted") || m.contains("read timed out") ||
-                    m.contains("deadline") || m.contains("backoff")) {
+                if (m.contains("retrybudgetexhausted")
+                        || m.contains("read timed out")
+                        || m.contains("deadline")
+                        || m.contains("backoff")) {
                     return true;
                 }
             }
@@ -367,7 +390,11 @@ public final class ConcurrentDownloadManagerVirtualThreads implements
      * @param ms milliseconds to sleep
      */
     private static void quietlySleep(long ms) {
-        try { Thread.sleep(ms); } catch (InterruptedException ie) { Thread.currentThread().interrupt(); }
+        try {
+            Thread.sleep(ms);
+        } catch (InterruptedException ie) {
+            Thread.currentThread().interrupt();
+        }
     }
 
     // ===== Support types =====
@@ -390,21 +417,78 @@ public final class ConcurrentDownloadManagerVirtualThreads implements
         private int errorWindowSeconds = 30;
         private String threadNamePrefix = "gcs-dl";
 
-        public Builder(Storage storage) { this.storage = storage; }
-        public Builder setInitialConcurrency(int v) { this.initialConcurrency = v; return this; }
-        public Builder setMinConcurrency(int v) { this.minConcurrency = v; return this; }
-        public Builder setMaxConcurrency(int v) { this.maxConcurrency = v; return this; }
-        public Builder setRampUpInterval(Duration v) { this.rampUpInterval = v; return this; }
-        public Builder setRampUpStep(int v) { this.rampUpStep = v; return this; }
-        public Builder setErrorRateForCut(double v) { this.errorRateForCut = v; return this; }
-        public Builder setCutMultiplier(double v) { this.cutMultiplier = v; return this; }
-        public Builder setGlobalCooldown(Duration v) { this.globalCooldown = v; return this; }
-        public Builder setMaxRetryAttempts(int v) { this.maxRetryAttempts = v; return this; }
-        public Builder setInitialBackoff(Duration v) { this.initialBackoff = v; return this; }
-        public Builder setMaxBackoff(Duration v) { this.maxBackoff = v; return this; }
-        public Builder setErrorWindowSeconds(int v) { this.errorWindowSeconds = v; return this; }
-        public Builder setThreadNamePrefix(String v) { this.threadNamePrefix = v; return this; }
-        public ConcurrentDownloadManagerVirtualThreads build() { return new ConcurrentDownloadManagerVirtualThreads(this); }
+        public Builder(Storage storage) {
+            this.storage = storage;
+        }
+
+        public Builder setInitialConcurrency(int v) {
+            this.initialConcurrency = v;
+            return this;
+        }
+
+        public Builder setMinConcurrency(int v) {
+            this.minConcurrency = v;
+            return this;
+        }
+
+        public Builder setMaxConcurrency(int v) {
+            this.maxConcurrency = v;
+            return this;
+        }
+
+        public Builder setRampUpInterval(Duration v) {
+            this.rampUpInterval = v;
+            return this;
+        }
+
+        public Builder setRampUpStep(int v) {
+            this.rampUpStep = v;
+            return this;
+        }
+
+        public Builder setErrorRateForCut(double v) {
+            this.errorRateForCut = v;
+            return this;
+        }
+
+        public Builder setCutMultiplier(double v) {
+            this.cutMultiplier = v;
+            return this;
+        }
+
+        public Builder setGlobalCooldown(Duration v) {
+            this.globalCooldown = v;
+            return this;
+        }
+
+        public Builder setMaxRetryAttempts(int v) {
+            this.maxRetryAttempts = v;
+            return this;
+        }
+
+        public Builder setInitialBackoff(Duration v) {
+            this.initialBackoff = v;
+            return this;
+        }
+
+        public Builder setMaxBackoff(Duration v) {
+            this.maxBackoff = v;
+            return this;
+        }
+
+        public Builder setErrorWindowSeconds(int v) {
+            this.errorWindowSeconds = v;
+            return this;
+        }
+
+        public Builder setThreadNamePrefix(String v) {
+            this.threadNamePrefix = v;
+            return this;
+        }
+
+        public ConcurrentDownloadManagerVirtualThreads build() {
+            return new ConcurrentDownloadManagerVirtualThreads(this);
+        }
     }
 
     /** Default retriable predicate aligned with GCS guidance and observed exception patterns. */
@@ -418,8 +502,10 @@ public final class ConcurrentDownloadManagerVirtualThreads implements
             String m = se.getMessage();
             if (m != null) {
                 String s = m.toLowerCase();
-                if (s.contains("retrybudgetexhausted") || s.contains("read timed out") ||
-                    s.contains("deadline") || s.contains("backoff")) {
+                if (s.contains("retrybudgetexhausted")
+                        || s.contains("read timed out")
+                        || s.contains("deadline")
+                        || s.contains("backoff")) {
                     return true;
                 }
             }
@@ -431,9 +517,11 @@ public final class ConcurrentDownloadManagerVirtualThreads implements
     }
 
     /** Simple container for retry/backoff knobs and predicate. */
-    private record RetryPolicy(int maxAttempts, Duration initialBackoff, Duration maxBackoff,
-                               Predicate<Throwable> retriable) {
-        boolean isRetriable(Throwable t) {return retriable.test(t);}
+    private record RetryPolicy(
+            int maxAttempts, Duration initialBackoff, Duration maxBackoff, Predicate<Throwable> retriable) {
+        boolean isRetriable(Throwable t) {
+            return retriable.test(t);
+        }
     }
 
     /** Adaptive concurrency gate with AIMD control. */
@@ -453,7 +541,9 @@ public final class ConcurrentDownloadManagerVirtualThreads implements
         void acquire() {
             synchronized (lock) {
                 while (inFlight >= limit) {
-                    try { lock.wait(); } catch (InterruptedException e) {
+                    try {
+                        lock.wait();
+                    } catch (InterruptedException e) {
                         Thread.currentThread().interrupt();
                         throw new RuntimeException("Interrupted acquiring gate", e);
                     }
@@ -461,12 +551,14 @@ public final class ConcurrentDownloadManagerVirtualThreads implements
                 inFlight++;
             }
         }
+
         void release() {
             synchronized (lock) {
                 inFlight--;
                 lock.notifyAll();
             }
         }
+
         void increase(int step) {
             synchronized (lock) {
                 int before = limit;
@@ -474,13 +566,19 @@ public final class ConcurrentDownloadManagerVirtualThreads implements
                 if (limit != before) lock.notifyAll();
             }
         }
+
         void setLimit(int newLimit) {
             synchronized (lock) {
                 limit = Math.max(minLimit, Math.min(maxLimit, newLimit));
                 lock.notifyAll();
             }
         }
-        int getLimit() { synchronized (lock) { return limit; } }
+
+        int getLimit() {
+            synchronized (lock) {
+                return limit;
+            }
+        }
     }
 
     /** Sliding-window error tracker with cooldown switch. */
