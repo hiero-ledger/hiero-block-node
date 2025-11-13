@@ -986,6 +986,9 @@ class SubscriberServicePluginTest {
                 /**
                  * This test aims to assert that when we have blocks without
                  * headers we don't send those partial blocks to the subscriber.
+                 *
+                 * Note: Subscribers are supposed to forward the stream as received from live and there are (rare) conditions
+                 * where that might result in sending partial blocks. this test might fail even when the subscriber is behaving correctly.
                  */
                 @Test
                 @DisplayName("Test Subscriber: Valid Request Live Stream Subscription With Some Blocks Without Headers")
