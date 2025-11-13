@@ -24,7 +24,6 @@ import com.hedera.pbj.runtime.OneOf;
 import com.hedera.pbj.runtime.ParseException;
 import com.hedera.pbj.runtime.io.buffer.BufferedData;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
-import edu.umd.cs.findbugs.annotations.NonNull;
 import java.io.IOException;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
@@ -86,9 +85,12 @@ public class RecordFileBlockV2 extends RecordFileBlock {
      * @throws IOException if an I/O error occurs
      */
     @Override
-    public Block toWrappedBlock(final long blockNumber,
-        final byte[] previousBlockHash, final byte[] rootHashOfBlockHashesMerkleTree,
-        final NodeAddressBook addressBook) throws IOException {
+    public Block toWrappedBlock(
+            final long blockNumber,
+            final byte[] previousBlockHash,
+            final byte[] rootHashOfBlockHashesMerkleTree,
+            final NodeAddressBook addressBook)
+            throws IOException {
         try {
             final byte[] recordFileBytes = primaryRecordFile.data();
             // Parse the primary record file
@@ -123,7 +125,7 @@ public class RecordFileBlockV2 extends RecordFileBlock {
                 final byte recordMarker = in.readByte();
                 if (recordMarker != 2) {
                     throw new IOException(
-                        "Unexpected record marker " + recordMarker + " (expected 2) in v2 record file");
+                            "Unexpected record marker " + recordMarker + " (expected 2) in v2 record file");
                 }
                 final int txnLength = in.readInt();
                 if (txnLength <= 0 || txnLength > in.remaining()) {
@@ -141,41 +143,37 @@ public class RecordFileBlockV2 extends RecordFileBlock {
                 if (txnRecordLength <= 0 || txnRecordLength > in.remaining()) {
                     throw new IOException("Invalid transaction record length in v2 record file");
                 }
-                TransactionRecord txnRecord = TransactionRecord.PROTOBUF.parse(in.slice(in.position(), txnRecordLength));
+                TransactionRecord txnRecord =
+                        TransactionRecord.PROTOBUF.parse(in.slice(in.position(), txnRecordLength));
                 in.skip(txnRecordLength);
                 recordStreamItems.add(new RecordStreamItem(txn, txnRecord));
             }
             // build a V5 RecordStreamFile
             final RecordStreamFile recordStreamFile = new RecordStreamFile(
-                hapiVersion,
-                new HashObject(HashAlgorithm.SHA_384, SHA_384_HASH_SIZE, Bytes.wrap(startingHash)),
-                recordStreamItems,
-                null, // V2 record files do not have a streaming hash so there is no end hash
-                blockNumber,
-                Collections.emptyList() // V2 record files do not have sidecars
-            );
+                    hapiVersion,
+                    new HashObject(HashAlgorithm.SHA_384, SHA_384_HASH_SIZE, Bytes.wrap(startingHash)),
+                    recordStreamItems,
+                    null, // V2 record files do not have a streaming hash so there is no end hash
+                    blockNumber,
+                    Collections.emptyList() // V2 record files do not have sidecars
+                    );
             // convert signatures into block proof
             final List<RecordFileSignature> signatures = signatureFiles.stream()
-                .parallel()
-                .map(sf -> new ParsedSignatureFile(addressBook, sf))
-                .filter(psf -> psf.isValid(blockHash))
-                .map(ParsedSignatureFile::toRecordFileSignature)
-                .toList();
-            BlockProof blockProof = new BlockProof(new OneOf<>(
-                ProofOneOfType.SIGNED_RECORD_FILE_PROOF,
-                new SignedRecordFileProof(2, signatures)));
+                    .parallel()
+                    .map(sf -> new ParsedSignatureFile(addressBook, sf))
+                    .filter(psf -> psf.isValid(blockHash))
+                    .map(ParsedSignatureFile::toRecordFileSignature)
+                    .toList();
+            BlockProof blockProof = new BlockProof(
+                    new OneOf<>(ProofOneOfType.SIGNED_RECORD_FILE_PROOF, new SignedRecordFileProof(2, signatures)));
             // create footer
-            final BlockFooter blockFooter = new BlockFooter(
-                Bytes.wrap(previousBlockHash),
-                Bytes.wrap(rootHashOfBlockHashesMerkleTree),
-                null
-            );
+            final BlockFooter blockFooter =
+                    new BlockFooter(Bytes.wrap(previousBlockHash), Bytes.wrap(rootHashOfBlockHashesMerkleTree), null);
             // create and return the Block
             return new Block(List.of(
-                new BlockItem(new OneOf<>(ItemOneOfType.RECORD_FILE, recordStreamFile)),
-                new BlockItem(new OneOf<>(ItemOneOfType.BLOCK_FOOTER, blockFooter)),
-                new BlockItem(new OneOf<>(ItemOneOfType.BLOCK_PROOF, blockProof))
-            ));
+                    new BlockItem(new OneOf<>(ItemOneOfType.RECORD_FILE, recordStreamFile)),
+                    new BlockItem(new OneOf<>(ItemOneOfType.BLOCK_FOOTER, blockFooter)),
+                    new BlockItem(new OneOf<>(ItemOneOfType.BLOCK_PROOF, blockProof))));
         } catch (ParseException | NoSuchAlgorithmException e) {
             throw new IOException(e);
         }
@@ -222,9 +220,10 @@ public class RecordFileBlockV2 extends RecordFileBlock {
                     && startRunningHash.length > 0
                     && !Arrays.equals(startRunningHash, previousHash)) {
                 isValid = false;
-                warningMessages.append("Start running hash does not match previous hash in v2 record file\n"+
-                    "  Expected: " + HexFormat.of().formatHex(startRunningHash) + "\n" +
-                    "  Found:    " + HexFormat.of().formatHex(previousHash) + "\n");
+                warningMessages.append(
+                        "Start running hash does not match previous hash in v2 record file\n" + "  Expected: "
+                                + HexFormat.of().formatHex(startRunningHash) + "\n" + "  Found:    "
+                                + HexFormat.of().formatHex(previousHash) + "\n");
             }
             // The hash for v2 files is the hash(header, hash(content)) this is different to other versions
             // the block hash is not available in the file so we have to calculate it
@@ -281,5 +280,4 @@ public class RecordFileBlockV2 extends RecordFileBlock {
             throw new RuntimeException(e);
         }
     }
-
 }

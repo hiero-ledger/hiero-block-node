@@ -58,10 +58,15 @@ public class DownloadDaysV2 implements Runnable {
     @Override
     public void run() {
         try (BlockTimeReader blockTimeReader = new BlockTimeReader();
-            Storage storage = StorageOptions.grpc().setAttemptDirectPath(false).setProjectId(GCP_PROJECT_ID).build().getService();
-            ConcurrentDownloadManager downloadManager = ConcurrentDownloadManagerVirtualThreads.newBuilder(storage)
-                .setInitialConcurrency(64)
-                .setMaxConcurrency(threads).build()) {
+                Storage storage = StorageOptions.grpc()
+                        .setAttemptDirectPath(false)
+                        .setProjectId(GCP_PROJECT_ID)
+                        .build()
+                        .getService();
+                ConcurrentDownloadManager downloadManager = ConcurrentDownloadManagerVirtualThreads.newBuilder(storage)
+                        .setInitialConcurrency(64)
+                        .setMaxConcurrency(threads)
+                        .build()) {
             // Load day block info map
             final Map<LocalDate, DayBlockInfo> daysInfo = loadDayBlockInfoMap();
             final var days = LocalDate.of(fromYear, fromMonth, fromDay)

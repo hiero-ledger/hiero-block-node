@@ -74,7 +74,8 @@ public class FindMostCommonSidecarsTest {
     @Test
     void missingLowerIndexProducesException() {
         // only index 2 present
-        final ListingRecordFile onlyIndex2 = makeSidecar("some/sidecar/2025-01-01T00_00_00.000000000Z_02.rcd", 123, MD5_C);
+        final ListingRecordFile onlyIndex2 =
+                makeSidecar("some/sidecar/2025-01-01T00_00_00.000000000Z_02.rcd", 123, MD5_C);
         final IllegalArgumentException ex = assertThrows(
                 IllegalArgumentException.class,
                 () -> RecordFileUtils.findMostCommonSidecars(List.of(onlyIndex2)),

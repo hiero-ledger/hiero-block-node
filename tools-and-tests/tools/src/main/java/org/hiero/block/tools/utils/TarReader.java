@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.tools.utils;
 
 import java.io.IOException;
@@ -172,7 +173,9 @@ public class TarReader {
          * @return null to indicate this spliterator cannot be split
          */
         @Override
-        public Spliterator<InMemoryFile> trySplit() { return null; }
+        public Spliterator<InMemoryFile> trySplit() {
+            return null;
+        }
 
         /**
          * Returns an estimate of the remaining size. The implementation cannot know the number of entries in advance
@@ -181,7 +184,9 @@ public class TarReader {
          * @return an estimated size (here Long.MAX_VALUE)
          */
         @Override
-        public long estimateSize() { return Long.MAX_VALUE; }
+        public long estimateSize() {
+            return Long.MAX_VALUE;
+        }
 
         /**
          * Returns the characteristics of this spliterator. This implementation does not report any specific
@@ -190,7 +195,9 @@ public class TarReader {
          * @return an int bitmask of characteristics (0 indicates none)
          */
         @Override
-        public int characteristics() { return 0; }
+        public int characteristics() {
+            return 0;
+        }
 
         /**
          * Reads up to buf.length bytes into buf and returns the number of bytes actually read. This may be less than

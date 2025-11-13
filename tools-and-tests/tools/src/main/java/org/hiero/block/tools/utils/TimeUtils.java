@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.tools.utils;
 
 import static java.time.ZoneOffset.UTC;
@@ -11,8 +12,10 @@ import org.hiero.block.tools.records.RecordFileUtils;
  */
 public class TimeUtils {
     /** Genesis instant for special case handling */
-    public static final Instant GENESIS_INSTANT = RecordFileUtils.extractRecordFileTime("2019-09-13T21_53_51.396440Z.rcd")
-        .atOffset(UTC).toInstant();
+    public static final Instant GENESIS_INSTANT = RecordFileUtils.extractRecordFileTime(
+                    "2019-09-13T21_53_51.396440Z.rcd")
+            .atOffset(UTC)
+            .toInstant();
     /** Genesis timestamp for special case handling */
     public static final Timestamp GENESIS_TIMESTAMP = toTimestamp(GENESIS_INSTANT);
 

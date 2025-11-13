@@ -18,10 +18,9 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.zip.GZIPInputStream;
+import org.hiero.block.tools.records.RecordFileDates;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Option;
-
-import org.hiero.block.tools.records.RecordFileDates;
 
 /**
  * Read the record_file.csv.gz file from mirror node and extract the block info for each day into a json file.
@@ -45,8 +44,8 @@ public class ExtractDayBlocks implements Runnable {
 
     /** The path download the record table CSVs from mirror node to, gzipped. */
     @Option(
-        names = {"--record-dir"},
-        description = "Path to download the record table CSVs from mirror node to, gzipped.")
+            names = {"--record-dir"},
+            description = "Path to download the record table CSVs from mirror node to, gzipped.")
     private Path recordsCsvDir = Path.of("data/mirror_node_record_files");
 
     /** The path to the day blocks file. */
@@ -68,9 +67,12 @@ public class ExtractDayBlocks implements Runnable {
         final String latestVersion;
         try (var listStream = Files.list(recordsCsvRootPath)) {
             latestVersion = listStream
-                .map(path -> path.getFileName().toString())
-                .filter(pathStr -> MirrorNodeUtils.SYMANTIC_VERSION_PATTERN.matcher(pathStr).matches())
-                .max(Comparator.comparingLong(MirrorNodeUtils::parseSymantecVersion)).orElseThrow();
+                    .map(path -> path.getFileName().toString())
+                    .filter(pathStr -> MirrorNodeUtils.SYMANTIC_VERSION_PATTERN
+                            .matcher(pathStr)
+                            .matches())
+                    .max(Comparator.comparingLong(MirrorNodeUtils::parseSymantecVersion))
+                    .orElseThrow();
         } catch (IOException e) {
             throw new RuntimeException(e);
         }
@@ -79,10 +81,10 @@ public class ExtractDayBlocks implements Runnable {
         // read all record files in the directory
         try (var listStream = Files.list(recordsCsvDirPath)) {
             final List<Path> recordsCsvFiles = listStream
-                .filter(path -> path.getFileName().toString().startsWith("record_file"))
-                .filter(path -> path.getFileName().toString().endsWith(".csv.gz"))
-                .sorted(Comparator.comparing(path -> path.getFileName().toString()))
-                .toList();
+                    .filter(path -> path.getFileName().toString().startsWith("record_file"))
+                    .filter(path -> path.getFileName().toString().endsWith(".csv.gz"))
+                    .sorted(Comparator.comparing(path -> path.getFileName().toString()))
+                    .toList();
             System.out.println("Found " + recordsCsvFiles.size() + " record CSV files in " + recordsCsvDirPath);
 
             for (Path recordsCsvFile : recordsCsvFiles) {
@@ -105,10 +107,12 @@ public class ExtractDayBlocks implements Runnable {
                         }
                     }
                     if (recordStreamFileNameIndex == -1 || blockNumberIndex == -1 || hashIndex == -1) {
-                        throw new RuntimeException("Required CSV columns not found in " + recordsCsvFile + ": name,index,hash");
+                        throw new RuntimeException(
+                                "Required CSV columns not found in " + recordsCsvFile + ": name,index,hash");
                     }
 
-                    // Capture indices into final locals so they can be used inside the lambda (must be effectively final)
+                    // Capture indices into final locals so they can be used inside the lambda (must be effectively
+                    // final)
                     final int recordIndexFinal = recordStreamFileNameIndex;
                     final int blockIndexFinal = blockNumberIndex;
                     final int hashIndexFinal = hashIndex;
@@ -126,28 +130,37 @@ public class ExtractDayBlocks implements Runnable {
                             final String hashHex = parts[hashIndexFinal];
 
                             final Instant recordInstant = RecordFileDates.extractRecordFileTime(recordStreamFileName);
-                            final LocalDate date = recordInstant.atZone(ZoneOffset.UTC).toLocalDate();
+                            final LocalDate date =
+                                    recordInstant.atZone(ZoneOffset.UTC).toLocalDate();
 
                             // Keep the hash as hex string for JSON output. Empty if missing.
                             final String hashHexNormalized = (hashHex == null) ? "" : hashHex;
 
                             final DayBlockInfo current = days.get(date);
                             if (current == null) {
-                                // Create a new mutable Day for this date and initialize both instants to this record's instant
-                                final DayBlockInfo newDay = new DayBlockInfo(date.getYear(), date.getMonthValue(), date.getDayOfMonth(),
-                                    blockNumber, hashHexNormalized, blockNumber, hashHexNormalized);
+                                // Create a new mutable Day for this date and initialize both instants to this record's
+                                // instant
+                                final DayBlockInfo newDay = new DayBlockInfo(
+                                        date.getYear(),
+                                        date.getMonthValue(),
+                                        date.getDayOfMonth(),
+                                        blockNumber,
+                                        hashHexNormalized,
+                                        blockNumber,
+                                        hashHexNormalized);
                                 newDay.firstBlockInstant = recordInstant;
                                 newDay.lastBlockInstant = recordInstant;
                                 days.put(date, newDay);
                             } else {
                                 // CSV order may not be chronological; use the record instant to choose first/last
-                                if (current.firstBlockInstant
-                                    == null || recordInstant.isBefore(current.firstBlockInstant)) {
+                                if (current.firstBlockInstant == null
+                                        || recordInstant.isBefore(current.firstBlockInstant)) {
                                     current.firstBlockNumber = blockNumber;
                                     current.firstBlockHash = hashHexNormalized;
                                     current.firstBlockInstant = recordInstant;
                                 }
-                                if (current.lastBlockInstant == null || recordInstant.isAfter(current.lastBlockInstant)) {
+                                if (current.lastBlockInstant == null
+                                        || recordInstant.isAfter(current.lastBlockInstant)) {
                                     current.lastBlockNumber = blockNumber;
                                     current.lastBlockHash = hashHexNormalized;
                                     current.lastBlockInstant = recordInstant;
@@ -160,28 +173,28 @@ public class ExtractDayBlocks implements Runnable {
                 } catch (Exception e) {
                     e.printStackTrace();
                 }
-             }
-         } catch (IOException e) {
-             throw new RuntimeException(e);
-         }
+            }
+        } catch (IOException e) {
+            throw new RuntimeException(e);
+        }
 
-         // Convert collected data to list of Day objects and sort chronologically
-         final List<DayBlockInfo> dayList = days.values().stream()
-             .sorted(Comparator.comparingInt((DayBlockInfo d) -> d.year)
-                 .thenComparingInt(d -> d.month)
-                 .thenComparingInt(d -> d.day))
-             .toList();
+        // Convert collected data to list of Day objects and sort chronologically
+        final List<DayBlockInfo> dayList = days.values().stream()
+                .sorted(Comparator.comparingInt((DayBlockInfo d) -> d.year)
+                        .thenComparingInt(d -> d.month)
+                        .thenComparingInt(d -> d.day))
+                .toList();
 
-         // Ensure parent directory exists
-         final Path parent = blockTimesFile.getParent();
-         try {
-             if (parent != null) Files.createDirectories(parent);
-             final Gson gson = new GsonBuilder().setPrettyPrinting().create();
-             final String json = gson.toJson(dayList);
-             Files.writeString(blockTimesFile, json, StandardCharsets.UTF_8);
-             System.out.println("Wrote " + dayList.size() + " day entries to " + blockTimesFile);
-         } catch (IOException e) {
-             throw new RuntimeException(e);
-         }
-     }
- }
+        // Ensure parent directory exists
+        final Path parent = blockTimesFile.getParent();
+        try {
+            if (parent != null) Files.createDirectories(parent);
+            final Gson gson = new GsonBuilder().setPrettyPrinting().create();
+            final String json = gson.toJson(dayList);
+            Files.writeString(blockTimesFile, json, StandardCharsets.UTF_8);
+            System.out.println("Wrote " + dayList.size() + " day entries to " + blockTimesFile);
+        } catch (IOException e) {
+            throw new RuntimeException(e);
+        }
+    }
+}

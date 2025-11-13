@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.tools.utils;
 
 import java.io.ByteArrayOutputStream;
@@ -67,17 +68,19 @@ public class ZstCmdInputStream extends InputStream {
             procIn = process.getInputStream();
 
             // spawn a thread to read stderr so the process doesn't block on full buffer
-            Thread errDrainer = new Thread(() -> {
-                try (InputStream err = process.getErrorStream()) {
-                    byte[] buf = new byte[8192];
-                    int r;
-                    while ((r = err.read(buf)) != -1) {
-                        procErr.write(buf, 0, r);
-                    }
-                } catch (IOException ignored) {
-                    // ignore
-                }
-            }, "zstd-stderr-drainer");
+            Thread errDrainer = new Thread(
+                    () -> {
+                        try (InputStream err = process.getErrorStream()) {
+                            byte[] buf = new byte[8192];
+                            int r;
+                            while ((r = err.read(buf)) != -1) {
+                                procErr.write(buf, 0, r);
+                            }
+                        } catch (IOException ignored) {
+                            // ignore
+                        }
+                    },
+                    "zstd-stderr-drainer");
             errDrainer.setDaemon(true);
             errDrainer.start();
         } catch (IOException e) {
@@ -119,7 +122,8 @@ public class ZstCmdInputStream extends InputStream {
         try {
             try {
                 procIn.close();
-            } catch (IOException ignored) {}
+            } catch (IOException ignored) {
+            }
             // wait a short time for process to exit
             try {
                 process.waitFor();
@@ -127,7 +131,8 @@ public class ZstCmdInputStream extends InputStream {
                 Thread.currentThread().interrupt();
             }
             int exit = process.exitValue();
-            // Only throw if we actually consumed EOF and process exited non-zero. If caller closed early (didn't reach EOF),
+            // Only throw if we actually consumed EOF and process exited non-zero. If caller closed early (didn't reach
+            // EOF),
             // don't treat a non-zero exit as an error because the process may have been terminated due to broken pipe.
             if (eofReached && exit != 0) {
                 String err = procErr.toString(StandardCharsets.UTF_8);
@@ -137,14 +142,17 @@ public class ZstCmdInputStream extends InputStream {
             // ensure streams closed
             try {
                 process.getErrorStream().close();
-            } catch (IOException ignored) {}
+            } catch (IOException ignored) {
+            }
             try {
                 process.getOutputStream().close();
-            } catch (IOException ignored) {}
+            } catch (IOException ignored) {
+            }
             // best-effort destroy process if it's still alive
             try {
                 if (process.isAlive()) process.destroyForcibly();
-            } catch (Exception ignored) {}
+            } catch (Exception ignored) {
+            }
         }
     }
 

@@ -36,8 +36,8 @@ public class ExtractBlockTimes implements Runnable {
 
     /** The path download the record table CSVs from mirror node to, gzipped. */
     @Option(
-        names = {"--record-dir"},
-        description = "Path to download the record table CSVs from mirror node to, gzipped.")
+            names = {"--record-dir"},
+            description = "Path to download the record table CSVs from mirror node to, gzipped.")
     private Path recordsCsvDir = Path.of("data/mirror_node_record_files");
 
     /** The path to the block times file. */
@@ -62,27 +62,30 @@ public class ExtractBlockTimes implements Runnable {
         final String latestVersion;
         try (var listStream = Files.list(recordsCsvRootPath)) {
             latestVersion = listStream
-                .map(path -> path.getFileName().toString())
-                .filter(pathStr -> MirrorNodeUtils.SYMANTIC_VERSION_PATTERN.matcher(pathStr).matches())
-                .max(Comparator.comparingLong(MirrorNodeUtils::parseSymantecVersion)).orElseThrow();
+                    .map(path -> path.getFileName().toString())
+                    .filter(pathStr -> MirrorNodeUtils.SYMANTIC_VERSION_PATTERN
+                            .matcher(pathStr)
+                            .matches())
+                    .max(Comparator.comparingLong(MirrorNodeUtils::parseSymantecVersion))
+                    .orElseThrow();
         } catch (IOException e) {
             throw new RuntimeException(e);
         }
         final Path recordsCsvDirPath = recordsCsvRootPath.resolve(latestVersion).resolve("record_file");
         // read all record files in the directory
-        try(var listStream = Files.list(recordsCsvDirPath)) {
+        try (var listStream = Files.list(recordsCsvDirPath)) {
             final List<Path> recordsCsvFiles = listStream
-                .filter(path -> path.getFileName().toString().startsWith("record_file"))
-                .filter(path -> path.getFileName().toString().endsWith(".csv.gz"))
-                .sorted(Comparator.comparing(path -> path.getFileName().toString()))
-                .toList();
+                    .filter(path -> path.getFileName().toString().startsWith("record_file"))
+                    .filter(path -> path.getFileName().toString().endsWith(".csv.gz"))
+                    .sorted(Comparator.comparing(path -> path.getFileName().toString()))
+                    .toList();
             System.out.println("Found " + recordsCsvFiles.size() + " record CSV files in " + recordsCsvDirPath);
-            for(Path recordsCsvFile : recordsCsvFiles) {
+            for (Path recordsCsvFile : recordsCsvFiles) {
                 // read the record file table CSV file
 
                 // read the record file table CSV file
                 try (var reader = new BufferedReader(
-                    new InputStreamReader(new GZIPInputStream(new FileInputStream(recordsCsvFile.toFile()))))) {
+                        new InputStreamReader(new GZIPInputStream(new FileInputStream(recordsCsvFile.toFile()))))) {
                     // skip header
                     final String headerLine = reader.readLine();
                     final String[] headerLineParts = headerLine.split(",");
@@ -116,9 +119,10 @@ public class ExtractBlockTimes implements Runnable {
                         int currentBlockCount = blockCount.incrementAndGet();
                         if (currentBlockCount % 100_000 == 0) {
                             System.out.printf(
-                                "\rblock %,10d - %2.1f%% complete - Processing file: %s",
-                                currentBlockCount, (currentBlockCount / 70_000_000f) * 100,
-                                recordsCsvFile.getFileName().toString());
+                                    "\rblock %,10d - %2.1f%% complete - Processing file: %s",
+                                    currentBlockCount,
+                                    (currentBlockCount / 70_000_000f) * 100,
+                                    recordsCsvFile.getFileName().toString());
                         }
                     });
                 } catch (Exception e) {
@@ -146,7 +150,7 @@ public class ExtractBlockTimes implements Runnable {
         // write the block times to a file
         blockTimesBytes.position(0);
 
-        try(var out = Files.newByteChannel(blockTimesFile, StandardOpenOption.CREATE, StandardOpenOption.WRITE)) {
+        try (var out = Files.newByteChannel(blockTimesFile, StandardOpenOption.CREATE, StandardOpenOption.WRITE)) {
             long bytesWritten = out.write(blockTimesBytes);
             System.out.println("bytesWritten = " + bytesWritten);
             if (bytesWritten != totalBlockTimesBytes) {

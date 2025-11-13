@@ -37,7 +37,9 @@ import org.hiero.block.tools.records.InMemoryFile;
 public class ConcurrentDownloadManagerTransferManager implements ConcurrentDownloadManager {
     private static final Logger LOGGER = Logger.getLogger(ConcurrentDownloadManagerTransferManager.class.getName());
     private static final int BATCH_SIZE = 128;
+
     private record Request(String bucketName, String objectName, CompletableFuture<InMemoryFile> future) {}
+
     private final TransferManagerConfig config;
     private final TransferManager transferManager;
     private final FileSystem fs;
@@ -54,9 +56,11 @@ public class ConcurrentDownloadManagerTransferManager implements ConcurrentDownl
      */
     public ConcurrentDownloadManagerTransferManager() {
         config = TransferManagerConfig.newBuilder()
-            .setStorageOptions(StorageOptions.newBuilder().setProjectId(DownloadConstants.GCP_PROJECT_ID).build())
-            .setAllowDivideAndConquerDownload(true)
-            .build();
+                .setStorageOptions(StorageOptions.newBuilder()
+                        .setProjectId(DownloadConstants.GCP_PROJECT_ID)
+                        .build())
+                .setAllowDivideAndConquerDownload(true)
+                .build();
         transferManager = config.getService();
         fs = Jimfs.newFileSystem(Configuration.unix());
         downloadDir = fs.getPath("/downloads");
@@ -112,13 +116,16 @@ public class ConcurrentDownloadManagerTransferManager implements ConcurrentDownl
         if (scheduledFuture != null && !scheduledFuture.isDone()) {
             scheduledFuture.cancel(false);
         }
-        scheduledFuture = executor.schedule(() -> {
-            List<Request> batch = new ArrayList<>();
-            requests.drainTo(batch, BATCH_SIZE);
-            if (!batch.isEmpty()) {
-                downloadBatch(batch);
-            }
-        }, 5, TimeUnit.SECONDS);
+        scheduledFuture = executor.schedule(
+                () -> {
+                    List<Request> batch = new ArrayList<>();
+                    requests.drainTo(batch, BATCH_SIZE);
+                    if (!batch.isEmpty()) {
+                        downloadBatch(batch);
+                    }
+                },
+                5,
+                TimeUnit.SECONDS);
         return future;
     }
 
@@ -129,18 +136,20 @@ public class ConcurrentDownloadManagerTransferManager implements ConcurrentDownl
         }
         // prepare blob infos
         final List<BlobInfo> recordsCsvFileBlobInfos = batchRequests.stream()
-            .map(req -> Blob.newBuilder(req.bucketName(), req.objectName()).build())
-            .toList();
+                .map(req -> Blob.newBuilder(req.bucketName(), req.objectName()).build())
+                .toList();
         // prepare download config
         final ParallelDownloadConfig parallelDownloadConfig = ParallelDownloadConfig.newBuilder()
-            .setBucketName(batchRequests.getFirst().bucketName())
-            .setOptionsPerRequest(List.of(Storage.BlobSourceOption.userProject(ServiceOptions.getDefaultProjectId())))
-            .setDownloadDirectory(downloadDir)
-            .build();
+                .setBucketName(batchRequests.getFirst().bucketName())
+                .setOptionsPerRequest(
+                        List.of(Storage.BlobSourceOption.userProject(ServiceOptions.getDefaultProjectId())))
+                .setDownloadDirectory(downloadDir)
+                .build();
         List<DownloadResult> results;
         try {
-            results = transferManager.downloadBlobs(recordsCsvFileBlobInfos, parallelDownloadConfig)
-                .getDownloadResults();
+            results = transferManager
+                    .downloadBlobs(recordsCsvFileBlobInfos, parallelDownloadConfig)
+                    .getDownloadResults();
         } catch (Exception e) {
             // complete all futures exceptionally if the transfer call fails
             for (Request req : batchRequests) {
@@ -168,7 +177,6 @@ public class ConcurrentDownloadManagerTransferManager implements ConcurrentDownl
             }
         }
     }
-
 
     /** @return bytes downloaded so far (best-effort) */
     @Override

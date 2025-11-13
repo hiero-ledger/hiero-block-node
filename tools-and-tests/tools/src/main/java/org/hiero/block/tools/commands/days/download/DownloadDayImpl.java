@@ -132,9 +132,7 @@ public class DownloadDayImpl {
                 filesByBlock.keySet().stream().sorted().toList();
         // Use Storage client to stream each blob into memory, check MD5, (ungzip if needed), and write to tar
         final Storage storage =
-                StorageOptions.grpc()
-                    .setProjectId(GCP_PROJECT_ID)
-                    .build().getService();
+                StorageOptions.grpc().setProjectId(GCP_PROJECT_ID).build().getService();
         // precompute total blocks count to drive per-block progress
         int totalBlocks = sortedBlocks.size();
         AtomicLong blocksProcessed = new AtomicLong(0);
@@ -217,8 +215,9 @@ public class DownloadDayImpl {
                                 + mostCommonRecordFileInMem.path() + " computedHash:"
                                 + HexFormat.of().formatHex(computedBlockHash).substring(0, 8));
                     } else {
-                        throw new IllegalStateException("Previous block hash mismatch. blocksSkipped="+blocksSkipped+
-                                ", Expected: " + HexFormat.of().formatHex(prevRecordFileHash).substring(0, 8)
+                        throw new IllegalStateException("Previous block hash mismatch. blocksSkipped=" + blocksSkipped
+                                + ", Expected: "
+                                + HexFormat.of().formatHex(prevRecordFileHash).substring(0, 8)
                                 + ", Found: "
                                 + HexFormat.of()
                                         .formatHex(readPreviousBlockHash)
@@ -226,7 +225,7 @@ public class DownloadDayImpl {
                                 + mostCommonRecordFileInMem.path() + " computedHash:"
                                 + HexFormat.of().formatHex(computedBlockHash).substring(0, 8));
                     }
-                } else if(blocksSkipped > 0) {
+                } else if (blocksSkipped > 0) {
                     System.err.println("Resetting blocksSkipped counter after successful block: " + ts);
                     // reset blocksSkipped counter
                     blocksSkipped = 0;

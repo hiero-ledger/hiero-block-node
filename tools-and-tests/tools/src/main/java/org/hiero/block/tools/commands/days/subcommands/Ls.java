@@ -18,15 +18,14 @@ public class Ls implements Runnable {
     @Parameters(index = "0..*", description = "Files or directories to process")
     private final File[] compressedDayOrDaysDirs = new File[0];
 
-
     @Option(
-        names = {"-l", "--extended"},
-        description = "Display extra information from parsing each record file block")
+            names = {"-l", "--extended"},
+            description = "Display extra information from parsing each record file block")
     private boolean extended = false;
 
     @Option(
-        names = {"-p", "--time-prefix"},
-        description = "String time prefix to filter displayed record file blocks")
+            names = {"-p", "--time-prefix"},
+            description = "String time prefix to filter displayed record file blocks")
     private String timePrefix = null;
 
     @Spec
@@ -43,9 +42,10 @@ public class Ls implements Runnable {
         final List<Path> dayPaths = TarZstdDayUtils.sortedDayPaths(compressedDayOrDaysDirs);
         for (Path dayFile : dayPaths) {
             try (var stream = TarZstdDayReaderUsingExec.streamTarZstd(dayFile)) {
-                stream
-                    .filter((RecordFileBlock set) -> timePrefix == null || set.recordFileTime().toString().startsWith(timePrefix))
-                    .forEach((RecordFileBlock set) -> System.out.println(extended ? set.toStringExtended() : set.toString()));
+                stream.filter((RecordFileBlock set) -> timePrefix == null
+                                || set.recordFileTime().toString().startsWith(timePrefix))
+                        .forEach((RecordFileBlock set) ->
+                                System.out.println(extended ? set.toStringExtended() : set.toString()));
             }
         }
     }

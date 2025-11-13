@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.tools.commands.mirrornode;
 
 import static java.time.ZoneOffset.UTC;
@@ -38,9 +39,9 @@ public class BlockTimeReader implements AutoCloseable {
      * @throws IOException if an I/O error occurs
      */
     public BlockTimeReader(Path blockTimesFile) throws IOException {
-        try(FileChannel channel = FileChannel.open(blockTimesFile, StandardOpenOption.READ)) {
+        try (FileChannel channel = FileChannel.open(blockTimesFile, StandardOpenOption.READ)) {
             this.mappedLongBuffer = channel.map(FileChannel.MapMode.READ_ONLY, 0, channel.size())
-                .asLongBuffer();
+                    .asLongBuffer();
         }
     }
 
@@ -51,7 +52,7 @@ public class BlockTimeReader implements AutoCloseable {
      * @return the block time in nanoseconds
      */
     public long getBlockTime(long blockNumber) {
-        return mappedLongBuffer.get((int)blockNumber);
+        return mappedLongBuffer.get((int) blockNumber);
     }
 
     /**
@@ -61,7 +62,7 @@ public class BlockTimeReader implements AutoCloseable {
      * @return the block time as Instant
      */
     public Instant getBlockInstant(long blockNumber) {
-        return blockTimeLongToInstant(mappedLongBuffer.get((int)blockNumber));
+        return blockTimeLongToInstant(mappedLongBuffer.get((int) blockNumber));
     }
 
     /**
@@ -71,7 +72,9 @@ public class BlockTimeReader implements AutoCloseable {
      * @return the block time as Instant
      */
     public LocalDateTime getBlockLocalDateTime(long blockNumber) {
-        return blockTimeLongToInstant(mappedLongBuffer.get((int)blockNumber)).atZone(UTC).toLocalDateTime();
+        return blockTimeLongToInstant(mappedLongBuffer.get((int) blockNumber))
+                .atZone(UTC)
+                .toLocalDateTime();
     }
 
     /**

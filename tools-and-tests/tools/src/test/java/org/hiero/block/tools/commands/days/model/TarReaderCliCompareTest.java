@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.tools.commands.days.model;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -26,15 +27,16 @@ public class TarReaderCliCompareTest {
         assumeTrue(isAvailable("zstd"), "Skipping test: zstd not available");
         assumeTrue(isAvailable("tar"), "Skipping test: tar not available");
 
-        Path resourcePath = Path.of(TarReaderCliCompareTest.class.getResource("/2019-09-13.tar.zstd").toURI());
+        Path resourcePath = Path.of(TarReaderCliCompareTest.class
+                .getResource("/2019-09-13.tar.zstd")
+                .toURI());
         // First read using tar CLI
         final TreeMap<String, Long> cliMap = listTarFilesAndSizes(resourcePath);
         // Now read using TarReader
         final TreeMap<String, Long> tarReaderMap = new TreeMap<>();
-        try (var stream = TarReader.readTarContents(new ZstdInputStream(
-                TarReaderCliCompareTest.class.getResourceAsStream("/2019-09-13.tar.zstd")))) {
-            stream.forEach(inMemFile ->
-                tarReaderMap.put(inMemFile.path().toString(), (long) inMemFile.data().length));
+        try (var stream = TarReader.readTarContents(
+                new ZstdInputStream(TarReaderCliCompareTest.class.getResourceAsStream("/2019-09-13.tar.zstd")))) {
+            stream.forEach(inMemFile -> tarReaderMap.put(inMemFile.path().toString(), (long) inMemFile.data().length));
         }
         // first compare sizes of both maps
         assertEquals(cliMap.size(), tarReaderMap.size(), "Number of files must match between tar CLI and TarReader");
@@ -43,7 +45,9 @@ public class TarReaderCliCompareTest {
             String firstCliKey = cliMap.firstKey();
             String firstTarReaderKey = tarReaderMap.firstKey();
             assertEquals(firstCliKey, firstTarReaderKey, "First file names must match between tar CLI and TarReader");
-            assertEquals(cliMap.get(firstCliKey), tarReaderMap.get(firstTarReaderKey),
+            assertEquals(
+                    cliMap.get(firstCliKey),
+                    tarReaderMap.get(firstTarReaderKey),
                     "First file sizes must match between tar CLI and TarReader");
         }
         // Compare keys and sizes
@@ -89,22 +93,19 @@ public class TarReaderCliCompareTest {
         // -rw-r--r--  0 0      0         438 Oct  8 16:19 2019-09-13T23_59_56.056644Z/node_0.0.8.rcs_sig
         // -rw-r--r--  0 0      0         438 Oct  8 16:19 2019-09-13T23_59_56.056644Z/node_0.0.9.rcs_sig
         Pattern p = Pattern.compile("^(\\S+)\\s+\\S+\\s+\\S+\\s+\\S+\\s+(\\d+)\\s+\\S+\\s+\\d+\\s+\\S+\\s+(.+)$");
-        try (BufferedReader br = new BufferedReader(
-            new InputStreamReader(proc.getInputStream(), StandardCharsets.UTF_8))) {
+        try (BufferedReader br =
+                new BufferedReader(new InputStreamReader(proc.getInputStream(), StandardCharsets.UTF_8))) {
             String line;
             while ((line = br.readLine()) != null) {
                 line = line.trim();
-                if (line.isEmpty())
-                    continue;
+                if (line.isEmpty()) continue;
                 Matcher m = p.matcher(line);
-                if (!m.matches())
-                    continue;
+                if (!m.matches()) continue;
                 String perms = m.group(1);
                 String sizeToken = m.group(2);
                 String filename = m.group(3);
                 // Only include regular files (perms starting with '-')
-                if (perms.isEmpty() || perms.charAt(0) != '-')
-                    continue;
+                if (perms.isEmpty() || perms.charAt(0) != '-') continue;
                 long size = Long.parseLong(sizeToken);
                 cliMap.put(filename, size);
             }
@@ -120,7 +121,9 @@ public class TarReaderCliCompareTest {
      * Main method to run the listing independently.
      */
     public static void main(String[] args) throws Exception {
-        Path resourcePath = Path.of(TarReaderCliCompareTest.class.getResource("/2019-09-13.tar.zstd").toURI());
+        Path resourcePath = Path.of(TarReaderCliCompareTest.class
+                .getResource("/2019-09-13.tar.zstd")
+                .toURI());
         final TreeMap<String, Long> cliMap = listTarFilesAndSizes(resourcePath);
         // print size
         System.out.printf("Found %,d files in tar archive:%n", cliMap.size());
