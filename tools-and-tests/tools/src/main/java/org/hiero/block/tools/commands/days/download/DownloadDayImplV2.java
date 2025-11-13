@@ -46,6 +46,9 @@ import org.hiero.block.tools.utils.gcp.ConcurrentDownloadManager;
 @SuppressWarnings({"CallToPrintStackTrace", "DuplicatedCode"})
 public class DownloadDayImplV2 {
 
+    /** Maximum number of retries for MD5 mismatch errors. */
+    private static final int MAX_MD5_RETRIES = 3;
+
     // small helper container for pending block downloads
     private static final class BlockWork {
         final long blockNumber;
@@ -131,8 +134,7 @@ public class DownloadDayImplV2 {
         if (!Files.exists(downloadedDaysDir)) Files.createDirectories(downloadedDaysDir);
         try {
             Files.deleteIfExists(partialOutFile);
-        } catch (IOException ignored) {
-        }
+        } catch (IOException ignored) {}
 
         double daySharePercent = (totalDays <= 0) ? 100.0 : (100.0 / totalDays);
         double startingPercent = dayIndex * daySharePercent;
@@ -228,16 +230,24 @@ public class DownloadDayImplV2 {
                     throw new RuntimeException("Failed downloading block " + ready.blockTime, ce.getCause());
                 }
                 // convert the downloaded files into InMemoryFiles with destination paths, unzipped if needed and
-                //  validate md5 hashes
+                //  validate md5 hashes with retry logic
                 final List<InMemoryFile> inMemoryFilesForWriting = new ArrayList<>();
                 for (int i = 0; i < ready.orderedFiles.size(); i++) {
                     final ListingRecordFile lr = ready.orderedFiles.get(i);
                     String filename = lr.path().substring(lr.path().lastIndexOf('/') + 1);
                     try {
-                        final InMemoryFile downloadedFile = ready.futures.get(i).join();
-                        if (!Md5Checker.checkMd5(lr.md5Hex(), downloadedFile.data())) {
-                            throw new IOException("MD5 mismatch for blob " + (BUCKET_PATH_PREFIX + lr.path()));
+                        InMemoryFile downloadedFile = ready.futures.get(i).join();
+
+                        // Check MD5 and retry if mismatch
+                        boolean md5Valid = Md5Checker.checkMd5(lr.md5Hex(), downloadedFile.data());
+                        if (!md5Valid) {
+                            clearProgress();
+                            System.err.println(
+                                    "MD5 mismatch for " + (BUCKET_PATH_PREFIX + lr.path()) + ", retrying download...");
+                            // Retry download with built-in retry logic
+                            downloadedFile = downloadFileWithRetry(downloadManager, lr);
                         }
+
                         byte[] contentBytes = downloadedFile.data();
                         if (filename.endsWith(".gz")) {
                             contentBytes = Gzip.ungzipInMemory(contentBytes);
@@ -283,6 +293,71 @@ public class DownloadDayImplV2 {
     }
 
     /**
+     * Download a file with retry logic for MD5 mismatch errors.
+     *
+     * @param downloadManager the concurrent download manager to use
+     * @param lr the listing record file to download
+     * @return the downloaded in-memory file
+     * @throws IOException if download or MD5 validation fails after all retries
+     */
+    private static InMemoryFile downloadFileWithRetry(
+            final ConcurrentDownloadManager downloadManager, final ListingRecordFile lr) throws IOException {
+        final String blobName = BUCKET_PATH_PREFIX + lr.path();
+        IOException lastException = null;
+
+        for (int attempt = 1; attempt <= MAX_MD5_RETRIES; attempt++) {
+            try {
+                final CompletableFuture<InMemoryFile> future = downloadManager.downloadAsync(BUCKET_NAME, blobName);
+                final InMemoryFile downloadedFile = future.join();
+
+                if (!Md5Checker.checkMd5(lr.md5Hex(), downloadedFile.data())) {
+                    throw new IOException("MD5 mismatch for blob " + blobName);
+                }
+
+                // Success - return the file
+                if (attempt > 1) {
+                    clearProgress();
+                    System.err.println("Successfully downloaded " + blobName + " after " + attempt + " attempts");
+                }
+                return downloadedFile;
+
+            } catch (Exception e) {
+                final IOException ioException = (e instanceof IOException)
+                        ? (IOException) e
+                        : new IOException("Download failed for blob " + blobName, e);
+
+                lastException = ioException;
+
+                // Only retry on MD5 mismatch
+                if (e.getMessage() != null && e.getMessage().contains("MD5 mismatch")) {
+                    if (attempt < MAX_MD5_RETRIES) {
+                        clearProgress();
+                        System.err.println("MD5 mismatch for " + blobName + " (attempt " + attempt + "/"
+                                + MAX_MD5_RETRIES + "), retrying...");
+                        // Small delay before retry
+                        try {
+                            Thread.sleep(100 * attempt); // Exponential backoff: 100ms, 200ms, 300ms
+                        } catch (InterruptedException ie) {
+                            Thread.currentThread().interrupt();
+                            throw new IOException("Interrupted during retry delay", ie);
+                        }
+                    } else {
+                        clearProgress();
+                        System.err.println(
+                                "MD5 mismatch for " + blobName + " failed after " + MAX_MD5_RETRIES + " attempts");
+                    }
+                } else {
+                    // Non-MD5 errors should not be retried
+                    throw ioException;
+                }
+            }
+        }
+
+        // All retries exhausted
+        throw lastException;
+    }
+
+    /**
      * Validate block hashes for the given block's record files.
      *
      * @param blockNum the block number
@@ -297,7 +372,7 @@ public class DownloadDayImplV2 {
             final List<InMemoryFile> inMemoryFilesForWriting,
             final byte[] prevRecordFileHash,
             final byte[] blockHashFromMirrorNode) {
-        final InMemoryFile mostCommonRecordFileInMem = inMemoryFilesForWriting.get(0);
+        final InMemoryFile mostCommonRecordFileInMem = inMemoryFilesForWriting.getFirst();
         final RecordFileInfo recordFileInfo = RecordFileInfo.parse(mostCommonRecordFileInMem.data());
         byte[] readPreviousBlockHash = recordFileInfo.previousBlockHash().toByteArray();
         byte[] computedBlockHash = recordFileInfo.blockHash().toByteArray();
@@ -435,7 +510,7 @@ public class DownloadDayImplV2 {
     /**
      * Print progress including ConcurrentDownloadManager statistics.
      *
-     * @param mgr the download manager (may be null)
+     * @param mgr the download manager (maybe null)
      * @param overallPercent overall progress percent
      * @param msg the base message to print
      * @param remaining estimated remaining millis
