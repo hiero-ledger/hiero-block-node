@@ -41,7 +41,8 @@ public record RecordFileInfo(
         SemanticVersion hapiProtoVersion,
         Bytes previousBlockHash,
         Bytes blockHash,
-        byte[] recordFileContents) {
+        byte[] recordFileContents,
+        int numOfSidecarFiles) {
     /* The length of the header in a v2 record file */
     private static final int V2_HEADER_LENGTH = Integer.BYTES + Integer.BYTES + 1 + 48;
 
@@ -114,7 +115,8 @@ public record RecordFileInfo(
                             hapiProtoVersion,
                             Bytes.wrap(previousHash),
                             Bytes.wrap(digest.digest()),
-                            recordFile);
+                            recordFile,
+                            0);
                 }
                 case 5 -> {
                     final int hapiMajorVersion = in.readInt();
@@ -138,7 +140,8 @@ public record RecordFileInfo(
                             hapiProtoVersion,
                             Bytes.wrap(startObjectRunningHash),
                             Bytes.wrap(endHashObject),
-                            recordFile);
+                            recordFile,
+                            0);
                 }
                 case 6 -> {
                     // V6 is nice and easy as it is all protobuf encoded after the first version integer
@@ -152,7 +155,8 @@ public record RecordFileInfo(
                             recordStreamFile.hapiProtoVersion(),
                             recordStreamFile.startObjectRunningHash().hash(),
                             recordStreamFile.endObjectRunningHash().hash(),
-                            recordFile);
+                            recordFile,
+                            recordStreamFile.sidecars().size());
                 }
                 default ->
                     throw new UnsupportedOperationException(
@@ -169,11 +173,13 @@ public record RecordFileInfo(
      * @return the pretty string
      */
     public String prettyToString() {
-        return "RecordFileInfo{\n" + "       recordFormatVersion    = "
-                + recordFormatVersion + "\n" + "       hapiProtoVersion       = "
-                + hapiProtoVersion + "\n" + "       previousBlockHash      = "
-                + previousBlockHash.toString().substring(0, 8) + "\n" + "       blockHash              = "
-                + blockHash.toString().substring(0, 8) + "\n" + "       recordFileContentsSize = "
-                + PrettyPrint.prettyPrintFileSize(recordFileContents.length) + "\n" + '}';
+        return "RecordFileInfo{\n" +
+                "       recordFormatVersion    = " + recordFormatVersion + "\n" +
+                "       hapiProtoVersion       = " + hapiProtoVersion + "\n" +
+                "       previousBlockHash      = " + previousBlockHash.toString().substring(0, 8) + "\n" +
+                "       blockHash              = " + blockHash.toString().substring(0, 8) + "\n" +
+                "       numOfSidecarFiles              = " + numOfSidecarFiles + "\n" +
+                "       recordFileContentsSize = " + PrettyPrint.prettyPrintFileSize(recordFileContents.length) + "\n" +
+            '}';
     }
 }
