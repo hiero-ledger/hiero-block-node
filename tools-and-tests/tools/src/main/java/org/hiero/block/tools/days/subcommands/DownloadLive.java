@@ -1,6 +1,8 @@
 package org.hiero.block.tools.commands.days.subcommands;
 
 import org.hiero.block.tools.commands.mirrornode.MirrorNodeBlockQueryOrder;
+import org.hiero.block.tools.records.RecordFileInfo;
+import org.hiero.block.tools.utils.Gzip;
 import picocli.CommandLine;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Option;
@@ -10,7 +12,11 @@ import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneId;
 import java.time.ZonedDateTime;
+import java.util.Arrays;
+import java.util.Comparator;
+import java.util.HexFormat;
 import java.util.List;
+import java.util.stream.Stream;
 
 import org.hiero.block.tools.commands.mirrornode.FetchBlockQuery;
 import org.hiero.block.tools.commands.mirrornode.BlockInfo;
@@ -51,11 +57,11 @@ public class DownloadLive implements Runnable {
         description = "Output directory for daily folders (e.g., /data/records)")
     private Path out;
 
-    @Option(names = "--source-bucket",
+    @Option(names = "--source-root",
         required = true,
-        paramLabel = "S3URI",
-        description = "Object storage location for record streams (e.g., s3://bucket/recordstreams/)")
-    private String sourceBucket;
+        paramLabel = "source folder root",
+        description = "File storage location for record streams (e.g., /mnt/days/folder)")
+    private String sourceRoot;
 
     @Option(names = "--poll-interval",
         defaultValue = "60s",
@@ -103,7 +109,7 @@ public class DownloadLive implements Runnable {
         System.out.println("[download-live] Starting");
         System.out.println("Configuration:");
         System.out.println("  out=" + out);
-        System.out.println("  sourceBucket=" + sourceBucket);
+        System.out.println("  sourceRoot=" + sourceRoot);
         System.out.println("  pollInterval=" + pollInterval);
         System.out.println("  batchSize=" + batchSize);
         System.out.println("  dayRolloverTz=" + dayRolloverTz);
@@ -120,7 +126,7 @@ public class DownloadLive implements Runnable {
         // --- Start day-scoped poller with live downloader ---
         final ZoneId tz = ZoneId.of(dayRolloverTz);
         final Duration interval = parseHumanDuration(pollInterval);
-        final LiveDownloader downloader = new LiveDownloader(out, tmpDir, sourceBucket, maxConcurrency);
+        final LiveDownloader downloader = new LiveDownloader(out, tmpDir, sourceRoot, maxConcurrency);
         final LivePoller poller = new LivePoller(interval, tz, batchSize, stateJsonPath, downloader);
         System.out.println("[download-live] Starting LivePoller (continuous; press Ctrl-C to stop)...");
         poller.runContinuouslyForToday();
@@ -328,12 +334,19 @@ public class DownloadLive implements Runnable {
         }
 
         void runContinuouslyForToday() {
-            final String currentDayKey = ZonedDateTime.ofInstant(Instant.now(), tz).toLocalDate().toString();
+            String currentDayKey = ZonedDateTime.ofInstant(Instant.now(), tz).toLocalDate().toString();
             while (true) {
                 final String dayKey = ZonedDateTime.ofInstant(Instant.now(), tz).toLocalDate().toString();
                 if (!dayKey.equals(currentDayKey)) {
-                    System.out.println("[poller] Day changed (" + currentDayKey + " -> " + dayKey + "); stopping.");
-                    return;
+                    System.out.println("[poller] Day changed (" + currentDayKey + " -> " + dayKey + "); finalizing previous day and rolling over.");
+                    try {
+                        downloader.finalizeDay(currentDayKey);
+                    } catch (Exception e) {
+                        System.err.println("[poller] Failed to finalize day archive for " + currentDayKey + ": " + e.getMessage());
+                    }
+                    // rollover: start tracking the new day; state will be reloaded for the new key
+                    currentDayKey = dayKey;
+                    stateLoadedForToday = false;
                 }
                 try {
                     runOnceForCurrentDay();
@@ -365,14 +378,115 @@ public class DownloadLive implements Runnable {
     static final class LiveDownloader {
         private final Path outRoot;
         private final Path tmpRoot;
-        private final String sourceBucket;
+        private final String sourceRoot;
         private final int maxConcurrency;
+        // Single-threaded executor used for background compression of per-day tar files.
+        private final ExecutorService compressionExecutor;
 
-        LiveDownloader(Path outRoot, Path tmpRoot, String sourceBucket, int maxConcurrency) {
+        LiveDownloader(Path outRoot, Path tmpRoot, String sourceRoot, int maxConcurrency) {
             this.outRoot = outRoot;
             this.tmpRoot = tmpRoot;
-            this.sourceBucket = sourceBucket;
+            this.sourceRoot = sourceRoot;
             this.maxConcurrency = Math.max(1, maxConcurrency);
+            this.compressionExecutor = Executors.newSingleThreadExecutor(r -> {
+                Thread t = new Thread(r, "download-live-compress");
+                t.setDaemon(true);
+                return t;
+            });
+        }
+
+        /**
+         * Append the given file (by entryName) to the per-day tar archive using the system tar command.
+         * The tar file is created under outRoot as <dayKey>.tar and entries are taken from the per-day folder.
+         */
+        void appendToDayTar(String dayKey, String entryName) {
+            try {
+                final Path dayDir = outRoot.resolve(dayKey);
+                final Path tarPath = outRoot.resolve(dayKey + ".tar");
+
+                if (!Files.isDirectory(dayDir)) {
+                    // Nothing to do if the day directory doesn't exist yet.
+                    return;
+                }
+
+                final boolean tarExists = Files.exists(tarPath);
+                final ProcessBuilder pb;
+                if (!tarExists) {
+                    // First entry: create tar with the initial file.
+                    pb = new ProcessBuilder("tar", "-cf", tarPath.toString(), entryName);
+                } else {
+                    // Append to existing tar.
+                    pb = new ProcessBuilder("tar", "-rf", tarPath.toString(), entryName);
+                }
+                pb.directory(dayDir.toFile());
+                final Process p = pb.start();
+                final int exit = p.waitFor();
+                if (exit != 0) {
+                    System.err.println("[download] tar command failed for day " + dayKey + " entry " + entryName + " with exit=" + exit);
+                } else {
+                    System.out.println("[download] appended " + entryName + " to " + tarPath);
+                }
+            } catch (Exception e) {
+                System.err.println("[download] Failed to append to tar for day " + dayKey + ": " + e.getMessage());
+            }
+        }
+
+        /**
+         * Schedule finalization of a day's archive on a background thread.
+         * This "closes" the tar for the day by stopping further appends (handled by the poller/dayKey rollover),
+         * then compresses <dayKey>.tar into <dayKey>.tar.zstd and cleans up the per-day folder.
+         */
+        void finalizeDay(String dayKey) {
+            System.out.println("[download] Scheduling background compression for day " + dayKey);
+            compressionExecutor.submit(() -> compressAndCleanupDay(dayKey));
+        }
+
+        /**
+         * Worker that runs in the background executor to compress and clean up a day's data.
+         */
+        private void compressAndCleanupDay(String dayKey) {
+            try {
+                final Path tarPath = outRoot.resolve(dayKey + ".tar");
+                final Path dayDir = outRoot.resolve(dayKey);
+                if (!Files.isRegularFile(tarPath)) {
+                    System.out.println("[download] No tar file for day " + dayKey + " to compress; skipping.");
+                    return;
+                }
+                final Path zstdPath = outRoot.resolve(dayKey + ".tar.zstd");
+                System.out.println("[download] Compressing " + tarPath + " -> " + zstdPath + " using zstd");
+                final ProcessBuilder pb = new ProcessBuilder(
+                    "zstd",
+                    "-T0",          // use all cores
+                    "-f",           // overwrite output if it exists
+                    tarPath.toString(),
+                    "-o",
+                    zstdPath.toString()
+                );
+                pb.inheritIO();
+                final Process p = pb.start();
+                final int exit = p.waitFor();
+                if (exit != 0) {
+                    System.err.println("[download] zstd compression failed for " + tarPath + " with exit=" + exit);
+                } else {
+                    System.out.println("[download] zstd compression complete for " + tarPath);
+                    // Clean up individual per-day files now that we have tar and tar.zstd.
+                    // It makes sense to delete them as we have the tar and zstd files.
+                    if (Files.isDirectory(dayDir)) {
+                        try (Stream<Path> paths = Files.walk(dayDir)) {
+                            paths.sorted(Comparator.reverseOrder()).forEach(filePath -> {
+                                try {
+                                    Files.deleteIfExists(filePath);
+                                } catch (IOException ioe) {
+                                    System.err.println("[download] Failed to delete " + filePath + ": " + ioe.getMessage());
+                                }
+                            });
+                        }
+                        System.out.println("[download] cleaned per-day folder " + dayDir);
+                    }
+                }
+            } catch (Exception e) {
+                System.err.println("[download] Failed to compress tar for day " + dayKey + ": " + e.getMessage());
+            }
         }
 
         /**
@@ -426,7 +540,6 @@ public class DownloadLive implements Runnable {
          * move it into the per-day folder. On success, returns the block number; on failure,
          * logs and returns -1.
          *
-         * TODO: Replace the placeholder implementation with calls into the existing
          * "download2" fetcher and hash validation logic. The steps should be:
          *  1. Use the descriptor.filename (and sourceBucket) to locate the object
          *  2. Stream to a temp file under tmpRoot
@@ -434,33 +547,118 @@ public class DownloadLive implements Runnable {
          *  4. Atomically move the temp file into the final day folder
          */
         private long downloadSingle(String dayKey, BlockDescriptor d) {
+            Path tmpFile = null;
             try {
                 final Path dayDir = outRoot.resolve(dayKey);
                 Files.createDirectories(dayDir);
 
                 final String safeName = d.filename != null ? d.filename : ("block-" + d.blockNumber + ".rcd");
-                final Path tmpFile = tmpRoot.resolve(dayKey + "-" + safeName + ".part");
+                tmpFile = tmpRoot.resolve(dayKey + "-" + safeName + ".part");
                 final Path targetFile = dayDir.resolve(safeName);
 
-                // Placeholder: write a tiny marker file instead of real content.
-                // This proves out the control flow; the body will be replaced to call download2.
-                final String marker = "placeholder for " + safeName +
-                    " block=" + d.blockNumber +
-                    " ts=" + d.timestampIso +
-                    System.lineSeparator();
                 if (tmpFile.getParent() != null) {
                     Files.createDirectories(tmpFile.getParent());
                 }
-                Files.writeString(tmpFile, marker, StandardCharsets.UTF_8);
 
+                // Interpret sourceRoot as a local/mounted filesystem root where mirror files are present.
+                // The mirror-provided filename is taken as a relative path from this root.
+                final Path sourceRootPath = Path.of(sourceRoot);
+                final String relativeName = d.filename != null ? d.filename : safeName;
+                final Path sourceFile = sourceRootPath.resolve(relativeName);
+
+                if (!Files.isRegularFile(sourceFile)) {
+                    System.err.println("[download] Source file does not exist or is not a regular file: " + sourceFile);
+                    return -1L;
+                }
+
+                System.out.println("[download] copying " + sourceFile + " -> " + tmpFile);
+
+                // Copy from source store to temp file in our tmp root.
+                Files.copy(sourceFile, tmpFile, StandardCopyOption.REPLACE_EXISTING);
+
+                // Read the bytes for validation; if gzipped, unzip in memory first.
+                byte[] fileBytes = Files.readAllBytes(tmpFile);
+                byte[] recordBytes = fileBytes;
+
+                if (safeName.endsWith(".gz")) {
+                    try {
+                        recordBytes = Gzip.ungzipInMemory(fileBytes);
+                    } catch (Exception ex) {
+                        System.err.println("[download] Failed to decompress .gz for " + safeName + ": " + ex.getMessage());
+                        Files.deleteIfExists(tmpFile);
+                        return -1L;
+                    }
+                }
+
+                // Parse the record file and compute the block hash (download2-style).
+                RecordFileInfo recordFileInfo;
+                try {
+                    recordFileInfo = RecordFileInfo.parse(recordBytes);
+                } catch (Exception ex) {
+                    System.err.println("[download] Failed to parse record file for " + safeName + ": " + ex.getMessage());
+                    Files.deleteIfExists(tmpFile);
+                    return -1L;
+                }
+
+                byte[] computedHash = recordFileInfo.blockHash().toByteArray();
+                byte[] expectedHash = parseExpectedHash(d.expectedHash);
+
+                if (expectedHash != null) {
+                    if (!Arrays.equals(expectedHash, computedHash)) {
+                        String expHex = HexFormat.of().formatHex(expectedHash);
+                        String gotHex = HexFormat.of().formatHex(computedHash);
+                        String expShort = expHex.substring(0, Math.min(8, expHex.length()));
+                        String gotShort = gotHex.substring(0, Math.min(8, gotHex.length()));
+                        System.err.println("[download] ERROR: Hash mismatch for block " + d.blockNumber + " file " + safeName +
+                            " expected=" + expShort + " got=" + gotShort);
+                        Files.deleteIfExists(tmpFile);
+                        return -1L;
+                    }
+                }
+                // If expectedHash is null, we still parsed the record and computed a hash,
+                // exercising the same validation path without external comparison.
+
+                // Atomically move from temp to final location. On same filesystem this will be a rename.
                 Files.move(tmpFile, targetFile,
                     StandardCopyOption.REPLACE_EXISTING,
                     StandardCopyOption.ATOMIC_MOVE);
-                System.out.println("[download] placed " + targetFile);
+
+                System.out.println("[download] placed " + targetFile + " (block=" + d.blockNumber + ")");
+
+                // Append the successfully validated file into the per-day tar archive.
+                appendToDayTar(dayKey, safeName);
+
                 return d.blockNumber;
-            } catch (IOException e) {
-                System.err.println("[download] Failed to download/place block " + d.blockNumber + ": " + e.getMessage());
+            } catch (Exception e) {
+                System.err.println("[download] Failed to move block " + d.blockNumber + ": " + e.getMessage());
+                if (tmpFile != null) {
+                    try {
+                        Files.deleteIfExists(tmpFile);
+                    } catch (IOException ignore) {
+                        // ignore
+                    }
+                }
                 return -1L;
+            }
+        }
+
+        /**
+         * Parse a hex-encoded expected hash, allowing an optional 0x prefix.
+         * Returns null if the input is null/blank or cannot be parsed.
+         */
+        private static byte[] parseExpectedHash(String hash) {
+            if (hash == null || hash.isBlank()) {
+                return null;
+            }
+            String h = hash.trim();
+            if (h.startsWith("0x") || h.startsWith("0X")) {
+                h = h.substring(2);
+            }
+            try {
+                return HexFormat.of().parseHex(h);
+            } catch (IllegalArgumentException iae) {
+                System.err.println("[download] Warning: Could not parse expected hash '" + hash + "': " + iae.getMessage());
+                return null;
             }
         }
     }
