@@ -1,0 +1,15 @@
+block_nodes:
+    bn1: { address: bn1-host.example.com, port: 40800, peers: [bn2,bn3] }
+    bn2: { address: bn2-host.example.com, port: 40801, peers: [bn3,bn4] }
+
+    bn3: { address: bn3-host.example.com, port: 40802, peers: [bn2,bn1] }
+    bn4: { address: bn4-host.example.com, port: 40803, peers: [bn1,bn2,bn3] }
+
+consensus_nodes:
+    cn1: { block_nodes: [bn1, bn2, bn3] }
+    cn2: { block_nodes: [bn2, bn3, bn4] }
+    cn3: { block_nodes: [bn3, bn4, bn1] }
+    cn4: { block_nodes: [bn2, bn3, bn4] }
+    cn5: { block_nodes: [bn3, bn4, bn1] }
+    cn6: { block_nodes: [bn4, bn1, bn2] }
+    cn7: { block_nodes: [bn1, bn2, bn3] }
