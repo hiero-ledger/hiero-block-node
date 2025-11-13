@@ -69,8 +69,8 @@ class FilesHistoricConfigTest {
         @DisplayName("Test that NullPointerException is thrown when rootPath is null")
         void testNullRootPath() {
             assertThatNullPointerException()
-                    .isThrownBy(
-                            () -> new FilesHistoricConfig(null, defaultCompression, powersOfTenPerZipFileContents, 0L));
+                    .isThrownBy(() ->
+                            new FilesHistoricConfig(null, defaultCompression, powersOfTenPerZipFileContents, 0L, 0));
         }
 
         /**
@@ -83,7 +83,7 @@ class FilesHistoricConfigTest {
         void testNullCompression() {
             assertThatNullPointerException()
                     .isThrownBy(
-                            () -> new FilesHistoricConfig(defaultRootPath, null, powersOfTenPerZipFileContents, 0L));
+                            () -> new FilesHistoricConfig(defaultRootPath, null, powersOfTenPerZipFileContents, 0L, 0));
         }
 
         /**
@@ -98,7 +98,7 @@ class FilesHistoricConfigTest {
         void testValidDigitsPerZipFileContents(final int validDigitsPerZipFileContents) {
             assertThatNoException()
                     .isThrownBy(() -> new FilesHistoricConfig(
-                            defaultRootPath, defaultCompression, validDigitsPerZipFileContents, 0L));
+                            defaultRootPath, defaultCompression, validDigitsPerZipFileContents, 0L, 0));
         }
 
         /**
@@ -113,7 +113,7 @@ class FilesHistoricConfigTest {
         void testInvalidPowersOfTenPerZipFileContents(final int invalidPowersOfTenPerZipFileContents) {
             assertThatIllegalArgumentException()
                     .isThrownBy(() -> new FilesHistoricConfig(
-                            defaultRootPath, defaultCompression, invalidPowersOfTenPerZipFileContents, 0L));
+                            defaultRootPath, defaultCompression, invalidPowersOfTenPerZipFileContents, 0L, 0));
         }
 
         /**
@@ -129,7 +129,8 @@ class FilesHistoricConfigTest {
                             defaultRootPath.resolve("valid"),
                             CompressionType.NONE,
                             powersOfTenPerZipFileContents + 1,
-                            0L));
+                            0L,
+                            3));
         }
 
         /**
@@ -142,7 +143,7 @@ class FilesHistoricConfigTest {
         void testValidConstructorWithDefaults() {
             assertThatNoException()
                     .isThrownBy(() -> new FilesHistoricConfig(
-                            defaultRootPath, defaultCompression, powersOfTenPerZipFileContents, 0L));
+                            defaultRootPath, defaultCompression, powersOfTenPerZipFileContents, 0L, 3));
         }
 
         /**
@@ -153,7 +154,7 @@ class FilesHistoricConfigTest {
         @DisplayName("Test that constructor does not create any paths or directories")
         void testNoPathCreation() {
             assertThat(defaultRootPath).doesNotExist();
-            new FilesHistoricConfig(defaultRootPath, defaultCompression, powersOfTenPerZipFileContents, 0L);
+            new FilesHistoricConfig(defaultRootPath, defaultCompression, powersOfTenPerZipFileContents, 0L, 0);
             assertThat(defaultRootPath).doesNotExist();
         }
     }

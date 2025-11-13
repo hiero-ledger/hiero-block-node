@@ -2,8 +2,8 @@
 import org.gradlex.javamodule.moduleinfo.ExtraJavaModuleInfoPluginExtension
 
 plugins {
-    id("org.hiero.gradle.build") version "0.6.0"
-    id("com.hedera.pbj.pbj-compiler") version "0.12.4" apply false
+    id("org.hiero.gradle.build") version "0.6.2"
+    id("com.hedera.pbj.pbj-compiler") version "0.12.5" apply false
 }
 
 val hieroGroup = "org.hiero.block"
