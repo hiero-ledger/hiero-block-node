@@ -59,46 +59,55 @@ public class FetchMirrorNodeRecordsCsv implements Runnable {
 
             // Instantiates a GCP Storage client
             final Storage storage = StorageOptions.grpc()
-                .setAttemptDirectPath(false)
-                .setProjectId(projectId)
-                .build().getService();
+                    .setAttemptDirectPath(false)
+                    .setProjectId(projectId)
+                    .build()
+                    .getService();
 
             // list bucket root, find latest version subdirectory like "0.136.0" or "0.25.0"
             // Equivalent to delimiter="/" and prefix=""
             // remove trailing slash
-            String latestVersion = storage.list(bucketName,
-                    BlobListOption.currentDirectory(),// Equivalent to delimiter="/" and prefix=""
-                    BlobListOption.userProject(projectId))
-                .streamAll()
-                .map(Blob::getName)
-                .map(name -> name.replaceAll("/$", ""))// remove trailing slash
-                .filter(name -> MirrorNodeUtils.SYMANTIC_VERSION_PATTERN.matcher(name).matches())
-                .max(Comparator.comparingLong(MirrorNodeUtils::parseSymantecVersion)).orElseThrow();
+            String latestVersion = storage.list(
+                            bucketName,
+                            BlobListOption.currentDirectory(), // Equivalent to delimiter="/" and prefix=""
+                            BlobListOption.userProject(projectId))
+                    .streamAll()
+                    .map(Blob::getName)
+                    .map(name -> name.replaceAll("/$", "")) // remove trailing slash
+                    .filter(name -> MirrorNodeUtils.SYMANTIC_VERSION_PATTERN
+                            .matcher(name)
+                            .matches())
+                    .max(Comparator.comparingLong(MirrorNodeUtils::parseSymantecVersion))
+                    .orElseThrow();
             System.out.println("Latest version: " + latestVersion);
 
             // list all blobs in that version directory and subdirector "record_files/"
             String prefix = latestVersion + "/record_file/";
             // example gs://mirrornode-db-export/0.136.0/record_file/record_file_p2019_09.csv.gz
-            List<BlobInfo> recordsCsvFileBlobInfos = storage.list(bucketName,
-                    BlobListOption.prefix(prefix),
-                    BlobListOption.userProject(projectId))
-                .streamAll()
-                .filter(blob -> blob.getName().contains("record_file") && blob.getName().endsWith(".csv.gz"))
-                .map(Blob::asBlobInfo)
-                .toList();
+            List<BlobInfo> recordsCsvFileBlobInfos = storage.list(
+                            bucketName, BlobListOption.prefix(prefix), BlobListOption.userProject(projectId))
+                    .streamAll()
+                    .filter(blob -> blob.getName().contains("record_file")
+                            && blob.getName().endsWith(".csv.gz"))
+                    .map(Blob::asBlobInfo)
+                    .toList();
             System.out.println("Found " + recordsCsvFileBlobInfos.size() + " record CSV files to download.");
             // bulk download all files
-            try (TransferManager transferManager = TransferManagerConfig.newBuilder().setAllowDivideAndConquerDownload(true).build().getService()) {
+            try (TransferManager transferManager = TransferManagerConfig.newBuilder()
+                    .setAllowDivideAndConquerDownload(true)
+                    .build()
+                    .getService()) {
                 ParallelDownloadConfig parallelDownloadConfig = ParallelDownloadConfig.newBuilder()
-                    .setBucketName(bucketName)
-                    .setOptionsPerRequest(List.of(Storage.BlobSourceOption.userProject(projectId)))
-                    .setDownloadDirectory(recordsCsvDir)
-                    .build();
-                List<DownloadResult> results = transferManager.downloadBlobs(recordsCsvFileBlobInfos,
-                    parallelDownloadConfig).getDownloadResults();
+                        .setBucketName(bucketName)
+                        .setOptionsPerRequest(List.of(Storage.BlobSourceOption.userProject(projectId)))
+                        .setDownloadDirectory(recordsCsvDir)
+                        .build();
+                List<DownloadResult> results = transferManager
+                        .downloadBlobs(recordsCsvFileBlobInfos, parallelDownloadConfig)
+                        .getDownloadResults();
                 for (DownloadResult result : results) {
-                    System.out.println(
-                        "Download of " + result.getInput().getName() + " completed with status " + result.getStatus());
+                    System.out.println("Download of " + result.getInput().getName() + " completed with status "
+                            + result.getStatus());
                 }
             }
         } catch (Exception e) {
@@ -106,5 +115,4 @@ public class FetchMirrorNodeRecordsCsv implements Runnable {
             System.exit(1);
         }
     }
-
 }

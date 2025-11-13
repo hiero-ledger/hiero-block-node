@@ -105,7 +105,8 @@ public class RecordFileBlockValidateTest {
                 Collections.emptyList(),
                 Collections.emptyList());
         // now call validate with the genesis address book as this is the first block
-        final RecordFileBlock.ValidationResult result = block.validate(EXAMPLE_V2_PREVIOUS_RECORD_FILE_HASH, addressBook);
+        final RecordFileBlock.ValidationResult result =
+                block.validate(EXAMPLE_V2_PREVIOUS_RECORD_FILE_HASH, addressBook);
         assertTrue(
                 result.warningMessages().isBlank(),
                 "Should be no warnings, but got:\n" + result.warningMessages() + "\n");
@@ -167,7 +168,8 @@ public class RecordFileBlockValidateTest {
                 Collections.emptyList(),
                 Collections.emptyList()); // this block has no sidecar files
         // validate the block
-        final RecordFileBlock.ValidationResult result = block.validate(EXAMPLE_V5_PREVIOUS_RECORD_FILE_HASH, addressBook);
+        final RecordFileBlock.ValidationResult result =
+                block.validate(EXAMPLE_V5_PREVIOUS_RECORD_FILE_HASH, addressBook);
         assertTrue(
                 result.warningMessages().isBlank(),
                 "Should be no warnings, but got:\n" + result.warningMessages() + "\n");
@@ -232,7 +234,8 @@ public class RecordFileBlockValidateTest {
                 Collections.emptyList());
 
         // validate the block
-        final RecordFileBlock.ValidationResult result = block.validate(EXAMPLE_V6_PREVIOUS_RECORD_FILE_HASH, addressBook);
+        final RecordFileBlock.ValidationResult result =
+                block.validate(EXAMPLE_V6_PREVIOUS_RECORD_FILE_HASH, addressBook);
         assertTrue(
                 result.warningMessages().isBlank(),
                 "Should be no warnings, but got:\n" + result.warningMessages() + "\n");

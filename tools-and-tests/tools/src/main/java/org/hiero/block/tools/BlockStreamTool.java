@@ -16,12 +16,7 @@ import picocli.CommandLine.Command;
         name = "subcommands",
         mixinStandardHelpOptions = true,
         version = "BlockStreamTool 0.1",
-        subcommands = {
-            BlocksCommand.class,
-            RecordsCommand.class,
-            DaysCommand.class,
-            MirrorNodeCommand.class
-        })
+        subcommands = {BlocksCommand.class, RecordsCommand.class, DaysCommand.class, MirrorNodeCommand.class})
 public final class BlockStreamTool {
 
     /**

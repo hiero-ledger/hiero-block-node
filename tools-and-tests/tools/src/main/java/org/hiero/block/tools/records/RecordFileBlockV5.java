@@ -84,9 +84,12 @@ public class RecordFileBlockV5 extends RecordFileBlock {
      * @throws IOException if an I/O error occurs
      */
     @Override
-    public Block toWrappedBlock(final long blockNumber,
-        final byte[] previousBlockHash, final byte[] rootHashOfBlockHashesMerkleTree,
-        final NodeAddressBook addressBook) throws IOException {
+    public Block toWrappedBlock(
+            final long blockNumber,
+            final byte[] previousBlockHash,
+            final byte[] rootHashOfBlockHashesMerkleTree,
+            final NodeAddressBook addressBook)
+            throws IOException {
         try {
             final byte[] recordFileBytes = primaryRecordFile.data();
             final BufferedData in = BufferedData.wrap(recordFileBytes);
@@ -123,9 +126,11 @@ public class RecordFileBlockV5 extends RecordFileBlock {
                 }
                 final int transactionRecordLength = in.readInt();
                 if (transactionRecordLength <= 0 || transactionRecordLength > in.remaining() - HASH_OBJECT_SIZE_BYTES) {
-                    throw new IOException("Invalid transaction record length in record file: " + transactionRecordLength);
+                    throw new IOException(
+                            "Invalid transaction record length in record file: " + transactionRecordLength);
                 }
-                final TransactionRecord txnRecord = TransactionRecord.PROTOBUF.parse(in.readBytes(transactionRecordLength));
+                final TransactionRecord txnRecord =
+                        TransactionRecord.PROTOBUF.parse(in.readBytes(transactionRecordLength));
                 final int transactionLength = in.readInt();
                 if (transactionLength <= 0 || transactionLength > in.remaining() - HASH_OBJECT_SIZE_BYTES) {
                     throw new IOException("Invalid transaction length in record file: " + transactionLength);
@@ -134,41 +139,37 @@ public class RecordFileBlockV5 extends RecordFileBlock {
                 recordStreamItems.add(new RecordStreamItem(transaction, txnRecord));
             }
             if (in.remaining() != HASH_OBJECT_SIZE_BYTES) {
-                throw new IOException("Expected " + HASH_OBJECT_SIZE_BYTES + " bytes remaining for end running hash, but found " + in.remaining());
+                throw new IOException("Expected " + HASH_OBJECT_SIZE_BYTES
+                        + " bytes remaining for end running hash, but found " + in.remaining());
             }
             // read the end running hash
             final byte[] endRunningHash = readV5HashObject(in);
             // build the RecordStreamFile model used by block stream
             final RecordStreamFile recordStreamFile = new RecordStreamFile(
-                hapiVersion,
-                new HashObject(HashAlgorithm.SHA_384, SHA_384_HASH_SIZE, Bytes.wrap(startHashInFile)),
-                recordStreamItems,
-                new HashObject(HashAlgorithm.SHA_384, SHA_384_HASH_SIZE, Bytes.wrap(endRunningHash)),
-                blockNumber,
-                Collections.emptyList() // v5 files do not have sidecars
-            );
+                    hapiVersion,
+                    new HashObject(HashAlgorithm.SHA_384, SHA_384_HASH_SIZE, Bytes.wrap(startHashInFile)),
+                    recordStreamItems,
+                    new HashObject(HashAlgorithm.SHA_384, SHA_384_HASH_SIZE, Bytes.wrap(endRunningHash)),
+                    blockNumber,
+                    Collections.emptyList() // v5 files do not have sidecars
+                    );
             // convert signatures into block proof
             final List<RecordFileSignature> signatures = signatureFiles.stream()
-                .parallel()
-                .map(sf -> new ParsedSignatureFile(addressBook, sf))
-                .filter(psf -> psf.isValid(entireFileHash))
-                .map(ParsedSignatureFile::toRecordFileSignature)
-                .toList();
-            final BlockProof blockProof = new BlockProof(new OneOf<>(
-                ProofOneOfType.SIGNED_RECORD_FILE_PROOF,
-                new SignedRecordFileProof(5, signatures)));
+                    .parallel()
+                    .map(sf -> new ParsedSignatureFile(addressBook, sf))
+                    .filter(psf -> psf.isValid(entireFileHash))
+                    .map(ParsedSignatureFile::toRecordFileSignature)
+                    .toList();
+            final BlockProof blockProof = new BlockProof(
+                    new OneOf<>(ProofOneOfType.SIGNED_RECORD_FILE_PROOF, new SignedRecordFileProof(5, signatures)));
             // create footer
-            final BlockFooter blockFooter = new BlockFooter(
-                Bytes.wrap(previousBlockHash),
-                Bytes.wrap(rootHashOfBlockHashesMerkleTree),
-                null
-            );
+            final BlockFooter blockFooter =
+                    new BlockFooter(Bytes.wrap(previousBlockHash), Bytes.wrap(rootHashOfBlockHashesMerkleTree), null);
             // create and return the Block
             return new Block(List.of(
-                new BlockItem(new OneOf<>(ItemOneOfType.RECORD_FILE, recordStreamFile)),
-                new BlockItem(new OneOf<>(ItemOneOfType.BLOCK_FOOTER, blockFooter)),
-                new BlockItem(new OneOf<>(ItemOneOfType.BLOCK_PROOF, blockProof))
-            ));
+                    new BlockItem(new OneOf<>(ItemOneOfType.RECORD_FILE, recordStreamFile)),
+                    new BlockItem(new OneOf<>(ItemOneOfType.BLOCK_FOOTER, blockFooter)),
+                    new BlockItem(new OneOf<>(ItemOneOfType.BLOCK_PROOF, blockProof))));
         } catch (ParseException e) {
             throw new IOException(e);
         }
@@ -291,5 +292,4 @@ public class RecordFileBlockV5 extends RecordFileBlock {
             throw new RuntimeException(e);
         }
     }
-
 }

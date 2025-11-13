@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.tools.commands.days.subcommands;
 
 import static org.hiero.block.tools.commands.days.listing.JsonFileScanner.scanJsonFile;
@@ -32,8 +33,8 @@ public class SplitJsonToDayFiles implements Runnable {
     private static DayListingFileWriter[][][] dayWriters;
 
     @Option(
-        names = {"-l", "--listing-dir"},
-        description = "Directory where listing files are stored")
+            names = {"-l", "--listing-dir"},
+            description = "Directory where listing files are stored")
     private Path listingDir = Path.of("listingsByDay");
 
     @Parameters(index = "0", description = "The files.json file to read")
@@ -41,10 +42,10 @@ public class SplitJsonToDayFiles implements Runnable {
 
     private static DayListingFileWriter getDayWriter(Path listingDir, int year, int month, int day) throws IOException {
         int yearIdx = year - yearStart;
-        DayListingFileWriter dfw = dayWriters[yearIdx][month - 1][day-1];
+        DayListingFileWriter dfw = dayWriters[yearIdx][month - 1][day - 1];
         if (dfw == null) {
             dfw = new DayListingFileWriter(listingDir, year, month, day);
-            dayWriters[yearIdx][month - 1][day-1] = dfw;
+            dayWriters[yearIdx][month - 1][day - 1] = dfw;
         }
         return dfw;
     }
@@ -53,7 +54,8 @@ public class SplitJsonToDayFiles implements Runnable {
     public void run() {
         try {
             // create all years
-            final int currentYear = Instant.now().atZone(java.time.ZoneOffset.UTC).getYear();
+            final int currentYear =
+                    Instant.now().atZone(java.time.ZoneOffset.UTC).getYear();
             dayWriters = new DayListingFileWriter[(currentYear - yearStart) + 1][12][31];
             for (int year = yearStart; year <= currentYear; year++) {
                 final DayListingFileWriter[][] yearArray = new DayListingFileWriter[12][31];
@@ -76,9 +78,12 @@ public class SplitJsonToDayFiles implements Runnable {
                 ListingRecordFile recordFile = new ListingRecordFile(path, timestamp, size, md5Hex);
                 // write to month file
                 try {
-                    getDayWriter(listingDir, timestamp.get(ChronoField.YEAR), timestamp.get(ChronoField.MONTH_OF_YEAR),
-                        timestamp.get(ChronoField.DAY_OF_MONTH))
-                        .writeRecordFile(recordFile);
+                    getDayWriter(
+                                    listingDir,
+                                    timestamp.get(ChronoField.YEAR),
+                                    timestamp.get(ChronoField.MONTH_OF_YEAR),
+                                    timestamp.get(ChronoField.DAY_OF_MONTH))
+                            .writeRecordFile(recordFile);
                     fileWrittenCount.incrementAndGet();
                 } catch (IOException e) {
                     throw new RuntimeException(e);
@@ -101,7 +106,7 @@ public class SplitJsonToDayFiles implements Runnable {
                                 }
                             } else {
                                 System.out.println(
-                                    "null day writer, year=" + (yIdx + yearStart) + ", month=" + m + ", day=" + d);
+                                        "null day writer, year=" + (yIdx + yearStart) + ", month=" + m + ", day=" + d);
                             }
                         }
                     }
@@ -111,27 +116,27 @@ public class SplitJsonToDayFiles implements Runnable {
             long verifyTotal = 0;
             try (final var stream = Files.walk(listingDir)) {
                 verifyTotal = stream.parallel()
-                    .filter(Files::isRegularFile)
-                    .filter(f -> f.getFileName().toString().endsWith(".bin"))
-                    .mapToLong(f -> {
-                        try (DataInputStream din = new DataInputStream(Files.newInputStream(f))) {
-                            return din.readLong();
-                        } catch (IOException e) {
-                            throw new RuntimeException(e);
-                        }
-                    })
-                    .sum();
+                        .filter(Files::isRegularFile)
+                        .filter(f -> f.getFileName().toString().endsWith(".bin"))
+                        .mapToLong(f -> {
+                            try (DataInputStream din = new DataInputStream(Files.newInputStream(f))) {
+                                return din.readLong();
+                            } catch (IOException e) {
+                                throw new RuntimeException(e);
+                            }
+                        })
+                        .sum();
             } catch (IOException e) {
                 throw new RuntimeException(e);
             }
             System.out.println(
-                "=========================================================================================");
+                    "=========================================================================================");
+            System.out.println("Verification total files: " + verifyTotal + " vs processed total JSON lines = "
+                    + totalProcessedLines);
+            System.out.println("File callback count: " + fileCallBackCount.get() + " File written count: "
+                    + fileWrittenCount.get());
             System.out.println(
-                "Verification total files: " + verifyTotal + " vs processed total JSON lines = " + totalProcessedLines);
-            System.out.println(
-                "File callback count: " + fileCallBackCount.get() + " File written count: " + fileWrittenCount.get());
-            System.out.println(
-                "=========================================================================================");
+                    "=========================================================================================");
         } catch (IOException e) {
             throw new RuntimeException(e);
         }
