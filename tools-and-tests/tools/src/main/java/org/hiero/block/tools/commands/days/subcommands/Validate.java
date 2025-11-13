@@ -260,6 +260,9 @@ public class Validate implements Runnable {
         final long dayCount = dayPaths.size();
         final AtomicLong totalProgress = new AtomicLong(dayCount * INITIAL_ESTIMATE_PER_DAY);
         final AtomicLong progress = new AtomicLong(0);
+        // Track speed calculation over last 10 seconds of wall clock time
+        final AtomicReference<Instant> lastSpeedCalcBlockTime = new AtomicReference<>();
+        final AtomicLong lastSpeedCalcRealTimeNanos = new AtomicLong(0);
 
         // Producer-consumer queue with bounded capacity for backpressure
         final BlockingQueue<Item> queue = new LinkedBlockingQueue<>(1_000);
@@ -450,10 +453,37 @@ public class Validate implements Runnable {
                             String endHashHex = HexFormat.of().formatHex(vr.endRunningHash());
                             lastGood.set(new Status(item.dayDate, block.recordFileTime().toString(), endHashHex));
 
+                            // Calculate processing speed over last 10 seconds of wall clock time
+                            final long currentRealTimeNanos = System.nanoTime();
+                            final long tenSecondsInNanos = 10_000_000_000L;
+                            String speedString = "";
+
+                            // Initialize tracking on first block
+                            if (lastSpeedCalcBlockTime.get() == null) {
+                                lastSpeedCalcBlockTime.set(block.recordFileTime());
+                                lastSpeedCalcRealTimeNanos.set(currentRealTimeNanos);
+                            }
+
+                            // Update tracking window if more than 10 seconds of real time has elapsed
+                            long realTimeSinceLastCalc = currentRealTimeNanos - lastSpeedCalcRealTimeNanos.get();
+                            if (realTimeSinceLastCalc >= tenSecondsInNanos) {
+                                lastSpeedCalcBlockTime.set(block.recordFileTime());
+                                lastSpeedCalcRealTimeNanos.set(currentRealTimeNanos);
+                            }
+
+                            // Calculate speed if we have at least 1 second of real time elapsed since tracking point
+                            if (realTimeSinceLastCalc >= 1_000_000_000L) { // At least 1 second
+                                long dataTimeElapsedMillis = block.recordFileTime().toEpochMilli() - lastSpeedCalcBlockTime.get().toEpochMilli();
+                                long realTimeElapsedMillis = realTimeSinceLastCalc / 1_000_000L;
+                                double speedMultiplier =
+                                    (double) dataTimeElapsedMillis / (double) realTimeElapsedMillis;
+                                speedString = String.format(" speed %.1fx", speedMultiplier);
+                            }
+
                             // Build progress string showing time and hashes (shortened to 8 chars for readability)
                             final String progressString = String.format(
-                                    "%s carry[%s] next[%s]",
-                                    block.recordFileTime(), shortHash(previousBlockHash), shortHash(vr.endRunningHash()));
+                                    "%s carry[%s] next[%s]%s",
+                                    block.recordFileTime(), shortHash(previousBlockHash), shortHash(vr.endRunningHash()), speedString);
                             // Estimate totals and ETA
                             final long elapsedMillis = (System.nanoTime() - startNanos) / 1_000_000L;
                             // Progress percent and remaining
