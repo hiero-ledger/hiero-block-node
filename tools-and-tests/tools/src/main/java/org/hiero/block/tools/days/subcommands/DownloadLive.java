@@ -1,37 +1,36 @@
+// SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.tools.commands.days.subcommands;
 
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
+import java.time.Duration;
+import java.time.Instant;
+import java.time.LocalDate;
+import java.time.ZoneId;
+import java.time.ZonedDateTime;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Comparator;
+import java.util.HexFormat;
+import java.util.List;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+import java.util.stream.Stream;
+import org.hiero.block.tools.commands.mirrornode.BlockInfo;
+import org.hiero.block.tools.commands.mirrornode.FetchBlockQuery;
 import org.hiero.block.tools.commands.mirrornode.MirrorNodeBlockQueryOrder;
 import org.hiero.block.tools.records.RecordFileInfo;
 import org.hiero.block.tools.utils.Gzip;
 import picocli.CommandLine;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Option;
-
-import java.nio.file.Path;
-import java.time.Duration;
-import java.time.Instant;
-import java.time.ZoneId;
-import java.time.ZonedDateTime;
-import java.util.Arrays;
-import java.util.Comparator;
-import java.util.HexFormat;
-import java.util.List;
-import java.util.stream.Stream;
-
-import org.hiero.block.tools.commands.mirrornode.FetchBlockQuery;
-import org.hiero.block.tools.commands.mirrornode.BlockInfo;
-import java.time.LocalDate;
-import java.util.ArrayList;
-import java.io.IOException;
-import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
-import java.nio.file.StandardCopyOption;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.Future;
-import java.util.concurrent.TimeUnit;
 
 /**
  * CLI skeleton for the "download-live" command.
@@ -44,64 +43,66 @@ import java.util.concurrent.TimeUnit;
  * subsequent stories.
  */
 @Command(
-    name = "download-live",
-    description = "Continuously follow mirror node for new block files; dedupe, validate, and organize into daily folders.",
-    mixinStandardHelpOptions = true,
-    version = "download-live 0.1"
-)
+        name = "download-live",
+        description =
+                "Continuously follow mirror node for new block files; dedupe, validate, and organize into daily folders.",
+        mixinStandardHelpOptions = true,
+        version = "download-live 0.1")
 public class DownloadLive implements Runnable {
 
-    @Option(names = "--out",
-        required = true,
-        paramLabel = "DIR",
-        description = "Output directory for daily folders (e.g., /data/records)")
+    @Option(
+            names = "--out",
+            required = true,
+            paramLabel = "DIR",
+            description = "Output directory for daily folders (e.g., /data/records)")
     private Path out;
 
-    @Option(names = "--source-root",
-        required = true,
-        paramLabel = "source folder root",
-        description = "File storage location for record streams (e.g., /mnt/days/folder)")
+    @Option(
+            names = "--source-root",
+            required = true,
+            paramLabel = "source folder root",
+            description = "File storage location for record streams (e.g., /mnt/days/folder)")
     private String sourceRoot;
 
-    @Option(names = "--poll-interval",
-        defaultValue = "60s",
-        paramLabel = "DURATION",
-        description = "Polling interval for mirror API (e.g., 60s, 2m). Parsed later by implementation.")
+    @Option(
+            names = "--poll-interval",
+            defaultValue = "60s",
+            paramLabel = "DURATION",
+            description = "Polling interval for mirror API (e.g., 60s, 2m). Parsed later by implementation.")
     private String pollInterval;
 
-    @Option(names = "--batch-size",
-        defaultValue = "100",
-        paramLabel = "N",
-        description = "Max number of block descriptors to request per poll (mirror max is typically 100).")
+    @Option(
+            names = "--batch-size",
+            defaultValue = "100",
+            paramLabel = "N",
+            description = "Max number of block descriptors to request per poll (mirror max is typically 100).")
     private int batchSize;
 
-    @Option(names = "--day-rollover-tz",
-        defaultValue = "UTC",
-        paramLabel = "TZ",
-        description = "Timezone ID used to determine end-of-day rollover (e.g., UTC, America/Los_Angeles).")
+    @Option(
+            names = "--day-rollover-tz",
+            defaultValue = "UTC",
+            paramLabel = "TZ",
+            description = "Timezone ID used to determine end-of-day rollover (e.g., UTC, America/Los_Angeles).")
     private String dayRolloverTz;
 
-    @Option(names = "--max-concurrency",
-        defaultValue = "8",
-        paramLabel = "N",
-        description = "Max parallel downloads.")
+    @Option(names = "--max-concurrency", defaultValue = "8", paramLabel = "N", description = "Max parallel downloads.")
     private int maxConcurrency;
 
-    @Option(names = "--run-poller",
-        defaultValue = "false",
-        description = "If true, run the day-scoped live poller.")
+    @Option(names = "--run-poller", defaultValue = "false", description = "If true, run the day-scoped live poller.")
     private boolean runPoller;
 
-    @Option(names = "--state-json",
-        defaultValue = "./state/download-live.json",
-        paramLabel = "FILE",
-        description = "Path to a small JSON file used to persist last-seen state for resume.")
+    @Option(
+            names = "--state-json",
+            defaultValue = "./state/download-live.json",
+            paramLabel = "FILE",
+            description = "Path to a small JSON file used to persist last-seen state for resume.")
     private Path stateJsonPath;
 
-    @Option(names = "--tmp-dir",
-        defaultValue = "./tmp/download-live",
-        paramLabel = "DIR",
-        description = "Temporary directory used for streaming downloads before atomic move into the day folder.")
+    @Option(
+            names = "--tmp-dir",
+            defaultValue = "./tmp/download-live",
+            paramLabel = "DIR",
+            description = "Temporary directory used for streaming downloads before atomic move into the day folder.")
     private Path tmpDir;
 
     @Override
@@ -173,8 +174,9 @@ public class DownloadLive implements Runnable {
                 return Duration.parse(text); // e.g., PT1M
             }
         } catch (Exception e) {
-            throw new CommandLine.ParameterException(new CommandLine(new DownloadLive()),
-                "Invalid duration: " + text + " (use forms like 60s, 2m, 1h, PT1M)");
+            throw new CommandLine.ParameterException(
+                    new CommandLine(new DownloadLive()),
+                    "Invalid duration: " + text + " (use forms like 60s, 2m, 1h, PT1M)");
         }
     }
 
@@ -230,10 +232,9 @@ public class DownloadLive implements Runnable {
             if (path.getParent() != null) {
                 Files.createDirectories(path.getParent());
             }
-            String json = "{\n" +
-                "  \"dayKey\": \"" + st.dayKey + "\",\n" +
-                "  \"lastSeenBlock\": " + st.lastSeenBlock + "\n" +
-                "}\n";
+            String json = "{\n" + "  \"dayKey\": \""
+                    + st.dayKey + "\",\n" + "  \"lastSeenBlock\": "
+                    + st.lastSeenBlock + "\n" + "}\n";
             Files.writeString(path, json, StandardCharsets.UTF_8);
         } catch (IOException e) {
             System.err.println("[poller] Failed to write state: " + e.getMessage());
@@ -291,7 +292,8 @@ public class DownloadLive implements Runnable {
                 }
                 stateLoadedForToday = true;
             }
-            System.out.println("[poller] dayKey=" + dayKey + " interval=" + interval + " batchSize=" + batchSize + " lastSeen=" + lastSeenBlock);
+            System.out.println("[poller] dayKey=" + dayKey + " interval=" + interval + " batchSize=" + batchSize
+                    + " lastSeen=" + lastSeenBlock);
 
             // Fetch latest blocks (descending) and filter to the current day + unseen.
             final List<BlockInfo> latest = FetchBlockQuery.getLatestBlocks(batchSize, MirrorNodeBlockQueryOrder.DESC);
@@ -324,8 +326,10 @@ public class DownloadLive implements Runnable {
                 if (highestDownloaded > lastSeenBlock) {
                     lastSeenBlock = highestDownloaded;
                 }
-                batch.stream().limit(3).forEach(d ->
-                    System.out.println("[poller] sample -> block=" + d.blockNumber + " file=" + d.filename + " ts=" + d.timestampIso));
+                batch.stream()
+                        .limit(3)
+                        .forEach(d -> System.out.println("[poller] sample -> block=" + d.blockNumber + " file="
+                                + d.filename + " ts=" + d.timestampIso));
                 // Persist state for resume
                 writeState(statePath, new State(dayKey, lastSeenBlock));
             } else {
@@ -334,15 +338,19 @@ public class DownloadLive implements Runnable {
         }
 
         void runContinuouslyForToday() {
-            String currentDayKey = ZonedDateTime.ofInstant(Instant.now(), tz).toLocalDate().toString();
+            String currentDayKey =
+                    ZonedDateTime.ofInstant(Instant.now(), tz).toLocalDate().toString();
             while (true) {
-                final String dayKey = ZonedDateTime.ofInstant(Instant.now(), tz).toLocalDate().toString();
+                final String dayKey =
+                        ZonedDateTime.ofInstant(Instant.now(), tz).toLocalDate().toString();
                 if (!dayKey.equals(currentDayKey)) {
-                    System.out.println("[poller] Day changed (" + currentDayKey + " -> " + dayKey + "); finalizing previous day and rolling over.");
+                    System.out.println("[poller] Day changed (" + currentDayKey + " -> " + dayKey
+                            + "); finalizing previous day and rolling over.");
                     try {
                         downloader.finalizeDay(currentDayKey);
                     } catch (Exception e) {
-                        System.err.println("[poller] Failed to finalize day archive for " + currentDayKey + ": " + e.getMessage());
+                        System.err.println(
+                                "[poller] Failed to finalize day archive for " + currentDayKey + ": " + e.getMessage());
                     }
                     // rollover: start tracking the new day; state will be reloaded for the new key
                     currentDayKey = dayKey;
@@ -422,7 +430,8 @@ public class DownloadLive implements Runnable {
                 final Process p = pb.start();
                 final int exit = p.waitFor();
                 if (exit != 0) {
-                    System.err.println("[download] tar command failed for day " + dayKey + " entry " + entryName + " with exit=" + exit);
+                    System.err.println("[download] tar command failed for day " + dayKey + " entry " + entryName
+                            + " with exit=" + exit);
                 } else {
                     System.out.println("[download] appended " + entryName + " to " + tarPath);
                 }
@@ -455,13 +464,12 @@ public class DownloadLive implements Runnable {
                 final Path zstdPath = outRoot.resolve(dayKey + ".tar.zstd");
                 System.out.println("[download] Compressing " + tarPath + " -> " + zstdPath + " using zstd");
                 final ProcessBuilder pb = new ProcessBuilder(
-                    "zstd",
-                    "-T0",          // use all cores
-                    "-f",           // overwrite output if it exists
-                    tarPath.toString(),
-                    "-o",
-                    zstdPath.toString()
-                );
+                        "zstd",
+                        "-T0", // use all cores
+                        "-f", // overwrite output if it exists
+                        tarPath.toString(),
+                        "-o",
+                        zstdPath.toString());
                 pb.inheritIO();
                 final Process p = pb.start();
                 final int exit = p.waitFor();
@@ -477,7 +485,8 @@ public class DownloadLive implements Runnable {
                                 try {
                                     Files.deleteIfExists(filePath);
                                 } catch (IOException ioe) {
-                                    System.err.println("[download] Failed to delete " + filePath + ": " + ioe.getMessage());
+                                    System.err.println(
+                                            "[download] Failed to delete " + filePath + ": " + ioe.getMessage());
                                 }
                             });
                         }
@@ -584,7 +593,8 @@ public class DownloadLive implements Runnable {
                     try {
                         recordBytes = Gzip.ungzipInMemory(fileBytes);
                     } catch (Exception ex) {
-                        System.err.println("[download] Failed to decompress .gz for " + safeName + ": " + ex.getMessage());
+                        System.err.println(
+                                "[download] Failed to decompress .gz for " + safeName + ": " + ex.getMessage());
                         Files.deleteIfExists(tmpFile);
                         return -1L;
                     }
@@ -595,7 +605,8 @@ public class DownloadLive implements Runnable {
                 try {
                     recordFileInfo = RecordFileInfo.parse(recordBytes);
                 } catch (Exception ex) {
-                    System.err.println("[download] Failed to parse record file for " + safeName + ": " + ex.getMessage());
+                    System.err.println(
+                            "[download] Failed to parse record file for " + safeName + ": " + ex.getMessage());
                     Files.deleteIfExists(tmpFile);
                     return -1L;
                 }
@@ -609,8 +620,8 @@ public class DownloadLive implements Runnable {
                         String gotHex = HexFormat.of().formatHex(computedHash);
                         String expShort = expHex.substring(0, Math.min(8, expHex.length()));
                         String gotShort = gotHex.substring(0, Math.min(8, gotHex.length()));
-                        System.err.println("[download] ERROR: Hash mismatch for block " + d.blockNumber + " file " + safeName +
-                            " expected=" + expShort + " got=" + gotShort);
+                        System.err.println("[download] ERROR: Hash mismatch for block " + d.blockNumber + " file "
+                                + safeName + " expected=" + expShort + " got=" + gotShort);
                         Files.deleteIfExists(tmpFile);
                         return -1L;
                     }
@@ -619,9 +630,7 @@ public class DownloadLive implements Runnable {
                 // exercising the same validation path without external comparison.
 
                 // Atomically move from temp to final location. On same filesystem this will be a rename.
-                Files.move(tmpFile, targetFile,
-                    StandardCopyOption.REPLACE_EXISTING,
-                    StandardCopyOption.ATOMIC_MOVE);
+                Files.move(tmpFile, targetFile, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
 
                 System.out.println("[download] placed " + targetFile + " (block=" + d.blockNumber + ")");
 
@@ -657,7 +666,8 @@ public class DownloadLive implements Runnable {
             try {
                 return HexFormat.of().parseHex(h);
             } catch (IllegalArgumentException iae) {
-                System.err.println("[download] Warning: Could not parse expected hash '" + hash + "': " + iae.getMessage());
+                System.err.println(
+                        "[download] Warning: Could not parse expected hash '" + hash + "': " + iae.getMessage());
                 return null;
             }
         }
