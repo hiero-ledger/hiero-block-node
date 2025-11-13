@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.tools.records;
 
 import static org.hiero.block.tools.commands.days.model.AddressBookRegistry.nodeIdForNode;
@@ -57,11 +58,13 @@ public class ParsedSignatureFile {
         try {
             rsaPubKey = AddressBookRegistry.publicKeyForNode(addressBook, 0, 0, accountNum);
         } catch (Exception e) {
-            throw new RuntimeException("No RSA public key found for 0.0."+accountNum+" in provided address book; file "+
-                sigFile.path(),e);
+            throw new RuntimeException(
+                    "No RSA public key found for 0.0." + accountNum + " in provided address book; file "
+                            + sigFile.path(),
+                    e);
         }
         if (rsaPubKey == null || rsaPubKey.isEmpty()) {
-            throw new RuntimeException("Empty RSA public key for 0.0."+accountNum+"; file "+sigFile.path());
+            throw new RuntimeException("Empty RSA public key for 0.0." + accountNum + "; file " + sigFile.path());
         }
         try (DataInputStream sin = new DataInputStream(new ByteArrayInputStream(sigFile.data()))) {
             final int firstByte = sin.read();
@@ -73,7 +76,7 @@ public class ParsedSignatureFile {
                     // Read signature marker
                     byte marker = sin.readByte();
                     if (marker != 3) {
-                        throw new IOException("Invalid signature marker byte in "+sigFile.path());
+                        throw new IOException("Invalid signature marker byte in " + sigFile.path());
                     }
                     // Read signature length and signature bytes
                     final int sigLen = sin.readInt();
@@ -81,29 +84,30 @@ public class ParsedSignatureFile {
                     sin.readFully(signatureBytes);
                     break;
                 }
-                case 5: {// version 5 record file signature file
+                case 5: { // version 5 record file signature file
                     final int objStreamVer = sin.readInt();
                     if (objStreamVer != RECORD_STREAM_OBJECT_CLASS_VERSION) {
-                        throw new RuntimeException("Unexpected object stream version (expected 1) in "+sigFile.path());
+                        throw new RuntimeException(
+                                "Unexpected object stream version (expected 1) in " + sigFile.path());
                     }
                     fileHashFromSig = readV5HashObject(sin);
                     // read signature object
                     final long sigClassId = sin.readLong();
                     if (sigClassId != SIGNATURE_CLASS_ID) {
-                        throw new RuntimeException("Invalid signature object class ID in "+sigFile.path());
+                        throw new RuntimeException("Invalid signature object class ID in " + sigFile.path());
                     }
                     final int sigClassVer = sin.readInt();
                     if (sigClassVer != RECORD_STREAM_OBJECT_CLASS_VERSION) {
-                        throw new RuntimeException("Invalid signature object class version in "+sigFile.path());
+                        throw new RuntimeException("Invalid signature object class version in " + sigFile.path());
                     }
                     final int sigType = sin.readInt();
                     if (sigType != RECORD_STREAM_OBJECT_CLASS_VERSION) {
-                        throw new IOException("Invalid signature type in "+sigFile.path());
+                        throw new IOException("Invalid signature type in " + sigFile.path());
                     }
                     final int sigLen = sin.readInt();
                     final int checksum = sin.readInt();
                     if (checksum != 101 - sigLen) {
-                        throw new IOException("Invalid checksum in "+sigFile.path());
+                        throw new IOException("Invalid checksum in " + sigFile.path());
                     }
                     signatureBytes = new byte[sigLen];
                     sin.readFully(signatureBytes);
@@ -112,22 +116,26 @@ public class ParsedSignatureFile {
                 case 6: { // version 6 record file signature file
                     // Parse protobuf portion
                     final com.hedera.hapi.streams.SignatureFile signatureFile =
-                        com.hedera.hapi.streams.SignatureFile.PROTOBUF.parse(new ReadableStreamingData(sin));
+                            com.hedera.hapi.streams.SignatureFile.PROTOBUF.parse(new ReadableStreamingData(sin));
                     if (signatureFile.fileSignature() == null) {
-                        throw new IOException("Invalid signature file, missing file signature in "+sigFile.path());
+                        throw new IOException("Invalid signature file, missing file signature in " + sigFile.path());
                     }
-                    fileHashFromSig = signatureFile.fileSignature().hashObjectOrThrow().hash().toByteArray();
+                    fileHashFromSig = signatureFile
+                            .fileSignature()
+                            .hashObjectOrThrow()
+                            .hash()
+                            .toByteArray();
                     signatureBytes = signatureFile.fileSignature().signature().toByteArray();
                     break;
                 }
                 default: {
-                    throw new IOException("Unrecognized signature file format version "+firstByte+
-                        " in file "+sigFile.path());
+                    throw new IOException(
+                            "Unrecognized signature file format version " + firstByte + " in file " + sigFile.path());
                 }
             }
         } catch (Exception e) {
-            throw new RuntimeException("Error processing signature file "+sigFile.path()+
-                " because: "+e.getMessage(),e);
+            throw new RuntimeException(
+                    "Error processing signature file " + sigFile.path() + " because: " + e.getMessage(), e);
         }
     }
 
@@ -150,7 +158,7 @@ public class ParsedSignatureFile {
      * @return a RecordFileSignature containing the raw signature bytes and the resolved node id
      */
     public RecordFileSignature toRecordFileSignature() {
-        return new RecordFileSignature(Bytes.wrap(signatureBytes),nodeId);
+        return new RecordFileSignature(Bytes.wrap(signatureBytes), nodeId);
     }
 
     /** @return the SHA-384 file hash extracted from the signature file */
@@ -183,13 +191,12 @@ public class ParsedSignatureFile {
      */
     @Override
     public String toString() {
-        return "SignatureFile{" +
-            "fileHashFromSig=" + HexFormat.of().formatHex(fileHashFromSig) +
-            ", signatureBytes=" + HexFormat.of().formatHex(signatureBytes) +
-            ", accountNum=" + accountNum +
-            ", nodeId=" + nodeId +
-            ", rsaPubKey='" + rsaPubKey + '\'' +
-            '}';
+        return "SignatureFile{" + "fileHashFromSig="
+                + HexFormat.of().formatHex(fileHashFromSig) + ", signatureBytes="
+                + HexFormat.of().formatHex(signatureBytes) + ", accountNum="
+                + accountNum + ", nodeId="
+                + nodeId + ", rsaPubKey='"
+                + rsaPubKey + '\'' + '}';
     }
 
     /**
@@ -205,9 +212,11 @@ public class ParsedSignatureFile {
             return false;
         }
         ParsedSignatureFile that = (ParsedSignatureFile) o;
-        return accountNum == that.accountNum && nodeId == that.nodeId && Objects.deepEquals(fileHashFromSig,
-            that.fileHashFromSig) && Objects.deepEquals(signatureBytes, that.signatureBytes)
-            && Objects.equals(rsaPubKey, that.rsaPubKey);
+        return accountNum == that.accountNum
+                && nodeId == that.nodeId
+                && Objects.deepEquals(fileHashFromSig, that.fileHashFromSig)
+                && Objects.deepEquals(signatureBytes, that.signatureBytes)
+                && Objects.equals(rsaPubKey, that.rsaPubKey);
     }
 
     /**
@@ -217,7 +226,7 @@ public class ParsedSignatureFile {
      */
     @Override
     public int hashCode() {
-        return Objects.hash(Arrays.hashCode(fileHashFromSig), Arrays.hashCode(signatureBytes), accountNum, nodeId,
-            rsaPubKey);
+        return Objects.hash(
+                Arrays.hashCode(fileHashFromSig), Arrays.hashCode(signatureBytes), accountNum, nodeId, rsaPubKey);
     }
 }

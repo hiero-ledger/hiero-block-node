@@ -26,7 +26,7 @@ import picocli.CommandLine.Spec;
  */
 @SuppressWarnings("CallToPrintStackTrace")
 @Command(name = "wrap", description = "Convert record file blocks in day files to wrapped block stream blocks")
-public class ToWrappedBlocksCommand  implements Runnable {
+public class ToWrappedBlocksCommand implements Runnable {
 
     /** Zero hash for previous / root when none available */
     private static final byte[] ZERO_HASH = new byte[48];
@@ -35,13 +35,13 @@ public class ToWrappedBlocksCommand  implements Runnable {
     CommandSpec spec;
 
     @Option(
-        names = {"-w", "--warnings-file"},
-        description = "Write warnings to this file, rather than ignoring them")
+            names = {"-w", "--warnings-file"},
+            description = "Write warnings to this file, rather than ignoring them")
     private File warningFile = null;
 
     @Option(
-        names = {"-u", "--unzipped"},
-        description = "Write output files unzipped, rather than in uncompressed zip batches of 10k ")
+            names = {"-u", "--unzipped"},
+            description = "Write output files unzipped, rather than in uncompressed zip batches of 10k ")
     private boolean unzipped = false;
 
     @Parameters(index = "0", description = "Directory of days to process")
@@ -51,7 +51,6 @@ public class ToWrappedBlocksCommand  implements Runnable {
     @Parameters(index = "1", description = "Directory to write the output wrapped blocks")
     @SuppressWarnings("unused") // assigned reflectively by picocli
     private File outputBlocksDir;
-
 
     @Override
     public void run() {
@@ -63,7 +62,7 @@ public class ToWrappedBlocksCommand  implements Runnable {
             return;
         }
 
-        final List<Path> dayPaths = TarZstdDayUtils.sortedDayPaths(new File[]{compressedDaysDir});
+        final List<Path> dayPaths = TarZstdDayUtils.sortedDayPaths(new File[] {compressedDaysDir});
         final AtomicLong blockCounter = new AtomicLong(0L);
 
         try (FileWriter warningWriter = warningFile != null ? new FileWriter(warningFile, true) : null) {
@@ -76,7 +75,10 @@ public class ToWrappedBlocksCommand  implements Runnable {
                             final long blockNum = blockCounter.getAndIncrement();
                             // Convert record file block to wrapped block. We pass zero hashes for previous/root
                             final com.hedera.hapi.block.stream.experimental.Block wrappedExp =
-                                    recordBlock.toWrappedBlock(blockNum, ZERO_HASH, ZERO_HASH,
+                                    recordBlock.toWrappedBlock(
+                                            blockNum,
+                                            ZERO_HASH,
+                                            ZERO_HASH,
                                             addressBookRegistry.getCurrentAddressBook());
 
                             // Convert experimental Block to stable Block for storage APIs
@@ -93,7 +95,8 @@ public class ToWrappedBlocksCommand  implements Runnable {
                                     final byte[] compressed = CompressionType.ZSTD.compress(protoBytes.toByteArray());
                                     Files.write(outPath, compressed);
                                 } catch (IOException e) {
-                                    System.err.println("Failed writing unzipped block " + blockNum + ": " + e.getMessage());
+                                    System.err.println(
+                                            "Failed writing unzipped block " + blockNum + ": " + e.getMessage());
                                     e.printStackTrace();
                                     System.exit(1);
                                 }
@@ -102,7 +105,8 @@ public class ToWrappedBlocksCommand  implements Runnable {
                                     // BlockWriter will create/append to zip files as needed
                                     BlockWriter.writeBlock(outputBlocksDir.toPath(), wrapped);
                                 } catch (IOException e) {
-                                    System.err.println("Failed writing zipped block " + blockNum + ": " + e.getMessage());
+                                    System.err.println(
+                                            "Failed writing zipped block " + blockNum + ": " + e.getMessage());
                                     e.printStackTrace();
                                     System.exit(1);
                                 }
@@ -125,5 +129,4 @@ public class ToWrappedBlocksCommand  implements Runnable {
 
         System.out.println("Conversion complete. Blocks written: " + blockCounter.get());
     }
-
 }

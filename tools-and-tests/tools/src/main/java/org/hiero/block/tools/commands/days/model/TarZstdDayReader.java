@@ -17,8 +17,8 @@ import java.util.Map;
 import java.util.stream.Stream;
 import org.apache.commons.compress.archivers.tar.TarArchiveEntry;
 import org.apache.commons.compress.archivers.tar.TarArchiveInputStream;
-import org.hiero.block.tools.records.RecordFileBlock;
 import org.hiero.block.tools.records.InMemoryFile;
+import org.hiero.block.tools.records.RecordFileBlock;
 
 /**
  * Utility to read and group record files from a compressed daily tar archive compressed with zstd.
@@ -89,9 +89,11 @@ public class TarZstdDayReader {
     public static List<RecordFileBlock> readTarZstd(Path zstdFile) {
         if (zstdFile == null) throw new IllegalArgumentException("zstdFile is null");
         final List<RecordFileBlock> results = new ArrayList<>();
-        try (TarArchiveInputStream tar = new TarArchiveInputStream(new BufferedInputStream(new ZstdInputStream(
-            new BufferedInputStream(Files.newInputStream(zstdFile), 1024 * 1024 * 100),
-            RecyclingBufferPool.INSTANCE), 1024 * 1024 * 100))) {
+        try (TarArchiveInputStream tar = new TarArchiveInputStream(new BufferedInputStream(
+                new ZstdInputStream(
+                        new BufferedInputStream(Files.newInputStream(zstdFile), 1024 * 1024 * 100),
+                        RecyclingBufferPool.INSTANCE),
+                1024 * 1024 * 100))) {
             TarArchiveEntry entry;
             String currentDir = null;
             List<InMemoryFile> currentFiles = new ArrayList<>();

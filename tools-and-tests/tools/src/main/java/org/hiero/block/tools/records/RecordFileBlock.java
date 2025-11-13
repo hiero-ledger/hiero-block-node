@@ -5,7 +5,6 @@ import com.hedera.hapi.block.stream.experimental.Block;
 import com.hedera.hapi.node.base.NodeAddressBook;
 import com.hedera.hapi.node.base.SemanticVersion;
 import com.hedera.hapi.node.transaction.TransactionBody;
-import com.hedera.pbj.runtime.io.buffer.Bytes;
 import edu.umd.cs.findbugs.annotations.NonNull;
 import java.io.IOException;
 import java.time.Instant;
@@ -160,9 +159,12 @@ public abstract class RecordFileBlock {
      * @return the Block read from the InMemoryBlock
      * @throws IOException if an I/O error occurs
      */
-    public abstract Block toWrappedBlock(final long blockNumber,
-        final byte[] previousBlockHash, final byte[] rootHashOfBlockHashesMerkleTree,
-        final NodeAddressBook addressBook) throws IOException;
+    public abstract Block toWrappedBlock(
+            final long blockNumber,
+            final byte[] previousBlockHash,
+            final byte[] rootHashOfBlockHashesMerkleTree,
+            final NodeAddressBook addressBook)
+            throws IOException;
     /**
      * Validate the record file. This recomputes the running hash. Checks the provided starting running hash with the
      * one read from the file. It also computes the end-running hash, checks it against the one in the file if the file
@@ -178,7 +180,6 @@ public abstract class RecordFileBlock {
     public abstract ValidationResult validate(byte[] startRunningHash, NodeAddressBook addressBook);
 
     // === Public Methods =============================================================================================
-
 
     /**
      * Get the total size in bytes of all files in the block.
@@ -225,20 +226,22 @@ public abstract class RecordFileBlock {
         try {
             RecordFileInfo information = RecordFileInfo.parse(primaryRecordFile.data());
             return String.format(
-                "-- RecordFileSet @ %-32s :: signatures=%2d%s%s%n  -- %s",
-                recordFileTime,
-                signatureFiles.size(),
-                primarySidecarFiles.isEmpty() ? "" : ", primary sidecars=" + primarySidecarFiles.size(),
-                otherRecordFiles.isEmpty() ? "" : ", other record files=" + otherRecordFiles.size(),
+                    "-- RecordFileSet @ %-32s :: signatures=%2d%s%s%n  -- %s",
+                    recordFileTime,
+                    signatureFiles.size(),
+                    primarySidecarFiles.isEmpty() ? "" : ", primary sidecars=" + primarySidecarFiles.size(),
+                    otherRecordFiles.isEmpty() ? "" : ", other record files=" + otherRecordFiles.size(),
                     information.prettyToString().replace("\n", "\n     "));
         } catch (Exception e) {
             return String.format(
-                "-- RecordFileSet @ %-32s :: signatures=%2d%s%s",
-                recordFileTime,
-                signatureFiles.size(),
-                primarySidecarFiles.isEmpty() ? "" : ", primary sidecars=" + primarySidecarFiles.size(),
-                otherRecordFiles.isEmpty() ? "" : ", other record files=" + otherRecordFiles.size()+
-                    "\n    - Parsing FAILED: "+e.getMessage());
+                    "-- RecordFileSet @ %-32s :: signatures=%2d%s%s",
+                    recordFileTime,
+                    signatureFiles.size(),
+                    primarySidecarFiles.isEmpty() ? "" : ", primary sidecars=" + primarySidecarFiles.size(),
+                    otherRecordFiles.isEmpty()
+                            ? ""
+                            : ", other record files=" + otherRecordFiles.size() + "\n    - Parsing FAILED: "
+                                    + e.getMessage());
         }
     }
 
@@ -308,33 +311,34 @@ public abstract class RecordFileBlock {
      * @throws IOException if an I/O error occurs reading a signature file
      */
     protected boolean validateSignatures(
-        NodeAddressBook addressBook, StringBuffer warningMessages, byte[] recordFileSignedHash)
-        throws IOException {
+            NodeAddressBook addressBook, StringBuffer warningMessages, byte[] recordFileSignedHash) throws IOException {
         if (addressBook != null && !signatureFiles().isEmpty()) {
             try {
                 final CopyOnWriteArrayList<String> signatureErrors = new CopyOnWriteArrayList<>();
-                final long validSignatureCount = signatureFiles().stream().parallel()
-                    .map(sigFile -> {
-                        try {
-                            return new ParsedSignatureFile(addressBook, sigFile);
-                        } catch (Exception e) {
-                            signatureErrors.add("Error parsing signature file " + sigFile.path() + ": " + e.getMessage());
-                            return null;
-                        }
-                    })
-                    .filter(sf -> {
-                        if (sf == null) {
-                            return false;
-                        }
-                        try {
-                            return sf.isValid(recordFileSignedHash);
-                        } catch (Exception e) {
-                            signatureErrors.add("Error validating signature @ " + recordFileTime + " for node "+
-                                sf.nodeId()+": " + e.getMessage());
-                            return false;
-                        }
-                    })
-                    .count();
+                final long validSignatureCount = signatureFiles().stream()
+                        .parallel()
+                        .map(sigFile -> {
+                            try {
+                                return new ParsedSignatureFile(addressBook, sigFile);
+                            } catch (Exception e) {
+                                signatureErrors.add(
+                                        "Error parsing signature file " + sigFile.path() + ": " + e.getMessage());
+                                return null;
+                            }
+                        })
+                        .filter(sf -> {
+                            if (sf == null) {
+                                return false;
+                            }
+                            try {
+                                return sf.isValid(recordFileSignedHash);
+                            } catch (Exception e) {
+                                signatureErrors.add("Error validating signature @ " + recordFileTime + " for node "
+                                        + sf.nodeId() + ": " + e.getMessage());
+                                return false;
+                            }
+                        })
+                        .count();
                 // append any signature parsing/validation errors
                 for (String err : signatureErrors) {
                     warningMessages.append(err).append("\n");
@@ -343,24 +347,24 @@ public abstract class RecordFileBlock {
                 final int requiredSignatures = (totalNodeCount / 3) + 1;
                 if (validSignatureCount < requiredSignatures) {
                     warningMessages
-                        .append("Insufficient valid signatures: ")
-                        .append(validSignatureCount)
-                        .append(" of ")
-                        .append(totalNodeCount)
-                        .append(" nodes; required ")
-                        .append(requiredSignatures)
-                        .append("\n");
+                            .append("Insufficient valid signatures: ")
+                            .append(validSignatureCount)
+                            .append(" of ")
+                            .append(totalNodeCount)
+                            .append(" nodes; required ")
+                            .append(requiredSignatures)
+                            .append("\n");
                     return false;
                 }
                 return true;
             } catch (Exception e) {
-                warningMessages.append("Error validating signatures: "+e.getMessage()+"\n");
+                warningMessages.append("Error validating signatures: " + e.getMessage() + "\n");
                 e.printStackTrace();
                 return false;
             }
         }
-        warningMessages.append("Missing signature files ["+signatureFiles().size()+"] or address book: "+
-            addressBook+"\n");
+        warningMessages.append(
+                "Missing signature files [" + signatureFiles().size() + "] or address book: " + addressBook + "\n");
         return false;
     }
 }

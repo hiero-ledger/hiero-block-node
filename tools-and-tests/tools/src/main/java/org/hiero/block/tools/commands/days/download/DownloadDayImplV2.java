@@ -51,11 +51,15 @@ public class DownloadDayImplV2 {
         final long blockNumber;
         /** Optional block hash from mirror node listing, may be null. Only set for first and last blocks of the day */
         final byte[] blockHashFromMirrorNode;
+
         final LocalDateTime blockTime;
         final List<ListingRecordFile> orderedFiles;
         final List<CompletableFuture<InMemoryFile>> futures = new ArrayList<>();
 
-        BlockWork(long blockNumber, byte[] blockHashFromMirrorNode, LocalDateTime blockTime,
+        BlockWork(
+                long blockNumber,
+                byte[] blockHashFromMirrorNode,
+                LocalDateTime blockTime,
                 List<ListingRecordFile> orderedFiles) {
             this.blockNumber = blockNumber;
             this.blockHashFromMirrorNode = blockHashFromMirrorNode;
@@ -96,12 +100,13 @@ public class DownloadDayImplV2 {
             final int dayIndex,
             final long overallStartMillis)
             throws Exception {
-        // the running blockchain hash from previous record file, null means unknown (first block of chain, or starting mid-chain)
+        // the running blockchain hash from previous record file, null means unknown (first block of chain, or starting
+        // mid-chain)
         byte[] prevRecordFileHash = previousRecordFileHash;
         // load record file listings and group by ListingRecordFile.timestamp
         final List<ListingRecordFile> allDaysFiles = loadRecordsFileForDay(listingDir, year, month, day);
         final Map<LocalDateTime, List<ListingRecordFile>> filesByBlock =
-            allDaysFiles.stream().collect(Collectors.groupingBy(ListingRecordFile::timestamp));
+                allDaysFiles.stream().collect(Collectors.groupingBy(ListingRecordFile::timestamp));
 
         // prepare output files and early exit if already present
         final String dayString = String.format("%04d-%02d-%02d", year, month, day);
@@ -116,17 +121,25 @@ public class DownloadDayImplV2 {
             if (overallPercent > 0.0 && overallPercent < 100.0) {
                 remaining = (long) (elapsed * (100.0 - overallPercent) / overallPercent);
             }
-            printProgressWithStats(downloadManager, overallPercent,
-                    dayString + " :: Skipping as exists " + allDaysFiles.size() + " files", remaining);
+            printProgressWithStats(
+                    downloadManager,
+                    overallPercent,
+                    dayString + " :: Skipping as exists " + allDaysFiles.size() + " files",
+                    remaining);
             return null;
         }
         if (!Files.exists(downloadedDaysDir)) Files.createDirectories(downloadedDaysDir);
-        try { Files.deleteIfExists(partialOutFile); } catch (IOException ignored) { }
+        try {
+            Files.deleteIfExists(partialOutFile);
+        } catch (IOException ignored) {
+        }
 
         double daySharePercent = (totalDays <= 0) ? 100.0 : (100.0 / totalDays);
         double startingPercent = dayIndex * daySharePercent;
         long remainingMillisUnknown = Long.MAX_VALUE;
-        printProgressWithStats(downloadManager, startingPercent,
+        printProgressWithStats(
+                downloadManager,
+                startingPercent,
                 dayString + " :: Processing " + allDaysFiles.size() + " files",
                 remainingMillisUnknown);
 
@@ -150,19 +163,20 @@ public class DownloadDayImplV2 {
         final LinkedBlockingDeque<BlockWork> pending = new LinkedBlockingDeque<>(1000);
 
         // in background thread iterate blocks in numeric order, queue downloads for each block's files
-        CompletableFuture<Void> downloadQueueingFuture  = CompletableFuture.runAsync(() -> {
+        CompletableFuture<Void> downloadQueueingFuture = CompletableFuture.runAsync(() -> {
             for (long blockNumber = firstBlock; blockNumber <= lastBlock; blockNumber++) {
                 final LocalDateTime blockTime = blockTimeReader.getBlockLocalDateTime(blockNumber);
                 final List<ListingRecordFile> group = filesByBlock.get(blockTime);
                 if (group == null || group.isEmpty()) {
-                    throw new IllegalStateException("Missing record files for block number " + blockNumber
-                        + " at time " + blockTime + " on " + year + "-" + month + "-" + day);
+                    throw new IllegalStateException("Missing record files for block number " + blockNumber + " at time "
+                            + blockTime + " on " + year + "-" + month + "-" + day);
                 }
-                final ListingRecordFile mostCommonRecordFile = findMostCommonByType(group, ListingRecordFile.Type.RECORD);
+                final ListingRecordFile mostCommonRecordFile =
+                        findMostCommonByType(group, ListingRecordFile.Type.RECORD);
                 final ListingRecordFile[] mostCommonSidecarFiles = findMostCommonSidecars(group);
                 // build ordered list of files to download for this block
-                final List<ListingRecordFile> orderedFilesToDownload = computeFilesToDownload(
-                    mostCommonRecordFile, mostCommonSidecarFiles, group);
+                final List<ListingRecordFile> orderedFilesToDownload =
+                        computeFilesToDownload(mostCommonRecordFile, mostCommonSidecarFiles, group);
                 // get mirror node block hash if available (only for first and last blocks of day)
                 byte[] blockHashFromMirrorNode = null;
                 if (blockNumber == firstBlock && dayBlockInfo.firstBlockHash != null) {
@@ -171,8 +185,8 @@ public class DownloadDayImplV2 {
                     blockHashFromMirrorNode = HexFormat.of().parseHex(dayBlockInfo.lastBlockHash);
                 }
                 // create BlockWork and start downloads for its files
-                final BlockWork bw = new BlockWork(blockNumber, blockHashFromMirrorNode, blockTime,
-                    orderedFilesToDownload);
+                final BlockWork bw =
+                        new BlockWork(blockNumber, blockHashFromMirrorNode, blockTime, orderedFilesToDownload);
                 for (ListingRecordFile lr : orderedFilesToDownload) {
                     final String blobName = BUCKET_PATH_PREFIX + lr.path();
                     bw.futures.add(downloadManager.downloadAsync(BUCKET_NAME, blobName));
@@ -204,14 +218,15 @@ public class DownloadDayImplV2 {
                     // no work available right now; retry loop condition
                     continue;
                 }
-                 // wait for its downloads to complete for this block
-                 try {
-                     CompletableFuture.allOf(ready.futures.toArray(new CompletableFuture[0])).join();
-                 } catch (CompletionException ce) {
-                     clearProgress();
-                     ce.printStackTrace();
-                     throw new RuntimeException("Failed downloading block " + ready.blockTime, ce.getCause());
-                 }
+                // wait for its downloads to complete for this block
+                try {
+                    CompletableFuture.allOf(ready.futures.toArray(new CompletableFuture[0]))
+                            .join();
+                } catch (CompletionException ce) {
+                    clearProgress();
+                    ce.printStackTrace();
+                    throw new RuntimeException("Failed downloading block " + ready.blockTime, ce.getCause());
+                }
                 // convert the downloaded files into InMemoryFiles with destination paths, unzipped if needed and
                 //  validate md5 hashes
                 final List<InMemoryFile> inMemoryFilesForWriting = new ArrayList<>();
@@ -232,25 +247,36 @@ public class DownloadDayImplV2 {
                         inMemoryFilesForWriting.add(new InMemoryFile(newFilePath, contentBytes));
                     } catch (EOFException eofe) {
                         // ignore corrupted gzip files
-                        System.err.println("Warning: Skipping corrupted gzip file ["+filename+"] for block " +
-                            ready.blockNumber + " time " + ready.blockTime + ": " + eofe.getMessage());
+                        System.err.println("Warning: Skipping corrupted gzip file [" + filename + "] for block "
+                                + ready.blockNumber + " time " + ready.blockTime + ": " + eofe.getMessage());
                     }
                 }
                 // validate block hashes
-                prevRecordFileHash = validateBlockHashes(ready.blockNumber, inMemoryFilesForWriting, prevRecordFileHash,
-                    ready.blockHashFromMirrorNode);
+                prevRecordFileHash = validateBlockHashes(
+                        ready.blockNumber, inMemoryFilesForWriting, prevRecordFileHash, ready.blockHashFromMirrorNode);
                 // write files to output tar.zstd
                 for (InMemoryFile imf : inMemoryFilesForWriting) writer.putEntry(imf);
                 // print progress
-                printProgress(blocksProcessed, blocksQueuedForDownload, totalBlocks, dayIndex, daySharePercent,
-                    overallStartMillis, dayString, ready.blockTime, downloadManager);
+                printProgress(
+                        blocksProcessed,
+                        blocksQueuedForDownload,
+                        totalBlocks,
+                        dayIndex,
+                        daySharePercent,
+                        overallStartMillis,
+                        dayString,
+                        ready.blockTime,
+                        downloadManager);
             }
             // Ensure producer exceptions are propagated instead of being silently ignored.
             downloadQueueingFuture.join();
         } catch (Exception e) {
             clearProgress();
             e.printStackTrace();
-            try { Files.deleteIfExists(partialOutFile); } catch (IOException ignored) { }
+            try {
+                Files.deleteIfExists(partialOutFile);
+            } catch (IOException ignored) {
+            }
             throw e;
         }
         return prevRecordFileHash;
@@ -266,31 +292,33 @@ public class DownloadDayImplV2 {
      * @return the computed block hash from this block's record file
      * @throws IllegalStateException if any hash validation fails
      */
-    private static byte[] validateBlockHashes(final long blockNum, final List<InMemoryFile> inMemoryFilesForWriting,
-                final byte[] prevRecordFileHash, final byte[] blockHashFromMirrorNode) {
+    private static byte[] validateBlockHashes(
+            final long blockNum,
+            final List<InMemoryFile> inMemoryFilesForWriting,
+            final byte[] prevRecordFileHash,
+            final byte[] blockHashFromMirrorNode) {
         final InMemoryFile mostCommonRecordFileInMem = inMemoryFilesForWriting.get(0);
         final RecordFileInfo recordFileInfo = RecordFileInfo.parse(mostCommonRecordFileInMem.data());
         byte[] readPreviousBlockHash = recordFileInfo.previousBlockHash().toByteArray();
         byte[] computedBlockHash = recordFileInfo.blockHash().toByteArray();
         if (blockHashFromMirrorNode != null && !Arrays.equals(blockHashFromMirrorNode, computedBlockHash)) {
-            throw new IllegalStateException("Block["+blockNum+"] hash mismatch with mirror node listing. "+
-                    ", Expected: " + HexFormat.of().formatHex(blockHashFromMirrorNode).substring(0, 8)
-                    + ", Found: "
-                    + HexFormat.of()
-                            .formatHex(computedBlockHash)
-                            .substring(0, 8) + "\n" + "Context mostCommonRecordFile:"
-                    + mostCommonRecordFileInMem.path() + " computedHash:"
-                    + HexFormat.of().formatHex(computedBlockHash).substring(0, 8));
+            throw new IllegalStateException(
+                    "Block[" + blockNum + "] hash mismatch with mirror node listing. " + ", Expected: "
+                            + HexFormat.of().formatHex(blockHashFromMirrorNode).substring(0, 8)
+                            + ", Found: "
+                            + HexFormat.of().formatHex(computedBlockHash).substring(0, 8) + "\n"
+                            + "Context mostCommonRecordFile:"
+                            + mostCommonRecordFileInMem.path() + " computedHash:"
+                            + HexFormat.of().formatHex(computedBlockHash).substring(0, 8));
         }
         if (prevRecordFileHash != null && !Arrays.equals(prevRecordFileHash, readPreviousBlockHash)) {
-                throw new IllegalStateException("Block["+blockNum+"] previous block hash mismatch. "+
-                        ", Expected: " + HexFormat.of().formatHex(prevRecordFileHash).substring(0, 8)
-                        + ", Found: "
-                        + HexFormat.of()
-                                .formatHex(readPreviousBlockHash)
-                                .substring(0, 8) + "\n" + "Context mostCommonRecordFile:"
-                        + mostCommonRecordFileInMem.path() + " computedHash:"
-                        + HexFormat.of().formatHex(computedBlockHash).substring(0, 8));
+            throw new IllegalStateException("Block[" + blockNum + "] previous block hash mismatch. " + ", Expected: "
+                    + HexFormat.of().formatHex(prevRecordFileHash).substring(0, 8)
+                    + ", Found: "
+                    + HexFormat.of().formatHex(readPreviousBlockHash).substring(0, 8) + "\n"
+                    + "Context mostCommonRecordFile:"
+                    + mostCommonRecordFileInMem.path() + " computedHash:"
+                    + HexFormat.of().formatHex(computedBlockHash).substring(0, 8));
         }
         return computedBlockHash;
     }
@@ -304,8 +332,8 @@ public class DownloadDayImplV2 {
      * @return the new file path within the archive
      * @throws IOException if an unsupported file type is encountered
      */
-    private static Path computeNewFilePath(ListingRecordFile lr, Set<ListingRecordFile> mostCommonFiles, String filename)
-        throws IOException {
+    private static Path computeNewFilePath(
+            ListingRecordFile lr, Set<ListingRecordFile> mostCommonFiles, String filename) throws IOException {
         String parentDir = lr.path();
         int lastSlash = parentDir.lastIndexOf('/');
         if (lastSlash > 0) parentDir = parentDir.substring(0, lastSlash);
@@ -335,8 +363,10 @@ public class DownloadDayImplV2 {
      * @param group the full list of listing record files for the block
      * @return the ordered list of files to download
      */
-    private static List<ListingRecordFile> computeFilesToDownload(ListingRecordFile mostCommonRecordFile,
-        ListingRecordFile[] mostCommonSidecarFiles, List<ListingRecordFile> group) {
+    private static List<ListingRecordFile> computeFilesToDownload(
+            ListingRecordFile mostCommonRecordFile,
+            ListingRecordFile[] mostCommonSidecarFiles,
+            List<ListingRecordFile> group) {
         final List<ListingRecordFile> orderedFilesToDownload = new ArrayList<>();
         if (mostCommonRecordFile != null) orderedFilesToDownload.add(mostCommonRecordFile);
         orderedFilesToDownload.addAll(Arrays.asList(mostCommonSidecarFiles));
@@ -374,8 +404,16 @@ public class DownloadDayImplV2 {
      * @param ready the LocalDateTime of the block just processed
      * @param downloadManager the concurrent download manager (may be null)
      */
-    private static void printProgress(AtomicLong blocksProcessed, final AtomicLong blocksQueuedForDownload, int totalBlocks, int dayIndex, double daySharePercent,
-        long overallStartMillis, String dayString, LocalDateTime ready, ConcurrentDownloadManager downloadManager) {
+    private static void printProgress(
+            AtomicLong blocksProcessed,
+            final AtomicLong blocksQueuedForDownload,
+            int totalBlocks,
+            int dayIndex,
+            double daySharePercent,
+            long overallStartMillis,
+            String dayString,
+            LocalDateTime ready,
+            ConcurrentDownloadManager downloadManager) {
         long processed = blocksProcessed.incrementAndGet();
         double blockFraction = processed / (double) totalBlocks;
         double overallPercent = dayIndex * daySharePercent + blockFraction * daySharePercent;
@@ -387,7 +425,8 @@ public class DownloadDayImplV2 {
         } else if (overallPercent >= 100.0) {
             remaining = 0L;
         }
-        String msg = dayString + " -Blk q "+blocksQueuedForDownload.get()+" p " + processed + " t " + totalBlocks + " (" + ready + ")";
+        String msg = dayString + " -Blk q " + blocksQueuedForDownload.get() + " p " + processed + " t " + totalBlocks
+                + " (" + ready + ")";
         if (processed == 1 || processed % 50 == 0) {
             printProgressWithStats(downloadManager, overallPercent, msg, remaining);
         }
@@ -401,16 +440,17 @@ public class DownloadDayImplV2 {
      * @param msg the base message to print
      * @param remaining estimated remaining millis
      */
-    private static void printProgressWithStats(final ConcurrentDownloadManager mgr,
-            final double overallPercent,
-            final String msg,
-            final long remaining) {
+    private static void printProgressWithStats(
+            final ConcurrentDownloadManager mgr, final double overallPercent, final String msg, final long remaining) {
         final String stats;
         if (mgr == null) {
             stats = "";
         } else {
-            stats = String.format(" [dl=%s, files=%d, threads=%d/%d]",
-                prettyPrintFileSize(mgr.getBytesDownloaded()), mgr.getObjectsCompleted(), mgr.getCurrentConcurrency(),
+            stats = String.format(
+                    " [dl=%s, files=%d, threads=%d/%d]",
+                    prettyPrintFileSize(mgr.getBytesDownloaded()),
+                    mgr.getObjectsCompleted(),
+                    mgr.getCurrentConcurrency(),
                     mgr.getMaxConcurrency());
         }
         printProgressWithEta(overallPercent, msg + stats, remaining);

@@ -32,9 +32,10 @@ public class CleanDayOfBadRecordSets implements Runnable {
     private final File[] compressedDayOrDaysDirs = new File[0];
 
     @Option(
-        names = {"-d", "--bad-files-dir"},
-        description = "Directory where bad day files are stored")
+            names = {"-d", "--bad-files-dir"},
+            description = "Directory where bad day files are stored")
     private Path badDayDir = Path.of("compressedDays-BAD");
+
     @Spec
     CommandSpec spec;
 
@@ -58,12 +59,15 @@ public class CleanDayOfBadRecordSets implements Runnable {
         final List<Path> badDayPaths = new java.util.ArrayList<>();
         for (int i = 0; i < inputDayPaths.size(); i++) {
             Path dayFile = inputDayPaths.get(i);
-            printProgress(i, inputDayPaths.size(),"Scanning for bad day files: " + dayFile+
-                " found "+badDayPaths.size()+" so far");
+            printProgress(
+                    i,
+                    inputDayPaths.size(),
+                    "Scanning for bad day files: " + dayFile + " found " + badDayPaths.size() + " so far");
             try (final Stream<RecordFileBlock> stream = TarZstdDayReaderUsingExec.streamTarZstd(dayFile)) {
                 boolean hasBadRecordSet = stream
-                    // filter out bad record sets with only 1 signature file
-                    .anyMatch((RecordFileBlock block) -> block.signatureFiles().size() <= 1);
+                        // filter out bad record sets with only 1 signature file
+                        .anyMatch(
+                        (RecordFileBlock block) -> block.signatureFiles().size() <= 1);
                 if (hasBadRecordSet) {
                     badDayPaths.add(dayFile);
                 }
@@ -74,11 +78,12 @@ public class CleanDayOfBadRecordSets implements Runnable {
         }
         PrettyPrint.clearProgress();
         // print how many bad day files found
-        System.out.printf("Found %d bad day files to clean out of %d total day files%n",
-            badDayPaths.size(), inputDayPaths.size());
+        System.out.printf(
+                "Found %d bad day files to clean out of %d total day files%n",
+                badDayPaths.size(), inputDayPaths.size());
         // move all the bad day files to badDayDir
         final List<Path> movedBadDayPaths = new java.util.ArrayList<>();
-        final Map<Path,Path> badToGoodMap = new java.util.HashMap<>();
+        final Map<Path, Path> badToGoodMap = new java.util.HashMap<>();
         for (Path badDayFile : badDayPaths) {
             final Path movedBadFilePath = badDayDir.resolve(badDayFile.getFileName());
             movedBadDayPaths.add(movedBadFilePath);
@@ -102,32 +107,33 @@ public class CleanDayOfBadRecordSets implements Runnable {
             try (final Stream<RecordFileBlock> stream = TarZstdDayReaderUsingExec.streamTarZstd(badDayFile);
                     final ConcurrentTarZstdWriter writer = new ConcurrentTarZstdWriter(finalOutFile)) {
                 stream
-                    // filter out bad record sets with only 1 signature file
-                    .filter((RecordFileBlock block) -> block.signatureFiles().size() > 1)
-                    // write good record sets to cleaned day file
-                    .forEach((RecordFileBlock block) -> {
-                        writer.putEntry(block.primaryRecordFile());
-                        block.signatureFiles().forEach(writer::putEntry);
-                        block.otherRecordFiles().forEach(writer::putEntry);
-                        block.primarySidecarFiles().forEach(writer::putEntry);
-                        block.otherSidecarFiles().forEach(writer::putEntry);
-                        // Build progress string showing time and hashes (shortened to 8 chars for readability)
-                        long blockMinute = block.recordFileTime().getEpochSecond() / 60L;
-                        final String progressString = String.format("%s :: %s -> %s",
-                            block.recordFileTime(),badDayFile, finalOutFile);
-                        // Estimate totals and ETA
-                        final long elapsedMillis = (System.nanoTime() - startNanos) / 1_000_000L;
-                        // Progress percent and remaining
-                        final long processedSoFarAcrossAll = progress.incrementAndGet();
-                        final long totalProgressFinal = totalProgress.get();
-                        double percent = ((double) processedSoFarAcrossAll / (double) totalProgressFinal) * 100.0;
-                        long remainingMillis =
-                            computeRemainingMilliseconds(processedSoFarAcrossAll, totalProgressFinal, elapsedMillis);
+                        // filter out bad record sets with only 1 signature file
+                        .filter((RecordFileBlock block) ->
+                                block.signatureFiles().size() > 1)
+                        // write good record sets to cleaned day file
+                        .forEach((RecordFileBlock block) -> {
+                            writer.putEntry(block.primaryRecordFile());
+                            block.signatureFiles().forEach(writer::putEntry);
+                            block.otherRecordFiles().forEach(writer::putEntry);
+                            block.primarySidecarFiles().forEach(writer::putEntry);
+                            block.otherSidecarFiles().forEach(writer::putEntry);
+                            // Build progress string showing time and hashes (shortened to 8 chars for readability)
+                            long blockMinute = block.recordFileTime().getEpochSecond() / 60L;
+                            final String progressString =
+                                    String.format("%s :: %s -> %s", block.recordFileTime(), badDayFile, finalOutFile);
+                            // Estimate totals and ETA
+                            final long elapsedMillis = (System.nanoTime() - startNanos) / 1_000_000L;
+                            // Progress percent and remaining
+                            final long processedSoFarAcrossAll = progress.incrementAndGet();
+                            final long totalProgressFinal = totalProgress.get();
+                            double percent = ((double) processedSoFarAcrossAll / (double) totalProgressFinal) * 100.0;
+                            long remainingMillis = computeRemainingMilliseconds(
+                                    processedSoFarAcrossAll, totalProgressFinal, elapsedMillis);
 
-                        if (blockMinute != lastReportedMinute.getAndSet(blockMinute)) {
-                            PrettyPrint.printProgressWithEta(percent, progressString, remainingMillis);
-                        }
-                    });
+                            if (blockMinute != lastReportedMinute.getAndSet(blockMinute)) {
+                                PrettyPrint.printProgressWithEta(percent, progressString, remainingMillis);
+                            }
+                        });
             } catch (Exception e) {
                 PrettyPrint.clearProgress();
                 throw new RuntimeException(e);

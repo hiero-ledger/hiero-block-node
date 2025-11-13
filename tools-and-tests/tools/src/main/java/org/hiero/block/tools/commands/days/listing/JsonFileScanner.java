@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.tools.commands.days.listing;
 
 import static org.hiero.block.tools.utils.PrettyPrint.prettyPrintFileSize;
@@ -50,10 +51,12 @@ public class JsonFileScanner {
                 fileExtensions.add(""); // no extension
             }
         });
-        System.out.println("\nTotal files: " + totalFiles +
-                ", total size: "+prettyPrintFileSize(totalSize.get())+" (" + totalSize.get()+"bytes)");
+        System.out.println("\nTotal files: " + totalFiles + ", total size: " + prettyPrintFileSize(totalSize.get())
+                + " (" + totalSize.get() + "bytes)");
         System.out.println("File extensions: ");
-        fileExtensions.stream().sorted().forEach(ext -> System.out.println("  " + (ext.isEmpty() ? "<no extension>" : ext)));
+        fileExtensions.stream()
+                .sorted()
+                .forEach(ext -> System.out.println("  " + (ext.isEmpty() ? "<no extension>" : ext)));
     }
 
     /**
@@ -70,52 +73,56 @@ public class JsonFileScanner {
         final long printInterval = Math.max(fileSize / 10_000, 1);
         final AtomicLong totalChars = new AtomicLong(0);
         final AtomicLong lastPrint = new AtomicLong(0);
-        try (var linesStream = Files.lines(jsonFile); BadLinesWriter badLinesWriter = new BadLinesWriter()) {
-            final long fileCount =  linesStream.parallel()
+        try (var linesStream = Files.lines(jsonFile);
+                BadLinesWriter badLinesWriter = new BadLinesWriter()) {
+            final long fileCount = linesStream
+                    .parallel()
                     .mapToLong(line -> {
-                                String path = null;
-                                String name = null;
-                                int size = 0;
-                                boolean isDir = false;
-                                String md5Hex = null;
-                                var matcher = EXTACT_FILEDS.matcher(line);
-                                while (matcher.find()) {
-                                    String field = matcher.group(1);
-                                    String value = matcher.group(2);
-                                    switch (field) {
-                                        case "Path" -> path = value;
-                                        case "Name" -> name = value;
-                                        case "Size" -> size = Integer.parseInt(value);
-                                        case "IsDir" -> isDir = Boolean.parseBoolean(value) ||
-                                                value.toLowerCase().contains("true");
-                                        case "md5" -> md5Hex = value;
-                                    }
-                                }
-                                // ignore directories and small lines like "[" or "]"
-                                if (!isDir && line.length() > 3) {
-                                    // Extract file name from path if not present
-                                    if (name == null && path != null) {
-                                        int idx = path.lastIndexOf('/');
-                                        name = (idx >= 0) ? path.substring(idx + 1) : path;
-                                    }
-                                    // check if required fields are present
-                                    if (path == null || size < 0 || md5Hex == null) {
-                                        throw new RuntimeException("Missing required fields in JSON object: path=" +
-                                                path + ", name=" + size + ", name=" + size + ", md5Hex=" + md5Hex+", \nline=>>>"+line+"<<<");
-                                    }
-                                    recordFileHandler.handle(path, name, size, md5Hex);
-                                } else {
-                                    badLinesWriter.writeBadLine(line);
-                                }
+                        String path = null;
+                        String name = null;
+                        int size = 0;
+                        boolean isDir = false;
+                        String md5Hex = null;
+                        var matcher = EXTACT_FILEDS.matcher(line);
+                        while (matcher.find()) {
+                            String field = matcher.group(1);
+                            String value = matcher.group(2);
+                            switch (field) {
+                                case "Path" -> path = value;
+                                case "Name" -> name = value;
+                                case "Size" -> size = Integer.parseInt(value);
+                                case "IsDir" ->
+                                    isDir = Boolean.parseBoolean(value)
+                                            || value.toLowerCase().contains("true");
+                                case "md5" -> md5Hex = value;
+                            }
+                        }
+                        // ignore directories and small lines like "[" or "]"
+                        if (!isDir && line.length() > 3) {
+                            // Extract file name from path if not present
+                            if (name == null && path != null) {
+                                int idx = path.lastIndexOf('/');
+                                name = (idx >= 0) ? path.substring(idx + 1) : path;
+                            }
+                            // check if required fields are present
+                            if (path == null || size < 0 || md5Hex == null) {
+                                throw new RuntimeException("Missing required fields in JSON object: path=" + path
+                                        + ", name=" + size + ", name=" + size + ", md5Hex=" + md5Hex + ", \nline=>>>"
+                                        + line + "<<<");
+                            }
+                            recordFileHandler.handle(path, name, size, md5Hex);
+                        } else {
+                            badLinesWriter.writeBadLine(line);
+                        }
 
-                                // Print progress bar
-                                final long charRead = totalChars.addAndGet(line.length() + 1); // +1 for newline
-                                if (charRead - lastPrint.get() >= printInterval) {
-                                    PrettyPrint.printProgress(charRead, fileSize);
-                                    lastPrint.set(charRead);
-                                }
-                                return 1;
-                            })
+                        // Print progress bar
+                        final long charRead = totalChars.addAndGet(line.length() + 1); // +1 for newline
+                        if (charRead - lastPrint.get() >= printInterval) {
+                            PrettyPrint.printProgress(charRead, fileSize);
+                            lastPrint.set(charRead);
+                        }
+                        return 1;
+                    })
                     .sum();
             PrettyPrint.printProgress(fileSize, fileSize); // ensure 100% at end
             return fileCount;
