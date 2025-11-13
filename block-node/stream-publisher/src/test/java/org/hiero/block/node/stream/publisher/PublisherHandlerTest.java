@@ -4,6 +4,7 @@ package org.hiero.block.node.stream.publisher;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatNoException;
 import static org.assertj.core.api.Assertions.assertThatNullPointerException;
+import static org.assertj.core.api.AssertionsForClassTypes.assertThatCode;
 import static org.hiero.block.node.spi.BlockNodePlugin.METRICS_CATEGORY;
 import static org.hiero.block.node.stream.publisher.fixtures.PublishApiUtility.endThisBlock;
 
@@ -2088,39 +2089,210 @@ class PublisherHandlerTest {
         }
 
         /**
-         * Tests for the {@link PublisherHandler#onError(Throwable)} method
+         * Requirement: When {@link PublisherHandler#onComplete()} is invoked, it must signal the completion of the reply
+         * pipeline exactly once and perform no other side effects.
+         *
+         * Verification strategy: Begin from a clean state, invoke {@link PublisherHandler#onComplete()}, then assert
+         * exactly one completion event and that onNext/onError/onSubscription/client-end-stream counters remain unchanged.
+         *
          */
         @Nested
         @DisplayName("onComplete() Tests")
         class OnCompleteTests {
-            // @todo(1416) add tests for onComplete, not finished yet
+            /**
+             * Verifies that onComplete() completes the reply pipeline without any extra interactions.
+             */
+            @Test
+            @DisplayName("Test onComplete() completes pipeline without extra interactions")
+            void testOnCompleteRemovesHandlerAndCompletesPipeline() {
+                // Call onComplete
+                toTest.onComplete();
+
+                // Assert pipeline completed exactly once
+                assertThat(repliesPipeline.getOnCompleteCalls().get()).isEqualTo(1);
+
+                // Assert no other pipeline interactions occurred
+                assertThat(repliesPipeline.getOnNextCalls()).isEmpty();
+                assertThat(repliesPipeline.getOnErrorCalls()).isEmpty();
+                assertThat(repliesPipeline.getOnSubscriptionCalls()).isEmpty();
+                assertThat(repliesPipeline.getClientEndStreamCalls().get()).isEqualTo(0);
+            }
         }
 
         /**
-         * Tests for the {@link PublisherHandler#onSubscribe(Subscription)} method.
+         * Requirement: {@link PublisherHandler#onSubscribe(org.reactivestreams.Subscription)} must be a no-op:
+         * it should not throw, and it must produce no protocol responses or reply-pipeline side effects.
+         *
+         * Verification strategy: Start from a clean reply pipeline, pass a minimal no-op {@link org.reactivestreams.Subscription}
+         * to {@code onSubscribe(...)}, assert no exception is thrown, and then assert zero interactions across
+         * onNext/onError/onSubscription/onComplete and client-end-stream counters.
+         *
          */
         @Nested
         @DisplayName("onSubscribe() Tests")
         class OnSubscribeTests {
-            // @todo(1416) add tests for onSubscribe, not finished yet
+            /** Verifies that onSubscribe() throws no exceptions and leaves the reply pipeline untouched. */
+            @Test
+            @DisplayName("onSubscribe() performs no side effects")
+            void testOnSubscribeDoesNothing() {
+                // Pre-assert: no reply pipeline interactions yet
+                assertThat(repliesPipeline.getOnCompleteCalls().get()).isZero();
+                assertThat(repliesPipeline.getOnNextCalls()).isEmpty();
+                assertThat(repliesPipeline.getOnErrorCalls()).isEmpty();
+                assertThat(repliesPipeline.getOnSubscriptionCalls()).isEmpty();
+                assertThat(repliesPipeline.getClientEndStreamCalls().get()).isZero();
+
+                // Minimal Subscription
+                Subscription sub = new Subscription() {
+                    @Override
+                    public void request(long n) {
+                        // no-op: method intentionally left blank for testing
+                    }
+
+                    @Override
+                    public void cancel() {
+                        // no-op: method intentionally left blank for testing
+                    }
+                };
+
+                // Call and ensure no exception
+                assertThatCode(() -> toTest.onSubscribe(sub)).doesNotThrowAnyException();
+
+                // Post-assert: still no interactions with the replies pipeline
+                assertThat(repliesPipeline.getOnCompleteCalls().get()).isZero();
+                assertThat(repliesPipeline.getOnNextCalls()).isEmpty();
+                assertThat(repliesPipeline.getOnErrorCalls()).isEmpty();
+                assertThat(repliesPipeline.getOnSubscriptionCalls()).isEmpty();
+                assertThat(repliesPipeline.getClientEndStreamCalls().get()).isZero();
+            }
         }
 
         /**
-         * Tests for the {@link PublisherHandler#clientEndStreamReceived()} method.
+         * Requirement: Client end-of-stream must complete the reply pipeline and emit
+         * no protocol responses.
+         *
+         * How this test proves it: Pre-assert the pipeline has had no prior
+         * interactions, call {@link PublisherHandler#clientEndStreamReceived()}, then
+         * assert exactly one completion and that onNext/onError/onSubscription and
+         * client-end-stream counters remain unchanged.
+         *
          */
         @Nested
         @DisplayName("clientEndStreamReceived() Tests")
         class ClientEndStreamReceivedTests {
-            // @todo(1416) add tests for clientEndStreamReceived, not finished yet
+
+            /**
+             * Verifies that calling clientEndStreamReceived() completes the pipeline and sends no other responses.
+             */
+            @Test
+            @DisplayName("clientEndStreamReceived() completes pipeline without extra interactions")
+            void testClientEndStreamReceivedCompletesPipeline() {
+                // Pre-assert: no reply pipeline interactions yet
+                assertThat(repliesPipeline.getOnCompleteCalls().get()).isZero();
+                assertThat(repliesPipeline.getOnNextCalls()).isEmpty();
+                assertThat(repliesPipeline.getOnErrorCalls()).isEmpty();
+                assertThat(repliesPipeline.getOnSubscriptionCalls()).isEmpty();
+                assertThat(repliesPipeline.getClientEndStreamCalls().get()).isZero();
+
+                // Invoke the method under test
+                toTest.clientEndStreamReceived();
+
+                // Post-assert: pipeline completed exactly once
+                assertThat(repliesPipeline.getOnCompleteCalls().get()).isEqualTo(1);
+
+                // Still no other interactions
+                assertThat(repliesPipeline.getOnNextCalls()).isEmpty();
+                assertThat(repliesPipeline.getOnErrorCalls()).isEmpty();
+                assertThat(repliesPipeline.getOnSubscriptionCalls()).isEmpty();
+                assertThat(repliesPipeline.getClientEndStreamCalls().get()).isZero();
+            }
         }
 
         /**
-         * Tests for the {@link PublisherHandler#sendAcknowledgement(long)} method.
+         * Requirement: When an acknowledgement is sent for a given block number, the handler must emit exactly one
+         * {@link org.hiero.block.api.PublishStreamResponse.Acknowledgement} response containing the same block number
+         * and increment the {@code blockAcknowledgementsSent} metric by one.
+         *
+         * Verification strategy: Begin from a clean state, invoke {@link PublisherHandler#sendAcknowledgement(long)}, then
+         * assert that a single ACK response with the expected block number was produced and metrics updated accordingly.
+         *
          */
         @Nested
         @DisplayName("sendAcknowledgement() Tests")
         class SendAcknowledgementTests {
-            // @todo(1416) add tests for sendAcknowledgement, not finished yet
+            /**
+             * Verifies that sendAcknowledgement() emits a single ACK for the given block number and increments metrics.
+             */
+            @Test
+            @DisplayName("sends ACK response and updates metrics for given block number")
+            void testSendAcknowledgementSendsAckAndUpdatesMetrics() {
+                // Pre-assert: clean state
+                assertThat(repliesPipeline.getOnNextCalls()).isEmpty();
+                assertThat(repliesPipeline.getOnErrorCalls()).isEmpty();
+                assertThat(repliesPipeline.getOnSubscriptionCalls()).isEmpty();
+                assertThat(repliesPipeline.getOnCompleteCalls().get()).isZero();
+                final long beforeAcks = metrics.blockAcknowledgementsSent().get();
+
+                // Act
+                final long blockNumber = 123L;
+                toTest.sendAcknowledgement(blockNumber);
+
+                // Assert: single ACK with the same block number
+                assertThat(repliesPipeline.getOnNextCalls())
+                        .hasSize(1)
+                        .first()
+                        .returns(ResponseOneOfType.ACKNOWLEDGEMENT, responseKindExtractor)
+                        .returns(blockNumber, acknowledgementBlockNumberExtractor);
+
+                // Metrics: +1 ack, others unchanged
+                assertThat(metrics.blockAcknowledgementsSent().get()).isEqualTo(beforeAcks + 1);
+                assertThat(metrics.liveBlockItemsReceived().get()).isEqualTo(0);
+                assertThat(metrics.streamErrors().get()).isEqualTo(0);
+                assertThat(metrics.blockSkipsSent().get()).isEqualTo(0);
+                assertThat(metrics.blockResendsSent().get()).isEqualTo(0);
+                assertThat(metrics.endOfStreamsSent().get()).isEqualTo(0);
+                assertThat(metrics.sendResponseFailed().get()).isEqualTo(0);
+                assertThat(metrics.endStreamsReceived().get()).isEqualTo(0);
+
+                // No other pipeline interactions
+                assertThat(repliesPipeline.getOnErrorCalls()).isEmpty();
+                assertThat(repliesPipeline.getOnSubscriptionCalls()).isEmpty();
+                assertThat(repliesPipeline.getOnCompleteCalls().get()).isZero();
+            }
+
+            /**
+             * Verifies that two sequential sendAcknowledgement calls emit two ACKs in order and
+             * increment the acknowledgements metric by 2.
+             */
+            @Test
+            @DisplayName("multiple calls produce multiple ACKs in order and increment metrics per call")
+            void testSendAcknowledgementMultipleCalls() {
+                // Pre-assert: capture baseline for ack metric
+                final long beforeAcks = metrics.blockAcknowledgementsSent().get();
+
+                // Act: two acknowledgements
+                final long b0 = 1L;
+                final long b1 = 2L;
+                toTest.sendAcknowledgement(b0);
+                toTest.sendAcknowledgement(b1);
+
+                // Assert: two ACKs in order with correct block numbers
+                assertThat(repliesPipeline.getOnNextCalls()).hasSize(2);
+                assertThat(repliesPipeline.getOnNextCalls().get(0))
+                        .returns(ResponseOneOfType.ACKNOWLEDGEMENT, responseKindExtractor)
+                        .returns(b0, acknowledgementBlockNumberExtractor);
+                assertThat(repliesPipeline.getOnNextCalls().get(1))
+                        .returns(ResponseOneOfType.ACKNOWLEDGEMENT, responseKindExtractor)
+                        .returns(b1, acknowledgementBlockNumberExtractor);
+
+                // Metrics increment by 2
+                assertThat(metrics.blockAcknowledgementsSent().get()).isEqualTo(beforeAcks + 2);
+
+                // No completion/error side effects from acks
+                assertThat(repliesPipeline.getOnCompleteCalls().get()).isZero();
+                assertThat(repliesPipeline.getOnErrorCalls()).isEmpty();
+                assertThat(repliesPipeline.getOnSubscriptionCalls()).isEmpty();
+            }
         }
 
         /**
