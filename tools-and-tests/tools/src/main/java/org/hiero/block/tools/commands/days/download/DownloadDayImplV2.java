@@ -183,9 +183,15 @@ public class DownloadDayImplV2 {
                 // get mirror node block hash if available (only for first and last blocks of day)
                 byte[] blockHashFromMirrorNode = null;
                 if (blockNumber == firstBlock && dayBlockInfo.firstBlockHash != null) {
-                    blockHashFromMirrorNode = HexFormat.of().parseHex(dayBlockInfo.firstBlockHash);
+                    String hexStr = dayBlockInfo.firstBlockHash.startsWith("0x")
+                            ? dayBlockInfo.firstBlockHash.substring(2)
+                            : dayBlockInfo.firstBlockHash;
+                    blockHashFromMirrorNode = HexFormat.of().parseHex(hexStr);
                 } else if (blockNumber == lastBlock && dayBlockInfo.lastBlockHash != null) {
-                    blockHashFromMirrorNode = HexFormat.of().parseHex(dayBlockInfo.lastBlockHash);
+                    String hexStr = dayBlockInfo.lastBlockHash.startsWith("0x")
+                            ? dayBlockInfo.lastBlockHash.substring(2)
+                            : dayBlockInfo.lastBlockHash;
+                    blockHashFromMirrorNode = HexFormat.of().parseHex(hexStr);
                 }
                 // create BlockWork and start downloads for its files
                 final BlockWork bw =
