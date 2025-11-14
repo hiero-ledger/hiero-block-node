@@ -8,6 +8,8 @@ import com.hedera.pbj.runtime.io.buffer.Bytes;
 import java.util.ArrayList;
 import java.util.HexFormat;
 import java.util.List;
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
 
 /**
  * Query Mirror Node and fetch block information
@@ -46,12 +48,51 @@ public class FetchBlockQuery {
      * Example: GET blocks?limit=10&order=desc
      *
      * @param limit number of blocks to retrieve
-     * @param order  ordering of blocks
+     * @param order ordering of blocks
      * @return a list of BlockInfo objects representing the latest blocks
      */
     public static List<BlockInfo> getLatestBlocks(int limit, MirrorNodeBlockQueryOrder order) {
-        final String url = MAINNET_MIRROR_NODE_API_URL + "blocks?limit=" + limit + "&order=" + order.name();
-        final JsonObject json = MirrorNodeUtils.readUrl(url);
+        return getLatestBlocks(limit, order, null);
+    }
+
+    /**
+     * Get the latest blocks from the mirror node and return as list of objects, optionally
+     * constrained by one or more timestamp filters.
+     *
+     * <p>The Mirror Node API defines {@code timestamp} as an array of {@code string}, where each
+     * entry is of the form {@code <op>:<seconds.nanoseconds>} such as
+     * {@code gte:1700000000.000000000} or {@code lt:1700003600.000000000}. Multiple filters are applied
+     * as repeated {@code timestamp=} query parameters.</p>
+     *
+     * Example: GET blocks?limit=10&order=desc&timestamp=gte:1700000000.000000000&timestamp=lt:1700003600.000000000
+     *
+     * @param limit number of blocks to retrieve
+     * @param order ordering of blocks
+     * @param timestampFilters optional list of timestamp filter expressions (e.g. {@code gte:...}, {@code lt:...});
+     *                        may be {@code null} or empty to omit the parameter
+     * @return a list of BlockInfo objects representing the latest blocks
+     */
+    public static List<BlockInfo> getLatestBlocks(
+            int limit, MirrorNodeBlockQueryOrder order, List<String> timestampFilters) {
+        final StringBuilder url = new StringBuilder();
+        url.append(MAINNET_MIRROR_NODE_API_URL)
+                .append("blocks")
+                .append("?limit=")
+                .append(limit)
+                .append("&order=")
+                .append(order.name());
+
+        if (timestampFilters != null && !timestampFilters.isEmpty()) {
+            for (String ts : timestampFilters) {
+                if (ts == null || ts.isBlank()) {
+                    continue;
+                }
+                url.append("&timestamp=")
+                        .append(URLEncoder.encode(ts, StandardCharsets.UTF_8));
+            }
+        }
+
+        final JsonObject json = MirrorNodeUtils.readUrl(url.toString());
         List<BlockInfo> blocks = new ArrayList<>();
 
         if (json.has("blocks") && json.get("blocks").isJsonArray()) {
@@ -68,9 +109,9 @@ public class FetchBlockQuery {
                 info.size = b.has("size") ? b.get("size").getAsLong() : 0;
                 info.gasUsed = b.has("gas_used") ? b.get("gas_used").getAsLong() : 0;
                 if (b.has("timestamp") && b.get("timestamp").isJsonObject()) {
-                    JsonObject ts = b.getAsJsonObject("timestamp");
-                    info.timestampFrom = ts.has("from") ? ts.get("from").getAsString() : null;
-                    info.timestampTo = ts.has("to") ? ts.get("to").getAsString() : null;
+                    JsonObject tsObj = b.getAsJsonObject("timestamp");
+                    info.timestampFrom = tsObj.has("from") ? tsObj.get("from").getAsString() : null;
+                    info.timestampTo = tsObj.has("to") ? tsObj.get("to").getAsString() : null;
                 }
                 blocks.add(info);
             });
