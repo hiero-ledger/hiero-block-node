@@ -546,6 +546,8 @@ public class BlockNodeAPITests {
 
         // This asserts that UncheckedIOException is thrown and its cause is a SocketException with "socket closed"
         UncheckedIOException ex = assertThrows(UncheckedIOException.class, () -> {
+            // Expected exception to be thrown on the onNext() due to closed socket
+            // from previous duplicate block publish
             requestStream.onNext(request1);
             publishCompleteCountDownLatch.await(); // wait
             endBlock(blockNumber1, requestStream);
