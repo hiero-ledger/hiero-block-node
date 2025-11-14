@@ -105,6 +105,10 @@ public class UpdateBlockData implements Runnable {
                         long blockNumber = block.get("number").getAsLong();
                         String recordFileName = block.get("name").getAsString();
                         String blockHash = block.get("hash").getAsString();
+                        // Strip "0x" prefix from hash if present
+                        if (blockHash.startsWith("0x")) {
+                            blockHash = blockHash.substring(2);
+                        }
 
                         // Extract block time and convert to block time long
                         Instant blockInstant = extractRecordFileTime(recordFileName);
