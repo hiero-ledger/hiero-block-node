@@ -173,13 +173,12 @@ public record RecordFileInfo(
      * @return the pretty string
      */
     public String prettyToString() {
-        return "RecordFileInfo{\n" +
-                "       recordFormatVersion    = " + recordFormatVersion + "\n" +
-                "       hapiProtoVersion       = " + hapiProtoVersion + "\n" +
-                "       previousBlockHash      = " + previousBlockHash.toString().substring(0, 8) + "\n" +
-                "       blockHash              = " + blockHash.toString().substring(0, 8) + "\n" +
-                "       numOfSidecarFiles              = " + numOfSidecarFiles + "\n" +
-                "       recordFileContentsSize = " + PrettyPrint.prettyPrintFileSize(recordFileContents.length) + "\n" +
-            '}';
+        return "RecordFileInfo{\n" + "       recordFormatVersion    = "
+                + recordFormatVersion + "\n" + "       hapiProtoVersion       = "
+                + hapiProtoVersion + "\n" + "       previousBlockHash      = "
+                + previousBlockHash.toString().substring(0, 8) + "\n" + "       blockHash              = "
+                + blockHash.toString().substring(0, 8) + "\n" + "       numOfSidecarFiles              = "
+                + numOfSidecarFiles + "\n" + "       recordFileContentsSize = "
+                + PrettyPrint.prettyPrintFileSize(recordFileContents.length) + "\n" + '}';
     }
 }
