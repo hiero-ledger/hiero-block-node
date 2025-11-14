@@ -7,7 +7,7 @@ dependencies {
 dependencies.constraints {
     val daggerVersion = "2.57.2"
     val grpcIoVersion = "1.76.0"
-    val helidonVersion = "4.3.1"
+    val helidonVersion = "4.3.2"
     val pbjVersion = pluginVersions.version("com.hedera.pbj.pbj-compiler")
     val protobufVersion = "4.33.0"
     val swirldsVersion = "0.61.3"
