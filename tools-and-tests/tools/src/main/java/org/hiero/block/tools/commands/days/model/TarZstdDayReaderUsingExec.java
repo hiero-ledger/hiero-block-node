@@ -14,6 +14,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Spliterator;
 import java.util.function.Consumer;
+import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import java.util.stream.StreamSupport;
 import org.hiero.block.tools.records.InMemoryFile;
@@ -332,6 +333,11 @@ public class TarZstdDayReaderUsingExec {
             // There must be at least one signature file for the group; enforce invariant
             if (signatureFiles.isEmpty()) {
                 System.err.println("Missing signature files for baseKey='" + baseKey + "' in dir='" + currentDir + "'");
+                System.err.println(" File set: "
+                        + files.stream()
+                                .map(InMemoryFile::path)
+                                .map(Path::toString)
+                                .collect(Collectors.joining(", ")));
                 for (InMemoryFile f : rcdFiles) System.err.println("    " + f.path());
                 throw new RuntimeException(
                         "No signature files found for baseKey='" + baseKey + "' in dir='" + currentDir + "'");
@@ -437,9 +443,14 @@ public class TarZstdDayReaderUsingExec {
 
         int end = noExt.length();
 
+        // Strip trailing _node_sidecar (for other sidecar files)
+        if (noExt.endsWith("_node_sidecar")) {
+            end = noExt.length() - "_node_sidecar".length();
+        }
+
         // Strip trailing _node_<id> where <id> is digits and '.'
-        int nodeIdx = noExt.lastIndexOf("_node_");
-        if (nodeIdx >= 0) {
+        int nodeIdx = noExt.lastIndexOf("_node_", end - 1);
+        if (nodeIdx >= 0 && nodeIdx < end) {
             boolean ok = true;
             for (int i = nodeIdx + 6; i < end; i++) {
                 char c = noExt.charAt(i);
@@ -493,6 +504,11 @@ public class TarZstdDayReaderUsingExec {
         if (noExt.startsWith("_node_", i)) {
             int j = i + 6;
             if (j >= noExt.length()) return -1; // empty node id -> not expected
+            // Check for _node_sidecar pattern
+            if (noExt.substring(j).equals("sidecar")) {
+                return -2; // other sidecar with _node_sidecar suffix
+            }
+            // Check for _node_<digits-and-dots> pattern
             for (; j < noExt.length(); j++) {
                 char c = noExt.charAt(j);
                 if (((c - '0') | ('9' - c)) < 0 && c != '.') return -1; // invalid char in node id
