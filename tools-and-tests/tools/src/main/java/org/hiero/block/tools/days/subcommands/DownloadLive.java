@@ -506,6 +506,31 @@ public class DownloadLive implements Runnable {
         }
 
         /**
+         * Move a problematic temp file into a quarantine area under {@code outRoot} so that it can be
+         * inspected later instead of being silently discarded.
+         *
+         * This is used when validation fails (e.g., block hash mismatch with mirror expectedHash).
+         */
+        private void quarantine(Path tmpFile, String safeName, long blockNumber, String reason) {
+            if (tmpFile == null) {
+                return;
+            }
+            try {
+                final Path quarantineDir = outRoot.resolve("quarantine");
+                Files.createDirectories(quarantineDir);
+                final String targetName = blockNumber + "-" + safeName;
+                final Path targetFile = quarantineDir.resolve(targetName);
+                Files.move(tmpFile, targetFile, StandardCopyOption.REPLACE_EXISTING);
+                System.err.println("[download] Quarantined file for block " + blockNumber + " (" + safeName + ") -> "
+                        + targetFile + " reason=" + reason);
+            } catch (IOException ioe) {
+                System.err.println(
+                        "[download] Failed to quarantine file for block " + blockNumber + " (" + safeName + "): "
+                                + ioe.getMessage());
+            }
+        }
+
+        /**
          * Append the given file (by entryName) to the per-day tar archive using the system tar command.
          * The tar file is created under outRoot as <dayKey>.tar and entries are taken from the per-day folder.
          */
@@ -697,7 +722,8 @@ public class DownloadLive implements Runnable {
                     } catch (Exception ex) {
                         System.err.println(
                                 "[download] Failed to decompress .gz for " + safeName + ": " + ex.getMessage());
-                        Files.deleteIfExists(tmpFile);
+                        // Quarantine the problematic file for later inspection.
+                        quarantine(tmpFile, safeName, d.blockNumber, "gzip decompression failure");
                         return -1L;
                     }
                 }
@@ -709,7 +735,8 @@ public class DownloadLive implements Runnable {
                 } catch (Exception ex) {
                     System.err.println(
                             "[download] Failed to parse record file for " + safeName + ": " + ex.getMessage());
-                    Files.deleteIfExists(tmpFile);
+                    // Quarantine the file when structural validation/parsing fails.
+                    quarantine(tmpFile, safeName, d.blockNumber, "record file parse/validation failure");
                     return -1L;
                 }
 
@@ -724,7 +751,8 @@ public class DownloadLive implements Runnable {
                         String gotShort = gotHex.substring(0, Math.min(8, gotHex.length()));
                         System.err.println("[download] ERROR: Hash mismatch for block " + d.blockNumber + " file "
                                 + safeName + " expected=" + expShort + " got=" + gotShort);
-                        Files.deleteIfExists(tmpFile);
+                        // Move the temp file into quarantine for later inspection instead of deleting it.
+                        quarantine(tmpFile, safeName, d.blockNumber, "block hash mismatch with mirror expectedHash");
                         return -1L;
                     }
                 }
