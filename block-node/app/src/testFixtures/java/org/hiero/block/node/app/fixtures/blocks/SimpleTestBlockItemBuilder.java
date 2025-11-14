@@ -79,18 +79,6 @@ public final class SimpleTestBlockItemBuilder {
                 .build();
 
         return blockProof;
-
-        //        return new BlockProof(
-        //                blockNumber,
-        //                Bytes.wrap("previousBlockRootHash".getBytes()),
-        //                Bytes.wrap("startOfBlockStateRootHash".getBytes()),
-        //                Bytes.wrap("block_signature".getBytes()),
-        //                Collections.emptyList(),
-        //                Bytes.wrap("merkleProofData".getBytes()),
-        //                null, //ChainOfTrustProof.newBuilder().build(),
-        //                new OneOf<>(
-        //                        BlockProof.ProofOneOfType.SIGNED_BLOCK_PROOF,
-        //                        Bytes.wrap("block_signature".getBytes())));
     }
 
     public static Bytes createBlockProofUnparsed(final long blockNumber) {
