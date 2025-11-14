@@ -189,14 +189,22 @@ public class RecordFileBlockV6 extends RecordFileBlock {
             rsf.sidecars()
                     .forEach(meta -> expectedSidecarHashes.add(
                             HexFormat.of().formatHex(meta.hash().hash().toByteArray())));
+            // make sure all expected are in provided, it is ok if there are more provided than expected. This happened
+            // at least once in 2023-08-22T06:15:36.002380003Z
 
-            if (!expectedSidecarHashes.equals(providedSidecarHashes)) {
-                warnings.append("Sidecar hashes do not match metadata (v6). Expected ")
+            if (!providedSidecarHashes.containsAll(expectedSidecarHashes)) {
+                warnings.append("Provided sidecar hashes do contain all required by metadata (v6). Expected ")
                         .append(expectedSidecarHashes.size())
                         .append(", provided ")
                         .append(providedSidecarHashes.size())
                         .append('\n');
                 isValid = false;
+            } else if (providedSidecarHashes.size() > expectedSidecarHashes.size()) {
+                warnings.append("More provided sidecar hashes that needed by metadata (v6). Expected ")
+                        .append(expectedSidecarHashes.size())
+                        .append(", provided ")
+                        .append(providedSidecarHashes.size())
+                        .append('\n');
             }
 
             // Validate signatures
