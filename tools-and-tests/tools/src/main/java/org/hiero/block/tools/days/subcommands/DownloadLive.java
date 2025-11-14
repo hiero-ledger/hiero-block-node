@@ -33,14 +33,57 @@ import picocli.CommandLine.Command;
 import picocli.CommandLine.Option;
 
 /**
- * CLI skeleton for the "download-live" command.
- * This version parses and validates arguments, then runs a day-scoped poll loop
- * that queries the mirror node for recent blocks, downloads them into per-day
- * folders, and persists last-seen state for resume via a local JSON file.
+ * CLI implementation for the {@code days download-live} command.
  *
- * Business logic such as detailed hash verification and reuse of the "download2"
- * fetcher is wired via the LiveDownloader inner class and will be refined in
- * subsequent stories.
+ * <p>This command parses and validates arguments, then runs a day-scoped poll loop that:
+ * <ul>
+ *   <li>Queries the mirror node for recent blocks using the {@code /api/v1/blocks} endpoint</li>
+ *   <li>Filters results to the current day window in the configured rollover timezone</li>
+ *   <li>Downloads, validates and organises record files into per-day folders under {@code --out}</li>
+ *   <li>Appends successfully validated files into a per-day {@code &lt;dayKey&gt;.tar} archive</li>
+ *   <li>Compresses completed day archives to {@code .tar.zstd} and cleans up loose files</li>
+ *   <li>Persists {@code dayKey} and {@code lastSeenBlock} to a small JSON file for resumable operation</li>
+ * </ul>
+ *
+ * <p>The behaviour of the poller is controlled by the optional {@code --start-day} and
+ * {@code --end-day} flags, which define a global ingestion window. The following modes are
+ * supported:
+ *
+ * <h3>1. Start + end date (finite historical range)</h3>
+ * <ul>
+ *   <li>Specify both {@code --start-day} and {@code --end-day}</li>
+ *   <li>The mirror node query applies {@code timestamp &gt;= startDayT00:00} and
+ *       {@code timestamp &lt; (endDay + 1)T00:00} as Unix {@code seconds.nanoseconds} filters</li>
+ *   <li>Locally, the tool still rolls over at each midnight, building one tar per day and then
+ *       compressing it to {@code .tar.zstd} and deleting the per-day folder</li>
+ *   <li>This is useful for backfilling a bounded historical window</li>
+ * </ul>
+ *
+ * <h3>2. Start date only (catch-up then follow live)</h3>
+ * <ul>
+ *   <li>Specify {@code --start-day}, but omit {@code --end-day}</li>
+ *   <li>The mirror node query applies only a lower bound:
+ *       {@code timestamp &gt;= startDayT00:00}</li>
+ *   <li>The poller walks forward day-by-day from the start date until it reaches the present,
+ *       then naturally continues following new blocks as they arrive</li>
+ *   <li>Suitable for "bootstrap from this date and then stay live"</li>
+ * </ul>
+ *
+ * <h3>3. No start/end date (pure live mode)</h3>
+ * <ul>
+ *   <li>If neither {@code --start-day} nor {@code --end-day} is supplied, the poller starts
+ *       from "today" in {@code --day-rollover-tz}</li>
+ *   <li>A lower bound is applied at today's midnight; the tool then tracks new blocks as they
+ *       appear, rolling over archives at each midnight</li>
+ * </ul>
+ *
+ * <p>In all modes, {@code lastSeenBlock} is treated as a global, monotonically increasing
+ * sequence number shared across days. This ensures the downloader never re-processes blocks
+ * whose numbers are less than or equal to the last successfully processed block, even when
+ * crossing day boundaries or restarting from persisted state.</p>
+ *
+ * <p>Business logic such as detailed hash verification and reuse of the historic {@code download2}
+ * fetcher is wired via the {@link LiveDownloader} inner class.</p>
  */
 @Command(
         name = "download-live",
@@ -85,6 +128,20 @@ public class DownloadLive implements Runnable {
             description = "Timezone ID used to determine end-of-day rollover (e.g., UTC, America/Los_Angeles).")
     private String dayRolloverTz;
 
+    @Option(
+            names = "--start-day",
+            paramLabel = "YYYY-MM-DD",
+            description =
+                    "Optional start day (inclusive) for ingestion, e.g., 2025-11-10. Defaults to the current day in the rollover timezone.")
+    private String startDay;
+
+    @Option(
+            names = "--end-day",
+            paramLabel = "YYYY-MM-DD",
+            description =
+                    "Optional end day (inclusive) for ingestion, e.g., 2025-11-15. If omitted, ingestion continues indefinitely and rolls over each day.")
+    private String endDay;
+
     @Option(names = "--max-concurrency", defaultValue = "8", paramLabel = "N", description = "Max parallel downloads.")
     private int maxConcurrency;
 
@@ -114,6 +171,8 @@ public class DownloadLive implements Runnable {
         System.out.println("  pollInterval=" + pollInterval);
         System.out.println("  batchSize=" + batchSize);
         System.out.println("  dayRolloverTz=" + dayRolloverTz);
+        System.out.println("  startDay=" + startDay);
+        System.out.println("  endDay=" + endDay);
         System.out.println("  maxConcurrency=" + maxConcurrency);
         System.out.println("  runPoller=" + runPoller);
         System.out.println("  stateJsonPath=" + stateJsonPath);
@@ -128,7 +187,25 @@ public class DownloadLive implements Runnable {
         final ZoneId tz = ZoneId.of(dayRolloverTz);
         final Duration interval = parseHumanDuration(pollInterval);
         final LiveDownloader downloader = new LiveDownloader(out, tmpDir, sourceRoot, maxConcurrency);
-        final LivePoller poller = new LivePoller(interval, tz, batchSize, stateJsonPath, downloader);
+
+        LocalDate startDayParsed = null;
+        LocalDate endDayParsed = null;
+        try {
+            if (startDay != null && !startDay.isBlank()) {
+                startDayParsed = LocalDate.parse(startDay.trim());
+            }
+            if (endDay != null && !endDay.isBlank()) {
+                endDayParsed = LocalDate.parse(endDay.trim());
+            }
+        } catch (Exception e) {
+            throw new CommandLine.ParameterException(
+                    new CommandLine(new DownloadLive()),
+                    "Invalid --start-day/--end-day; expected format YYYY-MM-DD. startDay="
+                            + startDay + " endDay=" + endDay);
+        }
+
+        final LivePoller poller =
+                new LivePoller(interval, tz, batchSize, stateJsonPath, downloader, startDayParsed, endDayParsed);
         System.out.println("[download-live] Starting LivePoller (continuous; press Ctrl-C to stop)...");
         poller.runContinuouslyForToday();
     }
@@ -266,13 +343,25 @@ public class DownloadLive implements Runnable {
         private final Path statePath;
         private final LiveDownloader downloader;
         private boolean stateLoadedForToday = false;
+        // Optional global date range for ingestion.
+        private final LocalDate configuredStartDay;
+        private final LocalDate configuredEndDay;
 
-        LivePoller(Duration interval, ZoneId tz, int batchSize, Path statePath, LiveDownloader downloader) {
+        LivePoller(
+                Duration interval,
+                ZoneId tz,
+                int batchSize,
+                Path statePath,
+                LiveDownloader downloader,
+                LocalDate configuredStartDay,
+                LocalDate configuredEndDay) {
             this.interval = interval;
             this.tz = tz;
             this.batchSize = batchSize;
             this.statePath = statePath;
             this.downloader = downloader;
+            this.configuredStartDay = configuredStartDay;
+            this.configuredEndDay = configuredEndDay;
         }
 
         void runOnceForCurrentDay() {
@@ -295,8 +384,23 @@ public class DownloadLive implements Runnable {
             System.out.println("[poller] dayKey=" + dayKey + " interval=" + interval + " batchSize=" + batchSize
                     + " lastSeen=" + lastSeenBlock);
 
+            // Build Mirror Node timestamp filters for the global ingestion window.
+            // We always apply a lower bound at the configured start day (or today's day if not configured).
+            // If an end day is configured, we also bound the query to be strictly before endDay+1 midnight.
+            final LocalDate lowerBoundDay = (configuredStartDay != null) ? configuredStartDay : day;
+            final long startSeconds = lowerBoundDay.atStartOfDay(tz).toEpochSecond();
+
+            final List<String> timestampFilters = new ArrayList<>();
+            timestampFilters.add("gte:" + startSeconds + ".000000000");
+
+            if (configuredEndDay != null) {
+                final long endSeconds =
+                        configuredEndDay.plusDays(1).atStartOfDay(tz).toEpochSecond();
+                timestampFilters.add("lt:" + endSeconds + ".000000000");
+            }
+
             // Fetch latest blocks (descending) and filter to the current day + unseen.
-            final List<BlockInfo> latest = FetchBlockQuery.getLatestBlocks(batchSize, MirrorNodeBlockQueryOrder.DESC);
+            final List<BlockInfo> latest = FetchBlockQuery.getLatestBlocks(batchSize, MirrorNodeBlockQueryOrder.DESC, timestampFilters);
             final List<BlockDescriptor> batch = new ArrayList<>();
             for (BlockInfo b : latest) {
                 long number = b.number;
