@@ -134,7 +134,8 @@ public class DownloadDayImplV2 {
         if (!Files.exists(downloadedDaysDir)) Files.createDirectories(downloadedDaysDir);
         try {
             Files.deleteIfExists(partialOutFile);
-        } catch (IOException ignored) {}
+        } catch (IOException ignored) {
+        }
 
         double daySharePercent = (totalDays <= 0) ? 100.0 : (100.0 / totalDays);
         double startingPercent = dayIndex * daySharePercent;
@@ -246,6 +247,10 @@ public class DownloadDayImplV2 {
                                     "MD5 mismatch for " + (BUCKET_PATH_PREFIX + lr.path()) + ", retrying download...");
                             // Retry download with built-in retry logic
                             downloadedFile = downloadFileWithRetry(downloadManager, lr);
+                            // If still null after retries (signature file with persistent MD5 mismatch), skip this file
+                            if (downloadedFile == null) {
+                                continue; // Skip this file and move to next
+                            }
                         }
 
                         byte[] contentBytes = downloadedFile.data();
@@ -294,15 +299,18 @@ public class DownloadDayImplV2 {
 
     /**
      * Download a file with retry logic for MD5 mismatch errors.
+     * For signature files (.rcd_sig), returns null if MD5 validation fails after all retries,
+     * allowing the download process to continue since only 2/3rds of signature files are needed.
      *
      * @param downloadManager the concurrent download manager to use
      * @param lr the listing record file to download
-     * @return the downloaded in-memory file
-     * @throws IOException if download or MD5 validation fails after all retries
+     * @return the downloaded in-memory file, or null if signature file failed MD5 check after all retries
+     * @throws IOException if download or MD5 validation fails after all retries (for non-signature files)
      */
     private static InMemoryFile downloadFileWithRetry(
             final ConcurrentDownloadManager downloadManager, final ListingRecordFile lr) throws IOException {
         final String blobName = BUCKET_PATH_PREFIX + lr.path();
+        final boolean isSignatureFile = lr.type() == ListingRecordFile.Type.RECORD_SIG;
         IOException lastException = null;
 
         for (int attempt = 1; attempt <= MAX_MD5_RETRIES; attempt++) {
@@ -354,6 +362,16 @@ public class DownloadDayImplV2 {
         }
 
         // All retries exhausted
+        // For signature files, we can tolerate MD5 failures since only 2/3 are needed for validation
+        if (isSignatureFile) {
+            clearProgress();
+            System.err.println("WARNING: Skipping signature file " + blobName
+                    + " due to persistent MD5 mismatch after " + MAX_MD5_RETRIES
+                    + " retries. Only 2/3 of signature files are required for block validation.");
+            return null; // Return null to allow the download process to continue
+        }
+
+        // For non-signature files, throw the exception
         throw lastException;
     }
 
