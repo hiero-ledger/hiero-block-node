@@ -88,6 +88,9 @@ final class BlockStagingFileAccessor implements BlockAccessor {
         }
     }
 
+    @Override
+    public void close() {}
+
     /**
      * Get the bytes from the specified path, converting to the desired format if necessary.
      *

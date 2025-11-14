@@ -69,6 +69,11 @@ public class BlockAccessorTest {
                 case ZSTD_PROTOBUF -> SAMPLE_BLOCK_ZSTD_PROTOBUF_BYTES;
             };
         }
+
+        @Override
+        public void close() {
+            // do nothing
+        }
     }
 
     @Test
@@ -101,6 +106,11 @@ public class BlockAccessorTest {
         @Override
         public Bytes blockBytes(Format format) {
             return Bytes.wrap(new byte[] {1, 2, 3, 4, 5});
+        }
+
+        @Override
+        public void close() {
+            // do nothing
         }
     }
 }

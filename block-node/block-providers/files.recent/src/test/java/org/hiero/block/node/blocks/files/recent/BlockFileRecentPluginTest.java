@@ -16,6 +16,7 @@ import com.hedera.hapi.block.stream.BlockItem;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import java.io.IOException;
 import java.nio.file.FileSystem;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.concurrent.LinkedBlockingQueue;
@@ -42,7 +43,9 @@ class BlockFileRecentPluginTest {
     /** The testing file system. */
     private final FileSystem fileSystem;
     /** The path to the live root directory in the testing file system. */
-    private final Path testPath;
+    private final Path blocksRootPath;
+    /** The path to the links root directory in the testing file system. */
+    private final Path linksRootPath;
     /** The plugin configuration, customized with testing file system. */
     private final FilesRecentConfig filesRecentConfig;
     /** The plugin under test. */
@@ -55,10 +58,71 @@ class BlockFileRecentPluginTest {
      */
     BlockFileRecentPluginTest() {
         this.fileSystem = Jimfs.newFileSystem(Configuration.unix());
-        this.testPath = fileSystem.getPath("/live");
-        this.filesRecentConfig = new FilesRecentConfig(testPath, CompressionType.ZSTD, 3, 100);
+        this.blocksRootPath = fileSystem.getPath("/live");
+        this.linksRootPath = blocksRootPath.resolve("links");
+        this.filesRecentConfig = new FilesRecentConfig(blocksRootPath, CompressionType.ZSTD, 3, 100);
         this.blockFileRecentPlugin = new BlockFileRecentPlugin(this.filesRecentConfig);
         this.historicalBlockFacility = new SimpleInMemoryHistoricalBlockFacility();
+    }
+
+    /**
+     * Nested class for plugin startup tests.
+     */
+    @Nested
+    @DisplayName("Startup Tests")
+    final class StartupTest extends PluginTestBase<BlockFileRecentPlugin, BlockingExecutor> {
+        /**
+         * Test Constructor.
+         */
+        StartupTest() {
+            super(new BlockingExecutor(new LinkedBlockingQueue<>()));
+        }
+
+        /**
+         * This test aims to assert that the links and data root directories are
+         * created on plugin startup.
+         */
+        @Test
+        @DisplayName("Links and data roots are created on startup")
+        void testLinksAndDataRootsCreated() throws IOException {
+            // Assert that the roots do not exist
+            assertThat(linksRootPath).doesNotExist();
+            assertThat(blocksRootPath).doesNotExist();
+            // Now start the plugin
+            start(blockFileRecentPlugin, historicalBlockFacility);
+            // Assert that the roots are created
+            assertThat(linksRootPath).exists().isDirectory().isEmptyDirectory();
+            assertThat(blocksRootPath).exists().isDirectory().isNotEmptyDirectory();
+            assertThat(Files.list(blocksRootPath).toList()).hasSize(1).containsExactly(linksRootPath);
+        }
+
+        /**
+         * This test aims to assert that the links root directory is cleared on
+         * plugin startup. The directory exists and is empty.
+         */
+        @Test
+        @DisplayName("Links root is cleared on startup")
+        void testLinksRootEmptyOnStartup() throws IOException {
+            // First we need to create and populate the links directory
+            Files.createDirectories(linksRootPath);
+            Files.createFile(linksRootPath.resolve("file1"));
+            Files.createFile(linksRootPath.resolve("file2"));
+            Files.createFile(linksRootPath.resolve("file3"));
+            final Path subDir = linksRootPath.resolve("subdir");
+            Files.createDirectories(subDir);
+            Files.createFile(subDir.resolve("file4"));
+            Files.createFile(subDir.resolve("file5"));
+            final Path link1 = subDir.resolve("file6");
+            Files.createFile(link1);
+            Files.createLink(subDir.resolve("link1"), link1);
+            Files.createSymbolicLink(subDir.resolve("symlink1"), link1);
+            // Assert that the links root directory is not empty
+            assertThat(linksRootPath).isDirectory().isNotEmptyDirectory();
+            // Now start the plugin
+            start(blockFileRecentPlugin, historicalBlockFacility);
+            // Assert that the links root directory exists and is empty
+            assertThat(linksRootPath).isDirectory().isEmptyDirectory();
+        }
     }
 
     /**
@@ -67,7 +131,6 @@ class BlockFileRecentPluginTest {
     @Nested
     @DisplayName("Plugin Tests")
     final class PluginTest extends PluginTestBase<BlockFileRecentPlugin, BlockingExecutor> {
-
         /**
          * Test Constructor.
          */
@@ -201,7 +264,7 @@ class BlockFileRecentPluginTest {
                         true, i, Bytes.EMPTY, new BlockUnparsed(List.of(block)), BlockSource.PUBLISHER));
                 // assert that the block is persisted
                 final Path persistedBlock = BlockFile.nestedDirectoriesBlockFilePath(
-                        testPath, i, filesRecentConfig.compression(), filesRecentConfig.maxFilesPerDir());
+                        blocksRootPath, i, filesRecentConfig.compression(), filesRecentConfig.maxFilesPerDir());
                 assertThat(persistedBlock).exists();
             }
             // assert that the plugin has 100 blocks available (properly updated)
@@ -210,13 +273,13 @@ class BlockFileRecentPluginTest {
             // assert that the first 50 blocks are not persisted anymore
             for (int i = 0; i < 50; i++) {
                 final Path persistedBlock = BlockFile.nestedDirectoriesBlockFilePath(
-                        testPath, i, filesRecentConfig.compression(), filesRecentConfig.maxFilesPerDir());
+                        blocksRootPath, i, filesRecentConfig.compression(), filesRecentConfig.maxFilesPerDir());
                 assertThat(persistedBlock).doesNotExist();
             }
             // assert that the last 100 blocks are persisted
             for (int i = 50; i < 150; i++) {
                 final Path persistedBlock = BlockFile.nestedDirectoriesBlockFilePath(
-                        testPath, i, filesRecentConfig.compression(), filesRecentConfig.maxFilesPerDir());
+                        blocksRootPath, i, filesRecentConfig.compression(), filesRecentConfig.maxFilesPerDir());
                 assertThat(persistedBlock).exists();
             }
         }
@@ -229,7 +292,7 @@ class BlockFileRecentPluginTest {
         void testRetentionPolicyDisabled() {
             // override the plugin under test to disable the retention policy
             final FilesRecentConfig filesRecentConfigOverride =
-                    new FilesRecentConfig(testPath, CompressionType.ZSTD, 3, 0L);
+                    new FilesRecentConfig(blocksRootPath, CompressionType.ZSTD, 3, 0L);
             final BlockFileRecentPlugin toTest = new BlockFileRecentPlugin(filesRecentConfigOverride);
             final HistoricalBlockFacility localHistoricalBlockFacility = new SimpleInMemoryHistoricalBlockFacility();
             // unregister the original plugin from the messaging queue
@@ -248,7 +311,7 @@ class BlockFileRecentPluginTest {
                         true, i, Bytes.EMPTY, new BlockUnparsed(List.of(block)), BlockSource.PUBLISHER));
                 // assert that the block is persisted
                 final Path persistedBlock = BlockFile.nestedDirectoriesBlockFilePath(
-                        testPath,
+                        blocksRootPath,
                         i,
                         filesRecentConfigOverride.compression(),
                         filesRecentConfigOverride.maxFilesPerDir());
@@ -260,7 +323,7 @@ class BlockFileRecentPluginTest {
             // assert that all the blocks are persisted
             for (int i = 0; i < 150; i++) {
                 final Path persistedBlock = BlockFile.nestedDirectoriesBlockFilePath(
-                        testPath,
+                        blocksRootPath,
                         i,
                         filesRecentConfigOverride.compression(),
                         filesRecentConfigOverride.maxFilesPerDir());

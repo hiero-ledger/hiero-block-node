@@ -43,8 +43,10 @@ class ZipBlockAccessorTest {
     private FileSystem jimfs;
     /** The configuration for the test. */
     private FilesHistoricConfig defaultConfig;
-    /** The temporary directory used for the test. */
-    private Path tempDir;
+    /** The temporary data directory used for the test. */
+    private Path dataTempDir;
+    /** The temporary links directory used for the test. */
+    private Path linksTempDir;
 
     /** Set up the test environment before each test. */
     @BeforeEach
@@ -52,10 +54,12 @@ class ZipBlockAccessorTest {
         // Initialize the in-memory file system
         jimfs = Jimfs.newFileSystem(
                 Configuration.unix()); // Set the default configuration for the test, use jimfs for paths
-        tempDir = jimfs.getPath("/blocks");
-        Files.createDirectories(tempDir);
+        dataTempDir = jimfs.getPath("/blocks");
+        linksTempDir = dataTempDir.resolve("links");
+        Files.createDirectories(dataTempDir);
+        Files.createDirectories(linksTempDir);
         defaultConfig =
-                createTestConfiguration(tempDir, getDefaultConfiguration().compression());
+                createTestConfiguration(dataTempDir, getDefaultConfiguration().compression());
     }
 
     /**
@@ -83,8 +87,10 @@ class ZipBlockAccessorTest {
          */
         @Test
         @DisplayName("Test constructor throws no exception when input is valid")
-        void testValidConstructor() {
+        void testValidConstructor() throws IOException {
             final BlockPath blockPath = BlockPath.computeBlockPath(defaultConfig, 1L);
+            Files.createDirectories(blockPath.dirPath());
+            Files.createFile(blockPath.zipFilePath());
             assertThatNoException().isThrownBy(() -> new ZipBlockAccessor(blockPath));
         }
 
@@ -107,7 +113,6 @@ class ZipBlockAccessorTest {
     @Nested
     @DisplayName("Functionality Tests")
     final class FunctionalityTests {
-
         /**
          * This test aims to verify that the {@link ZipBlockAccessor#blockBytes(Format)}
          * will correctly return a zipped block as bytes. This is the happy path test
@@ -121,7 +126,7 @@ class ZipBlockAccessorTest {
         void testBlockBytesHappyPathFormat(final CompressionType compressionType) throws IOException {
             // build a test block
             final BlockItem[] blockItems = SimpleTestBlockItemBuilder.createNumberOfVerySimpleBlocks(1);
-            final FilesHistoricConfig testConfig = createTestConfiguration(tempDir, compressionType);
+            final FilesHistoricConfig testConfig = createTestConfiguration(dataTempDir, compressionType);
             final BlockPath blockPath = BlockPath.computeBlockPath(
                     testConfig, blockItems[0].blockHeader().number());
             final Block block = new Block(List.of(blockItems));
@@ -139,6 +144,50 @@ class ZipBlockAccessorTest {
 
         /**
          * This test aims to verify that the {@link ZipBlockAccessor#blockBytes(Format)}
+         * will correctly return a zipped block as bytes. This is the happy path test
+         * where the compression type is the same as the compression type used to create
+         * the block (zip entry inside the zip file we are trying to read).
+         */
+        @ParameterizedTest
+        @EnumSource(CompressionType.class)
+        @DisplayName(
+                "Test blockBytes() returns correctly a persisted block as bytes happy path format - consecutive calls")
+        @SuppressWarnings("DataFlowIssue")
+        void testBlockBytesHappyPathFormatConsecutiveCalls(final CompressionType compressionType) throws IOException {
+            // build a test block
+            final BlockItem[] blockItems = SimpleTestBlockItemBuilder.createNumberOfVerySimpleBlocks(1);
+            final FilesHistoricConfig testConfig = createTestConfiguration(dataTempDir, compressionType);
+            final BlockPath blockPath = BlockPath.computeBlockPath(
+                    testConfig, blockItems[0].blockHeader().number());
+            final Block block = new Block(List.of(blockItems));
+            final Bytes expected = Block.PROTOBUF.toBytes(block);
+            // test zipBlockAccessor.block()
+            final ZipBlockAccessor toTest = createBlockAndGetAssociatedAccessor(testConfig, blockPath, expected);
+            final Format format = getHappyPathFormat(compressionType);
+            // The blockBytes method should return the bytes of the block with the
+            // specified format. In order to assert the same bytes, we need to decompress
+            // the bytes returned by the blockBytes method and compare them to the expected.
+            final Bytes testResult = toTest.blockBytes(format);
+            final Bytes actual = Bytes.wrap(compressionType.decompress(testResult.toByteArray()));
+            assertThat(actual).isEqualTo(expected);
+            // now we close the accessor
+            toTest.close();
+            assertThat(blockPath.zipFilePath())
+                    .exists()
+                    .isReadable()
+                    .isWritable()
+                    .isNotEmptyFile()
+                    .hasExtension("zip");
+            // now we create a new accessor to the same block
+            final ZipBlockAccessor toTest2 = new ZipBlockAccessor(blockPath);
+            // now we should be able to access the block again
+            final Bytes testResult2 = toTest2.blockBytes(format);
+            final Bytes actual2 = Bytes.wrap(compressionType.decompress(testResult2.toByteArray()));
+            assertThat(actual2).isEqualTo(expected);
+        }
+
+        /**
+         * This test aims to verify that the {@link ZipBlockAccessor#blockBytes(Format)}
          * will correctly return a zipped block as bytes. This test will always use the
          * {@link Format#ZSTD_PROTOBUF} format to read the block bytes.
          */
@@ -149,7 +198,7 @@ class ZipBlockAccessorTest {
         void testBlockBytesZSTDPROTOBUFFormat(final CompressionType compressionType) throws IOException {
             // build a test block
             final BlockItem[] blockItems = SimpleTestBlockItemBuilder.createNumberOfVerySimpleBlocks(1);
-            final FilesHistoricConfig testConfig = createTestConfiguration(tempDir, compressionType);
+            final FilesHistoricConfig testConfig = createTestConfiguration(dataTempDir, compressionType);
             final BlockPath blockPath = BlockPath.computeBlockPath(
                     testConfig, blockItems[0].blockHeader().number());
             final Block block = new Block(List.of(blockItems));
@@ -171,6 +220,56 @@ class ZipBlockAccessorTest {
         /**
          * This test aims to verify that the {@link ZipBlockAccessor#blockBytes(Format)}
          * will correctly return a zipped block as bytes. This test will always use the
+         * {@link Format#ZSTD_PROTOBUF} format to read the block bytes. Here we verify that two
+         * consecutive accessors to the same block will return the same block.
+         * Closing an accessor does not in any way interfere with the data and
+         * the ability to access it.
+         */
+        @ParameterizedTest
+        @EnumSource(CompressionType.class)
+        @DisplayName(
+                "Test blockBytes() returns correctly a persisted block as bytes using ZSTD_PROTOBUF format - consecutive calls")
+        @SuppressWarnings("DataFlowIssue")
+        void testBlockBytesZSTDPROTOBUFFormatConsecutiveCalls(final CompressionType compressionType)
+                throws IOException {
+            // build a test block
+            final BlockItem[] blockItems = SimpleTestBlockItemBuilder.createNumberOfVerySimpleBlocks(1);
+            final FilesHistoricConfig testConfig = createTestConfiguration(dataTempDir, compressionType);
+            final BlockPath blockPath = BlockPath.computeBlockPath(
+                    testConfig, blockItems[0].blockHeader().number());
+            final Block block = new Block(List.of(blockItems));
+            final Bytes expected = Block.PROTOBUF.toBytes(block);
+            // test zipBlockAccessor.block()
+            final ZipBlockAccessor toTest = createBlockAndGetAssociatedAccessor(testConfig, blockPath, expected);
+            // The blockBytes method should return the bytes of the block with the
+            // specified format. In order to assert the same bytes, we need to decompress
+            // the bytes returned by the blockBytes method and compare them to the expected.
+            // For this test, we always use the ZSTD_PROTOBUF format to read the block bytes,
+            // no matter the actual compression type used to persist the block. With this format
+            // we always expect to be returned the bytes compressed using the ZStandard compression
+            // algorithm.
+            final Bytes testResult = toTest.blockBytes(Format.ZSTD_PROTOBUF);
+            final Bytes actual = Bytes.wrap(CompressionType.ZSTD.decompress(testResult.toByteArray()));
+            assertThat(actual).isEqualTo(expected);
+            // now we close the accessor
+            toTest.close();
+            assertThat(blockPath.zipFilePath())
+                    .exists()
+                    .isReadable()
+                    .isWritable()
+                    .isNotEmptyFile()
+                    .hasExtension("zip");
+            // now we create a new accessor to the same block
+            final ZipBlockAccessor toTest2 = new ZipBlockAccessor(blockPath);
+            // now we should be able to access the block again
+            final Bytes testResult2 = toTest2.blockBytes(Format.ZSTD_PROTOBUF);
+            final Bytes actual2 = Bytes.wrap(CompressionType.ZSTD.decompress(testResult2.toByteArray()));
+            assertThat(actual2).isEqualTo(expected);
+        }
+
+        /**
+         * This test aims to verify that the {@link ZipBlockAccessor#blockBytes(Format)}
+         * will correctly return a zipped block as bytes. This test will always use the
          * {@link Format#PROTOBUF} format to read the block bytes.
          */
         @ParameterizedTest
@@ -180,7 +279,7 @@ class ZipBlockAccessorTest {
         void testBlockBytesProtobufFormat(final CompressionType compressionType) throws IOException {
             // build a test block
             final BlockItem[] blockItems = SimpleTestBlockItemBuilder.createNumberOfVerySimpleBlocks(1);
-            final FilesHistoricConfig testConfig = createTestConfiguration(tempDir, compressionType);
+            final FilesHistoricConfig testConfig = createTestConfiguration(dataTempDir, compressionType);
             final BlockPath blockPath = BlockPath.computeBlockPath(
                     testConfig, blockItems[0].blockHeader().number());
             final Block block = new Block(List.of(blockItems));
@@ -197,6 +296,50 @@ class ZipBlockAccessorTest {
         }
 
         /**
+         * This test aims to verify that the {@link ZipBlockAccessor#blockBytes(Format)}
+         * will correctly return a zipped block as bytes. This test will always use the
+         * {@link Format#PROTOBUF} format to read the block bytes. Here we verify that two
+         * consecutive accessors to the same block will return the same block.
+         * Closing an accessor does not in any way interfere with the data and
+         * the ability to access it.
+         */
+        @ParameterizedTest
+        @EnumSource(CompressionType.class)
+        @DisplayName(
+                "Test blockBytes() returns correctly a persisted block as bytes using PROTOBUF format - consecutive calls")
+        @SuppressWarnings("DataFlowIssue")
+        void testBlockBytesProtobufFormatConsecutiveCalls(final CompressionType compressionType) throws IOException {
+            // build a test block
+            final BlockItem[] blockItems = SimpleTestBlockItemBuilder.createNumberOfVerySimpleBlocks(1);
+            final FilesHistoricConfig testConfig = createTestConfiguration(dataTempDir, compressionType);
+            final BlockPath blockPath = BlockPath.computeBlockPath(
+                    testConfig, blockItems[0].blockHeader().number());
+            final Block block = new Block(List.of(blockItems));
+            final Bytes expected = Block.PROTOBUF.toBytes(block);
+            // test zipBlockAccessor.block()
+            final ZipBlockAccessor toTest = createBlockAndGetAssociatedAccessor(testConfig, blockPath, expected);
+            // The blockBytes method should return the bytes of the block with the
+            // specified format.
+            // For this test, we always use the PROTOBUF format to read the block bytes,
+            // no matter the actual compression type used to persist the block. With this format
+            // we always expect to be returned the bytes to not be compressed.
+            final Bytes testResult = toTest.blockBytes(Format.PROTOBUF);
+            assertThat(testResult).isEqualTo(expected);
+            // now we close the accessor
+            toTest.close();
+            assertThat(blockPath.zipFilePath())
+                    .exists()
+                    .isReadable()
+                    .isWritable()
+                    .isNotEmptyFile()
+                    .hasExtension("zip");
+            // now we create a new accessor to the same block
+            final ZipBlockAccessor toTest2 = new ZipBlockAccessor(blockPath);
+            // now we should be able to access the block again
+            assertThat(toTest2.blockBytes(Format.PROTOBUF)).isEqualTo(expected);
+        }
+
+        /**
          * This test aims to verify that the {@link ZipBlockAccessor#block()}
          * will correctly return a zipped block.
          */
@@ -207,7 +350,7 @@ class ZipBlockAccessorTest {
         void testBlock(final CompressionType compressionType) throws IOException {
             // build a test block
             final BlockItem[] blockItems = SimpleTestBlockItemBuilder.createNumberOfVerySimpleBlocks(1);
-            final FilesHistoricConfig testConfig = createTestConfiguration(tempDir, compressionType);
+            final FilesHistoricConfig testConfig = createTestConfiguration(dataTempDir, compressionType);
             final BlockPath blockPath = BlockPath.computeBlockPath(
                     testConfig, blockItems[0].blockHeader().number());
             final Block expected = new Block(List.of(blockItems));
@@ -216,6 +359,43 @@ class ZipBlockAccessorTest {
             final ZipBlockAccessor toTest = createBlockAndGetAssociatedAccessor(testConfig, blockPath, protoBytes);
             final Block actual = toTest.block();
             assertThat(actual).isEqualTo(expected);
+        }
+
+        /**
+         * This test aims to verify that the {@link ZipBlockAccessor#block()}
+         * will correctly return a zipped block. Here we verify that two
+         * consecutive accessors to the same block will return the same block.
+         * Closing an accessor does not in any way interfere with the data and
+         * the ability to access it.
+         */
+        @ParameterizedTest
+        @EnumSource(CompressionType.class)
+        @DisplayName("Test block() returns correctly a persisted block - consecutive calls")
+        @SuppressWarnings("DataFlowIssue")
+        void testBlockConsecutiveCalls(final CompressionType compressionType) throws IOException {
+            // build a test block
+            final BlockItem[] blockItems = SimpleTestBlockItemBuilder.createNumberOfVerySimpleBlocks(1);
+            final FilesHistoricConfig testConfig = createTestConfiguration(dataTempDir, compressionType);
+            final BlockPath blockPath = BlockPath.computeBlockPath(
+                    testConfig, blockItems[0].blockHeader().number());
+            final Block expected = new Block(List.of(blockItems));
+            final Bytes protoBytes = Block.PROTOBUF.toBytes(expected);
+            // test zipBlockAccessor.block()
+            final ZipBlockAccessor toTest = createBlockAndGetAssociatedAccessor(testConfig, blockPath, protoBytes);
+            final Block actual = toTest.block();
+            assertThat(actual).isEqualTo(expected);
+            // now we close the accessor
+            toTest.close();
+            assertThat(blockPath.zipFilePath())
+                    .exists()
+                    .isReadable()
+                    .isWritable()
+                    .isNotEmptyFile()
+                    .hasExtension("zip");
+            // now we create a new accessor to the same block
+            final ZipBlockAccessor toTest2 = new ZipBlockAccessor(blockPath);
+            // now we should be able to access the block again
+            assertThat(toTest2.block()).isEqualTo(expected);
         }
 
         /**
@@ -229,7 +409,7 @@ class ZipBlockAccessorTest {
         void testBlockUnparsed(final CompressionType compressionType) throws IOException, ParseException {
             // build a test block
             final BlockItemUnparsed[] blockItems = SimpleTestBlockItemBuilder.createNumberOfVerySimpleBlocksUnparsed(1);
-            final FilesHistoricConfig testConfig = createTestConfiguration(tempDir, compressionType);
+            final FilesHistoricConfig testConfig = createTestConfiguration(dataTempDir, compressionType);
             final Bytes blockHeaderBytes = blockItems[0].blockHeader();
             final long blockNumber =
                     BlockHeader.PROTOBUF.parse(blockHeaderBytes).number();
@@ -240,6 +420,46 @@ class ZipBlockAccessorTest {
             final ZipBlockAccessor toTest = createBlockAndGetAssociatedAccessor(testConfig, blockPath, protoBytes);
             final BlockUnparsed actual = toTest.blockUnparsed();
             assertThat(actual).isEqualTo(expected);
+        }
+
+        /**
+         * This test aims to verify that the {@link ZipBlockAccessor#blockUnparsed()}
+         * will correctly return a zipped block unparsed. Here we verify that two
+         * consecutive accessors to the same block will return the same block.
+         * Closing an accessor does not in any way interfere with the data and
+         * the ability to access it.
+         */
+        @ParameterizedTest
+        @EnumSource(CompressionType.class)
+        @DisplayName("Test blockUnparsed() returns correctly a persisted block unparsed - consecutive calls")
+        @SuppressWarnings("DataFlowIssue")
+        void testBlockUnparsedConsecutiveCalls(final CompressionType compressionType)
+                throws IOException, ParseException {
+            // build a test block
+            final BlockItemUnparsed[] blockItems = SimpleTestBlockItemBuilder.createNumberOfVerySimpleBlocksUnparsed(1);
+            final FilesHistoricConfig testConfig = createTestConfiguration(dataTempDir, compressionType);
+            final Bytes blockHeaderBytes = blockItems[0].blockHeader();
+            final long blockNumber =
+                    BlockHeader.PROTOBUF.parse(blockHeaderBytes).number();
+            final BlockPath blockPath = BlockPath.computeBlockPath(testConfig, blockNumber);
+            final BlockUnparsed expected = new BlockUnparsed(List.of(blockItems));
+            final Bytes protoBytes = BlockUnparsed.PROTOBUF.toBytes(expected);
+            // test zipBlockAccessor.blockUnparsed()
+            final ZipBlockAccessor toTest = createBlockAndGetAssociatedAccessor(testConfig, blockPath, protoBytes);
+            final BlockUnparsed actual = toTest.blockUnparsed();
+            assertThat(actual).isEqualTo(expected);
+            // now we close the accessor
+            toTest.close();
+            assertThat(blockPath.zipFilePath())
+                    .exists()
+                    .isReadable()
+                    .isWritable()
+                    .isNotEmptyFile()
+                    .hasExtension("zip");
+            // now we create a new accessor to the same block
+            final ZipBlockAccessor toTest2 = new ZipBlockAccessor(blockPath);
+            // now we should be able to access the block again
+            assertThat(toTest2.blockUnparsed()).isEqualTo(expected);
         }
 
         private Format getHappyPathFormat(final CompressionType compressionType) {
@@ -289,10 +509,10 @@ class ZipBlockAccessorTest {
         return new ZipBlockAccessor(blockPath);
     }
 
-    private FilesHistoricConfig createTestConfiguration(final Path basePath, final CompressionType compressionType) {
+    private FilesHistoricConfig createTestConfiguration(final Path dataTepDir, final CompressionType compressionType) {
         final FilesHistoricConfig localDefaultConfig = getDefaultConfiguration();
         return new FilesHistoricConfig(
-                basePath,
+                dataTepDir,
                 compressionType,
                 localDefaultConfig.powersOfTenPerZipFileContents(),
                 localDefaultConfig.blockRetentionThreshold(),

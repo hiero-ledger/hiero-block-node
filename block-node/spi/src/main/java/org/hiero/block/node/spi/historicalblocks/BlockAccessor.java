@@ -10,13 +10,12 @@ import java.io.UncheckedIOException;
 import org.hiero.block.internal.BlockUnparsed;
 
 /**
- * The BlockAccessor interface is used to provide access to a block and its serialized forms. It allows for getting
- * access to the block in many forms to allow the consumer to choose the most efficient form. The aim is for the
- * producer(BlockAccessor provider) and consumer(BlockAccessor user) to be able to work together to move the block data
- * from one to the other in the most efficient way possible.
+ * The BlockAccessor interface is used to provide access to a block.
+ * A BlockAccessor is issued for a block that is available to be accessed.
+ * A {@code null} value is expected when an attempt to access the data is made,
+ * but that attempt is unsuccessful.
  */
-@SuppressWarnings("unused")
-public interface BlockAccessor {
+public interface BlockAccessor extends AutoCloseable {
     /**
      * The format of the block data. The consumer can choose the format that is most efficient for them.
      */
@@ -77,4 +76,14 @@ public interface BlockAccessor {
      *     Also returns null if the data cannot be read from a source.
      */
     Bytes blockBytes(Format format);
+
+    /**
+     * This method closes the block accessor.
+     * After being closed, the data may not be accessed. All accessors must be
+     * closed as doing so frees resources. This method must not throw any
+     * exceptions, they should be handled appropriately in the implementing
+     * class.
+     */
+    @Override
+    void close();
 }

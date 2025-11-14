@@ -16,11 +16,16 @@ import com.swirlds.metrics.api.Counter;
 import com.swirlds.metrics.api.LongGauge;
 import com.swirlds.metrics.api.Metrics;
 import edu.umd.cs.findbugs.annotations.NonNull;
+import edu.umd.cs.findbugs.annotations.Nullable;
 import java.io.BufferedOutputStream;
 import java.io.IOException;
 import java.io.UncheckedIOException;
+import java.nio.file.FileVisitResult;
 import java.nio.file.Files;
+import java.nio.file.LinkOption;
 import java.nio.file.Path;
+import java.nio.file.SimpleFileVisitor;
+import java.nio.file.attribute.BasicFileAttributes;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.Stream;
@@ -84,6 +89,8 @@ public final class BlockFileRecentPlugin implements BlockProviderPlugin, BlockNo
     private final AtomicLong totalBytesStored = new AtomicLong(0);
     /** The Storage Retention Policy Threshold */
     private long blockRetentionThreshold;
+    /** The path to the accessors links root. */
+    private Path linksRootPath;
     // Metrics
     /** Counter for blocks written to the recent tier */
     private Counter blocksWrittenCounter;
@@ -138,9 +145,15 @@ public final class BlockFileRecentPlugin implements BlockProviderPlugin, BlockNo
         this.blockMessaging = context.blockMessaging();
         // Initialize metrics
         initMetrics(context.metrics());
-        // create plugin data root directory if it does not exist
+        final Path liveRootPath = config.liveRootPath();
+        this.linksRootPath = liveRootPath.resolve("links");
         try {
-            Files.createDirectories(config.liveRootPath());
+            // attempt to clear any existing links root directory
+            if (Files.isDirectory(linksRootPath, LinkOption.NOFOLLOW_LINKS)) {
+                Files.walkFileTree(linksRootPath, new RecursiveFileDeleteVisitor());
+            }
+            Files.createDirectories(linksRootPath);
+            Files.createDirectories(liveRootPath);
         } catch (final IOException e) {
             LOGGER.log(ERROR, "Could not create root directory", e);
             context.serverHealth().shutdown(name(), "Could not create root directory");
@@ -149,20 +162,19 @@ public final class BlockFileRecentPlugin implements BlockProviderPlugin, BlockNo
         context.blockMessaging().registerBlockNotificationHandler(this, false, "BlocksFilesRecent");
         // scan file system to find the oldest and newest blocks
         // TODO this can be way for efficient, very brute force at the moment
-        nestedDirectoriesAllBlockNumbers(config.liveRootPath(), config.compression())
-                .forEach(blockNumber -> {
-                    availableBlocks.add(blockNumber);
-                    // Initialize total bytes stored counter
-                    try {
-                        Path blockFilePath = BlockFile.nestedDirectoriesBlockFilePath(
-                                config.liveRootPath(), blockNumber, config.compression(), config.maxFilesPerDir());
-                        if (Files.exists(blockFilePath)) {
-                            totalBytesStored.addAndGet(Files.size(blockFilePath));
-                        }
-                    } catch (IOException e) {
-                        LOGGER.log(INFO, "Failed to get size of block file for block " + blockNumber, e);
-                    }
-                });
+        nestedDirectoriesAllBlockNumbers(liveRootPath, config.compression()).forEach(blockNumber -> {
+            availableBlocks.add(blockNumber);
+            // Initialize total bytes stored counter
+            try {
+                Path blockFilePath = BlockFile.nestedDirectoriesBlockFilePath(
+                        liveRootPath, blockNumber, config.compression(), config.maxFilesPerDir());
+                if (Files.exists(blockFilePath)) {
+                    totalBytesStored.addAndGet(Files.size(blockFilePath));
+                }
+            } catch (IOException e) {
+                LOGGER.log(INFO, "Failed to get size of block file for block " + blockNumber, e);
+            }
+        });
 
         // Register gauge updater
         context.metrics().addUpdater(this::updateGauges);
@@ -228,8 +240,14 @@ public final class BlockFileRecentPlugin implements BlockProviderPlugin, BlockNo
                     config.liveRootPath(), blockNumber, config.compression(), config.maxFilesPerDir());
             if (Files.exists(verifiedBlockPath)) {
                 // we have the block so return it
-                blocksReadCounter.increment();
-                return new BlockFileBlockAccessor(verifiedBlockPath, config.compression(), blockNumber);
+                try {
+                    final BlockFileBlockAccessor accessor = new BlockFileBlockAccessor(
+                            verifiedBlockPath, config.compression(), linksRootPath, blockNumber);
+                    blocksReadCounter.increment();
+                    return accessor;
+                } catch (final IOException e) {
+                    LOGGER.log(INFO, "Failed to create accessor for block %d".formatted(blockNumber), e);
+                }
             } else {
                 LOGGER.log(
                         WARNING,
@@ -432,6 +450,33 @@ public final class BlockFileRecentPlugin implements BlockProviderPlugin, BlockNo
         } catch (final IOException e) {
             LOGGER.log(INFO, DELETE_MESSAGE.formatted("Failure", blockFilePath), e);
             blocksDeletedFailedCounter.increment();
+        }
+    }
+
+    /**
+     * A simple file visitor to recursively delete files and directories up to
+     * the provided root.
+     */
+    private static class RecursiveFileDeleteVisitor extends SimpleFileVisitor<Path> {
+        @Override
+        @NonNull
+        public FileVisitResult visitFile(@NonNull final Path file, @NonNull final BasicFileAttributes attrs)
+                throws IOException {
+            Files.delete(file);
+            return FileVisitResult.CONTINUE;
+        }
+
+        @Override
+        @NonNull
+        public FileVisitResult postVisitDirectory(@NonNull final Path dir, @Nullable final IOException e)
+                throws IOException {
+            if (e == null) {
+                Files.delete(dir);
+                return FileVisitResult.CONTINUE;
+            } else {
+                // directory iteration failed
+                throw e;
+            }
         }
     }
 }
