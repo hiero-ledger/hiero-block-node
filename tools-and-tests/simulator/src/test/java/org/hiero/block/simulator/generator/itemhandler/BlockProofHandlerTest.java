@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.simulator.generator.itemhandler;
 
-import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
@@ -16,13 +15,12 @@ import org.junit.jupiter.api.Test;
 
 class BlockProofHandlerTest {
 
-    private final byte[] previousBlockHash = new byte[StreamingTreeHasher.HASH_LENGTH];
     private final byte[] currentBlockHash = new byte[StreamingTreeHasher.HASH_LENGTH];
     private final long blockNumber = 1L;
 
     @Test
-    void testConstructorWithNullPreviousHash() {
-        assertThrows(NullPointerException.class, () -> new BlockProofHandler(currentBlockHash, blockNumber));
+    void testConstructorWithNullHash() {
+        assertThrows(NullPointerException.class, () -> new BlockProofHandler(null, blockNumber));
     }
 
     @Test
@@ -40,9 +38,8 @@ class BlockProofHandlerTest {
 
         BlockProof proof = item.getBlockProof();
         assertEquals(blockNumber, proof.getBlock());
-        assertArrayEquals(previousBlockHash, proof.getPreviousBlockRootHash().toByteArray());
-        assertNotNull(proof.getBlockSignature());
-        assertFalse(proof.getBlockSignature().isEmpty());
+        assertNotNull(proof.getSignedBlockProof());
+        assertFalse(proof.getSignedBlockProof().getBlockSignature().isEmpty());
     }
 
     @Test
