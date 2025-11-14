@@ -60,13 +60,13 @@ public class ToWrappedBlocksCommand implements Runnable {
     private boolean unzipped = false;
 
     @Option(
-        names = {"-i", "--input-dir"},
-        description = "Directory of record file tar.zstd days to process")
+            names = {"-i", "--input-dir"},
+            description = "Directory of record file tar.zstd days to process")
     private Path compressedDaysDir = Path.of("compressedDays");
 
     @Option(
-        names = {"-o", "--output-dir"},
-        description = "Directory to write the output wrapped blocks")
+            names = {"-o", "--output-dir"},
+            description = "Directory to write the output wrapped blocks")
     @SuppressWarnings("unused") // assigned reflectively by picocli
     private Path outputBlocksDir = Path.of("wrappedBlocks");
 
