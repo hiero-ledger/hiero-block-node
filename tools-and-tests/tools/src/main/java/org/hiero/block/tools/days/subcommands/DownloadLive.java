@@ -230,8 +230,6 @@ public class DownloadLive implements Runnable {
         }
     }
 
-    // --- Helpers ---
-
     private static Duration parseHumanDuration(String text) {
         // Accepts forms like 60s, 2m, 1h, or ISO-8601 (PT1M)
         try {
