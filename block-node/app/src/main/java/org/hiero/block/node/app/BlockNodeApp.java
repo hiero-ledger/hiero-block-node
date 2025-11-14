@@ -208,7 +208,7 @@ public class BlockNodeApp implements HealthFacility {
                 .connectionConfig(ConnectionConfig.builder()
                         .sendBufferSize(serverConfig.socketSendBufferSizeBytes())
                         .receiveBufferSize(serverConfig.socketReceiveBufferSizeBytes())
-                        .tcpNoDelay(true)
+                        .tcpNoDelay(serverConfig.tcpNoDelay())
                         .build())
                 .backlog(serverConfig.backlogSize())
                 .writeQueueLength(serverConfig.writeQueueLength())
