@@ -31,6 +31,7 @@ import org.hiero.block.tools.commands.mirrornode.MirrorNodeBlockQueryOrder;
 import org.hiero.block.tools.records.InMemoryFile;
 import org.hiero.block.tools.records.RecordFileBlock;
 import org.hiero.block.tools.records.RecordFileBlockV6;
+import org.hiero.block.tools.records.RecordFileInfo;
 import org.hiero.block.tools.utils.Gzip;
 import org.hiero.block.tools.utils.gcp.ConcurrentDownloadManager;
 import org.hiero.block.tools.utils.gcp.ConcurrentDownloadManagerTransferManager;
@@ -913,14 +914,20 @@ public class DownloadLive implements Runnable {
                 final InMemoryFile sigFileInMemory = future.get();
                 final byte[] sigBytes = sigFileInMemory.data();
 
-                // Build the in-memory model for RecordFileBlockV6. For now we only wire the primary record
-                // file and its signature file; sidecar files can be added later when the live path also
-                // streams sidecars alongside records.
+                // Build the in-memory model for RecordFileBlockV6 including signatures and sidecars.
                 final InMemoryFile primaryRecordFile = new InMemoryFile(Path.of(safeName), recordBytes);
                 final List<InMemoryFile> otherRecordFiles = List.of();
                 final InMemoryFile sigFile = new InMemoryFile(Path.of(sigName), sigBytes);
                 final List<InMemoryFile> signatureFiles = List.of(sigFile);
-                final List<InMemoryFile> primarySidecarFiles = List.of();
+
+                final List<InMemoryFile> primarySidecarFiles;
+                try {
+                    primarySidecarFiles = fetchPrimarySidecarsFromGcs(safeName, recordBytes);
+                } catch (Exception e) {
+                    System.err.println("[download] Failed to fetch sidecars for " + safeName + ": " + e.getMessage());
+                    quarantine(tmpFile, safeName, blockNumber, "sidecar fetch failure");
+                    return false;
+                }
                 final List<InMemoryFile> otherSidecarFiles = List.of();
 
                 final RecordFileBlockV6 block = new RecordFileBlockV6(
@@ -958,6 +965,55 @@ public class DownloadLive implements Runnable {
                 quarantine(tmpFile, safeName, blockNumber, "exception during full block validation");
                 return false;
             }
+        }
+
+        /**
+         * Fetches all primary sidecar files associated with the given record file from GCS and returns
+         * them as InMemoryFile instances suitable for RecordFileBlockV6 validation.
+         *
+         * <p>This mirrors the sidecar handling in the historic tooling by:
+         * <ul>
+         *   <li>Parsing the record bytes via {@link RecordFileInfo#parse(byte[])} to discover how many sidecars exist.</li>
+         *   <li>Deriving sidecar object names of the form {@code <base>_NN.rcd_sc}, where {@code base} is the
+         *       record filename without the {@code .rcd} or {@code .rcd.gz} suffix and {@code NN} is a
+         *       two-digit, 1-based index.</li>
+         *   <li>Downloading each sidecar via {@link ConcurrentDownloadManager#downloadAsync(String, String)}.</li>
+         * </ul>
+         *
+         * If the record format reports zero sidecars, this method returns an empty list.
+         */
+        private List<InMemoryFile> fetchPrimarySidecarsFromGcs(String safeName, byte[] recordBytes) throws Exception {
+            // Parse record bytes to discover how many sidecars are expected for this record.
+            final RecordFileInfo info = RecordFileInfo.parse(recordBytes);
+            final int sidecarCount = info.numOfSidecarFiles();
+            if (sidecarCount <= 0) {
+                return List.of();
+            }
+
+            // Derive the base name by stripping known record extensions.
+            final String baseName;
+            if (safeName.endsWith(".rcd.gz")) {
+                baseName = safeName.substring(0, safeName.length() - ".rcd.gz".length());
+            } else if (safeName.endsWith(".rcd")) {
+                baseName = safeName.substring(0, safeName.length() - ".rcd".length());
+            } else {
+                baseName = safeName;
+            }
+
+            final List<CompletableFuture<InMemoryFile>> futures = new ArrayList<>(sidecarCount);
+            for (int i = 1; i <= sidecarCount; i++) {
+                final String index = String.format("%02d", i);
+                final String sidecarObjectName = gcsPrefix + baseName + "_" + index + ".rcd_sc";
+                System.out.println("[download] downloading sidecar gs://" + gcsBucket + "/" + sidecarObjectName);
+                futures.add(downloadManager.downloadAsync(gcsBucket, sidecarObjectName));
+            }
+
+            final List<InMemoryFile> sidecars = new ArrayList<>(sidecarCount);
+            for (CompletableFuture<InMemoryFile> f : futures) {
+                sidecars.add(f.get());
+            }
+
+            return sidecars;
         }
 
         /**
