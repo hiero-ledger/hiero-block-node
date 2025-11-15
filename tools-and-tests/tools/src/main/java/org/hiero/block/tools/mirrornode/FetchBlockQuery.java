@@ -64,8 +64,6 @@ public class FetchBlockQuery {
      * {@code gte:1700000000.000000000} or {@code lt:1700003600.000000000}. Multiple filters are applied
      * as repeated {@code timestamp=} query parameters.</p>
      *
-     * Example: GET blocks?limit=10&order=desc&timestamp=gte:1700000000.000000000&timestamp=lt:1700003600.000000000
-     *
      * @param limit number of blocks to retrieve
      * @param order ordering of blocks
      * @param timestampFilters optional list of timestamp filter expressions (e.g. {@code gte:...}, {@code lt:...});
