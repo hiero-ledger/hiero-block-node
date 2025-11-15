@@ -34,7 +34,7 @@ public class ExtractBlockTimes implements Runnable {
     /** the number of blocks in the record CSV file roughly, used for progress estimation */
     private static final int NUMBER_OF_BLOCKS_ROUNDED_UP = 90_000_000;
 
-    /** The path download the record table CSVs from mirror node to, gzipped. */
+    /** The path to download the record table CSVs from the mirror node to, gzipped. */
     @Option(
             names = {"--record-dir"},
             description = "Path to download the record table CSVs from mirror node to, gzipped.")
