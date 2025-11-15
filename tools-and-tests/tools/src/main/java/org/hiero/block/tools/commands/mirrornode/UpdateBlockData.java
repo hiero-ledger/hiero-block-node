@@ -28,6 +28,7 @@ import picocli.CommandLine.Option;
 /**
  * Update block data files (block_times.bin and day_blocks.json) with newer blocks from mirror node.
  */
+@SuppressWarnings("DuplicatedCode")
 @Command(
         name = "update",
         description = "Update block data files with newer blocks from mirror node",
@@ -46,24 +47,35 @@ public class UpdateBlockData implements Runnable {
             description = "Path to the day blocks \".json\" file.")
     private Path dayBlocksFile = DayBlockInfo.DEFAULT_DAY_BLOCKS_PATH;
 
-    /** The batch size for fetching blocks from mirror node. */
+    /** The batch size for fetching blocks from the mirror node. */
     private static final int BATCH_SIZE = 100;
 
     /**
-     * Update block data files with newer blocks from mirror node.
+     * Update block data files with newer blocks from the mirror node.
      */
     @Override
     public void run() {
+        updateMirrorNodeData(blockTimesFile, dayBlocksFile);
+    }
+
+    /**
+     * Update block data files (block_times.bin and day_blocks.json) with newer blocks from the mirror node.
+     *
+     * @param blockTimesFile the path to the block times file
+     * @param dayBlocksFile  the path to the day blocks file
+     * @return the latest block number
+     */
+    public static long updateMirrorNodeData(Path blockTimesFile, Path dayBlocksFile) {
         try {
             System.out.println(Ansi.AUTO.string("@|bold,green UpdateBlockData - reading existing block data files|@"));
 
             // Read the highest block number from block_times.bin
-            long highestBlockInTimesFile = readHighestBlockFromTimesFile();
+            long highestBlockInTimesFile = readHighestBlockFromTimesFile(blockTimesFile);
             System.out.println(
                     Ansi.AUTO.string("@|yellow Highest block in block_times.bin:|@ " + highestBlockInTimesFile));
 
             // Read the highest block number from day_blocks.json
-            long highestBlockInDayBlocks = readHighestBlockFromDayBlocks();
+            long highestBlockInDayBlocks = readHighestBlockFromDayBlocks(dayBlocksFile);
             System.out.println(
                     Ansi.AUTO.string("@|yellow Highest block in day_blocks.json:|@ " + highestBlockInDayBlocks));
 
@@ -79,11 +91,11 @@ public class UpdateBlockData implements Runnable {
             if (startBlockNumber > latestBlockNumber) {
                 System.out.println(
                         Ansi.AUTO.string("@|bold,green Block data is already up to date. No updates needed.|@"));
-                return;
+                return latestBlockNumber;
             }
 
             // Load existing day blocks data
-            Map<LocalDate, DayBlockInfo> dayBlocksMap = loadDayBlocksMap();
+            Map<LocalDate, DayBlockInfo> dayBlocksMap = loadDayBlocksMap(dayBlocksFile);
 
             // Fetch and update blocks in batches
             long currentBlock = startBlockNumber;
@@ -138,11 +150,12 @@ public class UpdateBlockData implements Runnable {
             }
 
             // Write updated day_blocks.json
-            writeDayBlocksJson(dayBlocksMap);
+            writeDayBlocksJson(dayBlocksMap, dayBlocksFile);
 
             System.out.println(Ansi.AUTO.string("@|bold,green Update complete! Updated blocks from |@"
                     + startBlockNumber + " @|bold,green to|@ " + latestBlockNumber));
-
+            // return the largest block number
+            return latestBlockNumber;
         } catch (IOException e) {
             throw new RuntimeException("Error updating block data", e);
         }
@@ -153,7 +166,7 @@ public class UpdateBlockData implements Runnable {
      *
      * @return the highest block number in the file, or -1 if the file is empty or doesn't exist
      */
-    private long readHighestBlockFromTimesFile() throws IOException {
+    public static long readHighestBlockFromTimesFile(Path blockTimesFile) throws IOException {
         if (!Files.exists(blockTimesFile)) {
             System.out.println(Ansi.AUTO.string("@|yellow block_times.bin does not exist, starting from block 0|@"));
             return -1;
@@ -173,7 +186,7 @@ public class UpdateBlockData implements Runnable {
      *
      * @return the highest block number in the file, or -1 if the file is empty or doesn't exist
      */
-    private long readHighestBlockFromDayBlocks() throws IOException {
+    private static long readHighestBlockFromDayBlocks(Path dayBlocksFile) throws IOException {
         if (!Files.exists(dayBlocksFile)) {
             System.out.println(Ansi.AUTO.string("@|yellow day_blocks.json does not exist, starting from block 0|@"));
             return -1;
@@ -196,11 +209,11 @@ public class UpdateBlockData implements Runnable {
      *
      * @return the latest block number
      */
-    private long getLatestBlockNumber() {
+    private static long getLatestBlockNumber() {
         String url = MAINNET_MIRROR_NODE_API_URL + "blocks?limit=1&order=desc";
         JsonObject response = MirrorNodeUtils.readUrl(url);
         JsonArray blocks = response.getAsJsonArray("blocks");
-        if (blocks.size() == 0) {
+        if (blocks.isEmpty()) {
             throw new RuntimeException("No blocks returned from mirror node");
         }
         return blocks.get(0).getAsJsonObject().get("number").getAsLong();
@@ -213,7 +226,7 @@ public class UpdateBlockData implements Runnable {
      * @param limit      the maximum number of blocks to fetch
      * @return the JSON array of blocks
      */
-    private JsonArray fetchBlockBatch(long startBlock, int limit) {
+    private static JsonArray fetchBlockBatch(long startBlock, int limit) {
         String url = MAINNET_MIRROR_NODE_API_URL + "blocks?block.number=gte%3A" + startBlock + "&limit=" + limit
                 + "&order=asc";
         JsonObject response = MirrorNodeUtils.readUrl(url);
@@ -225,7 +238,7 @@ public class UpdateBlockData implements Runnable {
      *
      * @return the map of LocalDate to DayBlockInfo
      */
-    private Map<LocalDate, DayBlockInfo> loadDayBlocksMap() throws IOException {
+    private static Map<LocalDate, DayBlockInfo> loadDayBlocksMap(Path dayBlocksFile) throws IOException {
         if (!Files.exists(dayBlocksFile)) {
             return new HashMap<>();
         }
@@ -241,7 +254,7 @@ public class UpdateBlockData implements Runnable {
      * @param blockHash    the block hash
      * @param blockInstant the block instant
      */
-    private void updateDayBlockInfo(
+    private static void updateDayBlockInfo(
             Map<LocalDate, DayBlockInfo> dayBlocksMap,
             LocalDate date,
             long blockNumber,
@@ -281,7 +294,8 @@ public class UpdateBlockData implements Runnable {
      *
      * @param dayBlocksMap the map of day blocks
      */
-    private void writeDayBlocksJson(Map<LocalDate, DayBlockInfo> dayBlocksMap) throws IOException {
+    private static void writeDayBlocksJson(Map<LocalDate, DayBlockInfo> dayBlocksMap, Path dayBlocksFile)
+            throws IOException {
         // Convert map to sorted list
         List<DayBlockInfo> dayList = dayBlocksMap.values().stream()
                 .sorted(Comparator.comparingInt((DayBlockInfo d) -> d.year)
