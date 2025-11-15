@@ -4,11 +4,13 @@
   "maxHeaderListSize": 8192,
   "maxConcurrentStreams": 8,
   "flowControlTimeoutMillis": 250,
-  "sendBufferSize": 32768,
-  "receiveBufferSize": 32768,
+  "sendBufferSize": 131072,
+  "receiveBufferSize": 131072,
   "maxMessageSizeBytes": 16777215,
   "tcpNoDelay": true,
   "maxEmptyFrames": 10,
   "maxRapidResets": 50,
-  "rapidResetTimeWindowMillis": 10000
+  "rapidResetTimeWindowMillis": 10000,
+  "backlogSize": 8192,
+  "writeQueueLength": 8192
 }

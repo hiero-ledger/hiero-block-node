@@ -29,5 +29,7 @@ message HelidonWebServerConfig {
   uint32 maxEmptyFrames = 9;
   uint32 maxRapidResets = 10;
   uint32 rapidResetTimeWindowMillis = 11;
+  uint32 backlogSize = 12;
+  uint32 writeQueueLength = 13;
 }
 
