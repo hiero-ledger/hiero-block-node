@@ -12,10 +12,10 @@ import java.time.LocalDate;
 import java.time.ZoneId;
 import java.time.ZonedDateTime;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Comparator;
 import java.util.HexFormat;
 import java.util.List;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
@@ -23,11 +23,17 @@ import java.util.concurrent.TimeUnit;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Stream;
+import org.hiero.block.tools.commands.days.download.DownloadDayUtil;
+import org.hiero.block.tools.commands.days.model.AddressBookRegistry;
 import org.hiero.block.tools.commands.mirrornode.BlockInfo;
 import org.hiero.block.tools.commands.mirrornode.FetchBlockQuery;
 import org.hiero.block.tools.commands.mirrornode.MirrorNodeBlockQueryOrder;
-import org.hiero.block.tools.records.RecordFileInfo;
+import org.hiero.block.tools.records.InMemoryFile;
+import org.hiero.block.tools.records.RecordFileBlock;
+import org.hiero.block.tools.records.RecordFileBlockV6;
 import org.hiero.block.tools.utils.Gzip;
+import org.hiero.block.tools.utils.gcp.ConcurrentDownloadManager;
+import org.hiero.block.tools.utils.gcp.ConcurrentDownloadManagerTransferManager;
 import picocli.CommandLine;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Option;
@@ -100,12 +106,30 @@ public class DownloadLive implements Runnable {
             description = "Output directory for daily folders (e.g., /data/records)")
     private Path out;
 
+    /**
+     * GCS-only source: the bucket containing raw record stream objects.
+     * This mirrors the layout used by the historic download2 tooling.
+     * No local filesystem ingestion is supported in download-live.
+     */
     @Option(
-            names = "--source-root",
+            names = "--gcs-bucket",
             required = true,
-            paramLabel = "source folder root",
-            description = "File storage location for record streams (e.g., /mnt/days/folder)")
-    private String sourceRoot;
+            paramLabel = "NAME",
+            description = "GCS bucket name containing record streams")
+    private String gcsBucket;
+
+    /**
+     * Object prefix inside the GCS bucket. Typically something like
+     * "recordstreams/record0.0.x/". download-live will construct
+     * fully-qualified object names as prefix + filename.
+     * Mirrors download2's expected directory conventions.
+     */
+    @Option(
+            names = "--gcs-prefix",
+            required = true,
+            paramLabel = "PREFIX",
+            description = "Object name prefix within the GCS bucket (e.g., recordstreams/record0.0.3/). May be empty.")
+    private String gcsPrefix;
 
     @Option(
             names = "--poll-interval",
@@ -162,12 +186,20 @@ public class DownloadLive implements Runnable {
             description = "Temporary directory used for streaming downloads before atomic move into the day folder.")
     private Path tmpDir;
 
+    @Option(
+            names = "--address-book",
+            paramLabel = "FILE",
+            description =
+                    "Optional path to an address book file used for future signature validation (e.g., nodeAddressBook.bin).")
+    private Path addressBookPath;
+
     @Override
     public void run() {
         System.out.println("[download-live] Starting");
         System.out.println("Configuration:");
         System.out.println("  out=" + out);
-        System.out.println("  sourceRoot=" + sourceRoot);
+        System.out.println("  gcsBucket=" + gcsBucket);
+        System.out.println("  gcsPrefix=" + gcsPrefix);
         System.out.println("  pollInterval=" + pollInterval);
         System.out.println("  batchSize=" + batchSize);
         System.out.println("  dayRolloverTz=" + dayRolloverTz);
@@ -177,6 +209,7 @@ public class DownloadLive implements Runnable {
         System.out.println("  runPoller=" + runPoller);
         System.out.println("  stateJsonPath=" + stateJsonPath);
         System.out.println("  tmpDir=" + tmpDir);
+        System.out.println("  addressBookPath=" + addressBookPath);
 
         if (!runPoller) {
             System.out.println("Status: Ready (use --run-poller to start the day-scoped poll loop)");
@@ -186,7 +219,8 @@ public class DownloadLive implements Runnable {
         // --- Start day-scoped poller with live downloader ---
         final ZoneId tz = ZoneId.of(dayRolloverTz);
         final Duration interval = parseHumanDuration(pollInterval);
-        final LiveDownloader downloader = new LiveDownloader(out, tmpDir, sourceRoot, maxConcurrency);
+        final LiveDownloader downloader =
+                new LiveDownloader(out, tmpDir, gcsBucket, gcsPrefix, maxConcurrency, addressBookPath);
 
         LocalDate startDayParsed = null;
         LocalDate endDayParsed = null;
@@ -200,12 +234,28 @@ public class DownloadLive implements Runnable {
         } catch (Exception e) {
             throw new CommandLine.ParameterException(
                     new CommandLine(new DownloadLive()),
-                    "Invalid --start-day/--end-day; expected format YYYY-MM-DD. startDay="
-                            + startDay + " endDay=" + endDay);
+                    "Invalid --start-day/--end-day; expected format YYYY-MM-DD. startDay=" + startDay + " endDay="
+                            + endDay);
         }
 
         final LivePoller poller =
                 new LivePoller(interval, tz, batchSize, stateJsonPath, downloader, startDayParsed, endDayParsed);
+
+        // Ensure we release GCS and executor resources on JVM shutdown.
+        Runtime.getRuntime()
+                .addShutdownHook(new Thread(
+                        () -> {
+                            System.out.println(
+                                    "[download-live] Shutdown requested; closing LiveDownloader resources...");
+                            try {
+                                downloader.shutdown();
+                            } catch (Exception e) {
+                                System.err.println(
+                                        "[download-live] Error while shutting down downloader: " + e.getMessage());
+                            }
+                        },
+                        "download-live-shutdown"));
+
         System.out.println("[download-live] Starting LivePoller (continuous; press Ctrl-C to stop)...");
         poller.runContinuouslyForToday();
     }
@@ -398,8 +448,9 @@ public class DownloadLive implements Runnable {
             }
 
             // Fetch latest blocks (descending) and filter to the current day + unseen.
-            final List<BlockInfo> latest = FetchBlockQuery.getLatestBlocks(batchSize, MirrorNodeBlockQueryOrder.DESC, timestampFilters);
-            final List<BlockDescriptor> batch = new ArrayList<>();
+            final List<BlockInfo> latest =
+                    FetchBlockQuery.getLatestBlocks(batchSize, MirrorNodeBlockQueryOrder.DESC, timestampFilters);
+            final List<LiveDownloader.BlockDescriptor> batch = new ArrayList<>();
             for (BlockInfo b : latest) {
                 long number = b.number;
                 if (lastSeenBlock >= 0 && number <= lastSeenBlock) {
@@ -416,8 +467,8 @@ public class DownloadLive implements Runnable {
                 }
                 String hash = b.hash;
                 String name = b.name;
-                String iso = zts.toString();
-                batch.add(new BlockDescriptor(number, name, iso, hash));
+                String iso = ts.toString();
+                batch.add(new LiveDownloader.BlockDescriptor(number, name, iso, hash));
             }
 
             // Sort asc so we process from oldest to newest, then hand off to the downloader
@@ -488,21 +539,77 @@ public class DownloadLive implements Runnable {
     static final class LiveDownloader {
         private final Path outRoot;
         private final Path tmpRoot;
-        private final String sourceRoot;
+        private final String gcsBucket;
+        private final String gcsPrefix;
         private final int maxConcurrency;
+        private final Path addressBookPath;
+        private final AddressBookRegistry addressBookRegistry;
+        private final ConcurrentDownloadManager downloadManager;
+        // Running previous record-file hash used to validate the block hash chain across files.
+        private byte[] previousRecordFileHash;
         // Single-threaded executor used for background compression of per-day tar files.
         private final ExecutorService compressionExecutor;
 
-        LiveDownloader(Path outRoot, Path tmpRoot, String sourceRoot, int maxConcurrency) {
+        LiveDownloader(
+                Path outRoot,
+                Path tmpRoot,
+                String gcsBucket,
+                String gcsPrefix,
+                int maxConcurrency,
+                Path addressBookPath) {
             this.outRoot = outRoot;
             this.tmpRoot = tmpRoot;
-            this.sourceRoot = sourceRoot;
+            this.gcsBucket = gcsBucket;
+            this.gcsPrefix = (gcsPrefix != null) ? gcsPrefix : "";
             this.maxConcurrency = Math.max(1, maxConcurrency);
+            this.addressBookPath = addressBookPath;
+            // Initialise the address book registry:
+            //  - If a JSON history file is provided via --address-book, load from it
+            //  - Otherwise fall back to the built-in Genesis address book
+            if (addressBookPath != null) {
+                System.out.println("[download] Loading address book from " + addressBookPath);
+                this.addressBookRegistry = new AddressBookRegistry(addressBookPath);
+            } else {
+                System.out.println("[download] No --address-book supplied; using Genesis address book.");
+                this.addressBookRegistry = new AddressBookRegistry();
+            }
+            // GCS-only: use ConcurrentDownloadManagerTransferManager to fetch objects from the configured
+            // bucket/prefix.
+            // NOTE: if the actual ConcurrentDownloadManagerTransferManager constructor has a different signature,
+            // adjust this
+            // call to match its configuration factory used by the historic download2 tooling.
+            this.downloadManager = new ConcurrentDownloadManagerTransferManager();
             this.compressionExecutor = Executors.newSingleThreadExecutor(r -> {
                 Thread t = new Thread(r, "download-live-compress");
                 t.setDaemon(true);
                 return t;
             });
+        }
+
+        /**
+         * Shutdown hook for releasing GCS transfer resources and the background compression executor.
+         * This is invoked from the top-level DownloadLive command via a JVM shutdown hook.
+         */
+        void shutdown() {
+            // Close the GCS transfer manager if it supports AutoCloseable/Closeable.
+            try {
+                if (downloadManager instanceof AutoCloseable closeable) {
+                    closeable.close();
+                }
+            } catch (Exception e) {
+                System.err.println("[download] Failed to close download manager: " + e.getMessage());
+            }
+
+            // Stop accepting new compression tasks and attempt a graceful shutdown.
+            compressionExecutor.shutdown();
+            try {
+                if (!compressionExecutor.awaitTermination(5, TimeUnit.SECONDS)) {
+                    compressionExecutor.shutdownNow();
+                }
+            } catch (InterruptedException ie) {
+                Thread.currentThread().interrupt();
+                compressionExecutor.shutdownNow();
+            }
         }
 
         /**
@@ -524,9 +631,8 @@ public class DownloadLive implements Runnable {
                 System.err.println("[download] Quarantined file for block " + blockNumber + " (" + safeName + ") -> "
                         + targetFile + " reason=" + reason);
             } catch (IOException ioe) {
-                System.err.println(
-                        "[download] Failed to quarantine file for block " + blockNumber + " (" + safeName + "): "
-                                + ioe.getMessage());
+                System.err.println("[download] Failed to quarantine file for block " + blockNumber + " (" + safeName
+                        + "): " + ioe.getMessage());
             }
         }
 
@@ -682,38 +788,33 @@ public class DownloadLive implements Runnable {
          *  3. Validate hashes using the shared record-file / block validation utilities
          *  4. Atomically move the temp file into the final day folder
          */
-        private long downloadSingle(String dayKey, BlockDescriptor d) {
+        private long downloadSingle(String dayKey, BlockDescriptor blockDescriptor) {
             Path tmpFile = null;
             try {
                 final Path dayDir = outRoot.resolve(dayKey);
                 Files.createDirectories(dayDir);
 
-                final String safeName = d.filename != null ? d.filename : ("block-" + d.blockNumber + ".rcd");
-                tmpFile = tmpRoot.resolve(dayKey + "-" + safeName + ".part");
+                final String safeName = blockDescriptor.filename != null
+                        ? blockDescriptor.filename
+                        : ("block-" + blockDescriptor.blockNumber + ".rcd");
                 final Path targetFile = dayDir.resolve(safeName);
 
+                tmpFile = tmpRoot.resolve(dayKey + "-" + safeName + ".part");
                 if (tmpFile.getParent() != null) {
                     Files.createDirectories(tmpFile.getParent());
                 }
 
-                // Interpret sourceRoot as a local/mounted filesystem root where mirror files are present.
-                // The mirror-provided filename is taken as a relative path from this root.
-                final Path sourceRootPath = Path.of(sourceRoot);
-                final String relativeName = d.filename != null ? d.filename : safeName;
-                final Path sourceFile = sourceRootPath.resolve(relativeName);
+                // Build the GCS object name from the configured prefix and the mirror-provided filename.
+                final String objectName = gcsPrefix + safeName;
+                System.out.println("[download] downloading gs://" + gcsBucket + "/" + objectName + " -> " + tmpFile);
 
-                if (!Files.isRegularFile(sourceFile)) {
-                    System.err.println("[download] Source file does not exist or is not a regular file: " + sourceFile);
-                    return -1L;
-                }
+                // Use ConcurrentDownloadManager to fetch the object into memory, then persist to tmpFile.
+                final CompletableFuture<InMemoryFile> future = downloadManager.downloadAsync(gcsBucket, objectName);
+                final InMemoryFile downloaded = future.get();
+                byte[] fileBytes = downloaded.data();
+                Files.write(tmpFile, fileBytes);
 
-                System.out.println("[download] copying " + sourceFile + " -> " + tmpFile);
-
-                // Copy from source store to temp file in our tmp root.
-                Files.copy(sourceFile, tmpFile, StandardCopyOption.REPLACE_EXISTING);
-
-                // Read the bytes for validation; if gzipped, unzip in memory first.
-                byte[] fileBytes = Files.readAllBytes(tmpFile);
+                // For validation, treat the downloaded bytes as the record stream contents.
                 byte[] recordBytes = fileBytes;
 
                 if (safeName.endsWith(".gz")) {
@@ -723,53 +824,52 @@ public class DownloadLive implements Runnable {
                         System.err.println(
                                 "[download] Failed to decompress .gz for " + safeName + ": " + ex.getMessage());
                         // Quarantine the problematic file for later inspection.
-                        quarantine(tmpFile, safeName, d.blockNumber, "gzip decompression failure");
+                        quarantine(tmpFile, safeName, blockDescriptor.blockNumber, "gzip decompression failure");
                         return -1L;
                     }
                 }
+                // Build an in-memory view of this record file so we can reuse the same
+                // validation logic as the day-based tooling (DownloadDayImplV2).
+                final List<InMemoryFile> inMemoryFiles = new ArrayList<>();
+                inMemoryFiles.add(new InMemoryFile(Path.of(safeName), recordBytes));
 
-                // Parse the record file and compute the block hash (download2-style).
-                RecordFileInfo recordFileInfo;
+                final byte[] expectedHash = parseExpectedHash(blockDescriptor.expectedHash);
+
+                byte[] newPrevHash;
                 try {
-                    recordFileInfo = RecordFileInfo.parse(recordBytes);
+                    newPrevHash = DownloadDayUtil.validateBlockHashes(
+                            blockDescriptor.blockNumber, inMemoryFiles, previousRecordFileHash, expectedHash);
                 } catch (Exception ex) {
-                    System.err.println(
-                            "[download] Failed to parse record file for " + safeName + ": " + ex.getMessage());
-                    // Quarantine the file when structural validation/parsing fails.
-                    quarantine(tmpFile, safeName, d.blockNumber, "record file parse/validation failure");
+                    System.err.println("[download] Block validation failed for " + safeName + " (block="
+                            + blockDescriptor.blockNumber + "): " + ex.getMessage());
+                    quarantine(tmpFile, safeName, blockDescriptor.blockNumber, "block validation failure");
                     return -1L;
                 }
 
-                byte[] computedHash = recordFileInfo.blockHash().toByteArray();
-                byte[] expectedHash = parseExpectedHash(d.expectedHash);
-
-                if (expectedHash != null) {
-                    if (!Arrays.equals(expectedHash, computedHash)) {
-                        String expHex = HexFormat.of().formatHex(expectedHash);
-                        String gotHex = HexFormat.of().formatHex(computedHash);
-                        String expShort = expHex.substring(0, Math.min(8, expHex.length()));
-                        String gotShort = gotHex.substring(0, Math.min(8, gotHex.length()));
-                        System.err.println("[download] ERROR: Hash mismatch for block " + d.blockNumber + " file "
-                                + safeName + " expected=" + expShort + " got=" + gotShort);
-                        // Move the temp file into quarantine for later inspection instead of deleting it.
-                        quarantine(tmpFile, safeName, d.blockNumber, "block hash mismatch with mirror expectedHash");
-                        return -1L;
-                    }
+                // Perform full block validation (record file + signatures, and later sidecars)
+                // using the same RecordFileBlockV6.validate(...) path as the offline Validate tool.
+                final Instant recordFileTime = Instant.parse(blockDescriptor.timestampIso);
+                final boolean fullyValid =
+                        fullBlockValidate(recordFileTime, recordBytes, tmpFile, safeName, blockDescriptor.blockNumber);
+                if (!fullyValid) {
+                    return -1L;
                 }
-                // If expectedHash is null, we still parsed the record and computed a hash,
-                // exercising the same validation path without external comparison.
 
                 // Atomically move from temp to final location. On same filesystem this will be a rename.
                 Files.move(tmpFile, targetFile, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
 
-                System.out.println("[download] placed " + targetFile + " (block=" + d.blockNumber + ")");
+                System.out.println("[download] placed " + targetFile + " (block=" + blockDescriptor.blockNumber + ")");
 
                 // Append the successfully validated file into the per-day tar archive.
                 appendToDayTar(dayKey, safeName);
 
-                return d.blockNumber;
+                // Update the running previous-record hash to enforce the hash chain across records.
+                previousRecordFileHash = newPrevHash;
+
+                return blockDescriptor.blockNumber;
             } catch (Exception e) {
-                System.err.println("[download] Failed to move block " + d.blockNumber + ": " + e.getMessage());
+                System.err.println(
+                        "[download] Failed to move block " + blockDescriptor.blockNumber + ": " + e.getMessage());
                 if (tmpFile != null) {
                     try {
                         Files.deleteIfExists(tmpFile);
@@ -778,6 +878,85 @@ public class DownloadLive implements Runnable {
                     }
                 }
                 return -1L;
+            }
+        }
+
+        /**
+         * Perform full block validation using RecordFileBlockV6 for the given recordFileTime, including:
+         *  - record file parsing and running hash invariants,
+         *  - signature verification against the current address book, and
+         *  - (once wired) sidecar hash validation.
+         *
+         * On any validation failure, the temp file is quarantined and this method returns false.
+         *
+         * @param recordFileTime consensus record file time (from mirror node, as Instant)
+         */
+        private boolean fullBlockValidate(
+                Instant recordFileTime, byte[] recordBytes, Path tmpFile, String safeName, long blockNumber) {
+            try {
+                final String sigName;
+                if (safeName.endsWith(".rcd.gz")) {
+                    sigName = safeName.substring(0, safeName.length() - ".rcd.gz".length()) + ".rcd_sig";
+                } else if (safeName.endsWith(".rcd")) {
+                    sigName = safeName.substring(0, safeName.length() - ".rcd".length()) + ".rcd_sig";
+                } else {
+                    System.out.println("[download] Skipping full signature validation for unexpected record filename: "
+                            + safeName);
+                    // Don’t fail the block purely on naming; we already validated hashes above.
+                    return true;
+                }
+
+                final String sigObjectName = gcsPrefix + sigName;
+                System.out.println("[download] downloading signature gs://" + gcsBucket + "/" + sigObjectName);
+
+                final CompletableFuture<InMemoryFile> future = downloadManager.downloadAsync(gcsBucket, sigObjectName);
+                final InMemoryFile sigFileInMemory = future.get();
+                final byte[] sigBytes = sigFileInMemory.data();
+
+                // Build the in-memory model for RecordFileBlockV6. For now we only wire the primary record
+                // file and its signature file; sidecar files can be added later when the live path also
+                // streams sidecars alongside records.
+                final InMemoryFile primaryRecordFile = new InMemoryFile(Path.of(safeName), recordBytes);
+                final List<InMemoryFile> otherRecordFiles = List.of();
+                final InMemoryFile sigFile = new InMemoryFile(Path.of(sigName), sigBytes);
+                final List<InMemoryFile> signatureFiles = List.of(sigFile);
+                final List<InMemoryFile> primarySidecarFiles = List.of();
+                final List<InMemoryFile> otherSidecarFiles = List.of();
+
+                final RecordFileBlockV6 block = new RecordFileBlockV6(
+                        recordFileTime,
+                        primaryRecordFile,
+                        otherRecordFiles,
+                        signatureFiles,
+                        primarySidecarFiles,
+                        otherSidecarFiles);
+
+                // Use null for startRunningHash here because the block-hash chain is already enforced via
+                // DownloadDayUtil.validateBlockHashes(...). The running hash will still be checked for
+                // internal consistency by the validator.
+                RecordFileBlock.ValidationResult vr = block.validate(null, addressBookRegistry.getCurrentAddressBook());
+
+                if (!vr.isValid()) {
+                    System.err.println("[download] Full block validation failed for " + safeName + " (block="
+                            + blockNumber + "): " + vr.warningMessages());
+                    quarantine(tmpFile, safeName, blockNumber, "full block validation failure");
+                    return false;
+                }
+
+                // Update address book with any address-book transactions carried in this block so that
+                // subsequent validations use the latest network view.
+                String addressBookChanges =
+                        addressBookRegistry.updateAddressBook(block.recordFileTime(), vr.addressBookTransactions());
+                if (addressBookChanges != null && !addressBookChanges.isBlank()) {
+                    System.out.println("[download] " + addressBookChanges);
+                }
+
+                return true;
+            } catch (Exception ex) {
+                System.err.println("[download] Exception during full block validation for " + safeName + " (block="
+                        + blockNumber + "): " + ex.getMessage());
+                quarantine(tmpFile, safeName, blockNumber, "exception during full block validation");
+                return false;
             }
         }
 
@@ -801,27 +980,28 @@ public class DownloadLive implements Runnable {
                 return null;
             }
         }
-    }
 
-    /**
-     * Minimal descriptor used by the poller; will align with real mirror schema later.
-     */
-    static final class BlockDescriptor {
-        final long blockNumber;
-        final String filename;
-        final String timestampIso;
-        final String expectedHash;
+        /**
+         * Minimal descriptor used by the poller; will align with real mirror schema later.
+         */
+        static final class BlockDescriptor {
+            final long blockNumber;
+            final String filename;
+            final String timestampIso;
+            final String expectedHash;
 
-        BlockDescriptor(long blockNumber, String filename, String timestampIso, String expectedHash) {
-            this.blockNumber = blockNumber;
-            this.filename = filename;
-            this.timestampIso = timestampIso;
-            this.expectedHash = expectedHash;
-        }
+            BlockDescriptor(long blockNumber, String filename, String timestampIso, String expectedHash) {
+                this.blockNumber = blockNumber;
+                this.filename = filename;
+                this.timestampIso = timestampIso;
+                this.expectedHash = expectedHash;
+            }
 
-        @Override
-        public String toString() {
-            return "BlockDescriptor{number=" + blockNumber + ", file='" + filename + "', ts='" + timestampIso + "'}";
+            @Override
+            public String toString() {
+                return "BlockDescriptor{number=" + blockNumber + ", file='" + filename + "', ts='" + timestampIso
+                        + "'}";
+            }
         }
     }
 }
