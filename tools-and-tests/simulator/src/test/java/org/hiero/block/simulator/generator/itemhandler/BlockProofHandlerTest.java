@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.simulator.generator.itemhandler;
 
-import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
@@ -16,23 +15,22 @@ import org.junit.jupiter.api.Test;
 
 class BlockProofHandlerTest {
 
-    private final byte[] previousBlockHash = new byte[StreamingTreeHasher.HASH_LENGTH];
     private final byte[] currentBlockHash = new byte[StreamingTreeHasher.HASH_LENGTH];
     private final long blockNumber = 1L;
 
     @Test
-    void testConstructorWithNullPreviousHash() {
-        assertThrows(NullPointerException.class, () -> new BlockProofHandler(null, currentBlockHash, blockNumber));
+    void testConstructorWithNullHash() {
+        assertThrows(NullPointerException.class, () -> new BlockProofHandler(null, blockNumber));
     }
 
     @Test
     void testConstructorWithNullCurrentHash() {
-        assertThrows(NullPointerException.class, () -> new BlockProofHandler(previousBlockHash, null, blockNumber));
+        assertThrows(NullPointerException.class, () -> new BlockProofHandler(null, blockNumber));
     }
 
     @Test
     void testGetItem() {
-        BlockProofHandler handler = new BlockProofHandler(previousBlockHash, currentBlockHash, blockNumber);
+        BlockProofHandler handler = new BlockProofHandler(currentBlockHash, blockNumber);
         BlockItem item = handler.getItem();
 
         assertNotNull(item);
@@ -40,14 +38,13 @@ class BlockProofHandlerTest {
 
         BlockProof proof = item.getBlockProof();
         assertEquals(blockNumber, proof.getBlock());
-        assertArrayEquals(previousBlockHash, proof.getPreviousBlockRootHash().toByteArray());
-        assertNotNull(proof.getBlockSignature());
-        assertFalse(proof.getBlockSignature().isEmpty());
+        assertNotNull(proof.getSignedBlockProof());
+        assertFalse(proof.getSignedBlockProof().getBlockSignature().isEmpty());
     }
 
     @Test
     void testGetItemCaching() {
-        BlockProofHandler handler = new BlockProofHandler(previousBlockHash, currentBlockHash, blockNumber);
+        BlockProofHandler handler = new BlockProofHandler(currentBlockHash, blockNumber);
         BlockItem item1 = handler.getItem();
         BlockItem item2 = handler.getItem();
 

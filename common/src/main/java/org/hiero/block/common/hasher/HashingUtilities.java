@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.common.hasher;
 
-import com.hedera.hapi.block.stream.BlockProof;
+import com.hedera.hapi.block.stream.output.BlockFooter;
+import com.hedera.hapi.block.stream.output.BlockHeader;
+import com.hedera.hapi.node.base.Timestamp;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import com.swirlds.common.crypto.DigestType;
 import edu.umd.cs.findbugs.annotations.NonNull;
@@ -25,6 +27,18 @@ public final class HashingUtilities {
      * A constant representing a null hash, which is a zeroed-out byte array of size {@link #HASH_SIZE}.
      */
     public static final Bytes NULL_HASH = Bytes.wrap(new byte[HASH_SIZE]);
+
+    public static final Bytes DEPTH_2_NODE_2_COMBINED;
+
+    static {
+        // For the future reserved roots, compute the combined hash of the subroot at depth 2,node 2. This hash will
+        // then combine with the subroot containing the block data at the end of each round
+        final Bytes combinedNullHash = combine(NULL_HASH, NULL_HASH);
+        final Bytes depth3Node3 = combine(combinedNullHash, combinedNullHash);
+        final Bytes depth3Node4 = combine(combinedNullHash, combinedNullHash);
+        DEPTH_2_NODE_2_COMBINED = combine(depth3Node3, depth3Node4);
+    }
+
     /**
      * The standard name of the SHA2 384-bit hash algorithm.
      * <p>
@@ -190,8 +204,8 @@ public final class HashingUtilities {
     }
 
     /**
-     * Computes the final block hash from the given block proof and tree hashers.
-     * @param blockProof the block proof
+     * Computes the final block hash from the given block footer, timestamp and tree hashers.
+     * @param blockFooter the block proof
      * @param inputTreeHasher the input tree hasher
      * @param outputTreeHasher the output tree hasher
      * @param consensusHeaderHasher the consensus header hasher
@@ -200,36 +214,47 @@ public final class HashingUtilities {
      * @return the final block hash
      */
     public static Bytes computeFinalBlockHash(
-            @NonNull final BlockProof blockProof,
+            @NonNull final BlockHeader blockHeader,
+            @NonNull final BlockFooter blockFooter,
             @NonNull final StreamingTreeHasher inputTreeHasher,
             @NonNull final StreamingTreeHasher outputTreeHasher,
             @NonNull final StreamingTreeHasher consensusHeaderHasher,
             @NonNull final StreamingTreeHasher stateChangesHasher,
             @NonNull final StreamingTreeHasher traceDataHasher) {
-        Objects.requireNonNull(blockProof);
+        Objects.requireNonNull(blockHeader);
+        Objects.requireNonNull(blockFooter);
         Objects.requireNonNull(inputTreeHasher);
         Objects.requireNonNull(outputTreeHasher);
+        Objects.requireNonNull(consensusHeaderHasher);
+        Objects.requireNonNull(stateChangesHasher);
+        Objects.requireNonNull(traceDataHasher);
 
-        Bytes inputHash = inputTreeHasher.rootHash().join();
-        Bytes outputHash = outputTreeHasher.rootHash().join();
-        Bytes consensusHeaderHash = consensusHeaderHasher.rootHash().join();
-        Bytes stateChangesHash = stateChangesHasher.rootHash().join();
-        Bytes traceDataHash = traceDataHasher.rootHash().join();
+        final Bytes previousBlockHash = blockFooter.previousBlockRootHash();
+        final Bytes rootOfAllPreviousBlockHashes = blockFooter.rootHashOfAllBlockHashesTree();
+        final Bytes rootOfStateAtStartOfBlock = blockFooter.startOfBlockStateRootHash();
+        final Bytes rootOfConsensusHeaders = consensusHeaderHasher.rootHash().join();
+        final Bytes rootOfInputs = inputTreeHasher.rootHash().join();
+        final Bytes rootOfOutputs = outputTreeHasher.rootHash().join();
+        final Bytes rootOfStateChanges = stateChangesHasher.rootHash().join();
+        final Bytes rootOfTraceData = traceDataHasher.rootHash().join();
 
-        Bytes lastBlockHash = blockProof.previousBlockRootHash();
-        Bytes blockStartStateHash = blockProof.startOfBlockStateRootHash();
-
+        // Compute depth four hashes
+        final var depth4Node1 = combine(previousBlockHash, rootOfAllPreviousBlockHashes);
+        final var depth4Node2 = combine(rootOfStateAtStartOfBlock, rootOfConsensusHeaders);
+        final var depth4Node3 = combine(rootOfInputs, rootOfOutputs);
+        final var depth4Node4 = combine(rootOfStateChanges, rootOfTraceData);
+        // Compute depth three hashes
+        final var depth3Node1 = combine(depth4Node1, depth4Node2);
+        final var depth3Node2 = combine(depth4Node3, depth4Node4);
         // Compute depth two hashes
-        final Bytes depth2Node0 = combine(lastBlockHash, blockStartStateHash);
-        final Bytes depth2Node1 = combine(consensusHeaderHash, inputHash);
-        final Bytes depth2Node2 = combine(outputHash, stateChangesHash);
-        final Bytes depth2Node3 = combine(traceDataHash, NULL_HASH);
+        final var depth2Node1 = combine(depth3Node1, depth3Node2);
+        // Compute depth one hash
+        final Bytes depth1Node1 = combine(depth2Node1, DEPTH_2_NODE_2_COMBINED);
+        // Compute the block's root hash
+        final var timestamp = Timestamp.PROTOBUF.toBytes(blockHeader.blockTimestamp());
+        final var depth1Node0 = noThrowSha384HashOf(timestamp);
+        final var rootHash = combine(depth1Node0, depth1Node1);
 
-        // Compute depth one hashes
-        final Bytes depth1Node0 = combine(depth2Node0, depth2Node1);
-        final Bytes depth1Node1 = combine(depth2Node2, depth2Node3);
-
-        // Compute the block hash
-        return combine(depth1Node0, depth1Node1);
+        return rootHash;
     }
 }
