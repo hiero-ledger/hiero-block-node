@@ -252,14 +252,14 @@ public class Record2BlockCommand implements Runnable {
                             System.out.println(Ansi.AUTO.string(
                                     "@|bold,yellow    Wrote block [|@" + finalBlockNumber + "@|bold,yellow ]to|@ "
                                             + blockPath.dirPath()
-                                            + "/" + blockPath.zipFileName() + "@|bold,cyan :|@"
+                                            + "/" + blockPath.zipFilePath().getFileName() + "@|bold,cyan :|@"
                                             + blockPath.blockFileName() + "@|bold,yellow ] and json to|@ "
                                             + blockJsonPath));
                         } else {
                             System.out.println(Ansi.AUTO.string(
                                     "@|bold,yellow    Wrote block [|@" + finalBlockNumber + "@|bold,yellow ]to|@ "
                                             + blockPath.dirPath()
-                                            + "/" + blockPath.zipFileName() + "@|bold,cyan :|@"
+                                            + "/" + blockPath.zipFilePath().getFileName() + "@|bold,cyan :|@"
                                             + blockPath.blockFileName()));
                         }
                     } catch (IOException e) {

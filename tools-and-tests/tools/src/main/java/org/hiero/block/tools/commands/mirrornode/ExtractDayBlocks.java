@@ -23,13 +23,13 @@ import picocli.CommandLine.Command;
 import picocli.CommandLine.Option;
 
 /**
- * Read the record_file.csv.gz file from mirror node and extract the block info for each day into a json file.
+ * Read the record_file.csv.gz file from the mirror node and extract the block info for each day into a json file.
  * <p>
  * Json file contains an array of objects with the following fields:
  * <ul>
  *     <li>year: the UTC year</li>
  *     <li>month: the UTC month (1-12)</li>
- *     <li>day: the UTC day of month</li>
+ *     <li>day: the UTC day of the month</li>
  *     <li>firstBlockNumber: the block number of the first block on this day</li>
  *     <li>firstBlockHash: the running hash of the first block as hex string</li>
  *     <li>lastBlockNumber: the block number of the last block on this day</li>
@@ -42,7 +42,7 @@ import picocli.CommandLine.Option;
 @Command(name = "extractDayBlock", description = "Extract block info for each day into json file")
 public class ExtractDayBlocks implements Runnable {
 
-    /** The path download the record table CSVs from mirror node to, gzipped. */
+    /** The path to download the record table CSVs from the mirror node to, gzipped. */
     @Option(
             names = {"--record-dir"},
             description = "Path to download the record table CSVs from mirror node to, gzipped.")
@@ -98,12 +98,10 @@ public class ExtractDayBlocks implements Runnable {
                     int hashIndex = -1;
                     for (int i = 0; i < headerLineParts.length; i++) {
                         final String h = headerLineParts[i];
-                        if (h.equals("name")) {
-                            recordStreamFileNameIndex = i;
-                        } else if (h.equals("index")) {
-                            blockNumberIndex = i;
-                        } else if (h.equals("hash")) {
-                            hashIndex = i;
+                        switch (h) {
+                            case "name" -> recordStreamFileNameIndex = i;
+                            case "index" -> blockNumberIndex = i;
+                            case "hash" -> hashIndex = i;
                         }
                     }
                     if (recordStreamFileNameIndex == -1 || blockNumberIndex == -1 || hashIndex == -1) {
