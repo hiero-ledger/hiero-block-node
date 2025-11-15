@@ -104,19 +104,19 @@ public class ToWrappedBlocksCommand implements Runnable {
             System.exit(1);
         }
         final long latestBlockNumber = updateMirrorNodeData(blockTimesFile, dayBlocksFile);
-        System.out.println(Ansi.AUTO.string("@|yellow Latest block number from mirror node:|@ " +
-            latestBlockNumber));
+        System.out.println(Ansi.AUTO.string("@|yellow Latest block number from mirror node:|@ " + latestBlockNumber));
         // load day block info map
         final Map<LocalDate, DayBlockInfo> dayMap = loadDayBlockInfoMap(dayBlocksFile);
         // load block times
         try (BlockTimeReader blockTimeReader = new BlockTimeReader(blockTimesFile)) {
             // scan the output dir and work out what the most recent block is so we know where to start
-            final long highestStoredBlockNumber = maxStoredBlockNumber(outputBlocksDir, BlockWriter.DEFAULT_COMPRESSION);
-            final Instant highestStoredBlockTime = highestStoredBlockNumber == -1 ? Instant.EPOCH :
-                blockTimeReader.getBlockInstant(highestStoredBlockNumber);
-            System.out.println(
-                Ansi.AUTO.string("@|yellow Highest block in block_times.bin:|@ " +
-                    highestStoredBlockNumber + " @|yellow at|@ " + highestStoredBlockTime));
+            final long highestStoredBlockNumber =
+                    maxStoredBlockNumber(outputBlocksDir, BlockWriter.DEFAULT_COMPRESSION);
+            final Instant highestStoredBlockTime = highestStoredBlockNumber == -1
+                    ? Instant.EPOCH
+                    : blockTimeReader.getBlockInstant(highestStoredBlockNumber);
+            System.out.println(Ansi.AUTO.string("@|yellow Highest block in block_times.bin:|@ "
+                    + highestStoredBlockNumber + " @|yellow at|@ " + highestStoredBlockTime));
 
             // compute the block to start processing at
             final long startBlock = highestStoredBlockNumber == -1 ? 0 : highestStoredBlockNumber + 1;
@@ -128,84 +128,87 @@ public class ToWrappedBlocksCommand implements Runnable {
             System.out.println(Ansi.AUTO.string("@|yellow Starting from day:|@ " + startBlockDate));
 
             // load day paths from the input directory, filtering to just ones newer than the startBlockDate
-            final List<Path> dayPaths = TarZstdDayUtils.sortedDayPaths(new File[] {compressedDaysDir.toFile()})
-                .stream().filter(p -> {
-                    final LocalDate fileDate = LocalDate.parse(p.getFileName().toString().substring(0,10));
-                    return fileDate.isEqual(startBlockDate) || fileDate.isAfter(startBlockDate);
-                })
-                .toList();
+            final List<Path> dayPaths = TarZstdDayUtils.sortedDayPaths(new File[] {compressedDaysDir.toFile()}).stream()
+                    .filter(p -> {
+                        final LocalDate fileDate =
+                                LocalDate.parse(p.getFileName().toString().substring(0, 10));
+                        return fileDate.isEqual(startBlockDate) || fileDate.isAfter(startBlockDate);
+                    })
+                    .toList();
 
             // track the block number
             final AtomicLong blockCounter = new AtomicLong(startBlock);
             for (int dayIndex = 0; dayIndex < dayPaths.size(); dayIndex++) {
                 final Path dayPath = dayPaths.get(dayIndex);
-                final LocalDate dayDate = LocalDate.parse(dayPath.getFileName().toString().substring(0, 10));
+                final LocalDate dayDate =
+                        LocalDate.parse(dayPath.getFileName().toString().substring(0, 10));
                 System.out.println(Ansi.AUTO.string("@|yellow Processing day file:|@ " + dayPath));
                 long currentBlockNumberBeingRead = dayMap.get(dayDate).firstBlockNumber;
                 if (currentBlockNumberBeingRead > startBlock) {
                     // double check blockCounter is in sync
                     if (blockCounter.get() != currentBlockNumberBeingRead) {
-                        throw new RuntimeException(
-                            "Block counter out of sync with day block number for " + dayDate + ": " +
-                                blockCounter.get() + " != " + currentBlockNumberBeingRead);
+                        throw new RuntimeException("Block counter out of sync with day block number for " + dayDate
+                                + ": " + blockCounter.get() + " != " + currentBlockNumberBeingRead);
                     }
                 }
                 try (var stream = TarZstdDayReaderUsingExec.streamTarZstd(dayPath)) {
                     stream
-                        // filter out blocks we have already processed, only leaving newer blocks
-                        .filter(recordBlock -> recordBlock.recordFileTime().isAfter(highestStoredBlockTime))
-                        .forEach(recordBlock -> {
-                            try {
-                                final long blockNum = blockCounter.getAndIncrement();
-                                // Convert record file block to wrapped block. We pass zero hashes for previous/root
-                                // TODO Rocky we need to get rid of experimental block, I added experimental to change API
-                                //  locally, We need to push those changes up stream to HAPI lib then pull latest.
-                                final com.hedera.hapi.block.stream.experimental.Block wrappedExp =
-                                    recordBlock.toWrappedBlock(
-                                        blockNum,
-                                        ZERO_HASH,
-                                        ZERO_HASH,
-                                        addressBookRegistry.getCurrentAddressBook());
+                            // filter out blocks we have already processed, only leaving newer blocks
+                            .filter(recordBlock -> recordBlock.recordFileTime().isAfter(highestStoredBlockTime))
+                            .forEach(recordBlock -> {
+                                try {
+                                    final long blockNum = blockCounter.getAndIncrement();
+                                    // Convert record file block to wrapped block. We pass zero hashes for previous/root
+                                    // TODO Rocky we need to get rid of experimental block, I added experimental to
+                                    // change API
+                                    //  locally, We need to push those changes up stream to HAPI lib then pull latest.
+                                    final com.hedera.hapi.block.stream.experimental.Block wrappedExp =
+                                            recordBlock.toWrappedBlock(
+                                                    blockNum,
+                                                    ZERO_HASH,
+                                                    ZERO_HASH,
+                                                    addressBookRegistry.getCurrentAddressBook());
 
-                                // Convert experimental Block to stable Block for storage APIs
-                                // TODO Rocky this will slow things down and can be deleted once above is fixed
-                                final com.hedera.pbj.runtime.io.buffer.Bytes protoBytes =
-                                    com.hedera.hapi.block.stream.experimental.Block.PROTOBUF.toBytes(wrappedExp);
-                                final Block wrapped = Block.PROTOBUF.parse(protoBytes);
-                                // write the wrapped block to the output directory
-                                if (unzipped) {
-                                    try {
-                                        final Path outPath = BlockFile.nestedDirectoriesBlockFilePath(
-                                            outputBlocksDir, blockNum, CompressionType.ZSTD, 3);
-                                        Files.createDirectories(outPath.getParent());
-                                        // compress using CompressionType helper and write bytes
-                                        final byte[] compressed = CompressionType.ZSTD.compress(
-                                            protoBytes.toByteArray());
-                                        Files.write(outPath, compressed);
-                                    } catch (IOException e) {
-                                        System.err.println(
-                                            "Failed writing unzipped block " + blockNum + ": " + e.getMessage());
-                                        e.printStackTrace();
-                                        System.exit(1);
+                                    // Convert experimental Block to stable Block for storage APIs
+                                    // TODO Rocky this will slow things down and can be deleted once above is fixed
+                                    final com.hedera.pbj.runtime.io.buffer.Bytes protoBytes =
+                                            com.hedera.hapi.block.stream.experimental.Block.PROTOBUF.toBytes(
+                                                    wrappedExp);
+                                    final Block wrapped = Block.PROTOBUF.parse(protoBytes);
+                                    // write the wrapped block to the output directory
+                                    if (unzipped) {
+                                        try {
+                                            final Path outPath = BlockFile.nestedDirectoriesBlockFilePath(
+                                                    outputBlocksDir, blockNum, CompressionType.ZSTD, 3);
+                                            Files.createDirectories(outPath.getParent());
+                                            // compress using CompressionType helper and write bytes
+                                            final byte[] compressed =
+                                                    CompressionType.ZSTD.compress(protoBytes.toByteArray());
+                                            Files.write(outPath, compressed);
+                                        } catch (IOException e) {
+                                            System.err.println("Failed writing unzipped block " + blockNum + ": "
+                                                    + e.getMessage());
+                                            e.printStackTrace();
+                                            System.exit(1);
+                                        }
+                                    } else {
+                                        try {
+                                            // BlockWriter will create/append to zip files as needed
+                                            BlockWriter.writeBlock(outputBlocksDir, wrapped);
+                                        } catch (IOException e) {
+                                            System.err.println(
+                                                    "Failed writing zipped block " + blockNum + ": " + e.getMessage());
+                                            e.printStackTrace();
+                                            System.exit(1);
+                                        }
                                     }
-                                } else {
-                                    try {
-                                        // BlockWriter will create/append to zip files as needed
-                                        BlockWriter.writeBlock(outputBlocksDir, wrapped);
-                                    } catch (IOException e) {
-                                        System.err.println(
-                                            "Failed writing zipped block " + blockNum + ": " + e.getMessage());
-                                        e.printStackTrace();
-                                        System.exit(1);
-                                    }
+                                } catch (Exception ex) {
+                                    System.err.println(
+                                            "Failed processing record block in " + dayPath + ": " + ex.getMessage());
+                                    ex.printStackTrace();
+                                    System.exit(1);
                                 }
-                            } catch (Exception ex) {
-                                System.err.println(
-                                    "Failed processing record block in " + dayPath + ": " + ex.getMessage());
-                                ex.printStackTrace();
-                                System.exit(1);
-                            }
-                        });
+                            });
                 } catch (Exception e) {
                     throw new RuntimeException(e);
                 }
