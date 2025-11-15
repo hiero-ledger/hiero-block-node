@@ -3,6 +3,7 @@ package org.hiero.block.tools.commands.days.download;
 
 import static org.hiero.block.tools.commands.days.download.DownloadConstants.BUCKET_NAME;
 import static org.hiero.block.tools.commands.days.download.DownloadConstants.BUCKET_PATH_PREFIX;
+import static org.hiero.block.tools.commands.days.download.DownloadDayUtil.validateBlockHashes;
 import static org.hiero.block.tools.commands.days.listing.DayListingFileReader.loadRecordsFileForDay;
 import static org.hiero.block.tools.records.RecordFileUtils.extractRecordFileTimeStrFromPath;
 import static org.hiero.block.tools.records.RecordFileUtils.findMostCommonByType;
@@ -33,7 +34,6 @@ import org.hiero.block.tools.commands.days.listing.ListingRecordFile;
 import org.hiero.block.tools.commands.mirrornode.BlockTimeReader;
 import org.hiero.block.tools.commands.mirrornode.DayBlockInfo;
 import org.hiero.block.tools.records.InMemoryFile;
-import org.hiero.block.tools.records.RecordFileInfo;
 import org.hiero.block.tools.utils.ConcurrentTarZstdWriter;
 import org.hiero.block.tools.utils.Gzip;
 import org.hiero.block.tools.utils.Md5Checker;
@@ -379,47 +379,6 @@ public class DownloadDayImplV2 {
 
         // For non-signature files, throw the exception
         throw lastException;
-    }
-
-    /**
-     * Validate block hashes for the given block's record files.
-     *
-     * @param blockNum the block number
-     * @param inMemoryFilesForWriting the list of in-memory record files for this block
-     * @param prevRecordFileHash the previous record file hash to validate against (can be null)
-     * @param blockHashFromMirrorNode the expected block hash from mirror node listing (can be null)
-     * @return the computed block hash from this block's record file
-     * @throws IllegalStateException if any hash validation fails
-     */
-    private static byte[] validateBlockHashes(
-            final long blockNum,
-            final List<InMemoryFile> inMemoryFilesForWriting,
-            final byte[] prevRecordFileHash,
-            final byte[] blockHashFromMirrorNode) {
-        final InMemoryFile mostCommonRecordFileInMem = inMemoryFilesForWriting.getFirst();
-        final RecordFileInfo recordFileInfo = RecordFileInfo.parse(mostCommonRecordFileInMem.data());
-        byte[] readPreviousBlockHash = recordFileInfo.previousBlockHash().toByteArray();
-        byte[] computedBlockHash = recordFileInfo.blockHash().toByteArray();
-        if (blockHashFromMirrorNode != null && !Arrays.equals(blockHashFromMirrorNode, computedBlockHash)) {
-            throw new IllegalStateException(
-                    "Block[" + blockNum + "] hash mismatch with mirror node listing. " + ", Expected: "
-                            + HexFormat.of().formatHex(blockHashFromMirrorNode).substring(0, 8)
-                            + ", Found: "
-                            + HexFormat.of().formatHex(computedBlockHash).substring(0, 8) + "\n"
-                            + "Context mostCommonRecordFile:"
-                            + mostCommonRecordFileInMem.path() + " computedHash:"
-                            + HexFormat.of().formatHex(computedBlockHash).substring(0, 8));
-        }
-        if (prevRecordFileHash != null && !Arrays.equals(prevRecordFileHash, readPreviousBlockHash)) {
-            throw new IllegalStateException("Block[" + blockNum + "] previous block hash mismatch. " + ", Expected: "
-                    + HexFormat.of().formatHex(prevRecordFileHash).substring(0, 8)
-                    + ", Found: "
-                    + HexFormat.of().formatHex(readPreviousBlockHash).substring(0, 8) + "\n"
-                    + "Context mostCommonRecordFile:"
-                    + mostCommonRecordFileInMem.path() + " computedHash:"
-                    + HexFormat.of().formatHex(computedBlockHash).substring(0, 8));
-        }
-        return computedBlockHash;
     }
 
     /**
