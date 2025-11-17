@@ -18,6 +18,7 @@ import java.util.concurrent.CopyOnWriteArrayList;
  * <p>InMemoryBlocks can be read and written as a set of files in a directory with common timestamp, or they can be
  * read from compressed tar.zstd day files.</p>
  */
+@SuppressWarnings("StringConcatenationInsideStringBufferAppend")
 public abstract class RecordFileBlock {
 
     /**
@@ -226,22 +227,22 @@ public abstract class RecordFileBlock {
         try {
             RecordFileInfo information = RecordFileInfo.parse(primaryRecordFile.data());
             return String.format(
-                    "-- RecordFileSet @ %-32s :: signatures=%2d%s%s%n  -- %s",
+                    "--> RecordFileSet @ %-32s :: signatures=%2d%s%s%s%n  -- %s",
                     recordFileTime,
                     signatureFiles.size(),
-                    primarySidecarFiles.isEmpty() ? "" : ", primary sidecars=" + primarySidecarFiles.size(),
-                    otherRecordFiles.isEmpty() ? "" : ", other record files=" + otherRecordFiles.size(),
+                    ", other record files=" + otherRecordFiles.size(),
+                    ", primary sidecars=" + primarySidecarFiles.size(),
+                    ", other sidecars=" + otherSidecarFiles.size(),
                     information.prettyToString().replace("\n", "\n     "));
         } catch (Exception e) {
             return String.format(
-                    "-- RecordFileSet @ %-32s :: signatures=%2d%s%s",
+                    "-- RecordFileSet @ %-32s :: signatures=%2d%s%s%s%n%s",
                     recordFileTime,
                     signatureFiles.size(),
-                    primarySidecarFiles.isEmpty() ? "" : ", primary sidecars=" + primarySidecarFiles.size(),
-                    otherRecordFiles.isEmpty()
-                            ? ""
-                            : ", other record files=" + otherRecordFiles.size() + "\n    - Parsing FAILED: "
-                                    + e.getMessage());
+                    ", other record files=" + otherRecordFiles.size(),
+                    ", primary sidecars=" + primarySidecarFiles.size(),
+                    ", other sidecars=" + otherSidecarFiles.size(),
+                    "    - Parsing FAILED: " + e.getMessage());
         }
     }
 
