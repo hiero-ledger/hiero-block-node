@@ -2,29 +2,10 @@ import { Client, StatusOK, Stream } from 'k6/net/grpc';
 import { check, sleep } from 'k6';
 import { SharedArray } from 'k6/data';
 
-// Configure k6 VUs scheduling and iterations
-// export const options = {
-//     scenarios: {
-//         shared_iter_scenario: {
-//             executor: 'shared-iterations',
-//             vus: 10,
-//             iterations: 100,
-//             startTime: '0s',
-//         },
-//         per_vu_scenario: {
-//             executor: 'per-vu-iterations',
-//             vus: 10,
-//             iterations: 10,
-//             startTime: '10s',
-//         },
-//     },
-// };
-
 // load test configuration data
 const data = new SharedArray('BN Test Configs', function () {
-    return JSON.parse(open('./data.json')).configs;
+    return JSON.parse(open('./../data.json')).configs;
 })[0];
-
 
 const client = new Client();
 client.load([data.protobufPath],
@@ -33,7 +14,7 @@ client.load([data.protobufPath],
     'block-node/api/block_stream_subscribe_service.proto');
 
 export default () => {
-    client.connect(data.smokeTestConfigs.blockNodeUrl, {
+    client.connect(data.blockNodeUrl, {
         plaintext: true
     });
 
