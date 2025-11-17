@@ -53,6 +53,7 @@ import org.hiero.block.tools.records.RecordFileBlock;
  *       Any failure of the external process is surfaced as a runtime exception.</li>
  * </ul>
  */
+@SuppressWarnings("unused")
 public class TarZstdDayReader {
 
     /**
@@ -262,6 +263,7 @@ public class TarZstdDayReader {
 
             // sidecars: collect primary sidecars (no node suffix) per index and other sidecars (with node suffix)
             Map<Integer, InMemoryFile> primarySidecarMap = new HashMap<>();
+            Map<Integer, List<InMemoryFile>> otherSidecarsByIndex = new HashMap<>();
             List<InMemoryFile> otherSidecarFiles = new ArrayList<>();
 
             for (InMemoryFile f : rcdFiles) {
@@ -271,7 +273,30 @@ public class TarZstdDayReader {
                 if (sidecarKind > 0) { // primary sidecar: kind is its index
                     primarySidecarMap.put(sidecarKind, f);
                 } else if (sidecarKind == -2) { // other sidecar with node suffix
+                    // Extract the index from the other sidecar filename
+                    int sidecarIndex = extractSidecarIndex(noExt, baseKey);
+                    if (sidecarIndex > 0) {
+                        otherSidecarsByIndex
+                                .computeIfAbsent(sidecarIndex, k -> new ArrayList<>())
+                                .add(f);
+                    }
                     otherSidecarFiles.add(f);
+                }
+            }
+
+            // Handle edge case: if there's no primary sidecar for an index but there are other sidecars,
+            // promote one of the other sidecars to be the primary for that index
+            for (Map.Entry<Integer, List<InMemoryFile>> entry : otherSidecarsByIndex.entrySet()) {
+                int index = entry.getKey();
+                if (!primarySidecarMap.containsKey(index)) {
+                    // No primary sidecar for this index - pick the first other sidecar as primary
+                    List<InMemoryFile> otherSidecarsForIndex = entry.getValue();
+                    if (!otherSidecarsForIndex.isEmpty()) {
+                        InMemoryFile promoted = otherSidecarsForIndex.getFirst();
+                        primarySidecarMap.put(index, promoted);
+                        // Remove the promoted sidecar from otherSidecarFiles list
+                        otherSidecarFiles.remove(promoted);
+                    }
                 }
             }
 
@@ -457,6 +482,42 @@ public class TarZstdDayReader {
             return -2; // other sidecar with node suffix
         }
         return -1;
+    }
+
+    /**
+     * Extract the sidecar index from a sidecar filename (without extension).
+     *
+     * <p>This method is used to handle edge cases where primary sidecar files (without node suffix)
+     * are missing, but "other" sidecar files (with node suffix) exist. By extracting the index from
+     * these other sidecar files, we can promote one of them to be the primary sidecar for that index.</p>
+     *
+     * <p>Examples:
+     * <ul>
+     *   <li>{@code 2019-09-13T22_48_30.277013Z_1_node_sidecar} -> 1</li>
+     *   <li>{@code 2019-09-13T22_48_30.277013Z_01_node_sidecar} -> 1</li>
+     *   <li>{@code 2019-09-13T22_48_30.277013Z_12_node_21} -> 12</li>
+     *   <li>{@code 2024-06-17T18_21_08.511792844Z_01_node_sidecar} -> 1</li>
+     * </ul>
+     *
+     * @param noExt the filename without extension
+     * @param baseKey the base timestamp key
+     * @return the sidecar index, or -1 if not a valid sidecar filename
+     */
+    private static int extractSidecarIndex(String noExt, String baseKey) {
+        if (!noExt.startsWith(baseKey)) return -1;
+        int pos = baseKey.length();
+        if (noExt.length() <= pos + 1 || noExt.charAt(pos) != '_') return -1;
+        int i = pos + 1;
+        int startDigits = i;
+        int idx = 0;
+        while (i < noExt.length()) {
+            char c = noExt.charAt(i);
+            if (c < '0' || c > '9') break;
+            idx = (idx * 10) + (c - '0');
+            i++;
+        }
+        if (i == startDigits) return -1; // no digits -> not a valid sidecar
+        return Math.max(1, idx); // return the parsed index (minimum 1)
     }
 
     /**
