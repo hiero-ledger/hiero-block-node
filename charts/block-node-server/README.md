@@ -144,27 +144,50 @@ Follow the `NOTES` instructions after installing the chart to perform `port-forw
 
 ## Upgrade
 
-To upgrade the chart to a new version:
+### Upgrade using a published chart (OCI registry)
+
+To upgrade the chart to a new version from the OCI registry:
 
 1. Set the new version:
 ```bash
    export VERSION="<new-version>"
 ```
 
-2. Pull the new chart version:
-```bash
-   helm pull oci://ghcr.io/hiero-ledger/hiero-block-node/block-node-server --version "${VERSION}"
-```
-
-3. Save your current configuration:
+2. Save your current configuration:
 ```bash
    helm get values "${RELEASE}" > user-values.yaml
 ```
 
-4. Upgrade the release:
+3. Upgrade the release directly from OCI registry:
 ```bash
-   helm upgrade "${RELEASE}" block-node-server-$VERSION.tgz -f user-values.yaml
+   helm upgrade "${RELEASE}" oci://ghcr.io/hiero-ledger/hiero-block-node/block-node-server --version "${VERSION}" -f user-values.yaml
 ```
+
+### Upgrade using a local chart
+
+To upgrade the chart from a local `.tgz` file or cloned repository:
+
+1. If using a downloaded `.tgz` file, ensure you have the new version locally. If using a cloned repository, pull the latest changes:
+```bash
+   git pull origin main
+   helm dependency build charts/block-node-server
+```
+
+2. Save your current configuration:
+```bash
+   helm get values "${RELEASE}" > user-values.yaml
+```
+
+3. Upgrade the release from local chart:
+```bash
+   # If using a .tgz file:
+   helm upgrade "${RELEASE}" block-node-server-$VERSION.tgz -f user-values.yaml
+   
+   # If using cloned repository:
+   helm upgrade "${RELEASE}" charts/block-node-server -f user-values.yaml
+```
+
+
 
 ## Uninstall
 
