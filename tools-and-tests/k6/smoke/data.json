@@ -1,0 +1,9 @@
+{
+    "configs": [{
+        "protobufPath": "./block-node-protobuf-0.23.1",
+        "smokeTestConfigs": {
+            "blockNodeUrl": "localhost:40840",
+            "numOfBlocksToStream": 10
+        }
+    }]
+}
