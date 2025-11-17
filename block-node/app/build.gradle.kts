@@ -90,6 +90,18 @@ val copyDockerFolder: TaskProvider<Copy> =
         into(dockerBuildRootDirectory)
     }
 
+val copyDockerFolderCI: TaskProvider<Copy> =
+    tasks.register<Copy>("copyDockerFolderCI") {
+        description =
+            "Copies the docker folder to the build root directory with CI specific files. To be used only in CI environments, for instance when running E2E tests."
+        group = "docker"
+
+        dependsOn(copyDockerFolder)
+        from(dockerBuildRootDirectory.file("ci-logging.properties"))
+        into(dockerBuildRootDirectory)
+        rename { f -> "logging.properties" }
+    }
+
 val createDockerImage: TaskProvider<Exec> =
     tasks.register<Exec>("createDockerImage") {
         description =
@@ -97,6 +109,17 @@ val createDockerImage: TaskProvider<Exec> =
         group = "docker"
 
         dependsOn(copyDockerFolder, tasks.assemble)
+        workingDir(dockerBuildRootDirectory)
+        commandLine("sh", "-c", "./docker-build.sh ${project.version}")
+    }
+
+val createDockerImageCI: TaskProvider<Exec> =
+    tasks.register<Exec>("createDockerImageCI") {
+        description =
+            "Creates the production docker image of the Block Node Server based on the current version, but with CI optimizations. Intended only for use in CI environments, like running E2E tests!"
+        group = "docker"
+
+        dependsOn(copyDockerFolderCI, tasks.assemble)
         workingDir(dockerBuildRootDirectory)
         commandLine("sh", "-c", "./docker-build.sh ${project.version}")
     }
