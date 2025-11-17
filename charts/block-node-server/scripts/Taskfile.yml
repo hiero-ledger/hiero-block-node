@@ -3,6 +3,13 @@ version: '3'
 dotenv: ['.env']
 
 tasks:
+    clear-release:
+        cmds:
+            - helm uninstall $RELEASE -n $NAMESPACE
+            - kubectl delete pvc -n $NAMESPACE live-storage-pvc logging-storage-pvc archive-storage-pvc
+            - kubectl delete pv -n $NAMESPACE archive-storage-pv live-storage-pv logging-storage-pv
+            - kubectl delete namespace $NAMESPACE
+
     load-kubectl-helm:
         cmds:
             - mkdir -p ${HOME}/.kube
@@ -32,18 +39,6 @@ tasks:
             - kubectl -n ${NAMESPACE} exec ${POD} -- sh -c 'rm -rf /opt/hiero/block-node/data/live/* /opt/hiero/block-node/data/historic/*'
             - kubectl -n ${NAMESPACE} delete pod $POD
 
-    setup-grpcurl:
-        cmds:
-            - curl -L https://github.com/fullstorydev/grpcurl/releases/download/v1.8.7/grpcurl_1.8.7_linux_x86_64.tar.gz -o grpcurl.tar.gz
-            - sudo tar -xzf grpcurl.tar.gz -C /usr/local/bin grpcurl
-            - rm grpcurl.tar.gz
-
-    setup-bn-proto:
-        cmds:
-            - curl -L https://github.com/hiero-ledger/hiero-block-node/releases/download/v$VERSION/block-node-protobuf-$VERSION.tgz -o block-node-protobuf-$VERSION.tgz
-            - tar -xzf block-node-protobuf-$VERSION.tgz -C ~/block-node-protobuf-$VERSION
-            - rm block-node-protobuf-$VERSION.tgz
-
     reset-upgrade:
         cmds:
             - kubectl -n ${NAMESPACE} exec ${POD} -- sh -c 'rm -rf /opt/hiero/block-node/data/live/* /opt/hiero/block-node/data/historic/*'
@@ -52,9 +47,22 @@ tasks:
             - sleep 90
             - kubectl get all -n $NAMESPACE
 
-    clear-release:
+    setup-bn-proto:
         cmds:
-            - helm uninstall $RELEASE -n $NAMESPACE
-            - kubectl delete pvc -n $NAMESPACE live-storage-pvc logging-storage-pvc archive-storage-pvc
-            - kubectl delete pv -n $NAMESPACE archive-storage-pv live-storage-pv logging-storage-pv
-            - kubectl delete namespace $NAMESPACE
+            - curl -L https://github.com/hiero-ledger/hiero-block-node/releases/download/v$VERSION/block-node-protobuf-$VERSION.tgz -o block-node-protobuf-$VERSION.tgz
+            - tar -xzf block-node-protobuf-$VERSION.tgz -C ~/block-node-protobuf-$VERSION
+            - rm block-node-protobuf-$VERSION.tgz
+
+    setup-grpcurl:
+        cmds:
+            - curl -L https://github.com/fullstorydev/grpcurl/releases/download/v1.8.7/grpcurl_1.8.7_linux_x86_64.tar.gz -o grpcurl.tar.gz
+            - sudo tar -xzf grpcurl.tar.gz -C /usr/local/bin grpcurl
+            - rm grpcurl.tar.gz
+
+    scale-bn:
+        cmds:
+            - kubectl scale deployment $RELEASE-block-node-server -n $NAMESPACE --replicas=0
+            - sleep 10
+            - kubectl scale deployment $RELEASE-block-node-server -n $NAMESPACE --replicas=1
+            - sleep 90
+            - kubectl get all -n $NAMESPACE
