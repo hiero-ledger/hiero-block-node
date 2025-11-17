@@ -1,13 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 dependencies {
     api(platform("io.netty:netty-bom:4.2.7.Final"))
-    api(platform("com.google.cloud:libraries-bom:26.70.0"))
+    api(platform("com.google.cloud:libraries-bom:26.71.0"))
 }
 
 dependencies.constraints {
     val daggerVersion = "2.57.2"
     val grpcIoVersion = "1.76.0"
-    val helidonVersion = "4.3.1"
+    val helidonVersion = "4.3.2"
     val pbjVersion = pluginVersions.version("com.hedera.pbj.pbj-compiler")
     val protobufVersion = "4.33.0"
     val swirldsVersion = "0.61.3"
@@ -67,7 +67,7 @@ dependencies.constraints {
     // Testing only versions
     api("com.github.docker-java:docker-java-api:3.6.0") { because("com.github.dockerjava.api") }
     api("org.assertj:assertj-core:3.27.6") { because("org.assertj.core") }
-    api("org.junit.jupiter:junit-jupiter-api:6.0.0") { because("org.junit.jupiter.api") }
+    api("org.junit.jupiter:junit-jupiter-api:6.0.1") { because("org.junit.jupiter.api") }
     api("org.mockito:mockito-core:${mockitoVersion}") { because("org.mockito") }
     api("org.mockito:mockito-junit-jupiter:${mockitoVersion}") {
         because("org.mockito.junit.jupiter")

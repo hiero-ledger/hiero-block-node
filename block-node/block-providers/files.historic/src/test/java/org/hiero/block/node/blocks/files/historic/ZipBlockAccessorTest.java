@@ -295,7 +295,8 @@ class ZipBlockAccessorTest {
                 basePath,
                 compressionType,
                 localDefaultConfig.powersOfTenPerZipFileContents(),
-                localDefaultConfig.blockRetentionThreshold());
+                localDefaultConfig.blockRetentionThreshold(),
+                localDefaultConfig.maxFilesPerDir());
     }
 
     private FilesHistoricConfig getDefaultConfiguration() {

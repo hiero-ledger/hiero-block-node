@@ -18,6 +18,8 @@ import io.helidon.webclient.api.WebClient;
 import io.helidon.webclient.grpc.GrpcClientProtocolConfig;
 import io.helidon.webclient.http2.Http2Client;
 import java.io.IOException;
+import java.io.UncheckedIOException;
+import java.net.SocketException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -331,8 +333,10 @@ public class BlockNodeAPITests {
 
         // use a new client to publish block 1 as the existing client was closed on duplicate block publish.
         ResponsePipelineUtils<PublishStreamResponse> responseObserver2 = new ResponsePipelineUtils<>();
+        BlockStreamPublishServiceInterface.BlockStreamPublishServiceClient blockStreamPublishServiceClient2 =
+                new BlockStreamPublishServiceInterface.BlockStreamPublishServiceClient(createGrpcClient(), OPTIONS);
         final Pipeline<? super PublishStreamRequest> requestStream2 =
-                blockStreamPublishServiceClient.publishBlockStream(responseObserver2);
+                blockStreamPublishServiceClient2.publishBlockStream(responseObserver2);
         final CountDownLatch blockItemsPublish2Latch = responseObserver2.setAndGetOnNextLatch(1);
         requestStream2.onNext(request2);
         endBlock(blockNumber1, requestStream2);
@@ -467,5 +471,88 @@ public class BlockNodeAPITests {
         assertThat(newResponseObserver.getOnSubscriptionCalls()).isEmpty();
         assertThat(initialResponseObserver.getOnCompleteCalls().get()).isEqualTo(1);
         assertThat(newResponseObserver.getClientEndStreamCalls().get()).isEqualTo(0);
+    }
+
+    /**
+     * End-to-end socket test for block stream publishing.
+     * <p>
+     * This test covers the following scenarios:
+     * <ol>
+     *   <li>Publishing a new genesis block and confirming acknowledgement response.</li>
+     *   <li>Publishing a duplicate genesis block and confirming duplicate block response and stream closure.</li>
+     *   <li>Attempting to publish a new block after the stream is closed, expecting an UncheckedIOException caused by a closed socket.</li>
+     * </ol>
+     */
+    @Test
+    void e2eSocketClosureTest() throws InterruptedException {
+        // ==== Scenario 1: Publish new genesis block and confirm acknowledgement response ====
+        BlockStreamPublishServiceInterface.BlockStreamPublishServiceClient blockStreamPublishServiceClient =
+                new BlockStreamPublishServiceInterface.BlockStreamPublishServiceClient(
+                        publishBlockStreamPbjGrpcClient, OPTIONS);
+
+        ResponsePipelineUtils<PublishStreamResponse> responseObserver = new ResponsePipelineUtils<>();
+        final Pipeline<? super PublishStreamRequest> requestStream =
+                blockStreamPublishServiceClient.publishBlockStream(responseObserver);
+
+        final long blockNumber = 0;
+        BlockItem[] blockItems = BlockItemBuilderUtils.createSimpleBlockWithNumber(blockNumber);
+        // change to List to allow multiple items
+        PublishStreamRequest request = PublishStreamRequest.newBuilder()
+                .blockItems(BlockItemSet.newBuilder().blockItems(blockItems).build())
+                .build();
+        CountDownLatch publishCountDownLatch = responseObserver.setAndGetOnNextLatch(1);
+        requestStream.onNext(request);
+        endBlock(blockNumber, requestStream);
+
+        publishCountDownLatch.await(); // wait for acknowledgement response
+        assertThat(responseObserver.getOnNextCalls())
+                .hasSize(1)
+                .first()
+                .returns(PublishStreamResponse.ResponseOneOfType.ACKNOWLEDGEMENT, responseKindExtractor)
+                .returns(0L, acknowledgementBlockNumberExtractor);
+
+        // Assert no other responses sent
+        assertThat(responseObserver.getOnErrorCalls()).isEmpty();
+        assertThat(responseObserver.getOnSubscriptionCalls()).isEmpty();
+        assertThat(responseObserver.getOnCompleteCalls().get()).isEqualTo(0);
+        assertThat(responseObserver.getClientEndStreamCalls().get()).isEqualTo(0);
+
+        // ==== Scenario 2: Publish duplicate genesis block and confirm duplicate block response and stream closure ===
+        CountDownLatch publishCompleteCountDownLatch = responseObserver.setAndGetOnCompleteLatch(1);
+        requestStream.onNext(request);
+        endBlock(blockNumber, requestStream);
+
+        publishCompleteCountDownLatch.await(); // wait for onComplete caused by duplicate response
+
+        // Assert that one more response is sent.
+        assertThat(responseObserver.getOnNextCalls())
+                .hasSize(2)
+                .element(1)
+                .returns(PublishStreamResponse.ResponseOneOfType.END_STREAM, responseKindExtractor)
+                .returns(PublishStreamResponse.EndOfStream.Code.DUPLICATE_BLOCK, endStreamResponseCodeExtractor)
+                .returns(0L, endStreamBlockNumberExtractor);
+
+        // Assert no other responses sent
+        assertThat(responseObserver.getOnErrorCalls()).isEmpty();
+        assertThat(responseObserver.getOnSubscriptionCalls()).isEmpty();
+        assertThat(responseObserver.getOnCompleteCalls().get()).isEqualTo(1);
+        assertThat(responseObserver.getClientEndStreamCalls().get()).isEqualTo(0);
+
+        final long blockNumber1 = 1;
+        BlockItem[] blockItems1 = BlockItemBuilderUtils.createSimpleBlockWithNumber(blockNumber1);
+        PublishStreamRequest request1 = PublishStreamRequest.newBuilder()
+                .blockItems(BlockItemSet.newBuilder().blockItems(blockItems1).build())
+                .build();
+
+        // This asserts that UncheckedIOException is thrown and its cause is a SocketException with "socket closed"
+        UncheckedIOException ex = assertThrows(UncheckedIOException.class, () -> {
+            // Expected exception to be thrown on the onNext() due to closed socket
+            // from previous duplicate block publish
+            requestStream.onNext(request1);
+            publishCompleteCountDownLatch.await(); // wait
+            endBlock(blockNumber1, requestStream);
+        });
+        assertTrue(ex.getCause() instanceof SocketException);
+        assertTrue(ex.getCause().getMessage().toLowerCase().contains("socket closed"));
     }
 }

@@ -35,7 +35,7 @@ minikube delete && minikube start \
 Set environment variables that will be used throughout this guide. Replace the values with appropriate values for your environment:
 ```bash
 export RELEASE="bn-release"  # bn-release is short for block-node-release
-export VERSION="0.23.0-SNAPSHOT"
+export VERSION="0.24.0-SNAPSHOT"
 ```
 ## Installation Options
 
