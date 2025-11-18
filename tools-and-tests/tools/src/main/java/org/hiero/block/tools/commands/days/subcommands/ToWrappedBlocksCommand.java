@@ -16,6 +16,7 @@ import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicReference;
 import org.hiero.block.tools.blocks.BlockArchiveType;
 import org.hiero.block.tools.blocks.BlockWriter;
 import org.hiero.block.tools.commands.days.model.AddressBookRegistry;
@@ -23,6 +24,7 @@ import org.hiero.block.tools.commands.days.model.TarZstdDayReaderUsingExec;
 import org.hiero.block.tools.commands.days.model.TarZstdDayUtils;
 import org.hiero.block.tools.commands.mirrornode.BlockTimeReader;
 import org.hiero.block.tools.commands.mirrornode.DayBlockInfo;
+import org.hiero.block.tools.utils.PrettyPrint;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Help.Ansi;
 import picocli.CommandLine.Option;
@@ -41,7 +43,7 @@ import picocli.CommandLine.Option;
  * reads of a single block. At the time of writing, Hedera has over 87 million blocks growing by 43,000 a day.
  * </p>
  */
-@SuppressWarnings({"CallToPrintStackTrace", "FieldCanBeLocal"})
+@SuppressWarnings({"CallToPrintStackTrace", "FieldCanBeLocal", "DuplicatedCode"})
 @Command(
         name = "wrap",
         description = "Convert record file blocks in day files to wrapped block stream blocks",
@@ -138,12 +140,25 @@ public class ToWrappedBlocksCommand implements Runnable {
                     })
                     .toList();
 
+            // Progress tracking setup
+            final long startNanos = System.nanoTime();
+            final long totalBlocksToProcess = latestBlockNumber - startBlock;
+            final AtomicLong blocksProcessed = new AtomicLong(0);
+
+            // Track last block time for speed calculation
+            final AtomicReference<Instant> lastSpeedCalcBlockTime = new AtomicReference<>();
+            final AtomicLong lastSpeedCalcRealTimeNanos = new AtomicLong(0);
+
+            // Track the last reported minute to avoid spamming progress output
+            final AtomicLong lastReportedMinute = new AtomicLong(Long.MIN_VALUE);
+
             // track the block number
             final AtomicLong blockCounter = new AtomicLong(startBlock);
             for (int dayIndex = 0; dayIndex < dayPaths.size(); dayIndex++) {
                 final Path dayPath = dayPaths.get(dayIndex);
                 final LocalDate dayDate =
                         LocalDate.parse(dayPath.getFileName().toString().substring(0, 10));
+                PrettyPrint.clearProgress();
                 System.out.println(Ansi.AUTO.string("@|yellow Processing day file:|@ " + dayPath));
                 long currentBlockNumberBeingRead = dayMap.get(dayDate).firstBlockNumber;
                 if (currentBlockNumberBeingRead > startBlock) {
@@ -181,11 +196,67 @@ public class ToWrappedBlocksCommand implements Runnable {
                                     try {
                                         BlockWriter.writeBlock(outputBlocksDir, wrapped, archiveType);
                                     } catch (IOException e) {
+                                        PrettyPrint.clearProgress();
                                         System.err.println("Failed writing block " + blockNum + ": " + e.getMessage());
                                         e.printStackTrace();
                                         System.exit(1);
                                     }
+
+                                    // Update progress tracking
+                                    blocksProcessed.incrementAndGet();
+
+                                    // Calculate processing speed over the last 10 seconds of wall clock time
+                                    final long currentRealTimeNanos = System.nanoTime();
+                                    final long tenSecondsInNanos = 10_000_000_000L;
+                                    String speedString = "";
+
+                                    // Initialize tracking on the first block
+                                    if (lastSpeedCalcBlockTime.get() == null) {
+                                        lastSpeedCalcBlockTime.set(recordBlock.recordFileTime());
+                                        lastSpeedCalcRealTimeNanos.set(currentRealTimeNanos);
+                                    }
+
+                                    // Update the tracking window if more than 10 seconds of real time has elapsed
+                                    long realTimeSinceLastCalc =
+                                            currentRealTimeNanos - lastSpeedCalcRealTimeNanos.get();
+                                    if (realTimeSinceLastCalc >= tenSecondsInNanos) {
+                                        lastSpeedCalcBlockTime.set(recordBlock.recordFileTime());
+                                        lastSpeedCalcRealTimeNanos.set(currentRealTimeNanos);
+                                    }
+
+                                    // Calculate speed if we have at least 1 second of real time elapsed since tracking
+                                    // point
+                                    if (realTimeSinceLastCalc >= 1_000_000_000L) { // At least 1 second
+                                        long dataTimeElapsedMillis = recordBlock
+                                                        .recordFileTime()
+                                                        .toEpochMilli()
+                                                - lastSpeedCalcBlockTime.get().toEpochMilli();
+                                        long realTimeElapsedMillis = realTimeSinceLastCalc / 1_000_000L;
+                                        double speedMultiplier =
+                                                (double) dataTimeElapsedMillis / (double) realTimeElapsedMillis;
+                                        speedString = String.format(" speed %.1fx", speedMultiplier);
+                                    }
+
+                                    // Build progress string
+                                    final String progressString = String.format(
+                                            "Block %d at %s%s", blockNum, recordBlock.recordFileTime(), speedString);
+
+                                    // Calculate ETA
+                                    final long elapsedMillis = (System.nanoTime() - startNanos) / 1_000_000L;
+                                    final long processedCount = blocksProcessed.get();
+                                    double percent = ((double) processedCount / (double) totalBlocksToProcess) * 100.0;
+                                    long remainingMillis = PrettyPrint.computeRemainingMilliseconds(
+                                            processedCount, totalBlocksToProcess, elapsedMillis);
+
+                                    // Only print progress once per consensus-minute to avoid spam
+                                    long blockMinute =
+                                            recordBlock.recordFileTime().getEpochSecond() / 60L;
+                                    if (blockMinute != lastReportedMinute.get()) {
+                                        PrettyPrint.printProgressWithEta(percent, progressString, remainingMillis);
+                                        lastReportedMinute.set(blockMinute);
+                                    }
                                 } catch (Exception ex) {
+                                    PrettyPrint.clearProgress();
                                     System.err.println(
                                             "Failed processing record block in " + dayPath + ": " + ex.getMessage());
                                     ex.printStackTrace();
@@ -196,7 +267,9 @@ public class ToWrappedBlocksCommand implements Runnable {
                     throw new RuntimeException(e);
                 }
             }
-            System.out.println("Conversion complete. Blocks written: " + blockCounter.get());
+            // Clear progress line and print summary
+            PrettyPrint.clearProgress();
+            System.out.println("Conversion complete. Blocks written: " + blocksProcessed.get());
         } catch (Exception e) {
             throw new RuntimeException(e);
         }
