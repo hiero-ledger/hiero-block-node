@@ -18,7 +18,6 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.stream.Collectors;
 import org.hiero.block.node.base.CompressionType;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -145,8 +144,7 @@ class BlockWriterReaderTest {
         }
 
         // Read them back using readBlocks
-        List<Block> readBlocks =
-                BlockReader.readBlocks(baseDirectory, 100, 110).toList();
+        List<Block> readBlocks = BlockReader.readBlocks(baseDirectory, 100, 110).toList();
 
         assertEquals(11, readBlocks.size(), "Should read 11 blocks (100-110 inclusive)");
 
@@ -212,9 +210,7 @@ class BlockWriterReaderTest {
             BlockReader.readBlock(baseDirectory, 999999L);
         });
 
-        assertTrue(
-                exception.getMessage().contains("not found"),
-                "Exception message should indicate block not found");
+        assertTrue(exception.getMessage().contains("not found"), "Exception message should indicate block not found");
     }
 
     /**
@@ -240,7 +236,8 @@ class BlockWriterReaderTest {
         BlockWriter.writeBlock(baseDirectory, createTestBlock(203), BlockArchiveType.INDIVIDUAL_FILES);
 
         // Try to read 200-203 - should fail on 202
-        assertThrows(UncheckedIOException.class, () -> BlockReader.readBlocks(baseDirectory, 200, 203).toList());
+        assertThrows(UncheckedIOException.class, () -> BlockReader.readBlocks(baseDirectory, 200, 203)
+                .toList());
     }
 
     /**
@@ -250,8 +247,7 @@ class BlockWriterReaderTest {
     void testDifferentPowersOfTenZipFiles() throws IOException {
         // Test with powers of ten = 2 (100 blocks per zip)
         Block block1 = createTestBlock(10000);
-        BlockWriter.writeBlock(
-                baseDirectory, block1, BlockArchiveType.UNCOMPRESSED_ZIP, CompressionType.ZSTD, 2);
+        BlockWriter.writeBlock(baseDirectory, block1, BlockArchiveType.UNCOMPRESSED_ZIP, CompressionType.ZSTD, 2);
 
         Block readBlock1 = BlockReader.readBlock(baseDirectory, 10000);
         assertBlocksEqual(block1, readBlock1);
@@ -318,13 +314,9 @@ class BlockWriterReaderTest {
      */
     private void assertBlocksEqual(Block expected, Block actual) {
         assertNotNull(actual, "Read block should not be null");
-        assertEquals(
-                expected.items().size(),
-                actual.items().size(),
-                "Block should have same number of items");
+        assertEquals(expected.items().size(), actual.items().size(), "Block should have same number of items");
 
-        BlockHeader expectedHeader =
-                expected.items().getFirst().blockHeader();
+        BlockHeader expectedHeader = expected.items().getFirst().blockHeader();
         BlockHeader actualHeader = actual.items().getFirst().blockHeader();
 
         assertEquals(expectedHeader.number(), actualHeader.number(), "Block numbers should match");
