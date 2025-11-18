@@ -23,6 +23,8 @@ import java.util.concurrent.TimeUnit;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Stream;
+
+import org.hiero.block.tools.commands.days.download.DownloadConstants;
 import org.hiero.block.tools.commands.days.download.DownloadDayUtil;
 import org.hiero.block.tools.commands.days.model.AddressBookRegistry;
 import org.hiero.block.tools.commands.mirrornode.BlockInfo;
@@ -413,9 +415,7 @@ public class DownloadLive implements Runnable {
             this.configuredEndDay = configuredEndDay;
         }
 
-        void runOnceForCurrentDay() {
-            final ZonedDateTime now = ZonedDateTime.ofInstant(Instant.now(), tz);
-            final LocalDate day = now.toLocalDate();
+        void runOnceForDay(LocalDate day) {
             final ZonedDateTime start = day.atStartOfDay(tz);
             final ZonedDateTime end = start.plusDays(1);
             final String dayKey = day.toString(); // YYYY-MM-DD
@@ -433,9 +433,6 @@ public class DownloadLive implements Runnable {
             System.out.println("[poller] dayKey=" + dayKey + " interval=" + interval + " batchSize=" + batchSize
                     + " lastSeen=" + lastSeenBlock);
 
-            // Build Mirror Node timestamp filters for the global ingestion window.
-            // We always apply a lower bound at the configured start day (or today's day if not configured).
-            // If an end day is configured, we also bound the query to be strictly before endDay+1 midnight.
             final LocalDate lowerBoundDay = (configuredStartDay != null) ? configuredStartDay : day;
             final long startSeconds = lowerBoundDay.atStartOfDay(tz).toEpochSecond();
 
@@ -448,7 +445,6 @@ public class DownloadLive implements Runnable {
                 timestampFilters.add("lt:" + endSeconds + ".000000000");
             }
 
-            // Fetch latest blocks (descending) and filter to the current day + unseen.
             final List<BlockInfo> latest =
                     FetchBlockQuery.getLatestBlocks(batchSize, MirrorNodeBlockQueryOrder.DESC, timestampFilters);
             final List<LiveDownloader.BlockDescriptor> batch = new ArrayList<>();
@@ -457,14 +453,13 @@ public class DownloadLive implements Runnable {
                 if (lastSeenBlock >= 0 && number <= lastSeenBlock) {
                     continue;
                 }
-                // Prefer timestamp.from; fallback to timestamp.to
                 Instant ts = parseMirrorTimestamp(b.timestampFrom != null ? b.timestampFrom : b.timestampTo);
                 if (ts == null) {
-                    continue; // skip if no timestamp to evaluate
+                    continue;
                 }
                 ZonedDateTime zts = ZonedDateTime.ofInstant(ts, tz);
                 if (zts.isBefore(start) || !zts.isBefore(end)) {
-                    continue; // outside current day window
+                    continue;
                 }
                 String hash = b.hash;
                 String name = b.name;
@@ -472,7 +467,6 @@ public class DownloadLive implements Runnable {
                 batch.add(new LiveDownloader.BlockDescriptor(number, name, iso, hash));
             }
 
-            // Sort asc so we process from oldest to newest, then hand off to the downloader
             batch.sort((a, b) -> Long.compare(a.blockNumber, b.blockNumber));
             System.out.println("[poller] descriptors=" + batch.size());
             if (!batch.isEmpty()) {
@@ -484,43 +478,72 @@ public class DownloadLive implements Runnable {
                         .limit(3)
                         .forEach(d -> System.out.println("[poller] sample -> block=" + d.blockNumber + " file="
                                 + d.filename + " ts=" + d.timestampIso));
-                // Persist state for resume
                 writeState(statePath, new State(dayKey, lastSeenBlock));
             } else {
-                System.out.println("[poller] No new blocks this tick.");
+                System.out.println("[poller] No new blocks this tick for " + dayKey + ".");
             }
         }
 
         void runContinuouslyForToday() {
-            String currentDayKey =
-                    ZonedDateTime.ofInstant(Instant.now(), tz).toLocalDate().toString();
+            LocalDate todayInTz = ZonedDateTime.ofInstant(Instant.now(), tz).toLocalDate();
+            LocalDate logicalDay =
+                    (configuredStartDay != null && !configuredStartDay.isAfter(todayInTz))
+                            ? configuredStartDay
+                            : todayInTz;
+
             while (true) {
-                final String dayKey =
-                        ZonedDateTime.ofInstant(Instant.now(), tz).toLocalDate().toString();
-                if (!dayKey.equals(currentDayKey)) {
-                    System.out.println("[poller] Day changed (" + currentDayKey + " -> " + dayKey
-                            + "); finalizing previous day and rolling over.");
-                    try {
-                        downloader.finalizeDay(currentDayKey);
-                    } catch (Exception e) {
-                        System.err.println(
-                                "[poller] Failed to finalize day archive for " + currentDayKey + ": " + e.getMessage());
-                    }
-                    // rollover: start tracking the new day; state will be reloaded for the new key
-                    currentDayKey = dayKey;
+                if (configuredEndDay != null && logicalDay.isAfter(configuredEndDay)) {
+                    System.out.println(
+                            "[poller] Reached configured end day " + configuredEndDay + "; exiting live poller.");
+                    return;
+                }
+
+                LocalDate currentToday = ZonedDateTime.ofInstant(Instant.now(), tz).toLocalDate();
+
+                if (logicalDay.isBefore(currentToday)) {
+                    final String dayKey = logicalDay.toString();
+                    System.out.println(
+                            "[poller] Processing historical day " + dayKey + " (before current live day " + currentToday
+                                    + ")");
                     stateLoadedForToday = false;
+                    runOnceForDay(logicalDay);
+                    try {
+                        System.out.println("[poller] Finalizing historical day " + dayKey);
+                        downloader.finalizeDay(dayKey);
+                    } catch (Exception e) {
+                        System.err.println("[poller] Failed to finalize day archive for " + dayKey + ": " + e.getMessage());
+                    }
+                    logicalDay = logicalDay.plusDays(1);
+                    continue;
                 }
-                try {
-                    runOnceForCurrentDay();
-                } catch (Exception e) {
-                    System.err.println("[poller] Tick failed: " + e.getMessage());
-                }
+
+                final LocalDate liveDay = currentToday;
+                final String liveDayKey = liveDay.toString();
+
+                stateLoadedForToday = false;
+                runOnceForDay(liveDay);
+
                 try {
                     Thread.sleep(interval.toMillis());
                 } catch (InterruptedException ie) {
                     Thread.currentThread().interrupt();
                     return;
                 }
+
+                final LocalDate afterSleepToday =
+                        ZonedDateTime.ofInstant(Instant.now(), tz).toLocalDate();
+                if (!afterSleepToday.equals(liveDay)) {
+                    System.out.println("[poller] Day changed (" + liveDayKey + " -> " + afterSleepToday
+                            + "); finalizing previous day and rolling over.");
+                    try {
+                        downloader.finalizeDay(liveDayKey);
+                    } catch (Exception e) {
+                        System.err.println(
+                                "[poller] Failed to finalize day archive for " + liveDayKey + ": " + e.getMessage());
+                    }
+                }
+
+                logicalDay = afterSleepToday;
             }
         }
     }
