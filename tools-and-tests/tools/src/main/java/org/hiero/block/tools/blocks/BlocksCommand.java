@@ -14,6 +14,7 @@ import picocli.CommandLine.Spec;
         subcommands = {
             ConvertToJson.class,
             Info.class,
+            ValidateBlocksCommand.class,
         },
         mixinStandardHelpOptions = true)
 public class BlocksCommand implements Runnable {
