@@ -20,6 +20,7 @@ import java.util.zip.CRC32;
 import java.util.zip.Deflater;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipOutputStream;
+import org.hiero.block.node.base.BlockFile;
 import org.hiero.block.node.base.CompressionType;
 
 /**
@@ -108,7 +109,7 @@ public class BlockWriter {
     public static final CompressionType DEFAULT_COMPRESSION = CompressionType.ZSTD;
 
     /**
-     * Write a block to a zip file using default settings (ZSTD compression, 10,000 blocks per zip).
+     * Write a block using default settings (ZSTD compression, UNCOMPRESSED_ZIP archive type, 10,000 blocks per zip).
      *
      * @param baseDirectory The base directory for the block files
      * @param block The block to write
@@ -116,7 +117,70 @@ public class BlockWriter {
      * @throws IOException If an error occurs writing the block
      */
     public static BlockPath writeBlock(final Path baseDirectory, final Block block) throws IOException {
-        return writeBlock(baseDirectory, block, DEFAULT_COMPRESSION, DEFAULT_POWERS_OF_TEN_PER_ZIP);
+        return writeBlock(
+                baseDirectory,
+                block,
+                BlockArchiveType.UNCOMPRESSED_ZIP,
+                DEFAULT_COMPRESSION,
+                DEFAULT_POWERS_OF_TEN_PER_ZIP);
+    }
+
+    /**
+     * Write a block with specified archive type using default settings (ZSTD compression, 10,000 blocks per zip if using UNCOMPRESSED_ZIP).
+     *
+     * @param baseDirectory The base directory for the block files
+     * @param block The block to write
+     * @param archiveType The archive type (UNCOMPRESSED_ZIP or INDIVIDUAL_FILES)
+     * @return The path to the block file
+     * @throws IOException If an error occurs writing the block
+     */
+    public static BlockPath writeBlock(final Path baseDirectory, final Block block, final BlockArchiveType archiveType)
+            throws IOException {
+        return writeBlock(baseDirectory, block, archiveType, DEFAULT_COMPRESSION, DEFAULT_POWERS_OF_TEN_PER_ZIP);
+    }
+
+    /**
+     * Write a block with specified archive type and custom settings.
+     *
+     * @param baseDirectory The base directory for the block files
+     * @param block The block to write
+     * @param archiveType The archive type (UNCOMPRESSED_ZIP or INDIVIDUAL_FILES)
+     * @param compressionType The compression type to use (ZSTD or NONE)
+     * @param powersOfTenPerZipFileContents The number of blocks per zip in powers of 10 (1-6: 10, 100, 1K, 10K, 100K, 1M) - only used for UNCOMPRESSED_ZIP
+     * @return The path to the block file
+     * @throws IOException If an error occurs writing the block
+     */
+    public static BlockPath writeBlock(
+            final Path baseDirectory,
+            final Block block,
+            final BlockArchiveType archiveType,
+            final CompressionType compressionType,
+            final int powersOfTenPerZipFileContents)
+            throws IOException {
+        return switch (archiveType) {
+            case UNCOMPRESSED_ZIP ->
+                writeBlockToZip(baseDirectory, block, compressionType, powersOfTenPerZipFileContents);
+            case INDIVIDUAL_FILES -> writeBlockAsIndividualFile(baseDirectory, block, compressionType);
+        };
+    }
+
+    /**
+     * Write a block to a zip file with custom settings (legacy method for backward compatibility).
+     *
+     * @param baseDirectory The base directory for the block files
+     * @param block The block to write
+     * @param compressionType The compression type to use (ZSTD or NONE)
+     * @param powersOfTenPerZipFileContents The number of blocks per zip in powers of 10 (1-6: 10, 100, 1K, 10K, 100K, 1M)
+     * @return The path to the block file
+     * @throws IOException If an error occurs writing the block
+     */
+    public static BlockPath writeBlock(
+            final Path baseDirectory,
+            final Block block,
+            final CompressionType compressionType,
+            final int powersOfTenPerZipFileContents)
+            throws IOException {
+        return writeBlockToZip(baseDirectory, block, compressionType, powersOfTenPerZipFileContents);
     }
 
     /**
@@ -129,7 +193,7 @@ public class BlockWriter {
      * @return The path to the block file
      * @throws IOException If an error occurs writing the block
      */
-    public static BlockPath writeBlock(
+    private static BlockPath writeBlockToZip(
             final Path baseDirectory,
             final Block block,
             final CompressionType compressionType,
@@ -162,6 +226,35 @@ public class BlockWriter {
         }
         // return block path
         return blockPath;
+    }
+
+    /**
+     * Write a block as an individual file in a nested directory structure.
+     *
+     * @param baseDirectory The base directory for the block files
+     * @param block The block to write
+     * @param compressionType The compression type to use (ZSTD or NONE)
+     * @return The path to the block file
+     * @throws IOException If an error occurs writing the block
+     */
+    private static BlockPath writeBlockAsIndividualFile(
+            final Path baseDirectory, final Block block, final CompressionType compressionType) throws IOException {
+        // get block number from block header
+        final var firstBlockItem = block.items().getFirst();
+        final long blockNumber = firstBlockItem.blockHeader().number();
+        // use BlockFile utility to compute nested directory path (3 digits per directory level)
+        final Path blockFilePath =
+                BlockFile.nestedDirectoriesBlockFilePath(baseDirectory, blockNumber, compressionType, DIGITS_PER_DIR);
+        // create parent directories
+        Files.createDirectories(blockFilePath.getParent());
+        // serialize and compress the block
+        final byte[] blockBytes = serializeBlock(block, compressionType);
+        // write the compressed bytes to file
+        Files.write(blockFilePath, blockBytes);
+        // return a BlockPath record for consistency
+        final String blockNumStr = BLOCK_NUMBER_FORMAT.format(blockNumber);
+        final String blockFileName = blockNumStr + BLOCK_FILE_EXTENSION + compressionType.extension();
+        return new BlockPath(blockFilePath.getParent(), blockFilePath, blockNumStr, blockFileName, compressionType);
     }
 
     /**

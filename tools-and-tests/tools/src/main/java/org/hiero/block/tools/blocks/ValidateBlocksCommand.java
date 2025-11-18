@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.tools.blocks;
 
 import java.io.File;
@@ -14,7 +15,5 @@ public class ValidateBlocksCommand implements Runnable {
      * Runs this operation.
      */
     @Override
-    public void run() {
-
-    }
+    public void run() {}
 }
