@@ -1,18 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.tools.commands.days.subcommands;
 
-import com.hedera.hapi.block.stream.Block;
-import org.hiero.block.tools.blocks.BlockArchiveType;
-import org.hiero.block.tools.blocks.BlockWriter;
-import org.hiero.block.tools.commands.days.model.AddressBookRegistry;
-import org.hiero.block.tools.commands.days.model.TarZstdDayReaderUsingExec;
-import org.hiero.block.tools.commands.days.model.TarZstdDayUtils;
-import org.hiero.block.tools.commands.mirrornode.BlockTimeReader;
-import org.hiero.block.tools.commands.mirrornode.DayBlockInfo;
-import picocli.CommandLine.Command;
-import picocli.CommandLine.Help.Ansi;
-import picocli.CommandLine.Option;
+import static org.hiero.block.tools.blocks.BlockWriter.maxStoredBlockNumber;
+import static org.hiero.block.tools.commands.mirrornode.DayBlockInfo.loadDayBlockInfoMap;
+import static org.hiero.block.tools.commands.mirrornode.UpdateBlockData.updateMirrorNodeData;
 
+import com.hedera.hapi.block.stream.Block;
 import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -23,10 +16,16 @@ import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicLong;
-
-import static org.hiero.block.tools.blocks.BlockWriter.maxStoredBlockNumber;
-import static org.hiero.block.tools.commands.mirrornode.DayBlockInfo.loadDayBlockInfoMap;
-import static org.hiero.block.tools.commands.mirrornode.UpdateBlockData.updateMirrorNodeData;
+import org.hiero.block.tools.blocks.BlockArchiveType;
+import org.hiero.block.tools.blocks.BlockWriter;
+import org.hiero.block.tools.commands.days.model.AddressBookRegistry;
+import org.hiero.block.tools.commands.days.model.TarZstdDayReaderUsingExec;
+import org.hiero.block.tools.commands.days.model.TarZstdDayUtils;
+import org.hiero.block.tools.commands.mirrornode.BlockTimeReader;
+import org.hiero.block.tools.commands.mirrornode.DayBlockInfo;
+import picocli.CommandLine.Command;
+import picocli.CommandLine.Help.Ansi;
+import picocli.CommandLine.Option;
 
 /**
  * Convert blockchain in record file blocks in tar.zstd day files into wrapped block stream blocks. This command is
@@ -92,7 +91,8 @@ public class ToWrappedBlocksCommand implements Runnable {
         final AddressBookRegistry addressBookRegistry =
                 Files.exists(addressBookFile) ? new AddressBookRegistry(addressBookFile) : new AddressBookRegistry();
         // get Archive type
-        final BlockArchiveType archiveType = unzipped ? BlockArchiveType.INDIVIDUAL_FILES : BlockArchiveType.UNCOMPRESSED_ZIP;
+        final BlockArchiveType archiveType =
+                unzipped ? BlockArchiveType.INDIVIDUAL_FILES : BlockArchiveType.UNCOMPRESSED_ZIP;
         // check we have a blockTimesFile, create if needed and update it to have the latest blocks
         if (!Files.exists(blockTimesFile) || !Files.exists(dayBlocksFile)) {
             System.err.println(
