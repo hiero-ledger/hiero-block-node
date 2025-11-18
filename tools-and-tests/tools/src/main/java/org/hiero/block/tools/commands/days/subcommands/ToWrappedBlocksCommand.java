@@ -1,11 +1,18 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.tools.commands.days.subcommands;
 
-import static org.hiero.block.tools.blocks.BlockWriter.maxStoredBlockNumber;
-import static org.hiero.block.tools.commands.mirrornode.DayBlockInfo.loadDayBlockInfoMap;
-import static org.hiero.block.tools.commands.mirrornode.UpdateBlockData.updateMirrorNodeData;
-
 import com.hedera.hapi.block.stream.Block;
+import org.hiero.block.tools.blocks.BlockArchiveType;
+import org.hiero.block.tools.blocks.BlockWriter;
+import org.hiero.block.tools.commands.days.model.AddressBookRegistry;
+import org.hiero.block.tools.commands.days.model.TarZstdDayReaderUsingExec;
+import org.hiero.block.tools.commands.days.model.TarZstdDayUtils;
+import org.hiero.block.tools.commands.mirrornode.BlockTimeReader;
+import org.hiero.block.tools.commands.mirrornode.DayBlockInfo;
+import picocli.CommandLine.Command;
+import picocli.CommandLine.Help.Ansi;
+import picocli.CommandLine.Option;
+
 import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -16,17 +23,10 @@ import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicLong;
-import org.hiero.block.node.base.BlockFile;
-import org.hiero.block.node.base.CompressionType;
-import org.hiero.block.tools.blocks.BlockWriter;
-import org.hiero.block.tools.commands.days.model.AddressBookRegistry;
-import org.hiero.block.tools.commands.days.model.TarZstdDayReaderUsingExec;
-import org.hiero.block.tools.commands.days.model.TarZstdDayUtils;
-import org.hiero.block.tools.commands.mirrornode.BlockTimeReader;
-import org.hiero.block.tools.commands.mirrornode.DayBlockInfo;
-import picocli.CommandLine.Command;
-import picocli.CommandLine.Help.Ansi;
-import picocli.CommandLine.Option;
+
+import static org.hiero.block.tools.blocks.BlockWriter.maxStoredBlockNumber;
+import static org.hiero.block.tools.commands.mirrornode.DayBlockInfo.loadDayBlockInfoMap;
+import static org.hiero.block.tools.commands.mirrornode.UpdateBlockData.updateMirrorNodeData;
 
 /**
  * Convert blockchain in record file blocks in tar.zstd day files into wrapped block stream blocks. This command is
@@ -42,7 +42,7 @@ import picocli.CommandLine.Option;
  * reads of a single block. At the time of writing, Hedera has over 87 million blocks growing by 43,000 a day.
  * </p>
  */
-@SuppressWarnings("CallToPrintStackTrace")
+@SuppressWarnings({"CallToPrintStackTrace", "FieldCanBeLocal"})
 @Command(
         name = "wrap",
         description = "Convert record file blocks in day files to wrapped block stream blocks",
@@ -70,7 +70,8 @@ public class ToWrappedBlocksCommand implements Runnable {
 
     @Option(
             names = {"-u", "--unzipped"},
-            description = "Write output files unzipped, rather than in uncompressed zip batches of 10k ")
+            description =
+                    "Write output files as individual files in nested directories, rather than in uncompressed zip batches of 10k ")
     private boolean unzipped = false;
 
     @Option(
@@ -90,7 +91,8 @@ public class ToWrappedBlocksCommand implements Runnable {
         final Path addressBookFile = outputBlocksDir.resolve("addressBookHistory.json");
         final AddressBookRegistry addressBookRegistry =
                 Files.exists(addressBookFile) ? new AddressBookRegistry(addressBookFile) : new AddressBookRegistry();
-
+        // get Archive type
+        final BlockArchiveType archiveType = unzipped ? BlockArchiveType.INDIVIDUAL_FILES : BlockArchiveType.UNCOMPRESSED_ZIP;
         // check we have a blockTimesFile, create if needed and update it to have the latest blocks
         if (!Files.exists(blockTimesFile) || !Files.exists(dayBlocksFile)) {
             System.err.println(
@@ -175,32 +177,13 @@ public class ToWrappedBlocksCommand implements Runnable {
                                             com.hedera.hapi.block.stream.experimental.Block.PROTOBUF.toBytes(
                                                     wrappedExp);
                                     final Block wrapped = Block.PROTOBUF.parse(protoBytes);
-                                    // write the wrapped block to the output directory
-                                    if (unzipped) {
-                                        try {
-                                            final Path outPath = BlockFile.nestedDirectoriesBlockFilePath(
-                                                    outputBlocksDir, blockNum, CompressionType.ZSTD, 3);
-                                            Files.createDirectories(outPath.getParent());
-                                            // compress using CompressionType helper and write bytes
-                                            final byte[] compressed =
-                                                    CompressionType.ZSTD.compress(protoBytes.toByteArray());
-                                            Files.write(outPath, compressed);
-                                        } catch (IOException e) {
-                                            System.err.println("Failed writing unzipped block " + blockNum + ": "
-                                                    + e.getMessage());
-                                            e.printStackTrace();
-                                            System.exit(1);
-                                        }
-                                    } else {
-                                        try {
-                                            // BlockWriter will create/append to zip files as needed
-                                            BlockWriter.writeBlock(outputBlocksDir, wrapped);
-                                        } catch (IOException e) {
-                                            System.err.println(
-                                                    "Failed writing zipped block " + blockNum + ": " + e.getMessage());
-                                            e.printStackTrace();
-                                            System.exit(1);
-                                        }
+                                    // write the wrapped block to the output directory using the selected archive type
+                                    try {
+                                        BlockWriter.writeBlock(outputBlocksDir, wrapped, archiveType);
+                                    } catch (IOException e) {
+                                        System.err.println("Failed writing block " + blockNum + ": " + e.getMessage());
+                                        e.printStackTrace();
+                                        System.exit(1);
                                     }
                                 } catch (Exception ex) {
                                     System.err.println(
