@@ -12,6 +12,7 @@ Installs the Hiero Block Node on a Kubernetes cluster.
 For development and test environments, it is recommended to use [minikube](https://minikube.sigs.k8s.io/docs/start/).
 
 ### Basic minikube setup
+
 ```bash
 minikube delete && minikube start --kubernetes-version=v1.29.0
 ```
@@ -19,6 +20,7 @@ minikube delete && minikube start --kubernetes-version=v1.29.0
 ### minikube setup with monitoring support
 
 If you want to deploy the `kube-prometheus-stack` for metrics visualization:
+
 ```bash
 minikube delete && minikube start \
   --kubernetes-version=v1.29.0 \
@@ -33,10 +35,12 @@ minikube delete && minikube start \
 ## Configuration
 
 Set environment variables that will be used throughout this guide. Replace the values with appropriate values for your environment:
+
 ```bash
 export RELEASE="bn-release"  # bn-release is short for block-node-release
 export VERSION="0.24.0-SNAPSHOT"
 ```
+
 ## Installation Options
 
 ### Option 1: Template (without installing)
@@ -46,6 +50,7 @@ To generate Kubernetes manifest files without installing the chart:
 1. Clone this repository
 2. Navigate to the `/charts` folder
 3. Run the following command:
+
 ```bash
 helm template --name-template bn-release block-node-server/ --dry-run --output-dir out
 ```
@@ -53,16 +58,19 @@ helm template --name-template bn-release block-node-server/ --dry-run --output-d
 ### Option 2: Install using a published chart
 
 #### Pull the packaged chart
+
 ```bash
 helm pull oci://ghcr.io/hiero-ledger/hiero-block-node/block-node-server --version "${VERSION}"
 ```
 
 #### Install with default values
+
 ```bash
 helm install "${RELEASE}" block-node-server-$VERSION.tgz
 ```
 
 #### Install with custom values
+
 ```bash
 helm install "${RELEASE}" block-node-server-$VERSION.tgz -f <path-to-custom-values-file>
 ```
@@ -72,11 +80,13 @@ helm install "${RELEASE}" block-node-server-$VERSION.tgz -f <path-to-custom-valu
 *Note:* There is no need to add the repo, If using the chart directly after cloning the GitHub repository. Assuming you are at the root folder of the repository:
 
 1. Build dependencies:
+
 ```bash
 helm dependency build charts/block-node-server
 ```
 
 2. Install the chart:
+
 ```bash
 helm install "${RELEASE}" charts/block-node-server -f <path-to-custom-values-file>
 ```
@@ -149,18 +159,21 @@ Follow the `NOTES` instructions after installing the chart to perform `port-forw
 To upgrade the chart to a new version from the OCI registry:
 
 1. Set the new version:
+
 ```bash
-   export VERSION="<new-version>"
+export VERSION="<new-version>"
 ```
 
 2. Save your current configuration:
+
 ```bash
-   helm get values "${RELEASE}" > user-values.yaml
+helm get values "${RELEASE}" > user-values.yaml
 ```
 
 3. Upgrade the release directly from OCI registry:
+
 ```bash
-   helm upgrade "${RELEASE}" oci://ghcr.io/hiero-ledger/hiero-block-node/block-node-server --version "${VERSION}" -f user-values.yaml
+helm upgrade "${RELEASE}" oci://ghcr.io/hiero-ledger/hiero-block-node/block-node-server --version "${VERSION}" -f user-values.yaml
 ```
 
 ### Upgrade using a local chart
@@ -168,26 +181,26 @@ To upgrade the chart to a new version from the OCI registry:
 To upgrade the chart from a local `.tgz` file or cloned repository:
 
 1. If using a downloaded `.tgz` file, ensure you have the new version locally. If using a cloned repository, pull the latest changes:
+
 ```bash
-   git pull origin main
-   helm dependency build charts/block-node-server
+git pull origin main
+helm dependency build charts/block-node-server
 ```
 
 2. Save your current configuration:
+
 ```bash
-   helm get values "${RELEASE}" > user-values.yaml
+helm get values "${RELEASE}" > user-values.yaml
 ```
 
 3. Upgrade the release from local chart:
+
 ```bash
-   # If using a .tgz file:
-   helm upgrade "${RELEASE}" block-node-server-$VERSION.tgz -f user-values.yaml
-   
-   # If using cloned repository:
-   helm upgrade "${RELEASE}" charts/block-node-server -f user-values.yaml
+# If using a .tgz file:
+helm upgrade "${RELEASE}" block-node-server-$VERSION.tgz -f user-values.yaml
+# If using cloned repository:
+helm upgrade "${RELEASE}" charts/block-node-server -f user-values.yaml
 ```
-
-
 
 ## Uninstall
 
@@ -196,8 +209,8 @@ To uninstall the chart:
 ```bash
 helm uninstall "${RELEASE}"
 ```
-This will remove all Kubernetes resources associated with the release.
 
+This will remove all Kubernetes resources associated with the release.
 
 ## Troubleshooting
 
@@ -206,11 +219,13 @@ This section covers common issues you may encounter when working with the Hiero 
 ### Chart Dependencies Missing
 
 **When running:**
+
 ```bash
 helm template --name-template bn-release block-node-server/ --dry-run --output-dir out
 ```
 
 **Error:**
+
 ```
 Error: An error occurred while checking for chart dependencies. You may need to run `helm dependency build` to fetch missing dependencies: found in Chart.yaml, but missing in charts/ directory: kube-prometheus-stack, loki, promtail
 Error: Chart.yaml file is missing
@@ -219,6 +234,7 @@ Error: Chart.yaml file is missing
 **Solution:**
 
 Before running the template command, build the chart dependencies:
+
 ```bash
 helm dependency build charts/block-node-server
 ```
@@ -230,16 +246,19 @@ This will download all required chart dependencies to the `charts/` directory.
 ### Chart Version Not Found in Registry
 
 **When running:**
+
 ```bash
 helm pull oci://ghcr.io/hiero-ledger/hiero-block-node/block-node-helm-chart --version "${VERSION}"
 ```
 
 **Error:**
+
 ```
 Error: failed to perform "fetchReference" on source: ghcr.io/hiero-ledger/hiero-block-node/block-node-helm-chart:0.22.8-SNAPSHOT: not found
 ```
 
 or
+
 ```
 Error: failed to perform "fetchReference" on source: ghcr.io/hiero-ledger/hiero-block-node/block-node-helm-chart:0.21.2: not found
 ```
@@ -251,13 +270,15 @@ The specified chart version or name does not exist in the registry, or the OCI r
 **Solution:**
 
 1. Use the correct OCI registry path:
+
 ```bash
-   helm pull oci://ghcr.io/hiero-ledger/hiero-block-node/block-node-server --version "${VERSION}"
+helm pull oci://ghcr.io/hiero-ledger/hiero-block-node/block-node-server --version "${VERSION}"
 ```
 
 2. Verify the chart version exists by checking the [releases page](https://github.com/hiero-ledger/hiero-block-node/releases)
 
 3. Confirm your `VERSION` environment variable is set to a valid release:
+
 ```bash
-   echo $VERSION
+echo $VERSION
 ```
