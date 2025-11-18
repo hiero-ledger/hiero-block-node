@@ -7,11 +7,14 @@ import com.hedera.pbj.runtime.io.stream.ReadableStreamingData;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.UncheckedIOException;
 import java.nio.file.FileSystem;
 import java.nio.file.FileSystems;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.stream.LongStream;
+import java.util.stream.Stream;
 import org.hiero.block.node.base.BlockFile;
 import org.hiero.block.node.base.CompressionType;
 
@@ -85,6 +88,48 @@ public class BlockReader {
         FORMAT_CACHE.put(absoluteBaseDir, detectedFormat);
 
         return readBlockWithFormat(absoluteBaseDir, blockNumber, detectedFormat);
+    }
+
+    /**
+     * Read multiple blocks as a stream (lazy evaluation).
+     *
+     * <p>This method returns a Stream that lazily reads blocks one at a time. The storage format
+     * is detected once (on the first block read) and cached for all subsequent reads, making this
+     * very efficient for reading many blocks from the same directory.
+     *
+     * <p>The returned Stream will throw {@link UncheckedIOException} if any block cannot be read.
+     * To handle errors on a per-block basis, consider using:
+     * <pre>
+     * stream.map(block -> {
+     *     try {
+     *         return readBlock(baseDirectory, blockNumber);
+     *     } catch (IOException e) {
+     *         // Handle error for this specific block
+     *         return null;
+     *     }
+     * }).filter(Objects::nonNull)
+     * </pre>
+     *
+     * @param baseDirectory The base directory for the block files
+     * @param startBlockNumber The starting block number (inclusive)
+     * @param endBlockNumber The ending block number (inclusive)
+     * @return A stream of blocks from startBlockNumber to endBlockNumber (both inclusive)
+     * @throws IllegalArgumentException If startBlockNumber > endBlockNumber
+     */
+    public static Stream<Block> readBlocks(
+            final Path baseDirectory, final long startBlockNumber, final long endBlockNumber) {
+        if (startBlockNumber > endBlockNumber) {
+            throw new IllegalArgumentException(
+                    "startBlockNumber (" + startBlockNumber + ") must be <= endBlockNumber (" + endBlockNumber + ")");
+        }
+
+        return LongStream.rangeClosed(startBlockNumber, endBlockNumber).mapToObj(blockNumber -> {
+            try {
+                return readBlock(baseDirectory, blockNumber);
+            } catch (IOException e) {
+                throw new UncheckedIOException("Failed to read block " + blockNumber + " from " + baseDirectory, e);
+            }
+        });
     }
 
     /**
