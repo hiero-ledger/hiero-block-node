@@ -34,7 +34,7 @@ protobuf files.
 
 ## Test Types
 
-The k6 setup will be used to run different https://grafana.com/docs/k6/latest/testing-guides/test-types/ located in subdirectories.
+The k6 setup will be used to run different [test types](https://grafana.com/docs/k6/latest/testing-guides/test-types/) located in subdirectories.
 Each subdirectory contains its own k6 test scripts and configuration files.
 
 ### Average Load Tests

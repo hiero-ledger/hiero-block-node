@@ -41,7 +41,7 @@ export default () => {
         console.log(`Block Node only has one block.`);
     } else if ((lastAvailableBlock - firstAvailableBlock) < data.smokeTestConfigs.numOfBlocksToStream) {
         blockDelta = lastAvailableBlock - firstAvailableBlock;
-        console.log(`Block Node has only ${BlockDelta + 1n} blocks to stream.`);
+        console.log(`Block Node has only ${blockDelta + 1n} blocks to stream.`);
     } else {
         blockDelta = BigInt(data.smokeTestConfigs.numOfBlocksToStream);
         console.log(`Block Node has sufficient blocks to stream ${data.smokeTestConfigs.numOfBlocksToStream} blocks.`);
