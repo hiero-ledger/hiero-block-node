@@ -16,7 +16,7 @@ import java.time.Instant;
 import java.util.Collections;
 import java.util.HexFormat;
 import java.util.List;
-import org.hiero.block.tools.commands.days.model.AddressBookRegistry;
+import org.hiero.block.tools.days.model.AddressBookRegistry;
 import org.hiero.block.tools.utils.PrettyPrint;
 
 /**
@@ -46,7 +46,7 @@ public record RecordFileInfo(
     /* The length of the header in a v2 record file */
     private static final int V2_HEADER_LENGTH = Integer.BYTES + Integer.BYTES + 1 + 48;
 
-    /** Debug main method for helping with parsing and validation issues */
+    /** Debug the main method for helping with parsing and validation issues */
     public static void main(String[] args) throws Exception {
         AddressBookRegistry addressBookRegistry = new AddressBookRegistry(Path.of("REAL_DATA/addressBookHistory.json"));
 
@@ -55,16 +55,18 @@ public record RecordFileInfo(
         byte[] rcdData = Files.readAllBytes(rcdFilePath);
         RecordFileInfo recordFileInfo = parse(rcdData);
         System.out.println("recordFileInfo = " + recordFileInfo.prettyToString());
-        List<InMemoryFile> sigFiles = Files.list(dateDirPath)
-                .filter(p -> p.getFileName().toString().endsWith(".rcs_sig"))
-                .map(p -> {
-                    try {
-                        return new InMemoryFile(p, Files.readAllBytes(p));
-                    } catch (IOException e) {
-                        throw new RuntimeException(e);
-                    }
-                })
-                .toList();
+        List<InMemoryFile> sigFiles;
+        try (var stream = Files.list(dateDirPath)) {
+            sigFiles = stream.filter(p -> p.getFileName().toString().endsWith(".rcs_sig"))
+                    .map(p -> {
+                        try {
+                            return new InMemoryFile(p, Files.readAllBytes(p));
+                        } catch (IOException e) {
+                            throw new RuntimeException(e);
+                        }
+                    })
+                    .toList();
+        }
 
         RecordFileBlockV6 recordFileBlockV6 = new RecordFileBlockV6(
                 Instant.parse("2023-04-07T02:02:34.011568302Z"),
