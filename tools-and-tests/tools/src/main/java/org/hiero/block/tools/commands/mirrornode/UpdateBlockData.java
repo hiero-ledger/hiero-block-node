@@ -296,8 +296,15 @@ public class UpdateBlockData implements Runnable {
      */
     private static void writeDayBlocksJson(Map<LocalDate, DayBlockInfo> dayBlocksMap, Path dayBlocksFile)
             throws IOException {
-        // Convert map to sorted list
+        // Get today's date in UTC - we exclude it because the day is not complete yet
+        LocalDate today = LocalDate.now(ZoneOffset.UTC);
+
+        // Convert map to a sorted list, excluding today's date
         List<DayBlockInfo> dayList = dayBlocksMap.values().stream()
+                .filter(d -> {
+                    LocalDate dayDate = LocalDate.of(d.year, d.month, d.day);
+                    return dayDate.isBefore(today);
+                })
                 .sorted(Comparator.comparingInt((DayBlockInfo d) -> d.year)
                         .thenComparingInt(d -> d.month)
                         .thenComparingInt(d -> d.day))
