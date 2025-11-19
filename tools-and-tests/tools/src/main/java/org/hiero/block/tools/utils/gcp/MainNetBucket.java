@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.tools.utils.gcp;
 
+import com.google.cloud.storage.BlobId;
 import com.google.cloud.storage.BlobInfo;
-import com.google.cloud.storage.Bucket;
 import com.google.cloud.storage.Storage;
 import com.google.cloud.storage.Storage.BlobField;
 import com.google.cloud.storage.Storage.BlobListOption;
@@ -41,9 +41,8 @@ public class MainNetBucket {
     private static final Storage.BlobListOption NAME_FIELD_ONLY = BlobListOption.fields(BlobField.NAME);
     /** The mainnet bucket name*/
     private static final String HEDERA_MAINNET_STREAMS_BUCKET = "hedera-mainnet-streams";
-    /** The mainnet bucket GCP API instance */
-    private static final Bucket STREAMS_BUCKET =
-            StorageOptions.getDefaultInstance().getService().get(HEDERA_MAINNET_STREAMS_BUCKET);
+    /** The GCP Storage service instance - use Storage.list() directly to avoid needing bucket metadata access */
+    private static final Storage STORAGE = StorageOptions.getDefaultInstance().getService();
 
     /**
      * The cache enabled switch. When caching is enabled all fetched data is saved on disk and reused between runs. This
@@ -60,6 +59,10 @@ public class MainNetBucket {
 
     /** The maximum node account id in the network. */
     private final int maxNodeAccountId;
+
+    /** The GCP project to bill for requester-pays bucket access. */
+    private final String userProject;
+
     /**
      * Create a new MainNetBucket instance with the given cache enabled switch and cache directory.
      *
@@ -69,10 +72,25 @@ public class MainNetBucket {
      * @param maxNodeAccountId the maximum node account id in the network
      */
     public MainNetBucket(boolean cacheEnabled, Path cacheDir, int minNodeAccountId, int maxNodeAccountId) {
+        this(cacheEnabled, cacheDir, minNodeAccountId, maxNodeAccountId, null);
+    }
+
+    /**
+     * Create a new MainNetBucket instance with the given cache enabled switch, cache directory, and user project.
+     *
+     * @param cacheEnabled the cache enabled switch
+     * @param cacheDir the cache directory
+     * @param minNodeAccountId the minimum node account id in the network
+     * @param maxNodeAccountId the maximum node account id in the network
+     * @param userProject the GCP project to bill for requester-pays bucket access (can be null)
+     */
+    public MainNetBucket(
+            boolean cacheEnabled, Path cacheDir, int minNodeAccountId, int maxNodeAccountId, String userProject) {
         this.cacheEnabled = cacheEnabled;
         this.cacheDir = cacheDir;
         this.minNodeAccountId = minNodeAccountId;
         this.maxNodeAccountId = maxNodeAccountId;
+        this.userProject = userProject;
     }
 
     /**
@@ -88,7 +106,8 @@ public class MainNetBucket {
             if (cacheEnabled && Files.exists(cachedFilePath)) {
                 rawBytes = Files.readAllBytes(cachedFilePath);
             } else {
-                rawBytes = STREAMS_BUCKET.get(path).getContent();
+                rawBytes = STORAGE.get(BlobId.of(HEDERA_MAINNET_STREAMS_BUCKET, path))
+                        .getContent();
                 if (cacheEnabled) {
                     Files.createDirectories(cachedFilePath.getParent());
                     Path tempCachedFilePath = Files.createTempFile(cacheDir, null, ".tmp");
@@ -121,7 +140,8 @@ public class MainNetBucket {
             if (cacheEnabled && Files.exists(cachedFilePath)) {
                 return Files.newInputStream(cachedFilePath, StandardOpenOption.READ);
             } else {
-                final byte[] bytes = STREAMS_BUCKET.get(path).getContent();
+                final byte[] bytes = STORAGE.get(BlobId.of(HEDERA_MAINNET_STREAMS_BUCKET, path))
+                        .getContent();
                 if (cacheEnabled) {
                     Files.createDirectories(cachedFilePath.getParent());
                     Path tempCachedFilePath = Files.createTempFile(cacheDir, null, ".tmp");
@@ -179,6 +199,23 @@ public class MainNetBucket {
     }
 
     /**
+     * Creates an array of BlobListOptions including the prefix, fields, and optionally userProject.
+     *
+     * @param prefix the prefix to filter blobs
+     * @param fieldsOption the fields option to include
+     * @return array of BlobListOptions
+     */
+    private BlobListOption[] getBlobListOptions(String prefix, BlobListOption fieldsOption) {
+        if (userProject != null) {
+            return new BlobListOption[] {
+                BlobListOption.prefix(prefix), fieldsOption, BlobListOption.userProject(userProject)
+            };
+        } else {
+            return new BlobListOption[] {BlobListOption.prefix(prefix), fieldsOption};
+        }
+    }
+
+    /**
      * List all the ChainFiles in the bucket that have this file name prefix. This fetches blobs for all record files,
      * signature files and sidecar files. For all nodes.
      *
@@ -204,17 +241,19 @@ public class MainNetBucket {
             List<ChainFile> chainFiles = IntStream.range(minNodeAccountId, maxNodeAccountId + 1)
                     .parallel()
                     .mapToObj(nodeAccountId -> Stream.concat(
-                                    STREAMS_BUCKET
-                                            .list(
-                                                    BlobListOption.prefix("recordstreams/record0.0." + nodeAccountId
-                                                            + "/" + filePrefix),
-                                                    REQUIRED_FIELDS)
+                                    STORAGE.list(
+                                                    HEDERA_MAINNET_STREAMS_BUCKET,
+                                                    getBlobListOptions(
+                                                            "recordstreams/record0.0." + nodeAccountId + "/"
+                                                                    + filePrefix,
+                                                            REQUIRED_FIELDS))
                                             .streamAll(),
-                                    STREAMS_BUCKET
-                                            .list(
-                                                    BlobListOption.prefix("recordstreams/record0.0." + nodeAccountId
-                                                            + "/sidecar/" + filePrefix),
-                                                    REQUIRED_FIELDS)
+                                    STORAGE.list(
+                                                    HEDERA_MAINNET_STREAMS_BUCKET,
+                                                    getBlobListOptions(
+                                                            "recordstreams/record0.0." + nodeAccountId + "/sidecar/"
+                                                                    + filePrefix,
+                                                            REQUIRED_FIELDS))
                                             .streamAll())
                             .map(blob -> new ChainFile(
                                     nodeAccountId,
@@ -260,11 +299,11 @@ public class MainNetBucket {
             // create a list of ChainFiles
             List<String> fileNames = IntStream.range(minNodeAccountId, maxNodeAccountId + 1)
                     .parallel()
-                    .mapToObj(nodeAccountId -> STREAMS_BUCKET
-                            .list(
-                                    BlobListOption.prefix(
-                                            "recordstreams/record0.0." + nodeAccountId + "/" + filePrefix),
-                                    NAME_FIELD_ONLY)
+                    .mapToObj(nodeAccountId -> STORAGE.list(
+                                    HEDERA_MAINNET_STREAMS_BUCKET,
+                                    getBlobListOptions(
+                                            "recordstreams/record0.0." + nodeAccountId + "/" + filePrefix,
+                                            NAME_FIELD_ONLY))
                             .streamAll()
                             .map(BlobInfo::getName)
                             .map(name -> name.substring(name.lastIndexOf('/') + 1))
