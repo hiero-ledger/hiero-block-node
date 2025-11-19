@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.tools.records;
 
-import org.hiero.block.tools.commands.record2blocks.Record2BlockCommand;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Model.CommandSpec;
 import picocli.CommandLine.Spec;
@@ -14,7 +13,6 @@ import picocli.CommandLine.Spec;
         description = "Tools for working with record files, .rcd or .rcd.gz",
         subcommands = {
             LsRecordFiles.class,
-            Record2BlockCommand.class,
         },
         mixinStandardHelpOptions = true)
 public class RecordsCommand implements Runnable {

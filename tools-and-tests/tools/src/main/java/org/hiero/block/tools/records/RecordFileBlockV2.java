@@ -33,7 +33,7 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.HexFormat;
 import java.util.List;
-import org.hiero.block.tools.commands.days.model.AddressBookRegistry;
+import org.hiero.block.tools.days.model.AddressBookRegistry;
 
 /**
  * In-memory representation and validator for version 2 Hedera record stream files.

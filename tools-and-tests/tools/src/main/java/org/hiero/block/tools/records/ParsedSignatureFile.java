@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.tools.records;
 
-import static org.hiero.block.tools.commands.days.model.AddressBookRegistry.nodeIdForNode;
+import static org.hiero.block.tools.days.model.AddressBookRegistry.nodeIdForNode;
 import static org.hiero.block.tools.records.SerializationV5Utils.readV5HashObject;
 import static org.hiero.block.tools.records.SigFileUtils.extractNodeAccountNumFromSignaturePath;
 import static org.hiero.block.tools.records.SigFileUtils.verifyRsaSha384;
@@ -17,7 +17,7 @@ import java.io.IOException;
 import java.util.Arrays;
 import java.util.HexFormat;
 import java.util.Objects;
-import org.hiero.block.tools.commands.days.model.AddressBookRegistry;
+import org.hiero.block.tools.days.model.AddressBookRegistry;
 
 /**
  * Universal model for a parsed signature file that supports multiple signature file
