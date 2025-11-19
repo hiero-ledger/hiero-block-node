@@ -19,6 +19,9 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import org.hiero.block.node.base.CompressionType;
+import org.hiero.block.tools.blocks.model.BlockArchiveType;
+import org.hiero.block.tools.blocks.model.BlockReader;
+import org.hiero.block.tools.blocks.model.BlockWriter;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -206,9 +209,7 @@ class BlockWriterReaderTest {
      */
     @Test
     void testReadNonExistentBlockThrowsException() {
-        IOException exception = assertThrows(IOException.class, () -> {
-            BlockReader.readBlock(baseDirectory, 999999L);
-        });
+        IOException exception = assertThrows(IOException.class, () -> BlockReader.readBlock(baseDirectory, 999999L));
 
         assertTrue(exception.getMessage().contains("not found"), "Exception message should indicate block not found");
     }

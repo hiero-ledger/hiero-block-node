@@ -13,8 +13,9 @@ import picocli.CommandLine.Spec;
         description = "Works with block stream files",
         subcommands = {
             ConvertToJson.class,
-            Info.class,
+            LsBlockFiles.class,
             ValidateBlocksCommand.class,
+            ToWrappedBlocksCommand.class,
         },
         mixinStandardHelpOptions = true)
 public class BlocksCommand implements Runnable {

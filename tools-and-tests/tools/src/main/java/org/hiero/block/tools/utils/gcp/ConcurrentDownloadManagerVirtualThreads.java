@@ -20,7 +20,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Predicate;
-import org.hiero.block.tools.commands.days.download.DownloadConstants;
+import org.hiero.block.tools.days.download.DownloadConstants;
 import org.hiero.block.tools.records.InMemoryFile;
 
 /**
