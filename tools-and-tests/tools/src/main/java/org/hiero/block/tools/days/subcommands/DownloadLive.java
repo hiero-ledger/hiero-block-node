@@ -24,7 +24,8 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Stream;
 
-import org.hiero.block.tools.commands.days.download.DownloadConstants;
+import com.google.cloud.storage.Storage;
+import com.google.cloud.storage.StorageOptions;
 import org.hiero.block.tools.commands.days.download.DownloadDayUtil;
 import org.hiero.block.tools.commands.days.model.AddressBookRegistry;
 import org.hiero.block.tools.commands.mirrornode.BlockInfo;
@@ -36,10 +37,12 @@ import org.hiero.block.tools.records.RecordFileBlockV6;
 import org.hiero.block.tools.records.RecordFileInfo;
 import org.hiero.block.tools.utils.Gzip;
 import org.hiero.block.tools.utils.gcp.ConcurrentDownloadManager;
-import org.hiero.block.tools.utils.gcp.ConcurrentDownloadManagerTransferManager;
+import org.hiero.block.tools.utils.gcp.ConcurrentDownloadManagerVirtualThreads;
 import picocli.CommandLine;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Option;
+
+import static org.hiero.block.tools.commands.days.download.DownloadConstants.GCP_PROJECT_ID;
 
 /**
  * CLI implementation for the {@code days download-live} command.
@@ -568,7 +571,7 @@ public class DownloadLive implements Runnable {
         private final int maxConcurrency;
         private final Path addressBookPath;
         private final AddressBookRegistry addressBookRegistry;
-        private final ConcurrentDownloadManager downloadManager;
+        private final ConcurrentDownloadManagerVirtualThreads downloadManager;
         // Running previous record-file hash used to validate the block hash chain across files.
         private byte[] previousRecordFileHash;
         // Single-threaded executor used for background compression of per-day tar files.
@@ -602,7 +605,12 @@ public class DownloadLive implements Runnable {
             // NOTE: if the actual ConcurrentDownloadManagerTransferManager constructor has a different signature,
             // adjust this
             // call to match its configuration factory used by the historic download2 tooling.
-            this.downloadManager = new ConcurrentDownloadManagerTransferManager();
+            Storage storage = StorageOptions.grpc()
+                .setAttemptDirectPath(false)
+                .setProjectId(GCP_PROJECT_ID)
+                .build()
+                .getService();
+            this.downloadManager = ConcurrentDownloadManagerVirtualThreads.newBuilder(storage).build();
             this.compressionExecutor = Executors.newSingleThreadExecutor(r -> {
                 Thread t = new Thread(r, "download-live-compress");
                 t.setDaemon(true);
