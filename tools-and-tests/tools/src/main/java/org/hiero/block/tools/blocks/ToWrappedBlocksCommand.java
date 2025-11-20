@@ -22,6 +22,7 @@ import org.hiero.block.tools.blocks.model.BlockWriter;
 import org.hiero.block.tools.days.model.AddressBookRegistry;
 import org.hiero.block.tools.days.model.TarZstdDayReaderUsingExec;
 import org.hiero.block.tools.days.model.TarZstdDayUtils;
+import org.hiero.block.tools.metadata.MetadataFiles;
 import org.hiero.block.tools.mirrornode.BlockTimeReader;
 import org.hiero.block.tools.mirrornode.DayBlockInfo;
 import org.hiero.block.tools.utils.PrettyPrint;
@@ -56,13 +57,13 @@ public class ToWrappedBlocksCommand implements Runnable {
     @Option(
             names = {"-b", "--blocktimes-file"},
             description = "BlockTimes file for mapping record file times to blocks and back")
-    private Path blockTimesFile = Path.of("data/block_times.bin");
+    private Path blockTimesFile = MetadataFiles.BLOCK_TIMES_FILE;
 
     /** The path to the day blocks file. */
     @Option(
             names = {"-d", "--day-blocks"},
             description = "Path to the day blocks \".json\" file.")
-    private Path dayBlocksFile = DayBlockInfo.DEFAULT_DAY_BLOCKS_PATH;
+    private Path dayBlocksFile = MetadataFiles.DAY_BLOCKS_FILE;
 
     @Option(
             names = {"-u", "--unzipped"},

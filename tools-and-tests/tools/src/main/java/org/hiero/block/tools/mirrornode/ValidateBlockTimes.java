@@ -9,6 +9,7 @@ import java.io.InputStreamReader;
 import java.nio.file.Path;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.zip.GZIPInputStream;
+import org.hiero.block.tools.metadata.MetadataFiles;
 import org.hiero.block.tools.mirrornode.model.BlockTimes;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Option;
@@ -29,7 +30,7 @@ public class ValidateBlockTimes implements Runnable {
     @Option(
             names = {"--block-times"},
             description = "Path to the block times \".bin\" file.")
-    private Path blockTimesFile = Path.of("data/block_times.bin");
+    private Path blockTimesFile = MetadataFiles.BLOCK_TIMES_FILE;
 
     /**
      * Read the record file table CSV file and validate the block times in the block times file.
