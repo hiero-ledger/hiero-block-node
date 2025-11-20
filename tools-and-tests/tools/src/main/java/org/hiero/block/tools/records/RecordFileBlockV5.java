@@ -6,30 +6,12 @@ import static org.hiero.block.tools.records.SerializationV5Utils.readV5HashObjec
 import static org.hiero.block.tools.utils.Sha384.SHA_384_HASH_SIZE;
 import static org.hiero.block.tools.utils.Sha384.hashSha384;
 
-import com.hedera.hapi.block.stream.experimental.Block;
-import com.hedera.hapi.block.stream.experimental.BlockFooter;
-import com.hedera.hapi.block.stream.experimental.BlockItem;
-import com.hedera.hapi.block.stream.experimental.BlockItem.ItemOneOfType;
-import com.hedera.hapi.block.stream.experimental.BlockProof;
-import com.hedera.hapi.block.stream.experimental.BlockProof.ProofOneOfType;
-import com.hedera.hapi.block.stream.experimental.RecordFileSignature;
-import com.hedera.hapi.block.stream.experimental.SignedRecordFileProof;
-import com.hedera.hapi.block.stream.output.BlockHeader;
-import com.hedera.hapi.node.base.BlockHashAlgorithm;
 import com.hedera.hapi.node.base.NodeAddressBook;
 import com.hedera.hapi.node.base.SemanticVersion;
-import com.hedera.hapi.node.base.Timestamp;
 import com.hedera.hapi.node.base.Transaction;
 import com.hedera.hapi.node.transaction.TransactionBody;
-import com.hedera.hapi.node.transaction.TransactionRecord;
-import com.hedera.hapi.streams.HashAlgorithm;
-import com.hedera.hapi.streams.HashObject;
-import com.hedera.hapi.streams.RecordStreamFile;
-import com.hedera.hapi.streams.RecordStreamItem;
-import com.hedera.pbj.runtime.OneOf;
 import com.hedera.pbj.runtime.ParseException;
 import com.hedera.pbj.runtime.io.buffer.BufferedData;
-import com.hedera.pbj.runtime.io.buffer.Bytes;
 import java.io.IOException;
 import java.time.Instant;
 import java.util.Collections;
@@ -40,14 +22,12 @@ import org.hiero.block.tools.days.model.AddressBookRegistry;
  * In-memory representation and validator for version 5 Hedera record stream files.
  * <p>
  * This implementation parses the v5 header, start object running hash, and end object running hash
- * as specified in RecordFileFormat.md. Validation ensures the provided start running hash (when
+ * as specified in RecordFileFormat.md. Validation ensures the provided start running-hash (when
  * supplied) matches the hash in the file and returns the end-running hash contained in the file.
  * Signature file validation is performed using RSA public keys from the provided address book.
  */
 @SuppressWarnings("DuplicatedCode")
 public class RecordFileBlockV5 extends RecordFileBlock {
-    private static final long RECORD_STREAM_OBJECT_CLASS_ID = Long.parseUnsignedLong("e370929ba5429d8b", 16);
-    public static final int RECORD_STREAM_OBJECT_CLASS_VERSION = 1;
 
     /**
      * Creates a v5 in-memory block wrapper.
@@ -76,120 +56,6 @@ public class RecordFileBlockV5 extends RecordFileBlock {
     }
 
     /**
-     * Convert this record file block into a block-stream wrapped block.
-     *
-     * @param blockNumber the number of the block, starting 0 for the first block. This has to be specified as it cannot
-     *                    be computed from record stream data.
-     * @param blockTime the consensus time of the block
-     * @param addressBook the NodeAddressBook to use for signature verification
-     * @param previousBlockHash the hash of the previous block, the hash of block stream block N-1
-     * @param rootHashOfBlockHashesMerkleTree the root hash of the block hashes merkle tree including all blocks up to N-1
-     * @return the Block read from the InMemoryBlock
-     * @throws IOException if an I/O error occurs
-     */
-    @Override
-    public Block toWrappedBlock(
-            final long blockNumber,
-            final Instant blockTime,
-            final byte[] previousBlockHash,
-            final byte[] rootHashOfBlockHashesMerkleTree,
-            final NodeAddressBook addressBook)
-            throws IOException {
-        try {
-            final byte[] recordFileBytes = primaryRecordFile.data();
-            final BufferedData in = BufferedData.wrap(recordFileBytes);
-            // compute the entire file hash used for signature verification
-            final byte[] entireFileHash = hashSha384(recordFileBytes);
-            // Version already read by factory, but the file begins with version int (5)
-            final int fileVersion = in.readInt();
-            if (fileVersion != 5) {
-                throw new IllegalStateException("Invalid v5 record file version: " + fileVersion);
-            }
-            // read HAPI semantic version
-            final int hapiMajor = in.readInt();
-            final int hapiMinor = in.readInt();
-            final int hapiPatch = in.readInt();
-            final SemanticVersion hapiVersion = new SemanticVersion(hapiMajor, hapiMinor, hapiPatch, null, null);
-            // create a block header
-            final BlockHeader blockHeader = new BlockHeader(
-                    hapiVersion,
-                    hapiVersion, // TODO is this right? could be unset, not if that is better
-                    blockNumber,
-                    new Timestamp(
-                            blockTime.getEpochSecond(), blockTime.getNano()), // TODO is the the right time to use?
-                    BlockHashAlgorithm.SHA2_384);
-            // read object stream version
-            final int objectStreamVersion = in.readInt();
-            if (objectStreamVersion != RECORD_STREAM_OBJECT_CLASS_VERSION) {
-                throw new IllegalStateException("Unexpected object stream version (v5): " + objectStreamVersion);
-            }
-            // read start running hash is a Hash Object in v5 format; parse to extract SHA-384 bytes
-            final byte[] startHashInFile = readV5HashObject(in);
-            // read all record stream objects and build RecordStreamItem list
-            final List<RecordStreamItem> recordStreamItems = new java.util.ArrayList<>();
-            while (in.remaining() > HASH_OBJECT_SIZE_BYTES) {
-                // read a RecordStreamObject
-                final long classId = in.readLong();
-                if (classId != RECORD_STREAM_OBJECT_CLASS_ID) {
-                    throw new IOException("Unexpected class ID in record file: " + Long.toHexString(classId));
-                }
-                final int classVersion = in.readInt();
-                if (classVersion != RECORD_STREAM_OBJECT_CLASS_VERSION) {
-                    throw new IOException("Unexpected class version in record file: " + classVersion);
-                }
-                final int transactionRecordLength = in.readInt();
-                if (transactionRecordLength <= 0 || transactionRecordLength > in.remaining() - HASH_OBJECT_SIZE_BYTES) {
-                    throw new IOException(
-                            "Invalid transaction record length in record file: " + transactionRecordLength);
-                }
-                final TransactionRecord txnRecord =
-                        TransactionRecord.PROTOBUF.parse(in.readBytes(transactionRecordLength));
-                final int transactionLength = in.readInt();
-                if (transactionLength <= 0 || transactionLength > in.remaining() - HASH_OBJECT_SIZE_BYTES) {
-                    throw new IOException("Invalid transaction length in record file: " + transactionLength);
-                }
-                final Transaction transaction = Transaction.PROTOBUF.parse(in.readBytes(transactionLength));
-                recordStreamItems.add(new RecordStreamItem(transaction, txnRecord));
-            }
-            if (in.remaining() != HASH_OBJECT_SIZE_BYTES) {
-                throw new IOException("Expected " + HASH_OBJECT_SIZE_BYTES
-                        + " bytes remaining for end running hash, but found " + in.remaining());
-            }
-            // read the end-running hash
-            final byte[] endRunningHash = readV5HashObject(in);
-            // build the RecordStreamFile model used by block stream
-            final RecordStreamFile recordStreamFile = new RecordStreamFile(
-                    hapiVersion,
-                    new HashObject(HashAlgorithm.SHA_384, SHA_384_HASH_SIZE, Bytes.wrap(startHashInFile)),
-                    recordStreamItems,
-                    new HashObject(HashAlgorithm.SHA_384, SHA_384_HASH_SIZE, Bytes.wrap(endRunningHash)),
-                    blockNumber,
-                    Collections.emptyList() // v5 files do not have sidecars
-                    );
-            // convert signatures into block proof
-            final List<RecordFileSignature> signatures = signatureFiles.stream()
-                    .parallel()
-                    .map(sf -> new ParsedSignatureFile(addressBook, sf))
-                    .filter(psf -> psf.isValid(entireFileHash))
-                    .map(ParsedSignatureFile::toRecordFileSignature)
-                    .toList();
-            final BlockProof blockProof = new BlockProof(
-                    new OneOf<>(ProofOneOfType.SIGNED_RECORD_FILE_PROOF, new SignedRecordFileProof(5, signatures)));
-            // create footer
-            final BlockFooter blockFooter =
-                    new BlockFooter(Bytes.wrap(previousBlockHash), Bytes.wrap(rootHashOfBlockHashesMerkleTree), null);
-            // create and return the Block
-            return new Block(List.of(
-                    new BlockItem(new OneOf<>(ItemOneOfType.BLOCK_HEADER, blockHeader)),
-                    new BlockItem(new OneOf<>(ItemOneOfType.RECORD_FILE, recordStreamFile)),
-                    new BlockItem(new OneOf<>(ItemOneOfType.BLOCK_FOOTER, blockFooter)),
-                    new BlockItem(new OneOf<>(ItemOneOfType.BLOCK_PROOF, blockProof))));
-        } catch (ParseException e) {
-            throw new IOException(e);
-        }
-    }
-
-    /**
      * Validate a v5 record stream file.
      * <p>
      * Parses the v5 header, HAPI semantic version, object stream version, and the Hash Objects containing the
@@ -197,9 +63,9 @@ public class RecordFileBlockV5 extends RecordFileBlock {
      * The returned ValidationResult contains the end running hash and parsed HAPI version. Signature verification is
      * performed if an address book is provided.
      *
-     * @param startRunningHash expected start running hash to compare against the Start Object Running Hash; may be null
+     * @param startRunningHash expected start running-hash to compare against the Start Object Running Hash; may be null
      * @param addressBook the address book containing node RSA public keys; may be null to skip signature verification
-     * @return validation result including computed validity and end running hash read from file
+     * @return validation result including computed validity and end running-hash read from the file
      */
     @Override
     public ValidationResult validate(final byte[] startRunningHash, final NodeAddressBook addressBook) {
@@ -223,7 +89,7 @@ public class RecordFileBlockV5 extends RecordFileBlock {
             final SemanticVersion hapiVersion = new SemanticVersion(hapiMajor, hapiMinor, hapiPatch, null, null);
             // read object stream version
             final int objectStreamVersion = in.readInt();
-            if (objectStreamVersion != RECORD_STREAM_OBJECT_CLASS_VERSION) {
+            if (objectStreamVersion != UniversalRecordFile.V5_RECORD_STREAM_OBJECT_CLASS_VERSION) {
                 warnings.append("Unexpected object stream version (v5): ")
                         .append(objectStreamVersion)
                         .append('\n');
@@ -243,21 +109,21 @@ public class RecordFileBlockV5 extends RecordFileBlock {
             while (in.remaining() > HASH_OBJECT_SIZE_BYTES) {
                 // read a RecordStreamObject
                 final long classId = in.readLong();
-                if (classId != RECORD_STREAM_OBJECT_CLASS_ID) {
+                if (classId != UniversalRecordFile.V5_RECORD_STREAM_OBJECT_CLASS_ID) {
                     warnings.append("Unexpected class ID in record file: ")
                             .append(Long.toHexString(classId))
                             .append(" expected ")
-                            .append(Long.toHexString(RECORD_STREAM_OBJECT_CLASS_ID))
+                            .append(Long.toHexString(UniversalRecordFile.V5_RECORD_STREAM_OBJECT_CLASS_ID))
                             .append("\n");
                     isValid = false;
                     break; // cannot continue parsing
                 }
                 final int classVersion = in.readInt();
-                if (classVersion != RECORD_STREAM_OBJECT_CLASS_VERSION) { // expecting transaction object
+                if (classVersion != UniversalRecordFile.V5_RECORD_STREAM_OBJECT_CLASS_VERSION) { // expecting transaction object
                     warnings.append("Unexpected class version in record file: ")
                             .append(classVersion)
                             .append(" expected ")
-                            .append(RECORD_STREAM_OBJECT_CLASS_VERSION)
+                            .append(UniversalRecordFile.V5_RECORD_STREAM_OBJECT_CLASS_VERSION)
                             .append("\n");
                     isValid = false;
                     break; // cannot continue parsing
@@ -292,7 +158,7 @@ public class RecordFileBlockV5 extends RecordFileBlock {
                         .append('\n');
                 return new ValidationResult(false, warnings.toString(), null, hapiVersion, Collections.emptyList());
             }
-            // read the end running hash
+            // read the end running-hash
             final byte[] endRunningHash = readV5HashObject(in);
             // Validate signatures
             isValid = isValid && validateSignatures(addressBook, warnings, entireFileHash);

@@ -33,7 +33,7 @@ import org.hiero.block.tools.days.listing.ListingRecordFile;
 import org.hiero.block.tools.mirrornode.BlockTimeReader;
 import org.hiero.block.tools.mirrornode.DayBlockInfo;
 import org.hiero.block.tools.records.InMemoryFile;
-import org.hiero.block.tools.records.RecordFileInfo;
+import org.hiero.block.tools.records.UniversalRecordFile;
 import org.hiero.block.tools.utils.ConcurrentTarZstdWriter;
 import org.hiero.block.tools.utils.Gzip;
 import org.hiero.block.tools.utils.Md5Checker;
@@ -397,9 +397,10 @@ public class DownloadDayImplV2 {
             final byte[] prevRecordFileHash,
             final byte[] blockHashFromMirrorNode) {
         final InMemoryFile mostCommonRecordFileInMem = inMemoryFilesForWriting.getFirst();
-        final RecordFileInfo recordFileInfo = RecordFileInfo.parse(mostCommonRecordFileInMem.data());
-        byte[] readPreviousBlockHash = recordFileInfo.previousBlockHash().toByteArray();
-        byte[] computedBlockHash = recordFileInfo.blockHash().toByteArray();
+        final UniversalRecordFile recordFileInfo = UniversalRecordFile.parse(
+            mostCommonRecordFileInMem.data(), blockNum);
+        byte[] readPreviousBlockHash = recordFileInfo.previousBlockHash();
+        byte[] computedBlockHash = recordFileInfo.blockHash();
         if (blockHashFromMirrorNode != null && !Arrays.equals(blockHashFromMirrorNode, computedBlockHash)) {
             throw new IllegalStateException(
                     "Block[" + blockNum + "] hash mismatch with mirror node listing. " + ", Expected: "

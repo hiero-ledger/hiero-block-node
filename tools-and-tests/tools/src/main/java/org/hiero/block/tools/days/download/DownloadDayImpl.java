@@ -33,7 +33,7 @@ import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.Collectors;
 import org.hiero.block.tools.days.listing.ListingRecordFile;
 import org.hiero.block.tools.records.InMemoryFile;
-import org.hiero.block.tools.records.RecordFileInfo;
+import org.hiero.block.tools.records.UniversalRecordFile;
 import org.hiero.block.tools.utils.ConcurrentTarZstdWriter;
 import org.hiero.block.tools.utils.Gzip;
 import org.hiero.block.tools.utils.Md5Checker;
@@ -42,7 +42,7 @@ import org.hiero.block.tools.utils.Md5Checker;
  * Download all record files for a given day from GCP, group by block, deduplicate, validate,
  * and write into a single .tar.zstd file.
  */
-@SuppressWarnings("CallToPrintStackTrace")
+@SuppressWarnings({"CallToPrintStackTrace", "DuplicatedCode"})
 public class DownloadDayImpl {
     /** GCP BlobSourceOption to use userProject for billing */
     public static final com.google.cloud.storage.Storage.BlobSourceOption BLOB_SOURCE_OPTION =
@@ -194,14 +194,17 @@ public class DownloadDayImpl {
                 final InMemoryFile mostCommonRecordFileInMem = resultInMemFiles.getFirst();
                 // validate time period
 
-                final RecordFileInfo recordFileInfo = RecordFileInfo.parse(mostCommonRecordFileInMem.data());
+                final UniversalRecordFile recordFileInfo = UniversalRecordFile.parse(
+                    mostCommonRecordFileInMem.data(),
+                    -1 // TODO Is there a better way to get the block number?
+                );
                 byte[] readPreviousBlockHash =
-                        recordFileInfo.previousBlockHash().toByteArray();
-                byte[] computedBlockHash = recordFileInfo.blockHash().toByteArray();
-                // check computed previousRecordFileHash matches one read from file
+                        recordFileInfo.previousBlockHash();
+                byte[] computedBlockHash = recordFileInfo.blockHash();
+                // check computed previousRecordFileHash matches one read from a file
                 if (prevRecordFileHash != null && !Arrays.equals(prevRecordFileHash, readPreviousBlockHash)) {
-                    // try skipping this block as we have cases where a node produced bad dated record files
-                    // for example 2021-10-13T07_37_27, which was only produced by node 0.0.18 the rest of the nodes
+                    // try skipping this block as we have cases where a node produced bad-dated record files,
+                    // for example, 2021-10-13T07_37_27, which was only produced by node 0.0.18, the rest of the nodes
                     // had blocks 2021-10-13T18:06:52 and 2021-10-13T23:10:06.07.
                     blocksSkipped++;
                     if (blocksSkipped < 20) {
@@ -298,7 +301,7 @@ public class DownloadDayImpl {
                 contentBytes = Gzip.ungzipInMemory(contentBytes);
                 filename = filename.replaceAll("\\.gz$", "");
             }
-            // determine target path within tar
+            // determine a target path within tar
             String parentDir = lr.path();
             int lastSlash = parentDir.lastIndexOf('/');
             if (lastSlash > 0) parentDir = parentDir.substring(0, lastSlash);
