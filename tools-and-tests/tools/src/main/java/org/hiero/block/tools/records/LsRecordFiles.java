@@ -86,7 +86,10 @@ public class LsRecordFiles implements Runnable {
                                 recordFilePath.getFileName().toString().endsWith(".gz ")
                                         ? new GZIPInputStream(Files.newInputStream(recordFilePath)).readAllBytes()
                                         : Files.readAllBytes(recordFilePath);
-                        final RecordFileInfo info = RecordFileInfo.parse(fileData);
+                        final UniversalRecordFile info = UniversalRecordFile.parse(
+                            fileData,
+                            -1 // TODO is there a better way to get the block number?
+                        );
                         System.out.printf(
                                 "%-70s %-5d %-9s %-10s %-10s %s%n",
                                 recordFilePath.getFileName().toString(),

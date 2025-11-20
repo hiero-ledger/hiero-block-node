@@ -80,7 +80,7 @@ public class RecordFileBlockValidateTest {
         final String base = "/record-files/example-v2/2019-09-13T21_53_51.396440Z/";
         final InMemoryFile record = loadResourceFile(base + "2019-09-13T21_53_51.396440Z.rcd");
         // use RecordFileInfo to check the previous file and end running hashes written in the file, not recomputed
-        final RecordFileInfo info = RecordFileInfo.parse(record.data());
+        final UniversalRecordFile info = UniversalRecordFile.parse(record.data());
         assertArrayEquals(
                 EXAMPLE_V2_PREVIOUS_RECORD_FILE_HASH,
                 info.previousBlockHash().toByteArray(),
@@ -138,7 +138,7 @@ public class RecordFileBlockValidateTest {
         final NodeAddressBook addressBook = loadAddressBookResourceFile(base + "address_book.bin");
         final InMemoryFile record = loadResourceFile(base + "2022-01-01T00_00_00.252365821Z.rcd");
         // use RecordFileInfo to check the previous file and end running hashes written in the file, not recomputed
-        final RecordFileInfo info = RecordFileInfo.parse(record.data());
+        final UniversalRecordFile info = UniversalRecordFile.parse(record.data());
         assertArrayEquals(
                 EXAMPLE_V5_PREVIOUS_RECORD_FILE_HASH,
                 info.previousBlockHash().toByteArray(),
@@ -203,7 +203,7 @@ public class RecordFileBlockValidateTest {
         final InMemoryFile record = loadResourceFile(base + "2025-07-23T20_37_42.076472454Z.rcd");
         final InMemoryFile sidecar01 = loadResourceFile(base + "2025-07-23T20_37_42.076472454Z_01.rcd");
         // use RecordFileInfo to check the previous file and end running hashes written in the file, not recomputed
-        final RecordFileInfo info = RecordFileInfo.parse(record.data());
+        final UniversalRecordFile info = UniversalRecordFile.parse(record.data());
         assertArrayEquals(
                 EXAMPLE_V6_PREVIOUS_RECORD_FILE_HASH,
                 info.previousBlockHash().toByteArray(),
