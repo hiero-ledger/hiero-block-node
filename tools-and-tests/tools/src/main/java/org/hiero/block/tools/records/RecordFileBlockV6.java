@@ -10,8 +10,11 @@ import com.hedera.hapi.block.stream.experimental.BlockItem.ItemOneOfType;
 import com.hedera.hapi.block.stream.experimental.BlockProof;
 import com.hedera.hapi.block.stream.experimental.BlockProof.ProofOneOfType;
 import com.hedera.hapi.block.stream.experimental.SignedRecordFileProof;
+import com.hedera.hapi.block.stream.output.BlockHeader;
+import com.hedera.hapi.node.base.BlockHashAlgorithm;
 import com.hedera.hapi.node.base.NodeAddressBook;
 import com.hedera.hapi.node.base.SemanticVersion;
+import com.hedera.hapi.node.base.Timestamp;
 import com.hedera.hapi.node.base.Transaction;
 import com.hedera.hapi.node.transaction.TransactionBody;
 import com.hedera.hapi.streams.RecordStreamFile;
@@ -67,10 +70,11 @@ public class RecordFileBlockV6 extends RecordFileBlock {
     }
 
     /**
-     * Convert this record file block into a block stream wrapped block.
+     * Convert this record file block into a block-stream wrapped block.
      *
-     * @param blockNumber the number of the block, starting 0 for first block. This has to be specified as it can not
+     * @param blockNumber the number of the block, starting 0 for the first block. This has to be specified as it cannot
      *                    be computed from record stream data.
+     * @param blockTime the consensus time of the block
      * @param addressBook the NodeAddressBook to use for signature verification
      * @param previousBlockHash the hash of the previous block, the hash of block stream block N-1
      * @param rootHashOfBlockHashesMerkleTree the root hash of the block hashes merkle tree including all blocks up to N-1
@@ -80,33 +84,38 @@ public class RecordFileBlockV6 extends RecordFileBlock {
     @Override
     public Block toWrappedBlock(
             final long blockNumber,
+            final Instant blockTime,
             final byte[] previousBlockHash,
             final byte[] rootHashOfBlockHashesMerkleTree,
             final NodeAddressBook addressBook)
             throws IOException {
         final byte[] bytes = primaryRecordFile.data();
         try (final DataInputStream in = new DataInputStream(new ByteArrayInputStream(bytes))) {
-            // read and verify header
+            // read and verify the header
             final int fileVersion = in.readInt();
             if (fileVersion != 6) {
                 throw new IOException("Invalid v6 record file version: " + fileVersion);
             }
             // parse protobuf RecordStreamFile
-            RecordStreamFile recordStreamFile = RecordStreamFile.PROTOBUF.parse(new ReadableStreamingData(in));
+            final RecordStreamFile recordStreamFile = RecordStreamFile.PROTOBUF.parse(new ReadableStreamingData(in));
             // compute entire file SHA-384 for signature verification
             final MessageDigest sha384 = sha384Digest();
             final byte[] entireFileHash = sha384.digest(bytes);
-            // check or set block number
+            // check block number
             if (recordStreamFile.blockNumber() > 0) {
                 if (recordStreamFile.blockNumber() != blockNumber) {
                     throw new IOException("Provided block number " + blockNumber
                             + " does not match record file block number " + recordStreamFile.blockNumber());
                 }
-            } else {
-                // older v5 record stream files do not have block number
-                recordStreamFile =
-                        recordStreamFile.copyBuilder().blockNumber(blockNumber).build();
             }
+            // create a block header
+            final BlockHeader blockHeader = new BlockHeader(
+                    recordStreamFile.hapiProtoVersion(),
+                    recordStreamFile.hapiProtoVersion(), // TODO is this right? could be unset, not if that is better
+                    blockNumber,
+                    new Timestamp(
+                            blockTime.getEpochSecond(), blockTime.getNano()), // TODO is the the right time to use?
+                    BlockHashAlgorithm.SHA2_384);
             // convert signatures into block proof
             final List<com.hedera.hapi.block.stream.experimental.RecordFileSignature> signatures =
                     signatureFiles().stream()
@@ -124,6 +133,7 @@ public class RecordFileBlockV6 extends RecordFileBlock {
                     null);
             // create and return the Block
             return new Block(List.of(
+                    new BlockItem(new OneOf<>(ItemOneOfType.BLOCK_HEADER, blockHeader)),
                     new BlockItem(new OneOf<>(ItemOneOfType.RECORD_FILE, recordStreamFile)),
                     new BlockItem(new OneOf<>(ItemOneOfType.BLOCK_FOOTER, blockFooter)),
                     new BlockItem(new OneOf<>(ItemOneOfType.BLOCK_PROOF, blockProof))));
@@ -173,7 +183,7 @@ public class RecordFileBlockV6 extends RecordFileBlock {
                 isValid = false;
             }
 
-            // End running hash from file
+            // End running hash from a file
             final byte[] endRunningHash = rsf.endObjectRunningHash().hash().toByteArray();
 
             // Validate sidecar hashes: compute SHA-384 of provided sidecar files and compare sets
