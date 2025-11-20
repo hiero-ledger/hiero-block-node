@@ -2,6 +2,7 @@
 package org.hiero.block.node.stream.publisher;
 
 import static java.lang.System.Logger.Level.DEBUG;
+import static java.lang.System.Logger.Level.ERROR;
 import static java.lang.System.Logger.Level.INFO;
 import static java.lang.System.Logger.Level.TRACE;
 import static java.lang.System.Logger.Level.WARNING;
@@ -25,6 +26,7 @@ import java.util.concurrent.ConcurrentSkipListMap;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
 import java.util.concurrent.LinkedBlockingDeque;
+import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
@@ -76,6 +78,10 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
     private final AtomicLong nextUnstreamedBlockNumber;
     private final AtomicLong lastPersistedBlockNumber;
 
+    /** A single thread executor service for the stream publisher plugin, background jobs. */
+    private ScheduledExecutorService scheduledExecutorService;
+    private final PublisherConfig publisherConfiguration;
+
     /**
      * todo(1420) add documentation
      */
@@ -96,6 +102,12 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
         NodeConfig nodeConfiguration = serverContext.configuration().getConfigData(NodeConfig.class);
         earliestManagedBlock = nodeConfiguration.earliestManagedBlock();
         updateBlockNumbers(serverContext);
+        publisherConfiguration = serverContext.configuration().getConfigData(PublisherConfig.class);
+
+        this.scheduledExecutorService = context.threadPoolManager()
+            .createSingleThreadScheduledExecutor(
+                "StreamPublisherRunner",
+                (t, e) -> LOGGER.log(ERROR, "Uncaught exception in thread: " + t.getName(), e));
     }
 
     @Override
@@ -108,6 +120,12 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
         handlers.put(handlerId, newHandler);
         metrics.currentPublisherCount().set(handlers.size());
         LOGGER.log(TRACE, "Added new handler {0}", handlerId);
+
+        // if there are no handlers we should cancel any notification to prompt backfill to look for blocks
+        if (!scheduledExecutorService.isShutdown()) {
+            this.scheduledExecutorService.shutdown();
+        }
+
         return newHandler;
     }
 
@@ -154,6 +172,16 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
         }
         LOGGER.log(TRACE, "Removed handler {0} and its transfer queue {1}", handlerId, queueId);
         metrics.currentPublisherCount().set(handlers.size());
+
+        // if there are no handlers we should schedule a notification to prompt backfill to proactively look for blocks
+        if (handlers.isEmpty() && scheduledExecutorService.isShutdown()) {
+            this.scheduledExecutorService.scheduleWithFixedDelay(
+                () -> notifyTooFarBehind(UNKNOWN_BLOCK_NUMBER),
+                publisherConfiguration.noActivityNotificationIntervalSeconds(),
+                publisherConfiguration.noActivityNotificationIntervalSeconds(),
+                TimeUnit.SECONDS
+            );
+        }
     }
 
     /**
