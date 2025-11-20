@@ -21,12 +21,13 @@ import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import org.hiero.block.tools.metadata.MetadataFiles;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Help.Ansi;
 import picocli.CommandLine.Option;
 
 /**
- * Update block data files (block_times.bin and day_blocks.json) with newer blocks from mirror node.
+ * Update block data files (block_times.bin and day_blocks.json) with newer blocks from the mirror node.
  */
 @SuppressWarnings("DuplicatedCode")
 @Command(
@@ -39,13 +40,13 @@ public class UpdateBlockData implements Runnable {
     @Option(
             names = {"--block-times"},
             description = "Path to the block times \".bin\" file.")
-    private Path blockTimesFile = Path.of("data/block_times.bin");
+    private Path blockTimesFile = MetadataFiles.BLOCK_TIMES_FILE;
 
     /** The path to the day blocks file. */
     @Option(
             names = {"--day-blocks"},
             description = "Path to the day blocks \".json\" file.")
-    private Path dayBlocksFile = DayBlockInfo.DEFAULT_DAY_BLOCKS_PATH;
+    private Path dayBlocksFile = MetadataFiles.DAY_BLOCKS_FILE;
 
     /** The batch size for fetching blocks from the mirror node. */
     private static final int BATCH_SIZE = 100;
@@ -83,7 +84,7 @@ public class UpdateBlockData implements Runnable {
             long startBlockNumber = Math.min(highestBlockInTimesFile, highestBlockInDayBlocks) + 1;
             System.out.println(Ansi.AUTO.string("@|yellow Starting from block number:|@ " + startBlockNumber));
 
-            // Query the latest block number from mirror node
+            // Query the latest block number from the mirror node
             long latestBlockNumber = getLatestBlockNumber();
             System.out.println(
                     Ansi.AUTO.string("@|yellow Latest block number from mirror node:|@ " + latestBlockNumber));
@@ -108,7 +109,7 @@ public class UpdateBlockData implements Runnable {
                     System.out.println(Ansi.AUTO.string(
                             "@|cyan Fetching blocks |@" + currentBlock + " @|cyan to|@ " + batchEndBlock));
 
-                    // Fetch batch from mirror node
+                    // Fetch batch from the mirror node
                     JsonArray blocks = fetchBlockBatch(currentBlock, BATCH_SIZE);
 
                     // Process each block in the batch
@@ -177,7 +178,7 @@ public class UpdateBlockData implements Runnable {
             return -1;
         }
 
-        // The highest block number is (file size / 8) - 1 since each long is 8 bytes
+        // The highest block number is (file size / 8)-1 since each long is 8 bytes
         return (binFileSize / Long.BYTES) - 1;
     }
 
@@ -226,6 +227,7 @@ public class UpdateBlockData implements Runnable {
      * @param limit      the maximum number of blocks to fetch
      * @return the JSON array of blocks
      */
+    @SuppressWarnings("SameParameterValue")
     private static JsonArray fetchBlockBatch(long startBlock, int limit) {
         String url = MAINNET_MIRROR_NODE_API_URL + "blocks?block.number=gte%3A" + startBlock + "&limit=" + limit
                 + "&order=asc";
@@ -299,7 +301,7 @@ public class UpdateBlockData implements Runnable {
         // Get today's date in UTC - we exclude it because the day is not complete yet
         LocalDate today = LocalDate.now(ZoneOffset.UTC);
 
-        // Convert map to a sorted list, excluding today's date
+        // Convert the map to a sorted list, excluding today's date
         List<DayBlockInfo> dayList = dayBlocksMap.values().stream()
                 .filter(d -> {
                     LocalDate dayDate = LocalDate.of(d.year, d.month, d.day);

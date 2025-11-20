@@ -13,6 +13,7 @@ import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
+import org.hiero.block.tools.metadata.MetadataFiles;
 import org.hiero.block.tools.records.RecordFileDates;
 import org.hiero.block.tools.utils.gcp.MainNetBucket;
 import picocli.CommandLine.Command;
@@ -49,7 +50,7 @@ public class AddNewerBlockTimes implements Runnable {
     @Option(
             names = {"--block-times"},
             description = "Path to the block times \".bin\" file.")
-    private Path blockTimesFile = Path.of("data/block_times.bin");
+    private Path blockTimesFile = MetadataFiles.BLOCK_TIMES_FILE;
 
     /**
      * Add block times for blocks newer than mirror node data from GCP. This is done by listing the record files and

@@ -8,8 +8,10 @@ import static org.hiero.block.tools.mirrornode.DayBlockInfo.loadDayBlockInfoMap;
 import com.google.cloud.storage.Storage;
 import com.google.cloud.storage.StorageOptions;
 import java.io.File;
+import java.nio.file.Path;
 import java.time.LocalDate;
 import java.util.Map;
+import org.hiero.block.tools.metadata.MetadataFiles;
 import org.hiero.block.tools.mirrornode.BlockTimeReader;
 import org.hiero.block.tools.mirrornode.DayBlockInfo;
 import org.hiero.block.tools.utils.gcp.ConcurrentDownloadManager;
@@ -25,7 +27,7 @@ public class DownloadDaysV2 implements Runnable {
     @Option(
             names = {"-l", "--listing-dir"},
             description = "Directory where listing files are stored")
-    private File listingDir = new File("listingsByDay");
+    private Path listingDir = MetadataFiles.LISTINGS_DIR;
 
     @Option(
             names = {"-d", "--downloaded-days-dir"},
@@ -83,7 +85,7 @@ public class DownloadDaysV2 implements Runnable {
                             downloadManager,
                             dayBlockInfo,
                             blockTimeReader,
-                            listingDir.toPath(),
+                            listingDir,
                             downloadedDaysDir.toPath(),
                             localDate.getYear(),
                             localDate.getMonthValue(),

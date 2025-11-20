@@ -4,6 +4,8 @@ package org.hiero.block.tools.days.subcommands;
 import static org.hiero.block.tools.days.download.DownloadDayImpl.downloadDay;
 
 import java.io.File;
+import java.nio.file.Path;
+import org.hiero.block.tools.metadata.MetadataFiles;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Option;
 import picocli.CommandLine.Parameters;
@@ -15,7 +17,7 @@ public class DownloadDay implements Runnable {
     @Option(
             names = {"-l", "--listing-dir"},
             description = "Directory where listing files are stored")
-    private File listingDir = new File("listingsByDay");
+    private Path listingDir = MetadataFiles.LISTINGS_DIR;
 
     @Option(
             names = {"-d", "--downloaded-days-dir"},
@@ -41,7 +43,7 @@ public class DownloadDay implements Runnable {
         try {
             long now = System.currentTimeMillis();
             downloadDay(
-                    listingDir.toPath(),
+                    listingDir,
                     downloadedDaysDir.toPath(),
                     year,
                     month,
