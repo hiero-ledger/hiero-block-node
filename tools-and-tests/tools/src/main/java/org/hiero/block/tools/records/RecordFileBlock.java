@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.tools.records;
 
-import com.hedera.hapi.block.stream.experimental.Block;
 import com.hedera.hapi.node.base.NodeAddressBook;
 import com.hedera.hapi.node.base.SemanticVersion;
 import com.hedera.hapi.node.transaction.TransactionBody;
@@ -59,7 +58,7 @@ public abstract class RecordFileBlock {
      * @param otherRecordFiles the other record files for the block
      * @param signatureFiles the signature files for the block
      * @param primarySidecarFiles the primary sidecar files for the block
-     * @param otherSidecarFiles the other sidecar files for the block
+     * @param otherSidecarFiles the other-sidecar files for the block
      * @return the new InMemoryBlock instance
      */
     public static RecordFileBlock newInMemoryBlock(
@@ -150,25 +149,6 @@ public abstract class RecordFileBlock {
     // === Abstract Methods ===========================================================================================
 
     /**
-     * Convert this record file block into a block-stream wrapped block.
-     *
-     * @param blockNumber the number of the block, starting 0 for the first block. This has to be specified as it cannot
-     *                    be computed from record stream data.
-     * @param blockTime the consensus time of the block
-     * @param addressBook the NodeAddressBook to use for signature verification
-     * @param previousBlockHash the hash of the previous block, the hash of block stream block N-1
-     * @param rootHashOfBlockHashesMerkleTree the root hash of the block hashes merkle tree including all blocks up to N-1
-     * @return the Block read from the InMemoryBlock
-     * @throws IOException if an I/O error occurs
-     */
-    public abstract Block toWrappedBlock(
-            final long blockNumber,
-            final Instant blockTime,
-            final byte[] previousBlockHash,
-            final byte[] rootHashOfBlockHashesMerkleTree,
-            final NodeAddressBook addressBook)
-            throws IOException;
-    /**
      * Validate the record file. This recomputes the running hash. Checks the provided starting running hash with the
      * one read from the file. It also computes the end-running hash, checks it against the one in the file if the file
      * has one. Then returns the end-running hash in the ValidationResult. If the file is v6 and has sidecar files, then
@@ -227,7 +207,10 @@ public abstract class RecordFileBlock {
      */
     public String toStringExtended() {
         try {
-            RecordFileInfo information = RecordFileInfo.parse(primaryRecordFile.data());
+            UniversalRecordFile information = UniversalRecordFile.parse(
+                primaryRecordFile.data(),
+                -1 // TODO is there a better way to get the block number?
+            );
             return String.format(
                     "--> RecordFileSet @ %-32s :: signatures=%2d%s%s%s%n  -- %s",
                     recordFileTime,
