@@ -18,6 +18,7 @@ import java.util.stream.Stream;
 import org.hiero.block.tools.days.download.DownloadConstants;
 import org.hiero.block.tools.days.listing.DayListingFileWriter;
 import org.hiero.block.tools.days.listing.ListingRecordFile;
+import org.hiero.block.tools.metadata.MetadataFiles;
 import org.hiero.block.tools.records.ChainFile;
 import org.hiero.block.tools.records.RecordFileDates;
 import org.hiero.block.tools.utils.PrettyPrint;
@@ -55,7 +56,7 @@ public class UpdateDayListingsCommand implements Runnable {
     @Option(
             names = {"-l", "--listing-dir"},
             description = "Directory where listing files are stored (default: listingsByDay)")
-    private File listingDir = new File("listingsByDay");
+    private Path listingDir = MetadataFiles.LISTINGS_DIR;
 
     @Option(
             names = {"-c", "--cache-dir"},
@@ -88,22 +89,44 @@ public class UpdateDayListingsCommand implements Runnable {
      */
     @Override
     public void run() {
-        try {
-            final Path listingPath = listingDir.toPath();
+        updateDayListings(listingDir, cacheDir.toPath(), cacheEnabled, minNodeAccountId, maxNodeAccountId, userProject);
+    }
 
-            // Ensure listing directory exists
-            if (!Files.exists(listingPath)) {
-                Files.createDirectories(listingPath);
-                System.out.println("Created listing directory: " + listingPath);
+    /**
+     * Update day listing files by fetching file metadata from Google Cloud Storage.
+     *
+     * <p>This method scans the local listing directory to find the last complete day,
+     * then downloads metadata for all subsequent days up to (but not including) today.
+     *
+     * @param listingDir the directory where listing files are stored
+     * @param cacheDir the directory for GCS cache
+     * @param cacheEnabled whether to enable GCS caching
+     * @param minNodeAccountId minimum node account ID
+     * @param maxNodeAccountId maximum node account ID
+     * @param userProject GCP project for requester-pays billing
+     */
+    public static void updateDayListings(
+            Path listingDir,
+            Path cacheDir,
+            boolean cacheEnabled,
+            int minNodeAccountId,
+            int maxNodeAccountId,
+            String userProject) {
+        try {
+
+            // Ensure the listing directory exists
+            if (!Files.exists(listingDir)) {
+                Files.createDirectories(listingDir);
+                System.out.println("Created listing directory: " + listingDir);
             }
 
             // Ensure cache directory exists if caching is enabled
             if (cacheEnabled) {
-                Files.createDirectories(cacheDir.toPath());
+                Files.createDirectories(cacheDir);
             }
 
             // Find the last day that exists on disk
-            final LocalDate lastDayOnDisk = findLastDayOnDisk(listingPath);
+            final LocalDate lastDayOnDisk = findLastDayOnDiskStatic(listingDir);
             final LocalDate today = LocalDate.now(ZoneOffset.UTC);
             final LocalDate yesterday = today.minusDays(1);
 
@@ -129,7 +152,7 @@ public class UpdateDayListingsCommand implements Runnable {
 
             // Create MainNetBucket for GCS access
             final MainNetBucket mainNetBucket =
-                    new MainNetBucket(cacheEnabled, cacheDir.toPath(), minNodeAccountId, maxNodeAccountId, userProject);
+                    new MainNetBucket(cacheEnabled, cacheDir, minNodeAccountId, maxNodeAccountId, userProject);
 
             // Calculate total number of days to process
             final long totalDays = firstDayToProcess.until(today, java.time.temporal.ChronoUnit.DAYS);
@@ -139,7 +162,7 @@ public class UpdateDayListingsCommand implements Runnable {
             // Process each day
             LocalDate currentDay = firstDayToProcess;
             while (currentDay.isBefore(today)) {
-                processDay(listingPath, mainNetBucket, currentDay, processedDays, totalDays, startTimeNanos);
+                processDayStatic(listingDir, mainNetBucket, currentDay, processedDays, totalDays, startTimeNanos);
                 currentDay = currentDay.plusDays(1);
                 processedDays++;
             }
@@ -148,13 +171,216 @@ public class UpdateDayListingsCommand implements Runnable {
             PrettyPrint.clearProgress();
             final long elapsedMillis = (System.nanoTime() - startTimeNanos) / 1_000_000;
             System.out.println(
-                    "Completed updating " + processedDays + " day(s) in " + formatElapsedTime(elapsedMillis));
+                    "Completed updating " + processedDays + " day(s) in " + formatElapsedTimeStatic(elapsedMillis));
 
         } catch (Exception e) {
             PrettyPrint.clearProgress();
             System.err.println("Error: " + e.getMessage());
             e.printStackTrace();
         }
+    }
+
+    /**
+     * Static version of findLastDayOnDisk for use by the static API.
+     */
+    private static LocalDate findLastDayOnDiskStatic(final Path listingPath) throws IOException {
+        if (!Files.exists(listingPath)) {
+            return null;
+        }
+
+        LocalDate latestDate = null;
+
+        // Scan year directories
+        try (Stream<Path> yearStream = Files.list(listingPath)) {
+            final List<Path> yearDirs =
+                    yearStream.filter(Files::isDirectory).sorted().toList();
+
+            for (Path yearDir : yearDirs) {
+                final String yearName = yearDir.getFileName().toString();
+                if (!yearName.matches("\\d{4}")) {
+                    continue;
+                }
+                final int year = Integer.parseInt(yearName);
+
+                // Scan month directories
+                try (Stream<Path> monthStream = Files.list(yearDir)) {
+                    final List<Path> monthDirs =
+                            monthStream.filter(Files::isDirectory).sorted().toList();
+
+                    for (Path monthDir : monthDirs) {
+                        final String monthName = monthDir.getFileName().toString();
+                        if (!monthName.matches("\\d{2}")) {
+                            continue;
+                        }
+                        final int month = Integer.parseInt(monthName);
+
+                        // Scan day files
+                        try (Stream<Path> dayStream = Files.list(monthDir)) {
+                            final List<Path> dayFiles = dayStream
+                                    .filter(path -> DAY_FILE_PATTERN
+                                            .matcher(path.getFileName().toString())
+                                            .matches())
+                                    .sorted()
+                                    .toList();
+
+                            for (Path dayFile : dayFiles) {
+                                final Matcher matcher = DAY_FILE_PATTERN.matcher(
+                                        dayFile.getFileName().toString());
+                                if (matcher.matches()) {
+                                    final int day = Integer.parseInt(matcher.group(1));
+                                    try {
+                                        final LocalDate date = LocalDate.of(year, month, day);
+                                        if (latestDate == null || date.isAfter(latestDate)) {
+                                            latestDate = date;
+                                        }
+                                    } catch (java.time.DateTimeException e) {
+                                        // Invalid date (e.g., day 99), skip this file
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        return latestDate;
+    }
+
+    /**
+     * Static version of processDay for use by the static API.
+     */
+    private static void processDayStatic(
+            final Path listingPath,
+            final MainNetBucket mainNetBucket,
+            final LocalDate day,
+            final long processedDays,
+            final long totalDays,
+            final long startTimeNanos)
+            throws Exception {
+
+        final int year = day.getYear();
+        final int month = day.getMonthValue();
+        final int dayOfMonth = day.getDayOfMonth();
+
+        // Convert LocalDate to block time (nanoseconds since epoch)
+        final Instant dayStart = day.atStartOfDay(ZoneOffset.UTC).toInstant();
+        final long blockTime = RecordFileDates.instantToBlockTimeLong(dayStart);
+
+        // Update progress before listing
+        updateProgressStatic(day, processedDays, totalDays, startTimeNanos, 0, 100);
+
+        // List all files for this day using MainNetBucket
+        final List<ChainFile> chainFiles = mainNetBucket.listDay(blockTime);
+
+        // Update progress after listing
+        updateProgressStatic(day, processedDays, totalDays, startTimeNanos, 50, 100);
+
+        // Create writer and write all files
+        try (DayListingFileWriter writer = new DayListingFileWriter(listingPath, year, month, dayOfMonth)) {
+            for (ChainFile chainFile : chainFiles) {
+                final ListingRecordFile recordFile = convertToListingRecordFileStatic(chainFile);
+                writer.writeRecordFile(recordFile);
+            }
+        }
+
+        // Update progress after writing
+        updateProgressStatic(day, processedDays + 1, totalDays, startTimeNanos, 100, 100);
+    }
+
+    /**
+     * Static version of convertToListingRecordFile for use by the static API.
+     */
+    private static ListingRecordFile convertToListingRecordFileStatic(final ChainFile chainFile) {
+        // Remove "recordstreams/" prefix from path
+        final String path = chainFile.path();
+        final String relativePath;
+        if (path.startsWith("recordstreams/")) {
+            relativePath = path.substring("recordstreams/".length());
+        } else {
+            relativePath = path;
+        }
+
+        // Convert MD5 from Base64 to hex
+        final String md5Base64 = chainFile.md5();
+        final byte[] md5Bytes = Base64.getDecoder().decode(md5Base64);
+        final String md5Hex = HexFormat.of().formatHex(md5Bytes);
+
+        // Extract timestamp from path
+        final java.time.LocalDateTime timestamp =
+                org.hiero.block.tools.records.RecordFileUtils.extractRecordFileTimeFromPath(path);
+
+        return new ListingRecordFile(relativePath, timestamp, chainFile.size(), md5Hex);
+    }
+
+    /**
+     * Static version of updateProgress for use by the static API.
+     */
+    @SuppressWarnings("SameParameterValue")
+    private static void updateProgressStatic(
+            final LocalDate currentDay,
+            final long processedDays,
+            final long totalDays,
+            final long startTimeNanos,
+            final int dayProgress,
+            final int dayTotal) {
+
+        // Calculate overall progress
+        final double dayFraction = (double) dayProgress / dayTotal;
+        final double overallProgress = (processedDays + dayFraction) / totalDays;
+        final double percent = overallProgress * 100.0;
+
+        // Calculate ETA
+        final long elapsedNanos = System.nanoTime() - startTimeNanos;
+        final long elapsedMillis = elapsedNanos / 1_000_000;
+        final long remainingMillis =
+                PrettyPrint.computeRemainingMilliseconds((long) (overallProgress * 1000), 1000, elapsedMillis);
+
+        // Format progress string
+        final String progressString =
+                String.format("Day %d/%d: %s", processedDays + 1, totalDays, currentDay.format(DATE_FORMATTER));
+
+        PrettyPrint.printProgressWithEta(percent, progressString, remainingMillis);
+    }
+
+    /**
+     * Static version of formatElapsedTime for use by the static API.
+     */
+    private static String formatElapsedTimeStatic(final long millis) {
+        if (millis <= 0) {
+            return "0s";
+        }
+        long seconds = millis / 1000;
+        final long days = seconds / 86400;
+        seconds %= 86400;
+        final long hours = seconds / 3600;
+        seconds %= 3600;
+        final long minutes = seconds / 60;
+        seconds %= 60;
+
+        final StringBuilder sb = new StringBuilder();
+        if (days > 0) {
+            sb.append(days).append("d");
+        }
+        if (hours > 0) {
+            if (!sb.isEmpty()) {
+                sb.append(" ");
+            }
+            sb.append(hours).append("h");
+        }
+        if (minutes > 0) {
+            if (!sb.isEmpty()) {
+                sb.append(" ");
+            }
+            sb.append(minutes).append("m");
+        }
+        if (seconds > 0 || sb.isEmpty()) {
+            if (!sb.isEmpty()) {
+                sb.append(" ");
+            }
+            sb.append(seconds).append("s");
+        }
+        return sb.toString();
     }
 
     /**
@@ -315,9 +541,10 @@ public class UpdateDayListingsCommand implements Runnable {
      * @param processedDays number of complete days processed
      * @param totalDays total number of days to process
      * @param startTimeNanos start time for ETA calculation
-     * @param dayProgress progress within current day (0-100)
-     * @param dayTotal total for current day progress
+     * @param dayProgress progress within the current day (0-100)
+     * @param dayTotal total for current-day progress
      */
+    @SuppressWarnings("SameParameterValue")
     private void updateProgress(
             final LocalDate currentDay,
             final long processedDays,

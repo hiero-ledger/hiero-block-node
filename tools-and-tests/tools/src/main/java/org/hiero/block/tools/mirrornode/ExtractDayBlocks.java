@@ -18,6 +18,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.zip.GZIPInputStream;
+import org.hiero.block.tools.metadata.MetadataFiles;
 import org.hiero.block.tools.records.RecordFileDates;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Option;
@@ -52,7 +53,7 @@ public class ExtractDayBlocks implements Runnable {
     @Option(
             names = {"--day-blocks"},
             description = "Path to the day blocks \".json\" file.")
-    private Path blockTimesFile = DayBlockInfo.DEFAULT_DAY_BLOCKS_PATH;
+    private Path blockTimesFile = MetadataFiles.DAY_BLOCKS_FILE;
 
     /**
      * Read the record file table CSV file and extract the block times into a file.

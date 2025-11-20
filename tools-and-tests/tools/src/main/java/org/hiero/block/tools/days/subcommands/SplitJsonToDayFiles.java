@@ -13,6 +13,7 @@ import java.time.temporal.ChronoField;
 import java.util.concurrent.atomic.AtomicLong;
 import org.hiero.block.tools.days.listing.DayListingFileWriter;
 import org.hiero.block.tools.days.listing.ListingRecordFile;
+import org.hiero.block.tools.metadata.MetadataFiles;
 import org.hiero.block.tools.records.RecordFileUtils;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Option;
@@ -35,7 +36,7 @@ public class SplitJsonToDayFiles implements Runnable {
     @Option(
             names = {"-l", "--listing-dir"},
             description = "Directory where listing files are stored")
-    private Path listingDir = Path.of("listingsByDay");
+    private Path listingDir = MetadataFiles.LISTINGS_DIR;
 
     @Parameters(index = "0", description = "The files.json file to read")
     private final Path jsonFile = Path.of("files.json");

@@ -3,7 +3,6 @@ package org.hiero.block.tools.days.subcommands;
 
 import static org.hiero.block.tools.days.listing.DayListingFileReader.loadRecordsFileForDay;
 
-import java.io.File;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.time.LocalDateTime;
@@ -11,6 +10,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
 import org.hiero.block.tools.days.listing.ListingRecordFile;
+import org.hiero.block.tools.metadata.MetadataFiles;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Option;
 import picocli.CommandLine.Parameters;
@@ -22,7 +22,7 @@ public class LsDayListing implements Runnable {
     @Option(
             names = {"-l", "--listing-dir"},
             description = "Directory where listing files are stored")
-    private File listingDir = new File("listingsByDay");
+    private Path listingDir = MetadataFiles.LISTINGS_DIR;
 
     @Parameters(index = "0", description = "From year to list")
     private int fromYear = 2019;
@@ -36,7 +36,7 @@ public class LsDayListing implements Runnable {
     @Override
     public void run() {
         try {
-            lsDayListing(listingDir.toPath(), fromYear, fromMonth, fromDay);
+            lsDayListing(listingDir, fromYear, fromMonth, fromDay);
         } catch (IOException e) {
             throw new RuntimeException(e);
         }

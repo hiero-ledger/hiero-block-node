@@ -12,14 +12,13 @@ import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 import java.time.Instant;
 import java.time.LocalDateTime;
+import org.hiero.block.tools.metadata.MetadataFiles;
 
 /**
  * Read the block times from the block_times.bin file using memory mapping.
  */
 @SuppressWarnings("unused")
 public class BlockTimeReader implements AutoCloseable {
-    /** Default path to block times binary file */
-    public static final Path DEFAULT_BLOCK_TIMES_PATH = Path.of("data/block_times.bin");
     /** Mapped buffer on the block_times.bin file. */
     private LongBuffer mappedLongBuffer;
 
@@ -29,7 +28,7 @@ public class BlockTimeReader implements AutoCloseable {
      * @throws IOException if an I/O error occurs
      */
     public BlockTimeReader() throws IOException {
-        this(DEFAULT_BLOCK_TIMES_PATH);
+        this(MetadataFiles.BLOCK_TIMES_FILE);
     }
 
     /**

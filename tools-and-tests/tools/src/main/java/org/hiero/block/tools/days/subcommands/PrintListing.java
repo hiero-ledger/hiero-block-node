@@ -3,11 +3,12 @@ package org.hiero.block.tools.days.subcommands;
 
 import static org.hiero.block.tools.days.listing.DayListingFileReader.loadRecordsFileForDay;
 
-import java.io.File;
 import java.io.IOException;
+import java.nio.file.Path;
 import java.util.Comparator;
 import java.util.List;
 import org.hiero.block.tools.days.listing.ListingRecordFile;
+import org.hiero.block.tools.metadata.MetadataFiles;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Option;
 import picocli.CommandLine.Parameters;
@@ -18,7 +19,7 @@ public class PrintListing implements Runnable {
     @Option(
             names = {"-l", "--listing-dir"},
             description = "Directory where listing files are stored")
-    private File listingDir = new File("listingsByDay");
+    private Path listingDir = MetadataFiles.LISTINGS_DIR;
 
     @Parameters(index = "0", description = "Year to download")
     private int year = 2019;
@@ -33,8 +34,8 @@ public class PrintListing implements Runnable {
     public void run() {
         try {
             System.out.println("Loading listing for " + year + "-" + month + "-" + day + " from "
-                    + ListingRecordFile.getFileForDay(listingDir.toPath(), year, month, day));
-            List<ListingRecordFile> files = loadRecordsFileForDay(listingDir.toPath(), year, month, day);
+                    + ListingRecordFile.getFileForDay(listingDir, year, month, day));
+            List<ListingRecordFile> files = loadRecordsFileForDay(listingDir, year, month, day);
             System.out.println("Loaded " + files.size() + " files for " + year + "-" + month + "-" + day);
             System.out.println(
                     "==========================================================================================");

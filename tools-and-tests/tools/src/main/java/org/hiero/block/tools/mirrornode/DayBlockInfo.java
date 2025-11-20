@@ -7,12 +7,12 @@ import java.nio.file.Path;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.Map;
+import org.hiero.block.tools.metadata.MetadataFiles;
 
 /**
  * Information about the first and last block for a given day.
  */
 public class DayBlockInfo {
-    public static final Path DEFAULT_DAY_BLOCKS_PATH = Path.of("data/day_blocks.json");
     /** Representation of a calendar day and the first/last block info for that day (UTC). */
     public final int year;
 
@@ -64,7 +64,7 @@ public class DayBlockInfo {
      * @return a map of LocalDate to DayBlockInfo
      */
     public static Map<LocalDate, DayBlockInfo> loadDayBlockInfoMap() {
-        return loadDayBlockInfoMap(DEFAULT_DAY_BLOCKS_PATH);
+        return loadDayBlockInfoMap(MetadataFiles.DAY_BLOCKS_FILE);
     }
 
     /**
