@@ -11,8 +11,11 @@ import com.hedera.hapi.block.stream.experimental.BlockProof;
 import com.hedera.hapi.block.stream.experimental.BlockProof.ProofOneOfType;
 import com.hedera.hapi.block.stream.experimental.RecordFileSignature;
 import com.hedera.hapi.block.stream.experimental.SignedRecordFileProof;
+import com.hedera.hapi.block.stream.output.BlockHeader;
+import com.hedera.hapi.node.base.BlockHashAlgorithm;
 import com.hedera.hapi.node.base.NodeAddressBook;
 import com.hedera.hapi.node.base.SemanticVersion;
+import com.hedera.hapi.node.base.Timestamp;
 import com.hedera.hapi.node.base.Transaction;
 import com.hedera.hapi.node.transaction.TransactionBody;
 import com.hedera.hapi.node.transaction.TransactionRecord;
@@ -74,10 +77,11 @@ public class RecordFileBlockV2 extends RecordFileBlock {
     }
 
     /**
-     * Convert this record file block into a block stream wrapped block.
+     * Convert this record file block into a block-stream wrapped block.
      *
-     * @param blockNumber the number of the block, starting 0 for first block. This has to be specified as it can not
+     * @param blockNumber the number of the block, starting 0 for the first block. This has to be specified as it cannot
      *                    be computed from record stream data.
+     * @param blockTime the consensus time of the block
      * @param addressBook the NodeAddressBook to use for signature verification
      * @param previousBlockHash the hash of the previous block, the hash of block stream block N-1
      * @param rootHashOfBlockHashesMerkleTree the root hash of the block hashes merkle tree including all blocks up to N-1
@@ -87,6 +91,7 @@ public class RecordFileBlockV2 extends RecordFileBlock {
     @Override
     public Block toWrappedBlock(
             final long blockNumber,
+            final Instant blockTime,
             final byte[] previousBlockHash,
             final byte[] rootHashOfBlockHashesMerkleTree,
             final NodeAddressBook addressBook)
@@ -106,12 +111,20 @@ public class RecordFileBlockV2 extends RecordFileBlock {
             if (previousFileHashMarker != 1) {
                 throw new IllegalStateException("Invalid previous file hash marker in v2 record file");
             }
+            // create a block header
+            final BlockHeader blockHeader = new BlockHeader(
+                    hapiVersion,
+                    hapiVersion, // TODO is this right? could be unset, not if that is better
+                    blockNumber,
+                    new Timestamp(
+                            blockTime.getEpochSecond(), blockTime.getNano()), // TODO is the the right time to use?
+                    BlockHashAlgorithm.SHA2_384);
             // read staring hash which is also the previous block ending hash
             final byte[] startingHash = new byte[SHA_384_HASH_SIZE];
             in.readBytes(startingHash);
 
-            // The hash for v2 files is the hash(header, hash(content)) this is different to other versions
-            // the block hash is not available in the file so we have to calculate it
+            // The hash for v2 files is the hash (header, hash(content)) this is different to other versions
+            // the block hash is not available in the file, so we have to calculate it
             MessageDigest digest = MessageDigest.getInstance("SHA-384");
             digest.update(recordFileBytes, V2_HEADER_LENGTH, recordFileBytes.length - V2_HEADER_LENGTH);
             final byte[] contentHash = digest.digest();
@@ -132,7 +145,7 @@ public class RecordFileBlockV2 extends RecordFileBlock {
                     throw new IOException("Invalid transaction length in v2 record file");
                 }
                 // Parse the transaction from an explicit Bytes slice so the protobuf parser only reads
-                // the transaction bytes and does not consume subsequent record fields.
+                // the transaction bytes and does not consume later record fields.
                 Transaction txn = Transaction.PROTOBUF.parse(in.slice(in.position(), txnLength));
                 in.skip(txnLength);
                 if (in.remaining() < 4) {
@@ -171,6 +184,7 @@ public class RecordFileBlockV2 extends RecordFileBlock {
                     new BlockFooter(Bytes.wrap(previousBlockHash), Bytes.wrap(rootHashOfBlockHashesMerkleTree), null);
             // create and return the Block
             return new Block(List.of(
+                    new BlockItem(new OneOf<>(ItemOneOfType.BLOCK_HEADER, blockHeader)),
                     new BlockItem(new OneOf<>(ItemOneOfType.RECORD_FILE, recordStreamFile)),
                     new BlockItem(new OneOf<>(ItemOneOfType.BLOCK_FOOTER, blockFooter)),
                     new BlockItem(new OneOf<>(ItemOneOfType.BLOCK_PROOF, blockProof))));

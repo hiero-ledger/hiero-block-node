@@ -85,7 +85,7 @@ public class ToWrappedBlocksCommand implements Runnable {
     @Override
     public void run() {
         // create AddressBookRegistry to load address books as needed during conversion
-        final Path addressBookFile = outputBlocksDir.resolve("addressBookHistory.json");
+        final Path addressBookFile = compressedDaysDir.resolve("addressBookHistory.json");
         final AddressBookRegistry addressBookRegistry =
                 Files.exists(addressBookFile) ? new AddressBookRegistry(addressBookFile) : new AddressBookRegistry();
         // get Archive type
@@ -170,6 +170,7 @@ public class ToWrappedBlocksCommand implements Runnable {
                             .forEach(recordBlock -> {
                                 try {
                                     final long blockNum = blockCounter.getAndIncrement();
+                                    final Instant blockTime = blockTimeReader.getBlockInstant(blockNum);
                                     // Convert record file block to wrapped block. We pass zero hashes for previous/root
                                     // TODO Rocky we need to get rid of experimental block, I added experimental to
                                     // change API
@@ -177,6 +178,7 @@ public class ToWrappedBlocksCommand implements Runnable {
                                     final com.hedera.hapi.block.stream.experimental.Block wrappedExp =
                                             recordBlock.toWrappedBlock(
                                                     blockNum,
+                                                    blockTime,
                                                     ZERO_HASH,
                                                     ZERO_HASH,
                                                     addressBookRegistry.getCurrentAddressBook());

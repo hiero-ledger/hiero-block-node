@@ -18,7 +18,7 @@ import java.util.concurrent.CopyOnWriteArrayList;
  * <p>InMemoryBlocks can be read and written as a set of files in a directory with common timestamp, or they can be
  * read from compressed tar.zstd day files.</p>
  */
-@SuppressWarnings("StringConcatenationInsideStringBufferAppend")
+@SuppressWarnings({"StringConcatenationInsideStringBufferAppend", "CallToPrintStackTrace"})
 public abstract class RecordFileBlock {
 
     /**
@@ -150,10 +150,11 @@ public abstract class RecordFileBlock {
     // === Abstract Methods ===========================================================================================
 
     /**
-     * Convert this record file block into a block stream wrapped block.
+     * Convert this record file block into a block-stream wrapped block.
      *
-     * @param blockNumber the number of the block, starting 0 for first block. This has to be specified as it can not
+     * @param blockNumber the number of the block, starting 0 for the first block. This has to be specified as it cannot
      *                    be computed from record stream data.
+     * @param blockTime the consensus time of the block
      * @param addressBook the NodeAddressBook to use for signature verification
      * @param previousBlockHash the hash of the previous block, the hash of block stream block N-1
      * @param rootHashOfBlockHashesMerkleTree the root hash of the block hashes merkle tree including all blocks up to N-1
@@ -162,6 +163,7 @@ public abstract class RecordFileBlock {
      */
     public abstract Block toWrappedBlock(
             final long blockNumber,
+            final Instant blockTime,
             final byte[] previousBlockHash,
             final byte[] rootHashOfBlockHashesMerkleTree,
             final NodeAddressBook addressBook)
