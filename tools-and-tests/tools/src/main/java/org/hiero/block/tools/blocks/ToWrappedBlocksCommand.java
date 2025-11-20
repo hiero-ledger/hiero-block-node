@@ -19,6 +19,7 @@ import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 import org.hiero.block.tools.blocks.model.BlockArchiveType;
 import org.hiero.block.tools.blocks.model.BlockWriter;
+import org.hiero.block.tools.blocks.model.RecordBlockConverter;
 import org.hiero.block.tools.days.model.AddressBookRegistry;
 import org.hiero.block.tools.days.model.TarZstdDayReaderUsingExec;
 import org.hiero.block.tools.days.model.TarZstdDayUtils;
@@ -176,7 +177,10 @@ public class ToWrappedBlocksCommand implements Runnable {
                                     // change API
                                     //  locally, We need to push those changes up stream to HAPI lib then pull latest.
                                     final com.hedera.hapi.block.stream.experimental.Block wrappedExp =
-                                            recordBlock.toWrappedBlock(
+                                        RecordBlockConverter.toBlock(
+                                            recordBlock.primaryRecordFile(),
+                                                    recordBlock.signatureFiles(),
+                                                    recordBlock.primarySidecarFiles(),
                                                     blockNum,
                                                     blockTime,
                                                     ZERO_HASH,
