@@ -300,6 +300,9 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
                 previousRangeEnd = range.end();
             }
 
+            // add block range available from other BN sources
+            detectedGaps.add(backfillGrpcClientAutonomous.getNewAvailableRange(blockRanges.getLast().end()));
+
             // increase only if detectedGaps is not empty
             if (!detectedGaps.isEmpty()) backfillGapsDetected.add(detectedGaps.size());
 
@@ -476,17 +479,6 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
 
     @Override
     public void handleNewestBlockKnownToNetwork(NewestBlockKnownToNetworkNotification notification) {
-        // we should create  new Gap and a new task to backfill it
-        long lastPersistedBlock =
-                context.historicalBlockProvider().availableBlocks().max();
-        long newestBlockKnown = notification.blockNumber();
-        LongRange gap = new LongRange(lastPersistedBlock + 1, newestBlockKnown);
-        LOGGER.log(
-                TRACE,
-                "Detected new block known to network: {0,number,#}, starting backfill task for gap: {1}",
-                newestBlockKnown,
-                gap);
-
         if (!hasBNSourcesPath) {
             LOGGER.log(TRACE, "No block node sources path configured, skipping on-demand backfill");
             return;
@@ -496,6 +488,16 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
         if (isOnDemandBackfillRunning()) {
             LOGGER.log(TRACE, "On-Demand backfill is already running, skipping new on-demand backfill");
             return;
+        }
+
+        // we should create new Gap and a new task to backfill it
+        long lastPersistedBlock = context.historicalBlockProvider().availableBlocks().max();
+        long newestBlockKnown = notification.blockNumber();
+        LongRange gap;
+        if (newestBlockKnown == UNKNOWN_BLOCK_NUMBER) {
+            gap = backfillGrpcClientOnDemand.getNewAvailableRange(lastPersistedBlock);
+        } else {
+            gap = new LongRange(lastPersistedBlock + 1, newestBlockKnown);
         }
 
         // if the gap is not empty, we can backfill it

@@ -10,6 +10,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
@@ -94,5 +95,25 @@ final class DefaultThreadPoolManager implements ThreadPoolManager {
         }
         final ThreadFactory factory = factoryBuilder.factory();
         return new ThreadPoolExecutor(1, 1, 0L, TimeUnit.MILLISECONDS, new LinkedBlockingQueue<>(), factory);
+    }
+
+    /**
+     * {@inheritDoc}
+     */
+    @NonNull
+    @Override
+    public ScheduledExecutorService createSingleThreadScheduledExecutor(
+            @Nullable final String threadName,
+            @Nullable final Thread.UncaughtExceptionHandler uncaughtExceptionHandler) {
+        final OfPlatform factoryBuilder = Thread.ofPlatform();
+        if (threadName != null) {
+            Preconditions.requireNotBlank(threadName);
+            factoryBuilder.name(threadName);
+        }
+        if (uncaughtExceptionHandler != null) {
+            factoryBuilder.uncaughtExceptionHandler(uncaughtExceptionHandler);
+        }
+        final ThreadFactory factory = factoryBuilder.factory();
+        return Executors.newSingleThreadScheduledExecutor(factory);
     }
 }

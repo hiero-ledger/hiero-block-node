@@ -118,6 +118,31 @@ public class BackfillGrpcClient {
     }
 
     /**
+     * Determines the new available block range across all configured block nodes,
+     * starting from the latest stored block number + 1 and ending at the maximum
+     * last available block number reported by any of the nodes.
+     *
+     * @param latestStoredBlockNumber the latest stored block number
+     * @return a LongRange representing the new available block range
+     */
+    public LongRange getNewAvailableRange(long latestStoredBlockNumber) {
+        long end = Long.MIN_VALUE;
+
+        for (BackfillSourceConfig node : blockNodeSource.nodes()) {
+            BlockNodeClient currentNodeClient = getNodeClient(node);
+
+            final ServerStatusResponse nodeStatus =
+                currentNodeClient.getBlockNodeServiceClient().serverStatus(new ServerStatusRequest());
+            long lastAvailableBlock = nodeStatus.lastAvailableBlock();
+
+            // update the end to the max lastAvailableBlock
+            end = Math.max(end, lastAvailableBlock);
+        }
+
+        return new LongRange(latestStoredBlockNumber + 1, end);
+    }
+
+    /**
      * Fetches missing blocks for the given block range.
      *
      * @param blockRange The block range to fetch
