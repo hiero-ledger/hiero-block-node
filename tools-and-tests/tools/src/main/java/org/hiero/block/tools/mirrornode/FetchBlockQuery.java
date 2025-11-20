@@ -95,24 +95,24 @@ public class FetchBlockQuery {
         if (json.has("blocks") && json.get("blocks").isJsonArray()) {
             json.getAsJsonArray("blocks").forEach(elem -> {
                 JsonObject b = elem.getAsJsonObject();
-                BlockInfo info = new BlockInfo();
-                info.count = b.has("count") ? b.get("count").getAsInt() : 0;
-                info.hapiVersion = b.has("hapi_version") ? b.get("hapi_version").getAsString() : null;
-                info.hash = b.has("hash") ? b.get("hash").getAsString() : null;
-                info.name = b.has("name") ? b.get("name").getAsString() : null;
-                info.number = b.has("number") ? b.get("number").getAsLong() : -1;
-                info.previousHash =
-                        b.has("previous_hash") ? b.get("previous_hash").getAsString() : null;
-                info.size = b.has("size") ? b.get("size").getAsLong() : 0;
-                info.gasUsed = b.has("gas_used") ? b.get("gas_used").getAsLong() : 0;
+                BlockInfo blockInfo = new BlockInfo();
+                blockInfo.count = b.has("count") ? b.get("count").getAsInt() : 0;
+                blockInfo.hapiVersion = (b.has("hapi_version") && !b.get("hapi_version").isJsonNull()) ? b.get("hapi_version").getAsString() : null;
+                blockInfo.hash = (b.has("hash") && !b.get("hash").isJsonNull()) ? b.get("hash").getAsString() : null;
+                blockInfo.name = (b.has("name") && !b.get("name").isJsonNull()) ? b.get("name").getAsString() : null;
+                blockInfo.number = b.has("number") ? b.get("number").getAsLong() : -1;
+                blockInfo.previousHash = (b.has("previous_hash") && !b.get("previous_hash").isJsonNull()) ? b.get("previous_hash").getAsString() : null;
+                blockInfo.size = b.has("size") && !b.get("size").isJsonNull() ? b.get("size").getAsLong() : 0;
+                blockInfo.gasUsed = b.has("gas_used") ? b.get("gas_used").getAsLong() : 0;
                 if (b.has("timestamp") && b.get("timestamp").isJsonObject()) {
                     JsonObject tsObj = b.getAsJsonObject("timestamp");
-                    info.timestampFrom = tsObj.has("from") ? tsObj.get("from").getAsString() : null;
-                    info.timestampTo = tsObj.has("to") ? tsObj.get("to").getAsString() : null;
+                    blockInfo.timestampFrom = (tsObj.has("from") && !tsObj.get("from").isJsonNull()) ? tsObj.get("from").getAsString() : null;
+                    blockInfo.timestampTo = (tsObj.has("to") && !tsObj.get("to").isJsonNull()) ? tsObj.get("to").getAsString() : null;
                 }
-                blocks.add(info);
+                blocks.add(blockInfo);
             });
         }
+
         return blocks;
     }
 
