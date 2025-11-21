@@ -344,6 +344,11 @@ public class ParsedSignatureFile {
         return signatureFileName;
     }
 
+    /** @return the complete signature file bytes including headers and metadata */
+    public byte[] signatureFileBytes() {
+        return signatureFileBytes;
+    }
+
     /**
      * {@inheritDoc}
      */
