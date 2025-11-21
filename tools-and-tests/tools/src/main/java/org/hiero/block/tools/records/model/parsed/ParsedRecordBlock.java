@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.tools.records.model.parsed;
 
+import static org.hiero.block.tools.utils.Sha384.sha384Digest;
+
 import com.hedera.hapi.node.base.NodeAddressBook;
 import com.hedera.hapi.streams.SidecarFile;
 import com.hedera.pbj.runtime.ParseException;
@@ -12,7 +14,9 @@ import java.io.Flushable;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.security.MessageDigest;
 import java.time.Instant;
+import java.util.Arrays;
 import java.util.List;
 import java.util.zip.GZIPOutputStream;
 import org.hiero.block.tools.records.model.unparsed.UnparsedRecordBlock;
@@ -94,7 +98,53 @@ public record ParsedRecordBlock(
         }
     }
 
-    public boolean validate(byte[] previousBlockHash, NodeAddressBook addressBook) {
-        return false;
+    /**
+     * Validate the parsed record block against the computed previous block hash and the node address book. It checks
+     * all the aspects of the record file, signature files, and sidecar files.
+     *
+     * @param computedPreviousBlockHash the computed previous block hash to compare against
+     * @param addressBook the node address book for signature verification
+     * @return computed block hash of this record block if valid, exception if invalid
+     * @throws ValidationException if a validation error occurs
+     */
+    public byte[] validate(byte[] computedPreviousBlockHash, NodeAddressBook addressBook) throws ValidationException {
+        // Validate the chain, get the previous block hash stored in the record file and compare to computed
+        if (!Arrays.equals(recordFile.previousBlockHash(), computedPreviousBlockHash)) {
+            throw new ValidationException("Previous block hash does not match computed hash");
+        }
+        // Validate signature files, this is checking both the signature and computation of signed hash from
+        // the file data.
+        for (ParsedSignatureFile signatureFile : signatureFiles) {
+            if (!signatureFile.isValid(recordFile.signedHash(), addressBook)) {
+                throw new ValidationException("Invalid signature file: " + signatureFile.signatureFileName());
+            }
+        }
+        // check we have at least 1/3rd of nodes signatures
+        final int totalNodes = addressBook.nodeAddress().size();
+        final int validSignatures = signatureFiles.size(); // we know all are valid from above check
+        if (validSignatures * 3 < totalNodes) {
+            throw new ValidationException("Not enough valid signatures: " + validSignatures + " of " + totalNodes);
+        }
+        // Validate sidecar files
+        MessageDigest digest = sha384Digest();
+        for (SidecarFile sidecarFile : sidecarFiles) {
+            // compute sidecar file hash
+            SidecarFile.PROTOBUF.toBytes(sidecarFile).writeTo(digest);
+            final byte[] sidecarHash = digest.digest();
+            // check sidecar hash is in record file metadata
+            boolean found = false;
+            for (var sidecarMetadata : recordFile.recordStreamFile().sidecars()) {
+                if (Arrays.equals(sidecarMetadata.hashOrThrow().hash().toByteArray(),  sidecarHash)) {
+                    found = true;
+                    break;
+                }
+            }
+            if (!found) {
+                throw new ValidationException("Sidecar file hash not found in record file metadata: "
+                        + Arrays.toString(sidecarHash));
+            }
+        }
+        // Recompute record file block hash
+        return recordFile.recomputeBlockHash();
     }
 }

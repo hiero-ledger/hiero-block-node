@@ -65,7 +65,10 @@ public record ParsedRecordFile(
         byte[] signedHash,
         byte[] recordFileContents,
         RecordStreamFile recordStreamFile) {
+
+    /* The record marker byte in a v2 record file indicating the previous file hash */
     public static final byte V2_PREVIOUS_FILE_HASH_MAKER = 1;
+    /* The record marker byte in a v2 record file */
     public static final byte V2_RECORD_MAKER = 2;
     /* The length of the header in a v2 record file */
     public static final int V2_HEADER_LENGTH = Integer.BYTES + Integer.BYTES + V2_PREVIOUS_FILE_HASH_MAKER + 48;
@@ -73,6 +76,25 @@ public record ParsedRecordFile(
     public static final long V5_RECORD_STREAM_OBJECT_CLASS_ID = Long.parseUnsignedLong("e370929ba5429d8b", 16);
     /** The class version for the record stream object in V5 */
     public static final int V5_RECORD_STREAM_OBJECT_CLASS_VERSION = V2_PREVIOUS_FILE_HASH_MAKER;
+
+    /**
+     * Recomputes the block hash for the record file based on data in file, not on any stored hashes
+     *
+     * @return the recomputed block hash
+     */
+    public byte[] recomputeBlockHash() {
+        switch (recordFormatVersion) {
+            case 2 -> {
+                return computeV2BlockHash(recordFileContents);
+            }
+            case 5, 6 -> {
+                return hashSha384(recordFileContents);
+            }
+            default ->
+                throw new UnsupportedOperationException(
+                        "Unsupported record format version: " + recordFormatVersion);
+        }
+    }
 
     /**
      * Writes the record file to the specified directory in the appropriate format version.
@@ -377,9 +399,10 @@ public record ParsedRecordFile(
                     recordFormatVersion,
                     hapiProtoVersion,
                     previousBlockHash,
-                    recordStreamFile.endObjectRunningHash() != null
-                            ? recordStreamFile.endObjectRunningHash().hash().toByteArray()
-                            : new byte[0],
+                    recordFormatVersion == 2 ? signedHash :
+                        recordStreamFile.endObjectRunningHash() != null
+                                ? recordStreamFile.endObjectRunningHash().hash().toByteArray()
+                                : new byte[0],
                     signedHash,
                     recordFileData,
                     recordStreamFile);
