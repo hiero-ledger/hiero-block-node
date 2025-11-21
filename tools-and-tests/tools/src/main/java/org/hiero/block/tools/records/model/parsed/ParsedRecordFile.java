@@ -23,6 +23,7 @@ import com.hedera.pbj.runtime.io.stream.WritableStreamingData;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.OutputStream;
+import java.nio.ByteOrder;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
@@ -88,7 +89,7 @@ public record ParsedRecordFile(
                 return computeV2BlockHash(recordFileContents);
             }
             case 5, 6 -> {
-                return hashSha384(recordFileContents);
+                return computeV5V6BlockHash(recordStreamFile);
             }
             default ->
                 throw new UnsupportedOperationException(
@@ -445,4 +446,106 @@ public record ParsedRecordFile(
         digest.update(contentHash);
         return digest.digest();
     }
+
+    /**
+     * Computes the V5/V6 block hash (end running hash) by iterating through all record stream items
+     * and computing the running hash as per the V5/V6 record file format specification.
+     *
+     * @param recordStreamFile the record stream file containing items to hash
+     * @return the computed block hash (end running hash)
+     */
+    private static byte[] computeV5V6BlockHash(RecordStreamFile recordStreamFile) {
+        // Hash Class ID and Version for combining hashes (from SerializationV5Utils)
+        final long HASH_CLASS_ID = 0xf422da83a251741eL;
+        final int HASH_CLASS_VERSION = 1;
+
+        // Start with the initial running hash from the file
+        byte[] runningHash = recordStreamFile.startObjectRunningHash().hash().toByteArray();
+
+        // Process each record stream item
+        for (RecordStreamItem item : recordStreamFile.recordStreamItems()) {
+            try {
+                // Step 1: Hash the RecordStreamItem
+                byte[] itemHash = hashRecordStreamItem(item);
+
+                // Step 2: Combine item hash with running hash to compute new running hash
+                runningHash = combineHashesForRunningHash(HASH_CLASS_ID, HASH_CLASS_VERSION, runningHash, itemHash);
+            } catch (IOException e) {
+                throw new RuntimeException("Error computing hash for record stream item", e);
+            }
+        }
+
+        return runningHash;
+    }
+
+    /**
+     * Hashes a single RecordStreamItem according to V5/V6 format specification.
+     * Format: ClassID (8 bytes) + ClassVersion (4 bytes) +
+     *         RecordLength (4 bytes) + Record + TxnLength (4 bytes) + Transaction
+     *
+     * @param item the record stream item to hash
+     * @return the SHA-384 hash of the item
+     * @throws IOException if serialization fails
+     */
+    private static byte[] hashRecordStreamItem(RecordStreamItem item) throws IOException {
+        try (ByteArrayOutputStream baos = new ByteArrayOutputStream();
+             WritableStreamingData out = new WritableStreamingData(baos)) {
+            // Write RecordStreamObject Class ID
+            out.writeLong(V5_RECORD_STREAM_OBJECT_CLASS_ID);
+
+            // Write RecordStreamObject Version
+            out.writeInt(V5_RECORD_STREAM_OBJECT_CLASS_VERSION);
+
+            // Write TransactionRecord length and data
+            out.writeInt(TransactionRecord.PROTOBUF.measureRecord(item.record()));
+            TransactionRecord.PROTOBUF.write(item.record(), out);
+
+            // Write Transaction length and data
+            out.writeInt(Transaction.PROTOBUF.measureRecord(item.transaction()));
+            Transaction.PROTOBUF.write(item.transaction(), out);
+
+            // Hash all the bytes
+            return hashSha384(baos.toByteArray());
+        }
+    }
+
+    /**
+     * Combines two hashes to produce a new running hash according to V5/V6 format.
+     * Format: HashClassID (8 bytes LE) + HashVersion (4 bytes LE) + PrevHash (48 bytes) +
+     *         HashClassID (8 bytes LE) + HashVersion (4 bytes LE) + ItemHash (48 bytes)
+     *
+     * @param hashClassId the hash class ID
+     * @param hashClassVersion the hash class version
+     * @param previousRunningHash the previous running hash (48 bytes)
+     * @param itemHash the item hash to combine (48 bytes)
+     * @return the new running hash (48 bytes)
+     * @throws IOException if serialization fails
+     */
+    private static byte[] combineHashesForRunningHash(
+            long hashClassId, int hashClassVersion, byte[] previousRunningHash, byte[] itemHash) throws IOException {
+        try (ByteArrayOutputStream baos = new ByteArrayOutputStream();
+             WritableStreamingData out = new WritableStreamingData(baos)) {
+            // Write Hash Class ID (little endian)
+            out.writeLong(hashClassId, ByteOrder.LITTLE_ENDIAN);
+
+            // Write Hash Version (little endian)
+            out.writeInt(hashClassVersion, ByteOrder.LITTLE_ENDIAN);
+
+            // Write previous running hash (48 bytes)
+            out.writeBytes(previousRunningHash);
+
+            // Write Hash Class ID again (little endian)
+            out.writeLong(hashClassId, ByteOrder.LITTLE_ENDIAN);
+
+            // Write Hash Version again (little endian)
+            out.writeInt(hashClassVersion, ByteOrder.LITTLE_ENDIAN);
+
+            // Write item hash (48 bytes)
+            out.writeBytes(itemHash);
+
+            // Hash all the bytes to produce new running hash
+            return hashSha384(baos.toByteArray());
+        }
+    }
+
 }
