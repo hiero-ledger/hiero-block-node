@@ -92,8 +92,7 @@ public record ParsedRecordFile(
                 return computeV5V6BlockHash(recordStreamFile);
             }
             default ->
-                throw new UnsupportedOperationException(
-                        "Unsupported record format version: " + recordFormatVersion);
+                throw new UnsupportedOperationException("Unsupported record format version: " + recordFormatVersion);
         }
     }
 
@@ -400,10 +399,14 @@ public record ParsedRecordFile(
                     recordFormatVersion,
                     hapiProtoVersion,
                     previousBlockHash,
-                    recordFormatVersion == 2 ? signedHash :
-                        recordStreamFile.endObjectRunningHash() != null
-                                ? recordStreamFile.endObjectRunningHash().hash().toByteArray()
-                                : new byte[0],
+                    recordFormatVersion == 2
+                            ? signedHash
+                            : recordStreamFile.endObjectRunningHash() != null
+                                    ? recordStreamFile
+                                            .endObjectRunningHash()
+                                            .hash()
+                                            .toByteArray()
+                                    : new byte[0],
                     signedHash,
                     recordFileData,
                     recordStreamFile);
@@ -489,7 +492,7 @@ public record ParsedRecordFile(
      */
     private static byte[] hashRecordStreamItem(RecordStreamItem item) throws IOException {
         try (ByteArrayOutputStream baos = new ByteArrayOutputStream();
-             WritableStreamingData out = new WritableStreamingData(baos)) {
+                WritableStreamingData out = new WritableStreamingData(baos)) {
             // Write RecordStreamObject Class ID
             out.writeLong(V5_RECORD_STREAM_OBJECT_CLASS_ID);
 
@@ -524,7 +527,7 @@ public record ParsedRecordFile(
     private static byte[] combineHashesForRunningHash(
             long hashClassId, int hashClassVersion, byte[] previousRunningHash, byte[] itemHash) throws IOException {
         try (ByteArrayOutputStream baos = new ByteArrayOutputStream();
-             WritableStreamingData out = new WritableStreamingData(baos)) {
+                WritableStreamingData out = new WritableStreamingData(baos)) {
             // Write Hash Class ID (little endian)
             out.writeLong(hashClassId, ByteOrder.LITTLE_ENDIAN);
 
@@ -547,5 +550,4 @@ public record ParsedRecordFile(
             return hashSha384(baos.toByteArray());
         }
     }
-
 }
