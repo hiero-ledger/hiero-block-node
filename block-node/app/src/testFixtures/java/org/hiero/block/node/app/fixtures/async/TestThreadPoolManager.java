@@ -6,6 +6,8 @@ import edu.umd.cs.findbugs.annotations.Nullable;
 import java.lang.Thread.UncaughtExceptionHandler;
 import java.util.Objects;
 import java.util.concurrent.ExecutorService;
+import java.util.concurrent.ScheduledExecutorService;
+
 import org.hiero.block.node.spi.threading.ThreadPoolManager;
 
 /**
@@ -52,6 +54,14 @@ public class TestThreadPoolManager<T extends ExecutorService> implements ThreadP
             @Nullable final String threadName,
             @Nullable final Thread.UncaughtExceptionHandler uncaughtExceptionHandler) {
         return executor;
+    }
+
+    @NonNull
+    @Override
+    public ScheduledExecutorService createSingleThreadScheduledExecutor(
+        @Nullable String threadName,
+        @Nullable UncaughtExceptionHandler uncaughtExceptionHandler) {
+        return (ScheduledExecutorService) executor;
     }
 
     @NonNull
