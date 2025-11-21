@@ -16,6 +16,7 @@ import java.util.Arrays;
 import java.util.HexFormat;
 import java.util.List;
 import org.hiero.block.tools.days.model.AddressBookRegistry;
+import org.hiero.block.tools.records.model.parsed.ParsedRecordFile;
 
 /**
  * In-memory representation and validator for version 2 Hedera record stream files.
@@ -26,8 +27,6 @@ import org.hiero.block.tools.days.model.AddressBookRegistry;
  */
 @SuppressWarnings({"DuplicatedCode", "StringConcatenationInsideStringBufferAppend"})
 public class UnparsedRecordBlockV2 extends UnparsedRecordBlock {
-    /* The length of the header in a v2 record file */
-    private static final int V2_HEADER_LENGTH = Integer.BYTES + Integer.BYTES + 1 + 48;
 
     /**
      * Creates a v2 in-memory block wrapper.
@@ -104,9 +103,12 @@ public class UnparsedRecordBlockV2 extends UnparsedRecordBlock {
             // The hash for v2 files is the hash(header, hash(content)) this is different to other versions
             // the block hash is not available in the file so we have to calculate it
             MessageDigest digest = MessageDigest.getInstance("SHA-384");
-            digest.update(recordFileBytes, V2_HEADER_LENGTH, recordFileBytes.length - V2_HEADER_LENGTH);
+            digest.update(
+                    recordFileBytes,
+                    ParsedRecordFile.V2_HEADER_LENGTH,
+                    recordFileBytes.length - ParsedRecordFile.V2_HEADER_LENGTH);
             final byte[] contentHash = digest.digest();
-            digest.update(recordFileBytes, 0, V2_HEADER_LENGTH);
+            digest.update(recordFileBytes, 0, ParsedRecordFile.V2_HEADER_LENGTH);
             digest.update(contentHash);
             final byte[] blockHash = digest.digest();
 

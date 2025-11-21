@@ -5,8 +5,10 @@ import static org.hiero.block.tools.records.RecordFileDates.extractRecordFileTim
 import static org.hiero.block.tools.records.RecordFileDates.instantToRecordFileName;
 import static org.hiero.block.tools.records.model.parsed.SerializationV5Utils.HASH_OBJECT_SIZE_BYTES;
 import static org.hiero.block.tools.records.model.parsed.SerializationV5Utils.readV5HashObject;
+import static org.hiero.block.tools.records.model.parsed.SerializationV5Utils.writeV5HashObject;
 import static org.hiero.block.tools.utils.Sha384.SHA_384_HASH_SIZE;
 import static org.hiero.block.tools.utils.Sha384.hashSha384;
+import static org.hiero.block.tools.utils.Sha384.sha384Digest;
 
 import com.hedera.hapi.node.base.SemanticVersion;
 import com.hedera.hapi.node.base.Transaction;
@@ -18,7 +20,9 @@ import com.hedera.hapi.streams.RecordStreamItem;
 import com.hedera.pbj.runtime.io.buffer.BufferedData;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import com.hedera.pbj.runtime.io.stream.WritableStreamingData;
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.io.OutputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
@@ -47,9 +51,9 @@ import org.hiero.block.tools.utils.PrettyPrint;
  * @param hapiProtoVersion the HAPI protocol version
  * @param previousBlockHash the hash of the previous block
  * @param blockHash the block hash
+ * @param signedHash the signed hash of the record file, this is what signature files sign
  * @param recordFileContents the record file contents, the complete file as byte[]
  * @param recordStreamFile the record stream file, read directly from V6, converted from V2 and V5
- * @param numOfSidecarFiles the number of sidecar files
  */
 @SuppressWarnings({"DuplicatedCode", "DataFlowIssue"})
 public record ParsedRecordFile(
@@ -58,35 +62,113 @@ public record ParsedRecordFile(
         SemanticVersion hapiProtoVersion,
         byte[] previousBlockHash,
         byte[] blockHash,
+        byte[] signedHash,
         byte[] recordFileContents,
-        RecordStreamFile recordStreamFile,
-        int numOfSidecarFiles) {
-    /** The length of the header in a v2 record file */
-    private static final int V2_HEADER_LENGTH = Integer.BYTES + Integer.BYTES + 1 + 48;
+        RecordStreamFile recordStreamFile) {
+    public static final byte V2_PREVIOUS_FILE_HASH_MAKER = 1;
+    public static final byte V2_RECORD_MAKER = 2;
+    /* The length of the header in a v2 record file */
+    public static final int V2_HEADER_LENGTH = Integer.BYTES + Integer.BYTES + V2_PREVIOUS_FILE_HASH_MAKER + 48;
     /** The class ID for the record stream object in V5 */
     public static final long V5_RECORD_STREAM_OBJECT_CLASS_ID = Long.parseUnsignedLong("e370929ba5429d8b", 16);
     /** The class version for the record stream object in V5 */
-    public static final int V5_RECORD_STREAM_OBJECT_CLASS_VERSION = 1;
+    public static final int V5_RECORD_STREAM_OBJECT_CLASS_VERSION = V2_PREVIOUS_FILE_HASH_MAKER;
 
+    /**
+     * Writes the record file to the specified directory in the appropriate format version.
+     *
+     * @param directory the directory to write the record file to
+     * @param gzipped whether to gzip the record file
+     * @throws IOException if an I/O error occurs during writing
+     */
     public void write(Path directory, boolean gzipped) throws IOException {
         String fileName = instantToRecordFileName(blockTime) + (gzipped ? ".gz" : "");
         Path recordFilePath = directory.resolve(fileName);
-        try (WritableStreamingData out = new WritableStreamingData(
-                gzipped
-                        ? new GZIPOutputStream(Files.newOutputStream(
-                                recordFilePath, StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE))
-                        : Files.newOutputStream(
-                                recordFilePath, StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE))) {
-            // write the version number
-            out.writeInt(recordFormatVersion);
-            switch (recordFormatVersion) {
-                case 2 -> {}
-                case 5 -> {}
-                case 6 -> {}
-                default ->
-                    throw new UnsupportedOperationException(
-                            "Unsupported record format version: " + recordFormatVersion);
+        try (OutputStream out = gzipped
+                ? new GZIPOutputStream(
+                        Files.newOutputStream(recordFilePath, StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE))
+                : Files.newOutputStream(recordFilePath, StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE)) {
+            out.write(recordFileContents);
+        }
+    }
+
+    /**
+     * Serializes the record file to the specified writable streaming data in the appropriate format version.
+     *
+     * @param out the writable streaming data to write to
+     * @throws IOException if an I/O error occurs during serialization
+     */
+    public void write(WritableStreamingData out) throws IOException {
+        out.writeBytes(recordFileContents);
+    }
+
+    /**
+     * Serializes the record file to the specified writable streaming data in the appropriate format version.
+     *
+     * @param out the writable streaming data to write to
+     * @throws IOException if an I/O error occurs during serialization
+     */
+    private static void reconstructRecordFile(
+            WritableStreamingData out,
+            int recordFormatVersion,
+            SemanticVersion hapiProtoVersion,
+            byte[] previousBlockHash,
+            RecordStreamFile recordStreamFile)
+            throws IOException {
+        // write the version number
+        out.writeInt(recordFormatVersion);
+        switch (recordFormatVersion) {
+            case 2 -> {
+                // V2 is a bit more complex, need to write the header and then all transactions and records
+                // write HAPI major version
+                out.writeInt(hapiProtoVersion.major());
+                // write previous file hash marker
+                out.writeByte(V2_PREVIOUS_FILE_HASH_MAKER);
+                // write previous file hash
+                out.writeBytes(previousBlockHash);
+                // write all record stream items
+                for (RecordStreamItem item : recordStreamFile.recordStreamItems()) {
+                    // write record marker
+                    out.writeByte(V2_RECORD_MAKER);
+                    // write transaction
+                    out.writeInt(Transaction.PROTOBUF.measureRecord(item.transaction()));
+                    Transaction.PROTOBUF.write(item.transaction(), out);
+                    // write transaction record
+                    out.writeInt(TransactionRecord.PROTOBUF.measureRecord(item.record()));
+                    TransactionRecord.PROTOBUF.write(item.record(), out);
+                }
             }
+            case 5 -> {
+                // V5 is a bit more complex, need to write the header and then the object stream
+                // write HAPI semantic version
+                out.writeInt(hapiProtoVersion.major());
+                out.writeInt(hapiProtoVersion.minor());
+                out.writeInt(hapiProtoVersion.patch());
+                // write object stream version
+                out.writeInt(V5_RECORD_STREAM_OBJECT_CLASS_VERSION);
+                // write start object running hash
+                writeV5HashObject(out, recordStreamFile.startObjectRunningHash());
+                // write all record stream items
+                for (RecordStreamItem item : recordStreamFile.recordStreamItems()) {
+                    // write class ID
+                    out.writeLong(V5_RECORD_STREAM_OBJECT_CLASS_ID);
+                    // write class version
+                    out.writeInt(V5_RECORD_STREAM_OBJECT_CLASS_VERSION);
+                    // write transaction record
+                    out.writeInt(TransactionRecord.PROTOBUF.measureRecord(item.record()));
+                    TransactionRecord.PROTOBUF.write(item.record(), out);
+                    // write transaction
+                    out.writeInt(Transaction.PROTOBUF.measureRecord(item.transaction()));
+                    Transaction.PROTOBUF.write(item.transaction(), out);
+                }
+                // write end object running hash
+                writeV5HashObject(out, recordStreamFile.endObjectRunningHash());
+            }
+            case 6 ->
+                // V6 is easy, just write the protobuf RecordStreamFile
+                RecordStreamFile.PROTOBUF.write(recordStreamFile, out);
+            default ->
+                throw new UnsupportedOperationException("Unsupported record format version: " + recordFormatVersion);
         }
     }
 
@@ -110,7 +192,7 @@ public record ParsedRecordFile(
                     final int hapiMajorVersion = in.readInt();
                     final SemanticVersion hapiVersion = new SemanticVersion(hapiMajorVersion, 0, 0, null, null);
                     final byte previousFileHashMarker = in.readByte();
-                    if (previousFileHashMarker != 1) {
+                    if (previousFileHashMarker != V2_PREVIOUS_FILE_HASH_MAKER) {
                         throw new IllegalStateException("Invalid previous file hash marker in v2 record file");
                     }
                     // read staring hash which is also the previous block ending hash
@@ -118,17 +200,12 @@ public record ParsedRecordFile(
                     in.readBytes(previousHash);
                     // Compute the block hash, for v2 files is the `hash(header, hash(content))` this is different to
                     // other versions the block hash is not available in the file, so we have to calculate it
-                    MessageDigest digest = MessageDigest.getInstance("SHA-384");
-                    digest.update(recordFileBytes, V2_HEADER_LENGTH, recordFileBytes.length - V2_HEADER_LENGTH);
-                    final byte[] contentHash = digest.digest();
-                    digest.update(recordFileBytes, 0, V2_HEADER_LENGTH);
-                    digest.update(contentHash);
-                    final byte[] blockHash = digest.digest();
+                    final byte[] blockHash = computeV2BlockHash(recordFileBytes);
                     // read all the transactions and transaction records
                     final List<RecordStreamItem> recordStreamItems = new ArrayList<>();
                     while (in.hasRemaining()) {
                         final byte recordMarker = in.readByte();
-                        if (recordMarker != 2) {
+                        if (recordMarker != V2_RECORD_MAKER) {
                             throw new IOException(
                                     "Unexpected record marker " + recordMarker + " (expected 2) in v2 record file");
                         }
@@ -159,7 +236,7 @@ public record ParsedRecordFile(
                             new HashObject(HashAlgorithm.SHA_384, SHA_384_HASH_SIZE, Bytes.wrap(previousHash)),
                             recordStreamItems,
                             null, // V2 record files do not have a streaming hash, so there is no end hash
-                            -1, // V2 record files do not have block numbers
+                            -V2_PREVIOUS_FILE_HASH_MAKER, // V2 record files do not have block numbers
                             Collections.emptyList() // V2 record files do not have sidecars
                             );
                     yield new ParsedRecordFile(
@@ -167,14 +244,14 @@ public record ParsedRecordFile(
                             recordFormatVersion,
                             hapiVersion,
                             previousHash,
+                            blockHash, // TODO is the block hash on mirror node really the signed hash?
                             blockHash,
                             recordFileBytes,
-                            recordStreamFile,
-                            0);
+                            recordStreamFile);
                 }
                 case 5 -> {
                     // compute the entire file hash used for signature verification
-                    final byte[] blockHash = hashSha384(recordFileBytes);
+                    final byte[] fileHash = hashSha384(recordFileBytes);
                     // read object stream version
                     final int hapiMajorVersion = in.readInt();
                     final int hapiMinorVersion = in.readInt();
@@ -229,7 +306,7 @@ public record ParsedRecordFile(
                                     HashAlgorithm.SHA_384, SHA_384_HASH_SIZE, Bytes.wrap(startObjectRunningHash)),
                             recordStreamItems,
                             new HashObject(HashAlgorithm.SHA_384, SHA_384_HASH_SIZE, Bytes.wrap(endObjectRunningHash)),
-                            -1, // V5 does not support block numbers
+                            -V2_PREVIOUS_FILE_HASH_MAKER, // V5 does not support block numbers
                             Collections.emptyList() // v5 files do not have sidecars
                             );
                     yield new ParsedRecordFile(
@@ -238,11 +315,13 @@ public record ParsedRecordFile(
                             hapiVersion,
                             startObjectRunningHash,
                             endObjectRunningHash, // TODO check is running hash the block hash?
+                            fileHash,
                             recordFileBytes,
-                            recordStreamFile,
-                            0); // V5 doesn't support sidecars
+                            recordStreamFile);
                 }
                 case 6 -> {
+                    // compute the entire file hash used for signature verification
+                    final byte[] fileHash = hashSha384(recordFileBytes);
                     // V6 is nice and easy as it is all protobuf encoded after the first version integer
                     final RecordStreamFile recordStreamFile = RecordStreamFile.PROTOBUF.parse(in);
                     // For v6 the block hash is the end-running-hash accessed via endObjectRunningHash()
@@ -255,15 +334,56 @@ public record ParsedRecordFile(
                             recordStreamFile.hapiProtoVersion(),
                             recordStreamFile.startObjectRunningHash().hash().toByteArray(),
                             recordStreamFile.endObjectRunningHash().hash().toByteArray(),
+                            fileHash,
                             recordFileBytes,
-                            recordStreamFile,
-                            recordStreamFile.sidecars().size());
+                            recordStreamFile);
                 }
                 default ->
                     throw new UnsupportedOperationException(
                             "Unsupported record format version: " + recordFormatVersion);
             };
         } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    /**
+     * Parse a ParsedRecordFile from data available in the block stream. This reconstructs the record file.
+     *
+     * @param blockTime the block time
+     * @param recordFormatVersion the record format version
+     * @param hapiProtoVersion the HAPI protocol version
+     * @param previousBlockHash the previous block hash
+     * @param recordStreamFile the record stream file
+     * @return the parsed record file
+     */
+    public static ParsedRecordFile parse(
+            Instant blockTime,
+            int recordFormatVersion,
+            SemanticVersion hapiProtoVersion,
+            byte[] previousBlockHash,
+            RecordStreamFile recordStreamFile) {
+        // reconstruct the record file bytes
+        try (ByteArrayOutputStream bout = new ByteArrayOutputStream();
+                WritableStreamingData out = new WritableStreamingData(bout)) {
+            reconstructRecordFile(out, recordFormatVersion, hapiProtoVersion, previousBlockHash, recordStreamFile);
+            final byte[] recordFileData = bout.toByteArray();
+            // compute the signed hash
+            final byte[] signedHash =
+                    recordFormatVersion == 2 ? computeV2BlockHash(recordFileData) : hashSha384(recordFileData);
+            // construct the ParsedRecordFile
+            return new ParsedRecordFile(
+                    blockTime,
+                    recordFormatVersion,
+                    hapiProtoVersion,
+                    previousBlockHash,
+                    recordStreamFile.endObjectRunningHash() != null
+                            ? recordStreamFile.endObjectRunningHash().hash().toByteArray()
+                            : new byte[0],
+                    signedHash,
+                    recordFileData,
+                    recordStreamFile);
+        } catch (IOException e) {
             throw new RuntimeException(e);
         }
     }
@@ -283,7 +403,23 @@ public record ParsedRecordFile(
                 + recordStreamFile.recordStreamItems().stream()
                         .filter(RecordStreamItem::hasTransaction)
                         .count() + "\n" + "       numOfSidecarFiles              = "
-                + numOfSidecarFiles + "\n" + "       recordFileContentsSize = "
+                + recordStreamFile.sidecars().size() + "\n" + "       recordFileContentsSize = "
                 + PrettyPrint.prettyPrintFileSize(recordFileContents.length) + "\n" + '}';
+    }
+
+    /**
+     * Computes the v2 block hash as per v2 record file format.
+     *
+     * @param recordFileBytes the record file bytes
+     * @return the computed block hash
+     */
+    private static byte[] computeV2BlockHash(byte[] recordFileBytes) {
+        // TODO this doesn't seem to match docs tools-and-tests/tools/docs/record-file-format.md
+        MessageDigest digest = sha384Digest();
+        digest.update(recordFileBytes, V2_HEADER_LENGTH, recordFileBytes.length - V2_HEADER_LENGTH);
+        final byte[] contentHash = digest.digest();
+        digest.update(recordFileBytes, 0, V2_HEADER_LENGTH);
+        digest.update(contentHash);
+        return digest.digest();
     }
 }
