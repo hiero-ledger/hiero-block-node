@@ -4,11 +4,17 @@ package org.hiero.block.tools.records.model.parsed;
 import com.hedera.hapi.node.base.NodeAddressBook;
 import com.hedera.hapi.streams.SidecarFile;
 import com.hedera.pbj.runtime.ParseException;
+import com.hedera.pbj.runtime.io.WritableSequentialData;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
+import com.hedera.pbj.runtime.io.stream.WritableStreamingData;
+import java.io.Closeable;
+import java.io.Flushable;
 import java.io.IOException;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Instant;
 import java.util.List;
+import java.util.zip.GZIPOutputStream;
 import org.hiero.block.tools.records.model.unparsed.UnparsedRecordBlock;
 
 /**
@@ -64,7 +70,28 @@ public record ParsedRecordBlock(
      * @throws IOException if an I/O error occurs
      */
     public void write(Path directory, boolean gzipped) throws IOException {
+        // Write record file
         recordFile.write(directory, gzipped);
+        // Write signature files
+        for (ParsedSignatureFile signatureFile : signatureFiles) {
+            signatureFile.write(directory);
+        }
+        // Write sidecar files
+        for (int i = 0; i < sidecarFiles.size(); i++) {
+            final int signatureFileIndex = i+1;
+            final String sidecarFilename = String.format(
+                    "%s_%d.rcd%s",
+                    blockTime().toString().replace(':', '_'),
+                    signatureFileIndex,
+                    gzipped ? ".gz" : "");
+            final Path sidecarFilePath = directory.resolve(sidecarFilename);
+            final SidecarFile sidecarFile = sidecarFiles.get(i);
+            try(WritableStreamingData wout = new WritableStreamingData(gzipped ?
+                new GZIPOutputStream(Files.newOutputStream(sidecarFilePath)) :
+                    Files.newOutputStream(sidecarFilePath))) {
+                    SidecarFile.PROTOBUF.write(sidecarFile, wout);
+            }
+        }
     }
 
     public boolean validate(byte[] previousBlockHash, NodeAddressBook addressBook) {
