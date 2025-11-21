@@ -4,6 +4,7 @@ package org.hiero.block.tools.records.model.parsed;
 import static org.hiero.block.tools.utils.TestBlocks.V2_TEST_BLOCK_ADDRESS_BOOK;
 import static org.hiero.block.tools.utils.TestBlocks.V2_TEST_BLOCK_BYTES;
 import static org.hiero.block.tools.utils.TestBlocks.V2_TEST_BLOCK_HASH;
+import static org.hiero.block.tools.utils.TestBlocks.loadV2SignatureFiles;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -11,13 +12,10 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import com.google.common.jimfs.Jimfs;
 import com.hedera.pbj.runtime.io.stream.WritableStreamingData;
 import java.io.ByteArrayOutputStream;
-import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.HexFormat;
 import java.util.List;
-import java.util.Objects;
-import java.util.stream.IntStream;
 import org.hiero.block.tools.records.model.unparsed.InMemoryFile;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.MethodOrderer;
@@ -67,20 +65,7 @@ public class ParsedV2RecordFileTest {
     @Order(3)
     @DisplayName("Test V2 signatures")
     void testV2Signatures() {
-        List<ParsedSignatureFile> signatures = IntStream.range(3, 10)
-                .mapToObj(nodeId -> {
-                    try {
-                        final byte[] sigBytes = Objects.requireNonNull(ParsedV2RecordFileTest.class.getResourceAsStream(
-                                        "/record-files/example-v2/2019-09-13T21_53_51.396440Z/node_0.0." + nodeId
-                                                + ".rcd_sig"))
-                                .readAllBytes();
-                        return new ParsedSignatureFile(
-                                new InMemoryFile(Path.of("node_0.0." + nodeId + ".rcd_sig"), sigBytes));
-                    } catch (IOException e) {
-                        throw new RuntimeException(e);
-                    }
-                })
-                .toList();
+        List<ParsedSignatureFile> signatures = loadV2SignatureFiles();
         for (ParsedSignatureFile signatureFile : signatures) {
             assertTrue(
                     signatureFile.isValid(v2BlockParsedRecordFile.signedHash(), V2_TEST_BLOCK_ADDRESS_BOOK),
