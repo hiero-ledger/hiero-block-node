@@ -8,13 +8,13 @@ import java.util.concurrent.atomic.AtomicReferenceArray;
 /**
  * A thread safe pool for on heap buffered data objects.
  *
- * <p><b>Implementation notes:</b>
+ * <p><b>Implementation notes:</b></p>
  * <ul>
  *     <li>Bounded lock-free ring buffer using AtomicReferenceArray.</li>
  *     <li>Optimized for a single consumer (caller of getBuffer) and a single producer (caller of returnBuffer),
  *     which avoids heavy atomic contention and keeps operations fast.</li>
  *     <li>If a buffer of sufficient capacity isn't available the pool returns a newly allocated BufferedData.</li>
- * </ul></p>
+ * </ul>
  */
 public class BufferedDataPool {
     public static final int POOL_SIZE = 100;

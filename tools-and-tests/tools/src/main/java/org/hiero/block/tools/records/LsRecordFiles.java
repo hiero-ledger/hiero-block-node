@@ -7,8 +7,11 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Arrays;
 import java.util.Comparator;
+import java.util.HexFormat;
 import java.util.stream.Stream;
 import java.util.zip.GZIPInputStream;
+import org.hiero.block.tools.records.model.parsed.ParsedRecordFile;
+import org.hiero.block.tools.records.model.unparsed.InMemoryFile;
 import org.hiero.block.tools.utils.PrettyPrint;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Model.CommandSpec;
@@ -86,10 +89,8 @@ public class LsRecordFiles implements Runnable {
                                 recordFilePath.getFileName().toString().endsWith(".gz ")
                                         ? new GZIPInputStream(Files.newInputStream(recordFilePath)).readAllBytes()
                                         : Files.readAllBytes(recordFilePath);
-                        final UniversalRecordFile info = UniversalRecordFile.parse(
-                            fileData,
-                            -1 // TODO is there a better way to get the block number?
-                        );
+                        final ParsedRecordFile info =
+                                ParsedRecordFile.parse(new InMemoryFile(recordFilePath, fileData));
                         System.out.printf(
                                 "%-70s %-5d %-9s %-10s %-10s %s%n",
                                 recordFilePath.getFileName().toString(),
@@ -97,8 +98,10 @@ public class LsRecordFiles implements Runnable {
                                 info.hapiProtoVersion().major() + "."
                                         + info.hapiProtoVersion().minor() + "."
                                         + info.hapiProtoVersion().patch(),
-                                info.previousBlockHash().toString().substring(0, 8),
-                                info.blockHash().toString().substring(0, 8),
+                                HexFormat.of()
+                                        .formatHex(info.previousBlockHash())
+                                        .substring(0, 8),
+                                HexFormat.of().formatHex(info.blockHash()).substring(0, 8),
                                 PrettyPrint.prettyPrintFileSize(fileData.length));
                     } catch (IOException e) {
                         System.err.println(

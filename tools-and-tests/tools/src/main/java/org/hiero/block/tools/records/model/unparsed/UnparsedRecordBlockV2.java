@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-package org.hiero.block.tools.records;
+package org.hiero.block.tools.records.model.unparsed;
 
 import com.hedera.hapi.node.base.NodeAddressBook;
 import com.hedera.hapi.node.base.SemanticVersion;
@@ -25,7 +25,7 @@ import org.hiero.block.tools.days.model.AddressBookRegistry;
  * It also checks that the provided startRunningHash (when supplied) matches the previous-file hash in the header.
  */
 @SuppressWarnings({"DuplicatedCode", "StringConcatenationInsideStringBufferAppend"})
-public class RecordFileBlockV2 extends RecordFileBlock {
+public class UnparsedRecordBlockV2 extends UnparsedRecordBlock {
     /* The length of the header in a v2 record file */
     private static final int V2_HEADER_LENGTH = Integer.BYTES + Integer.BYTES + 1 + 48;
 
@@ -39,7 +39,7 @@ public class RecordFileBlockV2 extends RecordFileBlock {
      * @param primarySidecarFiles primary sidecar files (not used by v2)
      * @param otherSidecarFiles additional sidecar files (not used by v2)
      */
-    protected RecordFileBlockV2(
+    protected UnparsedRecordBlockV2(
             Instant recordFileTime,
             InMemoryFile primaryRecordFile,
             List<InMemoryFile> otherRecordFiles,

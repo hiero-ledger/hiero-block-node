@@ -18,9 +18,6 @@ import java.security.NoSuchAlgorithmException;
  */
 public final class BlockHashCalculator {
 
-    /** SHA-384 hash size in bytes. */
-    private static final int SHA_384_HASH_SIZE = 48;
-
     /** Private constructor to prevent instantiation. */
     private BlockHashCalculator() {}
 

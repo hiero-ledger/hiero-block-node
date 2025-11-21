@@ -28,7 +28,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.logging.Logger;
 import org.hiero.block.tools.days.download.DownloadConstants;
-import org.hiero.block.tools.records.InMemoryFile;
+import org.hiero.block.tools.records.model.unparsed.InMemoryFile;
 
 /**
  * Manager for concurrent downloads from GCS with built-in concurrency using TransferManager.

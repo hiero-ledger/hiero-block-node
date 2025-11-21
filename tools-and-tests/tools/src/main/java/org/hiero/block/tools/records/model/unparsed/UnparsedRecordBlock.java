@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-package org.hiero.block.tools.records;
+package org.hiero.block.tools.records.model.unparsed;
 
 import com.hedera.hapi.node.base.NodeAddressBook;
 import com.hedera.hapi.node.base.SemanticVersion;
@@ -10,15 +10,18 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.CopyOnWriteArrayList;
+import org.hiero.block.tools.records.model.parsed.ParsedRecordBlock;
+import org.hiero.block.tools.records.model.parsed.ParsedRecordFile;
+import org.hiero.block.tools.records.model.parsed.ParsedSignatureFile;
 
 /**
- * In-memory representation of a set of record files for a block. Typically, a 2 or 5 seconds period of consensus time.
- * The record file set includes the primary most common record file, signature files, and sidecar files.
- * <p>InMemoryBlocks can be read and written as a set of files in a directory with common timestamp, or they can be
+ * In-memory representation of a set of record files for a block. Typically, a 2 seconds or 5 seconds period of
+ * consensus time. The record file set includes the primary most common record file, signature files, and sidecar files.
+ * <p>InMemoryBlocks can be read and written as a set of files in a directory with a common timestamp, or they can be
  * read from compressed tar.zstd day files.</p>
  */
 @SuppressWarnings({"StringConcatenationInsideStringBufferAppend", "CallToPrintStackTrace"})
-public abstract class RecordFileBlock {
+public abstract class UnparsedRecordBlock {
 
     /**
      * Validation result for a block.
@@ -46,7 +49,7 @@ public abstract class RecordFileBlock {
     protected final List<InMemoryFile> signatureFiles;
     /** the sidecar files for the block */
     protected final List<InMemoryFile> primarySidecarFiles;
-    /** the other sidecar files for the block */
+    /** the optional other sidecar files for the block */
     protected final List<InMemoryFile> otherSidecarFiles;
 
     /**
@@ -61,7 +64,7 @@ public abstract class RecordFileBlock {
      * @param otherSidecarFiles the other-sidecar files for the block
      * @return the new InMemoryBlock instance
      */
-    public static RecordFileBlock newInMemoryBlock(
+    public static UnparsedRecordBlock newInMemoryBlock(
             Instant recordFileTime,
             InMemoryFile primaryRecordFile,
             List<InMemoryFile> otherRecordFiles,
@@ -78,7 +81,7 @@ public abstract class RecordFileBlock {
                 | (recordFileBytes[3] & 0xFF);
         return switch (recordFormatVersion) {
             case 2 ->
-                new RecordFileBlockV2(
+                new UnparsedRecordBlockV2(
                         recordFileTime,
                         primaryRecordFile,
                         otherRecordFiles,
@@ -86,7 +89,7 @@ public abstract class RecordFileBlock {
                         primarySidecarFiles,
                         otherSidecarFiles);
             case 5 ->
-                new RecordFileBlockV5(
+                new UnparsedRecordBlockV5(
                         recordFileTime,
                         primaryRecordFile,
                         otherRecordFiles,
@@ -94,7 +97,7 @@ public abstract class RecordFileBlock {
                         primarySidecarFiles,
                         otherSidecarFiles);
             case 6 ->
-                new RecordFileBlockV6(
+                new UnparsedRecordBlockV6(
                         recordFileTime,
                         primaryRecordFile,
                         otherRecordFiles,
@@ -111,12 +114,12 @@ public abstract class RecordFileBlock {
      *
      * @param recordFileTime the consensus time of the block
      * @param primaryRecordFile the primary record file for the block
-     * @param otherRecordFiles the other record files for the block
+     * @param otherRecordFiles the other record files for the block if there are any
      * @param signatureFiles the signature files for the block
      * @param primarySidecarFiles the primary sidecar files for the block
-     * @param otherSidecarFiles the other sidecar files for the block
+     * @param otherSidecarFiles all the other sidecar files for the block if there are any
      */
-    protected RecordFileBlock(
+    protected UnparsedRecordBlock(
             Instant recordFileTime,
             InMemoryFile primaryRecordFile,
             List<InMemoryFile> otherRecordFiles,
@@ -165,6 +168,15 @@ public abstract class RecordFileBlock {
     // === Public Methods =============================================================================================
 
     /**
+     * Parse this block into a ParsedRecordBlock.
+     *
+     * @return the parsed record block
+     */
+    public ParsedRecordBlock parse() {
+        return ParsedRecordBlock.parse(this);
+    }
+
+    /**
      * Get the total size in bytes of all files in the block.
      *
      * @return the total size in bytes
@@ -207,10 +219,7 @@ public abstract class RecordFileBlock {
      */
     public String toStringExtended() {
         try {
-            UniversalRecordFile information = UniversalRecordFile.parse(
-                primaryRecordFile.data(),
-                -1 // TODO is there a better way to get the block number?
-            );
+            ParsedRecordFile parsedRecordFile = ParsedRecordFile.parse(primaryRecordFile);
             return String.format(
                     "--> RecordFileSet @ %-32s :: signatures=%2d%s%s%s%n  -- %s",
                     recordFileTime,
@@ -218,7 +227,7 @@ public abstract class RecordFileBlock {
                     ", other record files=" + otherRecordFiles.size(),
                     ", primary sidecars=" + primarySidecarFiles.size(),
                     ", other sidecars=" + otherSidecarFiles.size(),
-                    information.prettyToString().replace("\n", "\n     "));
+                    parsedRecordFile.prettyToString().replace("\n", "\n     "));
         } catch (Exception e) {
             return String.format(
                     "-- RecordFileSet @ %-32s :: signatures=%2d%s%s%s%n%s",
@@ -263,7 +272,7 @@ public abstract class RecordFileBlock {
         if (obj == null || obj.getClass() != this.getClass()) {
             return false;
         }
-        var that = (RecordFileBlock) obj;
+        var that = (UnparsedRecordBlock) obj;
         return Objects.equals(this.recordFileTime, that.recordFileTime)
                 && Objects.equals(this.primaryRecordFile, that.primaryRecordFile)
                 && Objects.equals(this.otherRecordFiles, that.otherRecordFiles)
@@ -305,7 +314,7 @@ public abstract class RecordFileBlock {
                         .parallel()
                         .map(sigFile -> {
                             try {
-                                return new ParsedSignatureFile(addressBook, sigFile);
+                                return new ParsedSignatureFile(sigFile);
                             } catch (Exception e) {
                                 signatureErrors.add(
                                         "Error parsing signature file " + sigFile.path() + ": " + e.getMessage());
@@ -317,10 +326,10 @@ public abstract class RecordFileBlock {
                                 return false;
                             }
                             try {
-                                return sf.isValid(recordFileSignedHash);
+                                return sf.isValid(recordFileSignedHash, addressBook);
                             } catch (Exception e) {
-                                signatureErrors.add("Error validating signature @ " + recordFileTime + " for node "
-                                        + sf.nodeId() + ": " + e.getMessage());
+                                signatureErrors.add("Error validating signature @ " + recordFileTime
+                                        + " for node with account 0.0." + sf.accountNum() + ": " + e.getMessage());
                                 return false;
                             }
                         })

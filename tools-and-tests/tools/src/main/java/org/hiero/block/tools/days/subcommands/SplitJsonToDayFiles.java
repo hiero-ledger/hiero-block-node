@@ -22,10 +22,9 @@ import picocli.CommandLine.Parameters;
 /**
  * Command to read giant JSON listing file and split into smaller binary files, one per day. It parses the JSON and
  * creates RecordFile objects, then writes them to DayListingFileWriter which creates the binary files.
- * <p>To create the JSON files.json run rclone with command line. Warning this takes about 2 weeks to run!
- * <pre>nohup rclone lsjson -R --hash --no-mimetype --no-modtime --gcs-user-project <PROJECT>
- *     "gcp:hedera-mainnet-streams/recordstreams" > files.json &</pre>
- * </p>
+ * <p>To create the JSON files.json run rclone with command line. Warning this takes about 2 weeks to run!</p>
+ * <pre><code>nohup rclone lsjson -R --hash --no-mimetype --no-modtime --gcs-user-project &lt;PROJECT&gt;
+ *     "gcp:hedera-mainnet-streams/recordstreams" > files.json &amp; </code></pre>
  */
 @SuppressWarnings({"CallToPrintStackTrace", "RedundantJavaTimeOperations", "UnusedAssignment"})
 @Command(name = "split-files-listing", description = "Split the files.json listing into day files")

@@ -14,7 +14,7 @@ import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.Stream;
 import org.hiero.block.tools.days.model.TarZstdDayReaderUsingExec;
 import org.hiero.block.tools.days.model.TarZstdDayUtils;
-import org.hiero.block.tools.records.RecordFileBlock;
+import org.hiero.block.tools.records.model.unparsed.UnparsedRecordBlock;
 import org.hiero.block.tools.utils.ConcurrentTarZstdWriter;
 import org.hiero.block.tools.utils.PrettyPrint;
 import picocli.CommandLine.Command;
@@ -63,11 +63,11 @@ public class CleanDayOfBadRecordSets implements Runnable {
                     i,
                     inputDayPaths.size(),
                     "Scanning for bad day files: " + dayFile + " found " + badDayPaths.size() + " so far");
-            try (final Stream<RecordFileBlock> stream = TarZstdDayReaderUsingExec.streamTarZstd(dayFile)) {
+            try (final Stream<UnparsedRecordBlock> stream = TarZstdDayReaderUsingExec.streamTarZstd(dayFile)) {
                 boolean hasBadRecordSet = stream
                         // filter out bad record sets with only 1 signature file
                         .anyMatch(
-                        (RecordFileBlock block) -> block.signatureFiles().size() <= 1);
+                        (UnparsedRecordBlock block) -> block.signatureFiles().size() <= 1);
                 if (hasBadRecordSet) {
                     badDayPaths.add(dayFile);
                 }
@@ -104,14 +104,14 @@ public class CleanDayOfBadRecordSets implements Runnable {
         final long startNanos = System.nanoTime();
         for (Path badDayFile : movedBadDayPaths) {
             final Path finalOutFile = badToGoodMap.get(badDayFile);
-            try (final Stream<RecordFileBlock> stream = TarZstdDayReaderUsingExec.streamTarZstd(badDayFile);
+            try (final Stream<UnparsedRecordBlock> stream = TarZstdDayReaderUsingExec.streamTarZstd(badDayFile);
                     final ConcurrentTarZstdWriter writer = new ConcurrentTarZstdWriter(finalOutFile)) {
                 stream
                         // filter out bad record sets with only 1 signature file
-                        .filter((RecordFileBlock block) ->
+                        .filter((UnparsedRecordBlock block) ->
                                 block.signatureFiles().size() > 1)
                         // write good record sets to cleaned day file
-                        .forEach((RecordFileBlock block) -> {
+                        .forEach((UnparsedRecordBlock block) -> {
                             writer.putEntry(block.primaryRecordFile());
                             block.signatureFiles().forEach(writer::putEntry);
                             block.otherRecordFiles().forEach(writer::putEntry);

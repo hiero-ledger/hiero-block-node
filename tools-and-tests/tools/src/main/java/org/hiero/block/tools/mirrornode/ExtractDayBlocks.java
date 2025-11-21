@@ -27,6 +27,7 @@ import picocli.CommandLine.Option;
  * Read the record_file.csv.gz file from the mirror node and extract the block info for each day into a json file.
  * <p>
  * Json file contains an array of objects with the following fields:
+ * </p>
  * <ul>
  *     <li>year: the UTC year</li>
  *     <li>month: the UTC month (1-12)</li>
@@ -37,7 +38,6 @@ import picocli.CommandLine.Option;
  *     <li>lastBlockHash: the running hash of the last block as hex string</li>
  * </ul>
  * The array is sorted chronologically by year, month, day.
- * </p>
  */
 @SuppressWarnings({"DuplicatedCode", "CallToPrintStackTrace"})
 @Command(name = "extractDayBlock", description = "Extract block info for each day into json file")

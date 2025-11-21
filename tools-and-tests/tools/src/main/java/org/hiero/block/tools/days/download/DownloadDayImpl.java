@@ -32,8 +32,8 @@ import java.util.concurrent.Future;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.Collectors;
 import org.hiero.block.tools.days.listing.ListingRecordFile;
-import org.hiero.block.tools.records.InMemoryFile;
-import org.hiero.block.tools.records.UniversalRecordFile;
+import org.hiero.block.tools.records.model.parsed.ParsedRecordFile;
+import org.hiero.block.tools.records.model.unparsed.InMemoryFile;
 import org.hiero.block.tools.utils.ConcurrentTarZstdWriter;
 import org.hiero.block.tools.utils.Gzip;
 import org.hiero.block.tools.utils.Md5Checker;
@@ -194,12 +194,8 @@ public class DownloadDayImpl {
                 final InMemoryFile mostCommonRecordFileInMem = resultInMemFiles.getFirst();
                 // validate time period
 
-                final UniversalRecordFile recordFileInfo = UniversalRecordFile.parse(
-                    mostCommonRecordFileInMem.data(),
-                    -1 // TODO Is there a better way to get the block number?
-                );
-                byte[] readPreviousBlockHash =
-                        recordFileInfo.previousBlockHash();
+                final ParsedRecordFile recordFileInfo = ParsedRecordFile.parse(mostCommonRecordFileInMem);
+                byte[] readPreviousBlockHash = recordFileInfo.previousBlockHash();
                 byte[] computedBlockHash = recordFileInfo.blockHash();
                 // check computed previousRecordFileHash matches one read from a file
                 if (prevRecordFileHash != null && !Arrays.equals(prevRecordFileHash, readPreviousBlockHash)) {

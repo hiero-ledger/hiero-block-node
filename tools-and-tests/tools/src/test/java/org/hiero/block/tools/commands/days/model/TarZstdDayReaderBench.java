@@ -3,7 +3,9 @@ package org.hiero.block.tools.commands.days.model;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
-import org.hiero.block.tools.records.RecordFileBlock;
+import org.hiero.block.tools.days.model.TarZstdDayReader;
+import org.hiero.block.tools.days.model.TarZstdDayReaderUsingExec;
+import org.hiero.block.tools.records.model.unparsed.UnparsedRecordBlock;
 
 /**
  * Standalone benchmark test class for benchmarking TarZstdDayReader. It reads a file and measures performance of
@@ -23,19 +25,19 @@ public class TarZstdDayReaderBench {
         try {
             long start = System.nanoTime();
             long totalBytes = TarZstdDayReader.readTarZstd(dayFile).stream()
-                    .mapToLong(RecordFileBlock::getTotalSizeBytes)
+                    .mapToLong(UnparsedRecordBlock::getTotalSizeBytes)
                     .sum();
             printResult("TarZstdDayReader List", start, System.nanoTime(), totalBytes, 1);
 
             start = System.nanoTime();
             totalBytes = TarZstdDayReaderUsingExec.readTarZstd(dayFile).stream()
-                    .mapToLong(RecordFileBlock::getTotalSizeBytes)
+                    .mapToLong(UnparsedRecordBlock::getTotalSizeBytes)
                     .sum();
             printResult("TarZstdDayReaderUsingExec List", start, System.nanoTime(), totalBytes, 1);
 
             start = System.nanoTime();
             totalBytes = TarZstdDayReaderUsingExec.streamTarZstd(dayFile)
-                    .mapToLong(RecordFileBlock::getTotalSizeBytes)
+                    .mapToLong(UnparsedRecordBlock::getTotalSizeBytes)
                     .sum();
             printResult("TarZstdDayReaderUsingExec Stream", start, System.nanoTime(), totalBytes, 1);
         } catch (Exception e) {

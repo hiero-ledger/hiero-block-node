@@ -21,14 +21,14 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Predicate;
 import org.hiero.block.tools.days.download.DownloadConstants;
-import org.hiero.block.tools.records.InMemoryFile;
+import org.hiero.block.tools.records.model.unparsed.InMemoryFile;
 
 /**
  * ConcurrentDownloadManager (Java 21, virtual threads)
  * ----------------------------------------------------
  * High-throughput concurrent downloader for Google Cloud Storage (GCS) objects
- * from hosts OUTSIDE GCP, tuned for billions of small files (1 KB – 3 MB).
- * <pre>
+ * from hosts OUTSIDE GCP, tuned for billions of small files (1 KB &ndash; 3 MB).
+ * <pre><code>
  * Design overview:
  *  - Uses Java 21 virtual threads (Loom) for lightweight, massive concurrency.
  *    Concurrency is still bounded by an adaptive gate (AIMD control) so we
@@ -37,7 +37,7 @@ import org.hiero.block.tools.records.InMemoryFile;
  *      <a href="https://cloud.google.com/storage/docs/request-rate">request-rate</a>
  *      <a href="https://cloud.google.com/storage/docs/retry-strategy">retry-strategy</a>
  *  - Detects common rate-limit/server/network conditions (HTTP 408/429/5xx,
- *    SocketTimeoutException, IOExceptions) — including patterns like
+ *    SocketTimeoutException, IOExceptions) &mdash; including patterns like
  *    RetryBudgetExhausted/Read timed out observed in google-cloud-storage.
  *
  * Key differences from a naive thread-pool approach:
@@ -63,7 +63,7 @@ import org.hiero.block.tools.records.InMemoryFile;
  *          .build()
  *          .getService();
  *
- * Example usage (batching & in-order processing):
+ * Example usage (batching &amp; in-order processing):
  *
  *   var mgr = ConcurrentDownloadManager.newBuilder(storage)
  *       .setInitialConcurrency(512)
@@ -72,21 +72,21 @@ import org.hiero.block.tools.records.InMemoryFile;
  *       .build();
  *
  *   try (mgr) {
- *     List<BlobId> batch =  List.of(); // next batch
+ *     List&lt;BlobId&gt; batch =  List.of(); // next batch
  *     // Create futures in input order:
- *     List<CompletableFuture<byte[]>> futures = new ArrayList<>(batch.size());
+ *     List&lt;CompletableFuture&lt;byte[]&gt;&gt; futures = new ArrayList&lt;&gt;(batch.size());
  *     for (BlobId id : batch) {
  *       futures.add(mgr.downloadAsync(id.getBucket(), id.getName()));
  *     }
  *     // Wait for all to complete:
  *     CompletableFuture.allOf(futures.toArray(CompletableFuture[]::new)).join();
  *     // Process results IN ORDER:
- *     for (int i = 0; i < batch.size(); i++) {
+ *     for (int i = 0; i &lt; batch.size(); i++) {
  *       byte[] data = futures.get(i).join(); // preserves input order
  *       // ...convert/process/write later...
  *     }
  *   }
- * </pre>
+ * </code></pre>
  */
 public final class ConcurrentDownloadManagerVirtualThreads implements ConcurrentDownloadManager {
     /** GCP BlobSourceOption to use userProject for billing */

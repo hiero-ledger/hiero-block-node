@@ -1,8 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
-package org.hiero.block.tools.records;
+package org.hiero.block.tools.records.model.parsed;
 
-import static org.hiero.block.tools.records.SerializationV5Utils.HASH_OBJECT_SIZE_BYTES;
-import static org.hiero.block.tools.records.SerializationV5Utils.readV5HashObject;
+import static org.hiero.block.tools.records.RecordFileDates.extractRecordFileTime;
+import static org.hiero.block.tools.records.RecordFileDates.instantToRecordFileName;
+import static org.hiero.block.tools.records.model.parsed.SerializationV5Utils.HASH_OBJECT_SIZE_BYTES;
+import static org.hiero.block.tools.records.model.parsed.SerializationV5Utils.readV5HashObject;
 import static org.hiero.block.tools.utils.Sha384.SHA_384_HASH_SIZE;
 import static org.hiero.block.tools.utils.Sha384.hashSha384;
 
@@ -15,16 +17,23 @@ import com.hedera.hapi.streams.RecordStreamFile;
 import com.hedera.hapi.streams.RecordStreamItem;
 import com.hedera.pbj.runtime.io.buffer.BufferedData;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
+import com.hedera.pbj.runtime.io.stream.WritableStreamingData;
 import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
 import java.security.MessageDigest;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HexFormat;
 import java.util.List;
+import java.util.zip.GZIPOutputStream;
+import org.hiero.block.tools.records.model.unparsed.InMemoryFile;
 import org.hiero.block.tools.utils.PrettyPrint;
 
 /**
- * Universal record file record object that handles all versions of record files.
+ * Universal record file record object that handles the parsed form of all versions of record files.
  * <p>
  * The old record file formats are documented in the
  * <a href="https://github.com/search?q=repo%3Ahashgraph%2Fhedera-mirror-node%20%22implements%20RecordFileReader%22&type=code">
@@ -33,6 +42,7 @@ import org.hiero.block.tools.utils.PrettyPrint;
  * Way Back Machine</a>
  * </p>
  *
+ * @param blockTime the block time, this is from the record file name
  * @param recordFormatVersion the record file format version
  * @param hapiProtoVersion the HAPI protocol version
  * @param previousBlockHash the hash of the previous block
@@ -42,7 +52,8 @@ import org.hiero.block.tools.utils.PrettyPrint;
  * @param numOfSidecarFiles the number of sidecar files
  */
 @SuppressWarnings({"DuplicatedCode", "DataFlowIssue"})
-public record UniversalRecordFile(
+public record ParsedRecordFile(
+        Instant blockTime,
         int recordFormatVersion,
         SemanticVersion hapiProtoVersion,
         byte[] previousBlockHash,
@@ -57,16 +68,40 @@ public record UniversalRecordFile(
     /** The class version for the record stream object in V5 */
     public static final int V5_RECORD_STREAM_OBJECT_CLASS_VERSION = 1;
 
+    public void write(Path directory, boolean gzipped) throws IOException {
+        String fileName = instantToRecordFileName(blockTime) + (gzipped ? ".gz" : "");
+        Path recordFilePath = directory.resolve(fileName);
+        try (WritableStreamingData out = new WritableStreamingData(
+                gzipped
+                        ? new GZIPOutputStream(Files.newOutputStream(
+                                recordFilePath, StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE))
+                        : Files.newOutputStream(
+                                recordFilePath, StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE))) {
+            // write the version number
+            out.writeInt(recordFormatVersion);
+            switch (recordFormatVersion) {
+                case 2 -> {}
+                case 5 -> {}
+                case 6 -> {}
+                default ->
+                    throw new UnsupportedOperationException(
+                            "Unsupported record format version: " + recordFormatVersion);
+            }
+        }
+    }
+
     /**
      * Parses the record file to extract the HAPI protocol version and the block hash.
      *
-     * @param recordFileBytes the record file bytes to parse
-     * @param blockNumber the block number
+     * @param recordFileData the record file bytes and name to parse
      * @return the record file version info
      */
     @SuppressWarnings("unused")
-    public static UniversalRecordFile parse(byte[] recordFileBytes, long blockNumber) {
+    public static ParsedRecordFile parse(InMemoryFile recordFileData) {
         try {
+            final Instant blockTime =
+                    extractRecordFileTime(recordFileData.path().getFileName().toString());
+            final byte[] recordFileBytes = recordFileData.data();
             final BufferedData in = BufferedData.wrap(recordFileBytes);
             final int recordFormatVersion = in.readInt();
             // This is a minimal parser for all record file formats only extracting the necessary information
@@ -95,7 +130,7 @@ public record UniversalRecordFile(
                         final byte recordMarker = in.readByte();
                         if (recordMarker != 2) {
                             throw new IOException(
-                                "Unexpected record marker " + recordMarker + " (expected 2) in v2 record file");
+                                    "Unexpected record marker " + recordMarker + " (expected 2) in v2 record file");
                         }
                         final int txnLength = in.readInt();
                         if (txnLength <= 0 || txnLength > in.remaining()) {
@@ -114,20 +149,21 @@ public record UniversalRecordFile(
                             throw new IOException("Invalid transaction record length in v2 record file");
                         }
                         TransactionRecord txnRecord =
-                            TransactionRecord.PROTOBUF.parse(in.slice(in.position(), txnRecordLength));
+                                TransactionRecord.PROTOBUF.parse(in.slice(in.position(), txnRecordLength));
                         in.skip(txnRecordLength);
                         recordStreamItems.add(new RecordStreamItem(txn, txnRecord));
                     }
                     // build a RecordStreamFile
                     final RecordStreamFile recordStreamFile = new RecordStreamFile(
-                        hapiVersion,
-                        new HashObject(HashAlgorithm.SHA_384, SHA_384_HASH_SIZE, Bytes.wrap(previousHash)),
-                        recordStreamItems,
-                        null, // V2 record files do not have a streaming hash, so there is no end hash
-                        blockNumber,
-                        Collections.emptyList() // V2 record files do not have sidecars
-                    );
-                    yield new UniversalRecordFile(
+                            hapiVersion,
+                            new HashObject(HashAlgorithm.SHA_384, SHA_384_HASH_SIZE, Bytes.wrap(previousHash)),
+                            recordStreamItems,
+                            null, // V2 record files do not have a streaming hash, so there is no end hash
+                            -1, // V2 record files do not have block numbers
+                            Collections.emptyList() // V2 record files do not have sidecars
+                            );
+                    yield new ParsedRecordFile(
+                            blockTime,
                             recordFormatVersion,
                             hapiVersion,
                             previousHash,
@@ -148,7 +184,8 @@ public record UniversalRecordFile(
                     // read object stream version
                     final int objectStreamVersion = in.readInt();
                     if (objectStreamVersion != V5_RECORD_STREAM_OBJECT_CLASS_VERSION) {
-                        throw new IllegalStateException("Unexpected object stream version (v5): " + objectStreamVersion);
+                        throw new IllegalStateException(
+                                "Unexpected object stream version (v5): " + objectStreamVersion);
                     }
                     // Start Object Running Hash is a Hash Object; parse to extract SHA-384 bytes
                     final byte[] startObjectRunningHash = readV5HashObject(in);
@@ -165,12 +202,13 @@ public record UniversalRecordFile(
                             throw new IOException("Unexpected class version in record file: " + classVersion);
                         }
                         final int transactionRecordLength = in.readInt();
-                        if (transactionRecordLength <= 0 || transactionRecordLength > in.remaining() - HASH_OBJECT_SIZE_BYTES) {
+                        if (transactionRecordLength <= 0
+                                || transactionRecordLength > in.remaining() - HASH_OBJECT_SIZE_BYTES) {
                             throw new IOException(
-                                "Invalid transaction record length in record file: " + transactionRecordLength);
+                                    "Invalid transaction record length in record file: " + transactionRecordLength);
                         }
                         final TransactionRecord txnRecord =
-                            TransactionRecord.PROTOBUF.parse(in.readBytes(transactionRecordLength));
+                                TransactionRecord.PROTOBUF.parse(in.readBytes(transactionRecordLength));
                         final int transactionLength = in.readInt();
                         if (transactionLength <= 0 || transactionLength > in.remaining() - HASH_OBJECT_SIZE_BYTES) {
                             throw new IOException("Invalid transaction length in record file: " + transactionLength);
@@ -180,20 +218,22 @@ public record UniversalRecordFile(
                     }
                     if (in.remaining() != HASH_OBJECT_SIZE_BYTES) {
                         throw new IOException("Expected " + HASH_OBJECT_SIZE_BYTES
-                            + " bytes remaining for end running hash, but found " + in.remaining());
+                                + " bytes remaining for end running hash, but found " + in.remaining());
                     }
                     // read the end-running hash
                     final byte[] endObjectRunningHash = readV5HashObject(in);
                     // build the RecordStreamFile model used by block stream
                     final RecordStreamFile recordStreamFile = new RecordStreamFile(
-                        hapiVersion,
-                        new HashObject(HashAlgorithm.SHA_384, SHA_384_HASH_SIZE, Bytes.wrap(startObjectRunningHash)),
-                        recordStreamItems,
-                        new HashObject(HashAlgorithm.SHA_384, SHA_384_HASH_SIZE, Bytes.wrap(endObjectRunningHash)),
-                        blockNumber,
-                        Collections.emptyList() // v5 files do not have sidecars
-                    );
-                    yield new UniversalRecordFile(
+                            hapiVersion,
+                            new HashObject(
+                                    HashAlgorithm.SHA_384, SHA_384_HASH_SIZE, Bytes.wrap(startObjectRunningHash)),
+                            recordStreamItems,
+                            new HashObject(HashAlgorithm.SHA_384, SHA_384_HASH_SIZE, Bytes.wrap(endObjectRunningHash)),
+                            -1, // V5 does not support block numbers
+                            Collections.emptyList() // v5 files do not have sidecars
+                            );
+                    yield new ParsedRecordFile(
+                            blockTime,
                             recordFormatVersion,
                             hapiVersion,
                             startObjectRunningHash,
@@ -209,7 +249,8 @@ public record UniversalRecordFile(
                     if (recordStreamFile.endObjectRunningHash() == null) {
                         throw new IllegalStateException("No end object running hash in record file");
                     }
-                    yield new UniversalRecordFile(
+                    yield new ParsedRecordFile(
+                            blockTime,
                             recordFormatVersion,
                             recordStreamFile.hapiProtoVersion(),
                             recordStreamFile.startObjectRunningHash().hash().toByteArray(),
@@ -233,15 +274,16 @@ public record UniversalRecordFile(
      * @return the pretty string
      */
     public String prettyToString() {
-        return "RecordFileInfo{\n" +
-            "       recordFormatVersion    = " + recordFormatVersion + "\n" +
-            "       hapiProtoVersion       = " + hapiProtoVersion + "\n" +
-            "       previousBlockHash      = " + HexFormat.of().formatHex(previousBlockHash).substring(0, 8) + "\n" +
-            "       blockHash              = " + HexFormat.of().formatHex(blockHash).substring(0, 8) + "\n" +
-            "       numOfTransactions = " + recordStreamFile.recordStreamItems().stream()
-                .filter(RecordStreamItem::hasTransaction).count() + "\n" +
-            "       numOfSidecarFiles              = " + numOfSidecarFiles + "\n" +
-            "       recordFileContentsSize = " + PrettyPrint.prettyPrintFileSize(recordFileContents.length) + "\n" +
-            '}';
+        return "UniversalRecordFile{\n" + "       recordFormatVersion    = "
+                + recordFormatVersion + "\n" + "       hapiProtoVersion       = "
+                + hapiProtoVersion + "\n" + "       previousBlockHash      = "
+                + HexFormat.of().formatHex(previousBlockHash).substring(0, 8) + "\n"
+                + "       blockHash              = "
+                + HexFormat.of().formatHex(blockHash).substring(0, 8) + "\n" + "       numOfTransactions = "
+                + recordStreamFile.recordStreamItems().stream()
+                        .filter(RecordStreamItem::hasTransaction)
+                        .count() + "\n" + "       numOfSidecarFiles              = "
+                + numOfSidecarFiles + "\n" + "       recordFileContentsSize = "
+                + PrettyPrint.prettyPrintFileSize(recordFileContents.length) + "\n" + '}';
     }
 }

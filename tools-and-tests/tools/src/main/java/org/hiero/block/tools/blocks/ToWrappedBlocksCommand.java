@@ -17,15 +17,17 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.stream.Stream;
 import org.hiero.block.tools.blocks.model.BlockArchiveType;
 import org.hiero.block.tools.blocks.model.BlockWriter;
-import org.hiero.block.tools.blocks.model.RecordBlockConverter;
 import org.hiero.block.tools.days.model.AddressBookRegistry;
 import org.hiero.block.tools.days.model.TarZstdDayReaderUsingExec;
 import org.hiero.block.tools.days.model.TarZstdDayUtils;
 import org.hiero.block.tools.metadata.MetadataFiles;
 import org.hiero.block.tools.mirrornode.BlockTimeReader;
 import org.hiero.block.tools.mirrornode.DayBlockInfo;
+import org.hiero.block.tools.records.model.parsed.RecordBlockConverter;
+import org.hiero.block.tools.records.model.unparsed.UnparsedRecordBlock;
 import org.hiero.block.tools.utils.PrettyPrint;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Help.Ansi;
@@ -164,27 +166,23 @@ public class ToWrappedBlocksCommand implements Runnable {
                                 + ": " + blockCounter.get() + " != " + currentBlockNumberBeingRead);
                     }
                 }
-                try (var stream = TarZstdDayReaderUsingExec.streamTarZstd(dayPath)) {
+                try (Stream<UnparsedRecordBlock> stream = TarZstdDayReaderUsingExec.streamTarZstd(dayPath)) {
                     stream
                             // filter out blocks we have already processed, only leaving newer blocks
                             .filter(recordBlock -> recordBlock.recordFileTime().isAfter(highestStoredBlockTime))
+                            .map(UnparsedRecordBlock::parse)
                             .forEach(recordBlock -> {
                                 try {
                                     final long blockNum = blockCounter.getAndIncrement();
-                                    final Instant blockTime = blockTimeReader.getBlockInstant(blockNum);
                                     // Convert record file block to wrapped block. We pass zero hashes for previous/root
                                     // TODO Rocky we need to get rid of experimental block, I added experimental to
                                     // change API
                                     //  locally, We need to push those changes up stream to HAPI lib then pull latest.
                                     final com.hedera.hapi.block.stream.experimental.Block wrappedExp =
-                                        RecordBlockConverter.toBlock(
-                                            recordBlock.primaryRecordFile(),
-                                                    recordBlock.signatureFiles(),
-                                                    recordBlock.primarySidecarFiles(),
+                                            RecordBlockConverter.toBlock(
+                                                    recordBlock,
                                                     blockNum,
-                                                    blockTime,
-                                                    ZERO_HASH,
-                                                    ZERO_HASH,
+                                                    ZERO_HASH, // TODO compute the block hash merkle tree
                                                     addressBookRegistry.getCurrentAddressBook());
 
                                     // Convert experimental Block to stable Block for storage APIs
@@ -213,7 +211,7 @@ public class ToWrappedBlocksCommand implements Runnable {
 
                                     // Initialize tracking on the first block
                                     if (lastSpeedCalcBlockTime.get() == null) {
-                                        lastSpeedCalcBlockTime.set(recordBlock.recordFileTime());
+                                        lastSpeedCalcBlockTime.set(recordBlock.blockTime());
                                         lastSpeedCalcRealTimeNanos.set(currentRealTimeNanos);
                                     }
 
@@ -221,7 +219,7 @@ public class ToWrappedBlocksCommand implements Runnable {
                                     long realTimeSinceLastCalc =
                                             currentRealTimeNanos - lastSpeedCalcRealTimeNanos.get();
                                     if (realTimeSinceLastCalc >= tenSecondsInNanos) {
-                                        lastSpeedCalcBlockTime.set(recordBlock.recordFileTime());
+                                        lastSpeedCalcBlockTime.set(recordBlock.blockTime());
                                         lastSpeedCalcRealTimeNanos.set(currentRealTimeNanos);
                                     }
 
@@ -229,7 +227,7 @@ public class ToWrappedBlocksCommand implements Runnable {
                                     // point
                                     if (realTimeSinceLastCalc >= 1_000_000_000L) { // At least 1 second
                                         long dataTimeElapsedMillis = recordBlock
-                                                        .recordFileTime()
+                                                        .blockTime()
                                                         .toEpochMilli()
                                                 - lastSpeedCalcBlockTime.get().toEpochMilli();
                                         long realTimeElapsedMillis = realTimeSinceLastCalc / 1_000_000L;
@@ -240,7 +238,7 @@ public class ToWrappedBlocksCommand implements Runnable {
 
                                     // Build progress string
                                     final String progressString = String.format(
-                                            "Block %d at %s%s", blockNum, recordBlock.recordFileTime(), speedString);
+                                            "Block %d at %s%s", blockNum, recordBlock.blockTime(), speedString);
 
                                     // Calculate ETA
                                     final long elapsedMillis = (System.nanoTime() - startNanos) / 1_000_000L;
@@ -250,8 +248,7 @@ public class ToWrappedBlocksCommand implements Runnable {
                                             processedCount, totalBlocksToProcess, elapsedMillis);
 
                                     // Only print progress once per consensus-minute to avoid spam
-                                    long blockMinute =
-                                            recordBlock.recordFileTime().getEpochSecond() / 60L;
+                                    long blockMinute = recordBlock.blockTime().getEpochSecond() / 60L;
                                     if (blockMinute != lastReportedMinute.get()) {
                                         PrettyPrint.printProgressWithEta(percent, progressString, remainingMillis);
                                         lastReportedMinute.set(blockMinute);
