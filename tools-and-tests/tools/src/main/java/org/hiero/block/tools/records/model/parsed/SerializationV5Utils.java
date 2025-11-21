@@ -3,7 +3,9 @@ package org.hiero.block.tools.records.model.parsed;
 
 import static org.hiero.block.tools.utils.Sha384.SHA_384_HASH_SIZE;
 
+import com.hedera.hapi.streams.HashObject;
 import com.hedera.pbj.runtime.io.ReadableSequentialData;
+import com.hedera.pbj.runtime.io.stream.WritableStreamingData;
 import java.io.DataInputStream;
 import java.io.IOException;
 
@@ -92,5 +94,45 @@ public class SerializationV5Utils {
         final byte[] entireFileHash = new byte[SHA_384_HASH_SIZE];
         in.readBytes(entireFileHash);
         return entireFileHash;
+    }
+
+    /**
+     * Write a record stream v5 hash object to a data output stream in SelfSerializable SHA384 format.
+     *
+     * @param out the data output stream
+     * @param hashBytes the hash bytes
+     * @throws IOException if an error occurs writing the hash object
+     */
+    public static void writeV5HashObject(WritableStreamingData out, byte[] hashBytes) throws IOException {
+        // write hash class id
+        out.writeLong(HASH_CLASS_ID);
+        // write hash class version
+        out.writeInt(HASH_CLASS_VERSION);
+        // write hash object, starting with digest type SHA384
+        out.writeInt(DIGEST_TYPE_SHA384);
+        // write hash object - length of hash
+        out.writeInt(SHA_384_HASH_SIZE);
+        // write hash object - hash bytes
+        out.writeBytes(hashBytes);
+    }
+
+    /**
+     * Write a record stream v5 hash object to a data output stream in SelfSerializable SHA384 format.
+     *
+     * @param out the data output stream
+     * @param hashObject the protobuf hash object
+     * @throws IOException if an error occurs writing the hash object
+     */
+    public static void writeV5HashObject(WritableStreamingData out, HashObject hashObject) throws IOException {
+        // write hash class id
+        out.writeLong(HASH_CLASS_ID);
+        // write hash class version
+        out.writeInt(HASH_CLASS_VERSION);
+        // write hash object, starting with digest type SHA384
+        out.writeInt(DIGEST_TYPE_SHA384);
+        // write hash object - length of hash
+        out.writeInt(SHA_384_HASH_SIZE);
+        // write hash object - hash bytes
+        hashObject.hash().writeTo(out);
     }
 }

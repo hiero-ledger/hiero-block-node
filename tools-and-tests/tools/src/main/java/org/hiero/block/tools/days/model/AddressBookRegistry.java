@@ -264,6 +264,16 @@ public class AddressBookRegistry {
     }
 
     /**
+     * Get the account ID for a given node ID. The account ID is derived from the node ID by adding 3.
+     *
+     * @param nodeId the node ID
+     * @return the account ID
+     */
+    public static long accountIdForNode(long nodeId) {
+        return nodeId + 3;
+    }
+
+    /**
      * Get the node ID from a NodeAddress. The node ID can be found in one of three places:
      * <ul>
      *   <li>The nodeId field of the NodeAddress (if present)</li>
