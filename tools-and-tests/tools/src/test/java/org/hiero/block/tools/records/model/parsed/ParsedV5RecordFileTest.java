@@ -3,9 +3,9 @@ package org.hiero.block.tools.records.model.parsed;
 
 import static org.hiero.block.tools.utils.TestBlocks.V5_TEST_BLOCK_ADDRESS_BOOK;
 import static org.hiero.block.tools.utils.TestBlocks.V5_TEST_BLOCK_BYTES;
-import static org.hiero.block.tools.utils.TestBlocks.V5_TEST_BLOCK_DATE_STR;
 import static org.hiero.block.tools.utils.TestBlocks.V5_TEST_BLOCK_HASH;
 import static org.hiero.block.tools.utils.TestBlocks.V5_TEST_BLOCK_RECORD_FILE_NAME;
+import static org.hiero.block.tools.utils.TestBlocks.loadV5SignatureFiles;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -13,14 +13,10 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import com.google.common.jimfs.Jimfs;
 import com.hedera.pbj.runtime.io.stream.WritableStreamingData;
 import java.io.ByteArrayOutputStream;
-import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.HexFormat;
 import java.util.List;
-import java.util.Objects;
-import java.util.stream.IntStream;
-import java.util.stream.Stream;
 import org.hiero.block.tools.records.model.unparsed.InMemoryFile;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.MethodOrderer;
@@ -71,22 +67,7 @@ public class ParsedV5RecordFileTest {
     @DisplayName("Test V5 signatures")
     void testV5Signatures() {
         // V5 has signature files for nodes 10-18, 20-22
-        List<ParsedSignatureFile> signatures = Stream.concat(
-                        IntStream.rangeClosed(10, 18).boxed(),
-                        IntStream.rangeClosed(20, 22).boxed())
-                .map(nodeId -> {
-                    try {
-                        final byte[] sigBytes = Objects.requireNonNull(
-                                        ParsedV5RecordFileTest.class.getResourceAsStream("/record-files/example-v5/"
-                                                + V5_TEST_BLOCK_DATE_STR + "/node_0.0." + nodeId + ".rcd_sig"))
-                                .readAllBytes();
-                        return new ParsedSignatureFile(
-                                new InMemoryFile(Path.of("node_0.0." + nodeId + ".rcd_sig"), sigBytes));
-                    } catch (IOException e) {
-                        throw new RuntimeException(e);
-                    }
-                })
-                .toList();
+        List<ParsedSignatureFile> signatures = loadV5SignatureFiles();
         for (ParsedSignatureFile signatureFile : signatures) {
             assertTrue(
                     signatureFile.isValid(v5BlockParsedRecordFile.signedHash(), V5_TEST_BLOCK_ADDRESS_BOOK),

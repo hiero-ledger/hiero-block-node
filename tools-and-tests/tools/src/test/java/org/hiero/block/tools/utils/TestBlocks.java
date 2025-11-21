@@ -10,14 +10,20 @@ import java.io.IOException;
 import java.nio.file.Path;
 import java.time.Instant;
 import java.util.HexFormat;
+import java.util.List;
 import java.util.Objects;
+import java.util.stream.IntStream;
+import java.util.stream.Stream;
 import org.hiero.block.tools.days.model.AddressBookRegistry;
 import org.hiero.block.tools.mirrornode.BlockTimeReader;
+import org.hiero.block.tools.records.model.parsed.ParsedSignatureFile;
 import org.hiero.block.tools.records.model.parsed.ParsedV2RecordFileTest;
+import org.hiero.block.tools.records.model.unparsed.InMemoryFile;
 
 /**
  * Test data record files from Hedera main net data. Data from resources and hard coded from mirror node data.
  */
+@SuppressWarnings("unused")
 public class TestBlocks {
     // ================= V2 Test Block =================================================================================
     /** V2 Test block number */
@@ -88,10 +94,14 @@ public class TestBlocks {
     public static final String V6_TEST_BLOCK_DATE_STR = "2025-07-23T20_37_42.076472454Z";
     /** V6 Test Block record file name */
     public static final String V6_TEST_BLOCK_RECORD_FILE_NAME = V6_TEST_BLOCK_DATE_STR + ".rcd";
+    /** V6 Test Block sidecar file name */
+    public static final String V6_TEST_BLOCK_SIDECAR_FILE_NAME = V6_TEST_BLOCK_DATE_STR + "_01.rcd";
     /** V6 Test Block Node Address Book */
     public static final NodeAddressBook V6_TEST_BLOCK_ADDRESS_BOOK;
     /** V6 Test Block bytes */
     public static final byte[] V6_TEST_BLOCK_BYTES;
+    /** V6 Test Block sidecar bytes */
+    public static final byte[] V6_TEST_BLOCK_SIDECAR_BYTES;
 
     static {
         try {
@@ -103,12 +113,88 @@ public class TestBlocks {
                             ParsedV2RecordFileTest.class.getResourceAsStream("/record-files/example-v6/"
                                     + V6_TEST_BLOCK_DATE_STR + "/" + V6_TEST_BLOCK_RECORD_FILE_NAME))
                     .readAllBytes();
+            V6_TEST_BLOCK_SIDECAR_BYTES = Objects.requireNonNull(
+                            ParsedV2RecordFileTest.class.getResourceAsStream("/record-files/example-v6/"
+                                    + V6_TEST_BLOCK_DATE_STR + "/" + V6_TEST_BLOCK_SIDECAR_FILE_NAME))
+                    .readAllBytes();
         } catch (IOException | ParseException e) {
             throw new RuntimeException(e);
         }
     }
 
+    // ================= Signature Files Loading =======================================================================
+
+    /**
+     * Loads V2 test signature files for nodes 3-9.
+     *
+     * @return list of parsed signature files
+     */
+    public static List<ParsedSignatureFile> loadV2SignatureFiles() {
+        return IntStream.range(3, 10)
+                .mapToObj(nodeId -> {
+                    try {
+                        final byte[] sigBytes = Objects.requireNonNull(
+                                        ParsedV2RecordFileTest.class.getResourceAsStream("/record-files/example-v2/"
+                                                + V2_TEST_BLOCK_DATE_STR + "/node_0.0." + nodeId + ".rcd_sig"))
+                                .readAllBytes();
+                        return new ParsedSignatureFile(
+                                new InMemoryFile(Path.of("node_0.0." + nodeId + ".rcd_sig"), sigBytes));
+                    } catch (IOException e) {
+                        throw new RuntimeException(e);
+                    }
+                })
+                .toList();
+    }
+
+    /**
+     * Loads V5 test signature files for nodes 10-18, 20-22.
+     *
+     * @return list of parsed signature files
+     */
+    public static List<ParsedSignatureFile> loadV5SignatureFiles() {
+        return Stream.concat(
+                        IntStream.rangeClosed(10, 18).boxed(),
+                        IntStream.rangeClosed(20, 22).boxed())
+                .map(nodeId -> {
+                    try {
+                        final byte[] sigBytes = Objects.requireNonNull(
+                                        ParsedV2RecordFileTest.class.getResourceAsStream("/record-files/example-v5/"
+                                                + V5_TEST_BLOCK_DATE_STR + "/node_0.0." + nodeId + ".rcd_sig"))
+                                .readAllBytes();
+                        return new ParsedSignatureFile(
+                                new InMemoryFile(Path.of("node_0.0." + nodeId + ".rcd_sig"), sigBytes));
+                    } catch (IOException e) {
+                        throw new RuntimeException(e);
+                    }
+                })
+                .toList();
+    }
+
+    /**
+     * Loads V6 test signature files for nodes 3, 21, 25, 28-35, 37.
+     *
+     * @return list of parsed signature files
+     */
+    public static List<ParsedSignatureFile> loadV6SignatureFiles() {
+        return Stream.of(Stream.of(3, 21, 25, 37), IntStream.rangeClosed(28, 35).boxed())
+                .flatMap(s -> s)
+                .map(nodeId -> {
+                    try {
+                        final byte[] sigBytes = Objects.requireNonNull(
+                                        ParsedV2RecordFileTest.class.getResourceAsStream("/record-files/example-v6/"
+                                                + V6_TEST_BLOCK_DATE_STR + "/node_0.0." + nodeId + ".rcd_sig"))
+                                .readAllBytes();
+                        return new ParsedSignatureFile(
+                                new InMemoryFile(Path.of("node_0.0." + nodeId + ".rcd_sig"), sigBytes));
+                    } catch (IOException e) {
+                        throw new RuntimeException(e);
+                    }
+                })
+                .toList();
+    }
+
     /** Utility main method to find block number by time */
+    @SuppressWarnings("resource")
     public static void main(String[] args) throws Exception {
         BlockTimeReader blockTimeReader = new BlockTimeReader(Path.of("data/block_times.bin"));
         long blockNum = blockTimeReader.getNearestBlockAfterTime(
