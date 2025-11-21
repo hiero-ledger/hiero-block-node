@@ -495,8 +495,10 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
         long newestBlockKnown = notification.blockNumber();
         LongRange gap;
         if (newestBlockKnown == UNKNOWN_BLOCK_NUMBER) {
+            // proactively get the new available range from other BN sources
             gap = backfillGrpcClientOnDemand.getNewAvailableRange(lastPersistedBlock);
         } else {
+            // create gap from last persisted + 1 to block number from notification
             gap = new LongRange(lastPersistedBlock + 1, newestBlockKnown);
         }
 
