@@ -108,6 +108,13 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
             .createSingleThreadScheduledExecutor(
                 "StreamPublisherRunner",
                 (t, e) -> LOGGER.log(ERROR, "Uncaught exception in thread: " + t.getName(), e));
+        // schedule a notification to prompt backfill to proactively look for newer blocks from other block nodes
+        this.scheduledExecutorService.scheduleWithFixedDelay(
+            () -> notifyTooFarBehind(UNKNOWN_BLOCK_NUMBER),
+            publisherConfiguration.noActivityNotificationIntervalSeconds(),
+            publisherConfiguration.noActivityNotificationIntervalSeconds(),
+            TimeUnit.SECONDS
+        );
     }
 
     @Override
@@ -120,11 +127,6 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
         handlers.put(handlerId, newHandler);
         metrics.currentPublisherCount().set(handlers.size());
         LOGGER.log(TRACE, "Added new handler {0}", handlerId);
-
-        // if there are no handlers we should cancel any notification to prompt backfill to look for blocks
-        if (!scheduledExecutorService.isShutdown()) {
-            this.scheduledExecutorService.shutdown();
-        }
 
         return newHandler;
     }
@@ -172,16 +174,6 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
         }
         LOGGER.log(TRACE, "Removed handler {0} and its transfer queue {1}", handlerId, queueId);
         metrics.currentPublisherCount().set(handlers.size());
-
-        // if there are no handlers we should schedule a notification to prompt backfill to proactively look for blocks
-        if (handlers.isEmpty() && scheduledExecutorService.isShutdown()) {
-            this.scheduledExecutorService.scheduleWithFixedDelay(
-                () -> notifyTooFarBehind(UNKNOWN_BLOCK_NUMBER),
-                publisherConfiguration.noActivityNotificationIntervalSeconds(),
-                publisherConfiguration.noActivityNotificationIntervalSeconds(),
-                TimeUnit.SECONDS
-            );
-        }
     }
 
     /**
@@ -239,6 +231,12 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
         }
         transferQueueMap.clear();
         queueByBlockMap.clear();
+
+
+        // cancel any notification to prompt backfill to look for blocks
+        if (!scheduledExecutorService.isShutdown()) {
+            this.scheduledExecutorService.shutdownNow();
+        }
     }
 
     /**
