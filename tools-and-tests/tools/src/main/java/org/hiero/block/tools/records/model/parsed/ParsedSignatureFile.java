@@ -339,6 +339,11 @@ public class ParsedSignatureFile {
         return accountNum;
     }
 
+    /** @return the name of the signature file that was parsed if known */
+    public String signatureFileName() {
+        return signatureFileName;
+    }
+
     /**
      * {@inheritDoc}
      */
