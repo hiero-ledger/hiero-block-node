@@ -89,8 +89,7 @@ public class ValidateBlocksCommand implements Runnable {
         if (!skipSignatures) {
             if (addressBookFile != null && Files.exists(addressBookFile)) {
                 addressBookRegistry = new AddressBookRegistry(addressBookFile);
-                System.out.println(Ansi.AUTO.string(
-                        "@|yellow Loaded address book from:|@ " + addressBookFile));
+                System.out.println(Ansi.AUTO.string("@|yellow Loaded address book from:|@ " + addressBookFile));
             } else {
                 System.out.println(Ansi.AUTO.string(
                         "@|yellow Warning:|@ No address book provided, signature validation will be skipped"));
@@ -108,16 +107,15 @@ public class ValidateBlocksCommand implements Runnable {
         // Sort by block number
         sources.sort(Comparator.comparingLong(BlockSource::blockNumber));
 
-        System.out.println(Ansi.AUTO.string(
-                "@|bold,cyan ════════════════════════════════════════════════════════════|@"));
+        System.out.println(
+                Ansi.AUTO.string("@|bold,cyan ════════════════════════════════════════════════════════════|@"));
         System.out.println(Ansi.AUTO.string("@|bold,cyan   BLOCK STREAM VALIDATION|@"));
-        System.out.println(Ansi.AUTO.string(
-                "@|bold,cyan ════════════════════════════════════════════════════════════|@"));
+        System.out.println(
+                Ansi.AUTO.string("@|bold,cyan ════════════════════════════════════════════════════════════|@"));
         System.out.println();
-        System.out.println(Ansi.AUTO.string(
-                "@|yellow Total blocks to validate:|@ " + sources.size()));
-        System.out.println(Ansi.AUTO.string(
-                "@|yellow Block range:|@ " + sources.get(0).blockNumber() + " - "
+        System.out.println(Ansi.AUTO.string("@|yellow Total blocks to validate:|@ " + sources.size()));
+        System.out.println(
+                Ansi.AUTO.string("@|yellow Block range:|@ " + sources.get(0).blockNumber() + " - "
                         + sources.get(sources.size() - 1).blockNumber()));
         System.out.println();
 
@@ -134,9 +132,8 @@ public class ValidateBlocksCommand implements Runnable {
         long expectedBlockNumber = sources.get(0).blockNumber();
         for (BlockSource source : sources) {
             if (source.blockNumber() != expectedBlockNumber) {
-                System.out.println(Ansi.AUTO.string(
-                        "@|red Gap detected:|@ Expected block " + expectedBlockNumber
-                                + " but found " + source.blockNumber()));
+                System.out.println(Ansi.AUTO.string("@|red Gap detected:|@ Expected block " + expectedBlockNumber
+                        + " but found " + source.blockNumber()));
             }
             expectedBlockNumber = source.blockNumber() + 1;
         }
@@ -195,16 +192,16 @@ public class ValidateBlocksCommand implements Runnable {
                     long remainingMillis = PrettyPrint.computeRemainingMilliseconds(
                             blocksValidated.get(), sources.size(), elapsedMillis);
 
-                    String progressString = String.format(
-                            "Validated %d/%d blocks", blocksValidated.get(), sources.size());
+                    String progressString =
+                            String.format("Validated %d/%d blocks", blocksValidated.get(), sources.size());
                     PrettyPrint.printProgressWithEta(currentPercent, progressString, remainingMillis);
                     lastReportedPercent.set(currentPercent);
                 }
 
             } catch (Exception e) {
                 PrettyPrint.clearProgress();
-                System.err.println(Ansi.AUTO.string(
-                        "@|red Error processing block " + blockNum + ":|@ " + e.getMessage()));
+                System.err.println(
+                        Ansi.AUTO.string("@|red Error processing block " + blockNum + ":|@ " + e.getMessage()));
                 if (verbose) {
                     e.printStackTrace();
                 }
@@ -215,11 +212,11 @@ public class ValidateBlocksCommand implements Runnable {
         // Print summary
         PrettyPrint.clearProgress();
         System.out.println();
-        System.out.println(Ansi.AUTO.string(
-                "@|bold,cyan ════════════════════════════════════════════════════════════|@"));
+        System.out.println(
+                Ansi.AUTO.string("@|bold,cyan ════════════════════════════════════════════════════════════|@"));
         System.out.println(Ansi.AUTO.string("@|bold,cyan   VALIDATION SUMMARY|@"));
-        System.out.println(Ansi.AUTO.string(
-                "@|bold,cyan ════════════════════════════════════════════════════════════|@"));
+        System.out.println(
+                Ansi.AUTO.string("@|bold,cyan ════════════════════════════════════════════════════════════|@"));
         System.out.println();
         System.out.println(Ansi.AUTO.string("@|yellow Blocks validated:|@ " + blocksValidated.get()));
         System.out.println(Ansi.AUTO.string("@|yellow Hash chain errors:|@ " + hashErrors.get()));
@@ -236,8 +233,7 @@ public class ValidateBlocksCommand implements Runnable {
         }
 
         long elapsedSeconds = (System.nanoTime() - startNanos) / 1_000_000_000L;
-        System.out.println(Ansi.AUTO.string(
-                "@|yellow Time elapsed:|@ " + elapsedSeconds + " seconds"));
+        System.out.println(Ansi.AUTO.string("@|yellow Time elapsed:|@ " + elapsedSeconds + " seconds"));
     }
 
     /**
@@ -254,8 +250,8 @@ public class ValidateBlocksCommand implements Runnable {
 
         if (previousHashInBlock == null) {
             PrettyPrint.clearProgress();
-            System.out.println(Ansi.AUTO.string(
-                    "@|red Block " + blockNum + ":|@ Missing previousBlockRootHash in header"));
+            System.out.println(
+                    Ansi.AUTO.string("@|red Block " + blockNum + ":|@ Missing previousBlockRootHash in header"));
             hashErrors.incrementAndGet();
             return false;
         }
@@ -264,8 +260,8 @@ public class ValidateBlocksCommand implements Runnable {
             // This is the first block - should have zero hash
             if (!Arrays.equals(previousHashInBlock, ZERO_HASH)) {
                 PrettyPrint.clearProgress();
-                System.out.println(Ansi.AUTO.string(
-                        "@|red Block " + blockNum + ":|@ First block should have zero previous hash"));
+                System.out.println(
+                        Ansi.AUTO.string("@|red Block " + blockNum + ":|@ First block should have zero previous hash"));
                 System.out.println("  Expected: " + BlockHashCalculator.hashToHex(ZERO_HASH));
                 System.out.println("  Found:    " + BlockHashCalculator.hashToHex(previousHashInBlock));
                 hashErrors.incrementAndGet();
@@ -275,8 +271,7 @@ public class ValidateBlocksCommand implements Runnable {
             // Check that previous hash matches computed hash
             if (!Arrays.equals(previousHashInBlock, computedPreviousHash)) {
                 PrettyPrint.clearProgress();
-                System.out.println(Ansi.AUTO.string(
-                        "@|red Block " + blockNum + ":|@ Hash chain broken"));
+                System.out.println(Ansi.AUTO.string("@|red Block " + blockNum + ":|@ Hash chain broken"));
                 System.out.println("  Expected: " + BlockHashCalculator.hashToHex(computedPreviousHash));
                 System.out.println("  Found:    " + BlockHashCalculator.hashToHex(previousHashInBlock));
                 hashErrors.incrementAndGet();
@@ -309,7 +304,9 @@ public class ValidateBlocksCommand implements Runnable {
         try {
             // Get the address book for this block
             NodeAddressBook addressBook = addressBookRegistry.getCurrentAddressBook();
-            if (addressBook == null || addressBook.nodeAddress() == null || addressBook.nodeAddress().isEmpty()) {
+            if (addressBook == null
+                    || addressBook.nodeAddress() == null
+                    || addressBook.nodeAddress().isEmpty()) {
                 if (verbose) {
                     PrettyPrint.clearProgress();
                     System.out.println(Ansi.AUTO.string(
@@ -325,8 +322,7 @@ public class ValidateBlocksCommand implements Runnable {
             Bytes blockSig = blockProof.blockSignature();
             if (blockSig == null || blockSig.length() == 0) {
                 PrettyPrint.clearProgress();
-                System.out.println(Ansi.AUTO.string(
-                        "@|red Block " + blockNum + ":|@ No signatures in block proof"));
+                System.out.println(Ansi.AUTO.string("@|red Block " + blockNum + ":|@ No signatures in block proof"));
                 signatureErrors.incrementAndGet();
                 return false;
             }
@@ -350,9 +346,8 @@ public class ValidateBlocksCommand implements Runnable {
 
             if (validSignatures < requiredSignatures) {
                 PrettyPrint.clearProgress();
-                System.out.println(Ansi.AUTO.string(
-                        "@|red Block " + blockNum + ":|@ Insufficient signatures ("
-                                + validSignatures + "/" + requiredSignatures + " required)"));
+                System.out.println(Ansi.AUTO.string("@|red Block " + blockNum + ":|@ Insufficient signatures ("
+                        + validSignatures + "/" + requiredSignatures + " required)"));
                 signatureErrors.incrementAndGet();
                 return false;
             }
@@ -361,8 +356,8 @@ public class ValidateBlocksCommand implements Runnable {
 
         } catch (Exception e) {
             PrettyPrint.clearProgress();
-            System.out.println(Ansi.AUTO.string(
-                    "@|red Block " + blockNum + ":|@ Signature validation error: " + e.getMessage()));
+            System.out.println(
+                    Ansi.AUTO.string("@|red Block " + blockNum + ":|@ Signature validation error: " + e.getMessage()));
             signatureErrors.incrementAndGet();
             return false;
         }
@@ -404,19 +399,17 @@ public class ValidateBlocksCommand implements Runnable {
      */
     private void findBlocksInDirectory(Path dir, List<BlockSource> sources) {
         try {
-            Files.walk(dir)
-                    .filter(Files::isRegularFile)
-                    .forEach(path -> {
-                        String fileName = path.getFileName().toString();
-                        if (fileName.endsWith(".zip")) {
-                            findBlocksInZip(path, sources);
-                        } else {
-                            long blockNum = extractBlockNumber(fileName);
-                            if (blockNum >= 0) {
-                                sources.add(new BlockSource(blockNum, path, null));
-                            }
-                        }
-                    });
+            Files.walk(dir).filter(Files::isRegularFile).forEach(path -> {
+                String fileName = path.getFileName().toString();
+                if (fileName.endsWith(".zip")) {
+                    findBlocksInZip(path, sources);
+                } else {
+                    long blockNum = extractBlockNumber(fileName);
+                    if (blockNum >= 0) {
+                        sources.add(new BlockSource(blockNum, path, null));
+                    }
+                }
+            });
         } catch (IOException e) {
             System.err.println("Error scanning directory " + dir + ": " + e.getMessage());
         }
@@ -431,15 +424,13 @@ public class ValidateBlocksCommand implements Runnable {
     private void findBlocksInZip(Path zipPath, List<BlockSource> sources) {
         try (FileSystem zipFs = FileSystems.newFileSystem(zipPath)) {
             for (Path root : zipFs.getRootDirectories()) {
-                Files.walk(root)
-                        .filter(Files::isRegularFile)
-                        .forEach(path -> {
-                            String fileName = path.getFileName().toString();
-                            long blockNum = extractBlockNumber(fileName);
-                            if (blockNum >= 0) {
-                                sources.add(new BlockSource(blockNum, zipPath, path.toString()));
-                            }
-                        });
+                Files.walk(root).filter(Files::isRegularFile).forEach(path -> {
+                    String fileName = path.getFileName().toString();
+                    long blockNum = extractBlockNumber(fileName);
+                    if (blockNum >= 0) {
+                        sources.add(new BlockSource(blockNum, zipPath, path.toString()));
+                    }
+                });
             }
         } catch (IOException e) {
             System.err.println("Error reading zip file " + zipPath + ": " + e.getMessage());
@@ -487,13 +478,11 @@ public class ValidateBlocksCommand implements Runnable {
                 : source.filePath().getFileName().toString();
 
         if (fileName.endsWith(".gz")) {
-            try (InputStream is = new GZIPInputStream(
-                    new java.io.ByteArrayInputStream(compressedBytes))) {
+            try (InputStream is = new GZIPInputStream(new java.io.ByteArrayInputStream(compressedBytes))) {
                 return is.readAllBytes();
             }
         } else if (fileName.endsWith(".zstd")) {
-            try (InputStream is = new ZstdInputStream(
-                    new java.io.ByteArrayInputStream(compressedBytes))) {
+            try (InputStream is = new ZstdInputStream(new java.io.ByteArrayInputStream(compressedBytes))) {
                 return is.readAllBytes();
             }
         } else {

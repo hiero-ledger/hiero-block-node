@@ -29,8 +29,8 @@ import org.hiero.block.tools.days.model.AddressBookRegistry;
 import org.hiero.block.tools.days.model.TarZstdDayReaderUsingExec;
 import org.hiero.block.tools.days.model.TarZstdDayUtils;
 import org.hiero.block.tools.mirrornode.DayBlockInfo;
-import org.hiero.block.tools.records.RecordFileBlock;
-import org.hiero.block.tools.records.RecordFileBlock.ValidationResult;
+import org.hiero.block.tools.records.model.unparsed.UnparsedRecordBlock;
+import org.hiero.block.tools.records.model.unparsed.UnparsedRecordBlock.ValidationResult;
 import org.hiero.block.tools.utils.PrettyPrint;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Model.CommandSpec;
@@ -57,7 +57,7 @@ public class Validate implements Runnable {
      * @param dayFile  for diagnostics (maybe null for STREAM_END)
      * @param block    only for BLOCK
      */
-    private record Item(Kind kind, LocalDate dayDate, Path dayFile, RecordFileBlock block) {
+    private record Item(Kind kind, LocalDate dayDate, Path dayFile, UnparsedRecordBlock block) {
         enum Kind {
             DAY_START,
             BLOCK,
@@ -69,7 +69,7 @@ public class Validate implements Runnable {
             return new Item(Kind.DAY_START, date, file, null);
         }
 
-        static Item block(LocalDate date, Path file, RecordFileBlock b) {
+        static Item block(LocalDate date, Path file, UnparsedRecordBlock b) {
             return new Item(Kind.BLOCK, date, file, b);
         }
 
@@ -393,7 +393,7 @@ public class Validate implements Runnable {
                         blockInDayCounter.set(0L);
                     }
                     case BLOCK -> {
-                        final RecordFileBlock block = item.block;
+                        final UnparsedRecordBlock block = item.block;
                         // update counters
                         progress.incrementAndGet();
                         try {

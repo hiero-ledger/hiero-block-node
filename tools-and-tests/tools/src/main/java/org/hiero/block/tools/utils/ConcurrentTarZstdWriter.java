@@ -14,7 +14,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 import org.apache.commons.compress.archivers.tar.TarArchiveEntry;
 import org.apache.commons.compress.archivers.tar.TarArchiveOutputStream;
-import org.hiero.block.tools.records.InMemoryFile;
+import org.hiero.block.tools.records.model.unparsed.InMemoryFile;
 
 /**
  * A utility class to write .tar.zstd files concurrently from multiple threads.

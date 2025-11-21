@@ -32,8 +32,8 @@ import java.util.stream.Collectors;
 import org.hiero.block.tools.days.listing.ListingRecordFile;
 import org.hiero.block.tools.mirrornode.BlockTimeReader;
 import org.hiero.block.tools.mirrornode.DayBlockInfo;
-import org.hiero.block.tools.records.InMemoryFile;
-import org.hiero.block.tools.records.UniversalRecordFile;
+import org.hiero.block.tools.records.model.parsed.ParsedRecordFile;
+import org.hiero.block.tools.records.model.unparsed.InMemoryFile;
 import org.hiero.block.tools.utils.ConcurrentTarZstdWriter;
 import org.hiero.block.tools.utils.Gzip;
 import org.hiero.block.tools.utils.Md5Checker;
@@ -397,8 +397,7 @@ public class DownloadDayImplV2 {
             final byte[] prevRecordFileHash,
             final byte[] blockHashFromMirrorNode) {
         final InMemoryFile mostCommonRecordFileInMem = inMemoryFilesForWriting.getFirst();
-        final UniversalRecordFile recordFileInfo = UniversalRecordFile.parse(
-            mostCommonRecordFileInMem.data(), blockNum);
+        final ParsedRecordFile recordFileInfo = ParsedRecordFile.parse(mostCommonRecordFileInMem);
         byte[] readPreviousBlockHash = recordFileInfo.previousBlockHash();
         byte[] computedBlockHash = recordFileInfo.blockHash();
         if (blockHashFromMirrorNode != null && !Arrays.equals(blockHashFromMirrorNode, computedBlockHash)) {

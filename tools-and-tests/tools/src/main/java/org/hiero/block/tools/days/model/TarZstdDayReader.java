@@ -17,8 +17,8 @@ import java.util.Map;
 import java.util.stream.Stream;
 import org.apache.commons.compress.archivers.tar.TarArchiveEntry;
 import org.apache.commons.compress.archivers.tar.TarArchiveInputStream;
-import org.hiero.block.tools.records.InMemoryFile;
-import org.hiero.block.tools.records.RecordFileBlock;
+import org.hiero.block.tools.records.model.unparsed.InMemoryFile;
+import org.hiero.block.tools.records.model.unparsed.UnparsedRecordBlock;
 
 /**
  * Utility to read and group record files from a compressed daily tar archive compressed with zstd.
@@ -26,7 +26,7 @@ import org.hiero.block.tools.records.RecordFileBlock;
  * <p>This class invokes the system {@code zstd} binary to stream-decompress a {@code .tar.zstd}
  * archive and then reads the contained TAR entries with Apache Commons Compress. Files are
  * grouped by their parent directory (typically a per-timestamp subdirectory) and assembled into
- * {@link RecordFileBlock} instances which contain the primary record file, any alternate
+ * {@link UnparsedRecordBlock} instances which contain the primary record file, any alternate
  * record files, signature files and sidecars.</p>
  *
  * <p>Filename conventions understood by this reader:
@@ -53,16 +53,16 @@ import org.hiero.block.tools.records.RecordFileBlock;
  *       Any failure of the external process is surfaced as a runtime exception.</li>
  * </ul>
  */
-@SuppressWarnings("unused")
+@SuppressWarnings({"unused", "DuplicatedCode"})
 public class TarZstdDayReader {
 
     /**
      * Decompresses the given {@code .tar.zstd} file and returns a stream of
-     * {@link RecordFileBlock} grouped by the per-timestamp directory structure in the
+     * {@link UnparsedRecordBlock} grouped by the per-timestamp directory structure in the
      * archive.
      *
      * @param zstdFile the path to a .tar.zstd archive; must not be {@code null}
-     * @return a {@link Stream} of {@link RecordFileBlock} representing grouped record files
+     * @return a {@link Stream} of {@link UnparsedRecordBlock} representing grouped record files
      *         found in the archive. The caller should consume or close the stream promptly.
      * @throws IllegalArgumentException if {@code zstdFile} is {@code null}
      * @throws RuntimeException if launching or reading from the zstd process fails, or if the
@@ -71,25 +71,25 @@ public class TarZstdDayReader {
      * @apiNote the returned Stream is built from an in-memory list collected while reading the
      * archive inside this method.
      */
-    public static Stream<RecordFileBlock> streamTarZstd(Path zstdFile) {
+    public static Stream<UnparsedRecordBlock> streamTarZstd(Path zstdFile) {
         return readTarZstd(zstdFile).stream();
     }
 
     /**
      * Decompresses the given {@code .tar.zstd} file and returns a stream of
-     * {@link RecordFileBlock} grouped by the per-timestamp directory structure in the
+     * {@link UnparsedRecordBlock} grouped by the per-timestamp directory structure in the
      * archive.
      *
      * @param zstdFile the path to a .tar.zstd archive; must not be {@code null}
-     * @return a {@link List} of {@link RecordFileBlock} representing grouped record files
+     * @return a {@link List} of {@link UnparsedRecordBlock} representing grouped record files
      *         found in the archive. The caller should consume or close the stream promptly.
      * @throws IllegalArgumentException if {@code zstdFile} is {@code null}
      * @throws RuntimeException if launching or reading from the zstd process fails, or if the
      *         zstd process returns a non-zero exit code
      */
-    public static List<RecordFileBlock> readTarZstd(Path zstdFile) {
+    public static List<UnparsedRecordBlock> readTarZstd(Path zstdFile) {
         if (zstdFile == null) throw new IllegalArgumentException("zstdFile is null");
-        final List<RecordFileBlock> results = new ArrayList<>();
+        final List<UnparsedRecordBlock> results = new ArrayList<>();
         try (TarArchiveInputStream tar = new TarArchiveInputStream(new BufferedInputStream(
                 new ZstdInputStream(
                         new BufferedInputStream(Files.newInputStream(zstdFile), 1024 * 1024 * 100),
@@ -132,7 +132,7 @@ public class TarZstdDayReader {
 
     /**
      * Process a batch of files that belong to the same parent directory and append the resulting
-     * {@link RecordFileBlock} objects to {@code results}.
+     * {@link UnparsedRecordBlock} objects to {@code results}.
      *
      * <p>This method implements the grouping and classification rules:
      * <ul>
@@ -145,7 +145,7 @@ public class TarZstdDayReader {
      *       classifies other {@code .rcd} files as other-record or sidecar files based on naming
      *       patterns.</li>
      *   <li>Primary sidecars are ordered by index (1..N) when present and attached to the
-     *       {@link RecordFileBlock} in index order.</li>
+     *       {@link UnparsedRecordBlock} in index order.</li>
      * </ul>
      *
      * @param currentDir the parent directory path (as a string ending with '/'), may be {@code "/"}
@@ -153,11 +153,11 @@ public class TarZstdDayReader {
      *                   key for signatures that do not include timestamps in their names
      * @param currentFiles files read from the TAR that share the same parent directory; may include
      *                     {@code .rcd} and {@code .rcs_sig} files
-     * @param results the list to append created {@link RecordFileBlock} instances to
+     * @param results the list to append created {@link UnparsedRecordBlock} instances to
      */
     @SuppressWarnings("ReplaceNullCheck")
     private static void processDirectoryFiles(
-            String currentDir, List<InMemoryFile> currentFiles, List<RecordFileBlock> results) {
+            String currentDir, List<InMemoryFile> currentFiles, List<UnparsedRecordBlock> results) {
         if (currentFiles == null || currentFiles.isEmpty()) return;
 
         // Compute directory base key if directory name looks like a timestamp directory
@@ -322,7 +322,7 @@ public class TarZstdDayReader {
                 recordTime = Instant.EPOCH;
             }
 
-            RecordFileBlock set = RecordFileBlock.newInMemoryBlock(
+            UnparsedRecordBlock set = UnparsedRecordBlock.newInMemoryBlock(
                     recordTime, primaryRecord, otherRecordFiles, signatureFiles, primarySidecars, otherSidecarFiles);
 
             results.add(set);
@@ -421,7 +421,7 @@ public class TarZstdDayReader {
 
         // Strip trailing _node_<id> where <id> is digits and '.'
         int nodeIdx = noExt.lastIndexOf("_node_");
-        if (nodeIdx >= 0 && nodeIdx < end) {
+        if (nodeIdx >= 0) {
             boolean ok = true;
             for (int i = nodeIdx + 6; i < end; i++) {
                 char c = noExt.charAt(i);

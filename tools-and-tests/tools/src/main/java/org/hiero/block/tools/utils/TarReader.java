@@ -8,7 +8,7 @@ import java.util.Objects;
 import java.util.Spliterator;
 import java.util.stream.Stream;
 import java.util.stream.StreamSupport;
-import org.hiero.block.tools.records.InMemoryFile;
+import org.hiero.block.tools.records.model.unparsed.InMemoryFile;
 
 /**
  * Utility class for reading tar archives and producing streams of InMemoryFile objects.

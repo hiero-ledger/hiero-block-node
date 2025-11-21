@@ -107,4 +107,14 @@ public final class RecordFileDates {
         blockTimeString = blockTimeString.substring(0, blockTimeString.length() - 1);
         return blockTimeString;
     }
+
+    /**
+     * Convert an Instant to a record file name.
+     *
+     * @param instant the block time Instant
+     * @return the record file name, like "2019-09-13T21_53_51.396440Z.rcd"
+     */
+    public static String instantToRecordFileName(Instant instant) {
+        return instant.toString().replace(':', '_') + ".rcd";
+    }
 }

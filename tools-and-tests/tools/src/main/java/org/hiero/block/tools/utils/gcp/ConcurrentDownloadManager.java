@@ -3,7 +3,7 @@ package org.hiero.block.tools.utils.gcp;
 
 import java.io.Closeable;
 import java.util.concurrent.CompletableFuture;
-import org.hiero.block.tools.records.InMemoryFile;
+import org.hiero.block.tools.records.model.unparsed.InMemoryFile;
 
 /**
  * Manager for concurrent downloads from GCS with built-in concurrency.

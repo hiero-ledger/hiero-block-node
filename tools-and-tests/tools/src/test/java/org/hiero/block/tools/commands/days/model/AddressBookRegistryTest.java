@@ -11,6 +11,7 @@ import com.hedera.pbj.runtime.io.stream.ReadableStreamingData;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
+import org.hiero.block.tools.days.model.AddressBookRegistry;
 import org.junit.jupiter.api.Test;
 
 public class AddressBookRegistryTest {

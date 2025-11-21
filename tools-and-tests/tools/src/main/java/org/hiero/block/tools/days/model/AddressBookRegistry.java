@@ -88,6 +88,7 @@ public class AddressBookRegistry {
      * This method should be called when processing a new block of transactions to ensure the address book is up to date.
      * <p>
      * There are two kinds of transactions that can update the address book:
+     * </p>
      * <ul>
      *   <li>File update/append transactions that update the address book file (id: 0.0.102) with a new address book. Of
      *   types com.hedera.hapi.node.file.FileUpdateTransactionBody and FileAppendTransactionBody. There can be one or
@@ -96,7 +97,6 @@ public class AddressBookRegistry {
      *   NodeCreateTransactionBody, NodeUpdateTransactionBody and NodeDeleteTransactionBody</li>
      * </ul>
      * This method should handle both types of transactions and update the address book accordingly.
-     * </p>
      *
      * @param addressBookTransactions the list of transactions to check for address book updates
      * @return a string describing the changes made to the address book, or a null string if no changes were made

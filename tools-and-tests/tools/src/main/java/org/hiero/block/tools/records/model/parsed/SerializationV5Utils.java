@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-package org.hiero.block.tools.records;
+package org.hiero.block.tools.records.model.parsed;
 
 import static org.hiero.block.tools.utils.Sha384.SHA_384_HASH_SIZE;
 

@@ -14,9 +14,10 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Set;
 import java.util.stream.Collectors;
-import org.hiero.block.tools.commands.days.listing.DayListingFileReader;
-import org.hiero.block.tools.commands.days.listing.DayListingFileWriter;
-import org.hiero.block.tools.commands.days.listing.ListingRecordFile;
+import org.hiero.block.tools.days.listing.DayListingFileReader;
+import org.hiero.block.tools.days.listing.DayListingFileWriter;
+import org.hiero.block.tools.days.listing.ListingRecordFile;
+import org.hiero.block.tools.days.subcommands.UpdateDayListingsCommand;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -37,12 +38,12 @@ class UpdateDayListingsCommandTest {
     Path testOutputDir;
 
     @BeforeEach
-    void setUp() throws IOException {
+    void setUp() {
         // TempDir annotation creates the directory automatically
     }
 
     @AfterEach
-    void tearDown() throws IOException {
+    void tearDown() {
         // TempDir annotation cleans up automatically
     }
 
@@ -311,6 +312,7 @@ class UpdateDayListingsCommandTest {
      * @param day day
      * @throws Exception if file creation fails
      */
+    @SuppressWarnings("EmptyTryBlock")
     private void createEmptyListingFile(Path baseDir, int year, int month, int day) throws Exception {
         try (DayListingFileWriter writer = new DayListingFileWriter(baseDir, year, month, day)) {
             // Empty file - just creates the structure

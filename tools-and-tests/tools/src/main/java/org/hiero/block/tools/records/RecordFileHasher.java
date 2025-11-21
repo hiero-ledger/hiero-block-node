@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.tools.records;
 
-import static org.hiero.block.tools.records.SerializationV5Utils.HASH_OBJECT_SIZE_BYTES;
+import static org.hiero.block.tools.records.model.parsed.SerializationV5Utils.HASH_OBJECT_SIZE_BYTES;
 
 import com.hedera.hapi.node.base.SemanticVersion;
 import com.hedera.hapi.streams.RecordStreamFile;
@@ -9,6 +9,7 @@ import com.hedera.pbj.runtime.io.stream.ReadableStreamingData;
 import java.io.ByteArrayInputStream;
 import java.io.DataInputStream;
 import java.security.MessageDigest;
+import org.hiero.block.tools.records.model.parsed.SerializationV5Utils;
 
 /**
  * Class for computing the SHA384 hash for the record file.
