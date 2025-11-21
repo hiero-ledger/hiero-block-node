@@ -140,6 +140,10 @@ public record ParsedRecordBlock(
             }
         }
         // Recompute record file block hash
-        return recordFile.recomputeBlockHash();
+        byte[] recomputedBlockHash = recordFile.recomputeBlockHash();
+        if (!Arrays.equals(recomputedBlockHash, recordFile.blockHash())) {
+            throw new ValidationException("Recomputed block hash does not match stored block hash");
+        }
+        return recomputedBlockHash;
     }
 }
