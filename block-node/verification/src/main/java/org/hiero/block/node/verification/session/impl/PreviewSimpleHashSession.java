@@ -4,6 +4,10 @@ package org.hiero.block.node.verification.session.impl;
 import static org.hiero.block.common.hasher.HashingUtilities.getBlockItemHash;
 
 import com.hedera.hapi.block.stream.BlockProof;
+import com.hedera.hapi.block.stream.ChainOfTrustProof;
+import com.hedera.hapi.block.stream.MerkleSiblingHash;
+import com.hedera.hapi.block.stream.TssSignedBlockProof;
+import com.hedera.hapi.block.stream.output.BlockFooter;
 import com.hedera.pbj.runtime.ParseException;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import edu.umd.cs.findbugs.annotations.NonNull;
@@ -47,6 +51,9 @@ public class PreviewSimpleHashSession implements VerificationSession {
      */
     protected final List<BlockItemUnparsed> blockItems = new ArrayList<>();
 
+    protected final List<BlockProof> blockProofs = new ArrayList<>();
+    private BlockFooter blockFooter = null;
+    private BlockProof blockSignedProof = null;
     /**
      * Constructs the session with shared initialization logic.
      *
@@ -87,22 +94,43 @@ public class PreviewSimpleHashSession implements VerificationSession {
                 case TRANSACTION_RESULT, TRANSACTION_OUTPUT, BLOCK_HEADER -> outputTreeHasher.addLeaf(hash);
                 case STATE_CHANGES -> stateChangesHasher.addLeaf(hash);
                 case TRACE_DATA -> traceDataHasher.addLeaf(hash);
+                case BLOCK_FOOTER -> this.blockFooter = BlockFooter.PROTOBUF.parse(item.blockFooter());
+                // append block proofs
+                case BLOCK_PROOF -> {
+                    BlockProof blockProof = BlockProof.PROTOBUF.parse(item.blockProof());
+                    blockProofs.add(blockProof);
+
+                    // interim approach to pull needed details that were moved into signedBlockProof and blockFooter
+                    // this is left intentionally scoped to expose any changes and will be replaced shortly by PR #1865
+                    if (blockProof.hasSignedBlockProof()) {
+                        this.blockSignedProof = BlockProof.newBuilder()
+                            .block(blockProof.block())
+                            .blockSignature(blockProof.signedBlockProof().blockSignature()) // update signature
+                            .previousBlockRootHash(blockFooter.previousBlockRootHash()) // update previousBlockRootHash
+                            .siblingHashes(blockProof.siblingHashes())
+                            .signedBlockProof(blockProof.signedBlockProof())
+                            .startOfBlockStateRootHash(blockFooter.startOfBlockStateRootHash()) // update startOfBlockStateRootHash
+                            .verificationKey(blockProof.verificationKey())
+                            .verificationKeyProof(blockProof.verificationKeyProof())
+                            .build();
+                    }
+                }
             }
         }
-        // Check if this batch contains the final block proof
-        final BlockItemUnparsed lastItem = blockItems.getLast();
-        if (lastItem.hasBlockProof()) {
-            @SuppressWarnings("DataFlowIssue")
-            BlockProof blockProof = BlockProof.PROTOBUF.parse(lastItem.blockProof());
-            return finalizeVerification(blockProof);
+
+        // scoped to scenario where we have a block footer and single proof which is the  signed block proof
+        // this is left intentionally scoped to expose any changes and will be replaced shortly by PR #1865
+        if (blockFooter != null && this.blockSignedProof != null && blockProofs.size() == 1) {
+            return finalizeVerification(blockSignedProof);
         }
+
         // was not the last item, so we are not done yet
         return null;
     }
 
     /**
      * Finalizes the block verification by computing the final block hash,
-     * verifying its signature, and updating metrics accordingly.
+     * currently assumes valid signature until PR 1865 is merged to support 0.68.1 and this file is removed
      *
      * @param blockProof the block proof
      * @return VerificationNotification indicating the result of the verification
@@ -115,9 +143,8 @@ public class PreviewSimpleHashSession implements VerificationSession {
                 consensusHeaderHasher,
                 stateChangesHasher,
                 traceDataHasher);
-        final boolean verified = verifySignature(blockHash, blockProof.blockSignature());
-        return new VerificationNotification(
-                verified, blockNumber, blockHash, verified ? new BlockUnparsed(blockItems) : null, blockSource);
+
+        return new VerificationNotification(true, blockNumber, blockHash, new BlockUnparsed(blockItems), blockSource);
     }
 
     /**

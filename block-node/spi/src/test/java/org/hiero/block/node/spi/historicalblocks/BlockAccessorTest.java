@@ -10,6 +10,9 @@ import com.hedera.hapi.block.stream.Block;
 import com.hedera.hapi.block.stream.BlockItem;
 import com.hedera.hapi.block.stream.BlockItem.ItemOneOfType;
 import com.hedera.hapi.block.stream.BlockProof;
+import com.hedera.hapi.block.stream.ChainOfTrustProof;
+import com.hedera.hapi.block.stream.MerkleSiblingHash;
+import com.hedera.hapi.block.stream.TssSignedBlockProof;
 import com.hedera.hapi.block.stream.input.RoundHeader;
 import com.hedera.hapi.block.stream.output.BlockHeader;
 import com.hedera.hapi.node.base.BlockHashAlgorithm;
@@ -18,7 +21,6 @@ import com.hedera.hapi.node.base.Timestamp;
 import com.hedera.pbj.runtime.OneOf;
 import com.hedera.pbj.runtime.ParseException;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
-import java.util.Collections;
 import java.util.List;
 import org.hiero.block.internal.BlockUnparsed;
 import org.hiero.block.node.spi.historicalblocks.BlockAccessor.Format;
@@ -41,15 +43,21 @@ public class BlockAccessorTest {
             new BlockItem(new OneOf<>(ItemOneOfType.ROUND_HEADER, new RoundHeader(827))),
             new BlockItem(new OneOf<>(
                     ItemOneOfType.BLOCK_PROOF,
-                    new BlockProof(
-                            0,
-                            Bytes.wrap("previousBlockRootHash".getBytes()),
-                            Bytes.wrap("startOfBlockStateRootHash".getBytes()),
-                            Bytes.wrap("block_signature".getBytes()),
-                            Collections.emptyList(),
-                            new OneOf<>(
-                                    BlockProof.VerificationReferenceOneOfType.VERIFICATION_KEY,
-                                    Bytes.wrap("verificationKey".getBytes())))))));
+                    BlockProof.newBuilder()
+                            .block(0)
+                            .blockSignature(Bytes.wrap("block_signature".getBytes()))
+                            .previousBlockRootHash(Bytes.wrap("previousBlockRootHash".getBytes()))
+                            .siblingHashes(MerkleSiblingHash.newBuilder()
+                                    .siblingHash(Bytes.wrap("sibling_hash".getBytes()))
+                                    .build())
+                            .signedBlockProof(TssSignedBlockProof.newBuilder()
+                                    .blockSignature(Bytes.wrap("hints_signature"))
+                                    .build())
+                            .startOfBlockStateRootHash(Bytes.wrap("startOfBlockStateRootHash".getBytes()))
+                            .verificationKey(Bytes.wrap("verification_key".getBytes()))
+                            .verificationKeyProof(ChainOfTrustProof.newBuilder()
+                                    .wrapsProof(Bytes.wrap("verificationKeyProof".getBytes())))
+                            .build()))));
     private static final Bytes SAMPLE_BLOCK_PROTOBUF_BYTES = Block.PROTOBUF.toBytes(SAMPLE_BLOCK);
     private static final Bytes SAMPLE_BLOCK_ZSTD_PROTOBUF_BYTES =
             Bytes.wrap(Zstd.compress(Block.PROTOBUF.toBytes(SAMPLE_BLOCK).toByteArray()));

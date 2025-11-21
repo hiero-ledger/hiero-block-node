@@ -7,6 +7,10 @@ import com.hedera.hapi.block.stream.Block;
 import com.hedera.hapi.block.stream.BlockItem;
 import com.hedera.hapi.block.stream.BlockItem.ItemOneOfType;
 import com.hedera.hapi.block.stream.BlockProof;
+import com.hedera.hapi.block.stream.BlockProof.ProofOneOfType;
+import com.hedera.hapi.block.stream.ChainOfTrustProof;
+import com.hedera.hapi.block.stream.MerkleSiblingHash;
+import com.hedera.hapi.block.stream.TssSignedBlockProof;
 import com.hedera.hapi.block.stream.input.EventHeader;
 import com.hedera.hapi.block.stream.input.RoundHeader;
 import com.hedera.hapi.block.stream.output.BlockHeader;
@@ -66,10 +70,18 @@ public final class BlockItemBuilderUtils {
                 Bytes.wrap("previousBlockRootHash".getBytes()),
                 Bytes.wrap("startOfBlockStateRootHash".getBytes()),
                 Bytes.wrap("block_signature".getBytes()),
-                Collections.emptyList(),
+                List.of(MerkleSiblingHash.newBuilder()
+                        .siblingHash(Bytes.wrap("sibling_hash".getBytes()))
+                        .build()),
+                Bytes.wrap("verification_key".getBytes()),
+                ChainOfTrustProof.newBuilder()
+                        .wrapsProof(Bytes.wrap("verificationKeyProof".getBytes()))
+                        .build(),
                 new OneOf<>(
-                        BlockProof.VerificationReferenceOneOfType.VERIFICATION_KEY,
-                        Bytes.wrap("verificationKey".getBytes())));
+                        ProofOneOfType.SIGNED_BLOCK_PROOF,
+                        TssSignedBlockProof.newBuilder()
+                                .blockSignature(Bytes.wrap("hints_signature"))
+                                .build()));
     }
 
     public static Bytes createBlockProofUnparsed(final long blockNumber) {
@@ -130,8 +142,8 @@ public final class BlockItemBuilderUtils {
      * Create an EventHeader with no parents and no signature middle bit.
      */
     public static BlockItem sampleLargeEventHeader() {
-        return new BlockItem(new OneOf<>(
-                ItemOneOfType.EVENT_HEADER, new EventHeader(EventCore.DEFAULT, Collections.emptyList(), false)));
+        return new BlockItem(
+                new OneOf<>(ItemOneOfType.EVENT_HEADER, new EventHeader(EventCore.DEFAULT, Collections.emptyList())));
     }
 
     public static BlockItemUnparsed sampleRoundHeaderUnparsed(final long roundNumber) {

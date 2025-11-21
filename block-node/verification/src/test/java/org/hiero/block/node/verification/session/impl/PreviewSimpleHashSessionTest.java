@@ -22,7 +22,7 @@ class PreviewSimpleHashSessionTest {
 
     @BeforeEach
     void setUp() throws IOException, ParseException {
-        sampleBlockInfo = BlockUtils.getSampleBlockInfo(BlockUtils.SAMPLE_BLOCKS.HAPI_0_64_0_BLOCK_14);
+        sampleBlockInfo = BlockUtils.getSampleBlockInfo(BlockUtils.SAMPLE_BLOCKS.HAPI_0_68_0_BLOCK_14);
         blockItems = sampleBlockInfo.blockUnparsed().blockItems();
     }
 

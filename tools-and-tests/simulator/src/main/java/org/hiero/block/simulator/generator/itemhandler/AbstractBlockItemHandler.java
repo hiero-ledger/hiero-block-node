@@ -49,7 +49,7 @@ abstract class AbstractBlockItemHandler implements ItemHandler {
      * @return A SemanticVersion protobuf object
      */
     protected SemanticVersion getSemanticVersion() {
-        return SemanticVersion.newBuilder().setMajor(0).setMinor(66).setPatch(0).build();
+        return SemanticVersion.newBuilder().setMajor(0).setMinor(68).setPatch(1).build();
     }
 
     /**

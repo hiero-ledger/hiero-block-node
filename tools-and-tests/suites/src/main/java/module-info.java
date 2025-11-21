@@ -6,6 +6,7 @@ open module org.hiero.block.node.suites {
     requires com.swirlds.config.extensions;
     requires org.hiero.block.node.app;
     requires org.hiero.block.node.spi;
+    requires org.hiero.block.protobuf.pbj;
     requires org.hiero.block.protobuf.protoc;
     requires org.hiero.block.simulator;
     requires com.github.dockerjava.api;
