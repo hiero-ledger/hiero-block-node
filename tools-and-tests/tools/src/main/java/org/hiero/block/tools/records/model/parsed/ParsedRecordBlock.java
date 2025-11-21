@@ -6,11 +6,8 @@ import static org.hiero.block.tools.utils.Sha384.sha384Digest;
 import com.hedera.hapi.node.base.NodeAddressBook;
 import com.hedera.hapi.streams.SidecarFile;
 import com.hedera.pbj.runtime.ParseException;
-import com.hedera.pbj.runtime.io.WritableSequentialData;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import com.hedera.pbj.runtime.io.stream.WritableStreamingData;
-import java.io.Closeable;
-import java.io.Flushable;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -82,18 +79,16 @@ public record ParsedRecordBlock(
         }
         // Write sidecar files
         for (int i = 0; i < sidecarFiles.size(); i++) {
-            final int signatureFileIndex = i+1;
+            final int signatureFileIndex = i + 1;
             final String sidecarFilename = String.format(
-                    "%s_%d.rcd%s",
-                    blockTime().toString().replace(':', '_'),
-                    signatureFileIndex,
-                    gzipped ? ".gz" : "");
+                    "%s_%d.rcd%s", blockTime().toString().replace(':', '_'), signatureFileIndex, gzipped ? ".gz" : "");
             final Path sidecarFilePath = directory.resolve(sidecarFilename);
             final SidecarFile sidecarFile = sidecarFiles.get(i);
-            try(WritableStreamingData wout = new WritableStreamingData(gzipped ?
-                new GZIPOutputStream(Files.newOutputStream(sidecarFilePath)) :
-                    Files.newOutputStream(sidecarFilePath))) {
-                    SidecarFile.PROTOBUF.write(sidecarFile, wout);
+            try (WritableStreamingData wout = new WritableStreamingData(
+                    gzipped
+                            ? new GZIPOutputStream(Files.newOutputStream(sidecarFilePath))
+                            : Files.newOutputStream(sidecarFilePath))) {
+                SidecarFile.PROTOBUF.write(sidecarFile, wout);
             }
         }
     }
@@ -134,14 +129,14 @@ public record ParsedRecordBlock(
             // check sidecar hash is in record file metadata
             boolean found = false;
             for (var sidecarMetadata : recordFile.recordStreamFile().sidecars()) {
-                if (Arrays.equals(sidecarMetadata.hashOrThrow().hash().toByteArray(),  sidecarHash)) {
+                if (Arrays.equals(sidecarMetadata.hashOrThrow().hash().toByteArray(), sidecarHash)) {
                     found = true;
                     break;
                 }
             }
             if (!found) {
-                throw new ValidationException("Sidecar file hash not found in record file metadata: "
-                        + Arrays.toString(sidecarHash));
+                throw new ValidationException(
+                        "Sidecar file hash not found in record file metadata: " + Arrays.toString(sidecarHash));
             }
         }
         // Recompute record file block hash
