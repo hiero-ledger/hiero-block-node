@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
-package org.hiero.block.tools.records;
+package org.hiero.block.tools.records.model.parsed;
 
 import static org.hiero.block.tools.days.model.AddressBookRegistry.nodeIdForNode;
-import static org.hiero.block.tools.records.SerializationV5Utils.readV5HashObject;
 import static org.hiero.block.tools.records.SigFileUtils.extractNodeAccountNumFromSignaturePath;
 import static org.hiero.block.tools.records.SigFileUtils.verifyRsaSha384;
+import static org.hiero.block.tools.records.model.parsed.SerializationV5Utils.readV5HashObject;
 import static org.hiero.block.tools.utils.Sha384.SHA_384_HASH_SIZE;
 
 import com.hedera.hapi.block.stream.experimental.RecordFileSignature;
@@ -18,6 +18,7 @@ import java.util.Arrays;
 import java.util.HexFormat;
 import java.util.Objects;
 import org.hiero.block.tools.days.model.AddressBookRegistry;
+import org.hiero.block.tools.records.model.unparsed.InMemoryFile;
 
 /**
  * Universal model for a parsed signature file that supports multiple signature file
@@ -33,39 +34,22 @@ public class ParsedSignatureFile {
     private final byte[] fileHashFromSig;
     /** The raw RSA signature bytes extracted from the signature file. */
     private final byte[] signatureBytes;
-    /** The numeric account number (for example 3 for 0.0.3) of the node that produced the signature.*/
+    /** The numeric account number (for example, 3 for 0.0.3) of the node that produced the signature.*/
     private final int accountNum;
-    /** The node ID (as defined by the address book) corresponding to {@link #accountNum}. */
-    private final long nodeId;
-    /**  The RSA public key (PEM or string form as provided in the address book) used to verify the signature. */
-    private final String rsaPubKey;
+    /** The name of the signature file that was parsed if known */
+    private final String signatureFileName;
 
     /**
      * Parse a signature file into a {@link ParsedSignatureFile} instance.
      *
-     * @param addressBook the address book used to resolve node information and public keys
      * @param sigFile the in-memory signature file to parse
      * @throws RuntimeException if there is no RSA public key for the node, the public key is empty, or the
      *                          signature file cannot be parsed
      */
-    public ParsedSignatureFile(NodeAddressBook addressBook, InMemoryFile sigFile) {
-        // Extract node ID from filename and fetch RSA public key from address book
+    public ParsedSignatureFile(InMemoryFile sigFile) {
+        signatureFileName = sigFile.path().getFileName().toString();
+        // Extract node ID from the file name
         accountNum = extractNodeAccountNumFromSignaturePath(sigFile.path());
-        // Get node ID from AddressBookRegistry helper
-        nodeId = nodeIdForNode(addressBook, 0, 0, accountNum);
-
-        // Look up RSA public key via AddressBookRegistry helper
-        try {
-            rsaPubKey = AddressBookRegistry.publicKeyForNode(addressBook, 0, 0, accountNum);
-        } catch (Exception e) {
-            throw new RuntimeException(
-                    "No RSA public key found for 0.0." + accountNum + " in provided address book; file "
-                            + sigFile.path(),
-                    e);
-        }
-        if (rsaPubKey == null || rsaPubKey.isEmpty()) {
-            throw new RuntimeException("Empty RSA public key for 0.0." + accountNum + "; file " + sigFile.path());
-        }
         try (DataInputStream sin = new DataInputStream(new ByteArrayInputStream(sigFile.data()))) {
             final int firstByte = sin.read();
             switch (firstByte) {
@@ -139,13 +123,47 @@ public class ParsedSignatureFile {
         }
     }
 
+    public String getRsaPubKey(NodeAddressBook addressBook) {
+        // Look up RSA public key via AddressBookRegistry helper
+        String rsaPubKey;
+        try {
+            rsaPubKey = AddressBookRegistry.publicKeyForNode(addressBook, 0, 0, accountNum);
+        } catch (Exception e) {
+            throw new RuntimeException(
+                    "No RSA public key found for 0.0." + accountNum + " in provided address book; file "
+                            + signatureFileName,
+                    e);
+        }
+        if (rsaPubKey == null || rsaPubKey.isEmpty()) {
+            throw new RuntimeException("Empty RSA public key for 0.0." + accountNum + "; file " + signatureFileName);
+        }
+        return rsaPubKey;
+    }
+
+    public long getNodeId(NodeAddressBook addressBook) {
+        // Get node ID from AddressBookRegistry helper
+        return nodeIdForNode(addressBook, 0, 0, accountNum);
+    }
+
     /**
      * Validate this parsed signature file against a provided file hash.
      *
      * @param hash the file hash to validate against (expected SHA-384)
+     * @param addressBook the address book used to resolve the public key for the signature
      * @return true if the provided hash matches the embedded hash and the RSA signature verifies; false otherwise
      */
-    public boolean isValid(byte[] hash) {
+    public boolean isValid(byte[] hash, NodeAddressBook addressBook) {
+        return isValid(hash, getRsaPubKey(addressBook));
+    }
+
+    /**
+     * Validate this parsed signature file against a provided file hash.
+     *
+     * @param hash the file hash to validate against (expected SHA-384)
+     * @param rsaPubKey the RSA public key used to verify the signature
+     * @return true if the provided hash matches the embedded hash and the RSA signature verifies; false otherwise
+     */
+    public boolean isValid(byte[] hash, String rsaPubKey) {
         if (!Arrays.equals(hash, fileHashFromSig)) {
             return false;
         }
@@ -155,10 +173,11 @@ public class ParsedSignatureFile {
     /**
      * Convert this parsed signature into the wire model {@link RecordFileSignature} used by the block stream.
      *
+     * @param addressBook the address book used to resolve the node ID for the signature
      * @return a RecordFileSignature containing the raw signature bytes and the resolved node id
      */
-    public RecordFileSignature toRecordFileSignature() {
-        return new RecordFileSignature(Bytes.wrap(signatureBytes), nodeId);
+    public RecordFileSignature toRecordFileSignature(NodeAddressBook addressBook) {
+        return new RecordFileSignature(Bytes.wrap(signatureBytes), getNodeId(addressBook));
     }
 
     /** @return the SHA-384 file hash extracted from the signature file */
@@ -176,16 +195,6 @@ public class ParsedSignatureFile {
         return accountNum;
     }
 
-    /** @return the resolved node id corresponding to {@link #accountNum} */
-    public long nodeId() {
-        return nodeId;
-    }
-
-    /** @return the RSA public key string used to verify signatures for this node */
-    public String rsaPubKey() {
-        return rsaPubKey;
-    }
-
     /**
      * {@inheritDoc}
      */
@@ -194,9 +203,8 @@ public class ParsedSignatureFile {
         return "SignatureFile{" + "fileHashFromSig="
                 + HexFormat.of().formatHex(fileHashFromSig) + ", signatureBytes="
                 + HexFormat.of().formatHex(signatureBytes) + ", accountNum="
-                + accountNum + ", nodeId="
-                + nodeId + ", rsaPubKey='"
-                + rsaPubKey + '\'' + '}';
+                + accountNum
+                + '}';
     }
 
     /**
@@ -213,10 +221,8 @@ public class ParsedSignatureFile {
         }
         ParsedSignatureFile that = (ParsedSignatureFile) o;
         return accountNum == that.accountNum
-                && nodeId == that.nodeId
                 && Objects.deepEquals(fileHashFromSig, that.fileHashFromSig)
-                && Objects.deepEquals(signatureBytes, that.signatureBytes)
-                && Objects.equals(rsaPubKey, that.rsaPubKey);
+                && Objects.deepEquals(signatureBytes, that.signatureBytes);
     }
 
     /**
@@ -226,7 +232,6 @@ public class ParsedSignatureFile {
      */
     @Override
     public int hashCode() {
-        return Objects.hash(
-                Arrays.hashCode(fileHashFromSig), Arrays.hashCode(signatureBytes), accountNum, nodeId, rsaPubKey);
+        return Objects.hash(Arrays.hashCode(fileHashFromSig), Arrays.hashCode(signatureBytes), accountNum);
     }
 }

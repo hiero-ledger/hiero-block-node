@@ -15,14 +15,17 @@ import java.time.ZoneOffset;
 import java.util.Collections;
 import java.util.HexFormat;
 import java.util.List;
-import org.hiero.block.tools.commands.days.model.AddressBookRegistry;
+import org.hiero.block.tools.days.model.AddressBookRegistry;
+import org.hiero.block.tools.records.model.parsed.ParsedRecordFile;
+import org.hiero.block.tools.records.model.unparsed.InMemoryFile;
+import org.hiero.block.tools.records.model.unparsed.UnparsedRecordBlock;
 import org.junit.jupiter.api.Test;
 
 /**
  * Unit tests for InMemoryBlock validate() method using example record files from mainnet and testnet.
  * Testing using blocks 0, 26591040 and 82297471 as these are examples of v2,v5 and v6 formats.
  */
-public class RecordFileBlockValidateTest {
+public class UnparsedRecordBlockValidateTest {
     public static final byte[] EXAMPLE_V2_PREVIOUS_RECORD_FILE_HASH = new byte[48];
     public static final byte[] EXAMPLE_V5_PREVIOUS_RECORD_FILE_HASH = HexFormat.of()
             .parseHex(
@@ -48,7 +51,7 @@ public class RecordFileBlockValidateTest {
      * @throws Exception if there is an error loading the file
      */
     private static InMemoryFile loadResourceFile(String resourcePath) throws Exception {
-        final URL url = RecordFileBlockValidateTest.class.getResource(resourcePath);
+        final URL url = UnparsedRecordBlockValidateTest.class.getResource(resourcePath);
         if (url == null) {
             throw new IllegalStateException("Resource not found: " + resourcePath);
         }
@@ -65,7 +68,7 @@ public class RecordFileBlockValidateTest {
      * @throws Exception if there is an error loading the file
      */
     private static NodeAddressBook loadAddressBookResourceFile(String resourcePath) throws Exception {
-        final URL url = RecordFileBlockValidateTest.class.getResource(resourcePath);
+        final URL url = UnparsedRecordBlockValidateTest.class.getResource(resourcePath);
         if (url == null) {
             throw new IllegalStateException("Resource not found: " + resourcePath);
         }
@@ -80,17 +83,15 @@ public class RecordFileBlockValidateTest {
         final String base = "/record-files/example-v2/2019-09-13T21_53_51.396440Z/";
         final InMemoryFile record = loadResourceFile(base + "2019-09-13T21_53_51.396440Z.rcd");
         // use RecordFileInfo to check the previous file and end running hashes written in the file, not recomputed
-        final UniversalRecordFile info = UniversalRecordFile.parse(record.data());
+        final ParsedRecordFile info = ParsedRecordFile.parse(record);
         assertArrayEquals(
-                EXAMPLE_V2_PREVIOUS_RECORD_FILE_HASH,
-                info.previousBlockHash().toByteArray(),
-                "Previous file hash mismatch for v2");
+                EXAMPLE_V2_PREVIOUS_RECORD_FILE_HASH, info.previousBlockHash(), "Previous file hash mismatch for v2");
         assertArrayEquals(
                 EXAMPLE_V2_EXPECTED_END_RUNNING_HASH,
-                info.blockHash().toByteArray(),
+                info.blockHash(),
                 "Expected end running hash mismatch for v2 (info)");
         // create the InMemoryBlock
-        final RecordFileBlock block = RecordFileBlock.newInMemoryBlock(
+        final UnparsedRecordBlock block = UnparsedRecordBlock.newInMemoryBlock(
                 extractRecordFileTime("2019-09-13T21_53_51.396440Z.rcd").toInstant(ZoneOffset.UTC),
                 record,
                 Collections.emptyList(), // no other record files needed for testing
@@ -105,7 +106,7 @@ public class RecordFileBlockValidateTest {
                 Collections.emptyList(),
                 Collections.emptyList());
         // now call validate with the genesis address book as this is the first block
-        final RecordFileBlock.ValidationResult result =
+        final UnparsedRecordBlock.ValidationResult result =
                 block.validate(EXAMPLE_V2_PREVIOUS_RECORD_FILE_HASH, addressBook);
         assertTrue(
                 result.warningMessages().isBlank(),
@@ -115,7 +116,7 @@ public class RecordFileBlockValidateTest {
                 EXAMPLE_V2_EXPECTED_END_RUNNING_HASH, result.endRunningHash(), "End running hash mismatch for v2");
         assertEquals(info.hapiProtoVersion(), result.hapiVersion(), "HAPI version mismatch for v2");
         // now make bad block with not enough signature files and check we get validation failure
-        final RecordFileBlock badBlock = RecordFileBlock.newInMemoryBlock(
+        final UnparsedRecordBlock badBlock = UnparsedRecordBlock.newInMemoryBlock(
                 extractRecordFileTime("2019-09-13T21_53_51.396440Z.rcd").toInstant(ZoneOffset.UTC),
                 record,
                 Collections.emptyList(), // no other record files needed for testing
@@ -125,7 +126,7 @@ public class RecordFileBlockValidateTest {
                         loadResourceFile(base + "node_0.0.5.rcd_sig")),
                 Collections.emptyList(),
                 Collections.emptyList());
-        final RecordFileBlock.ValidationResult result2 =
+        final UnparsedRecordBlock.ValidationResult result2 =
                 badBlock.validate(EXAMPLE_V2_PREVIOUS_RECORD_FILE_HASH, addressBook);
         assertTrue(
                 result2.warningMessages().contains("Insufficient valid signatures"), "Should report not enough sigs");
@@ -138,17 +139,15 @@ public class RecordFileBlockValidateTest {
         final NodeAddressBook addressBook = loadAddressBookResourceFile(base + "address_book.bin");
         final InMemoryFile record = loadResourceFile(base + "2022-01-01T00_00_00.252365821Z.rcd");
         // use RecordFileInfo to check the previous file and end running hashes written in the file, not recomputed
-        final UniversalRecordFile info = UniversalRecordFile.parse(record.data());
+        final ParsedRecordFile info = ParsedRecordFile.parse(record);
         assertArrayEquals(
-                EXAMPLE_V5_PREVIOUS_RECORD_FILE_HASH,
-                info.previousBlockHash().toByteArray(),
-                "Previous file hash mismatch for v5");
+                EXAMPLE_V5_PREVIOUS_RECORD_FILE_HASH, info.previousBlockHash(), "Previous file hash mismatch for v5");
         assertArrayEquals(
                 EXAMPLE_V5_EXPECTED_END_RUNNING_HASH,
-                info.blockHash().toByteArray(),
+                info.blockHash(),
                 "Expected end running hash mismatch for v5 (info)");
         // create the InMemoryBlock
-        final RecordFileBlock block = RecordFileBlock.newInMemoryBlock(
+        final UnparsedRecordBlock block = UnparsedRecordBlock.newInMemoryBlock(
                 extractRecordFileTime("2022-01-01T00_00_00.252365821Z.rcd").toInstant(ZoneOffset.UTC),
                 record,
                 Collections.emptyList(), // no other record files needed for testing
@@ -168,7 +167,7 @@ public class RecordFileBlockValidateTest {
                 Collections.emptyList(),
                 Collections.emptyList()); // this block has no sidecar files
         // validate the block
-        final RecordFileBlock.ValidationResult result =
+        final UnparsedRecordBlock.ValidationResult result =
                 block.validate(EXAMPLE_V5_PREVIOUS_RECORD_FILE_HASH, addressBook);
         assertTrue(
                 result.warningMessages().isBlank(),
@@ -178,7 +177,7 @@ public class RecordFileBlockValidateTest {
                 EXAMPLE_V5_EXPECTED_END_RUNNING_HASH, result.endRunningHash(), "End running hash mismatch for v5");
         assertEquals(info.hapiProtoVersion(), result.hapiVersion(), "HAPI version mismatch for v5");
         // now make bad block with not enough signature files and check we get validation failure
-        final RecordFileBlock badBlock = RecordFileBlock.newInMemoryBlock(
+        final UnparsedRecordBlock badBlock = UnparsedRecordBlock.newInMemoryBlock(
                 extractRecordFileTime("2022-01-01T00_00_00.252365821Z.rcd").toInstant(ZoneOffset.UTC),
                 record,
                 Collections.emptyList(), // no other record files needed for testing
@@ -188,7 +187,7 @@ public class RecordFileBlockValidateTest {
                         loadResourceFile(base + "node_0.0.12.rcd_sig")),
                 Collections.emptyList(),
                 Collections.emptyList()); // this block has no sidecar files
-        final RecordFileBlock.ValidationResult result2 =
+        final UnparsedRecordBlock.ValidationResult result2 =
                 badBlock.validate(EXAMPLE_V5_PREVIOUS_RECORD_FILE_HASH, addressBook);
         assertTrue(
                 result2.warningMessages().contains("Insufficient valid signatures"), "Should report not enough sigs");
@@ -203,17 +202,15 @@ public class RecordFileBlockValidateTest {
         final InMemoryFile record = loadResourceFile(base + "2025-07-23T20_37_42.076472454Z.rcd");
         final InMemoryFile sidecar01 = loadResourceFile(base + "2025-07-23T20_37_42.076472454Z_01.rcd");
         // use RecordFileInfo to check the previous file and end running hashes written in the file, not recomputed
-        final UniversalRecordFile info = UniversalRecordFile.parse(record.data());
+        final ParsedRecordFile info = ParsedRecordFile.parse(record);
         assertArrayEquals(
-                EXAMPLE_V6_PREVIOUS_RECORD_FILE_HASH,
-                info.previousBlockHash().toByteArray(),
-                "Previous file hash mismatch for v6");
+                EXAMPLE_V6_PREVIOUS_RECORD_FILE_HASH, info.previousBlockHash(), "Previous file hash mismatch for v6");
         assertArrayEquals(
                 EXAMPLE_V6_EXPECTED_END_RUNNING_HASH,
-                info.blockHash().toByteArray(),
+                info.blockHash(),
                 "Expected end running hash mismatch for v6 (info)");
         // create the InMemoryBlock
-        final RecordFileBlock block = RecordFileBlock.newInMemoryBlock(
+        final UnparsedRecordBlock block = UnparsedRecordBlock.newInMemoryBlock(
                 extractRecordFileTime("2025-07-23T20_37_42.076472454Z.rcd").toInstant(ZoneOffset.UTC),
                 record,
                 Collections.emptyList(), // no other record files needed for testing
@@ -234,7 +231,7 @@ public class RecordFileBlockValidateTest {
                 Collections.emptyList());
 
         // validate the block
-        final RecordFileBlock.ValidationResult result =
+        final UnparsedRecordBlock.ValidationResult result =
                 block.validate(EXAMPLE_V6_PREVIOUS_RECORD_FILE_HASH, addressBook);
         assertTrue(
                 result.warningMessages().isBlank(),
@@ -244,7 +241,7 @@ public class RecordFileBlockValidateTest {
                 EXAMPLE_V6_EXPECTED_END_RUNNING_HASH, result.endRunningHash(), "End running hash mismatch for v6");
         assertEquals(info.hapiProtoVersion(), result.hapiVersion(), "HAPI version mismatch for v6");
         // now make bad block with not enough signature files and check we get validation failure
-        final RecordFileBlock badBlock = RecordFileBlock.newInMemoryBlock(
+        final UnparsedRecordBlock badBlock = UnparsedRecordBlock.newInMemoryBlock(
                 extractRecordFileTime("2025-07-23T20_37_42.076472454Z.rcd").toInstant(ZoneOffset.UTC),
                 record,
                 Collections.emptyList(), // no other record files needed for testing
@@ -254,7 +251,7 @@ public class RecordFileBlockValidateTest {
                         loadResourceFile(base + "node_0.0.25.rcd_sig")),
                 List.of(sidecar01),
                 Collections.emptyList());
-        final RecordFileBlock.ValidationResult result2 =
+        final UnparsedRecordBlock.ValidationResult result2 =
                 badBlock.validate(EXAMPLE_V6_PREVIOUS_RECORD_FILE_HASH, addressBook);
         assertTrue(
                 result2.warningMessages().contains("Insufficient valid signatures"), "Should report not enough sigs");

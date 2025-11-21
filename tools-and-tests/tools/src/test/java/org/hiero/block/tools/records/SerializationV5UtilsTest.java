@@ -1,13 +1,14 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.tools.records;
 
-import static org.hiero.block.tools.records.SerializationV5Utils.HASH_OBJECT_SIZE_BYTES;
+import static org.hiero.block.tools.records.model.parsed.SerializationV5Utils.HASH_OBJECT_SIZE_BYTES;
 import static org.hiero.block.tools.utils.Sha384.SHA_384_HASH_SIZE;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
 import com.hedera.pbj.runtime.io.buffer.BufferedData;
 import java.io.IOException;
 import java.util.HexFormat;
+import org.hiero.block.tools.records.model.parsed.SerializationV5Utils;
 import org.junit.jupiter.api.Test;
 
 /**

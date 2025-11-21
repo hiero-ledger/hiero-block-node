@@ -1,25 +1,14 @@
 // SPDX-License-Identifier: Apache-2.0
-package org.hiero.block.tools.records;
+package org.hiero.block.tools.records.model.unparsed;
 
 import static org.hiero.block.tools.utils.Sha384.sha384Digest;
 
-import com.hedera.hapi.block.stream.experimental.Block;
-import com.hedera.hapi.block.stream.experimental.BlockFooter;
-import com.hedera.hapi.block.stream.experimental.BlockItem;
-import com.hedera.hapi.block.stream.experimental.BlockItem.ItemOneOfType;
-import com.hedera.hapi.block.stream.experimental.BlockProof;
-import com.hedera.hapi.block.stream.experimental.BlockProof.ProofOneOfType;
-import com.hedera.hapi.block.stream.experimental.SignedRecordFileProof;
-import com.hedera.hapi.block.stream.output.BlockHeader;
-import com.hedera.hapi.node.base.BlockHashAlgorithm;
 import com.hedera.hapi.node.base.NodeAddressBook;
 import com.hedera.hapi.node.base.SemanticVersion;
-import com.hedera.hapi.node.base.Timestamp;
 import com.hedera.hapi.node.base.Transaction;
 import com.hedera.hapi.node.transaction.TransactionBody;
 import com.hedera.hapi.streams.RecordStreamFile;
 import com.hedera.hapi.streams.RecordStreamItem;
-import com.hedera.pbj.runtime.OneOf;
 import com.hedera.pbj.runtime.ParseException;
 import com.hedera.pbj.runtime.io.stream.ReadableStreamingData;
 import java.io.ByteArrayInputStream;
@@ -41,7 +30,7 @@ import org.hiero.block.tools.days.model.AddressBookRegistry;
  * listed in the file, and performs signature validation using RSA public keys from the provided address book.
  */
 @SuppressWarnings("DataFlowIssue")
-public class RecordFileBlockV6 extends RecordFileBlock {
+public class UnparsedRecordBlockV6 extends UnparsedRecordBlock {
 
     /**
      * Creates a v6 in-memory block wrapper.
@@ -53,7 +42,7 @@ public class RecordFileBlockV6 extends RecordFileBlock {
      * @param primarySidecarFiles primary sidecar files produced for this block
      * @param otherSidecarFiles additional sidecar files produced for this block
      */
-    public RecordFileBlockV6(
+    public UnparsedRecordBlockV6(
             Instant recordFileTime,
             InMemoryFile primaryRecordFile,
             List<InMemoryFile> otherRecordFiles,

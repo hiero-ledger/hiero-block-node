@@ -8,7 +8,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import com.github.luben.zstd.ZstdInputStream;
 import java.io.InputStream;
 import java.util.List;
-import org.hiero.block.tools.records.InMemoryFile;
+import org.hiero.block.tools.records.model.unparsed.InMemoryFile;
 import org.hiero.block.tools.utils.TarReader;
 import org.junit.jupiter.api.Test;
 

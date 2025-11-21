@@ -5,7 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 
 import com.hedera.hapi.node.base.NodeAddressBook;
 import java.net.URL;
-import org.hiero.block.tools.commands.mirrornode.MirrorNodeAddressBook;
+import org.hiero.block.tools.mirrornode.MirrorNodeAddressBook;
 import org.junit.jupiter.api.Test;
 
 public class MirrorNodeAddressBookTest {

@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
-package org.hiero.block.tools.records;
+package org.hiero.block.tools.records.model.unparsed;
 
-import static org.hiero.block.tools.records.SerializationV5Utils.HASH_OBJECT_SIZE_BYTES;
-import static org.hiero.block.tools.records.SerializationV5Utils.readV5HashObject;
+import static org.hiero.block.tools.records.model.parsed.SerializationV5Utils.HASH_OBJECT_SIZE_BYTES;
+import static org.hiero.block.tools.records.model.parsed.SerializationV5Utils.readV5HashObject;
 import static org.hiero.block.tools.utils.Sha384.SHA_384_HASH_SIZE;
 import static org.hiero.block.tools.utils.Sha384.hashSha384;
 
@@ -17,6 +17,7 @@ import java.time.Instant;
 import java.util.Collections;
 import java.util.List;
 import org.hiero.block.tools.days.model.AddressBookRegistry;
+import org.hiero.block.tools.records.model.parsed.ParsedRecordFile;
 
 /**
  * In-memory representation and validator for version 5 Hedera record stream files.
@@ -27,7 +28,7 @@ import org.hiero.block.tools.days.model.AddressBookRegistry;
  * Signature file validation is performed using RSA public keys from the provided address book.
  */
 @SuppressWarnings("DuplicatedCode")
-public class RecordFileBlockV5 extends RecordFileBlock {
+public class UnparsedRecordBlockV5 extends UnparsedRecordBlock {
 
     /**
      * Creates a v5 in-memory block wrapper.
@@ -39,7 +40,7 @@ public class RecordFileBlockV5 extends RecordFileBlock {
      * @param primarySidecarFiles primary sidecar files (not used by v5)
      * @param otherSidecarFiles additional sidecar files (not used by v5)
      */
-    public RecordFileBlockV5(
+    public UnparsedRecordBlockV5(
             Instant recordFileTime,
             InMemoryFile primaryRecordFile,
             List<InMemoryFile> otherRecordFiles,
@@ -89,7 +90,7 @@ public class RecordFileBlockV5 extends RecordFileBlock {
             final SemanticVersion hapiVersion = new SemanticVersion(hapiMajor, hapiMinor, hapiPatch, null, null);
             // read object stream version
             final int objectStreamVersion = in.readInt();
-            if (objectStreamVersion != UniversalRecordFile.V5_RECORD_STREAM_OBJECT_CLASS_VERSION) {
+            if (objectStreamVersion != ParsedRecordFile.V5_RECORD_STREAM_OBJECT_CLASS_VERSION) {
                 warnings.append("Unexpected object stream version (v5): ")
                         .append(objectStreamVersion)
                         .append('\n');
@@ -109,21 +110,22 @@ public class RecordFileBlockV5 extends RecordFileBlock {
             while (in.remaining() > HASH_OBJECT_SIZE_BYTES) {
                 // read a RecordStreamObject
                 final long classId = in.readLong();
-                if (classId != UniversalRecordFile.V5_RECORD_STREAM_OBJECT_CLASS_ID) {
+                if (classId != ParsedRecordFile.V5_RECORD_STREAM_OBJECT_CLASS_ID) {
                     warnings.append("Unexpected class ID in record file: ")
                             .append(Long.toHexString(classId))
                             .append(" expected ")
-                            .append(Long.toHexString(UniversalRecordFile.V5_RECORD_STREAM_OBJECT_CLASS_ID))
+                            .append(Long.toHexString(ParsedRecordFile.V5_RECORD_STREAM_OBJECT_CLASS_ID))
                             .append("\n");
                     isValid = false;
                     break; // cannot continue parsing
                 }
                 final int classVersion = in.readInt();
-                if (classVersion != UniversalRecordFile.V5_RECORD_STREAM_OBJECT_CLASS_VERSION) { // expecting transaction object
+                if (classVersion
+                        != ParsedRecordFile.V5_RECORD_STREAM_OBJECT_CLASS_VERSION) { // expecting transaction object
                     warnings.append("Unexpected class version in record file: ")
                             .append(classVersion)
                             .append(" expected ")
-                            .append(UniversalRecordFile.V5_RECORD_STREAM_OBJECT_CLASS_VERSION)
+                            .append(ParsedRecordFile.V5_RECORD_STREAM_OBJECT_CLASS_VERSION)
                             .append("\n");
                     isValid = false;
                     break; // cannot continue parsing
