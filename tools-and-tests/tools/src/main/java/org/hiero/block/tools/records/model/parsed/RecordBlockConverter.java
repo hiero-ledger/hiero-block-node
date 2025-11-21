@@ -47,7 +47,7 @@ public class RecordBlockConverter {
         final List<RecordFileSignature> signatures = recordBlock.signatureFiles().stream()
                 .parallel()
                 // we only include valid signatures in a block proof
-                .filter(psf -> psf.isValid(universalRecordFile.blockHash(), addressBook))
+                .filter(psf -> psf.isValid(universalRecordFile.signedHash(), addressBook))
                 .map(psf -> psf.toRecordFileSignature(addressBook))
                 .toList();
         final BlockProof blockProof = new BlockProof(new OneOf<>(
