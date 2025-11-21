@@ -22,6 +22,8 @@ import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.DataInputStream;
 import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.time.Instant;
 import java.util.Arrays;
 import java.util.HexFormat;
@@ -47,6 +49,8 @@ public class ParsedSignatureFile {
     private final int accountNum;
     /** The name of the signature file that was parsed if known */
     private final String signatureFileName;
+    /** The bytes of the signature file. */
+    private final byte[] signatureFileBytes;
 
     /**
      * Create a ParsedSignatureFile from raw signature bytes and associated metadata.
@@ -72,7 +76,7 @@ public class ParsedSignatureFile {
         // convert nodeId to accountNum
         this.accountNum = (int) AddressBookRegistry.accountIdForNode(nodeId);
         // serialize signature file from data
-        byte[] sigFileBytes = writeSignatureFile(signatureBytes, recordFileVersion, signedHash);
+        this.signatureFileBytes = writeSignatureFile(signatureBytes, recordFileVersion, signedHash);
         // create file hash object
         fileHashFromSig = signedHash;
         // compute signature file name
@@ -88,6 +92,7 @@ public class ParsedSignatureFile {
      *                          signature file cannot be parsed
      */
     public ParsedSignatureFile(InMemoryFile sigFile) {
+        signatureFileBytes = sigFile.data();
         signatureFileName = sigFile.path().getFileName().toString();
         // Extract node ID from the file name
         accountNum = extractNodeAccountNumFromSignaturePath(sigFile.path());
@@ -165,6 +170,16 @@ public class ParsedSignatureFile {
     }
 
     /**
+     * Write this signature file to the given directory.
+     *
+     * @param directory the directory to write the signature file to
+     * @throws IOException if there is an error writing the file
+     */
+    public void write(Path directory) throws IOException {
+        Files.write(directory.resolve(signatureFileName), signatureFileBytes);
+    }
+
+    /**
      * Serialize a signature file for the given record file version.
      *
      * <p>We accept that when we go from block stream block to ParsedSignatureFile this is lossy as we do not store the
@@ -176,7 +191,7 @@ public class ParsedSignatureFile {
      * @return the serialized signature file bytes
      * @throws RuntimeException if the record file version is unsupported or there is an error during serialization
      */
-    public static byte[] writeSignatureFile(
+    private static byte[] writeSignatureFile(
             final byte[] signatureBytes, final int recordFileVersion, final byte[] signedHash) {
         try (ByteArrayOutputStream bout = new ByteArrayOutputStream();
                 WritableStreamingData out = new WritableStreamingData(bout)) {
