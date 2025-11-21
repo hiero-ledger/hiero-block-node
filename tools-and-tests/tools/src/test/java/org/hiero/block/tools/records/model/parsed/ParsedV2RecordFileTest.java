@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.tools.records.model.parsed;
 
 import static org.hiero.block.tools.utils.TestBlocks.V2_TEST_BLOCK_ADDRESS_BOOK;
@@ -28,7 +29,7 @@ import org.junit.jupiter.api.TestMethodOrder;
 /**
  * Tests for parsing and validating ParsedRecordFile with a V2 Hedera record stream file.
  */
-@TestInstance(TestInstance.Lifecycle.PER_CLASS)  // Single instance, shared state
+@TestInstance(TestInstance.Lifecycle.PER_CLASS) // Single instance, shared state
 @TestMethodOrder(MethodOrderer.OrderAnnotation.class)
 public class ParsedV2RecordFileTest {
 
@@ -41,7 +42,7 @@ public class ParsedV2RecordFileTest {
     void testV2TestParse() {
         assertDoesNotThrow(() -> {
             final InMemoryFile v2RecordFile =
-                new InMemoryFile(Path.of("2019-09-13T21_53_51.396440Z.rcd"), V2_TEST_BLOCK_BYTES);
+                    new InMemoryFile(Path.of("2019-09-13T21_53_51.396440Z.rcd"), V2_TEST_BLOCK_BYTES);
             v2BlockParsedRecordFile = ParsedRecordFile.parse(v2RecordFile);
         });
     }
@@ -52,34 +53,38 @@ public class ParsedV2RecordFileTest {
     void testV2BlockHash() {
         byte[] blockHash = v2BlockParsedRecordFile.blockHash();
         System.out.println("blockHash = " + HexFormat.of().formatHex(blockHash));
-        assertArrayEquals(V2_TEST_BLOCK_HASH, blockHash,
-            "V2 block hash does not match expected value from mirror node");
+        assertArrayEquals(
+                V2_TEST_BLOCK_HASH, blockHash, "V2 block hash does not match expected value from mirror node");
         // recompute block hash to verify deterministic result
         byte[] recomputedHash = v2BlockParsedRecordFile.recomputeBlockHash();
-        assertArrayEquals(V2_TEST_BLOCK_HASH, recomputedHash,
-            "Recomputed V2 block hash does not match expected value from mirror node");
+        assertArrayEquals(
+                V2_TEST_BLOCK_HASH,
+                recomputedHash,
+                "Recomputed V2 block hash does not match expected value from mirror node");
     }
 
     @Test
     @Order(3)
     @DisplayName("Test V2 signatures")
     void testV2Signatures() {
-        List<ParsedSignatureFile> signatures = IntStream.range(3,10)
-            .mapToObj(nodeId -> {
-                try {
-                    final byte[] sigBytes = Objects.requireNonNull(ParsedV2RecordFileTest.class.getResourceAsStream(
-                            "/record-files/example-v2/2019-09-13T21_53_51.396440Z/node_0.0."+nodeId+".rcd_sig"))
-                        .readAllBytes();
-                    return new ParsedSignatureFile(new InMemoryFile(
-                        Path.of("node_0.0."+nodeId+".rcd_sig"), sigBytes));
-                } catch (IOException e) {
-                    throw new RuntimeException(e);
-                }
-            })
-            .toList();
+        List<ParsedSignatureFile> signatures = IntStream.range(3, 10)
+                .mapToObj(nodeId -> {
+                    try {
+                        final byte[] sigBytes = Objects.requireNonNull(ParsedV2RecordFileTest.class.getResourceAsStream(
+                                        "/record-files/example-v2/2019-09-13T21_53_51.396440Z/node_0.0." + nodeId
+                                                + ".rcd_sig"))
+                                .readAllBytes();
+                        return new ParsedSignatureFile(
+                                new InMemoryFile(Path.of("node_0.0." + nodeId + ".rcd_sig"), sigBytes));
+                    } catch (IOException e) {
+                        throw new RuntimeException(e);
+                    }
+                })
+                .toList();
         for (ParsedSignatureFile signatureFile : signatures) {
-            assertTrue(signatureFile.isValid(v2BlockParsedRecordFile.signedHash(), V2_TEST_BLOCK_ADDRESS_BOOK),
-                "V2 signature file for node " + signatureFile.accountNum() + " is not valid");
+            assertTrue(
+                    signatureFile.isValid(v2BlockParsedRecordFile.signedHash(), V2_TEST_BLOCK_ADDRESS_BOOK),
+                    "V2 signature file for node " + signatureFile.accountNum() + " is not valid");
         }
     }
 
@@ -88,30 +93,32 @@ public class ParsedV2RecordFileTest {
     @DisplayName("Test V2 ParsedRecordFile reconstruction via parse method")
     void testV2OtherParseMethod() {
         ParsedRecordFile reconstructedRecordFile = ParsedRecordFile.parse(
-            v2BlockParsedRecordFile.blockTime(),
-            2,
-            v2BlockParsedRecordFile.hapiProtoVersion(),
-            v2BlockParsedRecordFile.previousBlockHash(),
-            v2BlockParsedRecordFile.recordStreamFile());
+                v2BlockParsedRecordFile.blockTime(),
+                2,
+                v2BlockParsedRecordFile.hapiProtoVersion(),
+                v2BlockParsedRecordFile.previousBlockHash(),
+                v2BlockParsedRecordFile.recordStreamFile());
         assertArrayEquals(
-            V2_TEST_BLOCK_HASH,
-            reconstructedRecordFile.blockHash(),
-            "Reconstructed V2 ParsedRecordFile block hash does not match expected value from mirror node");
-        assertArrayEquals(V2_TEST_BLOCK_BYTES, reconstructedRecordFile.recordFileContents(),
-            "Reconstructed V2 ParsedRecordFile bytes do not match original bytes");
+                V2_TEST_BLOCK_HASH,
+                reconstructedRecordFile.blockHash(),
+                "Reconstructed V2 ParsedRecordFile block hash does not match expected value from mirror node");
+        assertArrayEquals(
+                V2_TEST_BLOCK_BYTES,
+                reconstructedRecordFile.recordFileContents(),
+                "Reconstructed V2 ParsedRecordFile bytes do not match original bytes");
     }
 
     @Test
     @Order(5)
     @DisplayName("Test V2 write methods")
     void testV2WriteMethods() throws Exception {
-        try (ByteArrayOutputStream bout =  new ByteArrayOutputStream(V2_TEST_BLOCK_BYTES.length);
-            WritableStreamingData out = new WritableStreamingData(bout)) {
+        try (ByteArrayOutputStream bout = new ByteArrayOutputStream(V2_TEST_BLOCK_BYTES.length);
+                WritableStreamingData out = new WritableStreamingData(bout)) {
             v2BlockParsedRecordFile.write(out);
             assertArrayEquals(
-                V2_TEST_BLOCK_BYTES,
-                bout.toByteArray(),
-                "Written V2 ParsedRecordFile bytes do not match original bytes");
+                    V2_TEST_BLOCK_BYTES,
+                    bout.toByteArray(),
+                    "Written V2 ParsedRecordFile bytes do not match original bytes");
         }
         // create JimFS in-memory file system and write the record file to it
         try (var fs = Jimfs.newFileSystem()) {
@@ -122,9 +129,9 @@ public class ParsedV2RecordFileTest {
             var writtenPath = pathTest.resolve("2019-09-13T21_53_51.396440Z.rcd");
             byte[] writtenBytes = Files.readAllBytes(writtenPath);
             assertArrayEquals(
-                V2_TEST_BLOCK_BYTES,
-                writtenBytes,
-                "Written to file V2 ParsedRecordFile bytes do not match original bytes");
+                    V2_TEST_BLOCK_BYTES,
+                    writtenBytes,
+                    "Written to file V2 ParsedRecordFile bytes do not match original bytes");
         }
     }
 }
