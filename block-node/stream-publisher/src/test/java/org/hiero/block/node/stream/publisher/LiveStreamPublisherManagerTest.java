@@ -271,7 +271,7 @@ class LiveStreamPublisherManagerTest {
             /**
              * This test aims to assert that the
              * {@link LiveStreamPublisherManager#getActionForBlock(long, BlockAction, long)}
-             * method returns {@link BlockAction#END_BEHIND} when the provided block
+             * method returns {@link BlockAction#SEND_BEHIND} when the provided block
              * number is higher than the next expected one and previous action is {@code null}.
              */
             @Test
@@ -282,7 +282,7 @@ class LiveStreamPublisherManagerTest {
                 // Call with higher than next expected block number.
                 final BlockAction actual = toTest.getActionForBlock(1L, null, publisherHandlerId);
                 // Assert
-                assertThat(actual).isEqualTo(BlockAction.END_BEHIND);
+                assertThat(actual).isEqualTo(BlockAction.SEND_BEHIND);
             }
 
             /**
@@ -384,7 +384,7 @@ class LiveStreamPublisherManagerTest {
             /**
              * This test aims to assert that the
              * {@link LiveStreamPublisherManager#getActionForBlock(long, BlockAction, long)}
-             * method returns {@link BlockAction#END_BEHIND} when the provided
+             * method returns {@link BlockAction#SEND_BEHIND} when the provided
              * block number higher than the next expected block number and
              * previous action is {@link BlockAction#ACCEPT}.
              */
@@ -396,7 +396,7 @@ class LiveStreamPublisherManagerTest {
                 // Call with higher than next expected block number and previous action ACCEPT.
                 final BlockAction actual = toTest.getActionForBlock(1L, BlockAction.ACCEPT, publisherHandlerId);
                 // Assert
-                assertThat(actual).isEqualTo(BlockAction.END_BEHIND);
+                assertThat(actual).isEqualTo(BlockAction.SEND_BEHIND);
             }
 
             /**
@@ -623,7 +623,7 @@ class LiveStreamPublisherManagerTest {
 
                 // After forwarder completion, batches should have increased and facility should contain messages.
                 assertThat(managerMetrics.blocksClosedComplete().get()).isEqualTo(beforeBatches + 2);
-                assertThat(managerMetrics.currentPublisherCount().get()).isEqualTo(beforeBatches + 1);
+                assertThat(managerMetrics.currentPublisherCount().get()).isEqualTo(beforeBatches + 2);
                 // The in-memory messaging facility should now have reset the block number to -1.
                 assertThat(toTest.getLatestBlockNumber()).isEqualTo(-1);
             }

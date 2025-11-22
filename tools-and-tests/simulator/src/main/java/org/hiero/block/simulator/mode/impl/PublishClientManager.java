@@ -10,7 +10,6 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import javax.inject.Inject;
 import org.hiero.block.api.protoc.PublishStreamRequest.EndStream;
 import org.hiero.block.api.protoc.PublishStreamResponse;
-import org.hiero.block.api.protoc.PublishStreamResponse.EndOfStream.Code;
 import org.hiero.block.simulator.config.data.BlockStreamConfig;
 import org.hiero.block.simulator.config.data.GrpcConfig;
 import org.hiero.block.simulator.config.types.EndStreamMode;
@@ -77,6 +76,8 @@ public class PublishClientManager implements SimulatorModeHandler {
             throws BlockSimulatorParsingException, IOException, InterruptedException {
         if (publishStreamResponse.hasEndStream()) {
             handleEndOfStream(nextBlock, publishStreamResponse);
+        } else if (publishStreamResponse.hasNodeBehindPublisher()) {
+            handleNodeBehind(publishStreamResponse);
         } else if (publishStreamResponse.hasResendBlock()) {
             handleResendBlock(publishStreamResponse);
         } else if (publishStreamResponse.hasSkipBlock()) {
@@ -89,13 +90,19 @@ public class PublishClientManager implements SimulatorModeHandler {
         stop();
         adjustStreamManager(nextBlock, publishStreamResponse);
         initializeNewClientAndHandler();
-        if (publishStreamResponse.getEndStream().getStatus() == Code.BEHIND) {
-            if (blockStreamConfig.endStreamMode() == TOO_FAR_BEHIND) {
-                currentClient.handleEndStreamModeIfSet(EndStream.Code.TOO_FAR_BEHIND);
-                return;
-            }
-        }
         start();
+    }
+
+    private void handleNodeBehind(PublishStreamResponse publishStreamResponse)
+            throws InterruptedException, BlockSimulatorParsingException, IOException {
+        blockStreamManager.resetToBlock(
+                publishStreamResponse.getNodeBehindPublisher().getBlockNumber());
+        // send EndStream(TOO_FAR_BEHIND) if configured to do so
+        if (blockStreamConfig.endStreamMode() == TOO_FAR_BEHIND) {
+            sendEndStream(TOO_FAR_BEHIND);
+        } else {
+            start();
+        }
     }
 
     public void sendEndStream(EndStreamMode endStreamMode)
@@ -112,7 +119,6 @@ public class PublishClientManager implements SimulatorModeHandler {
         if (code != null) {
             currentClient.handleEndStreamModeIfSet(code);
         }
-
         stop();
         initializeNewClientAndHandler();
         start();
