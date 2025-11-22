@@ -181,10 +181,10 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
         return switch (previousAction) {
             case null -> getActionForHeader(blockNumber, handlerId);
             case ACCEPT -> getActionForCurrentlyStreaming(blockNumber);
-            case END_ERROR, END_DUPLICATE, END_BEHIND ->
+            case END_ERROR, END_DUPLICATE ->
                 // This should not happen because the Handler should have shut down.
                 BlockAction.END_ERROR;
-            case SKIP, RESEND ->
+            case SKIP, RESEND, SEND_BEHIND ->
                 // This should not happen because the Handler should have reset the previous action.
                 BlockAction.END_ERROR;
         };
@@ -224,7 +224,7 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
         } else if (blockNumber == nextUnstreamedBlockNumber.get()) {
             return addHandlerQueueForBlock(blockNumber, handlerId);
         } else if (blockNumber > nextUnstreamedBlockNumber.get()) {
-            return BlockAction.END_BEHIND;
+            return BlockAction.SEND_BEHIND;
         } else {
             // This should not be possible, all cases that could reach here are
             // already handled above.
@@ -283,7 +283,8 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
             }
         }
         // Return the correct action if another handler jumped in front of the caller.
-        return blockNumber < nextUnstreamedBlockNumber.get() ? BlockAction.SKIP : BlockAction.END_BEHIND;
+        // Note, neither of these ends the stream; both ask the publisher to send a different block.
+        return blockNumber < nextUnstreamedBlockNumber.get() ? BlockAction.SKIP : BlockAction.SEND_BEHIND;
     }
 
     /*
@@ -362,7 +363,7 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
             // the block node is behind. The most likely cause here is a block
             // that failed to verify, or got stuck and did not finish, and was
             // parallel streaming a block earlier than the calling handler.
-            return BlockAction.END_BEHIND;
+            return BlockAction.SEND_BEHIND;
         } else {
             // This should not be possible, all cases that could reach here are
             // already handled above.

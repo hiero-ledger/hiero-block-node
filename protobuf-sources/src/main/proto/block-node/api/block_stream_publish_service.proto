@@ -72,12 +72,6 @@ message PublishStreamRequest {
      * non-error condition.
      */
     message EndStream {
-        // Note: MUST NOT name this `EndOfStream`, a PBJ bug in automatic unit
-        //       test generation will attempt to convert this inner enum to the
-        //       inner enum of the `Response` `EndOfStream` message, resulting
-        //       in compilation errors. This bug will even attempt to convert
-        //       the enums if the enums are not named the same.
-
         /**
          * A stream end code.
          * This code indicates the reason the stream ended.<br/>
@@ -214,6 +208,12 @@ message PublishStreamResponse {
          * A response sent to request the Publisher resend a skipped block.
          */
         ResendBlock resend_block = 4;
+
+        /**
+         * A response sent to request that the Publisher resume the block
+         * stream from an earlier block, if possible.
+         */
+        BehindPublisher node_behind_publisher = 5;
     }
 
     /**
@@ -287,6 +287,32 @@ message PublishStreamResponse {
          * <p>
          * This SHALL be the block number one greater than the last block
          * this Block-Node has successfully stored and verified.
+         */
+        uint64 block_number = 1;
+    }
+
+    /**
+     * Message indicating that the Block-Node is "behind" the Publisher.<br/>
+     * Ths Publisher has sent a block later than this Block-Node
+     * can process. The Publisher may retry by sending blocks immediately
+     * following the `block_number` returned, or may disconnect from this
+     * Block-Node by sending a `EndStream` message with code `TOO_FAR_BEHIND`
+     * and connect to another Block-Node.
+     *
+     * Block-Nodes that are "behind" SHOULD attempt to "catch up" by requesting
+     * blocks from another Block-Node or other source of recent historical
+     * block stream data.
+     */
+    message BehindPublisher {
+        /**
+         * The number of the last completed, _persisted_, and _verified_ block.
+         * <p>
+         * The Publisher MUST start a new stream at the beginning of the first
+         * block _following_ this number (e.g. if this is 91827362983, then the
+         * new stream must start with the _header_ for block 91827362984).<br/>
+         * If the required block is not available, the Publisher MUST send a
+         * `EndStream` message with code `TOO_FAR_BEHIND` that specifies the
+         * earliest and latest blocks that Publisher can provide.
          */
         uint64 block_number = 1;
     }
@@ -384,19 +410,6 @@ message PublishStreamResponse {
             BAD_BLOCK_PROOF = 6;
 
             /**
-             * The Block-Node is "behind" the Publisher.<br/>
-             * Ths Publisher has sent a block later than this Block-Node
-             * can process. The Publisher may retry by sending blocks immediately
-             * following the `block_number` returned, or may connect
-             * to another Block-Node.
-             * <p>
-             * Block-Nodes that are "behind" SHOULD attempt to "catch up" by requesting
-             * blocks from another Block-Node or other source of recent historical
-             * block stream data.
-             */
-            BEHIND = 7;
-
-            /**
              * The Block-Node failed to store the block persistently.
              * <p>
              * The Publisher SHOULD start a new stream to send the block to
@@ -404,7 +417,7 @@ message PublishStreamResponse {
              * The Publisher MUST NOT discard the block until it is successfully
              * persisted and verified (and acknowledged) by at least one Block-Node.
              */
-            PERSISTENCE_FAILED = 8;
+            PERSISTENCE_FAILED = 7;
         }
 
     }
