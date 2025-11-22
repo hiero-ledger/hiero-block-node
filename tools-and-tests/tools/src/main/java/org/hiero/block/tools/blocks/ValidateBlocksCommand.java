@@ -38,6 +38,17 @@ import picocli.CommandLine.Parameters;
  *   <li>First block has 48 zero bytes for previous hash (genesis)</li>
  *   <li>Signature validation - at least 1/3 + 1 of address book nodes must sign</li>
  * </ul>
+ *
+ * <p>This command works with both:</p>
+ * <ul>
+ *   <li>Individual block files (*.blk, *.blk.gz, *.blk.zstd)</li>
+ *   <li>Hierarchical directory structures produced by {@code ToWrappedBlocksCommand} and {@code BlockWriter}</li>
+ *   <li>Zip archives containing multiple blocks</li>
+ * </ul>
+ *
+ * <p>When validating output from {@code ToWrappedBlocksCommand}, you can simply pass the output directory
+ * as the only parameter. The command will automatically find the {@code addressBookHistory.json} file
+ * in that directory if not explicitly specified.</p>
  */
 @SuppressWarnings({"CallToPrintStackTrace", "FieldCanBeLocal"})
 @Command(
@@ -52,6 +63,7 @@ public class ValidateBlocksCommand implements Runnable {
     /** Pattern to extract block number from filename. */
     private static final Pattern BLOCK_FILE_PATTERN = Pattern.compile("^(\\d+)\\.blk(\\.gz|\\.zstd)?$");
 
+    @SuppressWarnings("unused")
     @Parameters(index = "0..*", description = "Block files or directories to validate")
     private File[] files;
 
@@ -82,6 +94,22 @@ public class ValidateBlocksCommand implements Runnable {
         if (files == null || files.length == 0) {
             System.err.println(Ansi.AUTO.string("@|red Error:|@ No files to validate"));
             return;
+        }
+
+        // Auto-detect addressBookHistory.json if not explicitly provided
+        // Check if any input is a directory containing addressBookHistory.json
+        if (addressBookFile == null && !skipSignatures) {
+            for (File file : files) {
+                if (file.isDirectory()) {
+                    Path potentialAddressBook = file.toPath().resolve("addressBookHistory.json");
+                    if (Files.exists(potentialAddressBook)) {
+                        addressBookFile = potentialAddressBook;
+                        System.out.println(
+                                Ansi.AUTO.string("@|yellow Auto-detected address book:|@ " + potentialAddressBook));
+                        break;
+                    }
+                }
+            }
         }
 
         // Load address book registry if signature validation is enabled

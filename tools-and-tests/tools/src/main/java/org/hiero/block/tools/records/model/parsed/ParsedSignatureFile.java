@@ -269,7 +269,7 @@ public class ParsedSignatureFile {
         } catch (Exception e) {
             throw new RuntimeException(
                     "No RSA public key found for 0.0." + accountNum + " in provided address book; file "
-                            + signatureFileName,
+                            + signatureFileName + "\n" + NodeAddressBook.JSON.toJSON(addressBook),
                     e);
         }
         if (rsaPubKey == null || rsaPubKey.isEmpty()) {
