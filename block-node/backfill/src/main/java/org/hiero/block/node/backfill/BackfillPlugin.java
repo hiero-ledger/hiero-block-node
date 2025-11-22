@@ -301,7 +301,8 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
             }
 
             // add block range available from other BN sources
-            detectedGaps.add(backfillGrpcClientAutonomous.getNewAvailableRange(blockRanges.getLast().end()));
+            detectedGaps.add(backfillGrpcClientAutonomous.getNewAvailableRange(
+                    blockRanges.getLast().end()));
 
             // increase only if detectedGaps is not empty
             if (!detectedGaps.isEmpty()) backfillGapsDetected.add(detectedGaps.size());
@@ -491,7 +492,8 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
         }
 
         // we should create new Gap and a new task to backfill it
-        long lastPersistedBlock = context.historicalBlockProvider().availableBlocks().max();
+        long lastPersistedBlock =
+                context.historicalBlockProvider().availableBlocks().max();
         long newestBlockKnown = notification.blockNumber();
         LongRange gap;
         if (newestBlockKnown == UNKNOWN_BLOCK_NUMBER) {

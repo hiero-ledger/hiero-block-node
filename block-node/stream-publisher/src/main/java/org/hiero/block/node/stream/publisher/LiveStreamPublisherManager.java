@@ -80,6 +80,7 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
 
     /** A single thread executor service for the stream publisher plugin, background jobs. */
     private ScheduledExecutorService scheduledExecutorService;
+
     private final PublisherConfig publisherConfiguration;
 
     /**
@@ -105,16 +106,15 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
         publisherConfiguration = serverContext.configuration().getConfigData(PublisherConfig.class);
 
         this.scheduledExecutorService = context.threadPoolManager()
-            .createSingleThreadScheduledExecutor(
-                "StreamPublisherRunner",
-                (t, e) -> LOGGER.log(ERROR, "Uncaught exception in thread: " + t.getName(), e));
+                .createSingleThreadScheduledExecutor(
+                        "StreamPublisherRunner",
+                        (t, e) -> LOGGER.log(ERROR, "Uncaught exception in thread: " + t.getName(), e));
         // schedule a notification to prompt backfill to proactively look for newer blocks from other block nodes
         this.scheduledExecutorService.scheduleWithFixedDelay(
-            () -> notifyTooFarBehind(UNKNOWN_BLOCK_NUMBER),
-            publisherConfiguration.noActivityNotificationIntervalSeconds(),
-            publisherConfiguration.noActivityNotificationIntervalSeconds(),
-            TimeUnit.SECONDS
-        );
+                () -> notifyTooFarBehind(UNKNOWN_BLOCK_NUMBER),
+                publisherConfiguration.noActivityNotificationIntervalSeconds(),
+                publisherConfiguration.noActivityNotificationIntervalSeconds(),
+                TimeUnit.SECONDS);
     }
 
     @Override
@@ -231,7 +231,6 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
         }
         transferQueueMap.clear();
         queueByBlockMap.clear();
-
 
         // cancel any notification to prompt backfill to look for blocks
         if (!scheduledExecutorService.isShutdown()) {
