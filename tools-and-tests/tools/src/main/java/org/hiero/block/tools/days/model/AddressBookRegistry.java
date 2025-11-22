@@ -6,6 +6,7 @@ import static org.hiero.block.tools.utils.TimeUtils.toTimestamp;
 
 import com.hedera.hapi.node.base.NodeAddress;
 import com.hedera.hapi.node.base.NodeAddressBook;
+import com.hedera.hapi.node.base.Timestamp;
 import com.hedera.hapi.node.base.Transaction;
 import com.hedera.hapi.node.transaction.SignedTransaction;
 import com.hedera.hapi.node.transaction.TransactionBody;
@@ -25,6 +26,7 @@ import java.util.Map;
 import java.util.Objects;
 import org.hiero.block.internal.AddressBookHistory;
 import org.hiero.block.internal.DatedNodeAddressBook;
+import picocli.CommandLine.Help.Ansi;
 
 /**
  * Registry of address books, starting with the Genesis address book.
@@ -32,6 +34,7 @@ import org.hiero.block.internal.DatedNodeAddressBook;
  * The current address book is the most recently added address book.
  */
 public class AddressBookRegistry {
+    /** List of dated address books, ordered by block timestamp, oldest first */
     private final List<DatedNodeAddressBook> addressBooks = new ArrayList<>();
     // Maintain partial payloads for file id 2 only. Only completed parses for 0.0.102 are appended to addressBooks to
     // keep getCurrentAddressBook() aligned with authoritative book semantics.
@@ -81,6 +84,29 @@ public class AddressBookRegistry {
      */
     public NodeAddressBook getCurrentAddressBook() {
         return addressBooks.getLast().addressBook();
+    }
+
+    /**
+     * Get the address book that was in effect at the given block time.
+     *
+     * @param blockTime the block time to get the address book for
+     * @return the address book that was in effect at the given block time
+     */
+    public NodeAddressBook getAddressBookForBlock(Instant blockTime) {
+        // find the most recent address book with a timestamp less than or equal to the block time
+        for (int i = 0; i < addressBooks.size(); i++) {
+            DatedNodeAddressBook datedBook = addressBooks.get(i);
+            final Timestamp bookTimestamp = datedBook.blockTimestampOrThrow();
+            final Instant bookInstant = Instant.ofEpochSecond(
+                bookTimestamp.seconds(),
+                bookTimestamp.nanos());
+            if (bookInstant.isAfter(blockTime)) {
+                // return the previous address book
+                return i == 0 ? datedBook.addressBook() : addressBooks.get(i - 1).addressBook();
+            }
+        }
+        // if no address book is found, return the genesis address book
+        return addressBooks.getFirst().addressBook();
     }
 
     /**
@@ -329,5 +355,25 @@ public class AddressBookRegistry {
             sb.append(String.format("   Node %d removed%n", removedNodeId));
         }
         return sb.toString();
+    }
+
+    /**
+     * Get a pretty string representation of the address book registry.
+     *
+     * @return a pretty string representation of the address book registry
+     */
+    public String toPrettyString() {
+        StringBuilder sb = new StringBuilder();
+        for (DatedNodeAddressBook datedBook : addressBooks) {
+            sb.append("@|yellow      Block Time:|@ ")
+                .append(Instant.ofEpochSecond(
+                    datedBook.blockTimestampOrThrow().seconds(),
+                    datedBook.blockTimestampOrThrow().nanos()))
+                .append("  @|yellow Node Count:|@ ").append(datedBook.addressBookOrThrow().nodeAddress().size()).append("\n");
+        }
+        if (addressBooks.isEmpty()) {
+            sb.append("No address books in registry.\n");
+        }
+        return Ansi.AUTO.string(sb.toString());
     }
 }

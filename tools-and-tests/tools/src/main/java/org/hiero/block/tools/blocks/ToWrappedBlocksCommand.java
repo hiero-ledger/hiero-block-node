@@ -1,12 +1,17 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.tools.blocks;
 
+import static java.nio.file.StandardOpenOption.CREATE;
+import static java.nio.file.StandardOpenOption.TRUNCATE_EXISTING;
 import static org.hiero.block.tools.blocks.model.BlockWriter.maxStoredBlockNumber;
 import static org.hiero.block.tools.mirrornode.DayBlockInfo.loadDayBlockInfoMap;
 
+import com.google.gson.Gson;
+import com.google.gson.GsonBuilder;
 import com.hedera.hapi.block.stream.Block;
 import java.io.File;
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Instant;
@@ -53,8 +58,52 @@ import picocli.CommandLine.Option;
         mixinStandardHelpOptions = true)
 public class ToWrappedBlocksCommand implements Runnable {
 
+    /** Gson instance for Status JSON serialization */
+    private static final Gson GSON = new GsonBuilder().create();
+
     /** Zero hash for previous / root when none available */
     private static final byte[] ZERO_HASH = new byte[48];
+
+    /**
+     * Simple status object saved to outputBlocksDir/wrappingState.json to allow resuming.
+     * <p>Note: JSON (de)serialization handled by Gson via field reflection.</p>
+     */
+    @SuppressWarnings("ClassCanBeRecord")
+    private static final class Status {
+        final long lastProcessedBlockNumber;
+        final String lastProcessedBlockTime; // ISO-8601 from Instant.toString()
+
+        Status(long lastProcessedBlockNumber, String lastProcessedBlockTime) {
+            this.lastProcessedBlockNumber = lastProcessedBlockNumber;
+            this.lastProcessedBlockTime = lastProcessedBlockTime;
+        }
+
+        Instant blockInstant() {
+            return Instant.parse(lastProcessedBlockTime);
+        }
+
+        private static void writeStatusFile(Path statusFile, Status s) {
+            if (statusFile == null || s == null) return;
+            try {
+                String json = GSON.toJson(s);
+                Files.writeString(statusFile, json, StandardCharsets.UTF_8, CREATE, TRUNCATE_EXISTING);
+            } catch (IOException e) {
+                System.err.println("Failed to write status file " + statusFile + ": " + e.getMessage());
+                e.printStackTrace();
+            }
+        }
+
+        private static Status readStatusFile(Path statusFile) {
+            try {
+                if (statusFile == null || !Files.exists(statusFile)) return null;
+                String content = Files.readString(statusFile, StandardCharsets.UTF_8);
+                return GSON.fromJson(content, Status.class);
+            } catch (Exception e) {
+                System.err.println("Failed to read/parse status file " + statusFile + ": " + e.getMessage());
+                return null;
+            }
+        }
+    }
 
     @Option(
             names = {"-b", "--blocktimes-file"},
@@ -89,13 +138,33 @@ public class ToWrappedBlocksCommand implements Runnable {
         // create output directory if it does not exist
         try {
             Files.createDirectories(outputBlocksDir);
+            System.out.println(Ansi.AUTO.string("@|yellow Created new output directory:|@ " +
+                outputBlocksDir.toAbsolutePath()));
         } catch (IOException e) {
             throw new RuntimeException(e);
         }
         // create AddressBookRegistry to load address books as needed during conversion
         final Path addressBookFile = outputBlocksDir.resolve("addressBookHistory.json");
+        // check if it exists already, if not try coping from input dir
+        if (!Files.exists(addressBookFile)) {
+            final Path inputAddressBookFile = compressedDaysDir.resolve("addressBookHistory.json");
+            if (Files.exists(inputAddressBookFile)) {
+                try {
+                    Files.copy(inputAddressBookFile, addressBookFile);
+                    System.out.println(Ansi.AUTO.string(
+                        "@|yellow Copied existing address book history to output:|@ "
+                            + addressBookFile.toAbsolutePath()));
+                } catch (IOException e) {
+                    throw new RuntimeException(e);
+                }
+            }
+        }
+        // load or create new AddressBookRegistry
         final AddressBookRegistry addressBookRegistry =
                 Files.exists(addressBookFile) ? new AddressBookRegistry(addressBookFile) : new AddressBookRegistry();
+        System.out.println(Ansi.AUTO.string(
+            "@|yellow Loaded address book registry:|@ \n"
+                + addressBookRegistry.toPrettyString()));
         // get Archive type
         final BlockArchiveType archiveType =
                 unzipped ? BlockArchiveType.INDIVIDUAL_FILES : BlockArchiveType.UNCOMPRESSED_ZIP;
@@ -113,16 +182,29 @@ public class ToWrappedBlocksCommand implements Runnable {
         }
         // load day block info map
         final Map<LocalDate, DayBlockInfo> dayMap = loadDayBlockInfoMap(dayBlocksFile);
+        // load resume status if available
+        final Path statusFile = outputBlocksDir.resolve("wrappingState.json");
+        final Status resumeStatus = Status.readStatusFile(statusFile);
+        // atomic reference for last good status
+        final AtomicReference<Status> lastGood = new AtomicReference<>(resumeStatus);
+
         // load block times
         try (BlockTimeReader blockTimeReader = new BlockTimeReader(blockTimesFile)) {
             // scan the output dir and work out what the most recent block is so we know where to start
-            final long highestStoredBlockNumber =
-                    maxStoredBlockNumber(outputBlocksDir, BlockWriter.DEFAULT_COMPRESSION);
+            long highestStoredBlockNumber = maxStoredBlockNumber(outputBlocksDir, BlockWriter.DEFAULT_COMPRESSION);
+
+            // If we have resume status, use it to determine where to start
+            if (resumeStatus != null) {
+                highestStoredBlockNumber = resumeStatus.lastProcessedBlockNumber;
+                System.out.println(Ansi.AUTO.string("@|yellow Resuming from block:|@ " + highestStoredBlockNumber
+                        + " @|yellow at|@ " + resumeStatus.lastProcessedBlockTime));
+            }
+
             final Instant highestStoredBlockTime = highestStoredBlockNumber == -1
                     ? Instant.EPOCH
                     : blockTimeReader.getBlockInstant(highestStoredBlockNumber);
-            System.out.println(Ansi.AUTO.string("@|yellow Highest block in block_times.bin:|@ "
-                    + highestStoredBlockNumber + " @|yellow at|@ " + highestStoredBlockTime));
+            System.out.println(Ansi.AUTO.string("@|yellow Highest block in storage:|@ " + highestStoredBlockNumber
+                    + " @|yellow at|@ " + highestStoredBlockTime));
 
             // compute the block to start processing at
             final long startBlock = highestStoredBlockNumber == -1 ? 0 : highestStoredBlockNumber + 1;
@@ -154,6 +236,20 @@ public class ToWrappedBlocksCommand implements Runnable {
             // Track the last reported minute to avoid spamming progress output
             final AtomicLong lastReportedMinute = new AtomicLong(Long.MIN_VALUE);
 
+            // Register shutdown hook to persist last good status on JVM exit (Ctrl+C, etc.)
+            Runtime.getRuntime()
+                    .addShutdownHook(new Thread(
+                            () -> {
+                                Status s = lastGood.get();
+                                if (s != null) {
+                                    System.err.println("Shutdown: writing status to " + statusFile);
+                                    Status.writeStatusFile(statusFile, s);
+                                    System.err.println("Shutdown: address book to " + addressBookFile);
+                                    addressBookRegistry.saveAddressBookRegistryToJsonFile(addressBookFile);
+                                }
+                            },
+                            "wrap-shutdown-hook"));
+
             // track the block number
             final AtomicLong blockCounter = new AtomicLong(startBlock);
             for (final Path dayPath : dayPaths) {
@@ -177,6 +273,8 @@ public class ToWrappedBlocksCommand implements Runnable {
                             .forEach(recordBlock -> {
                                 try {
                                     final long blockNum = blockCounter.getAndIncrement();
+                                    // get the block time
+                                    final Instant blockTime = blockTimeReader.getBlockInstant(blockNum);
                                     // Convert record file block to wrapped block. We pass zero hashes for previous/root
                                     // TODO Rocky we need to get rid of experimental block, I added experimental to
                                     // change API
@@ -186,7 +284,7 @@ public class ToWrappedBlocksCommand implements Runnable {
                                                     recordBlock,
                                                     blockNum,
                                                     ZERO_HASH, // TODO compute the block hash merkle tree
-                                                    addressBookRegistry.getCurrentAddressBook());
+                                                    addressBookRegistry.getAddressBookForBlock(blockTime));
 
                                     // Convert experimental Block to stable Block for storage APIs
                                     // TODO Rocky this will slow things down and can be deleted once above is fixed
@@ -256,11 +354,19 @@ public class ToWrappedBlocksCommand implements Runnable {
                                         PrettyPrint.printProgressWithEta(percent, progressString, remainingMillis);
                                         lastReportedMinute.set(blockMinute);
                                     }
+
+                                    // Update last good processed block (in-memory only, not writing to disk here)
+                                    lastGood.set(new Status(
+                                            blockNum, recordBlock.blockTime().toString()));
                                 } catch (Exception ex) {
                                     PrettyPrint.clearProgress();
                                     System.err.println(
                                             "Failed processing record block in " + dayPath + ": " + ex.getMessage());
                                     ex.printStackTrace();
+                                    // Persist last good status and exit
+                                    Status s = lastGood.get();
+                                    if (s != null) Status.writeStatusFile(statusFile, s);
+                                    addressBookRegistry.saveAddressBookRegistryToJsonFile(addressBookFile);
                                     System.exit(1);
                                 }
                             });
@@ -271,6 +377,14 @@ public class ToWrappedBlocksCommand implements Runnable {
             // Clear progress line and print summary
             PrettyPrint.clearProgress();
             System.out.println("Conversion complete. Blocks written: " + blocksProcessed.get());
+
+            // Save final status on successful completion
+            Status s = lastGood.get();
+            if (s != null) {
+                Status.writeStatusFile(statusFile, s);
+                System.out.println("Saved progress to " + statusFile);
+            }
+            addressBookRegistry.saveAddressBookRegistryToJsonFile(addressBookFile);
         } catch (Exception e) {
             throw new RuntimeException(e);
         }
