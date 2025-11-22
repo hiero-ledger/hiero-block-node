@@ -115,12 +115,12 @@ public interface ThreadPoolManager {
 
     @NonNull
     default ScheduledExecutorService createSingleThreadScheduledExecutor() {
-        return createSingleThreadScheduledExecutor(null,  null);
+        return createSingleThreadScheduledExecutor(null, null);
     }
 
     @NonNull
     default ScheduledExecutorService createSingleThreadScheduledExecutor(@NonNull final String threadName) {
-        return createSingleThreadScheduledExecutor(Objects.requireNonNull(threadName),  null);
+        return createSingleThreadScheduledExecutor(Objects.requireNonNull(threadName), null);
     }
 
     @NonNull

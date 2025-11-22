@@ -132,7 +132,7 @@ public class BackfillGrpcClient {
             BlockNodeClient currentNodeClient = getNodeClient(node);
 
             final ServerStatusResponse nodeStatus =
-                currentNodeClient.getBlockNodeServiceClient().serverStatus(new ServerStatusRequest());
+                    currentNodeClient.getBlockNodeServiceClient().serverStatus(new ServerStatusRequest());
             long lastAvailableBlock = nodeStatus.lastAvailableBlock();
 
             // update the end to the max lastAvailableBlock

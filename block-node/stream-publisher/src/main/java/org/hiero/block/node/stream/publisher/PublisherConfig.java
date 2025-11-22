@@ -7,8 +7,6 @@ import com.swirlds.config.api.validation.annotation.Max;
 import com.swirlds.config.api.validation.annotation.Min;
 import org.hiero.block.node.base.Loggable;
 
-import java.time.Duration;
-
 /**
  * Configuration for a block stream publisher plugin.
  */
