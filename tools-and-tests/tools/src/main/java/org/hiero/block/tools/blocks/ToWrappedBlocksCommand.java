@@ -3,7 +3,6 @@ package org.hiero.block.tools.blocks;
 
 import static org.hiero.block.tools.blocks.model.BlockWriter.maxStoredBlockNumber;
 import static org.hiero.block.tools.mirrornode.DayBlockInfo.loadDayBlockInfoMap;
-import static org.hiero.block.tools.mirrornode.UpdateBlockData.updateMirrorNodeData;
 
 import com.hedera.hapi.block.stream.Block;
 import java.io.File;
@@ -87,14 +86,20 @@ public class ToWrappedBlocksCommand implements Runnable {
 
     @Override
     public void run() {
+        // create output directory if it does not exist
+        try {
+            Files.createDirectories(outputBlocksDir);
+        } catch (IOException e) {
+            throw new RuntimeException(e);
+        }
         // create AddressBookRegistry to load address books as needed during conversion
-        final Path addressBookFile = compressedDaysDir.resolve("addressBookHistory.json");
+        final Path addressBookFile = outputBlocksDir.resolve("addressBookHistory.json");
         final AddressBookRegistry addressBookRegistry =
                 Files.exists(addressBookFile) ? new AddressBookRegistry(addressBookFile) : new AddressBookRegistry();
         // get Archive type
         final BlockArchiveType archiveType =
                 unzipped ? BlockArchiveType.INDIVIDUAL_FILES : BlockArchiveType.UNCOMPRESSED_ZIP;
-        // check we have a blockTimesFile, create if needed and update it to have the latest blocks
+        // check we have a blockTimesFile
         if (!Files.exists(blockTimesFile) || !Files.exists(dayBlocksFile)) {
             System.err.println(
                     """
@@ -106,8 +111,6 @@ public class ToWrappedBlocksCommand implements Runnable {
                 """);
             System.exit(1);
         }
-        final long latestBlockNumber = updateMirrorNodeData(blockTimesFile, dayBlocksFile);
-        System.out.println(Ansi.AUTO.string("@|yellow Latest block number from mirror node:|@ " + latestBlockNumber));
         // load day block info map
         final Map<LocalDate, DayBlockInfo> dayMap = loadDayBlockInfoMap(dayBlocksFile);
         // load block times
@@ -141,7 +144,7 @@ public class ToWrappedBlocksCommand implements Runnable {
 
             // Progress tracking setup
             final long startNanos = System.nanoTime();
-            final long totalBlocksToProcess = latestBlockNumber - startBlock;
+            final long totalBlocksToProcess = highestStoredBlockNumber - startBlock;
             final AtomicLong blocksProcessed = new AtomicLong(0);
 
             // Track last block time for speed calculation
