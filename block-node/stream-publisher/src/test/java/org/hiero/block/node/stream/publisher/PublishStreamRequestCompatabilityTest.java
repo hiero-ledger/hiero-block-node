@@ -31,7 +31,6 @@ public class PublishStreamRequestCompatabilityTest {
                 .withConfigDataType(ServerConfig.class)
                 .build()
                 .getConfigData(ServerConfig.class);
-        ;
         maxMessageSize = serverConfig.maxMessageSizeBytes() - 16384;
         defaultBlockFooterBytes = Bytes.wrap("default_footer".getBytes());
     }
@@ -68,7 +67,7 @@ public class PublishStreamRequestCompatabilityTest {
     @Test
     public void testBlockItemUnknownFieldsEnabledPre068() throws ParseException {
         BlockItemUnparsed footer = BlockItemUnparsed.newBuilder()
-                .blockFooter(Bytes.wrap("footer_item_type".getBytes()))
+                .blockFooter(defaultBlockFooterBytes)
                 .build();
         Bytes footerItemBytes = BlockItemUnparsed.PROTOBUF.toBytes(footer);
 
@@ -82,7 +81,7 @@ public class PublishStreamRequestCompatabilityTest {
     @Test
     public void testBlockItemUnknownFieldsDisabledPre068() throws ParseException {
         BlockItemUnparsed footer = BlockItemUnparsed.newBuilder()
-                .blockFooter(Bytes.wrap("footer_item_type".getBytes()))
+                .blockFooter(defaultBlockFooterBytes)
                 .build();
         Bytes footerItemBytes = BlockItemUnparsed.PROTOBUF.toBytes(footer);
 
@@ -133,6 +132,8 @@ public class PublishStreamRequestCompatabilityTest {
                 .isEqualTo(this.blockItemCount);
         BlockItemUnparsed blockItem =
                 publishStreamRequestUnparsed.blockItems().blockItems().get(1);
+
+        // fields present in BlockItemUnparsed will get picked up even though they may be unknown on send
         assertThat(blockItem.item()).isEqualTo(new OneOf<>(ItemOneOfType.BLOCK_FOOTER, defaultBlockFooterBytes));
         assertThat(blockItem.getUnknownFields().size()).isEqualTo(0);
     }
