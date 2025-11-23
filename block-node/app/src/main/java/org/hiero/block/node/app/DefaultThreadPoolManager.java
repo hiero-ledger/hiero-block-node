@@ -105,15 +105,16 @@ final class DefaultThreadPoolManager implements ThreadPoolManager {
     public ScheduledExecutorService createSingleThreadScheduledExecutor(
             @Nullable final String threadName,
             @Nullable final Thread.UncaughtExceptionHandler uncaughtExceptionHandler) {
-        final OfPlatform factoryBuilder = Thread.ofPlatform();
-        if (threadName != null) {
-            Preconditions.requireNotBlank(threadName);
-            factoryBuilder.name(threadName);
-        }
+        Thread.Builder factoryBuilder = Thread.ofVirtual();
         if (uncaughtExceptionHandler != null) {
             factoryBuilder.uncaughtExceptionHandler(uncaughtExceptionHandler);
         }
-        final ThreadFactory factory = factoryBuilder.factory();
-        return Executors.newSingleThreadScheduledExecutor(factory);
+        if (threadName != null) {
+            factoryBuilder.name(threadName, 0);
+            return Executors.newSingleThreadScheduledExecutor(factoryBuilder.factory());
+        } else {
+            final ThreadFactory factory = factoryBuilder.factory();
+            return Executors.newSingleThreadScheduledExecutor(factory);
+        }
     }
 }
