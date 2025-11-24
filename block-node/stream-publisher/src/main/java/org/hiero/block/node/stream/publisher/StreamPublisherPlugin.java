@@ -83,8 +83,14 @@ public final class StreamPublisherPlugin implements BlockNodePlugin, BlockStream
         return switch (blockStreamPublisherServiceMethod) {
             case publishBlockStream ->
                 Pipelines.<PublishStreamRequestUnparsed, PublishStreamResponse>bidiStreaming()
-                        .mapRequest(bytes -> PublishStreamRequestUnparsed.PROTOBUF.parse(
-                                bytes.toReadableSequentialData(), false, false, maxMessageSize / 8, maxMessageSize))
+                        .mapRequest(
+                                bytes -> PublishStreamRequestUnparsed.PROTOBUF.parse(
+                                        bytes.toReadableSequentialData(), // input data
+                                        false, // strictMode
+                                        true, // parseUnknownFields
+                                        maxMessageSize / 8,
+                                        maxMessageSize) // maxDepth
+                                )
                         .method(this::initiatePublisherHandler)
                         .respondTo(replies)
                         .mapResponse(PublishStreamResponse.PROTOBUF::toBytes)

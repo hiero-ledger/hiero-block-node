@@ -711,6 +711,11 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
                                     currentBatch.blockItems().size());
                             // send the batch to the messaging facility
                             messaging.sendBlockItems(new BlockItems(currentBatch.blockItems(), currentBlockNumber));
+                            publisherManager
+                                    .metrics
+                                    .blockItemsMessaged()
+                                    .add(currentBatch.blockItems().size());
+
                             // limit how many batches we send in a single task.
                             batchesSent++;
                             forwardingLimitReached = batchesSent >= publisherConfiguration.batchForwardLimit();
