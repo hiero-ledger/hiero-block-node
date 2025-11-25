@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
-package org.hiero.block.tools.commands.days.download;
+package org.hiero.block.tools.days.download;
 
-import static org.hiero.block.tools.commands.days.download.DownloadConstants.BUCKET_NAME;
-import static org.hiero.block.tools.commands.days.download.DownloadConstants.BUCKET_PATH_PREFIX;
-import static org.hiero.block.tools.commands.days.listing.DayListingFileReader.loadRecordsFileForDay;
+import static org.hiero.block.tools.days.download.DownloadConstants.BUCKET_NAME;
+import static org.hiero.block.tools.days.download.DownloadConstants.BUCKET_PATH_PREFIX;
+import static org.hiero.block.tools.days.download.DownloadDayUtil.validateBlockHashes;
+import static org.hiero.block.tools.days.listing.DayListingFileReader.loadRecordsFileForDay;
 import static org.hiero.block.tools.records.RecordFileUtils.extractRecordFileTimeStrFromPath;
 import static org.hiero.block.tools.records.RecordFileUtils.findMostCommonByType;
 import static org.hiero.block.tools.records.RecordFileUtils.findMostCommonSidecars;
@@ -29,11 +30,11 @@ import java.util.concurrent.LinkedBlockingDeque;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.Collectors;
-import org.hiero.block.tools.commands.days.listing.ListingRecordFile;
-import org.hiero.block.tools.commands.mirrornode.BlockTimeReader;
-import org.hiero.block.tools.commands.mirrornode.DayBlockInfo;
-import org.hiero.block.tools.records.InMemoryFile;
-import org.hiero.block.tools.records.RecordFileInfo;
+
+import org.hiero.block.tools.days.listing.ListingRecordFile;
+import org.hiero.block.tools.mirrornode.BlockTimeReader;
+import org.hiero.block.tools.mirrornode.DayBlockInfo;
+import org.hiero.block.tools.records.model.unparsed.InMemoryFile;
 import org.hiero.block.tools.utils.ConcurrentTarZstdWriter;
 import org.hiero.block.tools.utils.Gzip;
 import org.hiero.block.tools.utils.Md5Checker;

@@ -14,12 +14,10 @@ import java.time.ZoneId;
 import java.time.ZonedDateTime;
 import java.util.ArrayList;
 import java.util.Comparator;
-import java.util.HexFormat;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
-import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -28,22 +26,15 @@ import java.util.stream.Stream;
 import com.google.cloud.storage.Storage;
 import com.google.cloud.storage.StorageOptions;
 import org.hiero.block.tools.commands.days.download.DownloadDayLiveImpl;
-import org.hiero.block.tools.records.InMemoryFile;
-import org.hiero.block.tools.records.RecordFileBlock;
-import org.hiero.block.tools.records.RecordFileBlockV6;
-import org.hiero.block.tools.commands.days.model.AddressBookRegistry;
 import org.hiero.block.tools.commands.mirrornode.BlockInfo;
-import org.hiero.block.tools.commands.mirrornode.BlockTimeReader;
-import org.hiero.block.tools.commands.mirrornode.DayBlockInfo;
-import org.hiero.block.tools.commands.mirrornode.FetchBlockQuery;
 import org.hiero.block.tools.commands.mirrornode.MirrorNodeBlockQueryOrder;
+import org.hiero.block.tools.days.model.AddressBookRegistry;
+import org.hiero.block.tools.records.model.unparsed.InMemoryFile;
 import org.hiero.block.tools.utils.gcp.ConcurrentDownloadManagerVirtualThreads;
 import picocli.CommandLine;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Option;
 
-import static org.hiero.block.tools.commands.days.download.DownloadConstants.GCP_PROJECT_ID;
-import static org.hiero.block.tools.commands.mirrornode.DayBlockInfo.loadDayBlockInfoMap;
 
 /**
  * CLI implementation for the {@code days download-live} command.
@@ -541,7 +532,7 @@ public class DownloadLive implements Runnable {
         private final File tmpRoot;
         private final int maxConcurrency;
         private final Path addressBookPath;
-        private final AddressBookRegistry addressBookRegistry;
+        private final org.hiero.block.tools.days.model.AddressBookRegistry addressBookRegistry;
         private final ConcurrentDownloadManagerVirtualThreads downloadManager;
         // Running previous record-file hash used to validate the block hash chain across files.
         private byte[] previousRecordFileHash;
