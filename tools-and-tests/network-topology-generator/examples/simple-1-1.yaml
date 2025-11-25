@@ -1,0 +1,9 @@
+block_nodes:
+    bn1:
+        address: localhost
+        port: 40800
+        peers: []
+
+consensus_nodes:
+    cn1:
+        block_nodes: [bn1]
