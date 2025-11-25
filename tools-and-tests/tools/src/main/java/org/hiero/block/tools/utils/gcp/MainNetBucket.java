@@ -192,10 +192,22 @@ public class MainNetBucket {
      * @return a stream of ChainFiles that contain the records for the given hour.
      */
     public List<ChainFile> listHour(long blockStartTime) {
+        return listHour(blockStartTime, true);
+    }
+
+    /**
+     * List all the ChainFiles in the bucket that have a start time within the given hour that contains the given
+     * blockStartTime.
+     *
+     * @param blockStartTime the start time of a block, in nanoseconds since OA
+     * @param includeSidecars whether to also fetch sidecar files
+     * @return a list of ChainFiles that contain the records for the given hour.
+     */
+    public List<ChainFile> listHour(long blockStartTime, boolean includeSidecars) {
         final String datePrefix = RecordFileDates.blockTimeLongToRecordFilePrefix(blockStartTime);
         // crop to the hour
         final String hourPrefix = datePrefix.substring(0, datePrefix.indexOf('_'));
-        return listWithFilePrefix(hourPrefix);
+        return listWithFilePrefix(hourPrefix, includeSidecars);
     }
 
     /**
@@ -223,9 +235,22 @@ public class MainNetBucket {
      * @return a stream of ChainFiles that have a filename that starts with the given prefix.
      */
     private List<ChainFile> listWithFilePrefix(String filePrefix) {
+        return listWithFilePrefix(filePrefix, true);
+    }
+
+    /**
+     * List all the ChainFiles in the bucket that have this file name prefix. This fetches blobs for all record files
+     * and, optionally, sidecar files. For all nodes.
+     *
+     * @param filePrefix the prefix of the file name to search for
+     * @param includeSidecars whether to also fetch sidecar files
+     * @return a list of ChainFiles that have a filename that starts with the given prefix.
+     */
+    private List<ChainFile> listWithFilePrefix(String filePrefix, boolean includeSidecars) {
         try {
             // read from cache if it already exists in cache
-            final Path listCacheFilePath = cacheDir.resolve("list-" + filePrefix + ".bin.gz");
+            final String cacheSuffix = includeSidecars ? "" : "-nosidecars";
+            final Path listCacheFilePath = cacheDir.resolve("list-" + filePrefix + cacheSuffix + ".bin.gz");
             if (cacheEnabled && Files.exists(listCacheFilePath)) {
                 try (ObjectInputStream ois =
                         new ObjectInputStream(new GZIPInputStream(Files.newInputStream(listCacheFilePath)))) {
@@ -240,26 +265,36 @@ public class MainNetBucket {
             // create a list of ChainFiles
             List<ChainFile> chainFiles = IntStream.range(minNodeAccountId, maxNodeAccountId + 1)
                     .parallel()
-                    .mapToObj(nodeAccountId -> Stream.concat(
-                                    STORAGE.list(
-                                                    HEDERA_MAINNET_STREAMS_BUCKET,
-                                                    getBlobListOptions(
-                                                            "recordstreams/record0.0." + nodeAccountId + "/"
-                                                                    + filePrefix,
-                                                            REQUIRED_FIELDS))
-                                            .streamAll(),
+                    .mapToObj(nodeAccountId -> {
+                        Stream<com.google.cloud.storage.Blob> recordStream =
+                                STORAGE.list(
+                                                HEDERA_MAINNET_STREAMS_BUCKET,
+                                                getBlobListOptions(
+                                                        "recordstreams/record0.0." + nodeAccountId + "/"
+                                                                + filePrefix,
+                                                        REQUIRED_FIELDS))
+                                        .streamAll();
+
+                        Stream<com.google.cloud.storage.Blob> combinedStream = recordStream;
+
+                        if (includeSidecars) {
+                            Stream<com.google.cloud.storage.Blob> sidecarStream =
                                     STORAGE.list(
                                                     HEDERA_MAINNET_STREAMS_BUCKET,
                                                     getBlobListOptions(
                                                             "recordstreams/record0.0." + nodeAccountId + "/sidecar/"
                                                                     + filePrefix,
                                                             REQUIRED_FIELDS))
-                                            .streamAll())
-                            .map(blob -> new ChainFile(
-                                    nodeAccountId,
-                                    blob.getName(),
-                                    blob.getSize().intValue(),
-                                    blob.getMd5())))
+                                            .streamAll();
+                            combinedStream = Stream.concat(recordStream, sidecarStream);
+                        }
+
+                        return combinedStream.map(blob -> new ChainFile(
+                                nodeAccountId,
+                                blob.getName(),
+                                blob.getSize().intValue(),
+                                blob.getMd5()));
+                    })
                     .flatMap(Function.identity())
                     .toList();
             // save the list to cache
