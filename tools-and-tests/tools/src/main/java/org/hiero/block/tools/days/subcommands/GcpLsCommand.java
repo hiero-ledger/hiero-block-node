@@ -114,8 +114,7 @@ public class GcpLsCommand implements Runnable {
 
             validateInputs();
 
-            System.out.printf(
-                    "Sampling %d (day, hour) slots between %s and %s%n", samples, startDate, endDate);
+            System.out.printf("Sampling %d (day, hour) slots between %s and %s%n", samples, startDate, endDate);
 
             long daysRange = ChronoUnit.DAYS.between(startDate, endDate) + 1;
 
@@ -165,8 +164,7 @@ public class GcpLsCommand implements Runnable {
                 status = "ERROR";
             }
             System.out.printf(
-                    "%-8s %-10d %-10d %-10d %-8s%n",
-                    "0.0." + r.node, r.gcpSigCount, r.localSigCount, r.diff, status);
+                    "%-8s %-10d %-10d %-10d %-8s%n", "0.0." + r.node, r.gcpSigCount, r.localSigCount, r.diff, status);
         }
 
         printDifferenceView(results);
@@ -177,8 +175,7 @@ public class GcpLsCommand implements Runnable {
         // enriched differences view
         if (!skipLocalCompare) {
             for (final NodeResult r : results) {
-                if ((r.gcpOnly != null && !r.gcpOnly.isEmpty())
-                        || (r.localOnly != null && !r.localOnly.isEmpty())) {
+                if ((r.gcpOnly != null && !r.gcpOnly.isEmpty()) || (r.localOnly != null && !r.localOnly.isEmpty())) {
                     System.out.printf("    Differences for node 0.0.%d:%n", r.node);
                     if (r.gcpOnly != null && !r.gcpOnly.isEmpty()) {
                         System.out.println("      Present in GCP only:");
