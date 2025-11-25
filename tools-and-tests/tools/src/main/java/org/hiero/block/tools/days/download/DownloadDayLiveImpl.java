@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
-package org.hiero.block.tools.commands.days.download;
+package org.hiero.block.tools.days.download;
 
-import org.hiero.block.tools.commands.days.listing.ListingRecordFile;
-import org.hiero.block.tools.commands.mirrornode.BlockTimeReader;
-import org.hiero.block.tools.commands.mirrornode.DayBlockInfo;
-import org.hiero.block.tools.records.InMemoryFile;
+import org.hiero.block.tools.days.listing.ListingRecordFile;
+import org.hiero.block.tools.mirrornode.BlockTimeReader;
+import org.hiero.block.tools.mirrornode.DayBlockInfo;
+import org.hiero.block.tools.records.model.unparsed.InMemoryFile;
 import org.hiero.block.tools.utils.ConcurrentTarZstdWriter;
 import org.hiero.block.tools.utils.Gzip;
 import org.hiero.block.tools.utils.Md5Checker;
@@ -29,10 +29,10 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.Collectors;
 
-import static org.hiero.block.tools.commands.days.download.DownloadConstants.BUCKET_NAME;
-import static org.hiero.block.tools.commands.days.download.DownloadConstants.BUCKET_PATH_PREFIX;
-import static org.hiero.block.tools.commands.days.download.DownloadDayUtil.validateBlockHashes;
-import static org.hiero.block.tools.commands.days.listing.DayListingFileReader.loadRecordsFileForDay;
+import static org.hiero.block.tools.days.download.DownloadConstants.BUCKET_NAME;
+import static org.hiero.block.tools.days.download.DownloadConstants.BUCKET_PATH_PREFIX;
+import static org.hiero.block.tools.days.download.DownloadDayUtil.validateBlockHashes;
+import static org.hiero.block.tools.days.listing.DayListingFileReader.loadRecordsFileForDay;
 import static org.hiero.block.tools.records.RecordFileUtils.extractRecordFileTimeStrFromPath;
 import static org.hiero.block.tools.records.RecordFileUtils.findMostCommonByType;
 import static org.hiero.block.tools.records.RecordFileUtils.findMostCommonSidecars;
@@ -100,7 +100,7 @@ public class DownloadDayLiveImpl {
      *  - selects the most common record + sidecar files
      *  - downloads all required files with MD5 validation and retry
      *  - ungzips .gz files and computes canonical entry names via {@link #computeNewFilePath}
-     *  - validates block hashes via {@link DownloadDayUtil#validateBlockHashes}
+     *  - validates block hashes via {@link org.hiero.block.tools.commands.days.download.DownloadDayUtil#validateBlockHashes}
      *
      * On success it returns the in-memory files and the updated previousRecordFileHash
      * that should be passed into the next block/day.
