@@ -6,6 +6,7 @@ import org.hiero.block.tools.days.subcommands.Compress;
 import org.hiero.block.tools.days.subcommands.DownloadDay;
 import org.hiero.block.tools.days.subcommands.DownloadDays;
 import org.hiero.block.tools.days.subcommands.DownloadDaysV2;
+import org.hiero.block.tools.days.subcommands.GcpLsCommand;
 import org.hiero.block.tools.days.subcommands.Ls;
 import org.hiero.block.tools.days.subcommands.LsDayListing;
 import org.hiero.block.tools.days.subcommands.PrintListing;
@@ -33,6 +34,7 @@ import picocli.CommandLine.Spec;
             DownloadDay.class,
             DownloadDaysV2.class,
             DownloadDays.class,
+            GcpLsCommand.class,
             PrintListing.class,
             LsDayListing.class,
             SplitJsonToDayFiles.class,
