@@ -266,34 +266,28 @@ public class MainNetBucket {
             List<ChainFile> chainFiles = IntStream.range(minNodeAccountId, maxNodeAccountId + 1)
                     .parallel()
                     .mapToObj(nodeAccountId -> {
-                        Stream<com.google.cloud.storage.Blob> recordStream =
-                                STORAGE.list(
-                                                HEDERA_MAINNET_STREAMS_BUCKET,
-                                                getBlobListOptions(
-                                                        "recordstreams/record0.0." + nodeAccountId + "/"
-                                                                + filePrefix,
-                                                        REQUIRED_FIELDS))
-                                        .streamAll();
+                        Stream<com.google.cloud.storage.Blob> recordStream = STORAGE.list(
+                                        HEDERA_MAINNET_STREAMS_BUCKET,
+                                        getBlobListOptions(
+                                                "recordstreams/record0.0." + nodeAccountId + "/" + filePrefix,
+                                                REQUIRED_FIELDS))
+                                .streamAll();
 
                         Stream<com.google.cloud.storage.Blob> combinedStream = recordStream;
 
                         if (includeSidecars) {
-                            Stream<com.google.cloud.storage.Blob> sidecarStream =
-                                    STORAGE.list(
-                                                    HEDERA_MAINNET_STREAMS_BUCKET,
-                                                    getBlobListOptions(
-                                                            "recordstreams/record0.0." + nodeAccountId + "/sidecar/"
-                                                                    + filePrefix,
-                                                            REQUIRED_FIELDS))
-                                            .streamAll();
+                            Stream<com.google.cloud.storage.Blob> sidecarStream = STORAGE.list(
+                                            HEDERA_MAINNET_STREAMS_BUCKET,
+                                            getBlobListOptions(
+                                                    "recordstreams/record0.0." + nodeAccountId + "/sidecar/"
+                                                            + filePrefix,
+                                                    REQUIRED_FIELDS))
+                                    .streamAll();
                             combinedStream = Stream.concat(recordStream, sidecarStream);
                         }
 
                         return combinedStream.map(blob -> new ChainFile(
-                                nodeAccountId,
-                                blob.getName(),
-                                blob.getSize().intValue(),
-                                blob.getMd5()));
+                                nodeAccountId, blob.getName(), blob.getSize().intValue(), blob.getMd5()));
                     })
                     .flatMap(Function.identity())
                     .toList();
