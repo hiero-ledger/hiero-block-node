@@ -1,11 +1,7 @@
+// SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.tools.days.subcommands;
 
 import io.helidon.http.NotFoundException;
-import org.hiero.block.tools.days.download.DownloadConstants;
-import org.hiero.block.tools.utils.gcp.MainNetBucket;
-import picocli.CommandLine.Command;
-import picocli.CommandLine.Option;
-
 import java.io.File;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -17,6 +13,10 @@ import java.util.Set;
 import java.util.TreeSet;
 import java.util.concurrent.*;
 import java.util.stream.Stream;
+import org.hiero.block.tools.days.download.DownloadConstants;
+import org.hiero.block.tools.utils.gcp.MainNetBucket;
+import picocli.CommandLine.Command;
+import picocli.CommandLine.Option;
 
 /**
  * Randomly samples (date, hour) combinations and compares:
@@ -31,9 +31,8 @@ import java.util.stream.Stream;
  *
  */
 @Command(
-    name = "gcp-ls",
-    description = "Randomly sample (day, hour) and compare GCP LS vs local downloadedDays signature counts"
-)
+        name = "gcp-ls",
+        description = "Randomly sample (day, hour) and compare GCP LS vs local downloadedDays signature counts")
 public class GcpLsCommand implements Runnable {
 
     @Option(names = "--start-date", required = true, description = "Start date (inclusive), yyyy-MM-dd")
@@ -45,53 +44,51 @@ public class GcpLsCommand implements Runnable {
     @Option(names = "--samples", description = "Number of random (day, hour) samples", defaultValue = "10")
     private int samples;
 
-    @Option(names = "--downloaded-days-dir",
-        description = "Root of downloadedDays directory (YYYY/MM/DD/record0.0.<node> structure)")
+    @Option(
+            names = "--downloaded-days-dir",
+            description = "Root of downloadedDays directory (YYYY/MM/DD/record0.0.<node> structure)")
     private Path downloadedDaysDir;
 
-    @Option(names = "--node-count",
-        description = "Number of record nodes (record0.0.x), usually 31 for 0..30",
-        defaultValue = "31")
+    @Option(
+            names = "--node-count",
+            description = "Number of record nodes (record0.0.x), usually 31 for 0..30",
+            defaultValue = "31")
     private int nodeCount;
 
     @Option(
-        names = "--skip-local-compare",
-        description = "Skip comparing against local downloadedDays dir; only show GCP signature counts")
+            names = "--skip-local-compare",
+            description = "Skip comparing against local downloadedDays dir; only show GCP signature counts")
     private boolean skipLocalCompare = false;
 
-    @Option(
-        names = "--show-ls",
-        description = "Show full list of GCP/local record files per node/hour")
+    @Option(names = "--show-ls", description = "Show full list of GCP/local record files per node/hour")
     private boolean showLs = false;
 
     @Option(
-        names = {"-c", "--cache-dir"},
-        description = "Directory for GCS cache (default: data/gcp-cache)")
+            names = {"-c", "--cache-dir"},
+            description = "Directory for GCS cache (default: data/gcp-cache)")
     private File cacheDir = new File("data/gcp-cache");
 
     @Option(
-        names = {"--cache"},
-        description = "Enable GCS caching (default: false)")
+            names = {"--cache"},
+            description = "Enable GCS caching (default: false)")
     private boolean cacheEnabled = false;
 
     @Option(
-        names = {"--min-node"},
-        description = "Minimum node account ID (default: 3)")
+            names = {"--min-node"},
+            description = "Minimum node account ID (default: 3)")
     private int minNodeAccountId = 3;
 
     @Option(
-        names = {"--max-node"},
-        description = "Maximum node account ID (default: 37)")
+            names = {"--max-node"},
+            description = "Maximum node account ID (default: 37)")
     private int maxNodeAccountId = 37;
 
-    @Option(names = "--parallelism",
-        description = "Thread pool size for parallel node queries",
-        defaultValue = "8")
+    @Option(names = "--parallelism", description = "Thread pool size for parallel node queries", defaultValue = "8")
     private int parallelism;
 
     @Option(
-        names = {"-p", "--user-project"},
-        description = "GCP project to bill for requester-pays bucket access (default: from GCP_PROJECT_ID env var)")
+            names = {"-p", "--user-project"},
+            description = "GCP project to bill for requester-pays bucket access (default: from GCP_PROJECT_ID env var)")
     private String userProject = DownloadConstants.GCP_PROJECT_ID;
 
     /**
@@ -104,7 +101,8 @@ public class GcpLsCommand implements Runnable {
      * Typical wiring: new CommandLine(new GcpLsCommand(mainNetBucket)).execute(args);
      */
     public GcpLsCommand() {
-        this.mainNetBucket = new MainNetBucket(true, cacheDir.toPath(), minNodeAccountId, maxNodeAccountId, userProject);
+        this.mainNetBucket =
+                new MainNetBucket(true, cacheDir.toPath(), minNodeAccountId, maxNodeAccountId, userProject);
     }
 
     @Override
@@ -116,10 +114,7 @@ public class GcpLsCommand implements Runnable {
 
             validateInputs();
 
-            System.out.printf(
-                "Sampling %d (day, hour) slots between %s and %s%n",
-                samples, startDate, endDate
-            );
+            System.out.printf("Sampling %d (day, hour) slots between %s and %s%n", samples, startDate, endDate);
 
             long daysRange = ChronoUnit.DAYS.between(startDate, endDate) + 1;
 
@@ -130,20 +125,15 @@ public class GcpLsCommand implements Runnable {
                     LocalDate sampleDate = startDate.plusDays(dayOffset);
                     int hour = ThreadLocalRandom.current().nextInt(24);
 
+                    System.out.printf("%n=== Sample %d: date=%s hour=%02d ===%n", i + 1, sampleDate, hour);
                     System.out.printf(
-                        "%n=== Sample %d: date=%s hour=%02d ===%n",
-                        i + 1, sampleDate, hour
-                    );
-                    System.out.printf("%-8s %-10s %-10s %-10s %-8s%n",
-                        "Node", "gcpFiles", "localFiles", "diff", "status");
+                            "%-8s %-10s %-10s %-10s %-8s%n", "Node", "gcpFiles", "localFiles", "diff", "status");
 
                     // submit node tasks in parallel
                     List<Future<NodeResult>> futures = new ArrayList<>();
                     for (int node = 0; node < nodeCount; node++) {
                         final int nodeId = node;
-                        futures.add(executor.submit(() ->
-                            checkNodeForHour(sampleDate, hour, nodeId)
-                        ));
+                        futures.add(executor.submit(() -> checkNodeForHour(sampleDate, hour, nodeId)));
                     }
 
                     // gather results in node order
@@ -158,12 +148,9 @@ public class GcpLsCommand implements Runnable {
                         if (r.gcpSigCount < 0) {
                             status = "ERROR";
                         }
-                        System.out.printf("%-8s %-10d %-10d %-10d %-8s%n",
-                            "0.0." + r.node,
-                            r.gcpSigCount,
-                            r.localSigCount,
-                            r.diff,
-                            status);
+                        System.out.printf(
+                                "%-8s %-10d %-10d %-10d %-8s%n",
+                                "0.0." + r.node, r.gcpSigCount, r.localSigCount, r.diff, status);
                     }
 
                     // enriched differences view
@@ -239,20 +226,20 @@ public class GcpLsCommand implements Runnable {
             final String hourToken = date + "T" + String.format("%02d", hour) + "_";
 
             gcpSigFiles = blobs.stream()
-                .map(b -> b.path())
-                // restrict to this hour based on filename in the path
-                .filter(path -> path.contains(hourToken))
-                // only record files
-                .filter(this::isRecordName)
-                // keep only this node's prefix, e.g. ".../record0.0.3/..."
-                .filter(path -> matchesNode(path, node))
-                .map(this::extractFileName)
-                .toList();
+                    .map(b -> b.path())
+                    // restrict to this hour based on filename in the path
+                    .filter(path -> path.contains(hourToken))
+                    // only record files
+                    .filter(this::isRecordName)
+                    // keep only this node's prefix, e.g. ".../record0.0.3/..."
+                    .filter(path -> matchesNode(path, node))
+                    .map(this::extractFileName)
+                    .toList();
 
             gcpSigCount = gcpSigFiles.size();
         } catch (Exception e) {
-            System.err.printf("Error listing GCP for node 0.0.%d date=%s hour=%02d: %s%n",
-                node, date, hour, e.getMessage());
+            System.err.printf(
+                    "Error listing GCP for node 0.0.%d date=%s hour=%02d: %s%n", node, date, hour, e.getMessage());
             gcpSigCount = -1; // sentinel meaning "GCP listing failed"
         }
 
@@ -285,14 +272,15 @@ public class GcpLsCommand implements Runnable {
             }
         }
 
-        return new NodeResult(node,
-                              gcpSigCount,
-                              localSigCount,
-                              diff,
-                              gcpOnly,
-                              localOnly,
-                              gcpSigFiles,
-                              skipLocalCompare ? List.of() : listLocalRecordFiles(date, hour, node));
+        return new NodeResult(
+                node,
+                gcpSigCount,
+                localSigCount,
+                diff,
+                gcpOnly,
+                localOnly,
+                gcpSigFiles,
+                skipLocalCompare ? List.of() : listLocalRecordFiles(date, hour, node));
     }
 
     private boolean isRecordName(String name) {
@@ -325,9 +313,9 @@ public class GcpLsCommand implements Runnable {
 
     private List<String> listLocalRecordFiles(LocalDate date, int hour, int node) {
         Path dayDir = downloadedDaysDir
-            .resolve(String.valueOf(date.getYear()))
-            .resolve(String.format("%02d", date.getMonthValue()))
-            .resolve(String.format("%02d", date.getDayOfMonth()));
+                .resolve(String.valueOf(date.getYear()))
+                .resolve(String.format("%02d", date.getMonthValue()))
+                .resolve(String.format("%02d", date.getDayOfMonth()));
 
         // per-node subdirectory
         dayDir = dayDir.resolve("record0.0." + node);
@@ -339,13 +327,12 @@ public class GcpLsCommand implements Runnable {
         String filenamePrefix = date + "T" + String.format("%02d", hour) + "_";
 
         try (Stream<Path> stream = Files.list(dayDir)) {
-            return stream
-                .filter(Files::isRegularFile)
-                .map(Path::getFileName)
-                .map(Path::toString)
-                .filter(name -> name.startsWith(filenamePrefix))
-                .filter(this::isRecordName)
-                .toList();
+            return stream.filter(Files::isRegularFile)
+                    .map(Path::getFileName)
+                    .map(Path::toString)
+                    .filter(name -> name.startsWith(filenamePrefix))
+                    .filter(this::isRecordName)
+                    .toList();
         } catch (Exception e) {
             System.err.println("Error listing local record files in " + dayDir + ": " + e.getMessage());
             return List.of();
@@ -362,14 +349,15 @@ public class GcpLsCommand implements Runnable {
         final List<String> gcpFiles;
         final List<String> localFiles;
 
-        private NodeResult(int node,
-                           long gcpSigCount,
-                           long localSigCount,
-                           long diff,
-                           List<String> gcpOnly,
-                           List<String> localOnly,
-                           List<String> gcpFiles,
-                           List<String> localFiles) {
+        private NodeResult(
+                int node,
+                long gcpSigCount,
+                long localSigCount,
+                long diff,
+                List<String> gcpOnly,
+                List<String> localOnly,
+                List<String> gcpFiles,
+                List<String> localFiles) {
             this.node = node;
             this.gcpSigCount = gcpSigCount;
             this.localSigCount = localSigCount;
