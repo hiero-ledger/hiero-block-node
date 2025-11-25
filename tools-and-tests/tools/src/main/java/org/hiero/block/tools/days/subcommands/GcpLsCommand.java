@@ -169,6 +169,11 @@ public class GcpLsCommand implements Runnable {
                     "0.0." + r.node, r.gcpSigCount, r.localSigCount, r.diff, status);
         }
 
+        printDifferenceView(results);
+        printLsView(results);
+    }
+
+    private void printDifferenceView(List<NodeResult> results) {
         // enriched differences view
         if (!skipLocalCompare) {
             for (final NodeResult r : results) {
@@ -186,7 +191,9 @@ public class GcpLsCommand implements Runnable {
                 }
             }
         }
+    }
 
+    private void printLsView(List<NodeResult> results) {
         // optional full ls-style view
         if (showLs) {
             for (final NodeResult r : results) {
