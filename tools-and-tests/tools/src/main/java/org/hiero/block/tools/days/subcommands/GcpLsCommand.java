@@ -114,7 +114,8 @@ public class GcpLsCommand implements Runnable {
 
             validateInputs();
 
-            System.out.printf("Sampling %d (day, hour) slots between %s and %s%n", samples, startDate, endDate);
+            System.out.printf(
+                    "Sampling %d (day, hour) slots between %s and %s%n", samples, startDate, endDate);
 
             long daysRange = ChronoUnit.DAYS.between(startDate, endDate) + 1;
 
@@ -125,74 +126,7 @@ public class GcpLsCommand implements Runnable {
                     LocalDate sampleDate = startDate.plusDays(dayOffset);
                     int hour = ThreadLocalRandom.current().nextInt(24);
 
-                    System.out.printf("%n=== Sample %d: date=%s hour=%02d ===%n", i + 1, sampleDate, hour);
-                    System.out.printf(
-                            "%-8s %-10s %-10s %-10s %-8s%n", "Node", "gcpFiles", "localFiles", "diff", "status");
-
-                    // submit node tasks in parallel
-                    List<Future<NodeResult>> futures = new ArrayList<>();
-                    for (int node = 0; node < nodeCount; node++) {
-                        final int nodeId = node;
-                        futures.add(executor.submit(() -> checkNodeForHour(sampleDate, hour, nodeId)));
-                    }
-
-                    // gather results in node order
-                    List<NodeResult> results = new ArrayList<>(futures.size());
-                    for (Future<NodeResult> future : futures) {
-                        results.add(future.get());
-                    }
-
-                    // print summary table
-                    for (NodeResult r : results) {
-                        String status = (r.diff == 0 && r.gcpSigCount >= 0) ? "OK" : "MISMATCH";
-                        if (r.gcpSigCount < 0) {
-                            status = "ERROR";
-                        }
-                        System.out.printf(
-                                "%-8s %-10d %-10d %-10d %-8s%n",
-                                "0.0." + r.node, r.gcpSigCount, r.localSigCount, r.diff, status);
-                    }
-
-                    // enriched differences view
-                    if (!skipLocalCompare) {
-                        for (NodeResult r : results) {
-                            if ((r.gcpOnly != null && !r.gcpOnly.isEmpty())
-                                    || (r.localOnly != null && !r.localOnly.isEmpty())) {
-                                System.out.printf("    Differences for node 0.0.%d:%n", r.node);
-                                if (r.gcpOnly != null && !r.gcpOnly.isEmpty()) {
-                                    System.out.println("      Present in GCP only:");
-                                    r.gcpOnly.forEach(f -> System.out.println("        " + f));
-                                }
-                                if (r.localOnly != null && !r.localOnly.isEmpty()) {
-                                    System.out.println("      Present in local only:");
-                                    r.localOnly.forEach(f -> System.out.println("        " + f));
-                                }
-                            }
-                        }
-                    }
-
-                    // optional full ls-style view
-                    if (showLs) {
-                        for (NodeResult r : results) {
-                            System.out.printf("    LS for node 0.0.%d:%n", r.node);
-
-                            if (r.gcpFiles != null && !r.gcpFiles.isEmpty()) {
-                                System.out.println("      GCP files:");
-                                r.gcpFiles.forEach(f -> System.out.println("        " + f));
-                            } else {
-                                System.out.println("      GCP files: (none)");
-                            }
-
-                            if (!skipLocalCompare) {
-                                if (r.localFiles != null && !r.localFiles.isEmpty()) {
-                                    System.out.println("      Local files:");
-                                    r.localFiles.forEach(f -> System.out.println("        " + f));
-                                } else {
-                                    System.out.println("      Local files: (none)");
-                                }
-                            }
-                        }
-                    }
+                    handleSample(i + 1, sampleDate, hour, executor);
                 }
             } finally {
                 executor.shutdownNow();
@@ -201,6 +135,79 @@ public class GcpLsCommand implements Runnable {
         } catch (Exception e) {
             System.err.println("Error during gcp-ls: " + e.getMessage());
             e.printStackTrace(System.err);
+        }
+    }
+
+    private void handleSample(
+            final int sampleIndex, final LocalDate sampleDate, final int hour, final ExecutorService executor)
+            throws ExecutionException, InterruptedException {
+
+        System.out.printf("%n=== Sample %d: date=%s hour=%02d ===%n", sampleIndex, sampleDate, hour);
+        System.out.printf("%-8s %-10s %-10s %-10s %-8s%n", "Node", "gcpFiles", "localFiles", "diff", "status");
+
+        // submit node tasks in parallel
+        final List<Future<NodeResult>> futures = new ArrayList<>();
+        for (int node = 0; node < nodeCount; node++) {
+            final int nodeId = node;
+            futures.add(executor.submit(() -> checkNodeForHour(sampleDate, hour, nodeId)));
+        }
+
+        // gather results in node order
+        final List<NodeResult> results = new ArrayList<>(futures.size());
+        for (final Future<NodeResult> future : futures) {
+            results.add(future.get());
+        }
+
+        // print summary table
+        for (final NodeResult r : results) {
+            String status = (r.diff == 0 && r.gcpSigCount >= 0) ? "OK" : "MISMATCH";
+            if (r.gcpSigCount < 0) {
+                status = "ERROR";
+            }
+            System.out.printf(
+                    "%-8s %-10d %-10d %-10d %-8s%n",
+                    "0.0." + r.node, r.gcpSigCount, r.localSigCount, r.diff, status);
+        }
+
+        // enriched differences view
+        if (!skipLocalCompare) {
+            for (final NodeResult r : results) {
+                if ((r.gcpOnly != null && !r.gcpOnly.isEmpty())
+                        || (r.localOnly != null && !r.localOnly.isEmpty())) {
+                    System.out.printf("    Differences for node 0.0.%d:%n", r.node);
+                    if (r.gcpOnly != null && !r.gcpOnly.isEmpty()) {
+                        System.out.println("      Present in GCP only:");
+                        r.gcpOnly.forEach(f -> System.out.println("        " + f));
+                    }
+                    if (r.localOnly != null && !r.localOnly.isEmpty()) {
+                        System.out.println("      Present in local only:");
+                        r.localOnly.forEach(f -> System.out.println("        " + f));
+                    }
+                }
+            }
+        }
+
+        // optional full ls-style view
+        if (showLs) {
+            for (final NodeResult r : results) {
+                System.out.printf("    LS for node 0.0.%d:%n", r.node);
+
+                if (r.gcpFiles != null && !r.gcpFiles.isEmpty()) {
+                    System.out.println("      GCP files:");
+                    r.gcpFiles.forEach(f -> System.out.println("        " + f));
+                } else {
+                    System.out.println("      GCP files: (none)");
+                }
+
+                if (!skipLocalCompare) {
+                    if (r.localFiles != null && !r.localFiles.isEmpty()) {
+                        System.out.println("      Local files:");
+                        r.localFiles.forEach(f -> System.out.println("        " + f));
+                    } else {
+                        System.out.println("      Local files: (none)");
+                    }
+                }
+            }
         }
     }
 
@@ -301,14 +308,6 @@ public class GcpLsCommand implements Runnable {
     private String extractFileName(String path) {
         int idx = path.lastIndexOf('/');
         return idx >= 0 ? path.substring(idx + 1) : path;
-    }
-
-    /**
-     * Local layout assumed:
-     *   downloadedDaysDir/YYYY/MM/DD/record0.0.<node>/YYYY-MM-DDTHH_MM_...Z.rcd[.gz]
-     */
-    private long countLocalRecords(LocalDate date, int hour, int node) {
-        return listLocalRecordFiles(date, hour, node).size();
     }
 
     private List<String> listLocalRecordFiles(LocalDate date, int hour, int node) {
