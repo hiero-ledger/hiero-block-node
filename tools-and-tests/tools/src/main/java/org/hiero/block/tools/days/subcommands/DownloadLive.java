@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-package org.hiero.block.tools.commands.days.subcommands;
+package org.hiero.block.tools.days.subcommands;
 
 import java.io.File;
 import java.io.IOException;
@@ -25,15 +25,23 @@ import java.util.stream.Stream;
 
 import com.google.cloud.storage.Storage;
 import com.google.cloud.storage.StorageOptions;
-import org.hiero.block.tools.commands.days.download.DownloadDayLiveImpl;
-import org.hiero.block.tools.commands.mirrornode.BlockInfo;
-import org.hiero.block.tools.commands.mirrornode.MirrorNodeBlockQueryOrder;
+import org.hiero.block.tools.days.download.DownloadDayLiveImpl;
 import org.hiero.block.tools.days.model.AddressBookRegistry;
+import org.hiero.block.tools.mirrornode.BlockInfo;
+import org.hiero.block.tools.mirrornode.BlockTimeReader;
+import org.hiero.block.tools.mirrornode.DayBlockInfo;
+import org.hiero.block.tools.mirrornode.FetchBlockQuery;
+import org.hiero.block.tools.mirrornode.MirrorNodeBlockQueryOrder;
+import org.hiero.block.tools.records.model.parsed.ParsedRecordFile;
 import org.hiero.block.tools.records.model.unparsed.InMemoryFile;
+import org.hiero.block.tools.records.model.unparsed.UnparsedRecordBlockV6;
 import org.hiero.block.tools.utils.gcp.ConcurrentDownloadManagerVirtualThreads;
 import picocli.CommandLine;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Option;
+
+import static org.hiero.block.tools.days.download.DownloadConstants.GCP_PROJECT_ID;
+import static org.hiero.block.tools.mirrornode.DayBlockInfo.loadDayBlockInfoMap;
 
 
 /**
@@ -616,7 +624,7 @@ public class DownloadLive implements Runnable {
                     return false;
                 }
 
-                final RecordFileBlockV6 block = new RecordFileBlockV6(
+                final UnparsedRecordBlockV6 block = new UnparsedRecordBlockV6(
                         recordFileTime,
                         primaryRecord,
                         List.of(),       // no "other" records in live mode
@@ -624,7 +632,7 @@ public class DownloadLive implements Runnable {
                         sidecars,
                         List.of());      // no "other" sidecars in live mode
 
-                final RecordFileBlock.ValidationResult vr =
+                final UnparsedRecordBlockV6.ValidationResult vr =
                         block.validate(startRunningHash, addressBookRegistry.getCurrentAddressBook());
 
                 if (!vr.isValid()) {
