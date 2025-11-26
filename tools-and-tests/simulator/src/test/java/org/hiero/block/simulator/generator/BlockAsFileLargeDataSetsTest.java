@@ -6,6 +6,7 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
+import com.hedera.pbj.runtime.ParseException;
 import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -41,7 +42,7 @@ class BlockAsFileLargeDataSetsTest {
     }
 
     @Test
-    void getNextBlock() throws IOException, BlockSimulatorParsingException {
+    void getNextBlock() throws IOException, BlockSimulatorParsingException, ParseException {
         BlockStreamManager blockStreamManager =
                 getBlockAsFileLargeDatasetsBlockStreamManager(getAbsoluteFolder(rootFolder));
         blockStreamManager.init();
@@ -53,7 +54,7 @@ class BlockAsFileLargeDataSetsTest {
     }
 
     @Test
-    void getNextBlockInRange() throws IOException, BlockSimulatorParsingException {
+    void getNextBlockInRange() throws IOException, BlockSimulatorParsingException, ParseException {
 
         final BlockGeneratorConfig blockGeneratorConfig = BlockGeneratorConfig.builder()
                 .generationMode(GenerationMode.DIR)

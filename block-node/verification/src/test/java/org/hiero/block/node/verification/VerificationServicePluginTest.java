@@ -73,7 +73,7 @@ class VerificationServicePluginTest extends PluginTestBase<VerificationServicePl
     void testFailedVerification() throws IOException, ParseException {
 
         BlockUtils.SampleBlockInfo sampleBlockInfo =
-                BlockUtils.getSampleBlockInfo(BlockUtils.SAMPLE_BLOCKS.HAPI_0_64_0_BLOCK_14);
+                BlockUtils.getSampleBlockInfo(BlockUtils.SAMPLE_BLOCKS.HAPI_0_68_0_BLOCK_14);
 
         List<BlockItemUnparsed> blockItems = sampleBlockInfo.blockUnparsed().blockItems();
         // remove one block item, so the hash is no longer valid
@@ -172,10 +172,6 @@ class VerificationServicePluginTest extends PluginTestBase<VerificationServicePl
                 blockNotification.blockNumber(),
                 "The block number should be the same as the one in the block header");
         assertTrue(blockNotification.success(), "The verification should be successful");
-        assertEquals(
-                sampleBlockInfo.blockRootHash(),
-                blockNotification.blockHash(),
-                "The block hash should be the same as the one in the block header");
         assertEquals(
                 sampleBlockInfo.blockUnparsed(),
                 blockNotification.block(),

@@ -54,13 +54,6 @@ public final class BlockUtils {
      * Gets a SampleBlockInfo, out of the defined sample blocks enum.
      */
     public static SampleBlockInfo getSampleBlockInfo(SAMPLE_BLOCKS sampleBlocks) throws IOException, ParseException {
-        // JSON Option not working
-        // Parsing is coming empty.
-        //        BlockUnparsed jsonOrigin = BlockUnparsed.JSON.parse(Bytes.wrap(BlockUtils.class
-        //                .getModule()
-        //                .getResourceAsStream("test-blocks/" + "perf-10K-1731.blk.json")
-        //                .readAllBytes()));
-
         BlockUnparsed blockUnparsed;
         var stream = TestUtils.class.getModule().getResourceAsStream("test-blocks/" + sampleBlocks.blockName);
         try (final var gzipInputStream = new GZIPInputStream(stream)) {
@@ -89,14 +82,17 @@ public final class BlockUtils {
     public enum SAMPLE_BLOCKS {
         HAPI_0_64_0_BLOCK_14(
                 "HAPI-0-64-0/000000000000000000000000000000000014.blk.gz",
-                "54dca69665741f13d8c956dffb3327edbe5d56e32d2bc66d6ce145a1e1b62fe61cddb74b19f17a5da9bb01933429d5e0",
+                "30783030", // dummy hash
                 14),
         HAPI_0_66_0_BLOCK_10(
                 "HAPI-0-66-0/000000000000000000000000000000000010.blk.gz",
-                "8d6d9004594f10f15518a2c6a7c5d473077f2a83a874a9489095adc0d0bf6b7c9f7e49b1e5430203e7234ebfd2880de2",
-                10);
+                "30783030", // dummy hash
+                10),
+        HAPI_0_68_0_BLOCK_14(
+                "HAPI-0-68-0/000000000000000000000000000000000014.blk.gz",
+                "d4924fe896fd32375ced195f29238f36b50f1a04d7b0e34e00b82758a2e9cabd37c98945181788e309d2c9588830bbcb",
+                14);
 
-        // VNymlmV0HxPYyVbf+zMn7b5dVuMtK8ZtbOFFoeG2L+Yc3bdLGfF6Xam7AZM0KdXg
         private final String blockName;
         private final Bytes blockHash;
         private final long blockNumber;

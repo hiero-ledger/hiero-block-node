@@ -12,6 +12,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.hedera.hapi.block.stream.protoc.Block;
+import com.hedera.pbj.runtime.ParseException;
 import com.swirlds.config.api.Configuration;
 import java.io.IOException;
 import java.util.Map;
@@ -186,7 +187,7 @@ public class PublisherClientModeHandlerTest {
 
     @Test
     void testStartWithExceptionDuringStreaming()
-            throws InterruptedException, BlockSimulatorParsingException, IOException {
+            throws InterruptedException, BlockSimulatorParsingException, IOException, ParseException {
         blockStreamManager = mock(BlockStreamManager.class);
         publisherClientModeHandler = new PublisherClientModeHandler(
                 blockStreamConfig, publishStreamGrpcClient, blockStreamManager, metricsService);

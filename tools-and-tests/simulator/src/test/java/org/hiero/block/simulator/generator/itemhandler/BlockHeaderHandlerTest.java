@@ -53,11 +53,11 @@ class BlockHeaderHandlerTest {
         BlockHeader header = handler.getItem().getBlockHeader();
 
         assertEquals(0, header.getHapiProtoVersion().getMajor());
-        assertEquals(66, header.getHapiProtoVersion().getMinor());
+        assertEquals(68, header.getHapiProtoVersion().getMinor());
         assertEquals(0, header.getHapiProtoVersion().getPatch());
 
         assertEquals(0, header.getSoftwareVersion().getMajor());
-        assertEquals(66, header.getSoftwareVersion().getMinor());
+        assertEquals(68, header.getSoftwareVersion().getMinor());
         assertEquals(0, header.getSoftwareVersion().getPatch());
     }
 }

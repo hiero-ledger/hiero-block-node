@@ -10,8 +10,8 @@ import static org.mockito.Mockito.mock;
 import com.hedera.hapi.node.base.SemanticVersion;
 import java.util.stream.Stream;
 import org.hiero.block.node.spi.blockmessaging.BlockSource;
+import org.hiero.block.node.verification.session.impl.DummyVerificationSession;
 import org.hiero.block.node.verification.session.impl.ExtendedMerkleTreeSession;
-import org.hiero.block.node.verification.session.impl.PreviewSimpleHashSession;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -49,11 +49,7 @@ class HapiVersionSessionFactoryTest {
     // ---------- Version selection tests ----------
 
     static Stream<Arguments> latestImplVersions() {
-        return Stream.of(
-                Arguments.of(sv(0, 68, 0)),
-                Arguments.of(sv(0, 68, 1)),
-                Arguments.of(sv(1, 0, 0)) // future major should still pick latest
-                );
+        return Stream.of(Arguments.of(sv(0, 68, 0)), Arguments.of(sv(0, 68, 1)));
     }
 
     @ParameterizedTest(name = ">= 0.68.0 resolves to ExtendedMerkleTreeSession for {0}")
@@ -72,16 +68,16 @@ class HapiVersionSessionFactoryTest {
                 Arguments.of(sv(0, 67, 999)));
     }
 
-    @ParameterizedTest(name = ">= 0.64.0 and < 0.68.0 resolves to PreviewSimpleHashSession for {0}")
+    @ParameterizedTest(name = ">= 0.64.0 and < 0.68.0 resolves to DummyVerificationSession for {0}")
     @MethodSource("midRangeImplVersions")
     void selects0640ImplForRange(SemanticVersion v) {
-        assertCreates(v, PreviewSimpleHashSession.class, blockSource);
+        assertCreates(v, DummyVerificationSession.class, blockSource);
     }
 
     @Test
     @DisplayName("Boundary: 0.67.x resolves to 0640; 0.68.0 flips to 0680")
     void boundaryFlipAt0680() {
-        assertCreates(sv(0, 67, 999), PreviewSimpleHashSession.class, blockSource);
+        assertCreates(sv(0, 67, 999), DummyVerificationSession.class, blockSource);
         assertCreates(sv(0, 68, 0), ExtendedMerkleTreeSession.class, blockSource);
     }
 

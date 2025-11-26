@@ -22,7 +22,7 @@ class ExtendedMerkleTreeSessionTest {
 
     @BeforeEach
     void setUp() throws IOException, ParseException {
-        sampleBlockInfo = BlockUtils.getSampleBlockInfo(BlockUtils.SAMPLE_BLOCKS.HAPI_0_64_0_BLOCK_14);
+        sampleBlockInfo = BlockUtils.getSampleBlockInfo(BlockUtils.SAMPLE_BLOCKS.HAPI_0_68_0_BLOCK_14);
         blockItems = sampleBlockInfo.blockUnparsed().blockItems();
     }
 
@@ -36,7 +36,7 @@ class ExtendedMerkleTreeSessionTest {
 
         long blockNumber = blockHeader.number();
 
-        ExtendedMerkleTreeSession session = new ExtendedMerkleTreeSession(blockNumber, BlockSource.PUBLISHER, "");
+        ExtendedMerkleTreeSession session = new ExtendedMerkleTreeSession(blockNumber, BlockSource.PUBLISHER);
 
         VerificationNotification blockNotification = session.processBlockItems(blockItems);
 
@@ -55,12 +55,10 @@ class ExtendedMerkleTreeSessionTest {
                 blockNotification.blockNumber(),
                 "The block number should be the same as the one in the block header");
 
-        // todo(1661): this should be fixed on follow-up task (1661). As Session is not really implemented.
-        // in the mean time Hash will always be the same. no need to verify it.
-        //    assertEquals(
-        //      sampleBlockInfo.blockRootHash(),
-        //      blockNotification.blockHash(),
-        //      "The block hash should be the same as the one in the block header");
+        assertEquals(
+                sampleBlockInfo.blockRootHash(),
+                blockNotification.blockHash(),
+                "The block hash should be the same as the one in the block header");
 
         assertTrue(blockNotification.success(), "The block notification should be successful");
 
