@@ -78,8 +78,8 @@ class BlockFileRecentPluginTest {
          */
         StartupTest() {
             super(
-                new BlockingExecutor(new LinkedBlockingQueue<>()),
-                new ScheduledBlockingExecutor(new LinkedBlockingQueue<>()));
+                    new BlockingExecutor(new LinkedBlockingQueue<>()),
+                    new ScheduledBlockingExecutor(new LinkedBlockingQueue<>()));
         }
 
         /**
