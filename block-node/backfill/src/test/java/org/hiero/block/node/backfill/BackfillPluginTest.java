@@ -14,6 +14,7 @@ import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.TimeUnit;
 import org.hiero.block.internal.BlockItemUnparsed;
 import org.hiero.block.node.app.fixtures.async.BlockingExecutor;
+import org.hiero.block.node.app.fixtures.async.ScheduledBlockingExecutor;
 import org.hiero.block.node.app.fixtures.blocks.SimpleTestBlockItemBuilder;
 import org.hiero.block.node.app.fixtures.plugintest.PluginTestBase;
 import org.hiero.block.node.app.fixtures.plugintest.SimpleBlockRangeSet;
@@ -33,13 +34,15 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
-class BackfillPluginTest extends PluginTestBase<BackfillPlugin, BlockingExecutor> {
+class BackfillPluginTest extends PluginTestBase<BackfillPlugin, BlockingExecutor, ScheduledBlockingExecutor> {
 
     /** TempDir for the current test */
     private final Path testTempDir;
 
     public BackfillPluginTest(@TempDir final Path tempDir) {
-        super(new BlockingExecutor(new LinkedBlockingQueue<>()));
+        super(
+                new BlockingExecutor(new LinkedBlockingQueue<>()),
+                new ScheduledBlockingExecutor(new LinkedBlockingQueue<>()));
         this.testTempDir = Objects.requireNonNull(tempDir);
     }
 

@@ -18,6 +18,7 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Flow.Subscription;
+import java.util.concurrent.ScheduledExecutorService;
 import org.hiero.block.node.spi.BlockNodePlugin;
 import org.hiero.block.node.spi.ServiceBuilder;
 import org.hiero.block.node.spi.historicalblocks.HistoricalBlockFacility;
@@ -33,8 +34,9 @@ import org.hiero.block.node.spi.historicalblocks.HistoricalBlockFacility;
  * Implementations of this class should call one of the start() methods. This will start the plugin and initialize the
  * test fixture.
  */
-public abstract class GrpcPluginTestBase<P extends BlockNodePlugin, E extends ExecutorService>
-        extends PluginTestBase<P, E> implements ServiceBuilder {
+public abstract class GrpcPluginTestBase<
+                P extends BlockNodePlugin, E extends ExecutorService, S extends ScheduledExecutorService>
+        extends PluginTestBase<P, E, S> implements ServiceBuilder {
     private record ReqOptions(Optional<String> authority, boolean isProtobuf, boolean isJson, String contentType)
             implements ServiceInterface.RequestOptions {}
     /** The GRPC bytes received from the plugin. */
@@ -46,8 +48,8 @@ public abstract class GrpcPluginTestBase<P extends BlockNodePlugin, E extends Ex
     /** The GRPC service interface for the plugin. */
     protected ServiceInterface serviceInterface;
 
-    protected GrpcPluginTestBase(@NonNull final E executorService) {
-        super(executorService);
+    protected GrpcPluginTestBase(@NonNull final E executorService, @NonNull final S scheduledExecutorService) {
+        super(executorService, scheduledExecutorService);
     }
 
     /**

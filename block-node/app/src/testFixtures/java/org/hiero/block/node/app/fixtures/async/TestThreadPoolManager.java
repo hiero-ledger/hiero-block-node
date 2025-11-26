@@ -17,11 +17,14 @@ import org.hiero.block.node.spi.threading.ThreadPoolManager;
  *
  * @param <T> the type of executor service
  */
-public class TestThreadPoolManager<T extends ExecutorService> implements ThreadPoolManager {
+public class TestThreadPoolManager<T extends ExecutorService, S extends ScheduledExecutorService>
+        implements ThreadPoolManager {
     private final T executor;
+    private final S scheduledExecutor;
 
-    public TestThreadPoolManager(@NonNull T executor) {
+    public TestThreadPoolManager(@NonNull T executor, S scheduledExecutorService) {
         this.executor = Objects.requireNonNull(executor);
+        this.scheduledExecutor = scheduledExecutorService;
     }
 
     /**
@@ -59,12 +62,17 @@ public class TestThreadPoolManager<T extends ExecutorService> implements ThreadP
     @Override
     public ScheduledExecutorService createSingleThreadScheduledExecutor(
             @Nullable String threadName, @Nullable UncaughtExceptionHandler uncaughtExceptionHandler) {
-        return (ScheduledExecutorService) executor;
+        return scheduledExecutor;
     }
 
     @NonNull
     public final T executor() {
         return executor;
+    }
+
+    @NonNull
+    public final S scheduleExecutor() {
+        return scheduledExecutor;
     }
 
     public void shutdownNow() {
