@@ -100,12 +100,15 @@ class BlockFileHistoricPluginTest {
      */
     @Nested
     @DisplayName("Startup Tests")
-    final class StartupTest extends PluginTestBase<BlockFileHistoricPlugin, BlockingExecutor> {
+    final class StartupTest
+            extends PluginTestBase<BlockFileHistoricPlugin, BlockingExecutor, ScheduledExecutorService> {
         /**
          * Test Constructor.
          */
         StartupTest() {
-            super(new BlockingExecutor(new LinkedBlockingQueue<>()));
+            super(
+                    new BlockingExecutor(new LinkedBlockingQueue<>()),
+                    new ScheduledBlockingExecutor(new LinkedBlockingQueue<>()));
         }
 
         /**
