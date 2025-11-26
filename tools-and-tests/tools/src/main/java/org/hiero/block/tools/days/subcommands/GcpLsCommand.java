@@ -110,13 +110,6 @@ public class GcpLsCommand implements Runnable {
      */
     private MainNetBucket mainNetBucket;
 
-    /**
-     * Typical wiring: new CommandLine(new GcpLsCommand()).execute(args);
-     */
-    public GcpLsCommand() {
-        // no-arg constructor required for picocli; MainNetBucket is initialized lazily in run()
-    }
-
     @Override
     public void run() {
         try {
