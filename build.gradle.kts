@@ -35,6 +35,7 @@ tasks.versionAsSpecified {
     }
 }
 
+// @todo(1909) we need to remove this see issue for details
 subprojects {
     tasks.withType<Test> {
         // Point docker-java/Testcontainers at the Desktop socket
