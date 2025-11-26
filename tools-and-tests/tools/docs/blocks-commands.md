@@ -19,11 +19,11 @@ blocks json [-t] [-ms=<minSizeMb>] [<files>...]
 
 Options:
 - `-t`, `--transactions`
-    - Expand transactions (replaces applicationTransaction base64 fields with parsed TransactionBody JSON). Useful for human-readable output.
+- Expand transactions (replaces applicationTransaction base64 fields with parsed TransactionBody JSON). Useful for human-readable output.
 - `-ms <minSizeMb>`, `--min-size=<minSizeMb>`
-    - Filter to only files bigger than this minimum size in megabytes. Default is no limit.
+- Filter to only files bigger than this minimum size in megabytes. Default is no limit.
 - `<files>...`
-    - Files or directories to convert. Directories are walked and files with `.blk` or `.blk.gz` are processed.
+- Files or directories to convert. Directories are walked and files with `.blk` or `.blk.gz` are processed.
 
 Notes:
 - The command reads block protobufs and writes a `.json` file next to each source file.
@@ -42,11 +42,10 @@ blocks info [-c] [-ms=<minSizeMb>] [-o=<outputFile>] [<files>...]
 
 Options:
 - `-c`, `--csv`
-    - Enable CSV output mode (default: false).
+- Enable CSV output mode (default: false).
 - `-ms <minSizeMb>`, `--min-size=<minSizeMb>`
-    - Filter to only files bigger than this minimum file size in megabytes.
+- Filter to only files bigger than this minimum file size in megabytes.
 - `-o <outputFile>`, `--output-file=<outputFile>`
-    - Write output to the specified file instead of stdout.
+- Write output to the specified file instead of stdout.
 - `<files>...`
-    - Files or directories to inspect. For record files (`.rcd` / `.rcd.gz`) the tool prints parsed metadata. For block files it delegates to the Blocks info implementation.
-
+- Files or directories to inspect. For record files (`.rcd` / `.rcd.gz`) the tool prints parsed metadata. For block files it delegates to the Blocks info implementation.

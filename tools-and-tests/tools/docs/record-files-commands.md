@@ -25,6 +25,7 @@ Output columns include file name, record format version, HAPI version, previous 
 ---
 
 ### The `record2block` Subcommand
+
 > **Important:**
 > This is old command is in the process of being replaced by a new [days wrap](days-commands.md#wrap) command.
 
@@ -39,19 +40,19 @@ records record2block [-s <start>] [-e <end>] [-j] [-c] [--min-node-account-id=<n
 
 Options:
 - `-s`, `--start-block <blockNumber>`
-    - The first block number to process (default: 0).
+- The first block number to process (default: 0).
 - `-e`, `--end-block <blockNumber>`
-    - The last block number to process (default: 3001).
+- The last block number to process (default: 3001).
 - `-j`, `--json`
-    - Also output blocks as JSON (for debugging).
+- Also output blocks as JSON (for debugging).
 - `-c`, `--cache-enabled`
-    - Use a local GCP cache for downloads (saves bandwidth/costs).
+- Use a local GCP cache for downloads (saves bandwidth/costs).
 - `--min-node-account-id` / `--max-node-account-id`
-    - Configure range of node account ids used when listing/downloading from GCP buckets (defaults: 3..34).
+- Configure range of node account ids used when listing/downloading from GCP buckets (defaults: 3..34).
 - `-d`, `--data-dir <dataDir>`
-    - Base directory for output and temporary files (default: `data`).
+- Base directory for output and temporary files (default: `data`).
 - `--block-times <blockTimesFile>`
-    - Path to the `block_times.bin` file used to map block number → record file time (default: `data/block_times.bin`).
+- Path to the `block_times.bin` file used to map block number → record file time (default: `data/block_times.bin`).
 
 Notes & prerequisites:
 - The command expects a `block_times.bin` file that maps block numbers to record file times. See the mirror subcommands below to produce/validate that file.
