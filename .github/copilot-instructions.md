@@ -29,7 +29,7 @@ This provides explicit, actionable guidance for generating Java source that matc
       *
       *
 
-      <p>This method does ...
+      <p>This method does ...</p>
 
     *
     * @param input the input value
