@@ -20,7 +20,7 @@ val generateBlockNodeProtoArtifact: TaskProvider<Exec> =
         // proto/internal/unparsed.proto matches structure for
         // block-node-protobuf/block/stream/block_item.proto after update otherwise Verification
         // might fail
-        val cnTagHash = "2d7962205082b388db0187da602f2dde9d42f3ec" // main
+        val cnTagHash = "273aa291b7224ab4c22ff459ba666ec6fbd9930b"
 
         // run build-bn-proto.sh skipping inclusion of BN API as it messes up proto considerations
         commandLine(

@@ -220,7 +220,8 @@ public final class HashingUtilities {
             @NonNull final StreamingTreeHasher outputTreeHasher,
             @NonNull final StreamingTreeHasher consensusHeaderHasher,
             @NonNull final StreamingTreeHasher stateChangesHasher,
-            @NonNull final StreamingTreeHasher traceDataHasher) {
+            @NonNull final StreamingTreeHasher traceDataHasher,
+            @NonNull final Bytes storedPreviousBlockHash) {
         Objects.requireNonNull(blockHeader);
         Objects.requireNonNull(blockFooter);
         Objects.requireNonNull(inputTreeHasher);
@@ -229,7 +230,9 @@ public final class HashingUtilities {
         Objects.requireNonNull(stateChangesHasher);
         Objects.requireNonNull(traceDataHasher);
 
-        final Bytes previousBlockHash = blockFooter.previousBlockRootHash();
+        // only use the previous block hash from the footer if we don't have one stored already
+        final Bytes previousBlockHash =
+                storedPreviousBlockHash == Bytes.EMPTY ? blockFooter.previousBlockRootHash() : storedPreviousBlockHash;
         final Bytes rootOfAllPreviousBlockHashes = blockFooter.rootHashOfAllBlockHashesTree();
         final Bytes rootOfStateAtStartOfBlock = blockFooter.startOfBlockStateRootHash();
         final Bytes rootOfConsensusHeaders = consensusHeaderHasher.rootHash().join();

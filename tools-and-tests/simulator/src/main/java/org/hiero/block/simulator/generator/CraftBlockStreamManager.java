@@ -260,7 +260,8 @@ public class CraftBlockStreamManager implements BlockStreamManager {
                         outputTreeHasher,
                         consensusHeaderHasher,
                         stateChangesHasher,
-                        traceDataHasher)
+                        traceDataHasher,
+                        Bytes.EMPTY)
                 .toByteArray();
     }
 

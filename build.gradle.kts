@@ -34,3 +34,13 @@ tasks.versionAsSpecified {
         }
     }
 }
+
+subprojects {
+    tasks.withType<Test> {
+        // Point docker-java/Testcontainers at the Desktop socket
+        systemProperty("docker.host", "unix:///Users/user/.docker/run/docker.sock")
+
+        // Docker 29 requires API >= 1.44
+        systemProperty("api.version", "1.44")
+    }
+}

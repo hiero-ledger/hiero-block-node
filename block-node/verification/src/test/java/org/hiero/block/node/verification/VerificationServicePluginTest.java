@@ -43,7 +43,7 @@ class VerificationServicePluginTest extends PluginTestBase<VerificationServicePl
     void testVerificationPlugin() throws IOException, ParseException {
 
         BlockUtils.SampleBlockInfo sampleBlockInfo =
-                BlockUtils.getSampleBlockInfo(BlockUtils.SAMPLE_BLOCKS.HAPI_0_64_0_BLOCK_14);
+                BlockUtils.getSampleBlockInfo(BlockUtils.SAMPLE_BLOCKS.HAPI_0_68_0_BLOCK_14);
 
         List<BlockItemUnparsed> blockItems = sampleBlockInfo.blockUnparsed().blockItems();
         long blockNumber = sampleBlockInfo.blockNumber();
@@ -104,7 +104,7 @@ class VerificationServicePluginTest extends PluginTestBase<VerificationServicePl
     void testHandleBlockItemsReceived_NoCurrentSession() throws IOException, ParseException {
         // create sample block data
         BlockUtils.SampleBlockInfo sampleBlockInfo =
-                BlockUtils.getSampleBlockInfo(BlockUtils.SAMPLE_BLOCKS.HAPI_0_64_0_BLOCK_14);
+                BlockUtils.getSampleBlockInfo(BlockUtils.SAMPLE_BLOCKS.HAPI_0_68_0_BLOCK_14);
         long blockNumber = sampleBlockInfo.blockNumber();
         List<BlockItemUnparsed> blockItems = sampleBlockInfo.blockUnparsed().blockItems();
         // remove the header to simulate a case where receive items and have never received a header
@@ -153,7 +153,7 @@ class VerificationServicePluginTest extends PluginTestBase<VerificationServicePl
 
         // prepare test data
         BlockUtils.SampleBlockInfo sampleBlockInfo =
-                BlockUtils.getSampleBlockInfo(BlockUtils.SAMPLE_BLOCKS.HAPI_0_64_0_BLOCK_14);
+                BlockUtils.getSampleBlockInfo(BlockUtils.SAMPLE_BLOCKS.HAPI_0_68_0_BLOCK_14);
 
         List<BlockItemUnparsed> blockItems = sampleBlockInfo.blockUnparsed().blockItems();
         long blockNumber = sampleBlockInfo.blockNumber();
@@ -173,6 +173,10 @@ class VerificationServicePluginTest extends PluginTestBase<VerificationServicePl
                 "The block number should be the same as the one in the block header");
         assertTrue(blockNotification.success(), "The verification should be successful");
         assertEquals(
+                sampleBlockInfo.blockRootHash(),
+                blockNotification.blockHash(),
+                "The block hash should be the same as the one in the block header");
+        assertEquals(
                 sampleBlockInfo.blockUnparsed(),
                 blockNotification.block(),
                 "The block should be the same as the one sent");
@@ -183,7 +187,7 @@ class VerificationServicePluginTest extends PluginTestBase<VerificationServicePl
     void blockHeaderAndNumberMismatch() throws ParseException, IOException {
 
         BlockUtils.SampleBlockInfo sampleBlockInfo =
-                BlockUtils.getSampleBlockInfo(BlockUtils.SAMPLE_BLOCKS.HAPI_0_64_0_BLOCK_14);
+                BlockUtils.getSampleBlockInfo(BlockUtils.SAMPLE_BLOCKS.HAPI_0_68_0_BLOCK_14);
 
         BlockHeader blockHeader = BlockHeader.PROTOBUF.parse(
                 sampleBlockInfo.blockUnparsed().blockItems().getFirst().blockHeaderOrThrow());

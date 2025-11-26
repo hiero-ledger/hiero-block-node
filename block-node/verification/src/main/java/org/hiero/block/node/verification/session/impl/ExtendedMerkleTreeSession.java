@@ -2,6 +2,7 @@
 package org.hiero.block.node.verification.session.impl;
 
 import static java.lang.System.Logger.Level.INFO;
+import static java.lang.System.Logger.Level.WARNING;
 import static org.hiero.block.common.hasher.HashingUtilities.getBlockItemHash;
 import static org.hiero.block.common.hasher.HashingUtilities.noThrowSha384HashOf;
 
@@ -42,6 +43,8 @@ public class ExtendedMerkleTreeSession implements VerificationSession {
     private final StreamingTreeHasher traceDataHasher;
     /** The source of the block, used to construct the final notification. */
     private final BlockSource blockSource;
+    /** The previous block hash, initialized to empty and updated as needed. */
+    private Bytes previousBlockHash = Bytes.EMPTY;
 
     /**
      * The block items for the block this session is responsible for. We collect them here so we can provide the
@@ -115,6 +118,17 @@ public class ExtendedMerkleTreeSession implements VerificationSession {
      * @return VerificationNotification indicating the result of the verification
      */
     protected VerificationNotification finalizeVerification(BlockProof blockProof) {
+
+        // pre-checks
+        if (previousBlockHash != Bytes.EMPTY
+                && !blockFooter.previousBlockRootHash().equals(previousBlockHash)) {
+            LOGGER.log(WARNING, "Block {0} previous block hash does not match expected value.", blockNumber);
+            return new VerificationNotification(false, blockNumber, Bytes.EMPTY, null, blockSource);
+        }
+
+        // @todo(1906) we might want to send the rootOfAllPreviousBlockHashes that we calculate here to not rely only on
+        // the block_footer. also add the field to the pre-checks to make sure is the same.
+        // we should also include a verification.
         final Bytes blockRootHash = HashingUtilities.computeFinalBlockHash(
                 blockHeader,
                 blockFooter,
@@ -122,10 +136,15 @@ public class ExtendedMerkleTreeSession implements VerificationSession {
                 outputTreeHasher,
                 consensusHeaderHasher,
                 stateChangesHasher,
-                traceDataHasher);
+                traceDataHasher,
+                previousBlockHash);
 
         final boolean verified =
                 verifySignature(blockRootHash, blockProof.signedBlockProof().blockSignature());
+
+        // set the previous block hash for the next block
+        previousBlockHash = blockRootHash;
+
         return new VerificationNotification(
                 verified, blockNumber, blockRootHash, verified ? new BlockUnparsed(blockItems) : null, blockSource);
     }
@@ -138,7 +157,7 @@ public class ExtendedMerkleTreeSession implements VerificationSession {
      * @return true if the signature is valid, false otherwise
      */
     protected Boolean verifySignature(@NonNull Bytes hash, @NonNull Bytes signature) {
-        // TODO we are close to having real TTS signature verification, we maybe should have a config if we are work on
+        // TODO we are close to having real TSS signature verification, we maybe should have a config if we are work on
         // TODO preview or production block stream and hence which verification to use
 
         // Dummy implementation

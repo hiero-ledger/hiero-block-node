@@ -11,6 +11,7 @@ import com.hedera.hapi.block.stream.BlockProof;
 import com.hedera.hapi.block.stream.TssSignedBlockProof;
 import com.hedera.hapi.block.stream.input.EventHeader;
 import com.hedera.hapi.block.stream.input.RoundHeader;
+import com.hedera.hapi.block.stream.output.BlockFooter;
 import com.hedera.hapi.block.stream.output.BlockHeader;
 import com.hedera.hapi.node.base.BlockHashAlgorithm;
 import com.hedera.hapi.node.base.SemanticVersion;
@@ -74,8 +75,8 @@ public final class SimpleTestBlockItemBuilder {
                 TssSignedBlockProof.newBuilder().blockSignature(Bytes.wrap("block_signature".getBytes()));
 
         BlockProof blockProof = BlockProof.newBuilder()
+                .block(blockNumber)
                 .signedBlockProof(tssBuildder)
-                .previousBlockRootHash(Bytes.wrap("previous_block_root_hash".getBytes()))
                 .build();
 
         return blockProof;
@@ -128,6 +129,28 @@ public final class SimpleTestBlockItemBuilder {
         return BlockItemUnparsed.newBuilder()
                 .blockHeader(BlockHeader.PROTOBUF.toBytes(
                         sampleBlockHeader(blockNumber, consensusTime).blockHeader()))
+                .build();
+    }
+
+    public static BlockFooter createBlockFooter(final long blockNumber) {
+        return BlockFooter.newBuilder()
+                .previousBlockRootHash(Bytes.wrap("previous_block_root_hash".getBytes()))
+                .rootHashOfAllBlockHashesTree(Bytes.wrap("root_hash_of_all_blocks".getBytes()))
+                .startOfBlockStateRootHash(Bytes.wrap("start_block_state_root_hash".getBytes()))
+                .build();
+    }
+
+    public static Bytes createBlockFooterUnparsed(final long blockNumber) {
+        return BlockFooter.PROTOBUF.toBytes(createBlockFooter(blockNumber));
+    }
+
+    public static BlockItem sampleBlockFooter(final long blockNumber) {
+        return new BlockItem(new OneOf<>(ItemOneOfType.BLOCK_FOOTER, createBlockFooter(blockNumber)));
+    }
+
+    public static BlockItemUnparsed sampleBlockFooterUnparsed(final long blockNumber) {
+        return BlockItemUnparsed.newBuilder()
+                .blockFooter(Bytes.wrap(("block_footer_" + blockNumber).getBytes()))
                 .build();
     }
 
@@ -193,7 +216,7 @@ public final class SimpleTestBlockItemBuilder {
             final int i = (blockNumber - (int) startBlockNumber) * 3;
             blockItems[i] = sampleBlockHeader(blockNumber);
             blockItems[i + 1] = sampleRoundHeader(blockNumber * 10L);
-            // blockItems[i + 2] = sampleBlockFooter(blockNumber * 10L); //TODO add footer
+            blockItems[i + 2] = sampleBlockFooter(blockNumber * 10L);
             blockItems[i + 2] = sampleBlockProof(blockNumber); // TODO Improve proof generation
         }
         return blockItems;

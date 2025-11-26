@@ -80,10 +80,6 @@ public final class BlockUtils {
      * These blocks are used for testing purposes only.
      */
     public enum SAMPLE_BLOCKS {
-        HAPI_0_64_0_BLOCK_14(
-                "HAPI-0-64-0/000000000000000000000000000000000014.blk.gz",
-                "30783030", // dummy hash
-                14),
         HAPI_0_66_0_BLOCK_10(
                 "HAPI-0-66-0/000000000000000000000000000000000010.blk.gz",
                 "30783030", // dummy hash
