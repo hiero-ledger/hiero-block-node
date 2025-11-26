@@ -23,6 +23,7 @@ import org.hiero.block.internal.BlockItemUnparsed;
 import org.hiero.block.internal.PublishStreamRequestUnparsed;
 import org.hiero.block.node.app.fixtures.TestUtils;
 import org.hiero.block.node.app.fixtures.async.BlockingExecutor;
+import org.hiero.block.node.app.fixtures.async.ScheduledBlockingExecutor;
 import org.hiero.block.node.app.fixtures.async.TestThreadPoolManager;
 import org.hiero.block.node.app.fixtures.blocks.SimpleTestBlockItemBuilder;
 import org.hiero.block.node.app.fixtures.pipeline.TestResponsePipeline;
@@ -108,7 +109,7 @@ class LiveStreamPublisherManagerTest {
         /** The test historical block facility to use when testing */
         private SimpleInMemoryHistoricalBlockFacility historicalBlockFacility;
         /** The thread pool manager to use when testing */
-        private TestThreadPoolManager<BlockingExecutor> threadPoolManager;
+        private TestThreadPoolManager<BlockingExecutor, ScheduledBlockingExecutor> threadPoolManager;
         /** The messaging facility to use when testing */
         private TestBlockMessagingFacility messagingFacility;
 
@@ -156,7 +157,9 @@ class LiveStreamPublisherManagerTest {
         void setup() {
             // Initialize the historical block facility and the context.
             historicalBlockFacility = new SimpleInMemoryHistoricalBlockFacility();
-            threadPoolManager = new TestThreadPoolManager<>(new BlockingExecutor(new LinkedBlockingQueue<>()));
+            threadPoolManager = new TestThreadPoolManager<>(
+                    new BlockingExecutor(new LinkedBlockingQueue<>()),
+                    new ScheduledBlockingExecutor(new LinkedBlockingQueue<>()));
             messagingFacility = new TestBlockMessagingFacility();
             final BlockNodeContext context =
                     generateContext(historicalBlockFacility, threadPoolManager, messagingFacility);
@@ -1462,8 +1465,9 @@ class LiveStreamPublisherManagerTest {
      * facilities that can be used in tests.
      */
     private BlockNodeContext generateContext(final HistoricalBlockFacility historicalBlockFacility) {
-        final ThreadPoolManager threadPoolManager =
-                new TestThreadPoolManager<>(new BlockingExecutor(new LinkedBlockingQueue<>()));
+        final ThreadPoolManager threadPoolManager = new TestThreadPoolManager<>(
+                new BlockingExecutor(new LinkedBlockingQueue<>()),
+                new ScheduledBlockingExecutor(new LinkedBlockingQueue<>()));
         final BlockMessagingFacility messagingFacility = new TestBlockMessagingFacility();
         return generateContext(historicalBlockFacility, threadPoolManager, messagingFacility);
     }

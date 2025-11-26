@@ -271,11 +271,9 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
 
         try {
             LOGGER.log(TRACE, "Detecting gaps in historical blocks");
-            detectedGaps = new ArrayList<>();
 
-            // Get the configured first block available
-            long expectedFirstBlock = backfillConfiguration.startBlock();
-            long previousRangeEnd = expectedFirstBlock - 1;
+            // Calculate total missing blocks
+            long pendingBlocks = 0;
 
             // Check for gaps between ranges
             List<LongRange> blockRanges = context.historicalBlockProvider()
@@ -283,9 +281,29 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
                     .streamRanges()
                     .toList();
 
-            // Calculate total missing blocks
-            long pendingBlocks = 0;
+            // add block range available from other BN sources
+            LongRange detectedRecentGapRange = backfillGrpcClientAutonomous.getNewAvailableRange(
+                    blockRanges.getLast().end());
+            if (detectedRecentGapRange.size() > 0 && detectedRecentGapRange.start() >= 0) {
+                detectedGaps = new ArrayList<>();
+                detectedGaps.add(detectedRecentGapRange);
 
+                // backfile recent gaps first to prioritize staying close to the network
+                LOGGER.log(
+                        TRACE,
+                        "Detected recent gaps, numGaps={0} totalMissingBlocks={1}",
+                        detectedGaps.size(),
+                        pendingBlocks);
+                processDetectedGaps();
+            } else {
+                LOGGER.log(TRACE, "No recent gaps detected from other block node sources");
+            }
+
+            // Get the configured first block available
+            long expectedFirstBlock = backfillConfiguration.startBlock();
+            long previousRangeEnd = expectedFirstBlock - 1;
+
+            detectedGaps = new ArrayList<>();
             for (LongRange range : blockRanges) {
                 if (range.start() > previousRangeEnd + 1) {
                     LongRange gap = new LongRange(previousRangeEnd + 1, range.start() - 1);
@@ -300,21 +318,19 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
                 previousRangeEnd = range.end();
             }
 
-            // add block range available from other BN sources
-            detectedGaps.add(backfillGrpcClientAutonomous.getNewAvailableRange(
-                    blockRanges.getLast().end()));
-
             // increase only if detectedGaps is not empty
-            if (!detectedGaps.isEmpty()) backfillGapsDetected.add(detectedGaps.size());
-
-            LOGGER.log(TRACE, "Detected gaps, numGaps={0} totalMissingBlocks={1}", detectedGaps.size(), pendingBlocks);
-
-            // Process detected gaps
             if (!detectedGaps.isEmpty()) {
+                backfillGapsDetected.add(detectedGaps.size());
+                LOGGER.log(
+                        TRACE,
+                        "Detected historical gaps, numGaps={0} totalMissingBlocks={1}",
+                        detectedGaps.size(),
+                        pendingBlocks);
                 processDetectedGaps();
             } else {
                 LOGGER.log(TRACE, "No gaps detected in historical blocks");
             }
+
             autonomousError = false;
         } catch (Exception e) {
             LOGGER.log(TRACE, "Error during backfill autonomous process: {0}", e);

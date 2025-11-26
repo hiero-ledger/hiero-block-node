@@ -11,6 +11,7 @@ import io.helidon.webserver.http.HttpService;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.concurrent.ExecutorService;
+import java.util.concurrent.ScheduledExecutorService;
 import org.hiero.block.node.app.fixtures.async.TestThreadPoolManager;
 import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.BlockNodePlugin;
@@ -39,11 +40,12 @@ import org.junit.jupiter.api.AfterEach;
  *
  * @param <P> the type of plugin being tested
  */
-public abstract class PluginTestBase<P extends BlockNodePlugin, E extends ExecutorService> {
+public abstract class PluginTestBase<
+        P extends BlockNodePlugin, E extends ExecutorService, S extends ScheduledExecutorService> {
     /** The logger for this class. */
     protected final System.Logger LOGGER = System.getLogger(getClass().getName());
     /** The test thread pool manager */
-    protected final TestThreadPoolManager<E> testThreadPoolManager;
+    protected final TestThreadPoolManager<E, S> testThreadPoolManager;
     /** The metrics provider for the test. */
     private DefaultMetricsProvider metricsProvider;
     /** The block node context, for access to core facilities. */
@@ -53,8 +55,8 @@ public abstract class PluginTestBase<P extends BlockNodePlugin, E extends Execut
     /** The plugin to be tested */
     protected P plugin;
 
-    protected PluginTestBase(@NonNull final E executorService) {
-        testThreadPoolManager = new TestThreadPoolManager<>(executorService);
+    protected PluginTestBase(@NonNull final E executorService, @NonNull final S scheduledExecutorService) {
+        testThreadPoolManager = new TestThreadPoolManager<>(executorService, scheduledExecutorService);
     }
 
     /**

@@ -126,20 +126,39 @@ public class BackfillGrpcClient {
      * @return a LongRange representing the new available block range
      */
     public LongRange getNewAvailableRange(long latestStoredBlockNumber) {
-        long end = Long.MIN_VALUE;
+        long earliestPeerBlock = Long.MAX_VALUE;
+        long latestPeerBlock = Long.MIN_VALUE;
 
         for (BackfillSourceConfig node : blockNodeSource.nodes()) {
             BlockNodeClient currentNodeClient = getNodeClient(node);
 
             final ServerStatusResponse nodeStatus =
                     currentNodeClient.getBlockNodeServiceClient().serverStatus(new ServerStatusRequest());
+            long firstAvailableBlock = nodeStatus.firstAvailableBlock();
             long lastAvailableBlock = nodeStatus.lastAvailableBlock();
 
-            // update the end to the max lastAvailableBlock
-            end = Math.max(end, lastAvailableBlock);
+            // update the earliestPeerBlock to the max lastAvailableBlock
+            latestPeerBlock = Math.max(latestPeerBlock, lastAvailableBlock);
+            earliestPeerBlock = Math.min(earliestPeerBlock, firstAvailableBlock);
         }
 
-        return new LongRange(latestStoredBlockNumber + 1, end);
+        LOGGER.log(
+                INFO,
+                "Determined block range from peer blocks nodes earliestPeerBlock={0,number,#} to latestStoredBlockNumber={1,number,#}",
+                earliestPeerBlock,
+                latestPeerBlock);
+
+        // confirm next block is available if not we still can't backfill
+        if (latestStoredBlockNumber + 1 < earliestPeerBlock || latestStoredBlockNumber > latestPeerBlock) {
+            return new LongRange(-1, -1);
+        }
+
+        LOGGER.log(
+                INFO,
+                "Determined available range from peer blocks nodes start={0,number,#} to end={1,number,#}",
+                latestStoredBlockNumber + 1,
+                latestPeerBlock);
+        return new LongRange(latestStoredBlockNumber + 1, latestPeerBlock);
     }
 
     /**
