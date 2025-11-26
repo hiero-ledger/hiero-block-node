@@ -288,7 +288,7 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
                 detectedGaps = new ArrayList<>();
                 detectedGaps.add(detectedRecentGapRange);
 
-                // backfile recent gaps first to prioritize staying close to the network
+                // backfill recent gaps first to prioritize staying close to the network
                 LOGGER.log(
                         TRACE,
                         "Detected recent gaps, numGaps={0} totalMissingBlocks={1}",
