@@ -35,14 +35,19 @@ import picocli.CommandLine.Option;
         description = "Randomly sample (day, hour) and compare GCP LS vs local downloadedDays signature counts")
 public class GcpLsCommand implements Runnable {
 
+    private static final int MAX_SAMPLES = 20;
+
+    @Option(
+            names = "--samples",
+            description = "Number of random (day, hour) samples (max " + MAX_SAMPLES + ")",
+            defaultValue = "10")
+    private int samples;
+
     @Option(names = "--start-date", required = true, description = "Start date (inclusive), yyyy-MM-dd")
     private LocalDate startDate;
 
     @Option(names = "--end-date", required = true, description = "End date (inclusive), yyyy-MM-dd")
     private LocalDate endDate;
-
-    @Option(names = "--samples", description = "Number of random (day, hour) samples", defaultValue = "10")
-    private int samples;
 
     @Option(
             names = "--downloaded-days-dir",
@@ -57,31 +62,39 @@ public class GcpLsCommand implements Runnable {
 
     @Option(
             names = "--skip-local-compare",
-            description = "Skip comparing against local downloadedDays dir; only show GCP signature counts")
-    private boolean skipLocalCompare = false;
+            description = "Skip comparing against local downloadedDays dir; only show GCP signature counts",
+            defaultValue = "false")
+    private boolean skipLocalCompare;
 
-    @Option(names = "--show-ls", description = "Show full list of GCP/local record files per node/hour")
-    private boolean showLs = false;
+    @Option(
+            names = "--show-ls",
+            description = "Show full list of GCP/local record files per node/hour",
+            defaultValue = "false")
+    private boolean showLs;
 
     @Option(
             names = {"-c", "--cache-dir"},
-            description = "Directory for GCS cache (default: data/gcp-cache)")
-    private File cacheDir = new File("data/gcp-cache");
+            description = "Directory for GCS cache (default: data/gcp-cache)",
+            defaultValue = "data/gcp-cache")
+    private File cacheDir;
 
     @Option(
             names = {"--cache"},
-            description = "Enable GCS caching (default: false)")
-    private boolean cacheEnabled = false;
+            description = "Enable GCS caching (default: false)",
+            defaultValue = "false")
+    private boolean cacheEnabled;
 
     @Option(
             names = {"--min-node"},
-            description = "Minimum node account ID (default: 3)")
-    private int minNodeAccountId = 3;
+            description = "Minimum node account ID (default: 3)",
+            defaultValue = "3")
+    private int minNodeAccountId;
 
     @Option(
             names = {"--max-node"},
-            description = "Maximum node account ID (default: 37)")
-    private int maxNodeAccountId = 37;
+            description = "Maximum node account ID (default: 37)",
+            defaultValue = "37")
+    private int maxNodeAccountId;
 
     @Option(names = "--parallelism", description = "Thread pool size for parallel node queries", defaultValue = "8")
     private int parallelism;
@@ -95,19 +108,22 @@ public class GcpLsCommand implements Runnable {
      * GCP mainnet bucket helper; assumed to have:
      *  - listHour(LocalDate date, int hour, boolean includeSidecars)
      */
-    private final MainNetBucket mainNetBucket;
+    private MainNetBucket mainNetBucket;
 
     /**
-     * Typical wiring: new CommandLine(new GcpLsCommand(mainNetBucket)).execute(args);
+     * Typical wiring: new CommandLine(new GcpLsCommand()).execute(args);
      */
     public GcpLsCommand() {
-        this.mainNetBucket =
-                new MainNetBucket(true, cacheDir.toPath(), minNodeAccountId, maxNodeAccountId, userProject);
+        // no-arg constructor required for picocli; MainNetBucket is initialized lazily in run()
     }
 
     @Override
     public void run() {
         try {
+            if (mainNetBucket == null) {
+                mainNetBucket = new MainNetBucket(
+                        cacheEnabled, cacheDir.toPath(), minNodeAccountId, maxNodeAccountId, userProject);
+            }
             if (!skipLocalCompare && downloadedDaysDir == null) {
                 throw new NotFoundException("DownloadedDaysDir has not been set");
             }
@@ -167,57 +183,68 @@ public class GcpLsCommand implements Runnable {
                     "%-8s %-10d %-10d %-10d %-8s%n", "0.0." + r.node, r.gcpSigCount, r.localSigCount, r.diff, status);
         }
 
-        printDifferenceView(results);
-        printLsView(results);
+        printView(results);
     }
 
-    private void printDifferenceView(List<NodeResult> results) {
-        // enriched differences view
-        if (!skipLocalCompare) {
-            for (final NodeResult r : results) {
-                if ((r.gcpOnly != null && !r.gcpOnly.isEmpty()) || (r.localOnly != null && !r.localOnly.isEmpty())) {
-                    System.out.printf("    Differences for node 0.0.%d:%n", r.node);
-                    if (r.gcpOnly != null && !r.gcpOnly.isEmpty()) {
-                        System.out.println("      Present in GCP only:");
-                        r.gcpOnly.forEach(f -> System.out.println("        " + f));
-                    }
-                    if (r.localOnly != null && !r.localOnly.isEmpty()) {
-                        System.out.println("      Present in local only:");
-                        r.localOnly.forEach(f -> System.out.println("        " + f));
-                    }
-                }
+    private void printDifferenceView(NodeResult r) {
+        if (skipLocalCompare) {
+            return;
+        }
+        if ((r.gcpOnly != null && !r.gcpOnly.isEmpty()) || (r.localOnly != null && !r.localOnly.isEmpty())) {
+            System.out.printf("    Differences for node 0.0.%d:%n", r.node);
+            if (r.gcpOnly != null && !r.gcpOnly.isEmpty()) {
+                System.out.println("      Present in GCP only:");
+                r.gcpOnly.forEach(f -> System.out.println("        " + f));
+            }
+            if (r.localOnly != null && !r.localOnly.isEmpty()) {
+                System.out.println("      Present in local only:");
+                r.localOnly.forEach(f -> System.out.println("        " + f));
             }
         }
     }
 
-    private void printLsView(List<NodeResult> results) {
+    private void printLsView(NodeResult r) {
         // optional full ls-style view
-        if (showLs) {
-            for (final NodeResult r : results) {
-                System.out.printf("    LS for node 0.0.%d:%n", r.node);
+        if (!showLs) {
+            return;
+        }
 
-                if (r.gcpFiles != null && !r.gcpFiles.isEmpty()) {
-                    System.out.println("      GCP files:");
-                    r.gcpFiles.forEach(f -> System.out.println("        " + f));
-                } else {
-                    System.out.println("      GCP files: (none)");
-                }
+        System.out.printf("    LS for node 0.0.%d:%n", r.node);
 
-                if (!skipLocalCompare) {
-                    if (r.localFiles != null && !r.localFiles.isEmpty()) {
-                        System.out.println("      Local files:");
-                        r.localFiles.forEach(f -> System.out.println("        " + f));
-                    } else {
-                        System.out.println("      Local files: (none)");
-                    }
-                }
+        if (r.gcpFiles != null && !r.gcpFiles.isEmpty()) {
+            System.out.println("      GCP files:");
+            r.gcpFiles.forEach(f -> System.out.println("        " + f));
+        } else {
+            System.out.println("      GCP files: (none)");
+        }
+
+        if (!skipLocalCompare) {
+            if (r.localFiles != null && !r.localFiles.isEmpty()) {
+                System.out.println("      Local files:");
+                r.localFiles.forEach(f -> System.out.println("        " + f));
+            } else {
+                System.out.println("      Local files: (none)");
             }
+        }
+    }
+
+    private void printView(List<NodeResult> results) {
+        for (final NodeResult r : results) {
+            printDifferenceView(r);
+            printLsView(r);
         }
     }
 
     private void validateInputs() {
         if (endDate.isBefore(startDate)) {
             throw new IllegalArgumentException("end-date must be >= start-date");
+        }
+        if (samples <= 0) {
+            throw new IllegalArgumentException("--samples must be > 0 (got " + samples + ")");
+        }
+        if (samples > MAX_SAMPLES) {
+            throw new IllegalArgumentException(String.format(
+                    "--samples must be <= %d to avoid overwhelming output (got %d)", MAX_SAMPLES, samples));
         }
     }
 
@@ -230,19 +257,22 @@ public class GcpLsCommand implements Runnable {
      */
     private NodeResult checkNodeForHour(LocalDate date, int hour, int node) {
         List<String> gcpSigFiles = List.of();
-        long gcpSigCount;
+        long gcpSigCount = 0; // default to 0
+        long localSigCount = 0; // default to 0
+        long diff = 0; // default to 0
+
+        List<String> gcpOnly = List.of();
+        List<String> localOnly = List.of();
+        List<String> localRecordFiles = List.of();
+
         try {
             var blobs = mainNetBucket.listHour(date.toEpochDay());
-
             final String hourToken = date + "T" + String.format("%02d", hour) + "_";
 
             gcpSigFiles = blobs.stream()
                     .map(b -> b.path())
-                    // restrict to this hour based on filename in the path
                     .filter(path -> path.contains(hourToken))
-                    // only record files
                     .filter(this::isRecordName)
-                    // keep only this node's prefix, e.g. ".../record0.0.3/..."
                     .filter(path -> matchesNode(path, node))
                     .map(this::extractFileName)
                     .toList();
@@ -251,23 +281,25 @@ public class GcpLsCommand implements Runnable {
         } catch (Exception e) {
             System.err.printf(
                     "Error listing GCP for node 0.0.%d date=%s hour=%02d: %s%n", node, date, hour, e.getMessage());
-            gcpSigCount = -1; // sentinel meaning "GCP listing failed"
+            gcpSigCount = -1; // sentinel for failure
         }
 
-        long localSigCount;
-        long diff;
-        List<String> gcpOnly = List.of();
-        List<String> localOnly = List.of();
-
+        // handle skip vs non-skip for local compare
         if (skipLocalCompare) {
             localSigCount = -1;
-            diff = 0;
+            diff = 0; // skip implies no diff
         } else {
-            List<String> localRecordFiles = listLocalRecordFiles(date, hour, node);
-            localSigCount = localRecordFiles.size();
-            diff = (gcpSigCount < 0) ? 0 : (gcpSigCount - localSigCount);
+            localRecordFiles = listLocalRecordFiles(date, hour, node);
 
-            if (gcpSigCount >= 0) {
+            if (gcpSigCount == -1) {
+                // GCP failed; we cannot compute diff
+                localSigCount = localRecordFiles.size();
+                diff = 0;
+            } else {
+                localSigCount = localRecordFiles.size();
+                diff = gcpSigCount - localSigCount;
+
+                // compute gcpOnly / localOnly
                 Set<String> gcpOnlySet = new TreeSet<>(gcpSigFiles);
                 gcpOnlySet.removeAll(localRecordFiles);
 
@@ -291,7 +323,7 @@ public class GcpLsCommand implements Runnable {
                 gcpOnly,
                 localOnly,
                 gcpSigFiles,
-                skipLocalCompare ? List.of() : listLocalRecordFiles(date, hour, node));
+                skipLocalCompare ? List.of() : localRecordFiles);
     }
 
     private boolean isRecordName(String name) {
