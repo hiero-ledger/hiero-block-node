@@ -1,12 +1,14 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.node.base.tar;
 
+import edu.umd.cs.findbugs.annotations.NonNull;
 import java.nio.charset.StandardCharsets;
 import java.text.DecimalFormat;
 import java.text.NumberFormat;
 import java.util.Arrays;
 import java.util.Iterator;
 import java.util.NoSuchElementException;
+import java.util.Objects;
 import org.hiero.block.node.spi.historicalblocks.BlockAccessor;
 import org.hiero.block.node.spi.historicalblocks.BlockAccessor.Format;
 
@@ -59,13 +61,14 @@ public final class TaredBlockIterator implements Iterator<byte[]> {
      * @param format the format of the block data files written to the tar file
      * @param blockIterator the iterator over the blocks to be written into the tar file
      */
-    public TaredBlockIterator(Format format, Iterator<BlockAccessor> blockIterator) {
-        this.format = format;
+    public TaredBlockIterator(@NonNull final Format format, @NonNull final Iterator<BlockAccessor> blockIterator) {
+        this.format = Objects.requireNonNull(format);
         this.extension = switch (format) {
             case Format.JSON -> ".json";
             case Format.PROTOBUF -> ".blk";
-            case Format.ZSTD_PROTOBUF -> ".blk.zstd";};
-        this.blockIterator = blockIterator;
+            case Format.ZSTD_PROTOBUF -> ".blk.zstd";
+        };
+        this.blockIterator = Objects.requireNonNull(blockIterator);
         this.currentBuffer = new byte[CHUNK_SIZE];
         this.bufferPosition = 0;
     }
@@ -98,9 +101,17 @@ public final class TaredBlockIterator implements Iterator<byte[]> {
                 case NEXT_FILE:
                     if (blockIterator.hasNext()) {
                         // get the next block from the iterator
-                        final BlockAccessor currentBlock = blockIterator.next();
-                        currentBlockBytes = currentBlock.blockBytes(format).toByteArray();
-                        currentBlockName = BLOCK_NUMBER_FORMAT.format(currentBlock.blockNumber()) + extension;
+                        final BlockAccessor currentBlockAccessor = blockIterator.next();
+                        currentBlockName = BLOCK_NUMBER_FORMAT.format(currentBlockAccessor.blockNumber()) + extension;
+                        currentBlockBytes =
+                                currentBlockAccessor.blockBytes(format).toByteArray();
+                        // close the accessor as we are done with it and we need
+                        // to free resources, but only if it isn't already closed.
+                        // @todo replace Iterator with BlockAccessorBatch for this
+                        //     class so we don't need to call close here.
+                        if (!currentBlockAccessor.isClosed()) {
+                            currentBlockAccessor.close();
+                        }
                         filePosition = 0;
                         state = State.WRITE_HEADER;
                     } else {

@@ -33,6 +33,7 @@ import org.hiero.block.node.base.BlockFile;
 import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.historicalblocks.BlockAccessor;
 import org.hiero.block.node.spi.historicalblocks.BlockAccessor.Format;
+import org.hiero.block.node.spi.historicalblocks.BlockAccessorBatch;
 
 /**
  * The ZipBlockArchive class provides methods for creating and managing zip files containing blocks.
@@ -45,6 +46,8 @@ class ZipBlockArchive {
     private final BlockNodeContext context;
     /** The configuration for the historic files. */
     private final FilesHistoricConfig config;
+    /** root path for temporary hard links to zip files */
+    private final Path linksRootPath;
     /** The format for the blocks. */
     private final Format format;
 
@@ -53,9 +56,11 @@ class ZipBlockArchive {
      *
      * @param filesHistoricConfig Configuration to be used internally
      */
-    ZipBlockArchive(@NonNull final BlockNodeContext context, @NonNull final FilesHistoricConfig filesHistoricConfig) {
+    ZipBlockArchive(@NonNull final BlockNodeContext context, @NonNull final FilesHistoricConfig filesHistoricConfig)
+            throws IOException {
         this.context = Objects.requireNonNull(context);
         this.config = Objects.requireNonNull(filesHistoricConfig);
+        linksRootPath = config.rootPath().resolve("links");
         format = switch (this.config.compression()) {
             case ZSTD -> Format.ZSTD_PROTOBUF;
             case NONE -> Format.PROTOBUF;
@@ -68,10 +73,9 @@ class ZipBlockArchive {
      * @return The size of the zip file created
      * @throws IOException If an error occurs writing the block
      */
-    long writeNewZipFile(List<BlockAccessor> batch) throws IOException {
+    long writeNewZipFile(BlockAccessorBatch batch) throws IOException {
         // compute zip path
-        final BlockPath firstBlockPath =
-                computeBlockPath(config, batch.getFirst().blockNumber());
+        final BlockPath firstBlockPath = computeBlockPath(config, batch.getFirstBlockNumber());
         // create directories
         Files.createDirectories(firstBlockPath.dirPath());
         // create zip file
@@ -124,11 +128,12 @@ class ZipBlockArchive {
      */
     BlockAccessor blockAccessor(long blockNumber) {
         try {
-            // get existing block path or null if we cannot find it
+            // get existing block path or null if we cannot find it or create accessor for
             final BlockPath blockPath = computeExistingBlockPath(config, blockNumber);
-            return blockPath == null ? null : new ZipBlockAccessor(blockPath);
+            return blockPath == null ? null : new ZipBlockAccessor(blockPath, linksRootPath);
         } catch (final IOException e) {
-            throw new UncheckedIOException(e);
+            LOGGER.log(INFO, "Could not create zip block accessor", e);
+            return null;
         }
     }
 

@@ -1,15 +1,25 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.node.base;
 
-import static org.junit.jupiter.api.Assertions.*;
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.fail;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.Arrays;
 import java.util.Set;
+import java.util.stream.Stream;
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.aggregator.ArgumentsAccessor;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.MethodSource;
 
 /**
  * Unit tests for the BlockFile class.
@@ -33,10 +43,41 @@ class BlockFileTest {
         assertEquals(expectedPath, BlockFile.standaloneBlockFilePath(basePath, 123, CompressionType.ZSTD));
     }
 
-    @Test
-    void testBlockNumberFromFile() {
-        Path filePath = Paths.get("0000000000000000123.blk.zstd");
-        assertEquals(123, BlockFile.blockNumberFromFile(filePath));
+    @ParameterizedTest(name = "{0}")
+    @MethodSource("org.hiero.block.node.base.BlockFileTest#blockNumbersAndFilePaths")
+    @DisplayName("Block Number From File")
+    void testBlockNumberFromFile(final ArgumentsAccessor args) {
+        final long expectedNumber = args.getLong(1);
+        final Path file = args.get(2, Path.class);
+        assertEquals(expectedNumber, BlockFile.blockNumberFromFile(file));
+    }
+
+    /**
+     * Method source for test cases to verify `blockNumberFromFile`.
+     */
+    private static Stream<Arguments> blockNumbersAndFilePaths() {
+        final String thirtySixZeros = "000000000000000000000000000000000000";
+        return Stream.of(
+                Arguments.of("Simple 'happy' test", 123L, Path.of("0000000000000000123.blk.zstd")),
+                Arguments.of("a large block number", 1827329783712391L, Path.of("0001827329783712391.blk.zstd")),
+                Arguments.of("max-long block number", Long.MAX_VALUE, Path.of(Long.MAX_VALUE + ".blk.zstd")),
+                Arguments.of("number 0", 0L, Path.of("0.blk.zstd")),
+                Arguments.of("number 0 with extra 0's prefix", 0L, Path.of(thirtySixZeros + "0000.blk.zstd")),
+                Arguments.of("number 1984 with extra 0's prefix", 1984L, Path.of(thirtySixZeros + "1984.blk.zstd")),
+                Arguments.of(
+                        "directory that looks like a block file",
+                        10L,
+                        Path.of("/000/000/000/010.blk.zip/nothing").getParent()),
+                Arguments.of("Wrong extension returns -1", -1L, Path.of("marker.file")),
+                Arguments.of("No extension returns -1", -1L, Path.of("file-without-extension")),
+                Arguments.of("Filename is not a number returns -1", -1L, Path.of("copy-of-error.blk.zstd")),
+                Arguments.of("Filename is out of range returns -1", -1L, Path.of(Long.MAX_VALUE + "9182.blk.zstd")),
+                Arguments.of("Directory without an extension returns -1", -1L, Path.of("/000/000/000/010")),
+                Arguments.of(
+                        "root path (getFileName is null) returns -1",
+                        -1L,
+                        Path.of("/000/000/000/010/").getRoot()),
+                Arguments.of("null path returns -1", -1L, null));
     }
 
     /**

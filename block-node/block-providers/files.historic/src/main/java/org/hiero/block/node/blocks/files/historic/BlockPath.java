@@ -45,6 +45,14 @@ record BlockPath(
         Objects.requireNonNull(compressionType);
     }
 
+    public final long blockNumber() {
+        try {
+            return Long.parseLong(blockNumStr);
+        } catch (NumberFormatException e) {
+            return -1L;
+        }
+    }
+
     /**
      * Compute the path to a block file.
      *

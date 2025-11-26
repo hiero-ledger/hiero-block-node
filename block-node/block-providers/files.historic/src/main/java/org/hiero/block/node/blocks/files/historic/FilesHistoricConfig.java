@@ -6,8 +6,6 @@ import com.swirlds.config.api.ConfigProperty;
 import com.swirlds.config.api.validation.annotation.Max;
 import com.swirlds.config.api.validation.annotation.Min;
 import java.nio.file.Path;
-import java.util.Objects;
-import org.hiero.block.common.utils.Preconditions;
 import org.hiero.block.node.base.CompressionType;
 import org.hiero.block.node.base.Loggable;
 
@@ -32,15 +30,5 @@ public record FilesHistoricConfig(
         @Loggable @ConfigProperty(defaultValue = "/opt/hiero/block-node/data/historic") Path rootPath,
         @Loggable @ConfigProperty(defaultValue = "ZSTD") CompressionType compression,
         @Loggable @ConfigProperty(defaultValue = "4") @Min(1) @Max(6) int powersOfTenPerZipFileContents,
-        @Loggable @ConfigProperty(defaultValue = "0") long blockRetentionThreshold,
-        @Loggable @ConfigProperty(defaultValue = "3") int maxFilesPerDir) {
-    /**
-     * Constructor.
-     */
-    public FilesHistoricConfig {
-        Objects.requireNonNull(rootPath);
-        Objects.requireNonNull(compression);
-        Preconditions.requireInRange(powersOfTenPerZipFileContents, 1, 6);
-        Preconditions.requireGreaterOrEqual(blockRetentionThreshold, 0L);
-    }
-}
+        @Loggable @ConfigProperty(defaultValue = "0") @Min(0) long blockRetentionThreshold,
+        @Loggable @ConfigProperty(defaultValue = "3") @Min(1) int maxFilesPerDir) {}

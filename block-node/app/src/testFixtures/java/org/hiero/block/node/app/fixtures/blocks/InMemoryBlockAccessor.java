@@ -18,6 +18,8 @@ public final class InMemoryBlockAccessor implements BlockAccessor {
     private final Block block;
     /** The block number of the accessible block */
     private final long blockNumber;
+    /** simple flag to track calls to close */
+    private boolean isClosed = false;
 
     /**
      * Constructor. Enforces preconditions on the input block items.
@@ -84,5 +86,15 @@ public final class InMemoryBlockAccessor implements BlockAccessor {
 
     private Bytes zstdCompressBytes(final Bytes bytes) {
         return Bytes.wrap(Zstd.compress(bytes.toByteArray()));
+    }
+
+    @Override
+    public void close() {
+        isClosed = true;
+    }
+
+    @Override
+    public boolean isClosed() {
+        return isClosed;
     }
 }

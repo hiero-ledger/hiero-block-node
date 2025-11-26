@@ -9,6 +9,7 @@ import org.hiero.block.node.spi.historicalblocks.BlockAccessor;
 public final class MinimalBlockAccessor implements BlockAccessor {
     private final long blockNumber;
     private final Block block;
+    private boolean isClosed = false;
 
     public MinimalBlockAccessor(final long blockNumber, final Block block) {
         this.blockNumber = blockNumber;
@@ -31,5 +32,15 @@ public final class MinimalBlockAccessor implements BlockAccessor {
 
     private Bytes zstdCompressBytes(final Bytes bytes) {
         return Bytes.wrap(Zstd.compress(bytes.toByteArray()));
+    }
+
+    @Override
+    public void close() {
+        isClosed = true;
+    }
+
+    @Override
+    public boolean isClosed() {
+        return isClosed;
     }
 }

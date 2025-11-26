@@ -442,34 +442,35 @@ public class BlockStreamSubscriberSession implements Callable<BlockStreamSubscri
             // We need to send historical blocks.
             // We will only send one block at a time to keep things "smooth".
             // Start by getting a block accessor for the next block to send from the historical provider.
-            final BlockAccessor nextBlockAccessor =
-                    blockNodeContext.historicalBlockProvider().block(nextBlockToSend.get());
-            if (nextBlockAccessor != null) {
-                final BlockUnparsed block = nextBlockAccessor.blockUnparsed();
-                if (block == null) {
-                    // the retrieval of the block failed.
-                    final String message = "Unable to retrieve historical block {0} for client {1}.";
-                    // throwing here will result in the session being closed exceptionally.
-                    throw new IllegalStateException(message);
+            try (final BlockAccessor nextBlockAccessor =
+                    blockNodeContext.historicalBlockProvider().block(nextBlockToSend.get())) {
+                if (nextBlockAccessor != null) {
+                    final BlockUnparsed block = nextBlockAccessor.blockUnparsed();
+                    if (block == null) {
+                        // the retrieval of the block failed.
+                        final String message = "Unable to retrieve historical block {0} for client {1}.";
+                        // throwing here will result in the session being closed exceptionally.
+                        throw new IllegalStateException(message);
+                    } else {
+                        // We have retrieved the block to send, so send it.
+                        sendOneFullBlock(block);
+                        // Trim the queue if necessary, also increment the next block to send.
+                        trimBlockItemQueue(nextBlockToSend.incrementAndGet());
+                    }
                 } else {
-                    // We have retrieved the block to send, so send it.
-                    sendOneFullBlock(block);
-                    // Trim the queue if necessary, also increment the next block to send.
-                    trimBlockItemQueue(nextBlockToSend.incrementAndGet());
+                    // Only give up if this is an historical block, otherwise just
+                    // go back up and see if live has the block.
+                    if (!(nextBlockToSend.get() < 0 || nextBlockToSend.get() >= getLatestHistoricalBlock())) {
+                        // We cannot get the block needed, something has failed.
+                        // close the stream with an "unavailable" response.
+                        final String message = "Unable to read historical block, nextBlockToSend={0}.";
+                        LOGGER.log(Level.INFO, message, nextBlockToSend);
+                        close(SubscribeStreamResponse.Code.NOT_AVAILABLE);
+                    } else {
+                        awaitNewLiveEntries();
+                    }
+                    break;
                 }
-            } else {
-                // Only give up if this is an historical block, otherwise just
-                // go back up and see if live has the block.
-                if (!(nextBlockToSend.get() < 0 || nextBlockToSend.get() >= getLatestHistoricalBlock())) {
-                    // We cannot get the block needed, something has failed.
-                    // close the stream with an "unavailable" response.
-                    final String message = "Unable to read historical block, nextBlockToSend={0}.";
-                    LOGGER.log(Level.INFO, message, nextBlockToSend);
-                    close(SubscribeStreamResponse.Code.NOT_AVAILABLE);
-                } else {
-                    awaitNewLiveEntries();
-                }
-                break;
             }
         }
     }

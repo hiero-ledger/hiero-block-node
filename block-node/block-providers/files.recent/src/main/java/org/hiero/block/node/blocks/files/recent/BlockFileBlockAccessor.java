@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.node.blocks.files.recent;
 
+import static java.lang.System.Logger.Level.INFO;
 import static java.lang.System.Logger.Level.WARNING;
 
 import com.hedera.hapi.block.stream.Block;
@@ -13,7 +14,7 @@ import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Objects;
-import org.hiero.block.common.utils.Preconditions;
+import java.util.UUID;
 import org.hiero.block.internal.BlockUnparsed;
 import org.hiero.block.node.base.CompressionType;
 import org.hiero.block.node.spi.historicalblocks.BlockAccessor;
@@ -24,33 +25,48 @@ import org.hiero.block.node.spi.historicalblocks.BlockAccessor;
  * input and output formats.
  */
 final class BlockFileBlockAccessor implements BlockAccessor {
-    /** The size of the buffer used for reading and writing files. */
-    private static final int BUFFER_SIZE = 1024 * 1024;
+    /** The logger for this class. */
+    private static final System.Logger LOGGER = System.getLogger(BlockFileBlockAccessor.class.getName());
     /** Message logged when the protobuf codec fails to parse data */
     private static final String FAILED_TO_PARSE_MESSAGE = "Failed to parse block from file %s.";
     /** Message logged when data cannot be read from a block file */
     private static final String FAILED_TO_READ_MESSAGE = "Failed to read block from file %s.";
-    /** The logger for this class. */
-    private final System.Logger LOGGER = System.getLogger(getClass().getName());
+    /** Message logged when the provided path to a block file is not a regular file or does not exist. */
+    private static final String INVALID_BLOCK_FILE_PATH_MESSAGE =
+            "Provided path to block file is not a regular file or does not exist: %s";
     /** The path to the block file. */
-    private final Path blockFilePath;
+    private final Path blockFileLink;
     /** The compression type used for the block file. */
     private final CompressionType compressionType;
     /** The block number of the block. */
     private final long blockNumber;
+    /** The absolute path to the block file, used for logging. */
+    private final String absolutePathToBlock;
 
     /**
      * Constructs a BlockFileBlockAccessor with the specified block file path and compression type.
      *
-     * @param blockFilePath   the path to the block file, must exist
-     * @param compressionType the compression type used for the block file
-     * @param blockNumber     the block number of the block
+     * @param blockFilePath the path to the block file, must exist
+     * @param compressionType the compression type of the block file, must not be null
+     * @param linksRootPath the root path where hard links to block files will be created
+     * @param blockNumber the block number of the block
      */
     BlockFileBlockAccessor(
-            @NonNull final Path blockFilePath, @NonNull final CompressionType compressionType, final long blockNumber) {
-        this.blockFilePath = Preconditions.requireRegularFile(blockFilePath);
+            @NonNull final Path blockFilePath,
+            @NonNull final CompressionType compressionType,
+            @NonNull final Path linksRootPath,
+            final long blockNumber)
+            throws IOException {
+        if (!Files.isRegularFile(blockFilePath)) {
+            final String msg = INVALID_BLOCK_FILE_PATH_MESSAGE.formatted(blockFilePath);
+            throw new IOException(msg);
+        }
+        this.absolutePathToBlock = blockFilePath.toAbsolutePath().toString();
         this.compressionType = Objects.requireNonNull(compressionType);
         this.blockNumber = blockNumber;
+        // create a hard link to the block file for the duration of the accessor's life
+        final Path link = linksRootPath.resolve(UUID.randomUUID().toString());
+        this.blockFileLink = Files.createLink(link, blockFilePath);
     }
 
     /**
@@ -72,7 +88,7 @@ final class BlockFileBlockAccessor implements BlockAccessor {
             final Bytes rawData = blockBytes(Format.PROTOBUF);
             return rawData == null ? null : Block.PROTOBUF.parse(rawData);
         } catch (final UncheckedIOException | ParseException e) {
-            LOGGER.log(WARNING, FAILED_TO_PARSE_MESSAGE.formatted(blockFilePath), e);
+            LOGGER.log(WARNING, FAILED_TO_PARSE_MESSAGE.formatted(absolutePathToBlock), e);
             return null;
         }
     }
@@ -88,7 +104,7 @@ final class BlockFileBlockAccessor implements BlockAccessor {
             final Bytes rawData = blockBytes(Format.PROTOBUF);
             return rawData == null ? null : BlockUnparsed.PROTOBUF.parse(rawData);
         } catch (final UncheckedIOException | ParseException e) {
-            LOGGER.log(WARNING, FAILED_TO_PARSE_MESSAGE.formatted(blockFilePath), e);
+            LOGGER.log(WARNING, FAILED_TO_PARSE_MESSAGE.formatted(absolutePathToBlock), e);
             return null;
         }
     }
@@ -100,9 +116,9 @@ final class BlockFileBlockAccessor implements BlockAccessor {
     public Bytes blockBytes(@NonNull final Format format) {
         Objects.requireNonNull(format);
         try {
-            return getBytesFromPath(format, blockFilePath, compressionType);
+            return getBytesFromPath(format, blockFileLink, compressionType);
         } catch (final UncheckedIOException | IOException e) {
-            LOGGER.log(WARNING, FAILED_TO_READ_MESSAGE.formatted(blockFilePath), e);
+            LOGGER.log(WARNING, FAILED_TO_READ_MESSAGE.formatted(absolutePathToBlock), e);
             return null;
         }
     }
@@ -154,12 +170,31 @@ final class BlockFileBlockAccessor implements BlockAccessor {
             try {
                 return Block.JSON.toBytes(Block.PROTOBUF.parse(sourceData));
             } catch (final UncheckedIOException | ParseException e) {
-                final String message = FAILED_TO_PARSE_MESSAGE.formatted(blockFilePath);
+                final String message = FAILED_TO_PARSE_MESSAGE.formatted(absolutePathToBlock);
                 LOGGER.log(WARNING, message, e);
                 return null;
             }
         } else {
             return null;
         }
+    }
+
+    /**
+     * This method deletes the link to the block file.
+     */
+    @Override
+    public void close() {
+        try {
+            Files.delete(blockFileLink);
+        } catch (final IOException e) {
+            final String message = "Failed to delete accessor link for block: %d, path: %s"
+                    .formatted(blockNumber, absolutePathToBlock);
+            LOGGER.log(INFO, message, e);
+        }
+    }
+
+    @Override
+    public boolean isClosed() {
+        return !Files.exists(blockFileLink);
     }
 }
