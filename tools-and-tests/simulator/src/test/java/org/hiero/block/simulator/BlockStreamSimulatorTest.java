@@ -17,6 +17,7 @@ import static org.mockito.Mockito.when;
 import com.hedera.hapi.block.stream.output.protoc.BlockHeader;
 import com.hedera.hapi.block.stream.protoc.Block;
 import com.hedera.hapi.block.stream.protoc.BlockItem;
+import com.hedera.pbj.runtime.ParseException;
 import com.swirlds.config.api.Configuration;
 import java.io.IOException;
 import java.nio.file.Paths;
@@ -132,7 +133,8 @@ class BlockStreamSimulatorTest {
     }
 
     @Test
-    void start_constantRateStreaming() throws InterruptedException, BlockSimulatorParsingException, IOException {
+    void start_constantRateStreaming()
+            throws InterruptedException, BlockSimulatorParsingException, IOException, ParseException {
         BlockItem blockItem = BlockItem.newBuilder()
                 .setBlockHeader(BlockHeader.newBuilder().setNumber(1L).build())
                 .build();
@@ -222,7 +224,8 @@ class BlockStreamSimulatorTest {
     }
 
     @Test
-    void start_millisPerBlockStreaming() throws InterruptedException, IOException, BlockSimulatorParsingException {
+    void start_millisPerBlockStreaming()
+            throws InterruptedException, IOException, BlockSimulatorParsingException, ParseException {
         BlockStreamManager blockStreamManager = mock(BlockStreamManager.class);
         BlockStreamConfig blockStreamConfig = mock(BlockStreamConfig.class);
         SimulatorModeHandler publisherClientModeHandler = new PublisherClientModeHandler(
@@ -259,7 +262,7 @@ class BlockStreamSimulatorTest {
 
     @Test
     void start_millisPerSecond_streamingLagVerifyWarnLog()
-            throws InterruptedException, IOException, BlockSimulatorParsingException {
+            throws InterruptedException, IOException, BlockSimulatorParsingException, ParseException {
         BlockStreamManager blockStreamManager = mock(BlockStreamManager.class);
         BlockItem blockItem = BlockItem.newBuilder()
                 .setBlockHeader(BlockHeader.newBuilder().setNumber(1L).build())

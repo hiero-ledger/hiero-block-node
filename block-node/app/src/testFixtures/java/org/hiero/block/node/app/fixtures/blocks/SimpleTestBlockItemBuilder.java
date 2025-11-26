@@ -8,8 +8,10 @@ import com.hedera.hapi.block.stream.Block;
 import com.hedera.hapi.block.stream.BlockItem;
 import com.hedera.hapi.block.stream.BlockItem.ItemOneOfType;
 import com.hedera.hapi.block.stream.BlockProof;
+import com.hedera.hapi.block.stream.TssSignedBlockProof;
 import com.hedera.hapi.block.stream.input.EventHeader;
 import com.hedera.hapi.block.stream.input.RoundHeader;
+import com.hedera.hapi.block.stream.output.BlockFooter;
 import com.hedera.hapi.block.stream.output.BlockHeader;
 import com.hedera.hapi.node.base.BlockHashAlgorithm;
 import com.hedera.hapi.node.base.SemanticVersion;
@@ -68,15 +70,16 @@ public final class SimpleTestBlockItemBuilder {
     }
 
     public static BlockProof createBlockProof(final long blockNumber) {
-        return new BlockProof(
-                blockNumber,
-                Bytes.wrap("previousBlockRootHash".getBytes()),
-                Bytes.wrap("startOfBlockStateRootHash".getBytes()),
-                Bytes.wrap("block_signature".getBytes()),
-                Collections.emptyList(),
-                new OneOf<>(
-                        BlockProof.VerificationReferenceOneOfType.VERIFICATION_KEY,
-                        Bytes.wrap("verificationKey".getBytes())));
+
+        TssSignedBlockProof.Builder tssBuildder =
+                TssSignedBlockProof.newBuilder().blockSignature(Bytes.wrap("block_signature".getBytes()));
+
+        BlockProof blockProof = BlockProof.newBuilder()
+                .block(blockNumber)
+                .signedBlockProof(tssBuildder)
+                .build();
+
+        return blockProof;
     }
 
     public static Bytes createBlockProofUnparsed(final long blockNumber) {
@@ -129,6 +132,28 @@ public final class SimpleTestBlockItemBuilder {
                 .build();
     }
 
+    public static BlockFooter createBlockFooter(final long blockNumber) {
+        return BlockFooter.newBuilder()
+                .previousBlockRootHash(Bytes.wrap("previous_block_root_hash".getBytes()))
+                .rootHashOfAllBlockHashesTree(Bytes.wrap("root_hash_of_all_blocks".getBytes()))
+                .startOfBlockStateRootHash(Bytes.wrap("start_block_state_root_hash".getBytes()))
+                .build();
+    }
+
+    public static Bytes createBlockFooterUnparsed(final long blockNumber) {
+        return BlockFooter.PROTOBUF.toBytes(createBlockFooter(blockNumber));
+    }
+
+    public static BlockItem sampleBlockFooter(final long blockNumber) {
+        return new BlockItem(new OneOf<>(ItemOneOfType.BLOCK_FOOTER, createBlockFooter(blockNumber)));
+    }
+
+    public static BlockItemUnparsed sampleBlockFooterUnparsed(final long blockNumber) {
+        return BlockItemUnparsed.newBuilder()
+                .blockFooter(Bytes.wrap(("block_footer_" + blockNumber).getBytes()))
+                .build();
+    }
+
     public static BlockItem sampleRoundHeader(final long roundNumber) {
         return new BlockItem(new OneOf<>(ItemOneOfType.ROUND_HEADER, createRoundHeader(roundNumber)));
     }
@@ -137,8 +162,8 @@ public final class SimpleTestBlockItemBuilder {
      * Create an EventHeader with no parents and no signature middle bit.
      */
     public static BlockItem sampleLargeEventHeader() {
-        return new BlockItem(new OneOf<>(
-                ItemOneOfType.EVENT_HEADER, new EventHeader(EventCore.DEFAULT, Collections.emptyList(), false)));
+        return new BlockItem(
+                new OneOf<>(ItemOneOfType.EVENT_HEADER, new EventHeader(EventCore.DEFAULT, Collections.emptyList())));
     }
 
     public static BlockItemUnparsed sampleRoundHeaderUnparsed(final long roundNumber) {
@@ -191,7 +216,8 @@ public final class SimpleTestBlockItemBuilder {
             final int i = (blockNumber - (int) startBlockNumber) * 3;
             blockItems[i] = sampleBlockHeader(blockNumber);
             blockItems[i + 1] = sampleRoundHeader(blockNumber * 10L);
-            blockItems[i + 2] = sampleBlockProof(blockNumber);
+            blockItems[i + 2] = sampleBlockFooter(blockNumber * 10L);
+            blockItems[i + 2] = sampleBlockProof(blockNumber); // TODO Improve proof generation
         }
         return blockItems;
     }

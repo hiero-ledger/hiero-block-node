@@ -7,8 +7,10 @@ import static java.lang.System.Logger.Level.INFO;
 import static java.lang.System.Logger.Level.WARNING;
 import static java.util.Objects.requireNonNull;
 
-import com.hedera.hapi.block.stream.BlockProof;
+import com.hedera.hapi.block.stream.output.protoc.BlockFooter;
+import com.hedera.hapi.block.stream.output.protoc.BlockHeader;
 import com.hedera.hapi.block.stream.protoc.Block;
+import com.hedera.pbj.runtime.ParseException;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import edu.umd.cs.findbugs.annotations.NonNull;
 import java.io.IOException;
@@ -33,6 +35,7 @@ import org.hiero.block.simulator.config.data.BlockGeneratorConfig;
 import org.hiero.block.simulator.config.data.UnorderedStreamConfig;
 import org.hiero.block.simulator.config.types.GenerationMode;
 import org.hiero.block.simulator.exception.BlockSimulatorParsingException;
+import org.hiero.block.simulator.generator.itemhandler.BlockFooterHandler;
 import org.hiero.block.simulator.generator.itemhandler.BlockHeaderHandler;
 import org.hiero.block.simulator.generator.itemhandler.BlockProofHandler;
 import org.hiero.block.simulator.generator.itemhandler.EventHeaderHandler;
@@ -70,6 +73,8 @@ public class CraftBlockStreamManager implements BlockStreamManager {
     private StreamingTreeHasher consensusHeaderHasher;
     private StreamingTreeHasher stateChangesHasher;
     private StreamingTreeHasher traceDataHasher;
+    private BlockHeader currentBlockHeader;
+    private BlockFooter currentBlockFooter;
 
     // Unordered streaming
     private final boolean unorderedStreamingEnabled;
@@ -165,7 +170,7 @@ public class CraftBlockStreamManager implements BlockStreamManager {
      * @throws BlockSimulatorParsingException if there is an error parsing block components
      */
     @Override
-    public Block getNextBlock() throws IOException, BlockSimulatorParsingException {
+    public Block getNextBlock() throws IOException, BlockSimulatorParsingException, ParseException {
         if (endBlockNumber > 0 && currentBlockNumber > endBlockNumber) {
             return null;
         }
@@ -185,7 +190,7 @@ public class CraftBlockStreamManager implements BlockStreamManager {
         currentBlockNumber = block;
     }
 
-    private Block createNextBlock() throws BlockSimulatorParsingException {
+    private Block createNextBlock() throws BlockSimulatorParsingException, ParseException {
         LOGGER.log(DEBUG, "Started creation of block number %s.".formatted(currentBlockNumber));
         // todo(683) Refactor common hasher to accept protoc types, in order to avoid the additional overhead of keeping
         // and unparsing.
@@ -195,6 +200,7 @@ public class CraftBlockStreamManager implements BlockStreamManager {
         final ItemHandler headerItemHandler = new BlockHeaderHandler(previousBlockHash, currentBlockNumber);
         items.add(headerItemHandler);
         blockItemsUnparsed.add(headerItemHandler.unparseBlockItem());
+        currentBlockHeader = headerItemHandler.getItem().getBlockHeader();
 
         final int eventsNumber = random.nextInt(minEventsPerBlock, maxEventsPerBlock);
         for (int i = 0; i < eventsNumber; i++) {
@@ -217,6 +223,11 @@ public class CraftBlockStreamManager implements BlockStreamManager {
         LOGGER.log(DEBUG, "Appending %s number of block items in this block.".formatted(items.size()));
 
         processBlockItems(blockItemsUnparsed);
+
+        ItemHandler footerItemHandler = new BlockFooterHandler(previousBlockHash);
+        items.add(footerItemHandler);
+        currentBlockFooter = footerItemHandler.getItem().getBlockFooter();
+
         updateCurrentBlockHash();
         simulatorStartupData.addBlockHash(currentBlockNumber, currentBlockHash);
 
@@ -226,7 +237,7 @@ public class CraftBlockStreamManager implements BlockStreamManager {
             random.nextBytes(currentBlockHash);
         }
 
-        ItemHandler proofItemHandler = new BlockProofHandler(previousBlockHash, currentBlockHash, currentBlockNumber);
+        ItemHandler proofItemHandler = new BlockProofHandler(currentBlockHash, currentBlockNumber);
         items.add(proofItemHandler);
         resetState();
         return Block.newBuilder()
@@ -234,19 +245,23 @@ public class CraftBlockStreamManager implements BlockStreamManager {
                 .build();
     }
 
-    private void updateCurrentBlockHash() {
-        BlockProof unfinishedBlockProof = BlockProof.newBuilder()
-                .previousBlockRootHash(Bytes.wrap(previousBlockHash))
-                .startOfBlockStateRootHash(Bytes.wrap(previousStateRootHash))
-                .build();
+    private void updateCurrentBlockHash() throws ParseException {
+        com.hedera.hapi.block.stream.output.BlockHeader blockHeader =
+                com.hedera.hapi.block.stream.output.BlockHeader.PROTOBUF.parse(
+                        Bytes.wrap(currentBlockHeader.toByteArray()));
+        com.hedera.hapi.block.stream.output.BlockFooter blockFooter =
+                com.hedera.hapi.block.stream.output.BlockFooter.PROTOBUF.parse(
+                        Bytes.wrap(currentBlockFooter.toByteArray()));
 
         currentBlockHash = HashingUtilities.computeFinalBlockHash(
-                        unfinishedBlockProof,
+                        blockHeader,
+                        blockFooter,
                         inputTreeHasher,
                         outputTreeHasher,
                         consensusHeaderHasher,
                         stateChangesHasher,
-                        traceDataHasher)
+                        traceDataHasher,
+                        Bytes.EMPTY)
                 .toByteArray();
     }
 

@@ -2,12 +2,22 @@
 package org.hiero.block.node.verification.session.impl;
 
 import static java.lang.System.Logger.Level.INFO;
-import static java.lang.System.Logger.Level.TRACE;
+import static java.lang.System.Logger.Level.WARNING;
+import static org.hiero.block.common.hasher.HashingUtilities.getBlockItemHash;
+import static org.hiero.block.common.hasher.HashingUtilities.noThrowSha384HashOf;
 
+import com.hedera.hapi.block.stream.BlockProof;
+import com.hedera.hapi.block.stream.output.BlockFooter;
+import com.hedera.hapi.block.stream.output.BlockHeader;
 import com.hedera.pbj.runtime.ParseException;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
+import edu.umd.cs.findbugs.annotations.NonNull;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
+import org.hiero.block.common.hasher.HashingUtilities;
+import org.hiero.block.common.hasher.NaiveStreamingTreeHasher;
+import org.hiero.block.common.hasher.StreamingTreeHasher;
 import org.hiero.block.internal.BlockItemUnparsed;
 import org.hiero.block.internal.BlockUnparsed;
 import org.hiero.block.node.spi.blockmessaging.BlockSource;
@@ -19,10 +29,22 @@ public class ExtendedMerkleTreeSession implements VerificationSession {
     private final System.Logger LOGGER = System.getLogger(getClass().getName());
 
     /** The block number being verified. */
-    protected final long blockNumber;
-
+    private final long blockNumber;
+    // Stream Hashers
+    /** The tree hasher for input hashes. */
+    private final StreamingTreeHasher inputTreeHasher;
+    /** The tree hasher for output hashes. */
+    private final StreamingTreeHasher outputTreeHasher;
+    /** The tree hasher for consensus header hashes. */
+    private final StreamingTreeHasher consensusHeaderHasher;
+    /** The tree hasher for state changes hashes. */
+    private final StreamingTreeHasher stateChangesHasher;
+    /** The tree hasher for trace data hashes. */
+    private final StreamingTreeHasher traceDataHasher;
     /** The source of the block, used to construct the final notification. */
     private final BlockSource blockSource;
+    /** The previous block hash, initialized to empty and updated as needed. */
+    private Bytes previousBlockHash = Bytes.EMPTY;
 
     /**
      * The block items for the block this session is responsible for. We collect them here so we can provide the
@@ -30,24 +52,116 @@ public class ExtendedMerkleTreeSession implements VerificationSession {
      */
     protected final List<BlockItemUnparsed> blockItems = new ArrayList<>();
 
-    public ExtendedMerkleTreeSession(final long blockNumber, final BlockSource blockSource, final String extraBytes) {
+    private BlockHeader blockHeader = null;
+
+    private BlockFooter blockFooter = null;
+
+    private List<BlockProof> blockProofs = new ArrayList<>();
+
+    public ExtendedMerkleTreeSession(final long blockNumber, final BlockSource blockSource) {
         this.blockNumber = blockNumber;
-        this.blockSource = blockSource;
+        // using NaiveStreamingTreeHasher as we should only need single threaded
+        this.inputTreeHasher = new NaiveStreamingTreeHasher();
+        this.outputTreeHasher = new NaiveStreamingTreeHasher();
+        this.consensusHeaderHasher = new NaiveStreamingTreeHasher();
+        this.stateChangesHasher = new NaiveStreamingTreeHasher();
+        this.traceDataHasher = new NaiveStreamingTreeHasher();
+        this.blockSource = Objects.requireNonNull(blockSource, "BlockSource must not be null");
         LOGGER.log(INFO, "Created ExtendedMerkleTreeSession for block {0}", blockNumber);
     }
 
     // todo(1661) implement the real logic here, for now just return true if last item has block proof.
     @Override
     public VerificationNotification processBlockItems(List<BlockItemUnparsed> blockItems) throws ParseException {
+
+        // collect block items
         this.blockItems.addAll(blockItems);
-        LOGGER.log(TRACE, "Processed {0} block items for block {1}", blockItems.size(), blockNumber);
-        if (blockItems.getLast().hasBlockProof()) {
-            BlockUnparsed block =
-                    BlockUnparsed.newBuilder().blockItems(this.blockItems).build();
-            Bytes blockHash = Bytes.wrap("0x00");
-            LOGGER.log(TRACE, "Returning always True verification notification for block {0}", blockNumber);
-            return new VerificationNotification(true, blockNumber, blockHash, block, blockSource);
+
+        for (BlockItemUnparsed item : blockItems) {
+            final BlockItemUnparsed.ItemOneOfType kind = item.item().kind();
+            switch (kind) {
+                case BLOCK_HEADER -> {
+                    this.blockHeader = BlockHeader.PROTOBUF.parse(item.blockHeader());
+                    outputTreeHasher.addLeaf(getBlockItemHash(item));
+                }
+                case ROUND_HEADER, EVENT_HEADER -> consensusHeaderHasher.addLeaf(getBlockItemHash(item));
+                case SIGNED_TRANSACTION -> inputTreeHasher.addLeaf(getBlockItemHash(item));
+                case TRANSACTION_RESULT, TRANSACTION_OUTPUT -> outputTreeHasher.addLeaf(getBlockItemHash(item));
+                case STATE_CHANGES -> stateChangesHasher.addLeaf(getBlockItemHash(item));
+                case TRACE_DATA -> traceDataHasher.addLeaf(getBlockItemHash(item));
+                // save footer for later
+                case BLOCK_FOOTER -> this.blockFooter = BlockFooter.PROTOBUF.parse(item.blockFooter());
+                // append block proofs
+                case BLOCK_PROOF -> {
+                    BlockProof blockProof = BlockProof.PROTOBUF.parse(item.blockProof());
+                    blockProofs.add(blockProof);
+                }
+            }
         }
+
+        // since we are only expecting 1 block proof per block, we can finalize verification here
+        // however in the future, we might want to revisit this if we expect multiple proofs
+        // and use the EndOfBlock signal to finalize verification.
+        if (blockFooter != null && blockProofs.size() > 0) {
+            return finalizeVerification(blockProofs.get(0));
+        }
+
+        // was not able to finalize verification yet
         return null;
+    }
+
+    /**
+     * Finalizes the block verification by computing the final block hash,
+     * verifying its signature, and updating metrics accordingly.
+     *
+     * @param blockProof the block proof
+     * @return VerificationNotification indicating the result of the verification
+     */
+    protected VerificationNotification finalizeVerification(BlockProof blockProof) {
+
+        // pre-checks
+        if (previousBlockHash != Bytes.EMPTY
+                && !blockFooter.previousBlockRootHash().equals(previousBlockHash)) {
+            LOGGER.log(WARNING, "Block {0} previous block hash does not match expected value.", blockNumber);
+            return new VerificationNotification(false, blockNumber, Bytes.EMPTY, null, blockSource);
+        }
+
+        // @todo(1906) we might want to send the rootOfAllPreviousBlockHashes that we calculate here to not rely only on
+        // the block_footer. also add the field to the pre-checks to make sure is the same.
+        // we should also include a verification.
+        final Bytes blockRootHash = HashingUtilities.computeFinalBlockHash(
+                blockHeader,
+                blockFooter,
+                inputTreeHasher,
+                outputTreeHasher,
+                consensusHeaderHasher,
+                stateChangesHasher,
+                traceDataHasher,
+                previousBlockHash);
+
+        final boolean verified =
+                verifySignature(blockRootHash, blockProof.signedBlockProof().blockSignature());
+
+        // set the previous block hash for the next block
+        previousBlockHash = blockRootHash;
+
+        return new VerificationNotification(
+                verified, blockNumber, blockRootHash, verified ? new BlockUnparsed(blockItems) : null, blockSource);
+    }
+
+    /**
+     * Verifies the signature of a hash, for the dummy implementation this always returns true.
+     *
+     * @param hash the hash to verify
+     * @param signature the signature to verify
+     * @return true if the signature is valid, false otherwise
+     */
+    protected Boolean verifySignature(@NonNull Bytes hash, @NonNull Bytes signature) {
+        // TODO we are close to having real TSS signature verification, we maybe should have a config if we are work on
+        // TODO preview or production block stream and hence which verification to use
+
+        // Dummy implementation
+        // signature = is Hash384( BlockHash )
+        return signature.equals(noThrowSha384HashOf(hash));
     }
 }
