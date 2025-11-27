@@ -59,6 +59,7 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
     private final AtomicReference<CountDownLatch> onDemandLatch = new AtomicReference<>(new CountDownLatch(0));
     private volatile boolean autonomousError = false;
     private volatile boolean onDemandError = false;
+    private final AtomicLong autonomousBackfillEndBlock = new AtomicLong(-1);
     private final AtomicLong onDemandBackfillStartBlock = new AtomicLong(-1);
 
     // Metrics
@@ -249,7 +250,7 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
     }
 
     private boolean isAutonomousBackfillRunning() {
-        return autonomousLatch.get().getCount() > 0;
+        return autonomousBackfillEndBlock.get() != -1;
     }
 
     private boolean isOnDemandBackfillRunning() {
@@ -281,12 +282,13 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
                     .streamRanges()
                     .toList();
 
-            // add block range available from other BN sources
+            // greedy backfill newer blocks available from peer BN sources
+            detectedGaps = new ArrayList<>();
             LongRange detectedRecentGapRange = backfillGrpcClientAutonomous.getNewAvailableRange(
                     blockRanges.getLast().end());
             if (detectedRecentGapRange.size() > 0 && detectedRecentGapRange.start() >= 0) {
-                detectedGaps = new ArrayList<>();
                 detectedGaps.add(detectedRecentGapRange);
+                pendingBlocks += detectedRecentGapRange.size();
 
                 // backfill recent gaps first to prioritize staying close to the network
                 LOGGER.log(
@@ -294,16 +296,18 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
                         "Detected recent gaps, numGaps={0} totalMissingBlocks={1}",
                         detectedGaps.size(),
                         pendingBlocks);
+
+                autonomousBackfillEndBlock.set(detectedRecentGapRange.end());
                 processDetectedGaps();
+                autonomousBackfillEndBlock.set(-1);
             } else {
                 LOGGER.log(TRACE, "No recent gaps detected from other block node sources");
             }
 
-            // Get the configured first block available
+            // backfill missing historical blocks from peer BN sources
+            detectedGaps = new ArrayList<>();
             long expectedFirstBlock = backfillConfiguration.startBlock();
             long previousRangeEnd = expectedFirstBlock - 1;
-
-            detectedGaps = new ArrayList<>();
             for (LongRange range : blockRanges) {
                 if (range.start() > previousRangeEnd + 1) {
                     LongRange gap = new LongRange(previousRangeEnd + 1, range.start() - 1);
@@ -335,6 +339,7 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
         } catch (Exception e) {
             LOGGER.log(TRACE, "Error during backfill autonomous process: {0}", e);
             autonomousError = true;
+            autonomousBackfillEndBlock.set(-1);
         }
     }
 
@@ -511,7 +516,7 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
         long lastPersistedBlock =
                 context.historicalBlockProvider().availableBlocks().max();
         long newestBlockKnown = notification.blockNumber();
-        LongRange gap;
+        final LongRange gap;
         if (newestBlockKnown == UNKNOWN_BLOCK_NUMBER) {
             // proactively get the new available range from other BN sources
             gap = backfillGrpcClientOnDemand.getNewAvailableRange(lastPersistedBlock);
@@ -523,6 +528,12 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
         // if the gap is not empty, we can backfill it
         if (gap.size() > 0) {
             try {
+                // Skip if autonomous backfill is running
+                if (isAutonomousBackfillRunning()) {
+                    LOGGER.log(TRACE, "Autonomous backfill is running, skipping on-demand gap detection");
+                    return;
+                }
+
                 // Set the start block for on-demand backfill BEFORE scheduling the task
                 onDemandBackfillStartBlock.set(gap.start());
                 onDemandError = false;
@@ -551,6 +562,7 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
         }
     }
 
+    // to-do: remove method, instead update notification with backfill types instead of just backfill
     private BackfillType getBackfillTypeForBlock(long blockNumber) {
         // Determine if the block is old (Autonomous) or new (On-Demand)
         long onDemandStartBlock = onDemandBackfillStartBlock.get();

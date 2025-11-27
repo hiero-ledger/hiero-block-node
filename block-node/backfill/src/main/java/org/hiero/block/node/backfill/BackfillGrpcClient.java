@@ -149,7 +149,9 @@ public class BackfillGrpcClient {
                 latestPeerBlock);
 
         // confirm next block is available if not we still can't backfill
-        if (latestStoredBlockNumber + 1 < earliestPeerBlock || latestStoredBlockNumber > latestPeerBlock) {
+        if (latestStoredBlockNumber + 1 < earliestPeerBlock
+                || latestStoredBlockNumber > latestPeerBlock
+                || latestStoredBlockNumber + 1 > latestPeerBlock) {
             return new LongRange(-1, -1);
         }
 
