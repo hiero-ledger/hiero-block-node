@@ -100,7 +100,7 @@ public interface StreamPublisherManager extends BlockNotificationHandler {
         /**
          * todo(1420) add documentation
          */
-        END_BEHIND,
+        SEND_BEHIND,
         /**
          * todo(1420) add documentation
          */
