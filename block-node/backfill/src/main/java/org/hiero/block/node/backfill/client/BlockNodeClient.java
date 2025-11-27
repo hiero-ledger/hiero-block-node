@@ -7,6 +7,7 @@ import com.hedera.pbj.runtime.grpc.ServiceInterface;
 import io.helidon.common.tls.Tls;
 import io.helidon.webclient.api.WebClient;
 import io.helidon.webclient.grpc.GrpcClientProtocolConfig;
+import java.io.UncheckedIOException;
 import java.time.Duration;
 import java.util.List;
 import java.util.Optional;
@@ -21,8 +22,11 @@ public class BlockNodeClient {
             new BlockNodeClient.Options(Optional.empty(), ServiceInterface.RequestOptions.APPLICATION_GRPC);
 
     // block node services
-    private final BlockStreamSubscribeUnparsedClient blockStreamSubscribeUnparsedClient;
-    private final BlockNodeServiceInterface.BlockNodeServiceClient blockNodeServiceClient;
+    private final PbjGrpcClientConfig grpcConfig;
+    private final WebClient webClient;
+    private BlockStreamSubscribeUnparsedClient blockStreamSubscribeUnparsedClient;
+    private BlockNodeServiceInterface.BlockNodeServiceClient blockNodeServiceClient;
+    private boolean nodeReachable;
 
     /**
      * Constructs a BlockNodeClient using the provided configuration.
@@ -34,10 +38,9 @@ public class BlockNodeClient {
         final Duration timeoutDuration = Duration.ofMillis(timeoutMs);
 
         final Tls tls = Tls.builder().enabled(enableTls).build();
-        final PbjGrpcClientConfig grpcConfig =
-                new PbjGrpcClientConfig(timeoutDuration, tls, Optional.of(""), "application/grpc");
+        grpcConfig = new PbjGrpcClientConfig(timeoutDuration, tls, Optional.of(""), "application/grpc");
 
-        final WebClient webClient = WebClient.builder()
+        webClient = WebClient.builder()
                 .baseUri("http://" + blockNodeConfig.address() + ":" + blockNodeConfig.port())
                 .tls(tls)
                 .protocolConfigs(List.of(GrpcClientProtocolConfig.builder()
@@ -47,11 +50,21 @@ public class BlockNodeClient {
                 .connectTimeout(timeoutDuration)
                 .build();
 
-        PbjGrpcClient pbjGrpcClient = new PbjGrpcClient(webClient, grpcConfig);
+        initializeClient();
+    }
 
-        // we reuse the host connection with many services.
-        blockNodeServiceClient = new BlockNodeServiceInterface.BlockNodeServiceClient(pbjGrpcClient, OPTIONS);
-        this.blockStreamSubscribeUnparsedClient = new BlockStreamSubscribeUnparsedClient(pbjGrpcClient);
+    public void initializeClient() {
+        try {
+            PbjGrpcClient pbjGrpcClient = new PbjGrpcClient(webClient, grpcConfig);
+
+            // we reuse the host connection with many services.
+            blockNodeServiceClient = new BlockNodeServiceInterface.BlockNodeServiceClient(pbjGrpcClient, OPTIONS);
+            this.blockStreamSubscribeUnparsedClient = new BlockStreamSubscribeUnparsedClient(pbjGrpcClient);
+            nodeReachable = true;
+        } catch (IllegalArgumentException | IllegalStateException | UncheckedIOException ex) {
+            // unable to setup clients
+            nodeReachable = false;
+        }
     }
 
     /**
@@ -70,5 +83,9 @@ public class BlockNodeClient {
      */
     public BlockNodeServiceInterface.BlockNodeServiceClient getBlockNodeServiceClient() {
         return blockNodeServiceClient;
+    }
+
+    public boolean isNodeReachable() {
+        return nodeReachable;
     }
 }

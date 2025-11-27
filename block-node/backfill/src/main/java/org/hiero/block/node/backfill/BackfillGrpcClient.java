@@ -131,6 +131,12 @@ public class BackfillGrpcClient {
 
         for (BackfillSourceConfig node : blockNodeSource.nodes()) {
             BlockNodeClient currentNodeClient = getNodeClient(node);
+            if (currentNodeClient == null || !currentNodeClient.isNodeReachable()) {
+                // to-do: add logic to retry node later to avoid marking it unavailable forever
+                nodeStatusMap.put(node, Status.UNAVAILABLE);
+                LOGGER.log(INFO, "Unable to reach node {0}, marked as unavailable", node);
+                continue;
+            }
 
             final ServerStatusResponse nodeStatus =
                     currentNodeClient.getBlockNodeServiceClient().serverStatus(new ServerStatusRequest());
