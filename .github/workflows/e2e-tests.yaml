@@ -19,7 +19,7 @@ permissions:
   contents: read
 
 env:
-  GRADLE_EXEC: "ionice -c 2 -n 2 nice -n 19 ./gradlew "
+  GRADLE_EXEC: "ionice -c 2 -n 2 nice -n 19 ./gradlew --no-daemon "
 
 jobs:
   api-tests:
