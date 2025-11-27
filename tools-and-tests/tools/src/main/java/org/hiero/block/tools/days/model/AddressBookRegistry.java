@@ -97,12 +97,12 @@ public class AddressBookRegistry {
         for (int i = 0; i < addressBooks.size(); i++) {
             DatedNodeAddressBook datedBook = addressBooks.get(i);
             final Timestamp bookTimestamp = datedBook.blockTimestampOrThrow();
-            final Instant bookInstant = Instant.ofEpochSecond(
-                bookTimestamp.seconds(),
-                bookTimestamp.nanos());
+            final Instant bookInstant = Instant.ofEpochSecond(bookTimestamp.seconds(), bookTimestamp.nanos());
             if (bookInstant.isAfter(blockTime)) {
                 // return the previous address book
-                return i == 0 ? datedBook.addressBook() : addressBooks.get(i - 1).addressBook();
+                return i == 0
+                        ? datedBook.addressBook()
+                        : addressBooks.get(i - 1).addressBook();
             }
         }
         // if no address book is found, return the genesis address book
@@ -366,10 +366,12 @@ public class AddressBookRegistry {
         StringBuilder sb = new StringBuilder();
         for (DatedNodeAddressBook datedBook : addressBooks) {
             sb.append("@|yellow      Block Time:|@ ")
-                .append(Instant.ofEpochSecond(
-                    datedBook.blockTimestampOrThrow().seconds(),
-                    datedBook.blockTimestampOrThrow().nanos()))
-                .append("  @|yellow Node Count:|@ ").append(datedBook.addressBookOrThrow().nodeAddress().size()).append("\n");
+                    .append(Instant.ofEpochSecond(
+                            datedBook.blockTimestampOrThrow().seconds(),
+                            datedBook.blockTimestampOrThrow().nanos()))
+                    .append("  @|yellow Node Count:|@ ")
+                    .append(datedBook.addressBookOrThrow().nodeAddress().size())
+                    .append("\n");
         }
         if (addressBooks.isEmpty()) {
             sb.append("No address books in registry.\n");

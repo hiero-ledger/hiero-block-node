@@ -1,6 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.tools.days.subcommands;
 
+import static org.hiero.block.tools.days.download.DownloadConstants.GCP_PROJECT_ID;
+import static org.hiero.block.tools.mirrornode.DayBlockInfo.loadDayBlockInfoMap;
+
+import com.google.cloud.storage.Storage;
+import com.google.cloud.storage.StorageOptions;
 import java.io.File;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -22,9 +27,6 @@ import java.util.concurrent.TimeUnit;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Stream;
-
-import com.google.cloud.storage.Storage;
-import com.google.cloud.storage.StorageOptions;
 import org.hiero.block.tools.days.download.DownloadDayLiveImpl;
 import org.hiero.block.tools.days.model.AddressBookRegistry;
 import org.hiero.block.tools.mirrornode.BlockInfo;
@@ -32,17 +34,12 @@ import org.hiero.block.tools.mirrornode.BlockTimeReader;
 import org.hiero.block.tools.mirrornode.DayBlockInfo;
 import org.hiero.block.tools.mirrornode.FetchBlockQuery;
 import org.hiero.block.tools.mirrornode.MirrorNodeBlockQueryOrder;
-import org.hiero.block.tools.records.model.parsed.ParsedRecordFile;
 import org.hiero.block.tools.records.model.unparsed.InMemoryFile;
 import org.hiero.block.tools.records.model.unparsed.UnparsedRecordBlockV6;
 import org.hiero.block.tools.utils.gcp.ConcurrentDownloadManagerVirtualThreads;
 import picocli.CommandLine;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Option;
-
-import static org.hiero.block.tools.days.download.DownloadConstants.GCP_PROJECT_ID;
-import static org.hiero.block.tools.mirrornode.DayBlockInfo.loadDayBlockInfoMap;
-
 
 /**
  * CLI implementation for the {@code days download-live} command.
@@ -61,7 +58,7 @@ import static org.hiero.block.tools.mirrornode.DayBlockInfo.loadDayBlockInfoMap;
  * {@code --end-day} flags, which define a global ingestion window. The following modes are
  * supported:
  *
- * <h3>1. Start + end date (finite historical range)</h3>
+ * <h2>1. Start + end date (finite historical range)</h2>
  * <ul>
  *   <li>Specify both {@code --start-day} and {@code --end-day}</li>
  *   <li>The mirror node query applies {@code timestamp &gt;= startDayT00:00} and
@@ -105,15 +102,14 @@ import static org.hiero.block.tools.mirrornode.DayBlockInfo.loadDayBlockInfoMap;
         version = "download-live 0.1")
 public class DownloadLive implements Runnable {
 
-
     @Option(
-        names = {"-l", "--listing-dir"},
-        description = "Directory where listing files are stored")
+            names = {"-l", "--listing-dir"},
+            description = "Directory where listing files are stored")
     private File listingDir = new File("listingsByDay");
 
     @Option(
-        names = {"-d", "--downloaded-days-dir"},
-        description = "Directory where downloaded days are stored")
+            names = {"-d", "--downloaded-days-dir"},
+            description = "Directory where downloaded days are stored")
     private File downloadedDaysDir = new File("compressedDays");
 
     @Option(
@@ -407,14 +403,17 @@ public class DownloadLive implements Runnable {
                     + " lastSeen=" + lastSeenBlock);
 
             final LocalDate lowerBoundDay = (configuredStartDay != null) ? configuredStartDay : day;
-            final long startSeconds = lowerBoundDay.atStartOfDay(ZoneId.of("UTC")).toEpochSecond();
+            final long startSeconds =
+                    lowerBoundDay.atStartOfDay(ZoneId.of("UTC")).toEpochSecond();
 
             final List<String> timestampFilters = new ArrayList<>();
             timestampFilters.add("gte:" + startSeconds + ".000000000");
 
             if (configuredEndDay != null) {
-                final long endSeconds =
-                        configuredEndDay.plusDays(1).atStartOfDay(ZoneId.of("UTC")).toEpochSecond();
+                final long endSeconds = configuredEndDay
+                        .plusDays(1)
+                        .atStartOfDay(ZoneId.of("UTC"))
+                        .toEpochSecond();
                 timestampFilters.add("lt:" + endSeconds + ".000000000");
             }
 
@@ -459,11 +458,11 @@ public class DownloadLive implements Runnable {
         }
 
         void runContinuouslyForToday() {
-            LocalDate todayInTz = ZonedDateTime.ofInstant(Instant.now(), ZoneId.of("UTC")).toLocalDate();
-            LocalDate logicalDay =
-                    (configuredStartDay != null && !configuredStartDay.isAfter(todayInTz))
-                            ? configuredStartDay
-                            : todayInTz;
+            LocalDate todayInTz =
+                    ZonedDateTime.ofInstant(Instant.now(), ZoneId.of("UTC")).toLocalDate();
+            LocalDate logicalDay = (configuredStartDay != null && !configuredStartDay.isAfter(todayInTz))
+                    ? configuredStartDay
+                    : todayInTz;
 
             while (true) {
                 if (configuredEndDay != null && logicalDay.isAfter(configuredEndDay)) {
@@ -472,20 +471,21 @@ public class DownloadLive implements Runnable {
                     return;
                 }
 
-                LocalDate currentToday = ZonedDateTime.ofInstant(Instant.now(), ZoneId.of("UTC")).toLocalDate();
+                LocalDate currentToday =
+                        ZonedDateTime.ofInstant(Instant.now(), ZoneId.of("UTC")).toLocalDate();
 
                 if (logicalDay.isBefore(currentToday)) {
                     final String dayKey = logicalDay.toString();
-                    System.out.println(
-                            "[poller] Processing historical day " + dayKey + " (before current live day " + currentToday
-                                    + ")");
+                    System.out.println("[poller] Processing historical day " + dayKey + " (before current live day "
+                            + currentToday + ")");
                     stateLoadedForToday = false;
                     runOnceForDay(logicalDay);
                     try {
                         System.out.println("[poller] Finalizing historical day " + dayKey);
                         downloader.finalizeDay(dayKey);
                     } catch (Exception e) {
-                        System.err.println("[poller] Failed to finalize day archive for " + dayKey + ": " + e.getMessage());
+                        System.err.println(
+                                "[poller] Failed to finalize day archive for " + dayKey + ": " + e.getMessage());
                     }
                     logicalDay = logicalDay.plusDays(1);
                     continue;
@@ -548,11 +548,7 @@ public class DownloadLive implements Runnable {
         private final ExecutorService compressionExecutor;
 
         LiveDownloader(
-                File listingDir,
-                File downloadedDaysDir,
-                File tmpRoot,
-                int maxConcurrency,
-                Path addressBookPath) {
+                File listingDir, File downloadedDaysDir, File tmpRoot, int maxConcurrency, Path addressBookPath) {
             this.listingDir = listingDir;
             this.downloadedDaysDir = downloadedDaysDir;
             this.tmpRoot = tmpRoot;
@@ -574,11 +570,12 @@ public class DownloadLive implements Runnable {
             // adjust this
             // call to match its configuration factory used by the historic download2 tooling.
             Storage storage = StorageOptions.grpc()
-                .setAttemptDirectPath(false)
-                .setProjectId(GCP_PROJECT_ID)
-                .build()
-                .getService();
-            this.downloadManager = ConcurrentDownloadManagerVirtualThreads.newBuilder(storage).build();
+                    .setAttemptDirectPath(false)
+                    .setProjectId(GCP_PROJECT_ID)
+                    .build()
+                    .getService();
+            this.downloadManager =
+                    ConcurrentDownloadManagerVirtualThreads.newBuilder(storage).build();
             this.compressionExecutor = Executors.newSingleThreadExecutor(r -> {
                 Thread t = new Thread(r, "download-live-compress");
                 t.setDaemon(true);
@@ -627,20 +624,23 @@ public class DownloadLive implements Runnable {
                 final UnparsedRecordBlockV6 block = new UnparsedRecordBlockV6(
                         recordFileTime,
                         primaryRecord,
-                        List.of(),       // no "other" records in live mode
+                        List.of(), // no "other" records in live mode
                         signatures,
                         sidecars,
-                        List.of());      // no "other" sidecars in live mode
+                        List.of()); // no "other" sidecars in live mode
 
                 final UnparsedRecordBlockV6.ValidationResult vr =
                         block.validate(startRunningHash, addressBookRegistry.getCurrentAddressBook());
 
                 if (!vr.isValid()) {
-                    System.err.println("[download] Full block validation failed for block "
-                            + result.blockNumber + ": " + vr.warningMessages());
+                    System.err.println("[download] Full block validation failed for block " + result.blockNumber + ": "
+                            + vr.warningMessages());
                     // tmpFile may be null; quarantine() is a no-op in that case.
-                    quarantine(tmpFile, primaryRecord.path().getFileName().toString(),
-                            result.blockNumber, "full block validation failure");
+                    quarantine(
+                            tmpFile,
+                            primaryRecord.path().getFileName().toString(),
+                            result.blockNumber,
+                            "full block validation failure");
                     return false;
                 }
 
@@ -652,8 +652,8 @@ public class DownloadLive implements Runnable {
 
                 return true;
             } catch (Exception ex) {
-                System.err.println("[download] Exception during full block validation for block "
-                        + result.blockNumber + ": " + ex.getMessage());
+                System.err.println("[download] Exception during full block validation for block " + result.blockNumber
+                        + ": " + ex.getMessage());
                 quarantine(tmpFile, "unknown", result.blockNumber, "exception during full block validation");
                 return false;
             }
@@ -711,7 +711,7 @@ public class DownloadLive implements Runnable {
 
         /**
          * Append the given file (by entryName) to the per-day tar archive using the system tar command.
-         * The tar file is created under outRoot as <dayKey>.tar and entries are taken from the per-day folder.
+         * The tar file is created under outRoot as dayKey.tar and entries are taken from the per-day folder.
          */
         void appendToDayTar(String dayKey, String entryName) {
             try {
@@ -749,7 +749,7 @@ public class DownloadLive implements Runnable {
         /**
          * Schedule finalization of a day's archive on a background thread.
          * This "closes" the tar for the day by stopping further appends (handled by the poller/dayKey rollover),
-         * then compresses <dayKey>.tar into <dayKey>.tar.zstd and cleans up the per-day folder.
+         * then compresses dayKey.tar into dayKey.tar.zstd and cleans up the per-day folder.
          */
         void finalizeDay(String dayKey) {
             System.out.println("[download] Scheduling background compression for day " + dayKey);
@@ -843,8 +843,8 @@ public class DownloadLive implements Runnable {
             final Map<LocalDate, DayBlockInfo> daysInfo = loadDayBlockInfoMap();
             final DayBlockInfo dayBlockInfo = daysInfo.get(day);
             if (dayBlockInfo == null) {
-                System.err.println("[download] No DayBlockInfo found for live dayKey=" + dayKey
-                        + "; skipping batch of " + batch.size() + " blocks.");
+                System.err.println("[download] No DayBlockInfo found for live dayKey=" + dayKey + "; skipping batch of "
+                        + batch.size() + " blocks.");
                 return -1L;
             }
 
@@ -878,8 +878,8 @@ public class DownloadLive implements Runnable {
                                 null); // no temp file for now; quarantine will no-op on null
 
                         if (!fullyValid) {
-                            System.err.println("[download] Skipping persistence for block "
-                                    + d.blockNumber + " due to full block validation failure.");
+                            System.err.println("[download] Skipping persistence for block " + d.blockNumber
+                                    + " due to full block validation failure.");
                             continue;
                         }
 
@@ -892,7 +892,8 @@ public class DownloadLive implements Runnable {
                             }
                             Files.write(targetPath, file.data());
 
-                            final String entryName = dayDir.relativize(targetPath).toString();
+                            final String entryName =
+                                    dayDir.relativize(targetPath).toString();
                             appendToDayTar(dayKey, entryName);
                         }
 
@@ -900,13 +901,13 @@ public class DownloadLive implements Runnable {
                         previousRecordFileHash = result.newPreviousRecordFileHash;
                         highest = d.blockNumber;
                     } catch (Exception e) {
-                        System.err.println(
-                                "[download] Failed live block download for block " + d.blockNumber + ": " + e.getMessage());
+                        System.err.println("[download] Failed live block download for block " + d.blockNumber + ": "
+                                + e.getMessage());
                     }
                 }
 
                 return highest;
-            }  catch (Exception e) {
+            } catch (Exception e) {
                 System.err.println("[download] Failed to download day " + dayKey + ": " + e.getMessage());
                 e.printStackTrace();
             }
@@ -922,8 +923,8 @@ public class DownloadLive implements Runnable {
                 final Map<LocalDate, DayBlockInfo> daysInfo = loadDayBlockInfoMap();
                 final DayBlockInfo dayBlockInfo = daysInfo.get(day);
                 if (dayBlockInfo == null) {
-                    System.err.println("[download] No DayBlockInfo found for dayKey=" + dayKey
-                        + "; skipping block " + d.blockNumber);
+                    System.err.println("[download] No DayBlockInfo found for dayKey=" + dayKey + "; skipping block "
+                            + d.blockNumber);
                     return -1L;
                 }
                 final long totalDays = 1L;
@@ -944,7 +945,8 @@ public class DownloadLive implements Runnable {
                             0, // progressStart as day index (0-based)
                             overallStartMillis);
 
-                    System.out.println("[download] block " + d.blockNumber + " downloaded " + totalDays + " days" + " previousRecordFileHash:" + previousRecordFileHash);
+                    System.out.println("[download] block " + d.blockNumber + " downloaded " + totalDays + " days"
+                            + " previousRecordFileHash:" + previousRecordFileHash);
 
                     return d.blockNumber;
                 } catch (Exception e) {
