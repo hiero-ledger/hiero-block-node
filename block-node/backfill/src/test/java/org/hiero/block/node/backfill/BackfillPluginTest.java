@@ -6,6 +6,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -31,7 +32,8 @@ import org.hiero.block.node.spi.blockmessaging.NewestBlockKnownToNetworkNotifica
 import org.hiero.block.node.spi.blockmessaging.PersistedNotification;
 import org.hiero.block.node.spi.blockmessaging.VerificationNotification;
 import org.hiero.block.node.spi.historicalblocks.HistoricalBlockFacility;
-import org.junit.jupiter.api.Disabled;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -41,6 +43,8 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, BlockingExecutor
     /** TempDir for the current test */
     private final Path testTempDir;
 
+    private List<TestBlockNodeServer> testBlockNodeServers;
+
     public BackfillPluginTest(@TempDir final Path tempDir) {
         super(
                 new BlockingExecutor(new LinkedBlockingQueue<>()),
@@ -48,7 +52,25 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, BlockingExecutor
         this.testTempDir = Objects.requireNonNull(tempDir);
     }
 
-    @Disabled
+    @BeforeEach
+    void setup() {
+        testBlockNodeServers = new ArrayList<>();
+    }
+
+    @AfterEach
+    void cleanup() {
+        // stop any started test block node servers
+        if (testBlockNodeServers != null) {
+            for (TestBlockNodeServer server : testBlockNodeServers) {
+                if (server != null) {
+                    server.stop();
+                }
+            }
+        }
+
+        plugin.stop();
+    }
+
     @Test
     @DisplayName("Historical Backfill - Autonomous Happy Test")
     void testBackfillPlugin() throws InterruptedException {
@@ -56,10 +78,9 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, BlockingExecutor
         // Block Node sources
         String blockNodeSourcesPath =
                 getClass().getClassLoader().getResource("block-nodes.json").getFile();
-
         // BN 1
         final HistoricalBlockFacility historicalBlockFacilityForServer = getHistoricalBlockFacility(0, 400);
-        TestBlockNodeServer testBlockNodeServer = new TestBlockNodeServer(40800, historicalBlockFacilityForServer);
+        testBlockNodeServers.add(new TestBlockNodeServer(40801, historicalBlockFacilityForServer));
 
         // Config Override
         Map<String, String> configOverride = BackfillConfigBuilder.NewBuilder()
@@ -99,13 +120,8 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, BlockingExecutor
                 expectedBlocksToBackfill,
                 blockMessaging.getSentVerificationNotifications().size(),
                 "Should have sent 11 verification notifications");
-
-        // clean up
-        testBlockNodeServer.stop(); // Stop the mock server
-        plugin.stop();
     }
 
-    @Disabled
     @Test
     @DisplayName("Recent Backfill - Autonomous Happy Test")
     void testBackfillPluginRecentAutonomous() throws InterruptedException {
@@ -116,7 +132,7 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, BlockingExecutor
 
         // BN 1
         final HistoricalBlockFacility historicalBlockFacilityForServer = getHistoricalBlockFacility(0, 400);
-        TestBlockNodeServer testBlockNodeServer = new TestBlockNodeServer(40800, historicalBlockFacilityForServer);
+        testBlockNodeServers.add(new TestBlockNodeServer(40801, historicalBlockFacilityForServer));
 
         // Config Override
         Map<String, String> configOverride = BackfillConfigBuilder.NewBuilder()
@@ -156,13 +172,8 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, BlockingExecutor
                 expectedBlocksToBackfill,
                 blockMessaging.getSentVerificationNotifications().size(),
                 "Should have sent 200 verification notifications");
-
-        // clean up
-        testBlockNodeServer.stop(); // Stop the mock server
-        plugin.stop();
     }
 
-    @Disabled
     @Test
     @DisplayName("Historical Backfill - Priority 1 BN is unavailable, fallback to 2nd priority BN")
     void testSecondarySourceBackfill() throws InterruptedException {
@@ -177,7 +188,7 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, BlockingExecutor
                 .build();
         BackfillSourceConfig secondaryBackfillSourceConfig = BackfillSourceConfig.newBuilder()
                 .address("localhost")
-                .port(40800)
+                .port(40801)
                 .priority(2)
                 .build();
         BackfillSource backfillSource = BackfillSource.newBuilder()
@@ -188,7 +199,8 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, BlockingExecutor
 
         // BN 2
         final HistoricalBlockFacility historicalBlockFacilityForServer = getHistoricalBlockFacility(0, 400);
-        TestBlockNodeServer testBlockNodeServer = new TestBlockNodeServer(40800, historicalBlockFacilityForServer);
+        testBlockNodeServers.add(
+                new TestBlockNodeServer(secondaryBackfillSourceConfig.port(), historicalBlockFacilityForServer));
 
         // Config Override
         Map<String, String> configOverride = BackfillConfigBuilder.NewBuilder()
@@ -227,10 +239,6 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, BlockingExecutor
                 10,
                 blockMessaging.getSentVerificationNotifications().size(),
                 "Should have sent 11 verification notifications");
-
-        // clean up
-        testBlockNodeServer.stop(); // Stop the mock server
-        plugin.stop();
     }
 
     @Test
@@ -267,9 +275,6 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, BlockingExecutor
                 0,
                 blockMessaging.getSentVerificationNotifications().size(),
                 "Should have sent 0 verification notifications");
-
-        // clean up
-        plugin.stop();
     }
 
     @Test
@@ -288,7 +293,7 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, BlockingExecutor
         createTestBlockNodeSourcesFile(backfillSource, backfillSourcePath);
         // using the same port, start a BN mock that has blocks from 0 to 50
         final HistoricalBlockFacility blockNodeServerBlockFacility = getHistoricalBlockFacility(0, 50);
-        TestBlockNodeServer testBlockNodeServer = new TestBlockNodeServer(config.port(), blockNodeServerBlockFacility);
+        testBlockNodeServers.add(new TestBlockNodeServer(config.port(), blockNodeServerBlockFacility));
 
         // config override for test
         final Map<String, String> configOverride = BackfillConfigBuilder.NewBuilder()
@@ -328,10 +333,6 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, BlockingExecutor
                 20,
                 blockMessaging.getSentVerificationNotifications().size(),
                 "Should have sent 20 verification notifications");
-
-        // clean up
-        testBlockNodeServer.stop();
-        plugin.stop();
     }
 
     @Test
@@ -350,7 +351,7 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, BlockingExecutor
         createTestBlockNodeSourcesFile(backfillSource, backfillSourcePath);
         // using the same port, start a BN mock that has blocks from 0 to 50
         final HistoricalBlockFacility blockNodeServerBlockFacility = getHistoricalBlockFacility(0, 50);
-        TestBlockNodeServer testBlockNodeServer = new TestBlockNodeServer(config.port(), blockNodeServerBlockFacility);
+        testBlockNodeServers.add(new TestBlockNodeServer(config.port(), blockNodeServerBlockFacility));
 
         // config override for test
         final Map<String, String> configOverride = BackfillConfigBuilder.NewBuilder()
@@ -392,10 +393,6 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, BlockingExecutor
                 20,
                 blockMessaging.getSentVerificationNotifications().size(),
                 "Should have sent 20 verification notifications");
-
-        // clean up
-        testBlockNodeServer.stop();
-        plugin.stop();
     }
 
     @Test
@@ -416,7 +413,7 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, BlockingExecutor
 
         // BN mock server
         HistoricalBlockFacility blockFacilityServer = getHistoricalBlockFacility(0, 200);
-        TestBlockNodeServer testBlockNodeServer = new TestBlockNodeServer(config.port(), blockFacilityServer);
+        testBlockNodeServers.add(new TestBlockNodeServer(config.port(), blockFacilityServer));
 
         // config override for test
         final Map<String, String> configOverride = BackfillConfigBuilder.NewBuilder()
@@ -485,13 +482,6 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, BlockingExecutor
                 150,
                 blockMessaging.getSentVerificationNotifications().size(),
                 "Should have sent 150 verification notifications");
-
-        // clean-up after test.
-        // stop the mock server
-        testBlockNodeServer.stop();
-
-        // Stop the plugin
-        plugin.stop();
     }
 
     @Test
@@ -513,7 +503,7 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, BlockingExecutor
 
         // BN mock server
         HistoricalBlockFacility blockFacilityServer = getHistoricalBlockFacility(0, 200);
-        TestBlockNodeServer testBlockNodeServer = new TestBlockNodeServer(config.port(), blockFacilityServer);
+        testBlockNodeServers.add(new TestBlockNodeServer(config.port(), blockFacilityServer));
 
         // config override for test
         final Map<String, String> configOverride = BackfillConfigBuilder.NewBuilder()
@@ -585,16 +575,8 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, BlockingExecutor
                 150,
                 blockMessaging.getSentVerificationNotifications().size(),
                 "Should have sent 150 verification notifications");
-
-        // clean-up after test.
-        // stop the mock server
-        testBlockNodeServer.stop();
-
-        // Stop the plugin
-        plugin.stop();
     }
 
-    @Disabled
     @Test
     @DisplayName("Historical & Recent Backfill - Autonomous, GAP available within 2 different backfill sources")
     void testBackfillPartialAvailableSourcesForGap() throws InterruptedException {
@@ -625,9 +607,8 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, BlockingExecutor
         final SimpleInMemoryHistoricalBlockFacility storage2 = getHistoricalBlockFacility(50, 150);
 
         // start block-node mocks
-        TestBlockNodeServer testBlockNodeServer1 = new TestBlockNodeServer(backfillSourceConfig.port(), storage1);
-        TestBlockNodeServer testBlockNodeServer2 =
-                new TestBlockNodeServer(secondaryBackfillSourceConfig.port(), storage2);
+        testBlockNodeServers.add(new TestBlockNodeServer(backfillSourceConfig.port(), storage1));
+        testBlockNodeServers.add(new TestBlockNodeServer(secondaryBackfillSourceConfig.port(), storage2));
 
         // config override
         Map<String, String> config = BackfillConfigBuilder.NewBuilder()
@@ -683,13 +664,6 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, BlockingExecutor
                 125,
                 blockMessaging.getSentVerificationNotifications().size(),
                 "Should have sent 125 verification notifications");
-
-        // clean-up after test.
-        // stop the mock servers
-        testBlockNodeServer1.stop();
-        testBlockNodeServer2.stop();
-        // Stop the plugin
-        plugin.stop();
     }
 
     @Test
@@ -717,15 +691,14 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, BlockingExecutor
         String backfillSourcePath = testTempDir + "/backfill-source-7.json";
         createTestBlockNodeSourcesFile(backfillSource, backfillSourcePath);
         // create storage for source 1
-        final SimpleInMemoryHistoricalBlockFacility storage1 = getHistoricalBlockFacility(0, 101);
+        final SimpleInMemoryHistoricalBlockFacility storage1 = getHistoricalBlockFacility(0, 100);
 
         // create storage for source 2
-        final SimpleInMemoryHistoricalBlockFacility storage2 = getHistoricalBlockFacility(50, 151);
+        final SimpleInMemoryHistoricalBlockFacility storage2 = getHistoricalBlockFacility(50, 150);
 
         // start block-node mocks
-        TestBlockNodeServer testBlockNodeServer1 = new TestBlockNodeServer(backfillSourceConfig.port(), storage1);
-        TestBlockNodeServer testBlockNodeServer2 =
-                new TestBlockNodeServer(secondaryBackfillSourceConfig.port(), storage2);
+        testBlockNodeServers.add(new TestBlockNodeServer(backfillSourceConfig.port(), storage1));
+        testBlockNodeServers.add(new TestBlockNodeServer(secondaryBackfillSourceConfig.port(), storage2));
 
         // config override
         Map<String, String> config = BackfillConfigBuilder.NewBuilder()
@@ -781,13 +754,6 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, BlockingExecutor
                 125,
                 blockMessaging.getSentVerificationNotifications().size(),
                 "Should have sent 125 verification notifications");
-
-        // clean-up after test.
-        // stop the mock servers
-        testBlockNodeServer1.stop();
-        testBlockNodeServer2.stop();
-        // Stop the plugin
-        plugin.stop();
     }
 
     private void createTestBlockNodeSourcesFile(BackfillSource backfillSource, String configPath) {
