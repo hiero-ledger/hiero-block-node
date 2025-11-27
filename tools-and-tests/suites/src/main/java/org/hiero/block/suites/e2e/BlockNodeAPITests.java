@@ -29,6 +29,7 @@ import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 import java.util.function.Function;
 import org.hiero.block.api.BlockAccessServiceInterface;
 import org.hiero.block.api.BlockEnd;
@@ -66,6 +67,7 @@ public class BlockNodeAPITests {
 
     private static String BLOCKS_DATA_DIR_PATH = "build/tmp/data";
     private static final MediaType APPLICATION_GRPC_PROTO = HttpMediaType.create("application/grpc+proto");
+    private static final Duration DEFAULT_AWAIT_TIMEOUT = Duration.ofSeconds(30);
     private static final ServerStatusRequest SIMPLE_SERVER_STAUS_REQUEST =
             ServerStatusRequest.newBuilder().build();
     private static final Options OPTIONS =
@@ -231,7 +233,7 @@ public class BlockNodeAPITests {
         requestStream.onNext(request);
         endBlock(blockNumber, requestStream);
 
-        publishCountDownLatch.await(); // wait for acknowledgement response
+        awaitLatch(publishCountDownLatch, "publish acknowledgement"); // wait for acknowledgement response
         assertThat(responseObserver.getOnNextCalls())
                 .hasSize(1)
                 .first()
@@ -249,7 +251,9 @@ public class BlockNodeAPITests {
         requestStream.onNext(request);
         endBlock(blockNumber, requestStream);
 
-        publishCompleteCountDownLatch.await(); // wait for onComplete caused by duplicate response
+        awaitLatch(
+                publishCompleteCountDownLatch,
+                "duplicate block end-of-stream"); // wait for onComplete caused by duplicate response
 
         // Assert that one more response is sent.
         assertThat(responseObserver.getOnNextCalls())
@@ -298,7 +302,7 @@ public class BlockNodeAPITests {
         final CountDownLatch blockItemsSubscribe1Latch = subscribeResponseObserver.setAndGetOnNextLatch(2);
         blockStreamSubscribeServiceClient.subscribeBlockStream(subscribeRequest1, subscribeResponseObserver);
 
-        blockItemsSubscribe1Latch.await();
+        awaitLatch(blockItemsSubscribe1Latch, "historical subscription");
         // block items, end block, and success status
         assertThat(subscribeResponseObserver.getOnNextCalls()).hasSize(3);
         assertThat(subscribeResponseObserver.getOnCompleteCalls().get()).isEqualTo(1);
@@ -308,24 +312,26 @@ public class BlockNodeAPITests {
         assertThat(subscribeResponse0.blockItems().blockItems()).hasSize(blockItems.length);
 
         // ==== Scenario 6: Subscribe to live block stream and confirm receipt of newly published block ===
+        final long blockNumber1 = 1;
         final SubscribeStreamRequest subscribeRequest2 = SubscribeStreamRequest.newBuilder()
-                .startBlockNumber(1L)
-                .endBlockNumber(-1L) // subscribe to all future blocks
+                .startBlockNumber(blockNumber1)
+                .endBlockNumber(blockNumber1) // subscribe only until the next block is received
                 .build();
         final CountDownLatch blockItemsSubscribe2Latch = subscribeResponseObserver.setAndGetOnNextLatch(1);
         // run blockStreamSubscribeServiceClient.subscribeBlockStrea in its own thread to avoid blocking
-        new Thread(() -> {
+        final Thread subscribeThread = new Thread(
+                () -> {
                     try {
                         blockStreamSubscribeServiceClient.subscribeBlockStream(
                                 subscribeRequest2, subscribeResponseObserver);
                     } catch (Exception e) {
                         fail("Exception in subscribeBlockStream: " + e.getMessage());
                     }
-                })
-                .start();
+                },
+                "api-subscribe-live");
+        subscribeThread.start();
 
         // publish block 1 and confirm subscriber receives it
-        final long blockNumber1 = 1;
         BlockItem[] blockItems1 = BlockItemBuilderUtils.createSimpleBlockWithNumber(blockNumber1);
         PublishStreamRequest request2 = PublishStreamRequest.newBuilder()
                 .blockItems(BlockItemSet.newBuilder().blockItems(blockItems1).build())
@@ -341,8 +347,12 @@ public class BlockNodeAPITests {
         requestStream2.onNext(request2);
         endBlock(blockNumber1, requestStream2);
 
-        blockItemsSubscribe2Latch.await(); // wait for subscriber to receive unverified block items
-        blockItemsPublish2Latch.await(); // wait for publisher to observe block item sets
+        awaitLatch(
+                blockItemsSubscribe2Latch,
+                "live subscription for block 1"); // wait for subscriber to receive unverified block items
+        awaitLatch(
+                blockItemsPublish2Latch,
+                "publisher acknowledgement for block 1"); // wait for publisher to observe block item sets
 
         assertThat(responseObserver2.getOnNextCalls())
                 .hasSize(1)
@@ -361,7 +371,7 @@ public class BlockNodeAPITests {
         assertThat(subscribeResponse1.blockItems().blockItems()).hasSize(blockItems1.length);
 
         assertThat(subscribeResponseObserver.getOnNextCalls())
-                .hasSize(5) // block 0 items, end block 0, success status, block 1 items, and end block 1
+                .hasSize(6) // block 0 items, end block 0, success status, block 1 items, end block 1, success status
                 .element(3)
                 .satisfies(response -> {
                     assertThat(response.blockItems().blockItems()).hasSize(blockItems1.length);
@@ -372,12 +382,16 @@ public class BlockNodeAPITests {
                                     .number())
                             .isEqualTo(blockNumber1);
                 });
+        assertThat(subscribeResponseObserver.getOnNextCalls().getLast().status())
+                .isEqualTo(SubscribeStreamResponse.Code.SUCCESS);
 
         // close the client connections
         blockStreamPublishServiceClient.close();
+        blockStreamPublishServiceClient2.close();
         blockStreamSubscribeServiceClient.close();
         blockAccessServiceClient.close();
         blockNodeServiceClient.close();
+        awaitThread(subscribeThread, "live subscribe thread");
     }
 
     private void endBlock(final long blockNumber, final Pipeline<? super PublishStreamRequest> requestStream) {
@@ -432,7 +446,7 @@ public class BlockNodeAPITests {
 
         requestStream.onNext(endStreamRequest);
 
-        initialOnCompleteLatch.await();
+        awaitLatch(initialOnCompleteLatch, "initial publish onComplete");
 
         assertThat(initialResponseObserver.getOnNextCalls()).hasSize(0); // no responses should be sent yet
 
@@ -504,7 +518,7 @@ public class BlockNodeAPITests {
         requestStream.onNext(request);
         endBlock(blockNumber, requestStream);
 
-        publishCountDownLatch.await(); // wait for acknowledgement response
+        awaitLatch(publishCountDownLatch, "socket test acknowledgement"); // wait for acknowledgement response
         assertThat(responseObserver.getOnNextCalls())
                 .hasSize(1)
                 .first()
@@ -522,7 +536,9 @@ public class BlockNodeAPITests {
         requestStream.onNext(request);
         endBlock(blockNumber, requestStream);
 
-        publishCompleteCountDownLatch.await(); // wait for onComplete caused by duplicate response
+        awaitLatch(
+                publishCompleteCountDownLatch,
+                "socket test duplicate completion"); // wait for onComplete caused by duplicate response
 
         // Assert that one more response is sent.
         assertThat(responseObserver.getOnNextCalls())
@@ -549,10 +565,20 @@ public class BlockNodeAPITests {
             // Expected exception to be thrown on the onNext() due to closed socket
             // from previous duplicate block publish
             requestStream.onNext(request1);
-            publishCompleteCountDownLatch.await(); // wait
+            awaitLatch(publishCompleteCountDownLatch, "post-close publish");
             endBlock(blockNumber1, requestStream);
         });
         assertTrue(ex.getCause() instanceof SocketException);
         assertTrue(ex.getCause().getMessage().toLowerCase().contains("socket closed"));
+    }
+
+    private void awaitLatch(final CountDownLatch latch, final String description) throws InterruptedException {
+        final boolean completed = latch.await(DEFAULT_AWAIT_TIMEOUT.toMillis(), TimeUnit.MILLISECONDS);
+        assertTrue(completed, "Timed out waiting for " + description);
+    }
+
+    private void awaitThread(final Thread thread, final String description) throws InterruptedException {
+        thread.join(DEFAULT_AWAIT_TIMEOUT.toMillis());
+        assertFalse(thread.isAlive(), "Timed out waiting for " + description + " to finish");
     }
 }
