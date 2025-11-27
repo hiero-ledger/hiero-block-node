@@ -34,3 +34,14 @@ tasks.versionAsSpecified {
         }
     }
 }
+
+// @todo(1909) we need to remove this see issue for details
+subprojects {
+    tasks.withType<Test> {
+        // Point docker-java/Testcontainers at the Desktop socket
+        systemProperty("docker.host", "unix:///Users/user/.docker/run/docker.sock")
+
+        // Docker 29 requires API >= 1.44
+        systemProperty("api.version", "1.44")
+    }
+}

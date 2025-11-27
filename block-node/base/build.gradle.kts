@@ -21,6 +21,5 @@ testModuleInfo {
     requires("org.mockito")
     requires("org.testcontainers")
     requires("io.minio")
-    requires("junit")
     requires("org.hiero.block.protobuf.pbj")
 }

@@ -5,13 +5,14 @@ import com.hedera.hapi.node.base.SemanticVersion;
 import java.util.Objects;
 import org.hiero.block.common.utils.Preconditions;
 import org.hiero.block.node.spi.blockmessaging.BlockSource;
+import org.hiero.block.node.verification.session.impl.DummyVerificationSession;
 import org.hiero.block.node.verification.session.impl.ExtendedMerkleTreeSession;
-import org.hiero.block.node.verification.session.impl.PreviewSimpleHashSession;
 
 /**
  * Factory for creating {@link VerificationSession} instances based on the requested HAPI version.
  */
 public final class HapiVersionSessionFactory {
+    private static final SemanticVersion V_0_69_0 = semanticVersion(0, 69, 0);
     private static final SemanticVersion V_0_68_0 = semanticVersion(0, 68, 0);
     private static final SemanticVersion V_0_64_0 = semanticVersion(0, 64, 0);
 
@@ -33,14 +34,22 @@ public final class HapiVersionSessionFactory {
         Objects.requireNonNull(hapiVersion, "hapiVersion cannot be null");
         Preconditions.requireWhole(blockNumber, "blockNumber must be >= 0");
 
-        if (isGreaterThanOrEqual(hapiVersion, V_0_68_0)) {
-            return new ExtendedMerkleTreeSession(blockNumber, blockSource, "extraBytesPlaceholder");
-        } else if (isGreaterThanOrEqual(hapiVersion, V_0_64_0)) {
-            return new PreviewSimpleHashSession(blockNumber, blockSource);
-        } else {
-            final String unsupportedMessage = "Unsupported HAPI version: %s (supported from 0.64.0 and up)";
-            throw new IllegalArgumentException(unsupportedMessage.formatted(toShortString(hapiVersion)));
+        // TODO, before going live we should remove the Dummy Implementation.
+        if (isGreaterThanOrEqual(hapiVersion, V_0_69_0)) {
+            return new DummyVerificationSession(blockNumber, blockSource);
         }
+
+        if (isGreaterThanOrEqual(hapiVersion, V_0_68_0)) {
+            return new ExtendedMerkleTreeSession(blockNumber, blockSource);
+        }
+
+        // TODO, before going live we should remove the Dummy Implementation.
+        if (isGreaterThanOrEqual(hapiVersion, V_0_64_0)) {
+            return new DummyVerificationSession(blockNumber, blockSource);
+        }
+
+        throw new IllegalArgumentException(
+                "Unsupported HAPI version: %s (supported from 0.64.0 and up)".formatted(toShortString(hapiVersion)));
     }
 
     /** v >= w ? (lexicographic by major, minor, patch) */

@@ -7,6 +7,7 @@ import com.hedera.hapi.block.stream.Block;
 import com.hedera.hapi.block.stream.BlockItem;
 import com.hedera.hapi.block.stream.BlockItem.ItemOneOfType;
 import com.hedera.hapi.block.stream.BlockProof;
+import com.hedera.hapi.block.stream.TssSignedBlockProof;
 import com.hedera.hapi.block.stream.input.EventHeader;
 import com.hedera.hapi.block.stream.input.RoundHeader;
 import com.hedera.hapi.block.stream.output.BlockHeader;
@@ -61,15 +62,14 @@ public final class BlockItemBuilderUtils {
     }
 
     public static BlockProof createBlockProof(final long blockNumber) {
-        return new BlockProof(
-                blockNumber,
-                Bytes.wrap("previousBlockRootHash".getBytes()),
-                Bytes.wrap("startOfBlockStateRootHash".getBytes()),
-                Bytes.wrap("block_signature".getBytes()),
-                Collections.emptyList(),
-                new OneOf<>(
-                        BlockProof.VerificationReferenceOneOfType.VERIFICATION_KEY,
-                        Bytes.wrap("verificationKey".getBytes())));
+        return BlockProof.newBuilder()
+                .signedBlockProof(TssSignedBlockProof.newBuilder().build())
+                .block(blockNumber)
+                .previousBlockRootHash(Bytes.wrap("previousBlockRootHash"))
+                .startOfBlockStateRootHash(Bytes.wrap("startOfBlockStateRootHash"))
+                .blockSignature(Bytes.wrap("block_signature"))
+                .verificationKey(Bytes.wrap("verification_key"))
+                .build();
     }
 
     public static Bytes createBlockProofUnparsed(final long blockNumber) {
@@ -130,8 +130,8 @@ public final class BlockItemBuilderUtils {
      * Create an EventHeader with no parents and no signature middle bit.
      */
     public static BlockItem sampleLargeEventHeader() {
-        return new BlockItem(new OneOf<>(
-                ItemOneOfType.EVENT_HEADER, new EventHeader(EventCore.DEFAULT, Collections.emptyList(), false)));
+        return new BlockItem(
+                new OneOf<>(ItemOneOfType.EVENT_HEADER, new EventHeader(EventCore.DEFAULT, Collections.emptyList())));
     }
 
     public static BlockItemUnparsed sampleRoundHeaderUnparsed(final long roundNumber) {
