@@ -1,17 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
-package org.hiero.block.tools.days;
+package org.hiero.block.tools.days.subcommands;
 
-import org.hiero.block.tools.days.subcommands.CleanDayOfBadRecordSets;
-import org.hiero.block.tools.days.subcommands.Compress;
-import org.hiero.block.tools.days.subcommands.DownloadDay;
-import org.hiero.block.tools.days.subcommands.DownloadDays;
-import org.hiero.block.tools.days.subcommands.DownloadDaysV2;
-import org.hiero.block.tools.days.subcommands.Ls;
-import org.hiero.block.tools.days.subcommands.LsDayListing;
-import org.hiero.block.tools.days.subcommands.PrintListing;
-import org.hiero.block.tools.days.subcommands.SplitJsonToDayFiles;
-import org.hiero.block.tools.days.subcommands.UpdateDayListingsCommand;
-import org.hiero.block.tools.days.subcommands.Validate;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Model.CommandSpec;
 import picocli.CommandLine.Spec;
@@ -31,6 +20,7 @@ import picocli.CommandLine.Spec;
             DownloadDay.class,
             DownloadDaysV2.class,
             DownloadDays.class,
+            DownloadLive.class,
             PrintListing.class,
             LsDayListing.class,
             SplitJsonToDayFiles.class,

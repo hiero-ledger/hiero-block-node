@@ -44,7 +44,7 @@ import org.hiero.block.tools.utils.gcp.ConcurrentDownloadManager;
  * and write into a single .tar.zstd file.
  */
 @SuppressWarnings({"CallToPrintStackTrace", "DuplicatedCode"})
-public class DownloadDayImplV2 {
+public class DownloadDayLiveImpl {
 
     /** Maximum number of retries for MD5 mismatch errors. */
     private static final int MAX_MD5_RETRIES = 3;
@@ -69,6 +69,138 @@ public class DownloadDayImplV2 {
             this.blockTime = blockTime;
             this.orderedFiles = orderedFiles;
         }
+    }
+
+    /**
+     * Result of downloading and validating a single block for live mode.
+     */
+    public static final class BlockDownloadResult {
+        public final long blockNumber;
+        public final List<InMemoryFile> files;
+        public final byte[] newPreviousRecordFileHash;
+
+        public BlockDownloadResult(long blockNumber, List<InMemoryFile> files, byte[] newPreviousRecordFileHash) {
+            this.blockNumber = blockNumber;
+            this.files = files;
+            this.newPreviousRecordFileHash = newPreviousRecordFileHash;
+        }
+    }
+
+    /**
+     * Download and validate a single block for a given day using the same listing-based
+     * grouping and MD5/ungzip logic as {@link #downloadDay}, but without writing into
+     * the day's tar.zstd. This is intended for live mode, where the caller will decide
+     * how to persist the validated files (e.g. writing into a per-day folder, appending
+     * to a tar file, etc.).
+     *
+     * This method:
+     *  - loads the day's listing file
+     *  - finds the ListingRecordFile group for the given blockNumber based on block time
+     *  - selects the most common record + sidecar files
+     *  - downloads all required files with MD5 validation and retry
+     *  - ungzips .gz files and computes canonical entry names via {@link #computeNewFilePath}
+     *  - validates block hashes via {@link DownloadDayUtil#validateBlockHashes}
+     *
+     * On success it returns the in-memory files and the updated previousRecordFileHash
+     * that should be passed into the next block/day.
+     *
+     * @param downloadManager the concurrent download manager to use
+     * @param dayBlockInfo the block info for the day
+     * @param blockTimeReader the block time reader to get block times
+     * @param listingDir directory where listing files are stored
+     * @param year the year (e.g., 2023) to download
+     * @param month the month (1-12) to download
+     * @param day the day of month (1-31) to download
+     * @param blockNumber the block number to download and validate
+     * @param previousRecordFileHash the running hash from the previous record file (may be null for first block)
+     * @return a {@link BlockDownloadResult} containing the in-memory files and updated running hash
+     * @throws Exception on any error
+     */
+    public static BlockDownloadResult downloadSingleBlockForLive(
+            final ConcurrentDownloadManager downloadManager,
+            final DayBlockInfo dayBlockInfo,
+            final BlockTimeReader blockTimeReader,
+            final Path listingDir,
+            final int year,
+            final int month,
+            final int day,
+            final long blockNumber,
+            final byte[] previousRecordFileHash)
+            throws Exception {
+        // Load the day's listing and group by ListingRecordFile.timestamp
+        final List<ListingRecordFile> allDaysFiles = loadRecordsFileForDay(listingDir, year, month, day);
+        final Map<LocalDateTime, List<ListingRecordFile>> filesByBlock =
+                allDaysFiles.stream().collect(Collectors.groupingBy(ListingRecordFile::timestamp));
+
+        final LocalDateTime blockTime = blockTimeReader.getBlockLocalDateTime(blockNumber);
+        final List<ListingRecordFile> group = filesByBlock.get(blockTime);
+        if (group == null || group.isEmpty()) {
+            throw new IllegalStateException("Missing record files for block number " + blockNumber + " at time "
+                    + blockTime + " on " + year + "-" + month + "-" + day);
+        }
+
+        // For this block, compute most common record and sidecar files and the ordered download list
+        final ListingRecordFile mostCommonRecordFile = findMostCommonByType(group, ListingRecordFile.Type.RECORD);
+        final ListingRecordFile[] mostCommonSidecarFiles = findMostCommonSidecars(group);
+        final Set<ListingRecordFile> mostCommonFiles = new HashSet<>();
+        if (mostCommonRecordFile != null) {
+            mostCommonFiles.add(mostCommonRecordFile);
+        }
+        if (mostCommonSidecarFiles != null) {
+            for (ListingRecordFile sc : mostCommonSidecarFiles) {
+                if (sc != null) {
+                    mostCommonFiles.add(sc);
+                }
+            }
+        }
+        final List<ListingRecordFile> orderedFilesToDownload =
+                computeFilesToDownload(mostCommonRecordFile, mostCommonSidecarFiles, group);
+
+        // Determine expected block hash from mirror node (only for first/last blocks of the day)
+        final long firstBlock = dayBlockInfo.firstBlockNumber;
+        final long lastBlock = dayBlockInfo.lastBlockNumber;
+        byte[] blockHashFromMirrorNode = null;
+        if (blockNumber == firstBlock && dayBlockInfo.firstBlockHash != null) {
+            final String hexStr = dayBlockInfo.firstBlockHash.startsWith("0x")
+                    ? dayBlockInfo.firstBlockHash.substring(2)
+                    : dayBlockInfo.firstBlockHash;
+            blockHashFromMirrorNode = HexFormat.of().parseHex(hexStr);
+        } else if (blockNumber == lastBlock && dayBlockInfo.lastBlockHash != null) {
+            final String hexStr = dayBlockInfo.lastBlockHash.startsWith("0x")
+                    ? dayBlockInfo.lastBlockHash.substring(2)
+                    : dayBlockInfo.lastBlockHash;
+            blockHashFromMirrorNode = HexFormat.of().parseHex(hexStr);
+        }
+
+        // Download files, validate MD5 (with retry), ungzip, and compute canonical paths
+        final List<InMemoryFile> inMemoryFilesForWriting = new ArrayList<>();
+        for (ListingRecordFile lr : orderedFilesToDownload) {
+            String filename = lr.path().substring(lr.path().lastIndexOf('/') + 1);
+            try {
+                InMemoryFile downloadedFile = downloadFileWithRetry(downloadManager, lr);
+                if (downloadedFile == null) {
+                    // Signature file with persistent MD5 mismatch, skip it just like in downloadDay
+                    continue;
+                }
+
+                byte[] contentBytes = downloadedFile.data();
+                if (filename.endsWith(".gz")) {
+                    contentBytes = Gzip.ungzipInMemory(contentBytes);
+                    filename = filename.replaceAll("\\.gz$", "");
+                }
+                final Path newFilePath = computeNewFilePath(lr, mostCommonFiles, filename);
+                inMemoryFilesForWriting.add(new InMemoryFile(newFilePath, contentBytes));
+            } catch (EOFException eofe) {
+                System.err.println("Warning: Skipping corrupted gzip file [" + filename + "] for block " + blockNumber
+                        + " time " + blockTime + ": " + eofe.getMessage());
+            }
+        }
+
+        // Validate block hashes for this block using the shared utility
+        final byte[] newPrevRecordFileHash = validateBlockHashes(
+                blockNumber, inMemoryFilesForWriting, previousRecordFileHash, blockHashFromMirrorNode);
+
+        return new BlockDownloadResult(blockNumber, inMemoryFilesForWriting, newPrevRecordFileHash);
     }
 
     /**

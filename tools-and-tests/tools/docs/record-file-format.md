@@ -1,6 +1,7 @@
 # Record and Event Stream File Formats
 
 ## Overview
+
 The Hedera network produces a blockchain of **record stream files** that capture chronological information about
 transactions that took place on the network.
 
@@ -10,9 +11,10 @@ transactions that took place on the network.
 - Record stream v6 files can also have sidecar files that contain additional information about the transactions.
 
 ---
+
 ## Version Migration
 
-| File Type                    | Historical Versions | Current Version |
+|          File Type           | Historical Versions | Current Version |
 |------------------------------|---------------------|-----------------|
 | Record Stream File           | 2, 5                | 6               |
 | Record Stream Signature File | 4                   | 5               |
@@ -20,8 +22,8 @@ transactions that took place on the network.
 **Note:** Record stream files start with a 4 byte integer version number in big endian format.
 
 **Note:** Current record signature files (`.rcd_sig`). The first byte’s value is `4`, which denotes a marker. To
- maintain backwards compatibility, the first byte in the new version stream signature file is `5`, which denotes the
- version. Thus, version **5** is used as the next version number.
+maintain backwards compatibility, the first byte in the new version stream signature file is `5`, which denotes the
+version. Thus, version **5** is used as the next version number.
 
 ---
 
@@ -30,20 +32,22 @@ transactions that took place on the network.
 Record files are written and read with Java DataInputStream and DataOutputStream, hence they use big endian byte order.
 
 ### Record Stream File Names
+
 A record stream file name is a string representation of the **Instant** of the consensus timestamp of the first
 transaction in the file using **ISO-8601** representation, with colons converted to underscores for Windows
 compatibility. The nano-of-second outputs zero, three, six, or nine digits as necessary.
 
 **Examples**
 - Record: `2020-10-19T21_35_39Z.rcd`
-  Signature: `2020-10-19T21_35_39Z.rcd_sig`
+Signature: `2020-10-19T21_35_39Z.rcd_sig`
 - Record: `2020-10-19T21_35_39.454265Z.rcd`
-  Signature: `2020-10-19T21_35_39.454265Z.rcd_sig`
+Signature: `2020-10-19T21_35_39.454265Z.rcd_sig`
 
 ### Record Stream File Format (`.rcd`)
+
 The table describes the content that can be parsed from a record file.
 
-| Name                              | Type (Bytes) | Description                                                   |
+|               Name                | Type (Bytes) |                          Description                          |
 |-----------------------------------|--------------|---------------------------------------------------------------|
 | Record Stream File Format Version | int (4)      | Value: **2**                                                  |
 | HAPI Version                      | int (4)      | HAPI protocol version. Value: **3**                           |
@@ -59,9 +63,10 @@ The table describes the content that can be parsed from a record file.
 > The `.rcd_sig` signature file signs the hash of the corresponding `.rcd` file.
 
 ### Record Stream Signature File Format (`.rcd_sig`)
+
 *(Note: Version number not present in v2 signature files.)*
 
-| Name                | Type (Bytes) | Description                                |
+|        Name         | Type (Bytes) |                Description                 |
 |---------------------|--------------|--------------------------------------------|
 | File Hash Marker    | byte         | Value: **4**                               |
 | File Hash           | byte[48]     | SHA-384 hash of corresponding `.rcd` file  |
@@ -70,6 +75,7 @@ The table describes the content that can be parsed from a record file.
 | Signature           | byte[]       | Signature bytes                            |
 
 #### File Hash Calculation (v2)
+
 `h[i] = hash(p[i-1] || h[i-1] || hash(c[i-1]))`
 
 Where:
@@ -86,19 +92,21 @@ Where:
 Record files are written and read with Java DataInputStream and DataOutputStream, hence they use big endian byte order.
 
 ### Record Stream File Names
+
 - ISO-8601 with colons replaced by underscores.
 - Nano-of-second **always** has **nine digits** (padded as necessary) to ensure fixed-length filenames and proper sorting.
 
 **Examples**
 - Record: `2020-10-19T21_35_39.000000000Z.rcd`
-  Signature: `2020-10-19T21_35_39.000000000Z.rcd_sig`
+Signature: `2020-10-19T21_35_39.000000000Z.rcd_sig`
 - Record: `2020-10-19T21_35_39.454265000Z.rcd`
-  Signature: `2020-10-19T21_35_39.454265000Z.rcd_sig`
+Signature: `2020-10-19T21_35_39.454265000Z.rcd_sig`
 
 ### Record Stream File Format (`.rcd`)
 
 #### MD – Meta Data
-| Name                              | Type (Bytes) | Description                                                                                                 |
+
+|               Name                | Type (Bytes) |                                                 Description                                                 |
 |-----------------------------------|--------------|-------------------------------------------------------------------------------------------------------------|
 | Record Stream File Format Version | int (4)      | Value: **5**                                                                                                |
 | HAPI Proto Major Version          | int (4)      | Matches `NetworkGetVersionInfo.hapiProtoVersion` (Major.Minor.Patch: Major **0**, Minor **9**, Patch **0**) |
@@ -111,7 +119,8 @@ Record files are written and read with Java DataInputStream and DataOutputStream
 | End Object Running Hash           | byte[]       | Running hash of all `RecordStreamObject`s before closing this file                                          |
 
 #### Hash Object
-| Name           | Type (Bytes) | Description                                            |
+
+|      Name      | Type (Bytes) |                      Description                       |
 |----------------|--------------|--------------------------------------------------------|
 | Class ID       | long (8)     | Value: `0xf422da83a251741e`                            |
 | Class Version  | int (4)      | Value: **1** (updates when Hash serialization changes) |
@@ -120,7 +129,8 @@ Record files are written and read with Java DataInputStream and DataOutputStream
 | Hash Bytes     | byte[]       | Serialized hash bytes                                  |
 
 #### Record Stream Object
-| Name                        | Type (Bytes) | Description                          |
+
+|            Name             | Type (Bytes) |             Description              |
 |-----------------------------|--------------|--------------------------------------|
 | Class ID                    | long (8)     | Value: `0xe370929ba5429d8b`          |
 | Class Version               | int (4)      | Value: **1**                         |
@@ -130,9 +140,10 @@ Record files are written and read with Java DataInputStream and DataOutputStream
 | Transaction                 | byte[]       | Serialized `Transaction` bytes       |
 
 ### Record Stream Signature File Format (`.rcd_sig`) – v5
+
 In v5, the record stream signature file format is the same as the event stream signature file format.
 
-| Name                                     | Type (Bytes) | Description                                                                        |
+|                   Name                   | Type (Bytes) |                                    Description                                     |
 |------------------------------------------|--------------|------------------------------------------------------------------------------------|
 | Signature File Format Version            | byte         | Value: **5**                                                                       |
 | Object Stream Signature Version          | int (4)      | Value: **1** — format of remainder of signature file (used by swirlds-common)      |
@@ -142,7 +153,8 @@ In v5, the record stream signature file format is the same as the event stream s
 | Signature on hash bytes of Metadata Hash | byte[]       | Signature object over the hash bytes of the Metadata Hash                          |
 
 #### Signature Object
-| Name                | Type (Bytes) | Description                              |
+
+|        Name         | Type (Bytes) |               Description                |
 |---------------------|--------------|------------------------------------------|
 | Class ID            | long (8)     | Value: `0x13dc4b399b245c69`              |
 | Class Version       | int (4)      | Value: **1**                             |
@@ -152,25 +164,24 @@ In v5, the record stream signature file format is the same as the event stream s
 | Signature bytes     | byte[]       | Serialized signature bytes               |
 
 #### File Hash Calculation (v5)
+
 There are **three** hashes calculated:
 
 1. **Object Running Hash**
-    - Calculated from the hash of each object, allowing removal of object contents while maintaining an unbroken chain of hashes.
-    - Saved in state so reconnecting nodes can continue generating identical stream files.
-    - Formula:
-      `hash(ObjectRunningHash || hash(OBJECT))`
-      (In record stream files, `OBJECT` is the **Record Stream Object**.)
-
+   - Calculated from the hash of each object, allowing removal of object contents while maintaining an unbroken chain of hashes.
+   - Saved in state so reconnecting nodes can continue generating identical stream files.
+   - Formula:
+     `hash(ObjectRunningHash || hash(OBJECT))`
+     (In record stream files, `OBJECT` is the **Record Stream Object**.)
 2. **Entire `.rcd` Hash**
-    - Calculated across **all** bytes of a `.rcd` file.
-    - With this hash, mirror nodes can download valid `.rcd` files whose entire hash is agreed upon by valid signatures of at least 1/3 of nodes.
-    - If file contents are `f[i] = head[i] || startHash[i] || contents[i] || endHash[i]`, then:
-      `entireHash[i] = hash(head[i] || startHash[i] || contents[i] || endHash[i])`
-
+   - Calculated across **all** bytes of a `.rcd` file.
+   - With this hash, mirror nodes can download valid `.rcd` files whose entire hash is agreed upon by valid signatures of at least 1/3 of nodes.
+   - If file contents are `f[i] = head[i] || startHash[i] || contents[i] || endHash[i]`, then:
+     `entireHash[i] = hash(head[i] || startHash[i] || contents[i] || endHash[i])`
 3. **Metadata `.rcd` Hash**
-    - Calculated over metadata bytes only (as denoted in the tables).
-    - Remains valid even if some contents of an object are removed.
-    - `metaHash[i] = hash(head[i] || startHash[i] || endHash[i])`
+   - Calculated over metadata bytes only (as denoted in the tables).
+   - Remains valid even if some contents of an object are removed.
+   - `metaHash[i] = hash(head[i] || startHash[i] || endHash[i])`
 
 **Migration from v2 to v5:**
 `Hash Bytes` in `Start Object Running Hash` of the **first v5** `.rcd` file equals the `File Hash` in the **last v2** `.rcd_sig` file (the hash of the last v2 `.rcd` file).
@@ -278,9 +289,9 @@ Sidecar files contain extra data that can be chosen to be optionally read by mir
 - `Timestamp consensus_timestamp = 1;` Consensus timestamp will be the same as the consensus timestamp of the transaction the side car is related to. This offers a convenient way to match record to sidecar.
 - `bool migration = 2;` Whether sidecar is from migration.
 - `oneof sidecar_records` List of sidecar types. In future there will be other categories.
-    - `ContractStateChanges state_changes = 3;`
-    - `ContractActions actions = 4;`
-    - `ContractBytecode bytecode = 5;`
+  - `ContractStateChanges state_changes = 3;`
+  - `ContractActions actions = 4;`
+  - `ContractBytecode bytecode = 5;`
 
 ### Hashes
 
