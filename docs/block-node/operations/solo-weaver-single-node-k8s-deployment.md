@@ -1,4 +1,4 @@
-# Hiero Block Node Cloud Deployment Guide
+# Solo Weaver Single Node Kubernetes Deployment Guide
 
 # Overview
 
@@ -29,7 +29,7 @@ Before you begin, ensure you have:
 3. Under **Compute Engine,** Select **Create a VM**.
 4. Select a machine type appropriate for your Block Node profile:
    - **For a test or local profile**: Choose at least an **E2 standard** machine (for example, **`e2-standard-2`**) so that CPU and memory are sufficient.
-   - **For production (f**e.g.**, `mainnet` or `previewnet`)**: Select at least ~16 CPUs (e.g., 8 physical cores / 16 vCPUs).
+   - **For production (**e.g.**, `mainnet` or `previewnet`)**: Select at least ~16 CPUs (e.g., 8 physical cores / 16 vCPUs).
 5. Set the region and zone (defaults are fine unless you have a preference).
 6. Select the default boot disk and operating system unless your team has specific requirements.
 7. Leave other instance settings at defaults for a standard deployment.
@@ -153,7 +153,27 @@ After completing the setup, confirm that your Block Node is deployed and running
 
 If the pods are running and healthy, your Block Node is successfully installed and running on the Google Cloud VM.
 
-## Step 7: Deprovisioning and Shutdown
+## Step 7: Test Block Node Accessibility with grpcurl
+
+1. **Install grpcurl** using the package manager of your system:
+    - Debian/Ubuntu: **`apt-get install grpcurl`**
+    - macOS: **`brew install grpcurl`**
+    - Other systems: Download from [**grpcurl releases**](https://github.com/fullstorydev/grpcurl/releases)
+2. **Download the latest protobuf files** from the official release:
+    
+    ```bash
+    curl -LO https://github.com/hiero-ledger/hiero-block-node/releases/latest/download/blocknode.proto
+    ```
+    
+3. **Call the `serverStatus` endpoint** to verify the node is accessible:
+    
+    ```bash
+    grpcurl -plaintext -import-path . -proto blocknode.proto localhost:50211 hedera.BlockNodeService.ServerStatus
+    ```
+    
+4. **Review the output** for status information confirming the node is running and serving requests.
+   
+## Step 8: Deprovisioning and Shutdown
 
 If you need to permanently remove a Block Node deployment (for decommissioning, upgrades, or migration):
 
