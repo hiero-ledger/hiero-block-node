@@ -73,7 +73,7 @@ public class TestThreadPoolManager<T extends ExecutorService, S extends Schedule
     }
 
     @NonNull
-    public final S scheduleExecutor() {
+    public final S scheduledExecutor() {
         return scheduledExecutor;
     }
 

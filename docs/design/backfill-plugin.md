@@ -136,7 +136,7 @@ sequenceDiagram
 ### On-Demand Backfill
 
 The plugin can also be triggered on-demand to backfill missing blocks when the latest block known to the network is
-received and periodically to ensure block node does not fall too far behind.
+received and periodically to ensure Block Node does not fall too far behind.
 
 1. The plugin can also be triggered on-demand by sending a `NewestBlockKnownToNetwork` message to the `MessagingFacility`,
    usually this would be done by the `PublisherPlugin` or any other plugin that knows the latest block or wants to
