@@ -4,7 +4,7 @@
 
 This guide explains how to deploy the Hiero Block Node on a Google Cloud Platform (GCP) virtual machine (VM) using the Solo Weaver tool.
 The Block Node enables participation in the Hiero network by processing and validating transactions.
-This deployment uses the Weaver binary to set up Kubernetes and the Block Node on the VM.
+This deployment uses the Weaver binary to provision the VM, set up Kubernetes and install the Block Node Helm chart on the VM.
 
 This guide walks you through creating the VM, uploading the Weaver binary to it, and running the Block Node using the local profile.
 
