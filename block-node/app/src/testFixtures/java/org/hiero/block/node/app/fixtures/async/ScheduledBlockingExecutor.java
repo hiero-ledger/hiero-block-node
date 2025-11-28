@@ -3,7 +3,6 @@ package org.hiero.block.node.app.fixtures.async;
 
 import edu.umd.cs.findbugs.annotations.NonNull;
 import java.util.concurrent.BlockingQueue;
-import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledThreadPoolExecutor;
 
 public class ScheduledBlockingExecutor extends ScheduledThreadPoolExecutor {
@@ -11,7 +10,13 @@ public class ScheduledBlockingExecutor extends ScheduledThreadPoolExecutor {
     private final BlockingQueue<Runnable> workQueue;
 
     public ScheduledBlockingExecutor(@NonNull final BlockingQueue<Runnable> workQueue) {
-        super(1, Executors.defaultThreadFactory(), new AbortPolicy());
+        super(1, Thread.ofVirtual().factory(), new AbortPolicy());
+
+        this.workQueue = workQueue; // actual work queue
+    }
+
+    public ScheduledBlockingExecutor(int corePoolSize, @NonNull final BlockingQueue<Runnable> workQueue) {
+        super(corePoolSize, Thread.ofVirtual().factory(), new AbortPolicy());
 
         this.workQueue = workQueue; // actual work queue
     }

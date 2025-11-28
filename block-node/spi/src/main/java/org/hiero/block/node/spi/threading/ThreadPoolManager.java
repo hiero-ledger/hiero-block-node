@@ -114,17 +114,8 @@ public interface ThreadPoolManager {
             @Nullable final Thread.UncaughtExceptionHandler uncaughtExceptionHandler);
 
     @NonNull
-    default ScheduledExecutorService createSingleThreadScheduledExecutor() {
-        return createSingleThreadScheduledExecutor(null, null);
-    }
-
-    @NonNull
-    default ScheduledExecutorService createSingleThreadScheduledExecutor(@NonNull final String threadName) {
-        return createSingleThreadScheduledExecutor(Objects.requireNonNull(threadName), null);
-    }
-
-    @NonNull
-    ScheduledExecutorService createSingleThreadScheduledExecutor(
+    ScheduledExecutorService createVirtualThreadScheduledExecutor(
+            int corePoolSize,
             @Nullable final String threadName,
             @Nullable final Thread.UncaughtExceptionHandler uncaughtExceptionHandler);
 }

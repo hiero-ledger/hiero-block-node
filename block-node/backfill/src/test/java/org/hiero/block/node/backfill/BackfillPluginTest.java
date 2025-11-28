@@ -48,7 +48,7 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, BlockingExecutor
     public BackfillPluginTest(@TempDir final Path tempDir) {
         super(
                 new BlockingExecutor(new LinkedBlockingQueue<>()),
-                new ScheduledBlockingExecutor(new LinkedBlockingQueue<>()));
+                new ScheduledBlockingExecutor(2, new LinkedBlockingQueue<>()));
         this.testTempDir = Objects.requireNonNull(tempDir);
     }
 
@@ -72,8 +72,8 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, BlockingExecutor
     }
 
     @Test
-    @DisplayName("Historical Backfill - Autonomous Happy Test")
-    void testBackfillPlugin() throws InterruptedException {
+    @DisplayName("Autonomous Historical Backfill - Happy Test")
+    void testBackfillAutonomous() throws InterruptedException {
 
         // Block Node sources
         String blockNodeSourcesPath =
@@ -108,7 +108,7 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, BlockingExecutor
                 countDownLatch.await(5, TimeUnit.MINUTES); // Wait until countDownLatch.countDown() is called
 
         // Continue with your assertions or test logic/BlockItems blockItems = mock(BlockItems.class);
-        //        assertEquals(true, backfillSuccess);
+        assertTrue(backfillSuccess);
         assertEquals(0, countDownLatch.getCount(), "Count down latch should be 0 after backfill");
 
         // Verify sent verifications
@@ -123,8 +123,8 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, BlockingExecutor
     }
 
     @Test
-    @DisplayName("Recent Backfill - Autonomous Happy Test")
-    void testBackfillPluginRecentAutonomous() throws InterruptedException {
+    @DisplayName("Greedy Autonomous Recent Backfill - Happy Test")
+    void testBackfillGreedyAutonomous() throws InterruptedException {
 
         // Block Node sources
         String blockNodeSourcesPath =
@@ -160,7 +160,7 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, BlockingExecutor
                 countDownLatch.await(5, TimeUnit.MINUTES); // Wait until countDownLatch.countDown() is called
 
         // Continue with your assertions or test logic/BlockItems blockItems = mock(BlockItems.class);
-        //        assertEquals(true, backfillSuccess);
+        assertTrue(backfillSuccess);
         assertEquals(0, countDownLatch.getCount(), "Count down latch should be 0 after backfill");
 
         // Verify sent verifications
@@ -175,8 +175,8 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, BlockingExecutor
     }
 
     @Test
-    @DisplayName("Historical Backfill - Priority 1 BN is unavailable, fallback to 2nd priority BN")
-    void testSecondarySourceBackfill() throws InterruptedException {
+    @DisplayName("Autonomous Historical Backfill - Priority 1 BN is unavailable, fallback to 2nd priority BN")
+    void testAutonomousSecondarySource() throws InterruptedException {
 
         // Block Node sources
         // Set up a backfill source with two nodes, one primary and one secondary
@@ -227,7 +227,7 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, BlockingExecutor
                 countDownLatch.await(5, TimeUnit.MINUTES); // Wait until countDownLatch.countDown() is called
 
         // Continue with your assertions or test logic/BlockItems blockItems = mock(BlockItems.class);
-        //        assertEquals(true, backfillSuccess);
+        assertTrue(backfillSuccess);
         assertEquals(0, countDownLatch.getCount(), "Count down latch should be 0 after backfill");
 
         // Verify sent verifications
@@ -243,7 +243,7 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, BlockingExecutor
 
     @Test
     @DisplayName("Backfill - No available block-nodes, should not backfill")
-    void testBackfillNoAvailableBlockNodes() throws InterruptedException {
+    void testBackfillNoAvailableSources() throws InterruptedException {
         // Block Node sources
         // let's create a config with a non-existing block-node source
         String blockNodeSourcesPath = testTempDir + "/backfill-source-3.json";
@@ -278,7 +278,7 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, BlockingExecutor
     }
 
     @Test
-    @DisplayName("Recent Backfill - On-Demand External Trigger Happy path")
+    @DisplayName("On-Demand Recent Backfill - Happy path")
     void testBackfillOnDemand() throws InterruptedException {
         // Block Node sources
         BackfillSourceConfig config = BackfillSourceConfig.newBuilder()
@@ -298,6 +298,7 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, BlockingExecutor
         // config override for test
         final Map<String, String> configOverride = BackfillConfigBuilder.NewBuilder()
                 .backfillSourcePath(backfillSourcePath)
+                .greedy(false)
                 .build();
 
         // create a historical block facility for the plugin (should have a GAP)
@@ -318,7 +319,7 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, BlockingExecutor
         this.blockMessaging.sendNewestBlockKnownToNetwork(newestBlockNotification);
         // Wait for the backfill to complete
         boolean backfillSuccess =
-                countDownLatch.await(5, TimeUnit.MINUTES); // Wait until countDownLatch.countDown() is called
+                countDownLatch.await(1, TimeUnit.MINUTES); // Wait until countDownLatch.countDown() is called
 
         // assertions
         assertTrue(backfillSuccess);
@@ -336,8 +337,8 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, BlockingExecutor
     }
 
     @Test
-    @DisplayName("Recent Backfill - On-Demand No External Trigger Happy path")
-    void testBackfillOnDemandRecent() throws InterruptedException {
+    @DisplayName("On-Demand Recent Backfill - Greedy Enabled")
+    void testBackfillOnDemandGreedyEnabled() throws InterruptedException {
         // Block Node sources
         BackfillSourceConfig config = BackfillSourceConfig.newBuilder()
                 .address("localhost")
@@ -356,6 +357,7 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, BlockingExecutor
         // config override for test
         final Map<String, String> configOverride = BackfillConfigBuilder.NewBuilder()
                 .backfillSourcePath(backfillSourcePath)
+                .greedy(false)
                 .build();
 
         // create a historical block facility for the plugin (should have a GAP)
@@ -371,9 +373,8 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, BlockingExecutor
         // register the verification handler
         registerDefaultTestVerificationHandler(countDownLatch);
 
-        // No external trigger the backfill on-demand should receive NewestBlockKnownToNetworkNotification from
-        // LiveStreamPublisherManager
-        NewestBlockKnownToNetworkNotification newestBlockNotification = new NewestBlockKnownToNetworkNotification(-1L);
+        // Trigger the on-demand backfill by sending a NewestBlockKnownToNetworkNotification
+        NewestBlockKnownToNetworkNotification newestBlockNotification = new NewestBlockKnownToNetworkNotification(50L);
         this.blockMessaging.sendNewestBlockKnownToNetwork(newestBlockNotification);
 
         // LiveStreamPublisherManager
@@ -396,8 +397,8 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, BlockingExecutor
     }
 
     @Test
-    @DisplayName("Historical & Recent Backfill - On-demand while historical (autonomous) backfill is running")
-    void testBackfillOnDemandWhileAutonomousBackfillRunning() throws InterruptedException {
+    @DisplayName("Autonomous & On-Demand Backfill - Parallel Execution")
+    void testBackfillParallelOnDemandAutonomous() throws InterruptedException {
         // Prepare a backfill source configuration
         // Create a test configuration
         BackfillSourceConfig config = BackfillSourceConfig.newBuilder()
@@ -418,6 +419,7 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, BlockingExecutor
         // config override for test
         final Map<String, String> configOverride = BackfillConfigBuilder.NewBuilder()
                 .backfillSourcePath(backfillSourcePath)
+                .greedy(false)
                 .initialDelay(100) // start quickly
                 .scanInterval(500000) // scan every 500 seconds
                 .build();
@@ -465,13 +467,14 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, BlockingExecutor
         NewestBlockKnownToNetworkNotification newestBlockNotification = new NewestBlockKnownToNetworkNotification(200L);
         this.blockMessaging.sendNewestBlockKnownToNetwork(newestBlockNotification);
         // Wait for the backfill to complete
-        boolean backfillSuccess = latchHistorical.await(2, TimeUnit.MINUTES); // Wait until latch2.countDown() is called
+        boolean backfillSuccess = latchHistorical.await(1, TimeUnit.MINUTES); // Wait until latch2.countDown() is called
         assertTrue(backfillSuccess, "Should have completed the backfill successfully");
         assertEquals(0, latchHistorical.getCount(), "Count down latch should be 0 after backfill");
 
         // Wait for the on-demand backfill to complete
-        boolean onDemandSuccess = latchLive.await(2, TimeUnit.MINUTES); // Wait until latch3.countDown() is called
+        boolean onDemandSuccess = latchLive.await(1, TimeUnit.MINUTES); // Wait until latch3.countDown() is called
         assertTrue(onDemandSuccess, "Should have completed the on-demand backfill successfully");
+        assertEquals(0, latchLive.getCount(), "Count down latch should be 0 after backfill");
 
         // Verify sent verifications
         assertEquals(
@@ -485,9 +488,8 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, BlockingExecutor
     }
 
     @Test
-    @DisplayName(
-            "Historical & Recent Backfill - On-demand while historical (autonomous) backfill is running no ext trigger")
-    void testBackfillOnDemandWhileAutonomousBackfillRunningRecent() throws InterruptedException {
+    @DisplayName("Greedy Autonomous & On-Demand Backfill - Parallel Execution")
+    void testBackfillParallelGreedyOnDemandAutonomous() throws InterruptedException {
         // Prepare a backfill source configuration
         // Create a test configuration
         BackfillSourceConfig config = BackfillSourceConfig.newBuilder()
@@ -522,7 +524,7 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, BlockingExecutor
 
         // 3 latches, one for making sure the autonomous backfill is mid-way through
         // one for the total backfill from 0 to 200
-        // and one for the on-demand backfill from 501 to 200
+        // and one for the on-demand backfill from 101 to 200
         CountDownLatch latch1 = new CountDownLatch(10); // mid-way through the autonomous backfill
         CountDownLatch latchHistorical = new CountDownLatch(50); // historical blocks from 0 to 49
         CountDownLatch latchLive = new CountDownLatch(100); // live blocks from 101 to 200
@@ -554,7 +556,7 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, BlockingExecutor
 
         // No external trigger the backfill on-demand should receive NewestBlockKnownToNetworkNotification from
         // LiveStreamPublisherManager
-        NewestBlockKnownToNetworkNotification newestBlockNotification = new NewestBlockKnownToNetworkNotification(-1L);
+        NewestBlockKnownToNetworkNotification newestBlockNotification = new NewestBlockKnownToNetworkNotification(101L);
         this.blockMessaging.sendNewestBlockKnownToNetwork(newestBlockNotification);
 
         // Wait for the backfill to complete
@@ -578,8 +580,8 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, BlockingExecutor
     }
 
     @Test
-    @DisplayName("Historical & Recent Backfill - Autonomous, GAP available within 2 different backfill sources")
-    void testBackfillPartialAvailableSourcesForGap() throws InterruptedException {
+    @DisplayName("Autonomous Backfill - GAP available from 2 different backfill sources")
+    void testBackfillParallelOnDemandAutonomousMultipleSources() throws InterruptedException {
 
         // Set up 2 backfill sources with two nodes, one primary and one secondary
         // primary node will have blocks from 0 to 100
@@ -613,6 +615,7 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, BlockingExecutor
         // config override
         Map<String, String> config = BackfillConfigBuilder.NewBuilder()
                 .backfillSourcePath(backfillSourcePath)
+                .greedy(false)
                 .initialDelay(100) // start quickly
                 .scanInterval(500000) // scan every 500 seconds
                 .build();
@@ -667,9 +670,8 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, BlockingExecutor
     }
 
     @Test
-    @DisplayName(
-            "Historical & Recent Backfill - Autonomous, GAP available within 2 different backfill sources no ext trigger")
-    void testBackfillPartialAvailableSourcesForRecentGap() throws InterruptedException {
+    @DisplayName("Greedy Autonomous & On-Demand Backfill - GAP available within 2 different backfill sources")
+    void testBackfillParallelGreedyOnDemandAutonomousMultipleSources() throws InterruptedException {
 
         // Set up 2 backfill sources with two nodes, one primary and one secondary
         // primary node will have blocks from 0 to 100
@@ -694,7 +696,8 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, BlockingExecutor
         final SimpleInMemoryHistoricalBlockFacility storage1 = getHistoricalBlockFacility(0, 100);
 
         // create storage for source 2
-        final SimpleInMemoryHistoricalBlockFacility storage2 = getHistoricalBlockFacility(50, 150);
+        final int extBN2LatestBlock = 150;
+        final SimpleInMemoryHistoricalBlockFacility storage2 = getHistoricalBlockFacility(50, extBN2LatestBlock);
 
         // start block-node mocks
         testBlockNodeServers.add(new TestBlockNodeServer(backfillSourceConfig.port(), storage1));
@@ -704,16 +707,23 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, BlockingExecutor
         Map<String, String> config = BackfillConfigBuilder.NewBuilder()
                 .backfillSourcePath(backfillSourcePath)
                 .initialDelay(100) // start quickly
-                .scanInterval(500000) // scan every 500 seconds
+                .scanInterval(50000) // scan every 50 seconds
                 .build();
 
         // create a historical block facility for the plugin (should have a GAP from 0 to 62, and 88 to 125)
-        final SimpleInMemoryHistoricalBlockFacility historicalBlockFacility = getHistoricalBlockFacility(62, 87);
+        final int localBNEarliestBlock = 62;
+        final int localBNLatestBlock = 87;
+        final SimpleInMemoryHistoricalBlockFacility historicalBlockFacility =
+                getHistoricalBlockFacility(localBNEarliestBlock, localBNLatestBlock);
 
         // start with plugin configuration
         start(new BackfillPlugin(), historicalBlockFacility, config);
 
-        CountDownLatch backfillLatch = new CountDownLatch(125); // 0 to 124 inclusive, so 125 blocks
+        CountDownLatch backfillLatch = new CountDownLatch(localBNEarliestBlock
+                + (extBN2LatestBlock - localBNLatestBlock)); // 87 to 120 inclusive, greedy autonomous to handle rest
+        CountDownLatch latchHistorical = new CountDownLatch(localBNEarliestBlock); // historical blocks from 0 to 49
+        CountDownLatch latchLive =
+                new CountDownLatch(extBN2LatestBlock - localBNLatestBlock); // live blocks from 101 to 200
 
         // register the backfill handler
         registerDefaultTestBackfillHandler();
@@ -727,6 +737,11 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, BlockingExecutor
                                 .sendBlockPersisted(new PersistedNotification(
                                         notification.blockNumber(), true, 10, notification.source()));
                         backfillLatch.countDown();
+                        if (notification.blockNumber() < localBNEarliestBlock) {
+                            latchHistorical.countDown(); // Count down for historical blocks
+                        } else if (notification.blockNumber() >= localBNLatestBlock) {
+                            latchLive.countDown(); // Count down for live blocks
+                        }
 
                         // Add the block number to the historical block facility's available blocks
                         // since next iteration we will only fill remaining blocks
@@ -739,8 +754,24 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, BlockingExecutor
                 false,
                 "test-backfill-handler");
 
+        // Trigger the backfill on-demand by sending a NewestBlockKnownToNetworkNotification
+        // to the block messaging system
+        NewestBlockKnownToNetworkNotification newestBlockNotification = new NewestBlockKnownToNetworkNotification(120L);
+        this.blockMessaging.sendNewestBlockKnownToNetwork(newestBlockNotification);
+
+        // Wait for the backfill to complete
+        boolean autonomousSuccess =
+                latchHistorical.await(1, TimeUnit.MINUTES); // Wait until latch2.countDown() is called
+        assertTrue(autonomousSuccess, "Should have completed the autonomous backfill successfully");
+        assertEquals(0, latchHistorical.getCount(), "Count down latch should be 0 after backfill");
+
+        // Wait for the on-demand backfill to complete
+        boolean onDemandSuccess = latchLive.await(1, TimeUnit.MINUTES); // Wait until latch3.countDown() is called
+        assertTrue(onDemandSuccess, "Should have completed the on-demand backfill successfully");
+        assertEquals(0, latchLive.getCount(), "Count down latch should be 0 after backfill");
+
         boolean backfillSuccess =
-                backfillLatch.await(2, TimeUnit.MINUTES); // Wait until countDownLatch.countDown() is called
+                backfillLatch.await(1, TimeUnit.MINUTES); // Wait until countDownLatch.countDown() is called
 
         // Continue with your assertions or test logic/BlockItems blockItems = mock(BlockItems.class);
         assertTrue(backfillSuccess);
@@ -824,7 +855,7 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, BlockingExecutor
         private long startBlock = 0L;
         private long endBlock = -1L; // -1 means no end block, backfill until the latest block
         private int perBlockProcessingTimeout = 500; // half second
-        private int noActivityNotificationIntervalSeconds = 1;
+        private boolean greedy = true;
 
         private BackfillConfigBuilder() {
             // private to force use of NewBuilder()
@@ -884,8 +915,8 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, BlockingExecutor
             return this;
         }
 
-        public BackfillConfigBuilder noActivityNotificationIntervalSeconds(int value) {
-            this.noActivityNotificationIntervalSeconds = value;
+        public BackfillConfigBuilder greedy(boolean value) {
+            this.greedy = value;
             return this;
         }
 
@@ -906,9 +937,7 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, BlockingExecutor
                     "backfill.endBlock", String.valueOf(endBlock),
                     "backfill.perBlockProcessingTimeout", String.valueOf(perBlockProcessingTimeout)));
 
-            backfillConfig.put(
-                    "producer.noActivityNotificationIntervalSeconds",
-                    String.valueOf(noActivityNotificationIntervalSeconds));
+            backfillConfig.put("backfill.greedy", String.valueOf(greedy));
 
             return backfillConfig;
         }
