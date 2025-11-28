@@ -2,6 +2,7 @@
 package org.hiero.block.node.backfill;
 
 import static java.lang.System.Logger.Level.DEBUG;
+import static java.lang.System.Logger.Level.ERROR;
 import static java.lang.System.Logger.Level.INFO;
 import static java.lang.System.Logger.Level.TRACE;
 
@@ -15,7 +16,6 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
@@ -217,17 +217,17 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
         if (!hasBNSourcesPath) {
             return;
         }
+
         LOGGER.log(
                 TRACE,
                 "Scheduling backfill process to start in {0} milliseconds",
                 backfillConfiguration.initialDelay());
-        scheduler = Executors.newScheduledThreadPool(
-                2,
-                Thread.ofVirtual().factory()); // Two threads: one for autonomous backfill, one for on-demand backfill
-        //        scheduler = context.threadPoolManager().createVirtualThreadScheduledExecutor(
-        //            2,  // Two threads: one for autonomous backfill, one for on-demand backfill
-        //            "BackfillPluginRunner",
-        //            (t, e) -> LOGGER.log(ERROR, "Uncaught exception in thread: " + t.getName(), e));
+
+        scheduler = context.threadPoolManager()
+                .createVirtualThreadScheduledExecutor(
+                        2, // Two threads: one for autonomous backfill, one for on-demand backfill
+                        "BackfillPluginRunner",
+                        (t, e) -> LOGGER.log(ERROR, "Uncaught exception in thread: " + t.getName(), e));
 
         scheduler.scheduleAtFixedRate(
                 this::detectGaps,
@@ -588,7 +588,7 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
                 onDemandError = false;
 
                 // use the scheduler to run the backfill in its own thread (only call backfillGap once)
-                scheduler.execute(() -> {
+                scheduler.submit(() -> {
                     try {
                         LOGGER.log(TRACE, "Starting on-demand backfill for gap: {0}", gap);
                         backfillGap(gap, BackfillType.ON_DEMAND);

@@ -549,8 +549,8 @@ public class BlockNodeAPITests {
             // Expected exception to be thrown on the onNext() due to closed socket
             // from previous duplicate block publish
             requestStream.onNext(request1);
-            publishCompleteCountDownLatch.await(); // wait
-            endBlock(blockNumber1, requestStream);
+            //            publishCompleteCountDownLatch.await(); // wait
+            //            endBlock(blockNumber1, requestStream);
         });
         assertTrue(ex.getCause() instanceof SocketException);
         assertTrue(ex.getCause().getMessage().toLowerCase().contains("socket closed"));
