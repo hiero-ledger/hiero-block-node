@@ -102,7 +102,8 @@ final class DefaultThreadPoolManager implements ThreadPoolManager {
      */
     @NonNull
     @Override
-    public ScheduledExecutorService createSingleThreadScheduledExecutor(
+    public ScheduledExecutorService createVirtualThreadScheduledExecutor(
+            int corePoolSize,
             @Nullable final String threadName,
             @Nullable final Thread.UncaughtExceptionHandler uncaughtExceptionHandler) {
         Thread.Builder factoryBuilder = Thread.ofVirtual();
@@ -111,10 +112,14 @@ final class DefaultThreadPoolManager implements ThreadPoolManager {
         }
         if (threadName != null) {
             factoryBuilder.name(threadName, 0);
-            return Executors.newSingleThreadScheduledExecutor(factoryBuilder.factory());
+            return corePoolSize <= 1
+                    ? Executors.newSingleThreadScheduledExecutor(factoryBuilder.factory())
+                    : Executors.newScheduledThreadPool(corePoolSize, factoryBuilder.factory());
         } else {
             final ThreadFactory factory = factoryBuilder.factory();
-            return Executors.newSingleThreadScheduledExecutor(factory);
+            return corePoolSize <= 1
+                    ? Executors.newSingleThreadScheduledExecutor(factory)
+                    : Executors.newScheduledThreadPool(corePoolSize, factory);
         }
     }
 }
