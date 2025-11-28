@@ -104,11 +104,9 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, BlockingExecutor
         // register the verification handler
         registerDefaultTestVerificationHandler(countDownLatch);
 
-        boolean backfillSuccess =
-                countDownLatch.await(5, TimeUnit.MINUTES); // Wait until countDownLatch.countDown() is called
+        countDownLatch.await(1, TimeUnit.MINUTES); // Wait until countDownLatch.countDown() is called
 
         // Continue with your assertions or test logic/BlockItems blockItems = mock(BlockItems.class);
-        assertTrue(backfillSuccess);
         assertEquals(0, countDownLatch.getCount(), "Count down latch should be 0 after backfill");
 
         // Verify sent verifications
@@ -156,11 +154,9 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, BlockingExecutor
         // register the verification handler
         registerDefaultTestVerificationHandler(countDownLatch);
 
-        boolean backfillSuccess =
-                countDownLatch.await(5, TimeUnit.MINUTES); // Wait until countDownLatch.countDown() is called
+        countDownLatch.await(1, TimeUnit.MINUTES); // Wait until countDownLatch.countDown() is called
 
         // Continue with your assertions or test logic/BlockItems blockItems = mock(BlockItems.class);
-        assertTrue(backfillSuccess);
         assertEquals(0, countDownLatch.getCount(), "Count down latch should be 0 after backfill");
 
         // Verify sent verifications
@@ -223,11 +219,9 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, BlockingExecutor
         // register the verification handler
         registerDefaultTestVerificationHandler(countDownLatch);
 
-        boolean backfillSuccess =
-                countDownLatch.await(5, TimeUnit.MINUTES); // Wait until countDownLatch.countDown() is called
+        countDownLatch.await(1, TimeUnit.MINUTES); // Wait until countDownLatch.countDown() is called
 
         // Continue with your assertions or test logic/BlockItems blockItems = mock(BlockItems.class);
-        assertTrue(backfillSuccess);
         assertEquals(0, countDownLatch.getCount(), "Count down latch should be 0 after backfill");
 
         // Verify sent verifications
@@ -318,11 +312,10 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, BlockingExecutor
         NewestBlockKnownToNetworkNotification newestBlockNotification = new NewestBlockKnownToNetworkNotification(50L);
         this.blockMessaging.sendNewestBlockKnownToNetwork(newestBlockNotification);
         // Wait for the backfill to complete
-        boolean backfillSuccess =
-                countDownLatch.await(1, TimeUnit.MINUTES); // Wait until countDownLatch.countDown() is called
+
+        countDownLatch.await(1, TimeUnit.MINUTES); // Wait until countDownLatch.countDown() is called
 
         // assertions
-        assertTrue(backfillSuccess);
         assertEquals(0, countDownLatch.getCount(), "Count down latch should be 0 after backfill");
 
         // Verify sent verifications
@@ -378,11 +371,9 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, BlockingExecutor
         this.blockMessaging.sendNewestBlockKnownToNetwork(newestBlockNotification);
 
         // LiveStreamPublisherManager
-        boolean backfillSuccess =
-                countDownLatch.await(5, TimeUnit.MINUTES); // Wait until countDownLatch.countDown() is called
+        countDownLatch.await(1, TimeUnit.MINUTES); // Wait until countDownLatch.countDown() is called
 
         // assertions
-        assertTrue(backfillSuccess);
         assertEquals(0, countDownLatch.getCount(), "Count down latch should be 0 after backfill");
 
         // Verify sent verifications
@@ -463,17 +454,17 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, BlockingExecutor
 
         boolean startAutonomous = latch1.await(1, TimeUnit.MINUTES); // Wait until latch1.countDown() is called
         assertTrue(startAutonomous, "Should have started on-demand backfill while autonomous backfill is running");
+
         // Trigger the on-demand backfill by sending a NewestBlockKnownToNetworkNotification
         NewestBlockKnownToNetworkNotification newestBlockNotification = new NewestBlockKnownToNetworkNotification(200L);
         this.blockMessaging.sendNewestBlockKnownToNetwork(newestBlockNotification);
+
         // Wait for the backfill to complete
-        boolean backfillSuccess = latchHistorical.await(1, TimeUnit.MINUTES); // Wait until latch2.countDown() is called
-        assertTrue(backfillSuccess, "Should have completed the backfill successfully");
+        latchHistorical.await(1, TimeUnit.MINUTES); // Wait until latch2.countDown() is called
         assertEquals(0, latchHistorical.getCount(), "Count down latch should be 0 after backfill");
 
         // Wait for the on-demand backfill to complete
-        boolean onDemandSuccess = latchLive.await(1, TimeUnit.MINUTES); // Wait until latch3.countDown() is called
-        assertTrue(onDemandSuccess, "Should have completed the on-demand backfill successfully");
+        latchLive.await(1, TimeUnit.MINUTES); // Wait until latch3.countDown() is called
         assertEquals(0, latchLive.getCount(), "Count down latch should be 0 after backfill");
 
         // Verify sent verifications
@@ -560,12 +551,11 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, BlockingExecutor
         this.blockMessaging.sendNewestBlockKnownToNetwork(newestBlockNotification);
 
         // Wait for the backfill to complete
-        boolean backfillSuccess = latchHistorical.await(2, TimeUnit.MINUTES); // Wait until latch2.countDown() is called
-        assertTrue(backfillSuccess, "Should have completed the backfill successfully");
+        latchHistorical.await(1, TimeUnit.MINUTES); // Wait until latch2.countDown() is called
         assertEquals(0, latchHistorical.getCount(), "Count down latch should be 0 after backfill");
 
         // Wait for the on-demand backfill to complete
-        boolean onDemandSuccess = latchLive.await(2, TimeUnit.MINUTES); // Wait until latch3.countDown() is called
+        boolean onDemandSuccess = latchLive.await(1, TimeUnit.MINUTES); // Wait until latch3.countDown() is called
         assertTrue(onDemandSuccess, "Should have completed the on-demand backfill successfully");
 
         // Verify sent verifications
@@ -652,12 +642,11 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, BlockingExecutor
                 false,
                 "test-backfill-handler");
 
-        boolean backfillSuccess =
-                backfillLatch.await(2, TimeUnit.MINUTES); // Wait until countDownLatch.countDown() is called
+        backfillLatch.await(1, TimeUnit.MINUTES); // Wait until countDownLatch.countDown() is called
 
         // Continue with your assertions or test logic/BlockItems blockItems = mock(BlockItems.class);
-        //        assertTrue(backfillSuccess);
         assertEquals(0, backfillLatch.getCount(), "Count down latch should be 0 after backfill");
+
         // Verify sent verifications
         assertEquals(
                 125,
@@ -770,11 +759,9 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, BlockingExecutor
         assertTrue(onDemandSuccess, "Should have completed the on-demand backfill successfully");
         assertEquals(0, latchLive.getCount(), "Count down latch should be 0 after backfill");
 
-        boolean backfillSuccess =
-                backfillLatch.await(1, TimeUnit.MINUTES); // Wait until countDownLatch.countDown() is called
+        backfillLatch.await(1, TimeUnit.MINUTES); // Wait until countDownLatch.countDown() is called
 
         // Continue with your assertions or test logic/BlockItems blockItems = mock(BlockItems.class);
-        assertTrue(backfillSuccess);
         assertEquals(0, backfillLatch.getCount(), "Count down latch should be 0 after backfill");
         // Verify sent verifications
         assertEquals(
