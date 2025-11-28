@@ -15,14 +15,14 @@
 
 ## Purpose
 
-This plugin purpose is to detect missing gaps (historica and recent) in the intended stored block sequence, then
+This plugins purpose is to detect missing gaps (historical and recent) in the intended stored block sequence, then
 autonomously and asynchronously fetch the missing blocks from another source and store them.
 
 ## Goals
 
 1. Detect gaps on start-up and while running.
-2. Fetch missing blocks from another BN, must be configurable.
-3. Asynchronously recover (fetch and store) the missing blocks, without blocking the live ingestion path (new incoming blocks).
+2. Fetching missing blocks from another BN, must be configurable.
+3. Asynchronously recover (fetch and store) the missing blocks, without blocking the live ingestion of incoming blocks.
 4. Instrumentation, logging, metrics and error handling for the backfill process.
 
 ## Terms
@@ -73,16 +73,17 @@ The plugin will autonomously detect gaps in the block range and fetch missing bl
 
 1. At start-up a loop is defined that runs every `backfill.scanInterval`
 2. At every interval the plugin detects missing gaps in the intended block range against the actual stored blocks using
-   the `HistoricalBlockFacility`. It will use a gRPC client to request the serverStatus from configured target block
-   nodes and determine the available range of recent blocks available.
-3. If gaps are found, it initiates the backfill process.
-4. The plugin uses a gRPC client to connect to other Block Nodes  to fetch the missing blocks.
-5. Once the blocks are fetched, the plugin creates a `BlockNotification` of type `BackfilledBlockNotification` and sends
+   the `HistoricalBlockFacility`.
+3. If greedy backfill logic is enabled it will use a gRPC client to request the serverStatus from configured target
+   block nodes and determine the available range of recent blocks available to consider in addition.
+4. If gaps are found, it initiates the backfill process.
+5. The plugin uses a gRPC client to connect to other Block Nodes  to fetch the missing blocks.
+6. Once the blocks are fetched, the plugin creates a `BlockNotification` of type `BackfilledBlockNotification` and sends
    it to the `MessagingFacility`.
-6. The `VerificationPlugin` will then process the `BackfilledBlockNotification` and if the block is valid, it will
+7. The `VerificationPlugin` will then process the `BackfilledBlockNotification` and if the block is valid, it will
    create a `VerificationNotification` and send it to the `MessagingFacility` for further processing.
-7. The PersistencePlugin will then store the block in the local storage.
-8. The `BackfillPlugin` will receive the `PersistenceNotification` and update its internal state accordingly, marking
+8. The PersistencePlugin will then store the block in the local storage.
+9. The `BackfillPlugin` will receive the `PersistenceNotification` and update its internal state accordingly, marking
    the backfill process as complete for that block.
 
 ## Diagram
@@ -141,8 +142,7 @@ received and periodically to ensure block node does not fall too far behind.
    usually this would be done by the `PublisherPlugin` or any other plugin that knows the latest block or wants to
    ensure the Block Node is up-to-date.
 2. BackfillPlugin will handle the `NewestBlockKnownToNetwork` message and will check if there are any gaps in the block
-   range available in the local storage.  It will also use a gRPC client to request the serverStatus from configured
-   peer block nodes and determine the available range of recent blocks available.
+   range available in the local storage.
 3. If gaps are found, it will initiate the backfill process as described in the Autonomous Backfill section.
 4. The process will be the same as the Autonomous Backfill, but it will be triggered by the `NewestBlockKnownToNetwork`
    message instead of the periodic scan.
@@ -162,8 +162,6 @@ sequenceDiagram
     %% Dispatch to backfill
     MessagingFacility->>BackfillPlugin: NewestBlockKnownToNetwork(latestBlock)
     BackfillPlugin->>HistoricalBlockFacility: detectMissingGaps(…, latestBlock)
-    BackfillPlugin->>+GrpcClient: getServerStatusFromPeerBlockNodes()
-    BackfillPlugin-->>BackfillPlugin: detectMissingRecentGaps(min(firstBlocks), max(lastBlocks))
 
     alt Gaps found
         BackfillPlugin->>GrpcClient: fetchMissingBlocks(gapRange, batchSize)
