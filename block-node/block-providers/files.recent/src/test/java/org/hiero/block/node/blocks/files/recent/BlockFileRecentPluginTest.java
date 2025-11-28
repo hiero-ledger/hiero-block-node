@@ -20,9 +20,11 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.ScheduledExecutorService;
 import org.hiero.block.internal.BlockItemUnparsed;
 import org.hiero.block.internal.BlockUnparsed;
 import org.hiero.block.node.app.fixtures.async.BlockingExecutor;
+import org.hiero.block.node.app.fixtures.async.ScheduledBlockingExecutor;
 import org.hiero.block.node.app.fixtures.blocks.SimpleTestBlockItemBuilder;
 import org.hiero.block.node.app.fixtures.plugintest.PluginTestBase;
 import org.hiero.block.node.app.fixtures.plugintest.SimpleInMemoryHistoricalBlockFacility;
@@ -70,12 +72,14 @@ class BlockFileRecentPluginTest {
      */
     @Nested
     @DisplayName("Startup Tests")
-    final class StartupTest extends PluginTestBase<BlockFileRecentPlugin, BlockingExecutor> {
+    final class StartupTest extends PluginTestBase<BlockFileRecentPlugin, BlockingExecutor, ScheduledExecutorService> {
         /**
          * Test Constructor.
          */
         StartupTest() {
-            super(new BlockingExecutor(new LinkedBlockingQueue<>()));
+            super(
+                    new BlockingExecutor(new LinkedBlockingQueue<>()),
+                    new ScheduledBlockingExecutor(new LinkedBlockingQueue<>()));
         }
 
         /**
@@ -130,12 +134,15 @@ class BlockFileRecentPluginTest {
      */
     @Nested
     @DisplayName("Plugin Tests")
-    final class PluginTest extends PluginTestBase<BlockFileRecentPlugin, BlockingExecutor> {
+    final class PluginTest extends PluginTestBase<BlockFileRecentPlugin, BlockingExecutor, ScheduledExecutorService> {
+
         /**
          * Test Constructor.
          */
         PluginTest() {
-            super(new BlockingExecutor(new LinkedBlockingQueue<>()));
+            super(
+                    new BlockingExecutor(new LinkedBlockingQueue<>()),
+                    new ScheduledBlockingExecutor(new LinkedBlockingQueue<>()));
             start(blockFileRecentPlugin, historicalBlockFacility);
         }
 

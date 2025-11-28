@@ -37,7 +37,8 @@ public class TestUtils {
                 .withConfigDataType(com.swirlds.common.metrics.config.MetricsConfig.class)
                 .withConfigDataType(com.swirlds.common.metrics.platform.prometheus.PrometheusConfig.class)
                 .withConfigDataType(org.hiero.block.node.app.config.ServerConfig.class)
-                .withConfigDataType(org.hiero.block.node.app.config.node.NodeConfig.class);
+                .withConfigDataType(org.hiero.block.node.app.config.node.NodeConfig.class)
+                .withValue("prometheus.endpointEnabled", "false");
         return configurationBuilder;
     }
 }

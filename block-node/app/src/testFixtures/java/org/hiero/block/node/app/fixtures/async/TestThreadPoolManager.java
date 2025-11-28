@@ -6,6 +6,7 @@ import edu.umd.cs.findbugs.annotations.Nullable;
 import java.lang.Thread.UncaughtExceptionHandler;
 import java.util.Objects;
 import java.util.concurrent.ExecutorService;
+import java.util.concurrent.ScheduledExecutorService;
 import org.hiero.block.node.spi.threading.ThreadPoolManager;
 
 /**
@@ -16,11 +17,14 @@ import org.hiero.block.node.spi.threading.ThreadPoolManager;
  *
  * @param <T> the type of executor service
  */
-public class TestThreadPoolManager<T extends ExecutorService> implements ThreadPoolManager {
+public class TestThreadPoolManager<T extends ExecutorService, S extends ScheduledExecutorService>
+        implements ThreadPoolManager {
     private final T executor;
+    private final S scheduledExecutor;
 
-    public TestThreadPoolManager(@NonNull T executor) {
+    public TestThreadPoolManager(@NonNull T executor, S scheduledExecutorService) {
         this.executor = Objects.requireNonNull(executor);
+        this.scheduledExecutor = scheduledExecutorService;
     }
 
     /**
@@ -55,8 +59,22 @@ public class TestThreadPoolManager<T extends ExecutorService> implements ThreadP
     }
 
     @NonNull
+    @Override
+    public ScheduledExecutorService createVirtualThreadScheduledExecutor(
+            int corePoolSize,
+            @Nullable String threadName,
+            @Nullable UncaughtExceptionHandler uncaughtExceptionHandler) {
+        return scheduledExecutor;
+    }
+
+    @NonNull
     public final T executor() {
         return executor;
+    }
+
+    @NonNull
+    public final S scheduledExecutor() {
+        return scheduledExecutor;
     }
 
     public void shutdownNow() {

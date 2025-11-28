@@ -214,7 +214,9 @@ public class PositiveMultiplePublishersTests extends BaseSuite {
                 "BACKFILL_DELAY_BETWEEN_BATCHES",
                 "500",
                 "BLOCK_NODE_EARLIEST_MANAGED_BLOCK",
-                "50");
+                "50",
+                "PROMETHEUS_ENDPOINT_ENABLED",
+                "true");
 
         launchBlockNodes(List.of(
                 new BlockNodeContainerConfig(8082, 9989, "/resources/block-nodes.json", bnSubjectConfigOverride)));

@@ -23,9 +23,11 @@ import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Objects;
 import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.ScheduledExecutorService;
 import org.hiero.block.internal.BlockItemUnparsed;
 import org.hiero.block.internal.BlockUnparsed;
 import org.hiero.block.node.app.fixtures.async.BlockingExecutor;
+import org.hiero.block.node.app.fixtures.async.ScheduledBlockingExecutor;
 import org.hiero.block.node.app.fixtures.async.TestThreadPoolManager;
 import org.hiero.block.node.app.fixtures.blocks.SimpleTestBlockItemBuilder;
 import org.hiero.block.node.app.fixtures.plugintest.NoOpServiceBuilder;
@@ -98,12 +100,15 @@ class BlockFileHistoricPluginTest {
      */
     @Nested
     @DisplayName("Startup Tests")
-    final class StartupTest extends PluginTestBase<BlockFileHistoricPlugin, BlockingExecutor> {
+    final class StartupTest
+            extends PluginTestBase<BlockFileHistoricPlugin, BlockingExecutor, ScheduledExecutorService> {
         /**
          * Test Constructor.
          */
         StartupTest() {
-            super(new BlockingExecutor(new LinkedBlockingQueue<>()));
+            super(
+                    new BlockingExecutor(new LinkedBlockingQueue<>()),
+                    new ScheduledBlockingExecutor(new LinkedBlockingQueue<>()));
         }
 
         /**
@@ -173,7 +178,9 @@ class BlockFileHistoricPluginTest {
                     new TestBlockMessagingFacility(),
                     historicalBlockProvider,
                     null,
-                    new TestThreadPoolManager<>(new BlockingExecutor(new LinkedBlockingQueue<>())));
+                    new TestThreadPoolManager<>(
+                            new BlockingExecutor(new LinkedBlockingQueue<>()),
+                            new ScheduledBlockingExecutor(new LinkedBlockingQueue<>())));
             // call
             final BlockFileHistoricPlugin toTest = new BlockFileHistoricPlugin();
             assertThatNoException().isThrownBy(() -> toTest.init(testContext, null));
@@ -185,7 +192,8 @@ class BlockFileHistoricPluginTest {
      */
     @Nested
     @DisplayName("Plugin Tests")
-    final class PluginTests extends PluginTestBase<BlockFileHistoricPlugin, BlockingExecutor> {
+    final class PluginTests
+            extends PluginTestBase<BlockFileHistoricPlugin, BlockingExecutor, ScheduledBlockingExecutor> {
         /** The test block serial executor service to use for the plugin. */
         private final BlockingExecutor pluginExecutor;
 
@@ -193,7 +201,9 @@ class BlockFileHistoricPluginTest {
          * Construct plugin base.
          */
         PluginTests() {
-            super(new BlockingExecutor(new LinkedBlockingQueue<>()));
+            super(
+                    new BlockingExecutor(new LinkedBlockingQueue<>()),
+                    new ScheduledBlockingExecutor(new LinkedBlockingQueue<>()));
             // match overrides to the test config
             final Map<String, String> configOverrides = getConfigOverrides();
             pluginExecutor = testThreadPoolManager.executor();
@@ -964,13 +974,16 @@ class BlockFileHistoricPluginTest {
      */
     @Nested
     @DisplayName("Regression Tests")
-    final class RegressionTests extends PluginTestBase<BlockFileHistoricPlugin, BlockingExecutor> {
+    final class RegressionTests
+            extends PluginTestBase<BlockFileHistoricPlugin, BlockingExecutor, ScheduledExecutorService> {
         /** The test historical block facility scoped to this regression scenario. */
         private final SimpleInMemoryHistoricalBlockFacility regressionHistoricalBlockFacility =
                 new SimpleInMemoryHistoricalBlockFacility();
 
         RegressionTests() {
-            super(new BlockingExecutor(new LinkedBlockingQueue<>()));
+            super(
+                    new BlockingExecutor(new LinkedBlockingQueue<>()),
+                    new ScheduledBlockingExecutor(new LinkedBlockingQueue<>()));
         }
 
         private Map<String, String> buildConfigOverrides(final FilesHistoricConfig config) {
