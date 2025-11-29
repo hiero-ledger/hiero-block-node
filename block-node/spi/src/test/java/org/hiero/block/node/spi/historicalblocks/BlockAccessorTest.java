@@ -46,14 +46,14 @@ public class BlockAccessorTest {
                     BlockProof.newBuilder()
                             .block(0)
                             .siblingHashes(MerkleSiblingHash.newBuilder()
-                                .siblingHash(Bytes.wrap("sibling_hash".getBytes()))
-                                .build())
+                                    .siblingHash(Bytes.wrap("sibling_hash".getBytes()))
+                                    .build())
                             .signedBlockProof(TssSignedBlockProof.newBuilder()
                                     .blockSignature(Bytes.wrap("signature"))
                                     .build())
                             .verificationKey(Bytes.wrap("verification_key".getBytes()))
                             .verificationKeyProof(ChainOfTrustProof.newBuilder()
-                                .wrapsProof(Bytes.wrap("verificationKeyProof".getBytes())))
+                                    .wrapsProof(Bytes.wrap("verificationKeyProof".getBytes())))
                             .build()))));
     private static final Bytes SAMPLE_BLOCK_PROTOBUF_BYTES = Block.PROTOBUF.toBytes(SAMPLE_BLOCK);
     private static final Bytes SAMPLE_BLOCK_ZSTD_PROTOBUF_BYTES =

@@ -79,13 +79,13 @@ public final class SimpleTestBlockItemBuilder {
         return BlockProof.newBuilder()
                 .block(blockNumber)
                 .siblingHashes(List.of(MerkleSiblingHash.newBuilder()
-                    .siblingHash(Bytes.wrap("sibling_hash".getBytes()))
-                    .build()))
+                        .siblingHash(Bytes.wrap("sibling_hash".getBytes()))
+                        .build()))
                 .signedBlockProof(tssBuildder)
                 .verificationKey(Bytes.wrap("verification_key".getBytes()))
                 .verificationKeyProof(ChainOfTrustProof.newBuilder()
-                    .wrapsProof(Bytes.wrap("verificationKeyProof".getBytes()))
-                    .build())
+                        .wrapsProof(Bytes.wrap("verificationKeyProof".getBytes()))
+                        .build())
                 .build();
     }
 

@@ -376,7 +376,8 @@ public class BlockNodeAPITests {
                 });
 
         // check that the next call at element 3 contains expected types
-        validateSubscriberObservedExpectedBlockItemTypes(subscribeResponseObserver.getOnNextCalls().get(3));
+        validateSubscriberObservedExpectedBlockItemTypes(
+                subscribeResponseObserver.getOnNextCalls().get(3));
 
         // close the client connections
         blockStreamPublishServiceClient.close();
@@ -561,12 +562,12 @@ public class BlockNodeAPITests {
     void e2eBlockStreamsBaseScenariosPre068() throws InterruptedException {
         // ==== Scenario 1: Publish new genesis block and confirm acknowledgement response ====
         BlockStreamPublishServiceInterface.BlockStreamPublishServiceClient blockStreamPublishServiceClient =
-            new BlockStreamPublishServiceInterface.BlockStreamPublishServiceClient(
-                publishBlockStreamPbjGrpcClient, OPTIONS);
+                new BlockStreamPublishServiceInterface.BlockStreamPublishServiceClient(
+                        publishBlockStreamPbjGrpcClient, OPTIONS);
 
         ResponsePipelineUtils<PublishStreamResponse> responseObserver = new ResponsePipelineUtils<>();
         final Pipeline<? super PublishStreamRequest> requestStream =
-            blockStreamPublishServiceClient.publishBlockStream(responseObserver);
+                blockStreamPublishServiceClient.publishBlockStream(responseObserver);
 
         final long blockNumber = 0;
         BlockItem[] blockItems = BlockItemBuilderUtils.createSimpleBlockWithNumber(blockNumber);
@@ -575,18 +576,18 @@ public class BlockNodeAPITests {
 
         // change to List to allow multiple items
         PublishStreamRequest request = PublishStreamRequest.newBuilder()
-            .blockItems(BlockItemSet.newBuilder().blockItems(blockItems).build())
-            .build();
+                .blockItems(BlockItemSet.newBuilder().blockItems(blockItems).build())
+                .build();
         CountDownLatch publishCountDownLatch = responseObserver.setAndGetOnNextLatch(1);
         requestStream.onNext(request);
         endBlock(blockNumber, requestStream);
 
         publishCountDownLatch.await(); // wait for acknowledgement response
         assertThat(responseObserver.getOnNextCalls())
-            .hasSize(1)
-            .first()
-            .returns(PublishStreamResponse.ResponseOneOfType.ACKNOWLEDGEMENT, responseKindExtractor)
-            .returns(0L, acknowledgementBlockNumberExtractor);
+                .hasSize(1)
+                .first()
+                .returns(PublishStreamResponse.ResponseOneOfType.ACKNOWLEDGEMENT, responseKindExtractor)
+                .returns(0L, acknowledgementBlockNumberExtractor);
 
         // Assert no other responses sent
         assertThat(responseObserver.getOnErrorCalls()).isEmpty();
@@ -603,11 +604,11 @@ public class BlockNodeAPITests {
 
         // Assert that one more response is sent.
         assertThat(responseObserver.getOnNextCalls())
-            .hasSize(2)
-            .element(1)
-            .returns(PublishStreamResponse.ResponseOneOfType.END_STREAM, responseKindExtractor)
-            .returns(PublishStreamResponse.EndOfStream.Code.DUPLICATE_BLOCK, endStreamResponseCodeExtractor)
-            .returns(0L, endStreamBlockNumberExtractor);
+                .hasSize(2)
+                .element(1)
+                .returns(PublishStreamResponse.ResponseOneOfType.END_STREAM, responseKindExtractor)
+                .returns(PublishStreamResponse.EndOfStream.Code.DUPLICATE_BLOCK, endStreamResponseCodeExtractor)
+                .returns(0L, endStreamBlockNumberExtractor);
 
         // Assert no other responses sent
         assertThat(responseObserver.getOnErrorCalls()).isEmpty();
@@ -617,18 +618,18 @@ public class BlockNodeAPITests {
 
         // ==== Scenario 3: Get server status and confirm block 0 is reflected in status ====
         BlockNodeServiceInterface.BlockNodeServiceClient blockNodeServiceClient =
-            new BlockNodeServiceInterface.BlockNodeServiceClient(serverStatusPbjGrpcClient, OPTIONS);
+                new BlockNodeServiceInterface.BlockNodeServiceClient(serverStatusPbjGrpcClient, OPTIONS);
         final ServerStatusResponse nodeStatusPostBlock0 =
-            blockNodeServiceClient.serverStatus(SIMPLE_SERVER_STAUS_REQUEST);
+                blockNodeServiceClient.serverStatus(SIMPLE_SERVER_STAUS_REQUEST);
         assertNotNull(nodeStatusPostBlock0);
         assertThat(nodeStatusPostBlock0.firstAvailableBlock()).isEqualTo(0);
         assertThat(nodeStatusPostBlock0.lastAvailableBlock()).isEqualTo(0);
 
         // ==== Scenario 4: Get block 0 via getBlock and confirm block items ====
         BlockAccessServiceInterface.BlockAccessServiceClient blockAccessServiceClient =
-            new BlockAccessServiceInterface.BlockAccessServiceClient(getBlockPbjGrpcClient, OPTIONS);
+                new BlockAccessServiceInterface.BlockAccessServiceClient(getBlockPbjGrpcClient, OPTIONS);
         final BlockResponse block0Response = blockAccessServiceClient.getBlock(
-            BlockRequest.newBuilder().blockNumber(blockNumber).build());
+                BlockRequest.newBuilder().blockNumber(blockNumber).build());
         assertNotNull(block0Response);
         assertTrue(block0Response.hasBlock());
         assertThat(block0Response.status()).isEqualTo(BlockResponse.Code.SUCCESS);
@@ -637,13 +638,13 @@ public class BlockNodeAPITests {
 
         // ==== Scenario 5: Subscribe to block stream from block 0 and confirm receipt of block 0 ===
         BlockStreamSubscribeServiceInterface.BlockStreamSubscribeServiceClient blockStreamSubscribeServiceClient =
-            new BlockStreamSubscribeServiceInterface.BlockStreamSubscribeServiceClient(
-                subscribeBlockStreamPbjGrpcClient, OPTIONS);
+                new BlockStreamSubscribeServiceInterface.BlockStreamSubscribeServiceClient(
+                        subscribeBlockStreamPbjGrpcClient, OPTIONS);
         ResponsePipelineUtils<SubscribeStreamResponse> subscribeResponseObserver = new ResponsePipelineUtils<>();
 
         final SubscribeStreamRequest subscribeRequest1 = SubscribeStreamRequest.newBuilder()
-            .startBlockNumber(blockNumber)
-            .build();
+                .startBlockNumber(blockNumber)
+                .build();
 
         final CountDownLatch blockItemsSubscribe1Latch = subscribeResponseObserver.setAndGetOnNextLatch(2);
         blockStreamSubscribeServiceClient.subscribeBlockStream(subscribeRequest1, subscribeResponseObserver);
@@ -654,25 +655,25 @@ public class BlockNodeAPITests {
         assertThat(subscribeResponseObserver.getOnCompleteCalls().get()).isEqualTo(1);
 
         final SubscribeStreamResponse subscribeResponse0 =
-            subscribeResponseObserver.getOnNextCalls().get(0);
+                subscribeResponseObserver.getOnNextCalls().get(0);
         assertThat(subscribeResponse0.blockItems().blockItems()).hasSize(blockItems.length);
 
         // ==== Scenario 6: Subscribe to live block stream and confirm receipt of newly published block ===
         final SubscribeStreamRequest subscribeRequest2 = SubscribeStreamRequest.newBuilder()
-            .startBlockNumber(1L)
-            .endBlockNumber(-1L) // subscribe to all future blocks
-            .build();
+                .startBlockNumber(1L)
+                .endBlockNumber(-1L) // subscribe to all future blocks
+                .build();
         final CountDownLatch blockItemsSubscribe2Latch = subscribeResponseObserver.setAndGetOnNextLatch(1);
         // run blockStreamSubscribeServiceClient.subscribeBlockStrea in its own thread to avoid blocking
         new Thread(() -> {
-            try {
-                blockStreamSubscribeServiceClient.subscribeBlockStream(
-                    subscribeRequest2, subscribeResponseObserver);
-            } catch (Exception e) {
-                fail("Exception in subscribeBlockStream: " + e.getMessage());
-            }
-        })
-            .start();
+                    try {
+                        blockStreamSubscribeServiceClient.subscribeBlockStream(
+                                subscribeRequest2, subscribeResponseObserver);
+                    } catch (Exception e) {
+                        fail("Exception in subscribeBlockStream: " + e.getMessage());
+                    }
+                })
+                .start();
 
         // publish block 1 and confirm subscriber receives it
         final long blockNumber1 = 1;
@@ -681,15 +682,15 @@ public class BlockNodeAPITests {
         blockItems1[0] = BlockItemBuilderUtils.sampleBlockHeader(blockNumber1, 0, 67);
 
         PublishStreamRequest request2 = PublishStreamRequest.newBuilder()
-            .blockItems(BlockItemSet.newBuilder().blockItems(blockItems1).build())
-            .build();
+                .blockItems(BlockItemSet.newBuilder().blockItems(blockItems1).build())
+                .build();
 
         // use a new client to publish block 1 as the existing client was closed on duplicate block publish.
         ResponsePipelineUtils<PublishStreamResponse> responseObserver2 = new ResponsePipelineUtils<>();
         BlockStreamPublishServiceInterface.BlockStreamPublishServiceClient blockStreamPublishServiceClient2 =
-            new BlockStreamPublishServiceInterface.BlockStreamPublishServiceClient(createGrpcClient(), OPTIONS);
+                new BlockStreamPublishServiceInterface.BlockStreamPublishServiceClient(createGrpcClient(), OPTIONS);
         final Pipeline<? super PublishStreamRequest> requestStream2 =
-            blockStreamPublishServiceClient2.publishBlockStream(responseObserver2);
+                blockStreamPublishServiceClient2.publishBlockStream(responseObserver2);
         final CountDownLatch blockItemsPublish2Latch = responseObserver2.setAndGetOnNextLatch(1);
         requestStream2.onNext(request2);
         endBlock(blockNumber1, requestStream2);
@@ -698,10 +699,10 @@ public class BlockNodeAPITests {
         blockItemsPublish2Latch.await(); // wait for publisher to observe block item sets
 
         assertThat(responseObserver2.getOnNextCalls())
-            .hasSize(1)
-            .first()
-            .returns(PublishStreamResponse.ResponseOneOfType.ACKNOWLEDGEMENT, responseKindExtractor)
-            .returns(1L, acknowledgementBlockNumberExtractor);
+                .hasSize(1)
+                .first()
+                .returns(PublishStreamResponse.ResponseOneOfType.ACKNOWLEDGEMENT, responseKindExtractor)
+                .returns(1L, acknowledgementBlockNumberExtractor);
 
         // Assert no other responses sent
         assertThat(responseObserver2.getOnErrorCalls()).isEmpty();
@@ -710,21 +711,21 @@ public class BlockNodeAPITests {
         assertThat(responseObserver2.getClientEndStreamCalls().get()).isEqualTo(0);
 
         final SubscribeStreamResponse subscribeResponse1 =
-            subscribeResponseObserver.getOnNextCalls().get(3);
+                subscribeResponseObserver.getOnNextCalls().get(3);
         assertThat(subscribeResponse1.blockItems().blockItems()).hasSize(blockItems1.length);
 
         assertThat(subscribeResponseObserver.getOnNextCalls())
-            .hasSize(5) // block 0 items, end block 0, success status, block 1 items, and end block 1
-            .element(3)
-            .satisfies(response -> {
-                assertThat(response.blockItems().blockItems()).hasSize(blockItems1.length);
-                assertThat(response.blockItems()
-                    .blockItems()
-                    .getFirst()
-                    .blockHeader()
-                    .number())
-                    .isEqualTo(blockNumber1);
-            });
+                .hasSize(5) // block 0 items, end block 0, success status, block 1 items, and end block 1
+                .element(3)
+                .satisfies(response -> {
+                    assertThat(response.blockItems().blockItems()).hasSize(blockItems1.length);
+                    assertThat(response.blockItems()
+                                    .blockItems()
+                                    .getFirst()
+                                    .blockHeader()
+                                    .number())
+                            .isEqualTo(blockNumber1);
+                });
 
         // close the client connections
         blockStreamPublishServiceClient.close();
@@ -735,8 +736,8 @@ public class BlockNodeAPITests {
 
     private void endBlock(final long blockNumber, final Pipeline<? super PublishStreamRequest> requestStream) {
         PublishStreamRequest request = PublishStreamRequest.newBuilder()
-            .endOfBlock(BlockEnd.newBuilder().blockNumber(blockNumber).build())
-            .build();
+                .endOfBlock(BlockEnd.newBuilder().blockNumber(blockNumber).build())
+                .build();
         requestStream.onNext(request);
     }
 
@@ -754,16 +755,24 @@ public class BlockNodeAPITests {
                 case BLOCK_HEADER -> subscriberObservedHeader.set(true);
                 case BLOCK_FOOTER -> subscriberObservedFooter.set(true);
                 case BLOCK_PROOF -> subscriberObservedOneProof.set(true);
-                case RECORD_FILE ->  subscriberObservedRecordFile.set(true);
-                default -> {
-                }
+                case RECORD_FILE -> subscriberObservedRecordFile.set(true);
+                default -> {}
             }
         });
 
         // If subscriber observed a record file, they should not observe header, footer, or proof
         boolean shouldObserveHeaderFooterAndProof = !subscriberObservedRecordFile.get();
-        assertEquals(shouldObserveHeaderFooterAndProof, subscriberObservedHeader.get(), "Subscriber did not observe block header");
-        assertEquals(shouldObserveHeaderFooterAndProof, subscriberObservedFooter.get(), "Subscriber did not observe block footer");
-        assertEquals(shouldObserveHeaderFooterAndProof, subscriberObservedOneProof.get(), "Subscriber did not observe block proof");
+        assertEquals(
+                shouldObserveHeaderFooterAndProof,
+                subscriberObservedHeader.get(),
+                "Subscriber did not observe block header");
+        assertEquals(
+                shouldObserveHeaderFooterAndProof,
+                subscriberObservedFooter.get(),
+                "Subscriber did not observe block footer");
+        assertEquals(
+                shouldObserveHeaderFooterAndProof,
+                subscriberObservedOneProof.get(),
+                "Subscriber did not observe block proof");
     }
 }

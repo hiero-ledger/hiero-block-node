@@ -219,20 +219,20 @@ class VerificationServicePluginTest extends PluginTestBase<VerificationServicePl
 
         // check we received a block verification
         VerificationNotification blockNotification =
-            blockMessaging.getSentVerificationNotifications().getFirst();
+                blockMessaging.getSentVerificationNotifications().getFirst();
         assertNotNull(blockNotification);
         assertEquals(
-            blockNumber,
-            blockNotification.blockNumber(),
-            "The block number should be the same as the one in the block header");
+                blockNumber,
+                blockNotification.blockNumber(),
+                "The block number should be the same as the one in the block header");
         assertTrue(blockNotification.success(), "The verification should be successful");
         assertEquals(
-            sampleBlockInfo.blockRootHash(),
-            blockNotification.blockHash(),
-            "The block hash should be the same as the one in the block header");
+                sampleBlockInfo.blockRootHash(),
+                blockNotification.blockHash(),
+                "The block hash should be the same as the one in the block header");
         assertEquals(
-            sampleBlockInfo.blockUnparsed(),
-            blockNotification.block(),
-            "The block should be the same as the one sent");
+                sampleBlockInfo.blockUnparsed(),
+                blockNotification.block(),
+                "The block should be the same as the one sent");
     }
 }

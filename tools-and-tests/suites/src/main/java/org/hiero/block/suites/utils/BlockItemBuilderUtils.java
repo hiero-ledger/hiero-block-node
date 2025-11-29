@@ -3,7 +3,6 @@ package org.hiero.block.suites.utils;
 
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import com.hedera.hapi.block.stream.Block;
 import com.hedera.hapi.block.stream.BlockItem;
 import com.hedera.hapi.block.stream.BlockItem.ItemOneOfType;
 import com.hedera.hapi.block.stream.BlockProof;
@@ -18,11 +17,7 @@ import com.hedera.hapi.node.base.Timestamp;
 import com.hedera.hapi.platform.event.EventCore;
 import com.hedera.pbj.runtime.OneOf;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
-import java.time.Duration;
-import java.time.Instant;
 import java.util.*;
-import org.hiero.block.internal.BlockItemUnparsed;
-import org.hiero.block.node.spi.blockmessaging.BlockItems;
 
 /**
  * A utility class to create sample BlockItem objects for testing purposes.
@@ -47,11 +42,11 @@ public final class BlockItemBuilderUtils {
 
     public static BlockHeader createBlockHeader(final long blockNumber, int hapiMajor, int hapiMinor) {
         return new BlockHeader(
-            new SemanticVersion(hapiMajor, hapiMinor, 3, "a", "b"),
-            new SemanticVersion(4, 5, 6, "c", "d"),
-            blockNumber,
-            new Timestamp(123L, 456),
-            BlockHashAlgorithm.SHA2_384);
+                new SemanticVersion(hapiMajor, hapiMinor, 3, "a", "b"),
+                new SemanticVersion(4, 5, 6, "c", "d"),
+                blockNumber,
+                new Timestamp(123L, 456),
+                BlockHashAlgorithm.SHA2_384);
     }
 
     public static RoundHeader createRoundHeader(final long roundNumber) {
@@ -71,10 +66,10 @@ public final class BlockItemBuilderUtils {
 
     public static BlockFooter createBlockFooter(final long blockNumber) {
         return BlockFooter.newBuilder()
-            .previousBlockRootHash(Bytes.wrap("previous_block_root_hash".getBytes()))
-            .rootHashOfAllBlockHashesTree(Bytes.wrap("root_hash_of_all_blocks".getBytes()))
-            .startOfBlockStateRootHash(Bytes.wrap("start_block_state_root_hash".getBytes()))
-            .build();
+                .previousBlockRootHash(Bytes.wrap("previous_block_root_hash".getBytes()))
+                .rootHashOfAllBlockHashesTree(Bytes.wrap("root_hash_of_all_blocks".getBytes()))
+                .startOfBlockStateRootHash(Bytes.wrap("start_block_state_root_hash".getBytes()))
+                .build();
     }
 
     public static BlockItem sampleBlockFooter(final long blockNumber) {
@@ -86,7 +81,8 @@ public final class BlockItemBuilderUtils {
     }
 
     public static BlockItem sampleBlockHeader(final long blockNumber, int hapiMajor, int hapiMinor) {
-        return new BlockItem(new OneOf<>(ItemOneOfType.BLOCK_HEADER, createBlockHeader(blockNumber, hapiMajor, hapiMinor)));
+        return new BlockItem(
+                new OneOf<>(ItemOneOfType.BLOCK_HEADER, createBlockHeader(blockNumber, hapiMajor, hapiMinor)));
     }
 
     public static BlockItem sampleRoundHeader(final long roundNumber) {

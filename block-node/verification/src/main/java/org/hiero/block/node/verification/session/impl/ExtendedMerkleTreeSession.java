@@ -104,8 +104,11 @@ public class ExtendedMerkleTreeSession implements VerificationSession {
                     switch (blockProof.proof().kind()) {
                         case BLOCK_STATE_PROOF -> this.blockStateProof = blockProof.blockStateProof();
                         case SIGNED_BLOCK_PROOF -> this.tssSignedBlockProof = blockProof.signedBlockProof();
-                        case SIGNED_RECORD_FILE_PROOF -> this.signedRecordFileProof = blockProof.signedRecordFileProof();
-                        default -> {continue;}
+                        case SIGNED_RECORD_FILE_PROOF ->
+                            this.signedRecordFileProof = blockProof.signedRecordFileProof();
+                        default -> {
+                            continue;
+                        }
                     }
 
                     blockProofsReceived++;
@@ -160,8 +163,9 @@ public class ExtendedMerkleTreeSession implements VerificationSession {
         // set the previous block hash for the next block
         previousBlockHash = blockRootHash;
 
+        // confirm block proofs (tssSignedBlockProof, blockStateProof or signedRecordFileProof), one must be valid.
+        // As of CN v0.68 only TSS proof is supported.
         int validProofCount = 0;
-        // confirm block proofs, at least one proof must be valid. As of CN v0.68 only TSS proof is supported.
         if (tssSignedBlockProof != null && verifyTssSignature(blockRootHash, tssSignedBlockProof.blockSignature())) {
             validProofCount++;
         }
