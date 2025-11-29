@@ -7,6 +7,9 @@ import static org.hiero.block.common.hasher.HashingUtilities.getBlockItemHash;
 import static org.hiero.block.common.hasher.HashingUtilities.noThrowSha384HashOf;
 
 import com.hedera.hapi.block.stream.BlockProof;
+import com.hedera.hapi.block.stream.SignedRecordFileProof;
+import com.hedera.hapi.block.stream.StateProof;
+import com.hedera.hapi.block.stream.TssSignedBlockProof;
 import com.hedera.hapi.block.stream.output.BlockFooter;
 import com.hedera.hapi.block.stream.output.BlockHeader;
 import com.hedera.pbj.runtime.ParseException;
@@ -55,8 +58,12 @@ public class ExtendedMerkleTreeSession implements VerificationSession {
     private BlockHeader blockHeader = null;
 
     private BlockFooter blockFooter = null;
+    private TssSignedBlockProof tssSignedBlockProof;
+    private StateProof blockStateProof;
+    private SignedRecordFileProof signedRecordFileProof;
 
     private List<BlockProof> blockProofs = new ArrayList<>();
+    private int blockProofsReceived = 0;
 
     public ExtendedMerkleTreeSession(final long blockNumber, final BlockSource blockSource) {
         this.blockNumber = blockNumber;
@@ -94,16 +101,28 @@ public class ExtendedMerkleTreeSession implements VerificationSession {
                 // append block proofs
                 case BLOCK_PROOF -> {
                     BlockProof blockProof = BlockProof.PROTOBUF.parse(item.blockProof());
-                    blockProofs.add(blockProof);
+                    switch (blockProof.proof().kind()) {
+                        case BLOCK_STATE_PROOF -> this.blockStateProof = blockProof.blockStateProof();
+                        case SIGNED_BLOCK_PROOF -> this.tssSignedBlockProof = blockProof.signedBlockProof();
+                        case SIGNED_RECORD_FILE_PROOF -> this.signedRecordFileProof = blockProof.signedRecordFileProof();
+                        default -> {continue;}
+                    }
+
+                    blockProofsReceived++;
                 }
+                case REDACTED_ITEM -> LOGGER.log(WARNING, "Redacted item observed in block {0}", blockNumber);
+                case FILTERED_ITEM_HASH -> LOGGER.log(WARNING, "Filtered item hash observed in block {0}", blockNumber);
+                case RECORD_FILE -> LOGGER.log(WARNING, "Record file observed in block {0}", blockNumber);
+                case UNSET -> LOGGER.log(WARNING, "Unset block item observed in block {1}", kind, blockNumber);
+                default -> LOGGER.log(WARNING, "Unknown block item type {0} in block {1}", kind, blockNumber);
             }
         }
 
         // since we are only expecting 1 block proof per block, we can finalize verification here
         // however in the future, we might want to revisit this if we expect multiple proofs
         // and use the EndOfBlock signal to finalize verification.
-        if (blockFooter != null && blockProofs.size() > 0) {
-            return finalizeVerification(blockProofs.get(0));
+        if (blockFooter != null && blockProofsReceived > 0) {
+            return finalizeVerification();
         }
 
         // was not able to finalize verification yet
@@ -114,10 +133,9 @@ public class ExtendedMerkleTreeSession implements VerificationSession {
      * Finalizes the block verification by computing the final block hash,
      * verifying its signature, and updating metrics accordingly.
      *
-     * @param blockProof the block proof
      * @return VerificationNotification indicating the result of the verification
      */
-    protected VerificationNotification finalizeVerification(BlockProof blockProof) {
+    protected VerificationNotification finalizeVerification() {
 
         // pre-checks
         if (previousBlockHash != Bytes.EMPTY
@@ -139,12 +157,16 @@ public class ExtendedMerkleTreeSession implements VerificationSession {
                 traceDataHasher,
                 previousBlockHash);
 
-        final boolean verified =
-                verifySignature(blockRootHash, blockProof.signedBlockProof().blockSignature());
-
         // set the previous block hash for the next block
         previousBlockHash = blockRootHash;
 
+        int validProofCount = 0;
+        // confirm block proofs, at least one proof must be valid. As of CN v0.68 only TSS proof is supported.
+        if (tssSignedBlockProof != null && verifyTssSignature(blockRootHash, tssSignedBlockProof.blockSignature())) {
+            validProofCount++;
+        }
+
+        boolean verified = validProofCount > 0;
         return new VerificationNotification(
                 verified, blockNumber, blockRootHash, verified ? new BlockUnparsed(blockItems) : null, blockSource);
     }
@@ -156,7 +178,7 @@ public class ExtendedMerkleTreeSession implements VerificationSession {
      * @param signature the signature to verify
      * @return true if the signature is valid, false otherwise
      */
-    protected Boolean verifySignature(@NonNull Bytes hash, @NonNull Bytes signature) {
+    protected Boolean verifyTssSignature(@NonNull Bytes hash, @NonNull Bytes signature) {
         // TODO we are close to having real TSS signature verification, we maybe should have a config if we are work on
         // TODO preview or production block stream and hence which verification to use
 

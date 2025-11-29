@@ -20,6 +20,7 @@ import org.hiero.block.internal.BlockItemUnparsed;
 import org.hiero.block.internal.BlockItemUnparsed.ItemOneOfType;
 import org.hiero.block.node.app.fixtures.async.BlockingExecutor;
 import org.hiero.block.node.app.fixtures.blocks.BlockUtils;
+import org.hiero.block.node.app.fixtures.blocks.BlockUtils.SAMPLE_BLOCKS;
 import org.hiero.block.node.app.fixtures.plugintest.NoBlocksHistoricalBlockFacility;
 import org.hiero.block.node.app.fixtures.plugintest.PluginTestBase;
 import org.hiero.block.node.app.fixtures.plugintest.TestHealthFacility;
@@ -204,5 +205,34 @@ class VerificationServicePluginTest extends PluginTestBase<VerificationServicePl
                 blockMessaging.getSentVerificationNotifications().getFirst();
         assertNotNull(blockNotification);
         assertFalse(blockNotification.success(), "The verification should be unsuccessful");
+    }
+
+    @Test
+    void testVerificationPluginPre068() throws IOException, ParseException {
+
+        BlockUtils.SampleBlockInfo sampleBlockInfo = BlockUtils.getSampleBlockInfo(SAMPLE_BLOCKS.HAPI_0_66_0_BLOCK_10);
+
+        List<BlockItemUnparsed> blockItems = sampleBlockInfo.blockUnparsed().blockItems();
+        long blockNumber = sampleBlockInfo.blockNumber();
+
+        blockMessaging.sendBlockItems(new BlockItems(blockItems, blockNumber));
+
+        // check we received a block verification
+        VerificationNotification blockNotification =
+            blockMessaging.getSentVerificationNotifications().getFirst();
+        assertNotNull(blockNotification);
+        assertEquals(
+            blockNumber,
+            blockNotification.blockNumber(),
+            "The block number should be the same as the one in the block header");
+        assertTrue(blockNotification.success(), "The verification should be successful");
+        assertEquals(
+            sampleBlockInfo.blockRootHash(),
+            blockNotification.blockHash(),
+            "The block hash should be the same as the one in the block header");
+        assertEquals(
+            sampleBlockInfo.blockUnparsed(),
+            blockNotification.block(),
+            "The block should be the same as the one sent");
     }
 }
