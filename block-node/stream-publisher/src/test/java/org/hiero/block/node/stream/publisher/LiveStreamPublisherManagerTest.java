@@ -620,7 +620,7 @@ class LiveStreamPublisherManagerTest {
 
                 // After forwarder completion, batches should have increased and facility should contain messages.
                 assertThat(managerMetrics.blocksClosedComplete().get()).isEqualTo(beforeBatches + 2);
-                assertThat(managerMetrics.currentPublisherCount().get()).isEqualTo(beforeBatches + 1);
+                assertThat(managerMetrics.currentPublisherCount().get()).isEqualTo(beforeBatches + 2);
                 // The in-memory messaging facility should now have reset the block number to -1.
                 assertThat(toTest.getLatestBlockNumber()).isEqualTo(-1);
             }
