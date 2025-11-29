@@ -29,6 +29,7 @@ import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 import java.util.function.Function;
 import org.hiero.block.api.BlockAccessServiceInterface;
 import org.hiero.block.api.BlockEnd;
@@ -40,6 +41,8 @@ import org.hiero.block.api.BlockStreamPublishServiceInterface;
 import org.hiero.block.api.BlockStreamSubscribeServiceInterface;
 import org.hiero.block.api.PublishStreamRequest;
 import org.hiero.block.api.PublishStreamResponse;
+import org.hiero.block.api.PublishStreamResponse.EndOfStream.Code;
+import org.hiero.block.api.PublishStreamResponse.ResponseOneOfType;
 import org.hiero.block.api.ServerStatusRequest;
 import org.hiero.block.api.ServerStatusResponse;
 import org.hiero.block.api.SubscribeStreamRequest;
@@ -554,5 +557,66 @@ public class BlockNodeAPITests {
         });
         assertTrue(ex.getCause() instanceof SocketException);
         assertTrue(ex.getCause().getMessage().toLowerCase().contains("socket closed"));
+    }
+
+    /** Test publisher that is too far behind the current block
+     *  Publisher attempts to publish a block that is significantly ahead of BN's current block
+     *  BN replies with a BEHIND status and closes the stream
+     *  CN does not have the ability to republish the block at this time and sends a TOO_FAR_BEHIND endStream code
+     *
+     */
+    @Test
+    void publisherTooFarBehind() throws InterruptedException {
+        BlockStreamPublishServiceInterface.BlockStreamPublishServiceClient blockStreamPublishServiceClient =
+                new BlockStreamPublishServiceInterface.BlockStreamPublishServiceClient(
+                        publishBlockStreamPbjGrpcClient, OPTIONS);
+
+        ResponsePipelineUtils<PublishStreamResponse> responseObserver = new ResponsePipelineUtils<>();
+        final Pipeline<? super PublishStreamRequest> requestStream =
+                blockStreamPublishServiceClient.publishBlockStream(responseObserver);
+
+        final long blockNumber = 100;
+        BlockItem[] blockItems = BlockItemBuilderUtils.createSimpleBlockWithNumber(blockNumber);
+        PublishStreamRequest request = PublishStreamRequest.newBuilder()
+                .blockItems(BlockItemSet.newBuilder().blockItems(blockItems).build())
+                .build();
+
+        CountDownLatch publishCountDownLatch = responseObserver.setAndGetOnNextLatch(1);
+        requestStream.onNext(request);
+
+        publishCountDownLatch.await(30, TimeUnit.SECONDS); // wait for acknowledgement response
+        assertThat(responseObserver.getOnNextCalls())
+                .hasSize(1)
+                .first()
+                .returns(ResponseOneOfType.END_STREAM, responseKindExtractor)
+                .returns(Code.BEHIND, endStreamResponseCodeExtractor)
+                .returns(-1L, endStreamBlockNumberExtractor);
+
+        // Assert no other responses sent
+        assertThat(responseObserver.getOnErrorCalls()).isEmpty();
+        assertThat(responseObserver.getOnSubscriptionCalls()).isEmpty();
+        assertThat(responseObserver.getOnCompleteCalls().get()).isEqualTo(1);
+        //        assertThat(responseObserver.getClientEndStreamCalls().get()).isEqualTo(1);
+
+        // publisher sends TOO_FAR_BEHIND endStream after receiving BEHIND from BN
+        ResponsePipelineUtils<PublishStreamResponse> tooFarBehindResponseObserver = new ResponsePipelineUtils<>();
+        final Pipeline<? super PublishStreamRequest> tooFarBehindRequestStream =
+                blockStreamPublishServiceClient.publishBlockStream(tooFarBehindResponseObserver);
+
+        PublishStreamRequest endStreamRequest = PublishStreamRequest.newBuilder()
+                .endStream(PublishStreamRequest.EndStream.newBuilder()
+                        .earliestBlockNumber(75L)
+                        .endCode(PublishStreamRequest.EndStream.Code.TOO_FAR_BEHIND)
+                        .latestBlockNumber(125L)
+                        .build())
+                .build();
+
+        tooFarBehindRequestStream.onNext(endStreamRequest);
+
+        // Assert no other responses sent using same connections
+        assertThat(tooFarBehindResponseObserver.getOnErrorCalls()).isEmpty();
+        assertThat(tooFarBehindResponseObserver.getOnSubscriptionCalls()).isEmpty();
+        assertThat(tooFarBehindResponseObserver.getOnCompleteCalls().get()).isEqualTo(0);
+        assertThat(tooFarBehindResponseObserver.getOnErrorCalls().size()).isEqualTo(0);
     }
 }

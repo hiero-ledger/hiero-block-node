@@ -537,7 +537,7 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
      * the caller whether the handler should shut down and/or reset its current
      * block action and current streaming block number.
      */
-    private record BatchHandleResult(boolean shouldShutdown, boolean shouldReset) {}
+    private record BatchHandleResult(boolean shouldShutdown, boolean shouldReset, boolean shouldCloseStream) {}
 
     /**
      * This method handles the result of a block action handle.
@@ -545,11 +545,19 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
      * @param handleResult the result to handle
      */
     private void handleBlockActionResult(final BatchHandleResult handleResult) {
-        if (handleResult.shouldReset()) {
-            resetState();
-        }
+        // close connection and clean up or handle partial clean-ups
         if (handleResult.shouldShutdown()) {
             shutdown();
+        } else {
+            // close stream leaving connection open for subsequent publishers calls
+            if (handleResult.shouldCloseStream()) {
+                replies.onComplete();
+            }
+
+            // clean up handler state
+            if (handleResult.shouldReset()) {
+                resetState();
+            }
         }
     }
 
@@ -564,7 +572,7 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
         blockItemsQueue.put(itemSetUnparsed);
         final int itemsReceived = blockItems.size();
         metrics.liveBlockItemsReceived.add(itemsReceived); // @todo(1415) add label
-        return new BatchHandleResult(false, false);
+        return new BatchHandleResult(false, false, false);
     }
 
     /**
@@ -580,9 +588,9 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
                 PublishStreamResponse.newBuilder().skipBlock(skipBlock).build();
         if (sendResponse(response)) {
             metrics.blockSkipsSent.increment(); // @todo(1415) add label
-            return new BatchHandleResult(false, true);
+            return new BatchHandleResult(false, true, false);
         } else {
-            return new BatchHandleResult(true, true);
+            return new BatchHandleResult(true, true, true);
         }
     }
 
@@ -601,9 +609,9 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
                 PublishStreamResponse.newBuilder().resendBlock(resendBlock).build();
         if (sendResponse(response)) {
             metrics.blockResendsSent.increment(); // @todo(1415) add label
-            return new BatchHandleResult(false, true);
+            return new BatchHandleResult(false, true, false);
         } else {
-            return new BatchHandleResult(true, true);
+            return new BatchHandleResult(true, true, true);
         }
     }
 
@@ -615,7 +623,10 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
         // If the action is END_BEHIND, we need to send an end of stream
         // response to the publisher and not propagate the items.
         sendEndOfStream(Code.BEHIND);
-        return new BatchHandleResult(true, true);
+
+        // Close stream after sending BEHIND but leave connection open. CN will close it in the event of a
+        // TOO_FAR_BEHIND
+        return new BatchHandleResult(false, true, true);
     }
 
     /**
@@ -630,7 +641,7 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
         // If the action is END_DUPLICATE, we need to send an end of stream
         // response to the publisher and not propagate the items.
         sendEndOfStream(Code.DUPLICATE_BLOCK);
-        return new BatchHandleResult(true, true);
+        return new BatchHandleResult(true, true, true);
     }
 
     /**
@@ -642,7 +653,7 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
         // response to the publisher and not propagate the items.
         sendEndOfStream(Code.ERROR);
         metrics.streamErrors.increment(); // @todo(1415) add label
-        return new BatchHandleResult(true, true);
+        return new BatchHandleResult(true, true, true);
     }
 
     // ==== EndStream Handling Methods =========================================
