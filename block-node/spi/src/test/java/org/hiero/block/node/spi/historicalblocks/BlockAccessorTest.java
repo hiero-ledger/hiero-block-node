@@ -10,6 +10,8 @@ import com.hedera.hapi.block.stream.Block;
 import com.hedera.hapi.block.stream.BlockItem;
 import com.hedera.hapi.block.stream.BlockItem.ItemOneOfType;
 import com.hedera.hapi.block.stream.BlockProof;
+import com.hedera.hapi.block.stream.ChainOfTrustProof;
+import com.hedera.hapi.block.stream.MerkleSiblingHash;
 import com.hedera.hapi.block.stream.TssSignedBlockProof;
 import com.hedera.hapi.block.stream.input.RoundHeader;
 import com.hedera.hapi.block.stream.output.BlockHeader;
@@ -43,9 +45,15 @@ public class BlockAccessorTest {
                     ItemOneOfType.BLOCK_PROOF,
                     BlockProof.newBuilder()
                             .block(0)
+                            .siblingHashes(MerkleSiblingHash.newBuilder()
+                                    .siblingHash(Bytes.wrap("sibling_hash".getBytes()))
+                                    .build())
                             .signedBlockProof(TssSignedBlockProof.newBuilder()
                                     .blockSignature(Bytes.wrap("signature"))
                                     .build())
+                            .verificationKey(Bytes.wrap("verification_key".getBytes()))
+                            .verificationKeyProof(ChainOfTrustProof.newBuilder()
+                                    .wrapsProof(Bytes.wrap("verificationKeyProof".getBytes())))
                             .build()))));
     private static final Bytes SAMPLE_BLOCK_PROTOBUF_BYTES = Block.PROTOBUF.toBytes(SAMPLE_BLOCK);
     private static final Bytes SAMPLE_BLOCK_ZSTD_PROTOBUF_BYTES =

@@ -8,6 +8,8 @@ import com.hedera.hapi.block.stream.Block;
 import com.hedera.hapi.block.stream.BlockItem;
 import com.hedera.hapi.block.stream.BlockItem.ItemOneOfType;
 import com.hedera.hapi.block.stream.BlockProof;
+import com.hedera.hapi.block.stream.ChainOfTrustProof;
+import com.hedera.hapi.block.stream.MerkleSiblingHash;
 import com.hedera.hapi.block.stream.TssSignedBlockProof;
 import com.hedera.hapi.block.stream.input.EventHeader;
 import com.hedera.hapi.block.stream.input.RoundHeader;
@@ -74,12 +76,17 @@ public final class SimpleTestBlockItemBuilder {
         TssSignedBlockProof.Builder tssBuildder =
                 TssSignedBlockProof.newBuilder().blockSignature(Bytes.wrap("block_signature".getBytes()));
 
-        BlockProof blockProof = BlockProof.newBuilder()
+        return BlockProof.newBuilder()
                 .block(blockNumber)
+                .siblingHashes(List.of(MerkleSiblingHash.newBuilder()
+                        .siblingHash(Bytes.wrap("sibling_hash".getBytes()))
+                        .build()))
                 .signedBlockProof(tssBuildder)
+                .verificationKey(Bytes.wrap("verification_key".getBytes()))
+                .verificationKeyProof(ChainOfTrustProof.newBuilder()
+                        .wrapsProof(Bytes.wrap("verificationKeyProof".getBytes()))
+                        .build())
                 .build();
-
-        return blockProof;
     }
 
     public static Bytes createBlockProofUnparsed(final long blockNumber) {
