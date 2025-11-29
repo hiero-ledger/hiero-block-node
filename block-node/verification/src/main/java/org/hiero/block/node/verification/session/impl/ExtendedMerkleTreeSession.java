@@ -62,7 +62,6 @@ public class ExtendedMerkleTreeSession implements VerificationSession {
     private StateProof blockStateProof;
     private SignedRecordFileProof signedRecordFileProof;
 
-    private List<BlockProof> blockProofs = new ArrayList<>();
     private int blockProofsReceived = 0;
 
     public ExtendedMerkleTreeSession(final long blockNumber, final BlockSource blockSource) {

@@ -14,7 +14,9 @@ import com.hedera.hapi.block.stream.output.BlockHeader;
 import com.hedera.pbj.runtime.OneOf;
 import com.hedera.pbj.runtime.ParseException;
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.LinkedBlockingQueue;
 import org.hiero.block.internal.BlockItemUnparsed;
 import org.hiero.block.internal.BlockItemUnparsed.ItemOneOfType;
@@ -37,7 +39,10 @@ class VerificationServicePluginTest extends PluginTestBase<VerificationServicePl
 
     public VerificationServicePluginTest() {
         super(new BlockingExecutor(new LinkedBlockingQueue<>()));
-        start(new VerificationServicePlugin(), new NoBlocksHistoricalBlockFacility());
+        start(
+                new VerificationServicePlugin(),
+                new NoBlocksHistoricalBlockFacility(),
+                Map.of("PROMETHEUS_ENDPOINT_ENABLED", "false"));
     }
 
     @Test
@@ -71,14 +76,25 @@ class VerificationServicePluginTest extends PluginTestBase<VerificationServicePl
     }
 
     @Test
+    @DisplayName("Test failed verification due to hash mismatch")
     void testFailedVerification() throws IOException, ParseException {
 
         BlockUtils.SampleBlockInfo sampleBlockInfo =
                 BlockUtils.getSampleBlockInfo(BlockUtils.SAMPLE_BLOCKS.HAPI_0_68_0_BLOCK_14);
 
-        List<BlockItemUnparsed> blockItems = sampleBlockInfo.blockUnparsed().blockItems();
-        // remove one block item, so the hash is no longer valid
-        blockItems.remove(3);
+        // create a list of block items with missing items to simulate a non-valid hash
+        List<BlockItemUnparsed> blockItems = new ArrayList<>();
+        blockItems.addAll(sampleBlockInfo
+                .blockUnparsed()
+                .blockItems()
+                .subList(0, sampleBlockInfo.blockUnparsed().blockItems().size() / 2));
+        blockItems.addAll(sampleBlockInfo
+                .blockUnparsed()
+                .blockItems()
+                .subList(
+                        sampleBlockInfo.blockUnparsed().blockItems().size() / 2 + 2,
+                        sampleBlockInfo.blockUnparsed().blockItems().size()));
+
         long blockNumber = sampleBlockInfo.blockNumber();
 
         blockMessaging.sendBlockItems(new BlockItems(blockItems, blockNumber));
@@ -102,14 +118,18 @@ class VerificationServicePluginTest extends PluginTestBase<VerificationServicePl
 
     @Test
     @DisplayName("Test handleBlockItemsReceived without a block header")
-    void testHandleBlockItemsReceived_NoCurrentSession() throws IOException, ParseException {
+    void testHandleBlockItemsReceived_NoHeader() throws IOException, ParseException {
         // create sample block data
         BlockUtils.SampleBlockInfo sampleBlockInfo =
                 BlockUtils.getSampleBlockInfo(BlockUtils.SAMPLE_BLOCKS.HAPI_0_68_0_BLOCK_14);
         long blockNumber = sampleBlockInfo.blockNumber();
-        List<BlockItemUnparsed> blockItems = sampleBlockInfo.blockUnparsed().blockItems();
-        // remove the header to simulate a case where receive items and have never received a header
-        blockItems.removeFirst();
+
+        // create a list of block items with no header
+        List<BlockItemUnparsed> blockItems = sampleBlockInfo
+                .blockUnparsed()
+                .blockItems()
+                .subList(1, sampleBlockInfo.blockUnparsed().blockItems().size());
+
         // send some items to the plugin, they should be ignored
         plugin.handleBlockItemsReceived(new BlockItems(blockItems, blockNumber));
         // check we did not receive a block verification
