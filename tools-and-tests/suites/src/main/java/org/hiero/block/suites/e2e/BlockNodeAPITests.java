@@ -581,10 +581,10 @@ public class BlockNodeAPITests {
                 .blockItems(BlockItemSet.newBuilder().blockItems(blockItems).build())
                 .build();
 
-        CountDownLatch publishCountDownLatch = responseObserver.setAndGetOnNextLatch(1);
+        CountDownLatch completeCountDownLatch = responseObserver.setAndGetOnCompleteLatch(1);
         requestStream.onNext(request);
 
-        publishCountDownLatch.await(30, TimeUnit.SECONDS); // wait for acknowledgement response
+        completeCountDownLatch.await(30, TimeUnit.SECONDS); // wait for behind response
         assertThat(responseObserver.getOnNextCalls())
                 .hasSize(1)
                 .first()
@@ -596,7 +596,6 @@ public class BlockNodeAPITests {
         assertThat(responseObserver.getOnErrorCalls()).isEmpty();
         assertThat(responseObserver.getOnSubscriptionCalls()).isEmpty();
         assertThat(responseObserver.getOnCompleteCalls().get()).isEqualTo(1);
-        //        assertThat(responseObserver.getClientEndStreamCalls().get()).isEqualTo(1);
 
         // publisher sends TOO_FAR_BEHIND endStream after receiving BEHIND from BN
         ResponsePipelineUtils<PublishStreamResponse> tooFarBehindResponseObserver = new ResponsePipelineUtils<>();
@@ -611,12 +610,14 @@ public class BlockNodeAPITests {
                         .build())
                 .build();
 
+        completeCountDownLatch = tooFarBehindResponseObserver.setAndGetOnCompleteLatch(1);
         tooFarBehindRequestStream.onNext(endStreamRequest);
+        completeCountDownLatch.await(30, TimeUnit.SECONDS); // wait for connection shutdown
 
         // Assert no other responses sent using same connections
         assertThat(tooFarBehindResponseObserver.getOnErrorCalls()).isEmpty();
         assertThat(tooFarBehindResponseObserver.getOnSubscriptionCalls()).isEmpty();
-        assertThat(tooFarBehindResponseObserver.getOnCompleteCalls().get()).isEqualTo(0);
+        assertThat(tooFarBehindResponseObserver.getOnCompleteCalls().get()).isEqualTo(1);
         assertThat(tooFarBehindResponseObserver.getOnErrorCalls().size()).isEqualTo(0);
     }
 }
