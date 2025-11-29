@@ -18,13 +18,17 @@ import io.grpc.stub.StreamObserver;
 import java.io.IOException;
 import org.hiero.block.api.protoc.BlockEnd;
 import org.hiero.block.api.protoc.BlockItemSet;
+import org.hiero.block.api.protoc.BlockNodeServiceGrpc;
 import org.hiero.block.api.protoc.BlockStreamSubscribeServiceGrpc;
+import org.hiero.block.api.protoc.ServerStatusRequest;
+import org.hiero.block.api.protoc.ServerStatusResponse;
 import org.hiero.block.api.protoc.SubscribeStreamRequest;
 import org.hiero.block.api.protoc.SubscribeStreamResponse;
 import org.hiero.block.api.protoc.SubscribeStreamResponse.Code;
 import org.hiero.block.simulator.config.data.BlockStreamConfig;
 import org.hiero.block.simulator.config.data.ConsumerConfig;
 import org.hiero.block.simulator.config.data.GrpcConfig;
+import org.hiero.block.simulator.config.types.SlowDownType;
 import org.hiero.block.simulator.fixtures.TestUtils;
 import org.hiero.block.simulator.grpc.ConsumerStreamGrpcClient;
 import org.hiero.block.simulator.metrics.MetricsService;
@@ -93,6 +97,17 @@ public class ConsumerStreamGrpcClientImplTest {
                         responseObserver.onCompleted();
                     }
                 })
+                .addService(new BlockNodeServiceGrpc.BlockNodeServiceImplBase() {
+                    @Override
+                    public void serverStatus(
+                            ServerStatusRequest request, StreamObserver<ServerStatusResponse> responseObserver) {
+                        responseObserver.onNext(ServerStatusResponse.newBuilder()
+                                .setFirstAvailableBlock(10)
+                                .setLastAvailableBlock(20)
+                                .build());
+                        responseObserver.onCompleted();
+                    }
+                })
                 .build()
                 .start();
 
@@ -135,6 +150,22 @@ public class ConsumerStreamGrpcClientImplTest {
         assertTrue(lastStatus.contains("status: %s".formatted(Code.SUCCESS.name())));
 
         assertEquals(endBlock, consumerStreamGrpcClientImpl.getConsumedBlocks());
+    }
+
+    @Test
+    void requestBlocksAutoDiscovery() throws InterruptedException {
+        // Create a real ConsumerConfig with desired values
+        ConsumerConfig realConfig = new ConsumerConfig(-1L, 15L, true, SlowDownType.NONE, 2L, "10-30");
+        
+        // Re-init client with real config
+        consumerStreamGrpcClientImpl = new ConsumerStreamGrpcClientImpl(grpcConfig, blockStreamConfig, realConfig, new MetricsServiceImpl(getTestMetrics(TestUtils.getTestConfiguration())));
+        consumerStreamGrpcClientImpl.init();
+        
+        consumerStreamGrpcClientImpl.requestBlocks();
+        
+        // Should have consumed 10, 11, 12, 13, 14 (5 blocks)
+        // because start=10 (from serverStatus), end=15.
+        assertEquals(5, consumerStreamGrpcClientImpl.getConsumedBlocks());
     }
 
     @Test

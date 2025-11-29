@@ -13,7 +13,10 @@ import java.util.Deque;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import javax.inject.Inject;
+import org.hiero.block.api.protoc.BlockNodeServiceGrpc;
 import org.hiero.block.api.protoc.BlockStreamSubscribeServiceGrpc;
+import org.hiero.block.api.protoc.ServerStatusRequest;
+import org.hiero.block.api.protoc.ServerStatusResponse;
 import org.hiero.block.api.protoc.SubscribeStreamRequest;
 import org.hiero.block.api.protoc.SubscribeStreamResponse;
 import org.hiero.block.common.utils.Preconditions;
@@ -39,6 +42,7 @@ public class ConsumerStreamGrpcClientImpl implements ConsumerStreamGrpcClient {
     // gRPC components
     private ManagedChannel channel;
     private BlockStreamSubscribeServiceGrpc.BlockStreamSubscribeServiceStub stub;
+    private BlockNodeServiceGrpc.BlockNodeServiceBlockingStub nodeStub;
     private StreamObserver<SubscribeStreamResponse> consumerStreamObserver;
 
     // State
@@ -73,6 +77,7 @@ public class ConsumerStreamGrpcClientImpl implements ConsumerStreamGrpcClient {
                 .usePlaintext()
                 .build();
         stub = BlockStreamSubscribeServiceGrpc.newStub(channel);
+        nodeStub = BlockNodeServiceGrpc.newBlockingStub(channel);
         lastKnownStatuses.clear();
         streamLatch = new CountDownLatch(1);
     }
@@ -100,8 +105,14 @@ public class ConsumerStreamGrpcClientImpl implements ConsumerStreamGrpcClient {
         consumerStreamObserver = new ConsumerStreamObserver(
                 metricsService, streamLatch, lastKnownStatuses, lastKnownStatusesCapacity, consumerConfig);
 
+        long startBlock = consumerConfig.startBlockNumber();
+        if (consumerConfig.enableAutoStartBlockDiscovery() && startBlock == -1) {
+            final ServerStatusResponse status = nodeStub.serverStatus(ServerStatusRequest.newBuilder().build());
+            startBlock = status.getFirstAvailableBlock();
+        }
+
         SubscribeStreamRequest request = SubscribeStreamRequest.newBuilder()
-                .setStartBlockNumber(consumerConfig.startBlockNumber())
+                .setStartBlockNumber(startBlock)
                 .setEndBlockNumber(consumerConfig.endBlockNumber())
                 .build();
         stub.subscribeBlockStream(request, consumerStreamObserver);
