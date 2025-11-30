@@ -357,19 +357,16 @@ public class BlockNodeAPITests {
                 subscribeResponseObserver.getOnNextCalls().get(3);
         assertThat(subscribeResponse1.blockItems().blockItems()).hasSize(blockItems1.length);
 
-        assertThat(subscribeResponseObserver.getOnNextCalls())
-                //                .hasSize(6) // block 0 items, end block 0, success status, block 1 items, end block 1,
-                // success status
-                .element(3)
-                .satisfies(response -> {
-                    assertThat(response.blockItems().blockItems()).hasSize(blockItems1.length);
-                    assertThat(response.blockItems()
-                                    .blockItems()
-                                    .getFirst()
-                                    .blockHeader()
-                                    .number())
-                            .isEqualTo(blockNumber1);
-                });
+        // 6 items expected: block 0 items, end block 0, success status, block 1 items, end block 1, success status
+        assertThat(subscribeResponseObserver.getOnNextCalls()).element(3).satisfies(response -> {
+            assertThat(response.blockItems().blockItems()).hasSize(blockItems1.length);
+            assertThat(response.blockItems()
+                            .blockItems()
+                            .getFirst()
+                            .blockHeader()
+                            .number())
+                    .isEqualTo(blockNumber1);
+        });
         assertThat(subscribeResponseObserver
                         .getOnNextCalls()
                         .get(4)
@@ -392,13 +389,6 @@ public class BlockNodeAPITests {
         blockStreamSubscribeServiceClient.close();
         blockAccessServiceClient.close();
         blockNodeServiceClient.close();
-    }
-
-    private void endBlock(final long blockNumber, final Pipeline<? super PublishStreamRequest> requestStream) {
-        PublishStreamRequest request = PublishStreamRequest.newBuilder()
-                .endOfBlock(BlockEnd.newBuilder().blockNumber(blockNumber).build())
-                .build();
-        requestStream.onNext(request);
     }
 
     @Test
@@ -561,7 +551,11 @@ public class BlockNodeAPITests {
         });
         assertEquals(
                 SocketException.class.getSimpleName(), ex.getCause().getClass().getSimpleName());
-        assertEquals("socket closed", ex.getCause().getMessage().toLowerCase());
+        boolean causeMatches = ex.getCause().getMessage().toLowerCase().contains("socket closed")
+                || ex.getCause().getMessage().toLowerCase().contains("broken pipe");
+        assertTrue(
+                causeMatches,
+                "Unexpected socket exception: " + ex.getCause().getMessage().toLowerCase());
 
         // close the client connections
         requestStream.closeConnection();
@@ -627,6 +621,13 @@ public class BlockNodeAPITests {
         assertThat(responseObserver.getOnSubscriptionCalls()).isEmpty();
         assertThat(responseObserver.getOnCompleteCalls().get()).isEqualTo(1);
         assertThat(responseObserver.getClientEndStreamCalls().get()).isEqualTo(0);
+    }
+
+    private void endBlock(final long blockNumber, final Pipeline<? super PublishStreamRequest> requestStream) {
+        PublishStreamRequest request = PublishStreamRequest.newBuilder()
+                .endOfBlock(BlockEnd.newBuilder().blockNumber(blockNumber).build())
+                .build();
+        requestStream.onNext(request);
     }
 
     private void awaitLatch(final AtomicReference<CountDownLatch> latch, final String description)

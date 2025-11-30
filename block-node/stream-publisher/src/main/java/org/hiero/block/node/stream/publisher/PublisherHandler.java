@@ -724,13 +724,15 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
             LOGGER.log(WARNING, "Exception during removal of handler %d from manager".formatted(handlerId), e);
         } finally {
             try {
-                // onComplete call in finally block to ensure it is called
+                // onComplete & closeConnection call in finally block to ensure it is called
                 replies.onComplete();
-                LOGGER.log(TRACE, "Handler {0} issued onComplete", handlerId);
                 replies.closeConnection();
-                LOGGER.log(TRACE, "Handler {0} issued closeConnection", handlerId);
+                LOGGER.log(TRACE, "Handler {0} issued onComplete & closeConnection", handlerId);
             } catch (final RuntimeException e) {
-                LOGGER.log(DEBUG, "Exception during calling onComplete for handler %d".formatted(handlerId), e);
+                LOGGER.log(
+                        DEBUG,
+                        "Exception during calling onComplete/closeConnection for handler %d".formatted(handlerId),
+                        e);
             }
         }
     }
