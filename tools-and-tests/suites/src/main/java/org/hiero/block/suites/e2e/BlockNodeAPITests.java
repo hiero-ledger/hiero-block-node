@@ -253,8 +253,8 @@ public class BlockNodeAPITests {
         endBlock(blockNumber, requestStream);
 
         awaitLatch(
-            publishOnNextCountDownLatch,
-            "duplicate block end-of-stream onNext"); // wait for onComplete caused by duplicate response
+                publishOnNextCountDownLatch,
+                "duplicate block end-of-stream onNext"); // wait for onComplete caused by duplicate response
         awaitLatch(
                 publishCompleteCountDownLatch,
                 "duplicate block end-of-stream onComplete"); // wait for onComplete caused by duplicate response
@@ -542,8 +542,8 @@ public class BlockNodeAPITests {
         endBlock(blockNumber, requestStream);
 
         awaitLatch(
-            publishOnNextCountDownLatch,
-            "socket test duplicate completion onNext"); // wait for onComplete caused by duplicate response
+                publishOnNextCountDownLatch,
+                "socket test duplicate completion onNext"); // wait for onComplete caused by duplicate response
         awaitLatch(
                 publishCompleteCountDownLatch,
                 "socket test duplicate completion onComplete"); // wait for onComplete caused by duplicate response
