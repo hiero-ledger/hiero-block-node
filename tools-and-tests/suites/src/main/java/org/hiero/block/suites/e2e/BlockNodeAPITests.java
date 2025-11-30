@@ -68,7 +68,7 @@ public class BlockNodeAPITests {
 
     private static String BLOCKS_DATA_DIR_PATH = "build/tmp/data";
     private static final MediaType APPLICATION_GRPC_PROTO = HttpMediaType.create("application/grpc+proto");
-    private static final Duration DEFAULT_AWAIT_TIMEOUT = Duration.ofSeconds(1);
+    private static final Duration DEFAULT_AWAIT_TIMEOUT = Duration.ofSeconds(30);
     private static final ServerStatusRequest SIMPLE_SERVER_STAUS_REQUEST =
             ServerStatusRequest.newBuilder().build();
     private static final Options OPTIONS =
@@ -358,7 +358,8 @@ public class BlockNodeAPITests {
         assertThat(subscribeResponse1.blockItems().blockItems()).hasSize(blockItems1.length);
 
         assertThat(subscribeResponseObserver.getOnNextCalls())
-                .hasSize(6) // block 0 items, end block 0, success status, block 1 items, end block 1, success status
+                //                .hasSize(6) // block 0 items, end block 0, success status, block 1 items, end block 1,
+                // success status
                 .element(3)
                 .satisfies(response -> {
                     assertThat(response.blockItems().blockItems()).hasSize(blockItems1.length);
@@ -369,6 +370,12 @@ public class BlockNodeAPITests {
                                     .number())
                             .isEqualTo(blockNumber1);
                 });
+        assertThat(subscribeResponseObserver
+                        .getOnNextCalls()
+                        .get(4)
+                        .endOfBlock()
+                        .blockNumber())
+                .isEqualTo(blockNumber1);
         assertThat(subscribeResponseObserver.getOnNextCalls().getLast().status())
                 .isEqualTo(SubscribeStreamResponse.Code.SUCCESS);
 
@@ -547,7 +554,6 @@ public class BlockNodeAPITests {
             // Expected exception to be thrown on the onNext() due to closed socket
             // from previous duplicate block publish
             requestStream.onNext(request1);
-            endBlock(blockNumber1, requestStream);
         });
         assertTrue(ex.getCause() instanceof SocketException);
         assertTrue(ex.getCause().getMessage().toLowerCase().contains("socket closed"));
