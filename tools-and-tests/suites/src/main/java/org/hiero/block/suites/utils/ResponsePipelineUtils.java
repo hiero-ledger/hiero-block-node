@@ -8,6 +8,7 @@ import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Flow.Subscription;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * A simple test implementation of the {@link Pipeline} interface. It keeps
@@ -21,8 +22,8 @@ public class ResponsePipelineUtils<R> implements Pipeline<R> {
     private final List<R> onNextCalls = new CopyOnWriteArrayList<>();
     private final List<Subscription> onSubscriptionCalls = new CopyOnWriteArrayList<>();
     private final List<Throwable> onErrorCalls = new CopyOnWriteArrayList<>();
-    private CountDownLatch onNextLatch;
-    private CountDownLatch onCompleteLatch;
+    private AtomicReference<CountDownLatch> onNextLatch = new AtomicReference<>();
+    private AtomicReference<CountDownLatch> onCompleteLatch = new AtomicReference<>();
 
     @Override
     public void clientEndStreamReceived() {
@@ -32,8 +33,8 @@ public class ResponsePipelineUtils<R> implements Pipeline<R> {
     @Override
     public void onNext(final R item) {
         onNextCalls.add(Objects.requireNonNull(item));
-        if (onNextLatch != null) {
-            onNextLatch.countDown();
+        if (onNextLatch.get() != null) {
+            onNextLatch.get().countDown();
         }
     }
 
@@ -50,8 +51,8 @@ public class ResponsePipelineUtils<R> implements Pipeline<R> {
     @Override
     public void onComplete() {
         onCompleteCalls.incrementAndGet();
-        if (onCompleteLatch != null) {
-            onCompleteLatch.countDown();
+        if (onCompleteLatch.get() != null) {
+            onCompleteLatch.get().countDown();
         }
     }
 
@@ -75,13 +76,13 @@ public class ResponsePipelineUtils<R> implements Pipeline<R> {
         return onErrorCalls;
     }
 
-    public CountDownLatch setAndGetOnNextLatch(int count) {
-        onNextLatch = new CountDownLatch(count);
+    public AtomicReference<CountDownLatch> setAndGetOnNextLatch(int count) {
+        onNextLatch.set(new CountDownLatch(count));
         return onNextLatch;
     }
 
-    public CountDownLatch setAndGetOnCompleteLatch(int count) {
-        onCompleteLatch = new CountDownLatch(count);
+    public AtomicReference<CountDownLatch> setAndGetOnCompleteLatch(int count) {
+        onCompleteLatch.set(new CountDownLatch(count));
         return onCompleteLatch;
     }
 
