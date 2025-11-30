@@ -55,6 +55,7 @@ jobs:
         run: SERVER_PORT=40481 PROMETHEUS_ENDPOINT_ENABLED=false ${GRADLE_EXEC} runAPISuites # run on non-default port to avoid parallel run conflicts
 
   e2e-tests:
+    needs: api-tests
     timeout-minutes: 30
     runs-on: hiero-block-node-linux-medium
     steps:
