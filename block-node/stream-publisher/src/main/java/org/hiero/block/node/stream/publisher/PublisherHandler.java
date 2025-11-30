@@ -726,7 +726,9 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
             try {
                 // onComplete call in finally block to ensure it is called
                 replies.onComplete();
+                LOGGER.log(TRACE, "Handler {0} issued onComplete", handlerId);
                 replies.closeConnection();
+                LOGGER.log(TRACE, "Handler {0} issued closeConnection", handlerId);
             } catch (final RuntimeException e) {
                 LOGGER.log(DEBUG, "Exception during calling onComplete for handler %d".formatted(handlerId), e);
             }

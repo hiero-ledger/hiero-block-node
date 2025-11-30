@@ -249,10 +249,10 @@ public class BlockNodeAPITests {
         // ==== Scenario 2: Publish duplicate genesis block and confirm duplicate block response and stream closure ===
         CountDownLatch publishCompleteCountDownLatch = responseObserver.setAndGetOnCompleteLatch(1);
         requestStream.onNext(request);
-        endBlock(blockNumber, requestStream);
 
-        // to-do: investigate occasional test hangs here and revert to assert on latch
-        publishCompleteCountDownLatch.await(10, TimeUnit.SECONDS);
+        awaitLatch(
+                publishCompleteCountDownLatch,
+                "duplicate block end-of-stream onComplete"); // wait for onComplete caused by duplicate response
 
         // Assert that one more response is sent.
         assertThat(responseObserver.getOnNextCalls())
@@ -385,12 +385,14 @@ public class BlockNodeAPITests {
                 .isEqualTo(SubscribeStreamResponse.Code.SUCCESS);
 
         // close the client connections
+        requestStream.closeConnection();
+        requestStream2.closeConnection();
+        awaitThread(subscribeThread, "live subscribe thread");
         blockStreamPublishServiceClient.close();
         blockStreamPublishServiceClient2.close();
         blockStreamSubscribeServiceClient.close();
         blockAccessServiceClient.close();
         blockNodeServiceClient.close();
-        awaitThread(subscribeThread, "live subscribe thread");
     }
 
     private void endBlock(final long blockNumber, final Pipeline<? super PublishStreamRequest> requestStream) {
@@ -533,10 +535,10 @@ public class BlockNodeAPITests {
         // ==== Scenario 2: Publish duplicate genesis block and confirm duplicate block response and stream closure ===
         CountDownLatch publishCompleteCountDownLatch = responseObserver.setAndGetOnCompleteLatch(1);
         requestStream.onNext(request);
-        endBlock(blockNumber, requestStream);
 
-        // to-do: investigate occasional test hangs here and revert to assert on latch
-        publishCompleteCountDownLatch.await(10, TimeUnit.SECONDS);
+        awaitLatch(
+                publishCompleteCountDownLatch,
+                "duplicate block end-of-stream onComplete"); // wait for onComplete caused by duplicate response
 
         // Assert that one more response is sent.
         assertThat(responseObserver.getOnNextCalls())
@@ -568,6 +570,10 @@ public class BlockNodeAPITests {
         });
         assertTrue(ex.getCause() instanceof SocketException);
         assertTrue(ex.getCause().getMessage().toLowerCase().contains("socket closed"));
+
+        // close the client connections
+        requestStream.closeConnection();
+        blockStreamPublishServiceClient.close();
     }
 
     private void awaitLatch(final CountDownLatch latch, final String description) throws InterruptedException {
