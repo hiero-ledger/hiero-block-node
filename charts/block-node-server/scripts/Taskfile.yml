@@ -41,11 +41,12 @@ tasks:
 
     reset-upgrade:
         cmds:
-            - kubectl -n ${NAMESPACE} exec ${POD} -- sh -c 'rm -rf /opt/hiero/block-node/data/live/* /opt/hiero/block-node/data/historic/*'
-            - kubectl -n ${NAMESPACE} delete pod $POD
-            - helm upgrade $RELEASE oci://ghcr.io/hiero-ledger/hiero-block-node/block-node-server --version $VERSION -n $NAMESPACE  --install --values values-override/bare-metal-values.yaml
-            - sleep 90
-            - kubectl get all -n $NAMESPACE
+            - task: reset-file-store
+            - task: helm-upgrade
+
+    restart-bn:
+        cmds:
+            - kubectl rollout restart deployment $RELEASE-block-node-server -n $NAMESPACE
 
     setup-bn-proto:
         cmds:
@@ -58,11 +59,3 @@ tasks:
             - curl -L https://github.com/fullstorydev/grpcurl/releases/download/v1.8.7/grpcurl_1.8.7_linux_x86_64.tar.gz -o grpcurl.tar.gz
             - sudo tar -xzf grpcurl.tar.gz -C /usr/local/bin grpcurl
             - rm grpcurl.tar.gz
-
-    scale-bn:
-        cmds:
-            - kubectl scale deployment $RELEASE-block-node-server -n $NAMESPACE --replicas=0
-            - sleep 10
-            - kubectl scale deployment $RELEASE-block-node-server -n $NAMESPACE --replicas=1
-            - sleep 90
-            - kubectl get all -n $NAMESPACE

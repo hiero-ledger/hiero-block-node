@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 set -ex
 
+# This file is provided as an example script with no maintenance or support guarantees for new were versions.
+# It is recommended to utilize Solo Weaver or create your own provisioning script based on your requirements.
+
 OS="$(uname -s)"
 OS="${OS,,}"
 ARCH="$(dpkg --print-architecture)"
