@@ -76,14 +76,14 @@ public class ResponsePipelineUtils<R> implements Pipeline<R> {
         return onErrorCalls;
     }
 
-    public CountDownLatch setAndGetOnNextLatch(int count) {
+    public AtomicReference<CountDownLatch> setAndGetOnNextLatch(int count) {
         onNextLatch.set(new CountDownLatch(count));
-        return onNextLatch.get();
+        return onNextLatch;
     }
 
-    public CountDownLatch setAndGetOnCompleteLatch(int count) {
+    public AtomicReference<CountDownLatch> setAndGetOnCompleteLatch(int count) {
         onCompleteLatch.set(new CountDownLatch(count));
-        return onCompleteLatch.get();
+        return onCompleteLatch;
     }
 
     /**

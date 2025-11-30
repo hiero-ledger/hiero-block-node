@@ -30,6 +30,7 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Function;
 import org.hiero.block.api.BlockAccessServiceInterface;
 import org.hiero.block.api.BlockEnd;
@@ -229,7 +230,7 @@ public class BlockNodeAPITests {
         PublishStreamRequest request = PublishStreamRequest.newBuilder()
                 .blockItems(BlockItemSet.newBuilder().blockItems(blockItems).build())
                 .build();
-        CountDownLatch publishCountDownLatch = responseObserver.setAndGetOnNextLatch(1);
+        AtomicReference<CountDownLatch> publishCountDownLatch = responseObserver.setAndGetOnNextLatch(1);
         requestStream.onNext(request);
         endBlock(blockNumber, requestStream);
 
@@ -247,7 +248,7 @@ public class BlockNodeAPITests {
         assertThat(responseObserver.getClientEndStreamCalls().get()).isEqualTo(0);
 
         // ==== Scenario 2: Publish duplicate genesis block and confirm duplicate block response and stream closure ===
-        CountDownLatch publishCompleteCountDownLatch = responseObserver.setAndGetOnCompleteLatch(1);
+        AtomicReference<CountDownLatch> publishCompleteCountDownLatch = responseObserver.setAndGetOnCompleteLatch(1);
         requestStream.onNext(request);
 
         awaitLatch(
@@ -298,7 +299,8 @@ public class BlockNodeAPITests {
                 .startBlockNumber(blockNumber)
                 .build();
 
-        final CountDownLatch blockItemsSubscribe1Latch = subscribeResponseObserver.setAndGetOnNextLatch(2);
+        final AtomicReference<CountDownLatch> blockItemsSubscribe1Latch =
+                subscribeResponseObserver.setAndGetOnNextLatch(2);
         blockStreamSubscribeServiceClient.subscribeBlockStream(subscribeRequest1, subscribeResponseObserver);
 
         awaitLatch(blockItemsSubscribe1Latch, "historical subscription");
@@ -316,7 +318,8 @@ public class BlockNodeAPITests {
                 .startBlockNumber(blockNumber1)
                 .endBlockNumber(blockNumber1) // subscribe only until the next block is received
                 .build();
-        final CountDownLatch blockItemsSubscribe2Latch = subscribeResponseObserver.setAndGetOnNextLatch(1);
+        final AtomicReference<CountDownLatch> blockItemsSubscribe2Latch =
+                subscribeResponseObserver.setAndGetOnNextLatch(1);
         // run blockStreamSubscribeServiceClient.subscribeBlockStrea in its own thread to avoid blocking
         final Thread subscribeThread = new Thread(
                 () -> {
@@ -342,7 +345,7 @@ public class BlockNodeAPITests {
                 new BlockStreamPublishServiceInterface.BlockStreamPublishServiceClient(createGrpcClient(), OPTIONS);
         final Pipeline<? super PublishStreamRequest> requestStream2 =
                 blockStreamPublishServiceClient2.publishBlockStream(responseObserver2);
-        final CountDownLatch blockItemsPublish2Latch = responseObserver2.setAndGetOnNextLatch(1);
+        final AtomicReference<CountDownLatch> blockItemsPublish2Latch = responseObserver2.setAndGetOnNextLatch(1);
         requestStream2.onNext(request2);
         endBlock(blockNumber1, requestStream2);
 
@@ -443,7 +446,7 @@ public class BlockNodeAPITests {
                 .build();
 
         // get countdown latch for onComplete
-        CountDownLatch initialOnCompleteLatch = initialResponseObserver.setAndGetOnCompleteLatch(1);
+        AtomicReference<CountDownLatch> initialOnCompleteLatch = initialResponseObserver.setAndGetOnCompleteLatch(1);
 
         requestStream.onNext(endStreamRequest);
 
@@ -515,7 +518,7 @@ public class BlockNodeAPITests {
         PublishStreamRequest request = PublishStreamRequest.newBuilder()
                 .blockItems(BlockItemSet.newBuilder().blockItems(blockItems).build())
                 .build();
-        CountDownLatch publishCountDownLatch = responseObserver.setAndGetOnNextLatch(1);
+        AtomicReference<CountDownLatch> publishCountDownLatch = responseObserver.setAndGetOnNextLatch(1);
         requestStream.onNext(request);
         endBlock(blockNumber, requestStream);
 
@@ -533,7 +536,7 @@ public class BlockNodeAPITests {
         assertThat(responseObserver.getClientEndStreamCalls().get()).isEqualTo(0);
 
         // ==== Scenario 2: Publish duplicate genesis block and confirm duplicate block response and stream closure ===
-        CountDownLatch publishCompleteCountDownLatch = responseObserver.setAndGetOnCompleteLatch(1);
+        AtomicReference<CountDownLatch> publishCompleteCountDownLatch = responseObserver.setAndGetOnCompleteLatch(1);
         requestStream.onNext(request);
 
         awaitLatch(
@@ -576,9 +579,10 @@ public class BlockNodeAPITests {
         blockStreamPublishServiceClient.close();
     }
 
-    private void awaitLatch(final CountDownLatch latch, final String description) throws InterruptedException {
-        latch.await(DEFAULT_AWAIT_TIMEOUT.toMillis(), TimeUnit.MILLISECONDS);
-        assertEquals(0, latch.getCount(), "Timed out waiting for " + description);
+    private void awaitLatch(final AtomicReference<CountDownLatch> latch, final String description)
+            throws InterruptedException {
+        latch.get().await(DEFAULT_AWAIT_TIMEOUT.toMillis(), TimeUnit.MILLISECONDS);
+        assertEquals(0, latch.get().getCount(), "Timed out waiting for " + description);
     }
 
     private void awaitThread(final Thread thread, final String description) throws InterruptedException {
