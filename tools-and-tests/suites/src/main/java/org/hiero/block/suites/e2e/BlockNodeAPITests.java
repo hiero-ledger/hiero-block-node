@@ -248,12 +248,16 @@ public class BlockNodeAPITests {
 
         // ==== Scenario 2: Publish duplicate genesis block and confirm duplicate block response and stream closure ===
         CountDownLatch publishCompleteCountDownLatch = responseObserver.setAndGetOnCompleteLatch(1);
+        CountDownLatch publishOnNextCountDownLatch = responseObserver.setAndGetOnNextLatch(1);
         requestStream.onNext(request);
         endBlock(blockNumber, requestStream);
 
         awaitLatch(
+            publishOnNextCountDownLatch,
+            "duplicate block end-of-stream onNext"); // wait for onComplete caused by duplicate response
+        awaitLatch(
                 publishCompleteCountDownLatch,
-                "duplicate block end-of-stream"); // wait for onComplete caused by duplicate response
+                "duplicate block end-of-stream onComplete"); // wait for onComplete caused by duplicate response
 
         // Assert that one more response is sent.
         assertThat(responseObserver.getOnNextCalls())
@@ -533,12 +537,16 @@ public class BlockNodeAPITests {
 
         // ==== Scenario 2: Publish duplicate genesis block and confirm duplicate block response and stream closure ===
         CountDownLatch publishCompleteCountDownLatch = responseObserver.setAndGetOnCompleteLatch(1);
+        CountDownLatch publishOnNextCountDownLatch = responseObserver.setAndGetOnNextLatch(1);
         requestStream.onNext(request);
         endBlock(blockNumber, requestStream);
 
         awaitLatch(
+            publishOnNextCountDownLatch,
+            "socket test duplicate completion onNext"); // wait for onComplete caused by duplicate response
+        awaitLatch(
                 publishCompleteCountDownLatch,
-                "socket test duplicate completion"); // wait for onComplete caused by duplicate response
+                "socket test duplicate completion onComplete"); // wait for onComplete caused by duplicate response
 
         // Assert that one more response is sent.
         assertThat(responseObserver.getOnNextCalls())
@@ -573,8 +581,8 @@ public class BlockNodeAPITests {
     }
 
     private void awaitLatch(final CountDownLatch latch, final String description) throws InterruptedException {
-        final boolean completed = latch.await(DEFAULT_AWAIT_TIMEOUT.toMillis(), TimeUnit.MILLISECONDS);
-        assertTrue(completed, "Timed out waiting for " + description);
+        latch.await(DEFAULT_AWAIT_TIMEOUT.toMillis(), TimeUnit.MILLISECONDS);
+        assertEquals(0, latch.getCount(), "Timed out waiting for " + description);
     }
 
     private void awaitThread(final Thread thread, final String description) throws InterruptedException {
