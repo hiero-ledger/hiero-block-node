@@ -29,7 +29,7 @@ Before you begin, ensure you have:
 3. Under **Compute Engine,** Select **Create a VM**.
 4. Select a machine type appropriate for your Block Node profile:
    - **For a test or local profile**: Choose at least an **E2 standard** machine (for example, **`e2-standard-2`**) so that CPU and memory are sufficient.
-   - **For production (**e.g.**, `mainnet` or `previewnet`)**: Select at least ~16 CPUs (e.g., 8 physical cores / 16 vCPUs).
+   - **For production (**e.g.**, `mainnet` or `testnet`)**: Select at least ~16 CPUs (e.g., 8 physical cores / 16 vCPUs).
 5. Set the region and zone (defaults are fine unless you have a preference).
 6. Select the default boot disk and operating system unless your team has specific requirements.
 7. Leave other instance settings at defaults for a standard deployment.
