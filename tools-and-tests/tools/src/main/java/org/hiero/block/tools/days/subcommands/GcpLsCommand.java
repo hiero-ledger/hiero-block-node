@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.tools.days.subcommands;
 
-import io.helidon.http.NotFoundException;
 import java.io.File;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -118,7 +117,7 @@ public class GcpLsCommand implements Runnable {
                         cacheEnabled, cacheDir.toPath(), minNodeAccountId, maxNodeAccountId, userProject);
             }
             if (!skipLocalCompare && downloadedDaysDir == null) {
-                throw new NotFoundException("DownloadedDaysDir has not been set");
+                throw new IllegalArgumentException("DownloadedDaysDir has not been set");
             }
 
             validateInputs();
