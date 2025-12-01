@@ -28,9 +28,9 @@ mainModuleInfo {
     requires("com.google.cloud.storage")
     requires("com.google.gson")
     requires("info.picocli")
-    requires("io.helidon.http")
     requires("org.apache.commons.compress")
     requires("com.google.common.jimfs")
     runtimeOnly("com.swirlds.config.impl")
+    runtimeOnly("io.helidon.http")
     runtimeOnly("io.grpc.netty")
 }
