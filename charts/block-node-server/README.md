@@ -38,7 +38,7 @@ Set environment variables that will be used throughout this guide. Replace the v
 
 ```bash
 export RELEASE="bn-release"  # bn-release is short for block-node-release
-export VERSION="0.24.0-SNAPSHOT"
+export VERSION="0.24.0-rc1"
 ```
 
 ## Installation Options
@@ -161,7 +161,7 @@ To upgrade the chart to a new version from the OCI registry:
 1. Set the new version:
 
 ```bash
-export VERSION="<new-version>"
+export VERSION="0.24.0-rc1"
 ```
 
 2. Save your current configuration:
