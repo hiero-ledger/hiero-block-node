@@ -3,10 +3,10 @@
 ## Table of Contents
 
 1. [Overview](#overview)
-    1. [The `blocks` Subcommand](docs/blocks-commands.md)
-    2. [The `records` Subcommand](docs/record-files-commands.md)
-    3. [The `days` Subcommand](docs/days-commands.md)
-    4. [The `mirror` Subcommand](docs/mirror-node-commands.md)
+   1. [The `blocks` Subcommand](docs/blocks-commands.md)
+   2. [The `records` Subcommand](docs/record-files-commands.md)
+   3. [The `days` Subcommand](docs/days-commands.md)
+   4. [The `mirror` Subcommand](docs/mirror-node-commands.md)
 2. [Running from command line](#running-from-command-line)
 3. [Help and discovery](#help-and-discovery)
 4. [Other Documentation](#other-documentation)
@@ -58,8 +58,8 @@ java -jar tools-and-tests/tools/build/libs/tools-0.21.0-SNAPSHOT-all.jar days do
 
 If you want the README to include example invocations for any specific workflow (e.g. full record→block conversion, or downloading a year's worth of days), tell me which workflow and I'll add a short step-by-step example.
 
-
 ## Other Documentation
+
 Additional documentation for specific techical topics can be found in the `docs/` directory:
 - [Address Book Updating](docs/address-book-updating.md)
 - [Record Files Format Spec](docs/record-file-format.md)
