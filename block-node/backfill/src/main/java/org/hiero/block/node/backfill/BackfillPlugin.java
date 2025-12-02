@@ -61,6 +61,7 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
     private volatile boolean onDemandError = false;
     private final AtomicLong autonomousBackfillEndBlock = new AtomicLong(-1);
     private final AtomicLong onDemandBackfillStartBlock = new AtomicLong(-1);
+    private final AtomicLong onDemandBackfillEndBlock = new AtomicLong(-1);
     private final AtomicLong lastAcknowledgedBlockObserved = new AtomicLong(-1);
 
     // Metrics
@@ -281,19 +282,22 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
 
         try {
             LOGGER.log(TRACE, "Greedy backfilling recent blocks to stay close to network");
-
-            // greedy backfill newer blocks available from peer BN sources
             detectedGaps = new ArrayList<>();
             LongRange detectedRecentGapRange = backfillGrpcClientAutonomous.getNewAvailableRange(lastAcknowledgedBlock);
-
-            // to-do: check if on-demand is running and remove overlapping range from detectedRecentGapRange
 
             if (detectedRecentGapRange != null
                     && detectedRecentGapRange.size() > 0
                     && detectedRecentGapRange.start() >= 0) {
-                detectedGaps.add(detectedRecentGapRange);
+                // check if on-demand is running and remove overlapping range from detectedRecentGapRange
+                if (isOnDemandBackfillRunning()
+                        && detectedRecentGapRange.overlaps(
+                                new LongRange(onDemandBackfillStartBlock.get(), onDemandBackfillEndBlock.get()))) {
+                    detectedRecentGapRange = new LongRange(
+                            Math.max(onDemandBackfillStartBlock.get(), detectedRecentGapRange.start()),
+                            detectedRecentGapRange.end());
+                }
 
-                // backfill recent gaps first to prioritize staying close to the network
+                detectedGaps.add(detectedRecentGapRange);
                 LOGGER.log(
                         TRACE,
                         "Detected recent gaps, numGaps={0} totalMissingBlocks={1}",
@@ -329,8 +333,9 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
         if (isOnDemandBackfillRunning() && !backfillConfiguration.greedy()) {
             LOGGER.log(
                     TRACE,
-                    "On-Demand backfill is running starting from block {0}, skipping autonomous gap detection",
-                    onDemandBackfillStartBlock.get());
+                    "On-Demand backfill is running starting from block {0} to {1}, skipping autonomous gap detection",
+                    onDemandBackfillStartBlock.get(),
+                    onDemandBackfillEndBlock.get());
             return;
         }
 
@@ -346,7 +351,7 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
                     .streamRanges()
                     .toList();
 
-            // greedy backfill newer blocks available from peer BN sources
+            // greedy backfill newer blocks available from peer BN sources to prioritize staying close to the network
             greedyBackfillRecentBlocks(
                     lastAcknowledgedBlockObserved.get(), blockRanges.getLast().end());
             lastAcknowledgedBlockObserved.set(
@@ -471,6 +476,7 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
                 gap.end());
         if (backfillType.equals(BackfillType.ON_DEMAND)) {
             onDemandBackfillStartBlock.set(-1); // Reset on-demand start block after backfill
+            onDemandBackfillEndBlock.set(-1);
         }
     }
 
@@ -584,6 +590,7 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
 
                 // Set the start block for on-demand backfill BEFORE scheduling the task
                 onDemandBackfillStartBlock.set(gap.start());
+                onDemandBackfillEndBlock.set(gap.end());
                 onDemandError = false;
 
                 // use the scheduler to run the backfill in its own thread (only call backfillGap once)
@@ -599,6 +606,7 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
                         backfillFetchErrors.add(1);
                         onDemandError = true;
                         onDemandBackfillStartBlock.set(-1); // Reset on error to allow new backfills
+                        onDemandBackfillEndBlock.set(-1);
                     }
                 });
 
@@ -607,6 +615,7 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
                 backfillFetchErrors.add(1);
                 onDemandError = true;
                 onDemandBackfillStartBlock.set(-1); // Reset on error to allow new backfills
+                onDemandBackfillEndBlock.set(-1);
             }
         } else {
             LOGGER.log(TRACE, "No gap to backfill for newest block known: {0}", newestBlockKnown);
