@@ -458,12 +458,6 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
             if (queue != null) {
                 discardIncompleteTrailingBlock(queue);
             }
-        } else {
-            // this should never happen
-            final String message =
-                    "Invalid state detected for handler %d when ending mid-block %d. Current Streaming Block Number: %d, Next Unstreamed Block Number: %d"
-                            .formatted(handlerId, blockNumber, currentStreaming, nextUnstreamed);
-            LOGGER.log(WARNING, message);
         }
     }
 

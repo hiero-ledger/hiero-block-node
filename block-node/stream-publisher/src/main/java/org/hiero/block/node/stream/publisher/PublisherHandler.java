@@ -671,6 +671,7 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
             // This should generally not happen, we expect an end stream request
             // from a publisher after it has completely streamed a full block.
             LOGGER.log(INFO, "Handler %d is ending mid-block %d".formatted(handlerId, blockNumber));
+            publisherManager.handlerIsEnding(blockNumber, handlerId);
         }
         metrics.endStreamsReceived.increment();
         return new EndStreamResult(true);
