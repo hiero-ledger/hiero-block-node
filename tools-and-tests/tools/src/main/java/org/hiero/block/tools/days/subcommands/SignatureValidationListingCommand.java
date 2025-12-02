@@ -101,6 +101,7 @@ public class SignatureValidationListingCommand implements Runnable {
                 mainNetBucket = new MainNetBucket(
                         cacheEnabled, cacheDir.toPath(), MIN_NODE_ACCOUNT_ID, MAX_NODE_ACCOUNT_ID, userProject);
             }
+
             if (compressedDayOrDaysDirs == null || compressedDayOrDaysDirs.length == 0) {
                 throw new IllegalArgumentException("--compressed-day-or-days must be provided and not empty");
             }
@@ -172,6 +173,15 @@ public class SignatureValidationListingCommand implements Runnable {
     }
 
     /**
+     * Extract just the file name from a GCS-style path like
+     * {@code recordstreams/record0.0.3/2019-09-14T02_00_00.454287001Z.rcd_sig}.
+     */
+    private String extractFileName(String path) {
+        int idx = path.lastIndexOf('/');
+        return idx >= 0 ? path.substring(idx + 1) : path;
+    }
+
+    /**
      * Build a summary of record start time -> count of signature files in GCP for a given
      * (date, hour).
      *
@@ -191,12 +201,14 @@ public class SignatureValidationListingCommand implements Runnable {
             blockTimeToCount = mainNetBucket.listHour(blockTimeNanos, false).stream()
                     .map(cf -> cf.path())
                     .filter(this::isSignatureName)
+                    .map(this::extractFileName)
                     .collect(Collectors.groupingBy(
                             RecordFileDates::extractRecordFileTime, // Extract block time
                             Collectors.counting() // Count occurrences
                             ));
 
         } catch (Exception e) {
+            e.printStackTrace();
             System.err.printf("Error listing GCP signatures for date=%s hour=%02d: %s%n", date, hour, e.getMessage());
         }
 
@@ -288,7 +300,7 @@ public class SignatureValidationListingCommand implements Runnable {
         return new HourResult(date, hour, same, diffs);
     }
 
-    static final record PerTimestampDiff(Instant timestamp, long gcpCount, long localCount) {}
+    final record PerTimestampDiff(Instant timestamp, long gcpCount, long localCount) {}
 
-    static final record HourResult(LocalDate date, int hour, int sameCount, List<PerTimestampDiff> diffs) {}
+    final record HourResult(LocalDate date, int hour, int sameCount, List<PerTimestampDiff> diffs) {}
 }
