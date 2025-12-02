@@ -1,9 +1,9 @@
+// SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.tools.blocks.model;
 
 import static org.hiero.block.tools.utils.Sha384.sha384Digest;
 
 import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
 import java.util.LinkedList;
 import java.util.List;
 
@@ -51,12 +51,12 @@ public class StreamingHasher {
         final long i = leafCount;
         final byte[] e = hashLeaf(data);
         hashList.add(e);
-        for (long n=i; (n & 1L) == 1; n >>= 1) {
+        for (long n = i; (n & 1L) == 1; n >>= 1) {
             final byte[] y = hashList.removeLast();
             final byte[] x = hashList.removeLast();
             hashList.add(hashInternalNode(x, y));
         }
-        leafCount ++;
+        leafCount++;
     }
 
     /**
