@@ -291,7 +291,9 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
                 // if on-demand backfill is running, we need to adjust the detected recent gap range
             }
 
-            if (detectedRecentGapRange != null && detectedRecentGapRange.size() > 0 && detectedRecentGapRange.start() >= 0) {
+            if (detectedRecentGapRange != null
+                    && detectedRecentGapRange.size() > 0
+                    && detectedRecentGapRange.start() >= 0) {
                 detectedGaps.add(detectedRecentGapRange);
 
                 // backfill recent gaps first to prioritize staying close to the network
