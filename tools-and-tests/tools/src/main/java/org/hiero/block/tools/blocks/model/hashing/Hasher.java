@@ -7,6 +7,11 @@ import java.nio.file.Path;
  * Interface for a binary Merkle tree hasher using SHA-384 hashes.
  */
 public interface Hasher {
+    /** Prefix byte for hash contents for leaf nodes. */
+    byte[] LEAF_PREFIX = new byte[] {0};
+    /** Prefix byte for hash contents for internal nodes. */
+    byte[] INTERNAL_NODE_PREFIX = new byte[] {2};
+
     /**
      * Add a new leaf to the Merkle tree.
      *
