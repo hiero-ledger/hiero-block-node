@@ -64,9 +64,8 @@ public class UpdateBlockData implements Runnable {
      *
      * @param blockTimesFile the path to the block times file
      * @param dayBlocksFile  the path to the day blocks file
-     * @return the latest block number
      */
-    public static long updateMirrorNodeData(Path blockTimesFile, Path dayBlocksFile) {
+    public static void updateMirrorNodeData(Path blockTimesFile, Path dayBlocksFile) {
         try {
             System.out.println(Ansi.AUTO.string("@|bold,green UpdateBlockData - reading existing block data files|@"));
 
@@ -92,11 +91,12 @@ public class UpdateBlockData implements Runnable {
             if (startBlockNumber > latestBlockNumber) {
                 System.out.println(
                         Ansi.AUTO.string("@|bold,green Block data is already up to date. No updates needed.|@"));
-                return latestBlockNumber;
+                return;
             }
 
             // Load existing day blocks data
-            Map<LocalDate, DayBlockInfo> dayBlocksMap = loadDayBlocksMap(dayBlocksFile);
+            Map<LocalDate, DayBlockInfo> dayBlocksMap =
+                    Files.exists(dayBlocksFile) ? loadDayBlocksMap(dayBlocksFile) : new HashMap<>();
 
             // Fetch and update blocks in batches
             long currentBlock = startBlockNumber;
@@ -155,8 +155,6 @@ public class UpdateBlockData implements Runnable {
 
             System.out.println(Ansi.AUTO.string("@|bold,green Update complete! Updated blocks from |@"
                     + startBlockNumber + " @|bold,green to|@ " + latestBlockNumber));
-            // return the largest block number
-            return latestBlockNumber;
         } catch (IOException e) {
             throw new RuntimeException("Error updating block data", e);
         }

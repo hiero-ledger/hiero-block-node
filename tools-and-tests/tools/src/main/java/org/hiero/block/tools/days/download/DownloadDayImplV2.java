@@ -49,14 +49,17 @@ public class DownloadDayImplV2 {
     /** Maximum number of retries for MD5 mismatch errors. */
     private static final int MAX_MD5_RETRIES = 3;
 
-    // small helper container for pending block downloads
+    /** small helper container for pending block downloads */
     private static final class BlockWork {
+        /** The block number for this block. */
         final long blockNumber;
         /** Optional block hash from mirror node listing, may be null. Only set for first and last blocks of the day */
         final byte[] blockHashFromMirrorNode;
-
+        /** The block time for this block. */
         final LocalDateTime blockTime;
+        /** The ordered list of files to download for this block. The first is the most common record file*/
         final List<ListingRecordFile> orderedFiles;
+        /** The futures for the downloads of the files for this block, in the same order as orderedFiles */
         final List<CompletableFuture<InMemoryFile>> futures = new ArrayList<>();
 
         BlockWork(
@@ -131,12 +134,13 @@ public class DownloadDayImplV2 {
                     remaining);
             return null;
         }
+        // ensure download directory exists and remove any partial file
         if (!Files.exists(downloadedDaysDir)) Files.createDirectories(downloadedDaysDir);
         try {
             Files.deleteIfExists(partialOutFile);
         } catch (IOException ignored) {
         }
-
+        // print starting progress
         double daySharePercent = (totalDays <= 0) ? 100.0 : (100.0 / totalDays);
         double startingPercent = dayIndex * daySharePercent;
         long remainingMillisUnknown = Long.MAX_VALUE;
@@ -167,8 +171,11 @@ public class DownloadDayImplV2 {
 
         // in background thread iterate blocks in numeric order, queue downloads for each block's files
         CompletableFuture<Void> downloadQueueingFuture = CompletableFuture.runAsync(() -> {
+            // for each block in the day
             for (long blockNumber = firstBlock; blockNumber <= lastBlock; blockNumber++) {
+                // get block time, from block number
                 final LocalDateTime blockTime = blockTimeReader.getBlockLocalDateTime(blockNumber);
+                // get list of all the files for this block
                 final List<ListingRecordFile> group = filesByBlock.get(blockTime);
                 if (group == null || group.isEmpty()) {
                     throw new IllegalStateException("Missing record files for block number " + blockNumber + " at time "
