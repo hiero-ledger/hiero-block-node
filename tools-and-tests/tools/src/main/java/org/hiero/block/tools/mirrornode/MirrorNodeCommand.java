@@ -12,6 +12,7 @@ import picocli.CommandLine.Spec;
         name = "mirror",
         description = "Works with mirror nodes to fetch data",
         subcommands = {
+            BlockTimeCommand.class,
             ExtractBlockTimes.class,
             ValidateBlockTimes.class,
             AddNewerBlockTimes.class,
