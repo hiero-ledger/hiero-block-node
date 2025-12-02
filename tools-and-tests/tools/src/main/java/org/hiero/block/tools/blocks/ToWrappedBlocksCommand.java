@@ -138,8 +138,8 @@ public class ToWrappedBlocksCommand implements Runnable {
         // create output directory if it does not exist
         try {
             Files.createDirectories(outputBlocksDir);
-            System.out.println(Ansi.AUTO.string("@|yellow Created new output directory:|@ " +
-                outputBlocksDir.toAbsolutePath()));
+            System.out.println(
+                    Ansi.AUTO.string("@|yellow Created new output directory:|@ " + outputBlocksDir.toAbsolutePath()));
         } catch (IOException e) {
             throw new RuntimeException(e);
         }
@@ -151,8 +151,7 @@ public class ToWrappedBlocksCommand implements Runnable {
             if (Files.exists(inputAddressBookFile)) {
                 try {
                     Files.copy(inputAddressBookFile, addressBookFile);
-                    System.out.println(Ansi.AUTO.string(
-                        "@|yellow Copied existing address book history to output:|@ "
+                    System.out.println(Ansi.AUTO.string("@|yellow Copied existing address book history to output:|@ "
                             + addressBookFile.toAbsolutePath()));
                 } catch (IOException e) {
                     throw new RuntimeException(e);
@@ -162,9 +161,8 @@ public class ToWrappedBlocksCommand implements Runnable {
         // load or create new AddressBookRegistry
         final AddressBookRegistry addressBookRegistry =
                 Files.exists(addressBookFile) ? new AddressBookRegistry(addressBookFile) : new AddressBookRegistry();
-        System.out.println(Ansi.AUTO.string(
-            "@|yellow Loaded address book registry:|@ \n"
-                + addressBookRegistry.toPrettyString()));
+        System.out.println(
+                Ansi.AUTO.string("@|yellow Loaded address book registry:|@ \n" + addressBookRegistry.toPrettyString()));
         // get Archive type
         final BlockArchiveType archiveType =
                 unzipped ? BlockArchiveType.INDIVIDUAL_FILES : BlockArchiveType.UNCOMPRESSED_ZIP;

@@ -1,4 +1,5 @@
 # Build & Run Tools CLI App
+
 Instructions for building and running the command-line tools subproject.
 
 Prerequisites
@@ -8,11 +9,11 @@ Common tasks
 
 CLI Tools build
 - Build fat JAR with dependencies (correct project path):
-  - Command line: `./gradlew tools:shadowJar`
-  - IntelliJ Gradle task: `tools [shadowJar]`
+- Command line: `./gradlew tools:shadowJar`
+- IntelliJ Gradle task: `tools [shadowJar]`
 - Output: `tools-and-tests/tools/build/libs/tools-0.21.0-SNAPSHOT-all.jar`
 - Run CLI App:
-  - Example: `java -jar tools-and-tests/tools/build/libs/tools-0.21.0-SNAPSHOT-all.jar days --help`
+- Example: `java -jar tools-and-tests/tools/build/libs/tools-0.21.0-SNAPSHOT-all.jar days --help`
 
 Automation note (for bots and CI)
 - Whenever you change any code under `tools-and-tests/tools/**`, build using the exact Gradle task above: `tools:shadowJar`.
