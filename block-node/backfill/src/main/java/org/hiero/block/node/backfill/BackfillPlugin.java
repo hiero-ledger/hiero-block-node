@@ -2,7 +2,6 @@
 package org.hiero.block.node.backfill;
 
 import static java.lang.System.Logger.Level.DEBUG;
-import static java.lang.System.Logger.Level.ERROR;
 import static java.lang.System.Logger.Level.INFO;
 import static java.lang.System.Logger.Level.TRACE;
 
@@ -228,7 +227,7 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
                 .createVirtualThreadScheduledExecutor(
                         2, // Two threads: one for autonomous backfill, one for on-demand backfill
                         "BackfillPluginRunner",
-                        (t, e) -> LOGGER.log(ERROR, "Uncaught exception in thread: " + t.getName(), e));
+                        (t, e) -> LOGGER.log(INFO, "Uncaught exception in thread: " + t.getName(), e));
 
         scheduler.scheduleAtFixedRate(
                 this::detectGaps,
