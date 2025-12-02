@@ -102,25 +102,7 @@ final class DefaultThreadPoolManager implements ThreadPoolManager {
      */
     @NonNull
     @Override
-    public ScheduledExecutorService createVirtualThreadSingleThreadScheduledExecutor(
-            @Nullable final String threadName,
-            @Nullable final Thread.UncaughtExceptionHandler uncaughtExceptionHandler) {
-        return createVirtualThreadScheduledExecutor(1, threadName, uncaughtExceptionHandler);
-    }
-
-    /**
-     * {@inheritDoc}
-     */
-    @NonNull
-    @Override
-    public ScheduledExecutorService createVirtualThreadScheduledThreadPool(
-            int corePoolSize,
-            @Nullable final String threadName,
-            @Nullable final Thread.UncaughtExceptionHandler uncaughtExceptionHandler) {
-        return createVirtualThreadScheduledExecutor(corePoolSize, threadName, uncaughtExceptionHandler);
-    }
-
-    private ScheduledExecutorService createVirtualThreadScheduledExecutor(
+    public ScheduledExecutorService createVirtualThreadScheduledExecutor(
             int corePoolSize,
             @Nullable final String threadName,
             @Nullable final Thread.UncaughtExceptionHandler uncaughtExceptionHandler) {
@@ -130,14 +112,10 @@ final class DefaultThreadPoolManager implements ThreadPoolManager {
         }
         if (threadName != null) {
             factoryBuilder.name(threadName, 0);
-            return corePoolSize <= 1
-                    ? Executors.newSingleThreadScheduledExecutor(factoryBuilder.factory())
-                    : Executors.newScheduledThreadPool(corePoolSize, factoryBuilder.factory());
+            return Executors.newScheduledThreadPool(corePoolSize, factoryBuilder.factory());
         } else {
             final ThreadFactory factory = factoryBuilder.factory();
-            return corePoolSize <= 1
-                    ? Executors.newSingleThreadScheduledExecutor(factory)
-                    : Executors.newScheduledThreadPool(corePoolSize, factory);
+            return Executors.newScheduledThreadPool(corePoolSize, factory);
         }
     }
 }

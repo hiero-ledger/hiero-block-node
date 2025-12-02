@@ -60,14 +60,7 @@ public class TestThreadPoolManager<T extends ExecutorService, S extends Schedule
 
     @NonNull
     @Override
-    public ScheduledExecutorService createVirtualThreadSingleThreadScheduledExecutor(
-            @Nullable String threadName, @Nullable UncaughtExceptionHandler uncaughtExceptionHandler) {
-        return scheduledExecutor;
-    }
-
-    @NonNull
-    @Override
-    public ScheduledExecutorService createVirtualThreadScheduledThreadPool(
+    public ScheduledExecutorService createVirtualThreadScheduledExecutor(
             int corePoolSize,
             @Nullable String threadName,
             @Nullable UncaughtExceptionHandler uncaughtExceptionHandler) {

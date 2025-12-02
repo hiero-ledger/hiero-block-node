@@ -114,13 +114,8 @@ public interface ThreadPoolManager {
             @Nullable final Thread.UncaughtExceptionHandler uncaughtExceptionHandler);
 
     @NonNull
-    ScheduledExecutorService createVirtualThreadScheduledThreadPool(
+    ScheduledExecutorService createVirtualThreadScheduledExecutor(
             int corePoolSize,
-            @Nullable final String threadName,
-            @Nullable final Thread.UncaughtExceptionHandler uncaughtExceptionHandler);
-
-    @NonNull
-    ScheduledExecutorService createVirtualThreadSingleThreadScheduledExecutor(
             @Nullable final String threadName,
             @Nullable final Thread.UncaughtExceptionHandler uncaughtExceptionHandler);
 }
