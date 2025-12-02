@@ -27,9 +27,7 @@ public record LongRange(long start, long end) implements Comparable<LongRange> {
      */
     public LongRange {
         // Special case: allow both start and end to be -1 for clean state initialization
-        if (start == -1 && end == -1) {
-            throw new IllegalArgumentException("Both start and end should not be -1 simultaneously.");
-        } else {
+        if (!(start == -1 && end == -1)) {
             if (start < 0) {
                 throw new IllegalArgumentException("Range start must be non-negative: " + start);
             }
