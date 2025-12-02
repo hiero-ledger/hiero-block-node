@@ -3,13 +3,24 @@ package org.hiero.block.tools.days.subcommands;
 
 import java.io.File;
 import java.nio.file.Path;
+import java.time.Instant;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.time.ZoneOffset;
 import java.time.temporal.ChronoUnit;
+import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
-import java.util.concurrent.ThreadLocalRandom;
+import java.util.Map;
+import java.util.Random;
+import java.util.Set;
+import java.util.TreeSet;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.stream.Collectors;
 import org.hiero.block.tools.days.download.DownloadConstants;
 import org.hiero.block.tools.days.model.TarZstdDayReaderUsingExec;
 import org.hiero.block.tools.days.model.TarZstdDayUtils;
+import org.hiero.block.tools.records.RecordFileDates;
 import org.hiero.block.tools.records.model.unparsed.UnparsedRecordBlock;
 import org.hiero.block.tools.utils.gcp.MainNetBucket;
 import picocli.CommandLine.Command;
@@ -17,15 +28,21 @@ import picocli.CommandLine.Option;
 
 /**
  * Randomly samples (date, hour) combinations and compares:
- *  - number of signature files reported by Signature Validation listing
- *  - number of local signature files in downloadedDays directory
+ *  <ul>
+ *    <li>number of signature files reported by the GCP mainnet bucket listing (via {@link MainNetBucket#listHour(long, boolean)})</li>
+ *    <li>number of local signature files derived from compressed day {@code .tar.zst} archives</li>
+ *  </ul>
  *
- * For each sample, it prints a per-timestamp table:
+ * For each sampled (date, hour) it prints a per-timestamp table of signature counts:
  *
+ * <pre>
  *   Timestamp                  gcpSig   localSig  diff
- *   2019-09-13T21_53_51.396440Z  1        1        0
- *   2019-09-13T21_54_12.123456Z  2        1        1 MISMATCH
+ *   2019-09-13T21:53:51Z         1        1        OK
+ *   2019-09-13T21:54:12Z         2        1        MISMATCH
+ * </pre>
  *
+ * where each timestamp represents a record file start time. Only summary counts are printed; the
+ * underlying file paths are not shown in the output.
  */
 @Command(
         name = "sig-validation-ls",
@@ -33,6 +50,8 @@ import picocli.CommandLine.Option;
 public class SignatureValidationListingCommand implements Runnable {
 
     private static final int MAX_SAMPLES = 20;
+    private static final int MIN_NODE_ACCOUNT_ID = 3;
+    private static final int MAX_NODE_ACCOUNT_ID = 37;
 
     @Option(
             names = "--samples",
@@ -52,12 +71,6 @@ public class SignatureValidationListingCommand implements Runnable {
     private File[] compressedDayOrDaysDirs = new File[0];
 
     @Option(
-            names = "--show-ls",
-            description = "Show full list of GCP/local record files per node/hour",
-            defaultValue = "false")
-    private boolean showLs;
-
-    @Option(
             names = {"-c", "--cache-dir"},
             description = "Directory for GCS cache (default: data/gcp-cache)",
             defaultValue = "data/gcp-cache")
@@ -75,38 +88,44 @@ public class SignatureValidationListingCommand implements Runnable {
     private String userProject = DownloadConstants.GCP_PROJECT_ID;
 
     /**
-     * GCP mainnet bucket helper; assumed to have:
-     *  - listHour(LocalDate date, boolean includeSidecars)
+     * GCP mainnet bucket helper.
+     * Uses {@link MainNetBucket#listHour(long, boolean)} where the first argument is a block time
+     * in nanoseconds since stream start (derived from a UTC {@link Instant}).
      */
     private MainNetBucket mainNetBucket;
-
-    private static int minNodeAccountId = 3;
-    private static int maxNodeAccountId = 37;
 
     @Override
     public void run() {
         try {
             if (mainNetBucket == null) {
                 mainNetBucket = new MainNetBucket(
-                        cacheEnabled, cacheDir.toPath(), minNodeAccountId, maxNodeAccountId, userProject);
+                        cacheEnabled, cacheDir.toPath(), MIN_NODE_ACCOUNT_ID, MAX_NODE_ACCOUNT_ID, userProject);
             }
-            if (compressedDayOrDaysDirs == null) {
-                throw new IllegalArgumentException("--compressed-day-or-days must be provided");
+            if (compressedDayOrDaysDirs == null || compressedDayOrDaysDirs.length == 0) {
+                throw new IllegalArgumentException("--compressed-day-or-days must be provided and not empty");
             }
 
             validateInputs();
 
             System.out.printf("Sampling %d (day, hour) slots between %s and %s%n", samples, startDate, endDate);
 
-            long daysRange = ChronoUnit.DAYS.between(startDate, endDate) + 1;
+            final LocalDateTime startDateTime = startDate.atStartOfDay();
+            final LocalDateTime endDateTimeExclusive = endDate.plusDays(1).atStartOfDay();
+            final long totalHours = ChronoUnit.HOURS.between(startDateTime, endDateTimeExclusive);
 
-            for (int i = 0; i < samples; i++) {
-                long dayOffset = ThreadLocalRandom.current().nextLong(daysRange);
-                LocalDate sampleDate = startDate.plusDays(dayOffset);
-                int hour = ThreadLocalRandom.current().nextInt(24);
-
-                handleSample(i + 1, sampleDate, hour, null);
+            if (totalHours <= 0) {
+                throw new IllegalArgumentException("Date range must cover at least one hour");
             }
+
+            AtomicInteger sampleIndex = new AtomicInteger(1);
+
+            new Random()
+                    .longs(0, totalHours)
+                    .distinct()
+                    .limit(samples)
+                    .mapToObj(startDateTime::plusHours)
+                    .sorted()
+                    .forEach(dt -> handleSample(sampleIndex.getAndIncrement(), dt.toLocalDate(), dt.getHour()));
 
         } catch (Exception e) {
             System.err.println("Error during sig-validation-ls: " + e.getMessage());
@@ -114,41 +133,24 @@ public class SignatureValidationListingCommand implements Runnable {
         }
     }
 
-    private void handleSample(
-            final int sampleIndex,
-            final LocalDate sampleDate,
-            final int hour,
-            final java.util.concurrent.ExecutorService executor)
-            throws java.util.concurrent.ExecutionException, InterruptedException {
+    private void handleSample(final int sampleIndex, final LocalDate sampleDate, final int hour) {
 
         System.out.printf("%n=== Sample %d: date=%s hour=%02d ===%n", sampleIndex, sampleDate, hour);
 
         // Always compare GCP vs local signature counts for this hour
         HourResult result = compareHour(sampleDate, hour);
 
-        System.out.printf("Matching record timestamps: %d%n", result.sameCount);
-        if (result.diffs.isEmpty()) {
+        System.out.printf("Matching record timestamps: %d%n", result.sameCount());
+        if (result.diffs().isEmpty()) {
             System.out.println("All signature counts match for this hour.");
             return;
         }
 
         System.out.printf("%-27s %-8s %-9s %-5s%n", "Timestamp", "gcpSig", "localSig", "diff");
-        for (PerTimestampDiff d : result.diffs) {
-            int diff = d.gcpCount - d.localCount;
+        for (PerTimestampDiff d : result.diffs()) {
+            long diff = d.gcpCount() - d.localCount();
             String status = (diff == 0) ? "OK" : "MISMATCH";
-            System.out.printf("%-27s %-8d %-9d %-5s%n", d.timestamp, d.gcpCount, d.localCount, status);
-            if (!d.gcpFiles.isEmpty()) {
-                System.out.println("  GCP sig files:");
-                for (String file : d.gcpFiles) {
-                    System.out.println("    " + file);
-                }
-            }
-            if (!d.localFiles.isEmpty()) {
-                System.out.println("  Local sig files:");
-                for (String file : d.localFiles) {
-                    System.out.println("    " + file);
-                }
-            }
+            System.out.printf("%-27s %-8d %-9d %-5s%n", d.timestamp(), d.gcpCount(), d.localCount(), status);
         }
     }
 
@@ -165,171 +167,128 @@ public class SignatureValidationListingCommand implements Runnable {
         }
     }
 
-    private boolean isRecordName(String name) {
-        return name.endsWith(".rcd") || name.endsWith(".rcd.gz");
-    }
-
     private boolean isSignatureName(String name) {
         return name.endsWith(".rcd_sig");
     }
 
     /**
-     * Build a summary of record timestamp -> count of signature files in GCP
-     * and the list of underlying GCP signature file paths for a given date and hour.
+     * Build a summary of record start time -> count of signature files in GCP for a given
+     * (date, hour).
      *
-     * The key is the record timestamp (e.g. "2019-09-13T21_53_51.396440Z"),
-     * derived from the ".rcd_sig" file name.
+     * The key is the record time as an {@link Instant}, derived from the record file name via
+     * {@link RecordFileDates#extractRecordFileTime(String)}. Only signature objects
+     * ({@code *.rcd_sig}) are considered.
      */
-    protected SigSummary buildGcpSigSummary(LocalDate date, int hour) {
-        java.util.Map<String, Integer> counts = new java.util.HashMap<>();
-        java.util.Map<String, java.util.List<String>> filesByTimestamp = new java.util.HashMap<>();
-        final String hourToken = date + "T" + String.format("%02d", hour) + "_";
+    protected Map<Instant, Long> buildGcpSigSummary(LocalDate date, int hour) {
+        Map<Instant, Long> blockTimeToCount = new HashMap<>();
 
         try {
-            // Scan the whole day and then filter to the hour, as requested in review.
-            var chainFilesList = mainNetBucket.listHour(date.toEpochDay(), false);
+            // Convert (date, hour) into a block time in nanos since stream start (2019),
+            // then ask MainNetBucket for that hour's listing.
+            Instant instant = date.atTime(hour, 0).toInstant(ZoneOffset.UTC);
+            long blockTimeNanos = RecordFileDates.instantToBlockTimeLong(instant);
 
-            chainFilesList.stream()
+            blockTimeToCount = mainNetBucket.listHour(blockTimeNanos, false).stream()
                     .map(cf -> cf.path())
-                    .filter(path -> path.contains(hourToken))
-                    .filter(this::isSignatureName) // ".rcd_sig" only
-                    .forEach(path -> {
-                        String fileName = extractFileName(path);
-                        // Strip ".rcd_sig" suffix to get the record timestamp key.
-                        String tsKey = fileName.substring(0, fileName.length() - ".rcd_sig".length());
-                        counts.merge(tsKey, 1, Integer::sum);
-                        filesByTimestamp
-                                .computeIfAbsent(tsKey, k -> new java.util.ArrayList<>())
-                                .add(path);
-                    });
+                    .filter(this::isSignatureName)
+                    .collect(Collectors.groupingBy(
+                            RecordFileDates::extractRecordFileTime, // Extract block time
+                            Collectors.counting() // Count occurrences
+                            ));
+
         } catch (Exception e) {
             System.err.printf("Error listing GCP signatures for date=%s hour=%02d: %s%n", date, hour, e.getMessage());
         }
 
-        return new SigSummary(counts, filesByTimestamp);
+        return blockTimeToCount;
     }
 
     /**
-     * Build a summary of record timestamp -> count of signature files in the local compressed days
-     * and the list of underlying local signature file names for a given date and hour.
+     * Build a summary of record start time -> count of signature files in the local compressed
+     * day archives for a given (date, hour).
+     *
+     * The local counts are derived from {@link UnparsedRecordBlock} entries streamed from
+     * {@code .tar.zst} files; only entries whose {@link UnparsedRecordBlock#recordFileTime()}
+     * falls within the requested (date, hour) in UTC are included.
      */
-    protected SigSummary buildLocalSigSummary(LocalDate date, int hour) {
-        java.util.Map<String, Integer> counts = new java.util.HashMap<>();
-        java.util.Map<String, java.util.List<String>> filesByTimestamp = new java.util.HashMap<>();
+    protected Map<Instant, Long> buildLocalSigSummary(LocalDate date, int hour) {
+        Map<Instant, Long> blockTimeToCount = new HashMap<>();
 
-        // Use compressed day .tar.zst files to derive local signature counts per record timestamp.
-        // We mirror the pattern from the Ls command: stream UnparsedRecordBlock entries and filter by time prefix.
-        final String timePrefix = date + "T" + String.format("%02d", hour);
-
+        // Use compressed day .tar.zst files to derive local signature counts per record time.
         final List<Path> dayPaths = TarZstdDayUtils.sortedDayPaths(compressedDayOrDaysDirs);
         for (Path dayFile : dayPaths) {
             try (var stream = TarZstdDayReaderUsingExec.streamTarZstd(dayFile)) {
-                stream.filter((UnparsedRecordBlock set) -> set.recordFileTime() != null
-                                && set.recordFileTime().toString().startsWith(timePrefix))
+                stream.filter((UnparsedRecordBlock set) -> set.recordFileTime() != null)
                         .forEach((UnparsedRecordBlock set) -> {
-                            // recordFileTime() gives us the logical timestamp key
-                            String tsKey = set.recordFileTime().toString();
-                            int signatureFileCount = set.signatureFiles().size();
-                            counts.merge(tsKey, signatureFileCount, Integer::sum);
+                            Instant recordTime = set.recordFileTime();
 
-                            // Track individual local signature files for this timestamp
-                            for (var sig : set.signatureFiles()) {
-                                filesByTimestamp
-                                        .computeIfAbsent(tsKey, k -> new java.util.ArrayList<>())
-                                        .add(sig.toString());
+                            // Ensure we only count entries for the requested date + hour.
+                            var zdt = recordTime.atZone(ZoneOffset.UTC);
+                            if (!zdt.toLocalDate().equals(date) || zdt.getHour() != hour) {
+                                return;
                             }
+
+                            long signatureFileCount = set.signatureFiles().size();
+                            blockTimeToCount.merge(recordTime, signatureFileCount, Long::sum);
                         });
             } catch (Exception e) {
                 System.err.println("Error reading local compressed day file " + dayFile + ": " + e.getMessage());
             }
         }
 
-        return new SigSummary(counts, filesByTimestamp);
+        return blockTimeToCount;
     }
 
     /**
-     * Compare GCP vs local signature counts for a given hour, grouped by record timestamp.
+     * Compare GCP vs local signature counts for a given (date, hour), grouped by record start
+     * time.
+     *
+     * Timestamps that appear in only one of the sources (GCP or local) are always treated as
+     * mismatches. A timestamp is counted as "same" only when it is present in both maps and the
+     * counts are exactly equal.
+     *
+     * @param date the UTC calendar date to inspect
+     * @param hour the hour-of-day (0-23) within that date
+     * @return an {@link HourResult} containing the number of matching timestamps and a list of
+     *         per-timestamp differences where GCP and local counts diverge
      */
     protected HourResult compareHour(LocalDate date, int hour) {
-        // NOTE: --skip-local-compare currently ignored; always comparing GCP vs local as per review feedback.
-        SigSummary gcpSummary = buildGcpSigSummary(date, hour);
-        java.util.Map<String, Integer> gcpCounts = gcpSummary.counts;
-        java.util.Map<String, java.util.List<String>> gcpFilesByTimestamp = gcpSummary.filesByTimestamp;
+        Map<Instant, Long> gcpCounts = buildGcpSigSummary(date, hour);
+        Map<Instant, Long> localCounts = buildLocalSigSummary(date, hour);
 
-        SigSummary localSummary = buildLocalSigSummary(date, hour);
-        java.util.Map<String, Integer> localCounts = localSummary.counts;
-        java.util.Map<String, java.util.List<String>> localFilesByTimestamp = localSummary.filesByTimestamp;
-
-        java.util.Set<String> allKeys = new java.util.TreeSet<>();
+        // Union of all timestamps present in either source
+        Set<Instant> allKeys = new TreeSet<>();
         allKeys.addAll(gcpCounts.keySet());
         allKeys.addAll(localCounts.keySet());
 
         int same = 0;
-        java.util.List<PerTimestampDiff> diffs = new java.util.ArrayList<>();
+        List<PerTimestampDiff> diffs = new ArrayList<>();
 
-        for (String ts : allKeys) {
-            java.util.List<String> gcpFilesForTs = gcpFilesByTimestamp.getOrDefault(ts, java.util.List.of());
-            java.util.List<String> localFilesForTs = localFilesByTimestamp.getOrDefault(ts, java.util.List.of());
-            int gcp = gcpCounts.getOrDefault(ts, 0);
-            int local = localCounts.getOrDefault(ts, 0);
+        for (Instant ts : allKeys) {
+            boolean inGcp = gcpCounts.containsKey(ts);
+            boolean inLocal = localCounts.containsKey(ts);
+
+            long gcp = gcpCounts.getOrDefault(ts, 0L);
+            long local = localCounts.getOrDefault(ts, 0L);
+
+            // If a timestamp exists only on one side, it is always a mismatch.
+            if (!inGcp || !inLocal) {
+                diffs.add(new PerTimestampDiff(ts, gcp, local));
+                continue;
+            }
+
+            // When present in both, only counts that are exactly equal are considered "same".
             if (gcp == local) {
                 same++;
             } else {
-                diffs.add(new PerTimestampDiff(ts, gcp, local, gcpFilesForTs, localFilesForTs));
+                diffs.add(new PerTimestampDiff(ts, gcp, local));
             }
         }
 
         return new HourResult(date, hour, same, diffs);
     }
 
-    private String extractFileName(String path) {
-        int idx = path.lastIndexOf('/');
-        return idx >= 0 ? path.substring(idx + 1) : path;
-    }
+    static final record PerTimestampDiff(Instant timestamp, long gcpCount, long localCount) {}
 
-    static final class SigSummary {
-        final java.util.Map<String, Integer> counts;
-        final java.util.Map<String, java.util.List<String>> filesByTimestamp;
-
-        protected SigSummary(
-                java.util.Map<String, Integer> counts, java.util.Map<String, java.util.List<String>> filesByTimestamp) {
-            this.counts = counts;
-            this.filesByTimestamp = filesByTimestamp;
-        }
-    }
-
-    static final class PerTimestampDiff {
-        final String timestamp;
-        final int gcpCount;
-        final int localCount;
-        final java.util.List<String> gcpFiles;
-        final java.util.List<String> localFiles;
-
-        private PerTimestampDiff(
-                String timestamp,
-                int gcpCount,
-                int localCount,
-                java.util.List<String> gcpFiles,
-                java.util.List<String> localFiles) {
-            this.timestamp = timestamp;
-            this.gcpCount = gcpCount;
-            this.localCount = localCount;
-            this.gcpFiles = gcpFiles;
-            this.localFiles = localFiles;
-        }
-    }
-
-    static final class HourResult {
-        final LocalDate date;
-        final int hour;
-        final int sameCount;
-        final java.util.List<PerTimestampDiff> diffs;
-
-        private HourResult(LocalDate date, int hour, int sameCount, java.util.List<PerTimestampDiff> diffs) {
-            this.date = date;
-            this.hour = hour;
-            this.sameCount = sameCount;
-            this.diffs = diffs;
-        }
-    }
+    static final record HourResult(LocalDate date, int hour, int sameCount, List<PerTimestampDiff> diffs) {}
 }
