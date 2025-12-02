@@ -2,6 +2,7 @@
 package org.hiero.block.node.backfill;
 
 import static java.lang.System.Logger.Level.INFO;
+import static java.lang.System.Logger.Level.TRACE;
 
 import com.hedera.pbj.runtime.ParseException;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
@@ -149,7 +150,7 @@ public class BackfillGrpcClient {
         }
 
         LOGGER.log(
-                INFO,
+                TRACE,
                 "Determined block range from peer blocks nodes earliestPeerBlock={0,number,#} to latestStoredBlockNumber={1,number,#}",
                 earliestPeerBlock,
                 latestPeerBlock);

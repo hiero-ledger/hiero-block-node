@@ -293,7 +293,7 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
                         && detectedRecentGapRange.overlaps(
                                 new LongRange(onDemandBackfillStartBlock.get(), onDemandBackfillEndBlock.get()))) {
                     detectedRecentGapRange = new LongRange(
-                            Math.max(onDemandBackfillStartBlock.get(), detectedRecentGapRange.start()),
+                            Math.max(onDemandBackfillEndBlock.get() + 1, detectedRecentGapRange.start()),
                             detectedRecentGapRange.end());
                 }
 
