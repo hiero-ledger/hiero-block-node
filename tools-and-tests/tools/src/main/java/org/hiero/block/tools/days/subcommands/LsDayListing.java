@@ -50,10 +50,11 @@ public class LsDayListing implements Runnable {
         // group by RecordFile.block and process each group
         final Map<LocalDateTime, List<ListingRecordFile>> filesByBlock =
                 allDaysFiles.stream().collect(Collectors.groupingBy(ListingRecordFile::timestamp));
+        // sort by block time
+        List<LocalDateTime> sortedBlockTimes = filesByBlock.keySet().stream().sorted().toList();
         // print all groups
-        for (var entry : filesByBlock.entrySet()) {
-            final LocalDateTime blockTime = entry.getKey();
-            final List<ListingRecordFile> filesInBlock = entry.getValue();
+        for (final LocalDateTime blockTime : sortedBlockTimes) {
+            final List<ListingRecordFile> filesInBlock = filesByBlock.get(blockTime);
             System.out.println(" Block time: " + blockTime + " (" + filesInBlock.size() + " files)");
             for (ListingRecordFile file : filesInBlock) {
                 System.out.println("  - " + file.path() + " | size: " + file.sizeBytes() + " | md5: " + file.md5Hex());
