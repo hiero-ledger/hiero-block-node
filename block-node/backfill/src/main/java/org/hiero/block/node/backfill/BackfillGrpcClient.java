@@ -158,7 +158,7 @@ public class BackfillGrpcClient {
         if (latestStoredBlockNumber + 1 < earliestPeerBlock
                 || latestStoredBlockNumber > latestPeerBlock
                 || latestStoredBlockNumber + 1 > latestPeerBlock) {
-            return new LongRange(-1, -1);
+            return null;
         }
 
         LOGGER.log(

@@ -39,4 +39,4 @@ public record BackfillConfiguration(
         @Loggable @ConfigProperty(defaultValue = "1000") @Min(500) int perBlockProcessingTimeout,
         @Loggable @ConfigProperty(defaultValue = "60000") @Min(10000) int grpcOverallTimeout,
         @Loggable @ConfigProperty(defaultValue = "false") boolean enableTLS,
-        @Loggable @ConfigProperty(defaultValue = "true") boolean greedy) {}
+        @Loggable @ConfigProperty(defaultValue = "false") boolean greedy) {}

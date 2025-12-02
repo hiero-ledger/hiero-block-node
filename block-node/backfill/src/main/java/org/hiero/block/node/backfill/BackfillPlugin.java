@@ -291,7 +291,7 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
                 // if on-demand backfill is running, we need to adjust the detected recent gap range
             }
 
-            if (detectedRecentGapRange.size() > 0 && detectedRecentGapRange.start() >= 0) {
+            if (detectedRecentGapRange != null && detectedRecentGapRange.size() > 0 && detectedRecentGapRange.start() >= 0) {
                 detectedGaps.add(detectedRecentGapRange);
 
                 // backfill recent gaps first to prioritize staying close to the network
@@ -579,7 +579,7 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
             try {
                 // Skip if greedy autonomous backfill is greedy is more aggressive and will like cover more blocks
                 if (isAutonomousBackfillRunning() && backfillConfiguration.greedy()) {
-                    LOGGER.log(TRACE, "Autonomous backfill is running, skipping on-demand gap detection");
+                    LOGGER.log(TRACE, "Greedy autonomous backfill is running, skipping on-demand gap detection");
                     return;
                 }
 

@@ -135,6 +135,7 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, BlockingExecutor
         // Config Override
         Map<String, String> configOverride = BackfillConfigBuilder.NewBuilder()
                 .backfillSourcePath(blockNodeSourcesPath)
+                .greedy(true)
                 .fetchBatchSize(100)
                 .initialDelay(500) // start quickly
                 .build();
@@ -350,7 +351,7 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, BlockingExecutor
         // config override for test
         final Map<String, String> configOverride = BackfillConfigBuilder.NewBuilder()
                 .backfillSourcePath(backfillSourcePath)
-                .greedy(false)
+                .greedy(true)
                 .build();
 
         // create a historical block facility for the plugin (should have a GAP)
@@ -410,7 +411,6 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, BlockingExecutor
         // config override for test
         final Map<String, String> configOverride = BackfillConfigBuilder.NewBuilder()
                 .backfillSourcePath(backfillSourcePath)
-                .greedy(false)
                 .initialDelay(100) // start quickly
                 .scanInterval(500000) // scan every 500 seconds
                 .build();
@@ -501,6 +501,7 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, BlockingExecutor
         // config override for test
         final Map<String, String> configOverride = BackfillConfigBuilder.NewBuilder()
                 .backfillSourcePath(backfillSourcePath)
+                .greedy(true)
                 .initialDelay(100) // start quickly
                 .scanInterval(500000) // scan every 500 seconds
                 .build();
@@ -605,7 +606,6 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, BlockingExecutor
         // config override
         Map<String, String> config = BackfillConfigBuilder.NewBuilder()
                 .backfillSourcePath(backfillSourcePath)
-                .greedy(false)
                 .initialDelay(100) // start quickly
                 .scanInterval(500000) // scan every 500 seconds
                 .build();
@@ -695,6 +695,7 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, BlockingExecutor
         // config override
         Map<String, String> config = BackfillConfigBuilder.NewBuilder()
                 .backfillSourcePath(backfillSourcePath)
+                .greedy(true)
                 .initialDelay(100) // start quickly
                 .scanInterval(50000) // scan every 50 seconds
                 .build();
