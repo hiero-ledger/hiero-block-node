@@ -7,7 +7,6 @@ import java.time.LocalDate;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.concurrent.ThreadLocalRandom;
-
 import org.hiero.block.tools.days.download.DownloadConstants;
 import org.hiero.block.tools.days.model.TarZstdDayReaderUsingExec;
 import org.hiero.block.tools.days.model.TarZstdDayUtils;
@@ -80,6 +79,7 @@ public class SignatureValidationListingCommand implements Runnable {
      *  - listHour(LocalDate date, boolean includeSidecars)
      */
     private MainNetBucket mainNetBucket;
+
     private static int minNodeAccountId = 3;
     private static int maxNodeAccountId = 37;
 
@@ -115,7 +115,10 @@ public class SignatureValidationListingCommand implements Runnable {
     }
 
     private void handleSample(
-            final int sampleIndex, final LocalDate sampleDate, final int hour, final java.util.concurrent.ExecutorService executor)
+            final int sampleIndex,
+            final LocalDate sampleDate,
+            final int hour,
+            final java.util.concurrent.ExecutorService executor)
             throws java.util.concurrent.ExecutionException, InterruptedException {
 
         System.out.printf("%n=== Sample %d: date=%s hour=%02d ===%n", sampleIndex, sampleDate, hour);
@@ -133,9 +136,7 @@ public class SignatureValidationListingCommand implements Runnable {
         for (PerTimestampDiff d : result.diffs) {
             int diff = d.gcpCount - d.localCount;
             String status = (diff == 0) ? "OK" : "MISMATCH";
-            System.out.printf(
-                    "%-27s %-8d %-9d %-5s%n",
-                    d.timestamp, d.gcpCount, d.localCount, status);
+            System.out.printf("%-27s %-8d %-9d %-5s%n", d.timestamp, d.gcpCount, d.localCount, status);
             if (!d.gcpFiles.isEmpty()) {
                 System.out.println("  GCP sig files:");
                 for (String file : d.gcpFiles) {
@@ -202,8 +203,7 @@ public class SignatureValidationListingCommand implements Runnable {
                                 .add(path);
                     });
         } catch (Exception e) {
-            System.err.printf(
-                    "Error listing GCP signatures for date=%s hour=%02d: %s%n", date, hour, e.getMessage());
+            System.err.printf("Error listing GCP signatures for date=%s hour=%02d: %s%n", date, hour, e.getMessage());
         }
 
         return new SigSummary(counts, filesByTimestamp);
@@ -224,9 +224,8 @@ public class SignatureValidationListingCommand implements Runnable {
         final List<Path> dayPaths = TarZstdDayUtils.sortedDayPaths(compressedDayOrDaysDirs);
         for (Path dayFile : dayPaths) {
             try (var stream = TarZstdDayReaderUsingExec.streamTarZstd(dayFile)) {
-                stream.filter((UnparsedRecordBlock set) ->
-                                set.recordFileTime() != null
-                                        && set.recordFileTime().toString().startsWith(timePrefix))
+                stream.filter((UnparsedRecordBlock set) -> set.recordFileTime() != null
+                                && set.recordFileTime().toString().startsWith(timePrefix))
                         .forEach((UnparsedRecordBlock set) -> {
                             // recordFileTime() gives us the logical timestamp key
                             String tsKey = set.recordFileTime().toString();
@@ -293,8 +292,7 @@ public class SignatureValidationListingCommand implements Runnable {
         final java.util.Map<String, java.util.List<String>> filesByTimestamp;
 
         protected SigSummary(
-            java.util.Map<String, Integer> counts,
-            java.util.Map<String, java.util.List<String>> filesByTimestamp) {
+                java.util.Map<String, Integer> counts, java.util.Map<String, java.util.List<String>> filesByTimestamp) {
             this.counts = counts;
             this.filesByTimestamp = filesByTimestamp;
         }

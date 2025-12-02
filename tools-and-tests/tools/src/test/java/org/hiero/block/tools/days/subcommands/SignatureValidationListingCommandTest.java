@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.tools.days.subcommands;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -43,8 +44,7 @@ class SignatureValidationListingCommandTest {
     }
 
     @Test
-    void compareHour_buildsDiffsAndFileListsCorrectly()
-        throws Exception {
+    void compareHour_buildsDiffsAndFileListsCorrectly() throws Exception {
         LocalDate date = LocalDate.of(2019, 9, 13);
         int hour = 21;
 
@@ -52,36 +52,36 @@ class SignatureValidationListingCommandTest {
         // For ts2, GCP has 3, local has 1 (mismatch)
         // For ts3, only local has sigs (mismatch)
         Map<String, Integer> gcpCounts = Map.of(
-            "2019-09-13T21_53_51.000000Z", 2,
-            "2019-09-13T21_54_00.000000Z", 3);
+                "2019-09-13T21_53_51.000000Z", 2,
+                "2019-09-13T21_54_00.000000Z", 3);
         Map<String, List<String>> gcpFiles = Map.of(
-            "2019-09-13T21_53_51.000000Z",
-            List.of(
-                "recordstreams/record0.0.3/2019-09-13T21_53_51.000000Z.rcd_sig",
-                "recordstreams/record0.0.4/2019-09-13T21_53_51.000000Z.rcd_sig"),
-            "2019-09-13T21_54_00.000000Z",
-            List.of(
-                "recordstreams/record0.0.3/2019-09-13T21_54_00.000000Z.rcd_sig",
-                "recordstreams/record0.0.4/2019-09-13T21_54_00.000000Z.rcd_sig",
-                "recordstreams/record0.0.5/2019-09-13T21_54_00.000000Z.rcd_sig"));
+                "2019-09-13T21_53_51.000000Z",
+                List.of(
+                        "recordstreams/record0.0.3/2019-09-13T21_53_51.000000Z.rcd_sig",
+                        "recordstreams/record0.0.4/2019-09-13T21_53_51.000000Z.rcd_sig"),
+                "2019-09-13T21_54_00.000000Z",
+                List.of(
+                        "recordstreams/record0.0.3/2019-09-13T21_54_00.000000Z.rcd_sig",
+                        "recordstreams/record0.0.4/2019-09-13T21_54_00.000000Z.rcd_sig",
+                        "recordstreams/record0.0.5/2019-09-13T21_54_00.000000Z.rcd_sig"));
 
         Map<String, Integer> localCounts = Map.of(
-            "2019-09-13T21_53_51.000000Z", 2,
-            "2019-09-13T21_54_00.000000Z", 1,
-            "2019-09-13T21_55_00.000000Z", 4);
+                "2019-09-13T21_53_51.000000Z", 2,
+                "2019-09-13T21_54_00.000000Z", 1,
+                "2019-09-13T21_55_00.000000Z", 4);
         Map<String, List<String>> localFiles = Map.of(
-            "2019-09-13T21_53_51.000000Z",
-            List.of(
-                "local-node3-2019-09-13T21_53_51.000000Z.rcd_sig",
-                "local-node4-2019-09-13T21_53_51.000000Z.rcd_sig"),
-            "2019-09-13T21_54_00.000000Z",
-            List.of("local-node3-2019-09-13T21_54_00.000000Z.rcd_sig"),
-            "2019-09-13T21_55_00.000000Z",
-            List.of(
-                "local-node3-2019-09-13T21_55_00.000000Z.rcd_sig",
-                "local-node4-2019-09-13T21_55_00.000000Z.rcd_sig",
-                "local-node5-2019-09-13T21_55_00.000000Z.rcd_sig",
-                "local-node6-2019-09-13T21_55_00.000000Z.rcd_sig"));
+                "2019-09-13T21_53_51.000000Z",
+                List.of(
+                        "local-node3-2019-09-13T21_53_51.000000Z.rcd_sig",
+                        "local-node4-2019-09-13T21_53_51.000000Z.rcd_sig"),
+                "2019-09-13T21_54_00.000000Z",
+                List.of("local-node3-2019-09-13T21_54_00.000000Z.rcd_sig"),
+                "2019-09-13T21_55_00.000000Z",
+                List.of(
+                        "local-node3-2019-09-13T21_55_00.000000Z.rcd_sig",
+                        "local-node4-2019-09-13T21_55_00.000000Z.rcd_sig",
+                        "local-node5-2019-09-13T21_55_00.000000Z.rcd_sig",
+                        "local-node6-2019-09-13T21_55_00.000000Z.rcd_sig"));
 
         // Wire our test command with synthetic summaries
         TestableSignatureValidationListingCommand cmd = new TestableSignatureValidationListingCommand();
@@ -98,9 +98,9 @@ class SignatureValidationListingCommandTest {
 
         // ts2 mismatch (GCP 3, local 1)
         SignatureValidationListingCommand.PerTimestampDiff ts2 = result.diffs.stream()
-            .filter(d -> d.timestamp.equals("2019-09-13T21_54_00.000000Z"))
-            .findFirst()
-            .orElseThrow();
+                .filter(d -> d.timestamp.equals("2019-09-13T21_54_00.000000Z"))
+                .findFirst()
+                .orElseThrow();
         assertEquals(3, ts2.gcpCount);
         assertEquals(1, ts2.localCount);
         assertEquals(gcpFiles.get("2019-09-13T21_54_00.000000Z"), ts2.gcpFiles);
@@ -108,9 +108,9 @@ class SignatureValidationListingCommandTest {
 
         // ts3 mismatch (GCP 0, local 4)
         SignatureValidationListingCommand.PerTimestampDiff ts3 = result.diffs.stream()
-            .filter(d -> d.timestamp.equals("2019-09-13T21_55_00.000000Z"))
-            .findFirst()
-            .orElseThrow();
+                .filter(d -> d.timestamp.equals("2019-09-13T21_55_00.000000Z"))
+                .findFirst()
+                .orElseThrow();
         assertEquals(0, ts3.gcpCount);
         assertEquals(4, ts3.localCount);
         assertTrue(ts3.gcpFiles.isEmpty());
