@@ -1,8 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
-package org.hiero.block.tools.blocks.model;
+package org.hiero.block.tools.blocks.model.hashing;
 
 import static org.hiero.block.tools.utils.Sha384.sha384Digest;
 
+import java.io.DataInputStream;
+import java.io.DataOutputStream;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.security.MessageDigest;
 import java.util.LinkedList;
 import java.util.List;
@@ -14,7 +18,7 @@ import java.util.List;
  * added to the tree.
  * <p>This is not thread safe, it is assumed use by single thread.</p>
  */
-public class StreamingHasher {
+public class StreamingHasher implements Hasher {
     /** Prefix byte for hash contents for leaf nodes. */
     private static final byte[] LEAF_PREFIX = new byte[] {0};
     /** Prefix byte for hash contents for internal nodes. */
@@ -43,10 +47,48 @@ public class StreamingHasher {
     }
 
     /**
+     * Save the current hashing state to a binary file.
+     *
+     * @param filePath the path to the file where the state will be saved
+     * @throws Exception if an I/O error occurs
+     */
+    @Override
+    public void save(Path filePath) throws Exception {
+        try (DataOutputStream out = new DataOutputStream(Files.newOutputStream(filePath))) {
+            out.writeLong(leafCount);
+            out.writeInt(hashList.size());
+            for (byte[] hash : hashList) { // we know all hashes are 48 bytes
+                out.write(hash);
+            }
+        }
+    }
+
+    /**
+     * Load the hashing state from a binary file.
+     *
+     * @param filePath the path to the file from which the state will be loaded
+     * @throws Exception if an I/O error occurs
+     */
+    @Override
+    public void load(Path filePath) throws Exception {
+        try (DataInputStream din = new DataInputStream(Files.newInputStream(filePath))) {
+            leafCount = din.readLong();
+            int hashCount = din.readInt();
+            hashList.clear();
+            for (int i = 0; i < hashCount; i++) {
+                byte[] hash = new byte[48]; // SHA-384 produces 48-byte hashes
+                din.readFully(hash);
+                hashList.add(hash);
+            }
+        }
+    }
+
+    /**
      * Add a new leaf to the Merkle tree.
      *
      * @param data the data for the new leaf
      */
+    @Override
     public void addLeaf(byte[] data) {
         final long i = leafCount;
         final byte[] e = hashLeaf(data);
@@ -65,6 +107,7 @@ public class StreamingHasher {
      *
      * @return the Merkle tree root hash
      */
+    @Override
     public byte[] computeRootHash() {
         byte[] merkleRootHash = hashList.getLast();
         for (int i = hashList.size() - 2; i >= 0; i--) {
@@ -87,6 +130,7 @@ public class StreamingHasher {
      *
      * @return the number of leaves
      */
+    @Override
     public long leafCount() {
         return leafCount;
     }

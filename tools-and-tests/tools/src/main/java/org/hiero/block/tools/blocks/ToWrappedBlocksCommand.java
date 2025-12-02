@@ -17,6 +17,7 @@ import java.nio.file.Path;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicLong;
@@ -197,7 +198,7 @@ public class ToWrappedBlocksCommand implements Runnable {
                 System.out.println(Ansi.AUTO.string("@|yellow Resuming from block:|@ " + highestStoredBlockNumber
                         + " @|yellow at|@ " + resumeStatus.lastProcessedBlockTime));
             }
-
+            // Print highest stored block time
             final Instant highestStoredBlockTime = highestStoredBlockNumber == -1
                     ? Instant.EPOCH
                     : blockTimeReader.getBlockInstant(highestStoredBlockNumber);
@@ -213,14 +214,27 @@ public class ToWrappedBlocksCommand implements Runnable {
             final LocalDate startBlockDate = startBlockDateTime.toLocalDate();
             System.out.println(Ansi.AUTO.string("@|yellow Starting from day:|@ " + startBlockDate));
 
-            // load day paths from the input directory, filtering to just ones newer than the startBlockDate
+            // load day paths from the input directory, filtering to just ones newer than the startBlockDate and sorting
             final List<Path> dayPaths = TarZstdDayUtils.sortedDayPaths(new File[] {compressedDaysDir.toFile()}).stream()
                     .filter(p -> {
                         final LocalDate fileDate =
                                 LocalDate.parse(p.getFileName().toString().substring(0, 10));
                         return fileDate.isEqual(startBlockDate) || fileDate.isAfter(startBlockDate);
                     })
+                    .sorted(Comparator.comparingLong(
+                            p -> LocalDate.parse(p.getFileName().toString().substring(0, 10))
+                                    .toEpochDay()))
                     .toList();
+            // print range of days to be processed
+            if (dayPaths.isEmpty()) {
+                System.out.println(Ansi.AUTO.string("@|yellow No day files to process after:|@ " + startBlockDate));
+                return;
+            } else {
+                System.out.println(Ansi.AUTO.string("@|yellow Processing day files from|@ "
+                        + dayPaths.getFirst().getFileName().toString().substring(0, 10)
+                        + " @|yellow to|@ "
+                        + dayPaths.getLast().getFileName().toString().substring(0, 10)));
+            }
 
             // Progress tracking setup
             final long startNanos = System.nanoTime();
@@ -271,12 +285,27 @@ public class ToWrappedBlocksCommand implements Runnable {
                             .forEach(recordBlock -> {
                                 try {
                                     final long blockNum = blockCounter.getAndIncrement();
+                                    // double-check the blockNum matches one from recordBlock
+                                    final long blockNumberFromRecordFile = recordBlock
+                                            .recordFile()
+                                            .recordStreamFile()
+                                            .blockNumber();
+                                    if (blockNumberFromRecordFile > 0 && blockNum != blockNumberFromRecordFile) {
+                                        throw new RuntimeException("Block number mismatch at "
+                                                + recordBlock.blockTime()
+                                                + " in "
+                                                + dayPath
+                                                + ": computed blockNum "
+                                                + blockNum
+                                                + " != record file block number "
+                                                + blockNumberFromRecordFile);
+                                    }
                                     // get the block time
                                     final Instant blockTime = blockTimeReader.getBlockInstant(blockNum);
                                     // Convert record file block to wrapped block. We pass zero hashes for previous/root
                                     // TODO Rocky we need to get rid of experimental block, I added experimental to
-                                    // change API
-                                    //  locally, We need to push those changes up stream to HAPI lib then pull latest.
+                                    //  change API locally, We need to push those changes up stream to HAPI lib then
+                                    //  pull latest.
                                     final com.hedera.hapi.block.stream.experimental.Block wrappedExp =
                                             RecordBlockConverter.toBlock(
                                                     recordBlock,
