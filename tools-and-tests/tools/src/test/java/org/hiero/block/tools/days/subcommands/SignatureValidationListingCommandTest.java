@@ -32,7 +32,7 @@ class SignatureValidationListingCommandTest {
     }
 
     @Test
-    void compareHour_buildsDiffsAndCountsCorrectly() {
+    void compareHourBuildsDiffsAndCountsCorrectly() {
         LocalDate date = LocalDate.of(2019, 9, 13);
         int hour = 21;
 
