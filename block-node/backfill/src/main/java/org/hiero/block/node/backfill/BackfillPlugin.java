@@ -224,7 +224,7 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
                 backfillConfiguration.initialDelay());
 
         scheduler = context.threadPoolManager()
-                .createVirtualThreadScheduledExecutor(
+                .createVirtualThreadScheduledThreadPool(
                         2, // Two threads: one for autonomous backfill, one for on-demand backfill
                         "BackfillPluginRunner",
                         (t, e) -> LOGGER.log(ERROR, "Uncaught exception in thread: " + t.getName(), e));
@@ -286,10 +286,7 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
             detectedGaps = new ArrayList<>();
             LongRange detectedRecentGapRange = backfillGrpcClientAutonomous.getNewAvailableRange(lastAcknowledgedBlock);
 
-            // to-do: consider on-demand backfill range and remove from detectedRecentGapRange if overlapping
-            if (isOnDemandBackfillRunning()) {
-                // if on-demand backfill is running, we need to adjust the detected recent gap range
-            }
+            // to-do: check if on-demand is running and remove overlapping range from detectedRecentGapRange
 
             if (detectedRecentGapRange != null
                     && detectedRecentGapRange.size() > 0

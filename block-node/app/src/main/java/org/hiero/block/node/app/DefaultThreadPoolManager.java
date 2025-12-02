@@ -102,7 +102,25 @@ final class DefaultThreadPoolManager implements ThreadPoolManager {
      */
     @NonNull
     @Override
-    public ScheduledExecutorService createVirtualThreadScheduledExecutor(
+    public ScheduledExecutorService createVirtualThreadSingleThreadScheduledExecutor(
+            @Nullable final String threadName,
+            @Nullable final Thread.UncaughtExceptionHandler uncaughtExceptionHandler) {
+        return createVirtualThreadScheduledExecutor(1, threadName, uncaughtExceptionHandler);
+    }
+
+    /**
+     * {@inheritDoc}
+     */
+    @NonNull
+    @Override
+    public ScheduledExecutorService createVirtualThreadScheduledThreadPool(
+            int corePoolSize,
+            @Nullable final String threadName,
+            @Nullable final Thread.UncaughtExceptionHandler uncaughtExceptionHandler) {
+        return createVirtualThreadScheduledExecutor(corePoolSize, threadName, uncaughtExceptionHandler);
+    }
+
+    private ScheduledExecutorService createVirtualThreadScheduledExecutor(
             int corePoolSize,
             @Nullable final String threadName,
             @Nullable final Thread.UncaughtExceptionHandler uncaughtExceptionHandler) {
