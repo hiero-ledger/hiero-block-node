@@ -1,9 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.tools.blocks.model.hashing;
 
-import static org.hiero.block.tools.blocks.model.hashing.Hasher.INTERNAL_NODE_PREFIX;
-import static org.hiero.block.tools.blocks.model.hashing.Hasher.LEAF_PREFIX;
-import static org.junit.jupiter.api.Assertions.*;
+import static org.hiero.block.tools.blocks.model.hashing.HashingUtils.INTERNAL_NODE_PREFIX;
+import static org.hiero.block.tools.blocks.model.hashing.HashingUtils.LEAF_PREFIX;
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;

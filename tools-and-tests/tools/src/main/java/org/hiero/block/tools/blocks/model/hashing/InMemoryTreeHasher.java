@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.tools.blocks.model.hashing;
 
+import static org.hiero.block.tools.blocks.model.hashing.HashingUtils.hashInternalNode;
+import static org.hiero.block.tools.blocks.model.hashing.HashingUtils.hashLeaf;
 import static org.hiero.block.tools.utils.Sha384.SHA_384_HASH_SIZE;
 import static org.hiero.block.tools.utils.Sha384.sha384Digest;
 
@@ -70,7 +72,7 @@ public class InMemoryTreeHasher implements Hasher {
     @Override
     public void addLeaf(byte[] data) {
         // Hash the leaf data
-        byte[] leafHash = hashLeaf(data);
+        byte[] leafHash = hashLeaf(digest, data);
 
         // Add to level 0 (leaves)
         int leafIndex = levels.getFirst().size();
@@ -92,7 +94,7 @@ public class InMemoryTreeHasher implements Hasher {
             byte[] leftHash = levels.get(left[0]).get(left[1]);
 
             // Compute parent hash
-            byte[] parentHash = hashInternalNode(leftHash, rightHash);
+            byte[] parentHash = hashInternalNode(digest, leftHash, rightHash);
 
             // Add to the next level
             int parentLevel = right[0] + 1;
@@ -147,7 +149,7 @@ public class InMemoryTreeHasher implements Hasher {
         for (int i = pendingSubtreeRoots.size() - 2; i >= 0; i--) {
             int[] left = pendingSubtreeRoots.get(i);
             byte[] leftHash = levels.get(left[0]).get(left[1]);
-            accumulated = hashInternalNode(leftHash, accumulated);
+            accumulated = hashInternalNode(digest, leftHash, accumulated);
         }
 
         return accumulated;
@@ -229,7 +231,7 @@ public class InMemoryTreeHasher implements Hasher {
             if (rightAccumulated == null) {
                 rightAccumulated = rootHash;
             } else {
-                rightAccumulated = hashInternalNode(rootHash, rightAccumulated);
+                rightAccumulated = hashInternalNode(digest, rootHash, rightAccumulated);
             }
         }
 
@@ -408,30 +410,6 @@ public class InMemoryTreeHasher implements Hasher {
                 pendingSubtreeRoots.add(new int[] {level, index});
             }
         }
-    }
-
-    /**
-     * Hash a leaf node with the appropriate prefix.
-     *
-     * @param leafData the data of the leaf
-     * @return the hash of the leaf node
-     */
-    private byte[] hashLeaf(final byte[] leafData) {
-        digest.update(LEAF_PREFIX);
-        return digest.digest(leafData);
-    }
-
-    /**
-     * Hash an internal node by combining the hashes of its two children with the appropriate prefix.
-     *
-     * @param firstChild the hash of the first child
-     * @param secondChild the hash of the second child
-     * @return the hash of the internal node
-     */
-    private byte[] hashInternalNode(final byte[] firstChild, final byte[] secondChild) {
-        digest.update(INTERNAL_NODE_PREFIX);
-        digest.update(firstChild);
-        return digest.digest(secondChild);
     }
 
     /**

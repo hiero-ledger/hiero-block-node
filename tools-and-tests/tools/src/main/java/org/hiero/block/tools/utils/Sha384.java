@@ -9,6 +9,8 @@ import java.security.MessageDigest;
 public class Sha384 {
     /** The size of an SHA-384 hash in bytes */
     public static final int SHA_384_HASH_SIZE = 48;
+    /** A constant representing a zeroed SHA-384 hash */
+    public static final byte[] ZERO_HASH = new byte[SHA_384_HASH_SIZE];
 
     /**
      * Compute the SHA-384 hash of the provided data.
