@@ -225,7 +225,7 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
 
         scheduler = context.threadPoolManager()
                 .createVirtualThreadScheduledExecutor(
-                        2, // Two threads: one for autonomous backfill, one for on-demand backfill
+                        2, // Two threads, one for autonomous backfill, one for on-demand backfill
                         "BackfillPluginRunner",
                         (t, e) -> LOGGER.log(INFO, "Uncaught exception in thread: " + t.getName(), e));
 
