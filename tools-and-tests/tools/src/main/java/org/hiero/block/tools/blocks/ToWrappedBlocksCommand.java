@@ -4,6 +4,7 @@ package org.hiero.block.tools.blocks;
 import static java.nio.file.StandardOpenOption.CREATE;
 import static java.nio.file.StandardOpenOption.TRUNCATE_EXISTING;
 import static org.hiero.block.tools.blocks.model.BlockWriter.maxStoredBlockNumber;
+import static org.hiero.block.tools.blocks.model.hashing.BlockStreamBlockHasher.hashBlock;
 import static org.hiero.block.tools.mirrornode.DayBlockInfo.loadDayBlockInfoMap;
 
 import com.google.gson.Gson;
@@ -79,10 +80,6 @@ public class ToWrappedBlocksCommand implements Runnable {
         Status(long lastProcessedBlockNumber, String lastProcessedBlockTime) {
             this.lastProcessedBlockNumber = lastProcessedBlockNumber;
             this.lastProcessedBlockTime = lastProcessedBlockTime;
-        }
-
-        Instant blockInstant() {
-            return Instant.parse(lastProcessedBlockTime);
         }
 
         private static void writeStatusFile(Path statusFile, Status s) {
@@ -354,8 +351,9 @@ public class ToWrappedBlocksCommand implements Runnable {
                                         System.exit(1);
                                     }
                                     // add block hash to merkle tree hashers
-                                    // TODO                                   byte[] blockHash =
-                                    // wrappedExp.hash().toByteArray();
+                                    byte[] blockHash = hashBlock(wrappedExp, streamingHasher.computeRootHash());
+                                    streamingHasher.addLeaf(blockHash);
+                                    inMemoryTreeHasher.addLeaf(blockHash);
 
                                     // Update progress tracking
                                     blocksProcessed.incrementAndGet();
