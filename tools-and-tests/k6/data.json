@@ -1,7 +1,7 @@
 {
     "configs": [{
         "blockNodeUrl": "localhost:40840",
-        "protobufPath": "./../block-node-protobuf-0.23.1",
+        "protobufPath": "./../k6-proto",
         "smokeTestConfigs": {
             "numOfBlocksToStream": 10
         }

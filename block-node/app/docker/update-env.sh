@@ -5,15 +5,15 @@
 
 if [ $# -lt 1 ]; then
   # <VERSION> is required!
-  echo "USAGE: $0 <VERSION> [DEBUG] [SMOKE_TEST]"
+  echo "USAGE: $0 <VERSION> [DEBUG] [CI]"
   exit 1
 fi
 
 project_version=$1
 # determine if we should include debug opts
 [ "$2" = true ] && is_debug=true || is_debug=false
-# determine if we should include smoke test env variables
-[ "$3" = true ] && is_smoke_test=true || is_smoke_test=false
+# determine if we should include CI test env variables
+[ "$3" = true ] && is_ci=true || is_ci=false
 
 echo "VERSION=$project_version" > .env
 echo "REGISTRY_PREFIX=" >> .env
@@ -22,8 +22,8 @@ echo "BLOCKNODE_STORAGE_ROOT_PATH=/opt/hiero/block-node/storage" >> .env
 
 echo "BACKFILL_BLOCK_NODE_SOURCES_PATH=/opt/hiero/block-node/backfill/backfill-sources.json" >> .env
 
-if [ true = "$is_smoke_test" ]; then
-  # add smoke test variables
+if [ true = "$is_ci" ]; then
+  # add CI test variables
   echo "JAVA_OPTS='-Xms4G -Xmx4G'" >> .env
 else
   # Set the production default values
