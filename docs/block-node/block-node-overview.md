@@ -31,7 +31,7 @@ Before diving deeper, familiarize yourself with these core concepts:
 - Tier 1 Block Node – A Block Node that receives block streams directly from Consensus Nodes and typically provides reconnect/state snapshot services back to the network.
 - Tier 2+ Block Node – A Block Node that receives block streams from one or more upstream Block Nodes (Tier 1 or Tier 2) and is permissionless to operate.
 
-## Role in the Hedera Network
+## Role in the Hiero Network
 
 Block Nodes act as the trusted historians and data providers for the Hedera network. They receive block streams from Consensus Nodes, verify that each block and its data are correct, and store these blocks along with the current state of the network. By doing so, Block Nodes replace old methods of storing network data in centralized cloud buckets and instead make this data reliably available in a decentralized way.
 
