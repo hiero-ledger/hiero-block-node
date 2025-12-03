@@ -14,30 +14,77 @@ import java.util.LinkedList;
 import java.util.List;
 
 /**
- * A class that computes a Merkle tree root hash in a streaming fashion. It supports adding leaves one by one and
- * computes the root hash without storing the entire tree in memory. It uses SHA-384 as the hashing algorithm and
- * follows the prefixing scheme for leaves and internal nodes. Leaves can be optionally double-hashed before being
- * added to the tree.
- * <p>This is not thread safe, it is assumed use by single thread.</p>
+ * A memory-efficient Merkle tree hasher that computes root hashes in a streaming fashion.
+ *
+ * <p>This implementation follows the Streaming Binary Merkle Tree algorithm from the Block & State
+ * Merkle Tree Design specification. It supports adding leaves one at a time and computes the root
+ * hash without storing the entire tree in memory.
+ *
+ * <h2>Algorithm Overview</h2>
+ * <p>The streaming algorithm maintains a compact list of "pending subtree roots" representing
+ * incomplete portions of the tree. As each leaf is added:
+ * <ol>
+ *   <li>The leaf is hashed with prefix {@code 0x00}</li>
+ *   <li>Whenever two sibling nodes are complete, they are immediately combined into an
+ *       internal node with prefix {@code 0x02}</li>
+ *   <li>This folding propagates upward until no more pairs can be combined</li>
+ * </ol>
+ *
+ * <h2>Memory Efficiency</h2>
+ * <p>For a tree with n leaves, only O(log n) intermediate hashes are stored. Specifically,
+ * the number of pending subtree roots equals {@code Integer.bitCount(leafCount)}.
+ *
+ * <h2>Example: Building a 5-leaf tree</h2>
+ * <pre>
+ * Step 1: Add L0     → hashList: [L0]
+ * Step 2: Add L1     → L0+L1 pair → NodeA = hash(0x02 || L0 || L1)
+ *                    → hashList: [NodeA]
+ * Step 3: Add L2     → hashList: [NodeA, L2]
+ * Step 4: Add L3     → L2+L3 pair → NodeB
+ *                    → NodeA+NodeB pair → NodeC
+ *                    → hashList: [NodeC]
+ * Step 5: Add L4     → hashList: [NodeC, L4]
+ * Root: hash(0x02 || NodeC || L4)
+ * </pre>
+ *
+ * <h2>Persistence</h2>
+ * <p>The intermediate state can be saved and loaded, allowing tree construction to be
+ * paused and resumed across process restarts.
+ *
+ * <h2>Thread Safety</h2>
+ * <p>This class is NOT thread-safe. It is designed for single-threaded use.
+ *
+ * @see Hasher
+ * @see InMemoryTreeHasher
+ * @see HashingUtils
  */
 public class StreamingHasher implements Hasher {
-    /** The hashing algorithm used for computing the hashes. */
+    /** SHA-384 message digest for computing all hashes. */
     private final MessageDigest digest;
-    /** A list to store intermediate hashes as we build the tree. */
+
+    /**
+     * List of pending subtree root hashes (the "working list" from the design doc).
+     *
+     * <p>These represent complete subtrees waiting to be paired with siblings.
+     * The size of this list equals {@code Integer.bitCount(leafCount)}.
+     */
     private final LinkedList<byte[]> hashList = new LinkedList<>();
-    /** The count of leaves in the tree. */
+
+    /** The number of leaves added to the tree so far. */
     private long leafCount = 0;
 
-    /** Create a new StreamingHasher with an empty state. */
+    /** Creates a new StreamingHasher with an empty state. */
     public StreamingHasher() {
         digest = sha384Digest();
     }
 
     /**
-     * Create a StreamingHasher with an existing intermediate hashing state.
-     * This allows resuming hashing from a previous state.
+     * Creates a StreamingHasher initialized with existing intermediate hashing state.
      *
-     * @param intermediateHashingState the intermediate hashing state
+     * <p>This allows resuming hashing from a previously saved state. Note that the leaf count
+     * is NOT restored by this constructor; use {@link #load(Path)} for full state restoration.
+     *
+     * @param intermediateHashingState the list of pending subtree root hashes
      */
     public StreamingHasher(List<byte[]> intermediateHashingState) {
         this();
@@ -45,7 +92,14 @@ public class StreamingHasher implements Hasher {
     }
 
     /**
-     * Save the current hashing state to a binary file.
+     * Saves the current hashing state to a binary file.
+     *
+     * <p>File format:
+     * <ul>
+     *   <li>8 bytes: leaf count (long)</li>
+     *   <li>4 bytes: hash count (int)</li>
+     *   <li>48 bytes × hash count: the pending subtree root hashes</li>
+     * </ul>
      *
      * @param filePath the path to the file where the state will be saved
      * @throws Exception if an I/O error occurs
@@ -55,17 +109,17 @@ public class StreamingHasher implements Hasher {
         try (DataOutputStream out = new DataOutputStream(Files.newOutputStream(filePath))) {
             out.writeLong(leafCount);
             out.writeInt(hashList.size());
-            for (byte[] hash : hashList) { // we know all hashes are 48 bytes
+            for (byte[] hash : hashList) { // all hashes are 48 bytes (SHA-384)
                 out.write(hash);
             }
         }
     }
 
     /**
-     * Load the hashing state from a binary file.
+     * Loads the hashing state from a binary file, replacing any current state.
      *
      * @param filePath the path to the file from which the state will be loaded
-     * @throws Exception if an I/O error occurs
+     * @throws Exception if an I/O error occurs or the file format is invalid
      */
     @Override
     public void load(Path filePath) throws Exception {
@@ -82,15 +136,21 @@ public class StreamingHasher implements Hasher {
     }
 
     /**
-     * Add a new leaf to the Merkle tree.
+     * Adds a new leaf to the Merkle tree.
      *
-     * @param data the data for the new leaf
+     * <p>The leaf data is hashed with prefix {@code 0x00}, then the streaming fold-up
+     * algorithm combines any complete sibling pairs into internal nodes.
+     *
+     * <p>Time complexity: O(log n) hash operations in the worst case, O(1) amortized.
+     *
+     * @param data the raw data for the new leaf
      */
     @Override
     public void addLeaf(byte[] data) {
         final long i = leafCount;
         final byte[] e = hashLeaf(digest, data);
         hashList.add(e);
+        // Fold up: combine sibling pairs while the current position is odd
         for (long n = i; (n & 1L) == 1; n >>= 1) {
             final byte[] y = hashList.removeLast();
             final byte[] x = hashList.removeLast();
@@ -100,14 +160,21 @@ public class StreamingHasher implements Hasher {
     }
 
     /**
-     * Compute the Merkle tree root hash from the current state. This does not modify the internal state, so can be
-     * called at any time and more leaves can be added afterward.
+     * Computes the Merkle tree root hash from the current state.
      *
-     * @return the Merkle tree root hash
+     * <p>This method folds all pending subtree roots from right to left to produce
+     * the final root hash. The internal state is not modified, so more leaves can
+     * be added after calling this method.
+     *
+     * <p>Time complexity: O(log n) where n is the leaf count.
+     *
+     * @return the 48-byte SHA-384 Merkle tree root hash
+     * @throws java.util.NoSuchElementException if no leaves have been added
      */
     @Override
     public byte[] computeRootHash() {
         byte[] merkleRootHash = hashList.getLast();
+        // Fold remaining pending roots from right to left
         for (int i = hashList.size() - 2; i >= 0; i--) {
             merkleRootHash = hashInternalNode(digest, hashList.get(i), merkleRootHash);
         }
@@ -115,18 +182,21 @@ public class StreamingHasher implements Hasher {
     }
 
     /**
-     * Get the current intermediate hashing state. This can be used to save the state and resume hashing later.
+     * Returns the current intermediate hashing state (pending subtree roots).
      *
-     * @return the intermediate hashing state
+     * <p>This can be used to inspect or save the state for later resumption.
+     * The returned list is the internal list, not a copy.
+     *
+     * @return the list of pending subtree root hashes
      */
     public List<byte[]> intermediateHashingState() {
         return hashList;
     }
 
     /**
-     * Get the number of leaves added to the tree so far.
+     * Returns the number of leaves added to the tree so far.
      *
-     * @return the number of leaves
+     * @return the leaf count (0 or more)
      */
     @Override
     public long leafCount() {
