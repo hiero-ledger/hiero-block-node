@@ -25,6 +25,8 @@ import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Stream;
 import org.hiero.block.tools.blocks.model.BlockArchiveType;
 import org.hiero.block.tools.blocks.model.BlockWriter;
+import org.hiero.block.tools.blocks.model.hashing.InMemoryTreeHasher;
+import org.hiero.block.tools.blocks.model.hashing.StreamingHasher;
 import org.hiero.block.tools.days.model.AddressBookRegistry;
 import org.hiero.block.tools.days.model.TarZstdDayReaderUsingExec;
 import org.hiero.block.tools.days.model.TarZstdDayUtils;
@@ -248,6 +250,18 @@ public class ToWrappedBlocksCommand implements Runnable {
             // Track the last reported minute to avoid spamming progress output
             final AtomicLong lastReportedMinute = new AtomicLong(Long.MIN_VALUE);
 
+            // create Streaming and In Memory Merkle Tree hashers and load state if files exist
+            final Path streamingMerkleTreeFile = outputBlocksDir.resolve("streamingMerkleTree.bin");
+            final StreamingHasher streamingHasher = new StreamingHasher();
+            if (Files.exists(streamingMerkleTreeFile)) {
+                streamingHasher.load(streamingMerkleTreeFile);
+            }
+            final Path inMemoryMerkleTreeFile = outputBlocksDir.resolve("completeMerkleTree.bin");
+            final InMemoryTreeHasher inMemoryTreeHasher = new InMemoryTreeHasher();
+            if (Files.exists(inMemoryMerkleTreeFile)) {
+                inMemoryTreeHasher.load(inMemoryMerkleTreeFile);
+            }
+
             // Register shutdown hook to persist last good status on JVM exit (Ctrl+C, etc.)
             Runtime.getRuntime()
                     .addShutdownHook(new Thread(
@@ -258,6 +272,17 @@ public class ToWrappedBlocksCommand implements Runnable {
                                     Status.writeStatusFile(statusFile, s);
                                     System.err.println("Shutdown: address book to " + addressBookFile);
                                     addressBookRegistry.saveAddressBookRegistryToJsonFile(addressBookFile);
+                                    // write merkle tree states
+                                    try {
+                                        streamingHasher.save(streamingMerkleTreeFile);
+                                        inMemoryTreeHasher.save(inMemoryMerkleTreeFile);
+                                        System.err.println("Shutdown: saved merkle tree states. To "
+                                                + streamingMerkleTreeFile + " and " + inMemoryMerkleTreeFile);
+                                    } catch (Exception e) {
+                                        System.err.println(
+                                                "Failed to save merkle tree states on shutdown: " + e.getMessage());
+                                        e.printStackTrace();
+                                    }
                                 }
                             },
                             "wrap-shutdown-hook"));
@@ -328,6 +353,9 @@ public class ToWrappedBlocksCommand implements Runnable {
                                         e.printStackTrace();
                                         System.exit(1);
                                     }
+                                    // add block hash to merkle tree hashers
+                                    // TODO                                   byte[] blockHash =
+                                    // wrappedExp.hash().toByteArray();
 
                                     // Update progress tracking
                                     blocksProcessed.incrementAndGet();

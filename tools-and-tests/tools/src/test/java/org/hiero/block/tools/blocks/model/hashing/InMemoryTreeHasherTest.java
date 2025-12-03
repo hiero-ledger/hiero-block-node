@@ -274,9 +274,13 @@ class InMemoryTreeHasherTest {
 
         // Verify sibling hashes match the stored leaf hashes
         assertArrayEquals(
-                hasher.getHash(0, 1), path0.getFirst().siblingHash(), "Leaf 0's sibling hash should equal Leaf 1's hash");
+                hasher.getHash(0, 1),
+                path0.getFirst().siblingHash(),
+                "Leaf 0's sibling hash should equal Leaf 1's hash");
         assertArrayEquals(
-                hasher.getHash(0, 0), path1.getFirst().siblingHash(), "Leaf 1's sibling hash should equal Leaf 0's hash");
+                hasher.getHash(0, 0),
+                path1.getFirst().siblingHash(),
+                "Leaf 1's sibling hash should equal Leaf 0's hash");
     }
 
     /**
