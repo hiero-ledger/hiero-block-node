@@ -96,7 +96,7 @@ The diagram above illustrates the complete data flow:
 Block Node operators are responsible for:
 
 - Keeping their Block Node online, monitored, and synchronized with the latest network state.
-- Managing storage and retention for blocks, sidecars, and state snapshots.
+- Managing storage and retention for blocks and state snapshots.
 - Securing access to APIs and infrastructure, including authentication, authorization, and network boundaries.
 - Applying software upgrades in line with Hedera/Hiero releases and block node compatibility guidance.
 - Choosing and configuring which services to expose (streaming, random access, proofs, reconnect/state snapshots) for their consumers.
