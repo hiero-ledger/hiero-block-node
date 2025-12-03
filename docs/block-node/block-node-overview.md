@@ -64,7 +64,7 @@ Block Nodes provide several core services that turn block streams into reliable,
 | Tier 2          | Receive from Tier 1/Tier 2; permissionless.                      | Community, enterprises              | Streaming, proofs, geographic redundancy.                               |
 | Full-History    | Retain genesis-to-present history in hot/online storage.         | Any                                 | Random-access queries, full historical streams.                         |
 | Partial-History | Store only recent blocks (e.g., 30-90 days).                     | Cost-optimized                      | Recent-data streaming, light storage footprint.                         |
-| Archive         | Move verified blocks/state to cold or long-term storage.         | Compliance / archival providers     | Disaster recovery, regulatory retention, bootstrapping very old states. |
+| Archive         | Move verified blocks/state to cold or long-term storage.         | Compliance / archival providers     | Disaster recovery, regulatory retention. |
 
 ## High-Level Architecture
 
