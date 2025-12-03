@@ -77,7 +77,7 @@ Block Nodes follow a modular design, receiving **block streams**, verifying inte
 
 Block Nodes fan out block streams to Mirror Nodes and Tier 2+ Block Nodes while also serving reconnect and state snapshot services back to Consensus Nodes, creating a scalable data availability layer between consensus and downstream consumers.
 
-![block-node-network-architecture](./../assets/block-node-network-architecture.svg)
+![block-node-network-architecture](../../assets/block-node-network-architecture.svg)
 
 ### How Data Flows Through the Network
 
