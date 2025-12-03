@@ -15,11 +15,13 @@ import com.hedera.pbj.runtime.io.buffer.Bytes;
 import java.util.List;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.LinkedBlockingQueue;
 import java.util.function.Function;
 import java.util.stream.Stream;
 import org.hiero.block.api.SubscribeStreamRequest;
 import org.hiero.block.api.SubscribeStreamResponse;
 import org.hiero.block.api.SubscribeStreamResponse.Code;
+import org.hiero.block.node.app.fixtures.async.ScheduledBlockingExecutor;
 import org.hiero.block.node.app.fixtures.blocks.SimpleTestBlockItemBuilder;
 import org.hiero.block.node.app.fixtures.plugintest.GrpcPluginTestBase;
 import org.hiero.block.node.app.fixtures.plugintest.SimpleInMemoryHistoricalBlockFacility;
@@ -67,7 +69,7 @@ class SubscriberServicePluginTest {
      */
     @Nested
     @DisplayName("Plugin Tests")
-    class PluginTests extends GrpcPluginTestBase<SubscriberServicePlugin, ExecutorService> {
+    class PluginTests extends GrpcPluginTestBase<SubscriberServicePlugin, ExecutorService, ScheduledBlockingExecutor> {
         // SETUP
         private final SimpleInMemoryHistoricalBlockFacility historicalBlockFacility;
 
@@ -76,7 +78,7 @@ class SubscriberServicePluginTest {
          * Sets up environment for testing.
          */
         PluginTests() {
-            super(Executors.newSingleThreadExecutor());
+            super(Executors.newSingleThreadExecutor(), new ScheduledBlockingExecutor(new LinkedBlockingQueue<>()));
             final SubscriberServicePlugin toTest = new SubscriberServicePlugin();
             historicalBlockFacility = new SimpleInMemoryHistoricalBlockFacility();
             start(toTest, toTest.methods().getFirst(), historicalBlockFacility);

@@ -22,6 +22,7 @@ import java.util.concurrent.atomic.AtomicIntegerArray;
 import java.util.concurrent.locks.LockSupport;
 import java.util.stream.IntStream;
 import org.hiero.block.node.app.fixtures.async.BlockingExecutor;
+import org.hiero.block.node.app.fixtures.async.ScheduledBlockingExecutor;
 import org.hiero.block.node.app.fixtures.async.TestThreadPoolManager;
 import org.hiero.block.node.messaging.BlockMessagingFacilityImpl;
 import org.hiero.block.node.messaging.MessagingConfig;
@@ -51,13 +52,15 @@ public class BlockNotificationTest {
             TestConfig.getConfig().getConfigData(MessagingConfig.class).blockNotificationQueueSize();
 
     /** The thread pool manager to use when testing */
-    private TestThreadPoolManager<BlockingExecutor> threadPoolManager;
+    private TestThreadPoolManager<BlockingExecutor, ScheduledBlockingExecutor> threadPoolManager;
 
     private BlockNodeContext context;
 
     @BeforeEach
     void setup() {
-        threadPoolManager = new TestThreadPoolManager<>(new BlockingExecutor(new LinkedBlockingQueue<>()));
+        threadPoolManager = new TestThreadPoolManager<>(
+                new BlockingExecutor(new LinkedBlockingQueue<>()),
+                new ScheduledBlockingExecutor(new LinkedBlockingQueue<>()));
         context = TestConfig.generateContext(threadPoolManager);
     }
 
