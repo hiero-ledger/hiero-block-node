@@ -1,6 +1,6 @@
 # Solo Weaver Single Node Kubernetes Deployment Guide
 
-# Overview
+## Overview
 
 This guide explains how to deploy the Hiero Block Node on a Google Cloud Platform (GCP) virtual machine (VM) using the Solo Weaver tool.
 The Block Node supports the Hiero network by processing and validating consensus node produced blocks amongst others features.
@@ -10,7 +10,7 @@ This guide walks you through creating the VM, uploading the Weaver binary to it,
 
 While this guide focuses on GCP, node operators can deploy the Block Node on any cloud provider of their choice by following equivalent provisioning and deployment steps.
 
-# Prerequisites
+## Prerequisites
 
 Before you begin, ensure you have:
 
@@ -20,9 +20,9 @@ Before you begin, ensure you have:
   - **`weaver-linux-arm64`** for ARM-based VMs.
 - The **`gcloud`** CLI installed and authenticated (if using Google Cloud).
 
-# Step-by-Step Guide
+## Step-by-Step Guide
 
-## Step 1: Create a Google Cloud VM
+### Step 1: Create a Google Cloud VM
 
 1. In the [**Google Cloud Console**](https://console.cloud.google.com/), click **Select a project** at the top of the page.
 2. Choose an existing project. If you don’t have a project, click **New project** in the popup window and follow the prompts to create one.
@@ -36,7 +36,7 @@ Before you begin, ensure you have:
 8. Click **Create** to launch the VM.
 9. Wait until the instance status is **Running** before proceeding.
 
-## Step 2: Upload Weaver to the VM
+### Step 2: Upload Weaver to the VM
 
 1. Download the appropriate Weaver binary to your local machine (see [Prerequisites](https://www.notion.so/Hiero-Block-Node-Cloud-Deployment-Guide-2b77c9ab259180fa9cc0e111cf9f77d0?pvs=21) for the correct file).
 2. In the Google Cloud Console, open your VM’s details page.
@@ -60,7 +60,7 @@ Before you begin, ensure you have:
 7. Run the command to upload the file.
 8. When complete, the Weaver binary will be available on your VM at the specified path. (e.g., at **`/home/<USER>/weaver`).**
 
-## Step 3: Connect to VM and Prepare Weaver
+### Step 3: Connect to VM and Prepare Weaver
 
 1. SSH into your VM:
    - Use the **SSH** button in the Google Cloud Console (browser window), or
@@ -88,29 +88,60 @@ Before you begin, ensure you have:
 
    If the binary runs and prints usage or help text, Weaver is correctly installed on the VM.
 
-## Step 4: Create the **`weaver`** User
+### Step 4: Create the **`weaver`** User
 
-1. Run the Block Node setup command with **`sudo`** and the desired profile (choose one of: **`local`**, **`testnet`**, **`previewnet`**, **`mainnet`**):
+1. Run the Block Node install command with **`sudo`** and the desired profile (choose one of: **`local`**, **`testnet`**, **`previewnet`**, **`mainnet`**):
 
    ```bash
-   sudo ./weaver-linux-amd64 blocknode setup -p <profile>
+   sudo ./weaver-linux-amd64 block node install -p <profile>
    ```
 
-   *(Replace **`<profile>`** with the desired value, e.g., **`local`** for test deployments. For ARM, use **`weaver-linux-arm64`** instead.)*
+   *(Replace **`<profile>`** with the desired value. For ARM, use **`weaver-linux-arm64`** instead.)*
 
-2. The command will fail and print instructions to create a **`weaver`** system user and group.
+2. The first run will fail and print instructions to create the **`weaver`** system user and group with specific UID/GID.
 
    - Copy the **`groupadd`** and **`useradd`** commands shown in the output.
    - Run them exactly as printed, including specific user/group ID numbers.
 3. After creating the **`weaver`** user and group, re-run the setup command:
 
    ```bash
-   sudo ./weaver-linux-amd64 blocknode setup -p <profile>
+   sudo ./weaver-linux-amd64 blocknode install -p <profile>
    ```
 
 Once complete, Weaver will be able to manage Kubernetes resources on your VM using the dedicated **`weaver`** system user.
 
-## Step 5: Run Block Node Setup with the Local Profile
+**Additional Options (v0.3.0+):**
+
+- **Custom Helm values**: **`-values <path-to-values.yaml>`**
+
+  ```bash
+  sudo ./weaver-linux-amd64 blocknode install -p local --values my-values.yaml
+  ```
+- **Custom configuration**: **`-config <path-to-config.yaml>`**
+
+  ```bash
+  sudo ./weaver-linux-amd64 blocknode install -p local --values my-values.yaml --config config.yaml
+  ```
+
+  **Example `config.yaml`:**
+
+  ```bash
+  log:
+     level: debug
+     consoleLogging: true
+     fileLogging: false
+  blockNode:
+     namespace: "block-node"
+     release: "block-node"
+     chart: "oci://ghcr.io/hiero-ledger/hiero-block-node/block-node-server"
+     version: "0.22.1"
+     storage:
+        basePath: "/mnt/fast-storage"
+  ```
+
+**Note:** **`blocknode setup`** is **deprecated**. Use **`blocknode install`** for all Weaver v0.3.0+ deployments [**Solo Weaver v0.3.0**](https://github.com/hashgraph/solo-weaver/releases/tag/v0.3.0).
+
+### Step 5: Run Block Node Setup with the Local Profile
 
 1. Ensure you are on the VM and the **`weaver`** binary is executable.
 2. Run the Block Node setup with **`sudo`** and the local profile:
@@ -129,7 +160,7 @@ Once complete, Weaver will be able to manage Kubernetes resources on your VM usi
    - Deploy the Block Node Helm chart into the cluster.
 4. The process takes several minutes and will show progress logs in your terminal.
 
-## Step 6: Verify the Block Node Deployment
+### Step 6: Verify the Block Node Deployment
 
 After completing the setup, confirm that your Block Node is deployed and running by checking the Kubernetes cluster:
 
@@ -153,27 +184,25 @@ After completing the setup, confirm that your Block Node is deployed and running
 
 If the pods are running and healthy, your Block Node is successfully installed and running on the Google Cloud VM.
 
-## Step 7: Test Block Node Accessibility with grpcurl
+### Step 7: Test Block Node Accessibility with grpcurl
 
 1. **Install grpcurl** using the package manager of your system:
-    - Debian/Ubuntu: **`apt-get install grpcurl`**
-    - macOS: **`brew install grpcurl`**
-    - Other systems: Download from [**grpcurl releases**](https://github.com/fullstorydev/grpcurl/releases)
+   - Debian/Ubuntu: **`apt-get install grpcurl`**
+   - macOS: **`brew install grpcurl`**
+   - Other systems: Download from [**grpcurl releases**](https://github.com/fullstorydev/grpcurl/releases)
 2. **Download the latest protobuf files** from the official release:
-    
-    ```bash
-    curl -LO https://github.com/hiero-ledger/hiero-block-node/releases/latest/download/blocknode.proto
-    ```
-    
+
+   ```bash
+   curl -LO https://github.com/hiero-ledger/hiero-block-node/releases/latest/download/blocknode.proto
+   ```
 3. **Call the `serverStatus` endpoint** to verify the node is accessible:
-    
-    ```bash
-    grpcurl -plaintext -import-path . -proto blocknode.proto localhost:50211 hedera.BlockNodeService.ServerStatus
-    ```
-    
+
+   ```bash
+   grpcurl -plaintext -import-path . -proto blocknode.proto localhost:50211 hedera.BlockNodeService.ServerStatus
+   ```
 4. **Review the output** for status information confirming the node is running and serving requests.
-   
-## Step 8: Deprovisioning and Shutdown
+
+### Step 8: Deprovisioning and Shutdown
 
 If you need to permanently remove a Block Node deployment (for decommissioning, upgrades, or migration):
 
