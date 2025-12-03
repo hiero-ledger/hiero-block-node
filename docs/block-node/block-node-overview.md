@@ -6,7 +6,7 @@ Block Nodes represent a new class of nodes in the Hedera network designed to inc
 
 A Block Node is a special kind of server that keeps a complete, trustworthy copy of what is happening on the Hedera network. It receives a stream of already-agreed blocks from Consensus Nodes, checks that each block is valid, and then stores those blocks and the current network state so they are easy to query later.
 
-Instead of pushing this data into centralized cloud storage, Block Nodes act as a decentralized data layer for the network. They stream blocks to Mirror Nodes and other Block Nodes, answer questions from apps and services about past transactions or current state, and provide cryptographic proofs so users can independently verify that the data is correct.
+Instead of pushing this data into centralized cloud storage, Block Nodes act as a decentralized data layer for the network. They stream blocks to Mirror Nodes and other Block Nodes, answer questions from apps and services about past blocks or current state, and provide cryptographic proofs so users can independently verify that the data is correct.
 
 ## How Block Nodes differ from other nodes
 
