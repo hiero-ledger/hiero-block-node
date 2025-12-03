@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.tools.blocks.model.hashing;
 
+import static org.hiero.block.tools.blocks.model.hashing.HashingUtils.hashInternalNode;
+import static org.hiero.block.tools.blocks.model.hashing.HashingUtils.hashLeaf;
 import static org.hiero.block.tools.utils.Sha384.sha384Digest;
 
 import java.io.DataInputStream;
@@ -19,10 +21,6 @@ import java.util.List;
  * <p>This is not thread safe, it is assumed use by single thread.</p>
  */
 public class StreamingHasher implements Hasher {
-    /** Prefix byte for hash contents for leaf nodes. */
-    private static final byte[] LEAF_PREFIX = new byte[] {0};
-    /** Prefix byte for hash contents for internal nodes. */
-    private static final byte[] INTERNAL_NODE_PREFIX = new byte[] {2};
     /** The hashing algorithm used for computing the hashes. */
     private final MessageDigest digest;
     /** A list to store intermediate hashes as we build the tree. */
@@ -91,12 +89,12 @@ public class StreamingHasher implements Hasher {
     @Override
     public void addLeaf(byte[] data) {
         final long i = leafCount;
-        final byte[] e = hashLeaf(data);
+        final byte[] e = hashLeaf(digest, data);
         hashList.add(e);
         for (long n = i; (n & 1L) == 1; n >>= 1) {
             final byte[] y = hashList.removeLast();
             final byte[] x = hashList.removeLast();
-            hashList.add(hashInternalNode(x, y));
+            hashList.add(hashInternalNode(digest, x, y));
         }
         leafCount++;
     }
@@ -111,7 +109,7 @@ public class StreamingHasher implements Hasher {
     public byte[] computeRootHash() {
         byte[] merkleRootHash = hashList.getLast();
         for (int i = hashList.size() - 2; i >= 0; i--) {
-            merkleRootHash = hashInternalNode(hashList.get(i), merkleRootHash);
+            merkleRootHash = hashInternalNode(digest, hashList.get(i), merkleRootHash);
         }
         return merkleRootHash;
     }
@@ -133,29 +131,5 @@ public class StreamingHasher implements Hasher {
     @Override
     public long leafCount() {
         return leafCount;
-    }
-
-    /**
-     * Hash a leaf node with the appropriate prefix. Optionally double-hash the data before hashing.
-     *
-     * @param leafData the data of the leaf
-     * @return the hash of the leaf node
-     */
-    private byte[] hashLeaf(final byte[] leafData) {
-        digest.update(LEAF_PREFIX);
-        return digest.digest(leafData);
-    }
-
-    /**
-     * Hash an internal node by combining the hashes of its two children with the appropriate prefix.
-     *
-     * @param firstChild the hash of the first child
-     * @param secondChild the hash of the second child
-     * @return the hash of the internal node
-     */
-    private byte[] hashInternalNode(final byte[] firstChild, final byte[] secondChild) {
-        digest.update(INTERNAL_NODE_PREFIX);
-        digest.update(firstChild);
-        return digest.digest(secondChild);
     }
 }
