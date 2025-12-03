@@ -68,7 +68,7 @@ Block Nodes provide several core services that turn block streams into reliable,
 
 ## High-Level Architecture
 
-Block Nodes follow a modular design, receiving **block streams**, verifying integrity using **aggregated signatures** and cryptographic mechanisms defined in related HIPs ([HIP-1200](https://hips.hedera.com/hip/hip-1200) and [HIP-1056](https://hips.hedera.com/hip/hip-1056)), and persisting blocks and state to local disk and remote archives. They provide four core functional layers:
+Block Nodes follow a modular design, receiving **block streams**, verifying integrity using **aggregated signatures** and cryptographic mechanisms defined in related HIPs ([HIP-1200](https://hips.hedera.com/hip/hip-1200) and [HIP-1056](https://hips.hedera.com/hip/hip-1056)), and persisting blocks and state to local disk and remote archives. They may provide four common functions:
 
 - **Block stream ingestion and verification** - Receives block streams from Consensus Nodes and verifies their integrity using aggregated signatures and Merkle proofs.
 - **State maintenance and snapshot generation** - Applies block state changes to maintain an up-to-date view of network state and periodically produces verifiable state snapshots for reconnect and recovery flows.
