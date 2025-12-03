@@ -85,7 +85,7 @@ The diagram above illustrates the complete data flow:
 
 1. **Consensus Nodes produce blocks** - Users submit transactions via gRPC to Consensus Nodes, which reach consensus through hashgraph and produce finalized blocks with block proofs containing aggregated signatures.
 2. **Block Nodes receive and verify** - Tier 1 Block Nodes receive block streams directly from Consensus Nodes, verify block integrity using aggregated signatures (as defined in [HIP-1200](https://hips.hedera.com/hip/hip-1200)), and store verified blocks and state to local disk and remote archives.
-3. **Block Nodes distribute downstream** - Verified block streams fan out to:
+3. **Block Nodes distribute downstream** - block streams fan out to:
    - **Mirror Nodes** - for public REST APIs and explorer services
    - **Tier 2+ Block Nodes** - for geographic redundancy and permissionless participation
    - **Applications** - via gRPC/REST APIs for custom integrations
