@@ -13,7 +13,7 @@ The tests utilize protobuf files specific to the Block Node (BN) application for
 located in the `./tools-and-tests/k6/data.json` file.
 
 The BN protobuf files should be downloaded from the desired [BN Release](https://github.com/hiero-ledger/hiero-block-node/releases) and placed in the `./k6` directory before
-running the tests e.g. `tools-and-tests/k6/block-node-protobuf-0.23.1`.
+running the tests e.g. `tools-and-tests/k6/proto`.
 
 The `data.json` file should be updated to reflect the paths to these
 protobuf files.
@@ -26,7 +26,7 @@ protobuf files.
   {
     "configs": [{
         "blockNodeUrl": "localhost:40840",
-        "protobufPath": "./../block-node-protobuf-0.23.1",
+        "protobufPath": "./../k6-proto",
         ...
     }]
   }
