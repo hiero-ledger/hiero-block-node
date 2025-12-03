@@ -104,7 +104,8 @@ Block Node operators are responsible for:
 ## Benefits for Operators
 
 - Replaces legacy record stream polling with efficient streaming
-- Lower costs via aggregated signatures and no S3 operations
+- Lower costs via local storage and no S3 operations
+- Enhanced confidence via aggregated network signatures and zero-knowledge proofs.
 - Enhanced Mirror Node integration with random-access and proofs
 - Plugin extensibility without forking
 
