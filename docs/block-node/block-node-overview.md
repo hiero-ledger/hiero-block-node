@@ -128,6 +128,7 @@ Use this decision guide to determine which Block Node configuration suits your n
 - You want to participate without special permissions (permissionless).
 - You can receive block streams from existing Tier 1 or Tier 2 Block Nodes.
 - Your focus is on streaming verified data to applications or Mirror Nodes.
+- Your goals include developing and providing value-added services based on block stream data.
 
 **Note:** Tier 2 nodes are truly permissionless—anyone can deploy one without approval or registration. You simply configure your node to connect to one or more existing Block Nodes (Tier 1 or Tier 2) for upstream block streams.
 
