@@ -72,7 +72,7 @@ Block Nodes follow a modular design, receiving **block streams**, verifying inte
 
 - **Block stream ingestion and verification** - Receives block streams from Consensus Nodes and verifies their integrity using aggregated signatures and Merkle proofs.
 - **State maintenance and snapshot generation** - Applies block state changes to maintain an up-to-date view of network state and periodically produces verifiable state snapshots for reconnect and recovery flows.
-- **Durable storage** - Persists blocks, sidecars, and saved states to local disk and optionally to remote archival storage for long-term, tamper-evident history.
+- **Durable storage** - Persists blocks, and saved states to local disk or to remote archival storage for long-term, tamper-evident history.
 - **Data services** - Exposes gRPC/REST APIs providing real-time block streaming, random-access block retrieval, state queries at specific block heights, and cryptographic proofs to Mirror Nodes, other Block Nodes, and applications.
 
 Block Nodes fan out block streams to Mirror Nodes and Tier 2+ Block Nodes while also serving reconnect and state snapshot services back to Consensus Nodes, creating a scalable data availability layer between consensus and downstream consumers.
