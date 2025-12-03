@@ -300,7 +300,7 @@ public class SignatureValidationListingCommand implements Runnable {
         return new HourResult(date, hour, same, diffs);
     }
 
-    final record PerTimestampDiff(Instant timestamp, long gcpCount, long localCount) {}
+    record PerTimestampDiff(Instant timestamp, long gcpCount, long localCount) {}
 
-    final record HourResult(LocalDate date, int hour, int sameCount, List<PerTimestampDiff> diffs) {}
+    record HourResult(LocalDate date, int hour, int sameCount, List<PerTimestampDiff> diffs) {}
 }
