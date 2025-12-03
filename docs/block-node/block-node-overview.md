@@ -45,7 +45,7 @@ Block Nodes provide several core services that turn block streams into reliable,
 
 - Block stream ingestion, verification, and distribution.
 - Cryptographic proofs for transactions and network state.
-- Durable storage of blocks, sidecars, and consensus state.
+- Durable storage of blocks, and consensus state.
 - Real-time and historical data streaming to downstream clients.
 - Random-access retrieval of blocks and state at specific block heights.
 - State snapshots and reconnect services to help Consensus Nodes catch up or recover.
