@@ -14,6 +14,7 @@ import org.hiero.block.internal.BlockItemUnparsed;
 import org.hiero.block.internal.BlockItemUnparsed.ItemOneOfType;
 import org.hiero.block.internal.BlockUnparsed;
 import org.hiero.block.node.app.fixtures.async.BlockingExecutor;
+import org.hiero.block.node.app.fixtures.async.ScheduledBlockingExecutor;
 import org.hiero.block.node.app.fixtures.async.TestThreadPoolManager;
 import org.hiero.block.node.messaging.BlockMessagingFacilityImpl;
 import org.hiero.block.node.spi.BlockNodeContext;
@@ -38,7 +39,7 @@ public class FacilityExceptionTest {
     /** The custom log handler used to capture log messages. */
     private TestLogHandler logHandler;
     /** The thread pool manager to use when testing */
-    private TestThreadPoolManager<BlockingExecutor> threadPoolManager;
+    private TestThreadPoolManager<BlockingExecutor, ScheduledBlockingExecutor> threadPoolManager;
 
     private BlockNodeContext context;
 
@@ -53,7 +54,9 @@ public class FacilityExceptionTest {
         logHandler = new TestLogHandler();
         logger.addHandler(logHandler);
         logger.setLevel(java.util.logging.Level.INFO);
-        threadPoolManager = new TestThreadPoolManager<>(new BlockingExecutor(new LinkedBlockingQueue<>()));
+        threadPoolManager = new TestThreadPoolManager<>(
+                new BlockingExecutor(new LinkedBlockingQueue<>()),
+                new ScheduledBlockingExecutor(new LinkedBlockingQueue<>()));
         context = TestConfig.generateContext(threadPoolManager);
     }
 

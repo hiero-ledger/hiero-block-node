@@ -5,6 +5,7 @@ import edu.umd.cs.findbugs.annotations.NonNull;
 import edu.umd.cs.findbugs.annotations.Nullable;
 import java.util.Objects;
 import java.util.concurrent.ExecutorService;
+import java.util.concurrent.ScheduledExecutorService;
 
 /**
  * An interface that defines a manager for creating and managing thread pools
@@ -109,6 +110,12 @@ public interface ThreadPoolManager {
      */
     @NonNull
     ExecutorService createSingleThreadExecutor(
+            @Nullable final String threadName,
+            @Nullable final Thread.UncaughtExceptionHandler uncaughtExceptionHandler);
+
+    @NonNull
+    ScheduledExecutorService createVirtualThreadScheduledExecutor(
+            int corePoolSize,
             @Nullable final String threadName,
             @Nullable final Thread.UncaughtExceptionHandler uncaughtExceptionHandler);
 }
