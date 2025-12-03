@@ -23,6 +23,7 @@ import java.util.Optional;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Flow.Subscription;
+import java.util.concurrent.LinkedBlockingQueue;
 import java.util.function.Function;
 import org.assertj.core.api.InstanceOfAssertFactories;
 import org.hiero.block.api.BlockItemSet;
@@ -34,6 +35,7 @@ import org.hiero.block.internal.BlockItemSetUnparsed;
 import org.hiero.block.internal.BlockItemUnparsed;
 import org.hiero.block.internal.PublishStreamRequestUnparsed;
 import org.hiero.block.node.app.config.node.NodeConfig;
+import org.hiero.block.node.app.fixtures.async.ScheduledBlockingExecutor;
 import org.hiero.block.node.app.fixtures.blocks.SimpleTestBlockItemBuilder;
 import org.hiero.block.node.app.fixtures.plugintest.GrpcPluginTestBase;
 import org.hiero.block.node.app.fixtures.plugintest.SimpleInMemoryHistoricalBlockFacility;
@@ -78,14 +80,14 @@ class StreamPublisherPluginTest {
      */
     @Nested
     @DisplayName("Plugin Tests")
-    class PluginTest extends GrpcPluginTestBase<StreamPublisherPlugin, ExecutorService> {
+    class PluginTest extends GrpcPluginTestBase<StreamPublisherPlugin, ExecutorService, ScheduledBlockingExecutor> {
         private final SimpleInMemoryHistoricalBlockFacility historicalBlockFacility;
 
         /**
          * Constructor for the plugin tests.
          */
         PluginTest() {
-            super(Executors.newSingleThreadExecutor());
+            super(Executors.newSingleThreadExecutor(), new ScheduledBlockingExecutor(new LinkedBlockingQueue<>()));
             historicalBlockFacility = new SimpleInMemoryHistoricalBlockFacility();
             final StreamPublisherPlugin toTest = new StreamPublisherPlugin();
             start(toTest, toTest.methods().getFirst(), historicalBlockFacility);
@@ -356,7 +358,8 @@ class StreamPublisherPluginTest {
      */
     @Nested
     @DisplayName("Plugin Tests Pre Earliest Managed Block")
-    class PluginTestsPreEarliestManagedBlock extends GrpcPluginTestBase<StreamPublisherPlugin, ExecutorService> {
+    class PluginTestsPreEarliestManagedBlock
+            extends GrpcPluginTestBase<StreamPublisherPlugin, ExecutorService, ScheduledBlockingExecutor> {
         /** The historical block facility to use when testing. */
         private final SimpleInMemoryHistoricalBlockFacility historicalBlockFacility;
 
@@ -364,7 +367,7 @@ class StreamPublisherPluginTest {
          * Constructor for the plugin tests.
          */
         PluginTestsPreEarliestManagedBlock() {
-            super(Executors.newSingleThreadExecutor());
+            super(Executors.newSingleThreadExecutor(), new ScheduledBlockingExecutor(new LinkedBlockingQueue<>()));
             historicalBlockFacility = new SimpleInMemoryHistoricalBlockFacility();
         }
 
