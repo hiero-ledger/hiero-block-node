@@ -15,23 +15,53 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * A binary Merkle tree hasher that maintains the full tree in memory. Unlike {@link StreamingHasher}, this
- * implementation stores all leaf hashes and internal node hashes, allowing Merkle paths to be generated for any leaf.
+ * A full in-memory Merkle tree hasher that stores all nodes, enabling Merkle path generation.
  *
- * <p>The tree is built incrementally as each leaf is added, maintaining all internal nodes. This makes
- * {@link #computeRootHash()} very efficient (O(k) where k is the number of pending subtree roots, typically log(n))
- * since the tree structure is already computed.
+ * <p>This implementation follows the Streaming Binary Merkle Tree algorithm from the Block & State
+ * Merkle Tree Design specification, but additionally retains all leaf and internal node hashes.
+ * This allows the generation of Merkle proofs (paths) for any leaf in the tree.
  *
- * <p>The tree structure follows the StreamingHasher algorithm exactly:
+ * <h2>Comparison with StreamingHasher</h2>
+ * <table border="1">
+ *   <tr><th>Aspect</th><th>StreamingHasher</th><th>InMemoryTreeHasher</th></tr>
+ *   <tr><td>Memory</td><td>O(log n)</td><td>O(n)</td></tr>
+ *   <tr><td>Merkle paths</td><td>Not supported</td><td>Supported</td></tr>
+ *   <tr><td>Root hash</td><td>Identical</td><td>Identical</td></tr>
+ * </table>
+ *
+ * <h2>Tree Structure</h2>
+ * <p>The tree is stored as a list of levels:
  * <ul>
- *   <li>Leaves are added left-to-right</li>
- *   <li>When two sibling nodes are available, they are immediately combined into a parent</li>
- *   <li>At root computation time, remaining unpaired subtrees are folded right-to-left</li>
+ *   <li>Level 0: Leaf hashes (prefixed with {@code 0x00})</li>
+ *   <li>Level 1+: Internal node hashes (prefixed with {@code 0x02} for two children)</li>
  * </ul>
+ *
+ * <h2>Algorithm</h2>
+ * <p>The tree is built incrementally using the streaming fold-up algorithm:
+ * <ol>
+ *   <li>Each leaf is hashed and added to level 0</li>
+ *   <li>When two sibling nodes become available, they are combined into a parent</li>
+ *   <li>Combining continues upward as long as pairs are complete</li>
+ *   <li>At root computation, remaining pending subtrees are folded right-to-left</li>
+ * </ol>
  *
  * <p>This produces the exact same root hash as {@link StreamingHasher}.
  *
- * <p>This is not thread safe; it is assumed to be used by a single thread.
+ * <h2>Merkle Paths</h2>
+ * <p>A Merkle path (proof) for a leaf consists of sibling hashes from the leaf to the root.
+ * Each entry indicates whether the sibling is on the left or right. This allows verification
+ * that a leaf is part of the tree without having the entire tree.
+ *
+ * <h2>Persistence</h2>
+ * <p>The full tree state can be saved and loaded, including all level hashes and pending
+ * subtree root pointers.
+ *
+ * <h2>Thread Safety</h2>
+ * <p>This class is NOT thread-safe. It is designed for single-threaded use.
+ *
+ * @see Hasher
+ * @see StreamingHasher
+ * @see HashingUtils
  */
 public class InMemoryTreeHasher implements Hasher {
     /** The hashing algorithm used for computing the hashes. */

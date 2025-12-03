@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.tools.blocks.model.hashing;
 
-import static org.hiero.block.tools.blocks.model.hashing.HashingUtils.INTERNAL_NODE_PREFIX;
 import static org.hiero.block.tools.blocks.model.hashing.HashingUtils.LEAF_PREFIX;
+import static org.hiero.block.tools.blocks.model.hashing.HashingUtils.TWO_CHILDREN_NODE_PREFIX;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -21,18 +21,21 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 /**
- * Unit tests for {@link StreamingHasher}.
+ * Unit tests for {@link StreamingHasher} validating compliance with Block & State Merkle Tree Design.
  *
  * <p>These tests verify:
  * <ul>
- *   <li>Correct Merkle tree root hash computation using SHA-384</li>
+ *   <li>Correct Merkle tree root hash computation using SHA-384 per design doc</li>
+ *   <li>Streaming algorithm behavior matching design doc pseudocode</li>
  *   <li>Proper leaf counting and intermediate state management</li>
  *   <li>State persistence (save/load) functionality</li>
  *   <li>Deterministic hashing behavior</li>
  *   <li>Edge cases like empty data and large leaves</li>
  * </ul>
+ *
+ * @see <a href="data/block_stream.md">Block & State Merkle Tree Design - Streaming Merkle Tree Section</a>
  */
-@DisplayName("StreamingHasher Tests")
+@DisplayName("StreamingHasher Tests - Design Doc Compliance")
 class StreamingHasherTest {
 
     /** Temporary directory for save/load tests. */
@@ -403,8 +406,143 @@ class StreamingHasherTest {
      */
     private static byte[] hashInternalNode(
             final MessageDigest digest, final byte[] firstChild, final byte[] secondChild) {
-        digest.update(INTERNAL_NODE_PREFIX);
+        digest.update(TWO_CHILDREN_NODE_PREFIX);
         digest.update(firstChild);
         return digest.digest(secondChild);
+    }
+
+    // ========== Design Doc Pseudocode Compliance Tests ==========
+
+    /**
+     * Verifies the streaming algorithm matches the design doc pseudocode exactly.
+     *
+     * <p>From design doc pseudocode:
+     * <pre>
+     * elements = array of the serialized leaves to be streamed and hashed
+     * hashList = a new empty list of hashes
+     * for (int i=0, i&lt;elements.size(), i++) {
+     *     e = hash(elements[i])
+     *     hashList.add(e)
+     *     for (int n=i, (n &amp; 1 == 1), n&gt;&gt;=1) {
+     *         y = remove last element of hashList
+     *         x = remove last element of hashList
+     *         hashList.add(hash(x, y))
+     *     }
+     * }
+     * </pre>
+     */
+    @Test
+    @DisplayName("Algorithm should match design doc pseudocode for hashList size pattern")
+    void testDesignDocPseudocodeCompliance() {
+        StreamingHasher hasher = new StreamingHasher();
+
+        // After each leaf addition, verify hashList size matches design doc formula
+        // hashList.size() = Integer.bitCount(leafCount)
+        for (int i = 1; i <= 64; i++) {
+            hasher.addLeaf(("leaf " + i).getBytes(StandardCharsets.UTF_8));
+            int expectedSize = Integer.bitCount(i);
+            assertEquals(
+                    expectedSize,
+                    hasher.intermediateHashingState().size(),
+                    "After " + i + " leaves, hashList size should be bitCount(" + i + ") = " + expectedSize
+                            + " per design doc algorithm");
+        }
+    }
+
+    /**
+     * Verifies the design doc 5-leaf example produces the expected tree structure.
+     *
+     * <p>From design doc:
+     * <pre>
+     * Step 1: Add Leaf 0     → Working list: [ L0 ]
+     * Step 2: Add Leaf 1     → L0 and L1 pair up → NodeA = h(L0,L1)
+     *                        → Working list: [ NodeA ]
+     * Step 3: Add Leaf 2     → Working list: [ NodeA, L2 ]
+     * Step 4: Add Leaf 3     → L2 and L3 pair up → NodeB = h(L2,L3)
+     *                        → NodeA and NodeB pair up → NodeC = h(NodeA,NodeB)
+     *                        → Working list: [ NodeC ]
+     * Step 5: Add Leaf 4     → Working list: [ NodeC, L4 ]
+     * Final Root = h(NodeC, L4)
+     * </pre>
+     */
+    @Test
+    @DisplayName("5-leaf example from design doc should match step-by-step structure")
+    void testDesignDocFiveLeafExample() {
+        StreamingHasher hasher = new StreamingHasher();
+
+        // Step 1: Add Leaf 0 → Working list: [ L0 ]
+        hasher.addLeaf("Leaf 0".getBytes(StandardCharsets.UTF_8));
+        assertEquals(1, hasher.intermediateHashingState().size(), "Step 1: hashList should have 1 entry [L0]");
+
+        // Step 2: Add Leaf 1 → Working list: [ NodeA ]
+        hasher.addLeaf("Leaf 1".getBytes(StandardCharsets.UTF_8));
+        assertEquals(1, hasher.intermediateHashingState().size(), "Step 2: hashList should have 1 entry [NodeA]");
+
+        // Step 3: Add Leaf 2 → Working list: [ NodeA, L2 ]
+        hasher.addLeaf("Leaf 2".getBytes(StandardCharsets.UTF_8));
+        assertEquals(2, hasher.intermediateHashingState().size(), "Step 3: hashList should have 2 entries [NodeA, L2]");
+
+        // Step 4: Add Leaf 3 → Working list: [ NodeC ]
+        hasher.addLeaf("Leaf 3".getBytes(StandardCharsets.UTF_8));
+        assertEquals(1, hasher.intermediateHashingState().size(), "Step 4: hashList should have 1 entry [NodeC]");
+
+        // Step 5: Add Leaf 4 → Working list: [ NodeC, L4 ]
+        hasher.addLeaf("Leaf 4".getBytes(StandardCharsets.UTF_8));
+        assertEquals(2, hasher.intermediateHashingState().size(), "Step 5: hashList should have 2 entries [NodeC, L4]");
+
+        // Verify root hash is computed correctly
+        byte[] root = hasher.computeRootHash();
+        assertNotNull(root, "Root hash should not be null");
+        assertEquals(48, root.length, "Root hash should be 48 bytes (SHA-384)");
+    }
+
+    /**
+     * Verifies the right-to-left folding for final root computation as described in design doc.
+     *
+     * <p>From design doc:
+     * <pre>
+     * merkleRootHash = hashList.get(hashList.size() – 1)
+     * for (int i=hashList.size() – 2, i&gt;=0, i--) {
+     *     merkleRootHash = hash(hashList.get(i), merkleRootHash)
+     * }
+     * return merkleRootHash
+     * </pre>
+     */
+    @Test
+    @DisplayName("Root computation should fold right-to-left as specified in design doc")
+    void testRightToLeftFolding() {
+        MessageDigest d = Sha384.sha384Digest();
+
+        // Create a 5-leaf tree to demonstrate folding
+        byte[][] leafData = new byte[5][];
+        for (int i = 0; i < 5; i++) {
+            leafData[i] = ("Fold Leaf " + i).getBytes(StandardCharsets.UTF_8);
+        }
+
+        // After 5 leaves, hashList should be [NodeC, L4] per design doc
+        // Root = hash(NodeC, L4) - folding right-to-left
+
+        // Compute expected root manually
+        byte[] L0 = hashLeaf(d, leafData[0]);
+        byte[] L1 = hashLeaf(d, leafData[1]);
+        byte[] L2 = hashLeaf(d, leafData[2]);
+        byte[] L3 = hashLeaf(d, leafData[3]);
+        byte[] L4 = hashLeaf(d, leafData[4]);
+
+        byte[] nodeA = hashInternalNode(d, L0, L1);
+        byte[] nodeB = hashInternalNode(d, L2, L3);
+        byte[] nodeC = hashInternalNode(d, nodeA, nodeB);
+        // hashList = [NodeC, L4]
+        // Fold: hash(NodeC, L4)
+        byte[] expectedRoot = hashInternalNode(d, nodeC, L4);
+
+        // Verify StreamingHasher produces same result
+        StreamingHasher hasher = new StreamingHasher();
+        for (byte[] data : leafData) {
+            hasher.addLeaf(data);
+        }
+        byte[] actualRoot = hasher.computeRootHash();
+
+        assertArrayEquals(expectedRoot, actualRoot, "Root should be computed via right-to-left folding per design doc");
     }
 }

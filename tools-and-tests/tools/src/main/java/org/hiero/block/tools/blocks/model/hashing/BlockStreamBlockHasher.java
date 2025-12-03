@@ -13,8 +13,82 @@ import com.hedera.pbj.runtime.io.buffer.Bytes;
 import java.security.MessageDigest;
 import org.hiero.block.tools.utils.Sha384;
 
+/**
+ * Computes the root hash of a block following the Block Merkle Tree Design specification.
+ *
+ * <p>The block root hash is computed from a fixed 16-leaf tree structure at the top level,
+ * with various subtrees containing block items. The structure enables efficient Merkle proofs
+ * for any data within the block.
+ *
+ * <h2>Block Root Tree Structure (16 fixed leaves)</h2>
+ * <pre>
+ *                                     Block Root
+ *                                          │
+ *                            ┌─────────────┴────────────┐
+ *                    Consensus Time              Fixed Root Tree
+ *                     (MerkleLeaf)                 (16 leaves)
+ *                                                       │
+ *                                          ┌────────────┴──────────────┐
+ *                                     Left Subtree                  Reserved
+ *                                          │                      (future use)
+ *                     ┌────────────────────┴───────────────────┐
+ *                 Left-Left                                Left-Right
+ *                     │                                        │
+ *           ┌─────────┴─────────┐                     ┌────────┴────────┐
+ *     left-left-left      left-left-right      left-right-left   left-right-right
+ *           │                   │                     │                 │
+ *     ┌─────┴────┐       ┌──────┴──────┐           ┌──┴──┐       ┌──────┴──────┐
+ * PrevBlock  AllBlocks  State  ConsensusHeaders  Input Output  StateChanges  Trace
+ * </pre>
+ *
+ * <h2>Fixed Leaf Positions (from design doc)</h2>
+ * <ol>
+ *   <li><b>Previous Block Root Hash</b> - Links to previous block, forming the blockchain</li>
+ *   <li><b>All Block Hashes Tree Root</b> - Streaming merkle tree of all previous block hashes</li>
+ *   <li><b>State Root Hash</b> - State merkle tree root at block start</li>
+ *   <li><b>Consensus Headers</b> - BlockHeader, EventHeader, RoundHeader items</li>
+ *   <li><b>Input Items</b> - SignedTransaction, RecordFile items</li>
+ *   <li><b>Output Items</b> - TransactionResult, TransactionOutput items</li>
+ *   <li><b>State Changes</b> - StateChanges items</li>
+ *   <li><b>Trace Data</b> - TraceData items</li>
+ *   <li>-16. <b>Reserved</b> - For future expansion</li>
+ * </ol>
+ *
+ * <h2>Subtree Item Types</h2>
+ * <ul>
+ *   <li>Consensus Headers: BLOCK_HEADER, EVENT_HEADER, ROUND_HEADER</li>
+ *   <li>Input Items: SIGNED_TRANSACTION, RECORD_FILE</li>
+ *   <li>Output Items: TRANSACTION_RESULT, TRANSACTION_OUTPUT</li>
+ *   <li>State Changes: STATE_CHANGES</li>
+ *   <li>Trace Data: TRACE_DATA</li>
+ * </ul>
+ *
+ * <h2>Special Items (Not Hashed)</h2>
+ * <ul>
+ *   <li>BLOCK_FOOTER - Contains hashes already included elsewhere in the tree</li>
+ *   <li>BLOCK_PROOF - Proves the hash, so cannot be part of it</li>
+ * </ul>
+ *
+ * @see StreamingHasher
+ * @see HashingUtils
+ */
 public class BlockStreamBlockHasher {
 
+    /**
+     * Computes the root hash of a block.
+     *
+     * <p>The computation follows the Block Merkle Tree Design:
+     * <ol>
+     *   <li>Extract block header and footer for required hashes</li>
+     *   <li>Build streaming merkle trees for each item category</li>
+     *   <li>Combine into the fixed 16-leaf root structure</li>
+     * </ol>
+     *
+     * @param block the block to hash (must contain BlockHeader and BlockFooter)
+     * @param allBlocksMerkleTreeRootHash the root hash of the tree containing all previous block hashes
+     * @return the 48-byte SHA-384 block root hash
+     * @throws IllegalArgumentException if the block is missing required header or footer
+     */
     public static byte[] hashBlock(Block block, byte[] allBlocksMerkleTreeRootHash) {
         // create SHA-384 digest instance for all hashing
         final MessageDigest digest = Sha384.sha384Digest();
