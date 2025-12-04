@@ -93,7 +93,7 @@ Before you begin, ensure you have:
 1. Run the Block Node install command with **`sudo`** and the desired profile (choose one of: **`local`**, **`previewnet`**, **`testnet`**, **`mainnet`**):
 
    ```bash
-   sudo ./weaver-linux-amd64 Block Node install -p <profile>
+   sudo ./weaver-linux-amd64 blocknode install -p <profile>
    ```
 
    *(Replace **`<profile>`** with the desired value. For ARM, use **`weaver-linux-arm64`** instead.)*
