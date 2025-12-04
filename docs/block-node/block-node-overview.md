@@ -113,7 +113,8 @@ Use this decision guide to determine which Block Node configuration suits your n
 
 **Choose Tier 1 if:**
 
-- You are a Hedera Governing Council member or trusted network partner.
+- You are a member of the Hiero network's governance structure or trusted network partner.
+    - In the public Hedera network a governance member is an Hedera Governing Council member.
 - You have authorization to peer directly with Consensus Nodes.
 - You can commit to high-availability SLAs (99.9%+ uptime).
 - You want to provide reconnect services to Consensus Nodes.
