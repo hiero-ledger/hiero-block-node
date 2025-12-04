@@ -90,7 +90,7 @@ Before you begin, ensure you have:
 
 ### Step 4: Create the **`weaver`** User
 
-1. Run the Block Node install command with **`sudo`** and the desired profile (choose one of: **`local`**, **`testnet`**, **`previewnet`**, **`mainnet`**):
+1. Run the Block Node install command with **`sudo`** and the desired profile (choose one of: **`local`**, **`previewnet`**, **`testnet`**, **`mainnet`**):
 
    ```bash
    sudo ./weaver-linux-amd64 block node install -p <profile>
