@@ -21,6 +21,7 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
@@ -348,8 +349,6 @@ public class DownloadLive implements Runnable {
         }
     }
 
-    // --- Live poller ---
-
     /**
      * Day-scoped live poller that queries the mirror node for latest blocks,
      * filters to the current day + unseen blocks, then delegates to the
@@ -419,28 +418,29 @@ public class DownloadLive implements Runnable {
 
             final List<BlockInfo> latest =
                     FetchBlockQuery.getLatestBlocks(batchSize, MirrorNodeBlockQueryOrder.DESC, timestampFilters);
-            final List<LiveDownloader.BlockDescriptor> batch = new ArrayList<>();
             System.out.println("[poller] Latest blocks size: " + latest.size());
-            for (BlockInfo b : latest) {
-                long number = b.number;
-                if (lastSeenBlock >= 0 && number <= lastSeenBlock) {
-                    continue;
-                }
-                Instant ts = parseMirrorTimestamp(b.timestampFrom != null ? b.timestampFrom : b.timestampTo);
-                if (ts == null) {
-                    continue;
-                }
-                ZonedDateTime zts = ZonedDateTime.ofInstant(ts, ZoneId.of("UTC"));
-                if (zts.isBefore(start) || !zts.isBefore(end)) {
-                    continue;
-                }
-                String hash = b.hash;
-                String name = b.name;
-                String iso = ts.toString();
-                batch.add(new LiveDownloader.BlockDescriptor(number, name, iso, hash));
-            }
 
-            batch.sort((a, b) -> Long.compare(a.blockNumber, b.blockNumber));
+            final List<LiveDownloader.BlockDescriptor> batch =
+                    latest.stream()
+                            .filter(b -> lastSeenBlock < 0 || b.number > lastSeenBlock)
+                            .map(b -> {
+                                Instant ts = parseMirrorTimestamp(
+                                        b.timestampFrom != null ? b.timestampFrom : b.timestampTo);
+                                return new Object[] {b, ts};
+                            })
+                            .filter(arr -> arr[1] != null)
+                            .map(arr -> {
+                                BlockInfo b = (BlockInfo) arr[0];
+                                Instant ts = (Instant) arr[1];
+                                ZonedDateTime zts = ZonedDateTime.ofInstant(ts, ZoneId.of("UTC"));
+                                if (zts.isBefore(start) || !zts.isBefore(end)) {
+                                    return null;
+                                }
+                                return new LiveDownloader.BlockDescriptor(b.number, b.name, ts.toString(), b.hash);
+                            })
+                            .filter(Objects::nonNull)
+                            .sorted(Comparator.comparingLong(d -> d.blockNumber))
+                            .toList();
             System.out.println("[poller] descriptors=" + batch.size());
             if (!batch.isEmpty()) {
                 final long highestDownloaded = downloader.downloadBatch(dayKey, batch);
@@ -600,20 +600,21 @@ public class DownloadLive implements Runnable {
                 DownloadDayLiveImpl.BlockDownloadResult result,
                 Path tmpFile) {
             try {
-                InMemoryFile primaryRecord = null;
-                List<InMemoryFile> signatures = new ArrayList<>();
-                List<InMemoryFile> sidecars = new ArrayList<>();
+                InMemoryFile primaryRecord = result.files.stream()
+                        .filter(f -> {
+                            final String name = f.path().getFileName().toString();
+                            return name.endsWith(".rcd") && !name.contains("_node_");
+                        })
+                        .findFirst()
+                        .orElse(null);
 
-                for (InMemoryFile f : result.files) {
-                    final String name = f.path().getFileName().toString();
-                    if (name.endsWith(".rcd") && !name.contains("_node_")) {
-                        primaryRecord = f;
-                    } else if (name.endsWith(".rcd_sig")) {
-                        signatures.add(f);
-                    } else if (name.endsWith(".rcd_sc")) {
-                        sidecars.add(f);
-                    }
-                }
+                List<InMemoryFile> signatures = result.files.stream()
+                        .filter(f -> f.path().getFileName().toString().endsWith(".rcd_sig"))
+                        .toList();
+
+                List<InMemoryFile> sidecars = result.files.stream()
+                        .filter(f -> f.path().getFileName().toString().endsWith(".rcd_sc"))
+                        .toList();
 
                 if (primaryRecord == null) {
                     System.err.println("[download] No primary record found for block " + result.blockNumber

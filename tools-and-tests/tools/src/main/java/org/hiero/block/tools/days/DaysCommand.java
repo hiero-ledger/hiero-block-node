@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.tools.days;
 
-import org.hiero.block.tools.commands.days.subcommands.DownloadLive;
 import org.hiero.block.tools.days.subcommands.CleanDayOfBadRecordSets;
 import org.hiero.block.tools.days.subcommands.Compress;
 import org.hiero.block.tools.days.subcommands.DownloadDay;

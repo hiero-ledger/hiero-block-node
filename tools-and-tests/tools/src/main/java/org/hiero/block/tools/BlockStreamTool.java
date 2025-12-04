@@ -2,7 +2,7 @@
 package org.hiero.block.tools;
 
 import org.hiero.block.tools.blocks.BlocksCommand;
-import org.hiero.block.tools.days.subcommands.DaysCommand;
+import org.hiero.block.tools.days.DaysCommand;
 import org.hiero.block.tools.metadata.MetadataCommand;
 import org.hiero.block.tools.mirrornode.MirrorNodeCommand;
 import org.hiero.block.tools.records.RecordsCommand;
