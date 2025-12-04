@@ -54,8 +54,8 @@ public class ValidateSignatureCounts implements Runnable {
     CommandSpec spec;
 
     @Option(
-        names = {"-d", "--downloaded-days-dir"},
-        description = "Directory where downloaded days are stored")
+            names = {"-d", "--downloaded-days-dir"},
+            description = "Directory where downloaded days are stored")
     private File compressedDaysDir = new File("compressedDays");
 
     @Parameters(index = "0", description = "From year")

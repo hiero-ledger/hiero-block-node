@@ -2,7 +2,7 @@
 package org.hiero.block.tools.days.subcommands;
 
 import static org.hiero.block.tools.days.download.DownloadConstants.GCP_PROJECT_ID;
-import static org.hiero.block.tools.days.download.DownloadDayImplV2.downloadDay;
+import static org.hiero.block.tools.days.download.DownloadDayLiveImpl.downloadDay;
 import static org.hiero.block.tools.mirrornode.DayBlockInfo.loadDayBlockInfoMap;
 
 import com.google.cloud.storage.Storage;

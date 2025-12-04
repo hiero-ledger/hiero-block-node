@@ -7,7 +7,7 @@ import java.nio.file.Path;
  * Interface for a binary Merkle tree hasher using SHA-384 hashes.
  *
  * <p>Implementations of this interface compute Merkle tree root hashes following the
- * Block & State Merkle Tree Design specification. The design uses domain-separated
+ * Block and State Merkle Tree Design specification. The design uses domain-separated
  * hashing with the following prefix scheme:
  *
  * <ul>
