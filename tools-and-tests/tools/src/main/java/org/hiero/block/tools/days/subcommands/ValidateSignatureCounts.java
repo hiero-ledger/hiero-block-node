@@ -44,8 +44,8 @@ import picocli.CommandLine.Parameters;
         mixinStandardHelpOptions = true)
 public class ValidateSignatureCounts implements Runnable {
 
-    /** Pattern to extract node account ID from signature file name like "node_0.0.10.rcs_sig" */
-    private static final Pattern SIG_FILE_PATTERN = Pattern.compile("node_(\\d+\\.\\d+\\.\\d+)\\.rcs_sig");
+    /** Pattern to extract node account ID from signature file name like "node_0.0.10.rcd_sig" */
+    private static final Pattern SIG_FILE_PATTERN = Pattern.compile("node_(\\d+\\.\\d+\\.\\d+)\\.rc[ds]_sig");
 
     /** Pattern to identify block directories (timestamp format) */
     private static final Pattern BLOCK_DIR_PATTERN =
@@ -285,7 +285,7 @@ public class ValidateSignatureCounts implements Runnable {
         // Check blocks against the GCP bucket
         if (!blocksToCheck.isEmpty()) {
             // Create MainNetBucket instance (no caching for this use case, with user project for requester-pays)
-            MainNetBucket bucket = new MainNetBucket(false, Path.of("data/gcp-cache"), 3, 34, userProject);
+            MainNetBucket bucket = new MainNetBucket(false, Path.of("data/gcp-cache"), 3, 37, userProject);
 
             if (checkAllBlocks) {
                 // Comprehensive mode: fetch all signatures from bucket for this day and compare
@@ -424,8 +424,8 @@ public class ValidateSignatureCounts implements Runnable {
      * Extract the block directory name from a file path.
      */
     private String extractBlockDirectory(String pathStr) {
-        // Path format: "2024-06-18T00_00_00.001886911Z/node_0.0.10.rcs_sig"
-        // or "2024-06-18/2024-06-18T00_00_00.001886911Z/node_0.0.10.rcs_sig"
+        // Path format: "2024-06-18T00_00_00.001886911Z/node_0.0.10.rcd_sig"
+        // or "2024-06-18/2024-06-18T00_00_00.001886911Z/node_0.0.10.rcd_sig"
         String[] parts = pathStr.split("/");
         for (String part : parts) {
             if (BLOCK_DIR_PATTERN.matcher(part).matches()) {
