@@ -16,7 +16,7 @@ Instead of pushing this data into centralized cloud storage, Block Nodes act as 
 | Produces blocks                | Yes – produces finalized block streams per **([HIP-1056](https://hips.hedera.com/hip/hip-1056))** | No – consumes and verifies blocks from Consensus Nodes or upstream Block Nodes.   | No – consumes data from Block Nodes.        |
 | Maintains full consensus state | Yes – authoritative state, optimized for consensus.                                               | Yes – replicated state plus saved states and snapshots for queries and reconnect. | No – maintains data in an indexed form as needed for queries and analytics. |
 | Data APIs                      | gRPC for transactions/queries; no history.                                                   | Streamlined gRPC APIs for streaming, random block access, state, and proofs.              | Public REST and custom APIs for queries and observability.              |
-| Who runs it                    | Governing Council and approved operators.                                                         | Tier 1: Council / trusted; Tier 2: permissionless community and infra providers.  | Permissionless operators, service providers, and app teams.             |
+| Who runs it                    | Governing Council and approved operators.                                                         | Tier 1: Council / trusted; Tier 2: permissionless operators, service providers, app teams, and infra providers.  | Permissionless operators, service providers, and app teams.             |
 
 ## Key Terms
 
