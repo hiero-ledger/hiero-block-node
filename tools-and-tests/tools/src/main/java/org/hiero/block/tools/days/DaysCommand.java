@@ -9,6 +9,7 @@ import org.hiero.block.tools.days.subcommands.DownloadDaysV2;
 import org.hiero.block.tools.days.subcommands.Ls;
 import org.hiero.block.tools.days.subcommands.LsDayListing;
 import org.hiero.block.tools.days.subcommands.PrintListing;
+import org.hiero.block.tools.days.subcommands.SignatureValidationListingCommand;
 import org.hiero.block.tools.days.subcommands.SplitJsonToDayFiles;
 import org.hiero.block.tools.days.subcommands.UpdateDayListingsCommand;
 import org.hiero.block.tools.days.subcommands.Validate;
@@ -33,6 +34,7 @@ import picocli.CommandLine.Spec;
             DownloadDay.class,
             DownloadDaysV2.class,
             DownloadDays.class,
+            SignatureValidationListingCommand.class,
             PrintListing.class,
             LsDayListing.class,
             SplitJsonToDayFiles.class,

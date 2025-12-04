@@ -30,6 +30,8 @@ mainModuleInfo {
     requires("info.picocli")
     requires("org.apache.commons.compress")
     requires("com.google.common.jimfs")
+    runtimeOnly("org.junit.jupiter.params")
     runtimeOnly("com.swirlds.config.impl")
+    runtimeOnly("io.helidon.http")
     runtimeOnly("io.grpc.netty")
 }
