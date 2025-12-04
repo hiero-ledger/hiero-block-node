@@ -35,7 +35,7 @@ Block Nodes act as the trusted historians and data providers for a Hiero network
 
 Block Nodes distribute blocks to downstream clients—including Mirror Nodes, other Block Nodes, and applications—so anyone can access real-time or historical data. They also generate cryptographic proofs for transactions and state, making it possible for users and applications to independently verify the accuracy of the blockchain’s history without relying on a single provider.
 
-Finally, Block Nodes help the network scale and run smoothly. When a Consensus Node needs to catch up with its peers or recover from downtime, it can rely on Block Nodes to provide the latest data and state snapshots—relieving Consensus Nodes from heavy data storage duties and improving overall efficiency.
+Finally, Block Nodes help the network scale and run smoothly. When a Consensus Node needs to catch up with its peers or recover from downtime, it can rely on Block Nodes to provide the latest data and state snapshots—partially relieving Consensus Nodes from heavy data distribution duties and improving overall efficiency.
 
 ## Core Block Node Services
 
