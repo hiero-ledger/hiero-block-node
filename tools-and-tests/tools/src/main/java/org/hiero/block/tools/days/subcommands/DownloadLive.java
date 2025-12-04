@@ -420,27 +420,25 @@ public class DownloadLive implements Runnable {
                     FetchBlockQuery.getLatestBlocks(batchSize, MirrorNodeBlockQueryOrder.DESC, timestampFilters);
             System.out.println("[poller] Latest blocks size: " + latest.size());
 
-            final List<LiveDownloader.BlockDescriptor> batch =
-                    latest.stream()
-                            .filter(b -> lastSeenBlock < 0 || b.number > lastSeenBlock)
-                            .map(b -> {
-                                Instant ts = parseMirrorTimestamp(
-                                        b.timestampFrom != null ? b.timestampFrom : b.timestampTo);
-                                return new Object[] {b, ts};
-                            })
-                            .filter(arr -> arr[1] != null)
-                            .map(arr -> {
-                                BlockInfo b = (BlockInfo) arr[0];
-                                Instant ts = (Instant) arr[1];
-                                ZonedDateTime zts = ZonedDateTime.ofInstant(ts, ZoneId.of("UTC"));
-                                if (zts.isBefore(start) || !zts.isBefore(end)) {
-                                    return null;
-                                }
-                                return new LiveDownloader.BlockDescriptor(b.number, b.name, ts.toString(), b.hash);
-                            })
-                            .filter(Objects::nonNull)
-                            .sorted(Comparator.comparingLong(d -> d.blockNumber))
-                            .toList();
+            final List<LiveDownloader.BlockDescriptor> batch = latest.stream()
+                    .filter(b -> lastSeenBlock < 0 || b.number > lastSeenBlock)
+                    .map(b -> {
+                        Instant ts = parseMirrorTimestamp(b.timestampFrom != null ? b.timestampFrom : b.timestampTo);
+                        return new Object[] {b, ts};
+                    })
+                    .filter(arr -> arr[1] != null)
+                    .map(arr -> {
+                        BlockInfo b = (BlockInfo) arr[0];
+                        Instant ts = (Instant) arr[1];
+                        ZonedDateTime zts = ZonedDateTime.ofInstant(ts, ZoneId.of("UTC"));
+                        if (zts.isBefore(start) || !zts.isBefore(end)) {
+                            return null;
+                        }
+                        return new LiveDownloader.BlockDescriptor(b.number, b.name, ts.toString(), b.hash);
+                    })
+                    .filter(Objects::nonNull)
+                    .sorted(Comparator.comparingLong(d -> d.blockNumber))
+                    .toList();
             System.out.println("[poller] descriptors=" + batch.size());
             if (!batch.isEmpty()) {
                 final long highestDownloaded = downloader.downloadBatch(dayKey, batch);
