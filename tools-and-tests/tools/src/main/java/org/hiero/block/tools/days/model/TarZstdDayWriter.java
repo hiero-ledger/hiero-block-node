@@ -16,7 +16,7 @@ import org.apache.commons.compress.archivers.tar.TarArchiveOutputStream;
  * Utility class to create .tar.zst files from a day's directory. The day directory contains files like:
  * <pre>
  * 2019-09-13T23_38_10.809335Z/
- * 2019-09-13T23_38_10.809335Z/node_0.0.9.rcs_sig
+ * 2019-09-13T23_38_10.809335Z/node_0.0.9.rcd_sig
  * 2019-09-13T23_38_10.809335Z/2019-09-13T23_38_10.809335Z.rcd
  * </pre>
  */

@@ -81,8 +81,9 @@ public class ConcurrentTarZstdWriter implements AutoCloseable {
                             filesToWrite.drainTo(batch, 99);
                             // process the batch
                             for (InMemoryFile f : batch) {
-                                TarArchiveEntry entry =
-                                        new TarArchiveEntry(f.path().toString());
+                                TarArchiveEntry entry = new TarArchiveEntry(f.path()
+                                        .toString()
+                                        .replaceAll(".rcs_sig", ".rcd_sig")); // fix bad signature extensions
                                 entry.setSize(f.data().length);
                                 tar.putArchiveEntry(entry);
                                 tar.write(f.data());

@@ -1,10 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.tools.utils.gcp;
 
+import com.google.cloud.storage.Blob.BlobSourceOption;
 import com.google.cloud.storage.BlobId;
 import com.google.cloud.storage.BlobInfo;
 import com.google.cloud.storage.Storage;
 import com.google.cloud.storage.Storage.BlobField;
+import com.google.cloud.storage.Storage.BlobGetOption;
 import com.google.cloud.storage.Storage.BlobListOption;
 import com.google.cloud.storage.StorageOptions;
 import java.io.ByteArrayInputStream;
@@ -112,8 +114,9 @@ public class MainNetBucket {
             if (cacheEnabled && Files.exists(cachedFilePath)) {
                 rawBytes = Files.readAllBytes(cachedFilePath);
             } else {
-                rawBytes = STORAGE.get(BlobId.of(HEDERA_MAINNET_STREAMS_BUCKET, path))
-                        .getContent();
+                rawBytes = STORAGE.get(
+                                BlobId.of(HEDERA_MAINNET_STREAMS_BUCKET, path), BlobGetOption.userProject(userProject))
+                        .getContent(BlobSourceOption.userProject(userProject));
                 if (cacheEnabled) {
                     Files.createDirectories(cachedFilePath.getParent());
                     Path tempCachedFilePath = Files.createTempFile(cacheDir, null, ".tmp");
