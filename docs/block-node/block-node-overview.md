@@ -1,12 +1,15 @@
 # Block Node Overview
 
-Block Nodes represent a new class of nodes in a Hiero network designed to increase decentralization and network data distributions. They enable operators to assume responsibility for long-term block and state storage while supporting the security and performance characteristics of a Hiero network. This overview document provides operators with the essential concepts needed to understand Block Node roles and responsibilities before diving into deployment.
+Block Nodes represent a new class of nodes in a Hiero network designed to increase decentralization and network data distributions. They enable operators to assume responsibility for long-term block and state storage while supporting the security and performance characteristics of a Hiero network.
+This overview document provides operators with the essential concepts needed to understand Block Node roles and responsibilities before diving into deployment.
 
 ## What is a Block Node?
 
-A Block Node is a special kind of server that keeps a complete, trustworthy copy of what is happening on a Hiero network. It receives a stream of already-agreed blocks from Consensus Nodes, checks that each block is valid, and then stores those blocks and updates a copy of the current network state so both are available to query later.
+A Block Node is a special kind of server that keeps a complete, trustworthy copy of what is happening on a Hiero network.
+It receives a stream of already-agreed blocks from Consensus Nodes, checks that each block is valid, and then stores those blocks and updates a copy of the current network state so both are available to query later.
 
-Instead of pushing this data into centralized cloud storage, Block Nodes act as a decentralized data layer for the network. They stream blocks to Mirror Nodes and other Block Nodes, answer questions from apps and services about past blocks or current state, and provide cryptographic proofs so users can independently verify that the data is correct.
+Instead of pushing this data into centralized cloud storage, Block Nodes act as a decentralized data layer for the network.
+They stream blocks to Mirror Nodes and other Block Nodes, answer questions from apps and services about past blocks or current state, and provide cryptographic proofs so users can independently verify that the data is correct.
 
 ## How Block Nodes differ from other nodes
 
@@ -22,7 +25,8 @@ Instead of pushing this data into centralized cloud storage, Block Nodes act as 
 
 Before diving deeper, familiarize yourself with these core concepts:
 
-- **Block Stream ([HIP-1056](https://hips.hedera.com/hip/hip-1056))** - A continuous, ordered feed of finalized block data produced by Consensus Nodes. Each block consists of a stream of individual items containing transactions, state changes, events, EVM trace data, and cryptographic proofs. Block streams are delivered via gRPC in Protocol Buffer format at a rate determined by network configuration and network usage. A typical public network might complete 1 block per second, up to several blocks per second.
+- **Block Stream ([HIP-1056](https://hips.hedera.com/hip/hip-1056))** - A continuous, ordered feed of finalized block data produced by Consensus Nodes. Each block consists of a stream of individual items containing transactions, state changes, events, EVM trace data, and cryptographic proofs.
+  Block streams are delivered via gRPC in Protocol Buffer format at a rate determined by network configuration and network usage. A typical public network might complete 1 block per second, up to several blocks per second.
 - **State Snapshot** - A point-in-time capture of the complete network state (accounts, balances, smart contract storage, etc.) at a specific block height. State snapshots enable fast synchronization and recovery without replaying every transaction from genesis.
 - **Aggregated Signatures** - Cryptographic signatures from multiple Consensus Nodes combined into a single compact signature that can be verified with only a single public Ledger ID and proves a block was finalized by network consensus. Defined in [HIP-1200](https://hips.hedera.com/hip/hip-1200).
 - **Reconnect Services** - APIs and data streams that help Consensus Nodes catch up to the current network state after downtime or network partitions by providing recent blocks and state snapshots.
@@ -31,17 +35,20 @@ Before diving deeper, familiarize yourself with these core concepts:
 
 ## Role in the Hiero Network
 
-Block Nodes act as the trusted historians and data providers for a Hiero network. They receive block streams from Consensus Nodes, verify that each block and its data are correct, and store these blocks along with a copy of the current state of the network. By doing so, Block Nodes replace old methods of storing network data in centralized cloud buckets and instead make this data reliably available in a decentralized way.
+Block Nodes act as the trusted historians and data providers for a Hiero network. They receive block streams from Consensus Nodes, verify that each block and its data are correct, and store these blocks along with a copy of the current state of the network.
+By doing so, Block Nodes replace old methods of storing network data in centralized cloud buckets and instead make this data reliably available in a decentralized way.
 
-Block Nodes distribute blocks to downstream clients—including Mirror Nodes, other Block Nodes, and applications—so anyone can access real-time or historical data. They also generate cryptographic proofs for transactions and state, making it possible for users and applications to independently verify the accuracy of the blockchain’s history without relying on a single provider.
+Block Nodes distribute blocks to downstream clients—including Mirror Nodes, other Block Nodes, and applications—so anyone can access real-time or historical data.
+They also generate cryptographic proofs for transactions and state, making it possible for users and applications to independently verify the accuracy of the blockchain’s history without relying on a single provider.
 
-Finally, Block Nodes help the network scale and run smoothly. When a Consensus Node needs to catch up with its peers or recover from downtime, it can rely on Block Nodes to provide the latest data and state snapshots—partially relieving Consensus Nodes from heavy data distribution duties and improving overall efficiency.
+Finally, Block Nodes help the network scale and run smoothly.
+When a Consensus Node needs to catch up with its peers or recover from downtime, it can rely on Block Nodes to provide the latest data and state snapshots—partially relieving Consensus Nodes from heavy data distribution duties and improving overall efficiency.
 
 ## Core Block Node Services
 
 Block Nodes provide several core services that turn block streams into reliable, consumable data for the network:
 
-- Block stream ingestion, verification, and distribution.
+- Block Stream ingestion, verification, and distribution.
 - Cryptographic proofs for transactions and network state.
 - Durable storage of blocks, and consensus state.
 - Real-time and historical data streaming to downstream clients.
@@ -64,9 +71,10 @@ Block Nodes provide several core services that turn block streams into reliable,
 
 ## High-Level Architecture
 
-Block Nodes follow a modular design, receiving **block streams**, verifying integrity using **aggregated signatures** and cryptographic mechanisms defined in related HIPs ([HIP-1200](https://hips.hedera.com/hip/hip-1200) and [HIP-1056](https://hips.hedera.com/hip/hip-1056)), and persisting blocks and state to local disk and remote archives. They may provide four common functions:
+Block Nodes follow a modular design, receiving **block streams**, verifying integrity using **aggregated signatures** and cryptographic mechanisms defined in related HIPs ([HIP-1200](https://hips.hedera.com/hip/hip-1200) and [HIP-1056](https://hips.hedera.com/hip/hip-1056)), and persisting blocks and state to local disk and remote archives.
+They may provide four common functions:
 
-- **Block stream ingestion and verification** - Receives block streams from Consensus Nodes and verifies their integrity using aggregated signatures and Merkle proofs.
+- **Block Stream ingestion and verification** - Receives block streams from Consensus Nodes and verifies their integrity using aggregated signatures and Merkle proofs.
 - **State maintenance and snapshot generation** - Applies block state changes to maintain an up-to-date view of network state and periodically produces verifiable state snapshots for reconnect and recovery flows.
 - **Durable storage** - Persists blocks, and saved states to local disk or to remote archival storage for long-term, tamper-evident history.
 - **Data services** - Exposes gRPC/REST APIs providing real-time block streaming, random-access block retrieval, state queries at specific block heights, and cryptographic proofs to Mirror Nodes, other Block Nodes, and applications.
@@ -79,7 +87,7 @@ Block Nodes fan out block streams to Mirror Nodes and Tier 2+ Block Nodes while 
 
 The diagram above illustrates the complete data flow:
 
-1. **Consensus Nodes produce blocks** - Users submit transactions via gRPC to Consensus Nodes, which reach consensus through hashgraph and produce finalized blocks with block proofs containing aggregated signatures.
+1. **Consensus Nodes produce blocks** - Users submit transactions via gRPC to Consensus Nodes, which reach consensus through Hashgraph and produce finalized blocks with block proofs containing aggregated signatures.
 2. **Block Nodes receive and verify** - Tier 1 Block Nodes receive block streams directly from Consensus Nodes, verify block integrity using aggregated signatures (as defined in [HIP-1200](https://hips.hedera.com/hip/hip-1200)), and store verified blocks and state to local disk and remote archives.
 3. **Block Nodes distribute downstream** - block streams fan out to:
    - **Mirror Nodes** - for public REST APIs and explorer services
@@ -94,12 +102,12 @@ Block Node operators are responsible for:
 - Keeping their Block Node online, monitored, and synchronized with the latest network state.
 - Managing storage and retention for blocks and state snapshots.
 - Securing access to APIs and infrastructure, including authentication, authorization, and network boundaries.
-- Applying software upgrades in line with Hedera/Hiero releases and block node compatibility guidance.
+- Applying software upgrades in line with Hedera/Hiero releases and Block Node compatibility guidance.
 - Choosing and configuring which services to expose (streaming, random access, proofs, reconnect/state snapshots) for their consumers.
 
 ## Benefits for Operators
 
-- Replaces legacy record stream polling with efficient streaming
+- Replaces legacy Record Stream polling with efficient streaming
 - Lower costs via local storage and no S3 operations
 - Enhanced confidence via aggregated network signatures and zero-knowledge proofs.
 - Enhanced Mirror Node integration with random-access and proofs
@@ -126,7 +134,7 @@ Use this decision guide to determine which Block Node configuration suits your n
 - You want to participate without special permissions (permissionless).
 - You can receive block streams from existing Tier 1 or Tier 2 Block Nodes.
 - Your focus is on streaming verified data to applications or Mirror Nodes.
-- Your goals include developing and providing value-added services based on block stream data.
+- Your goals include developing and providing value-added services based on Block Stream data.
 
 **Note:** Tier 2 nodes are truly permissionless—anyone can deploy one without approval or registration. You simply configure your node to connect to one or more existing Block Nodes (Tier 1 or Tier 2) for upstream block streams.
 
