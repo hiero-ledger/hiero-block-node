@@ -12,6 +12,7 @@ import org.hiero.block.tools.days.subcommands.PrintListing;
 import org.hiero.block.tools.days.subcommands.SplitJsonToDayFiles;
 import org.hiero.block.tools.days.subcommands.UpdateDayListingsCommand;
 import org.hiero.block.tools.days.subcommands.Validate;
+import org.hiero.block.tools.days.subcommands.ValidateSignatureCounts;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Model.CommandSpec;
 import picocli.CommandLine.Spec;
@@ -27,6 +28,7 @@ import picocli.CommandLine.Spec;
         subcommands = {
             Ls.class,
             Validate.class,
+            ValidateSignatureCounts.class,
             Compress.class,
             DownloadDay.class,
             DownloadDaysV2.class,
