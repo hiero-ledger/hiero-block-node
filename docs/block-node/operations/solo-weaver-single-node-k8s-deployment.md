@@ -214,18 +214,18 @@ If you need to permanently remove a Block Node deployment (for decommissioning, 
 See below for common errors, causes, and solutions during Block Node setup:
 
 1. Error: “Profile not set”
-   - **Cause:** The **`blocknode setup`** command was run without specifying a profile.
+   - **Cause:** The **`block node install`** command was run without specifying a profile.
    - **Fix:** Re-run with a valid profile, for example:
 
      ```bash
-     sudo ./weaver-linux-amd64 blocknode setup -p local
+     sudo ./weaver-linux-amd64 block node install -p local
      ```
 2. Error: “Requires super user privilege”
-   - **Cause:** The **`blocknode setup`** command was run without **`sudo`**.
+   - **Cause:** The **`block node installp`** command was run without **`sudo`**.
    - **Fix:** Add **`sudo`** before your command:
 
    ```bash
-   sudo ./weaver-linux-amd64 blocknode setup -p local
+   sudo ./weaver-linux-amd64 block node install -p local
    ```
 3. Error: Missing **`weaver`** User and/or Group
    - **Cause:** First **`sudo`** run; the **`weaver`** system user and group are not yet created.
