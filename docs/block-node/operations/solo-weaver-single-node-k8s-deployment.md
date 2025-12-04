@@ -3,7 +3,7 @@
 ## Overview
 
 This guide explains how to deploy the Hiero Block Node on a Google Cloud Platform (GCP) virtual machine (VM) using the Solo Weaver tool.
-The Block Node supports the Hiero network by processing and validating consensus node produced blocks amongst others features.
+The Block Node supports the Hiero network by processing and validating Consensus Node produced blocks amongst others features.
 This deployment uses the Weaver binary to provision the VM, set up Kubernetes and install the Block Node Helm chart on the VM.
 
 This guide walks you through creating the VM, uploading the Weaver binary to it, and running the Block Node using the local profile.
@@ -93,7 +93,7 @@ Before you begin, ensure you have:
 1. Run the Block Node install command with **`sudo`** and the desired profile (choose one of: **`local`**, **`previewnet`**, **`testnet`**, **`mainnet`**):
 
    ```bash
-   sudo ./weaver-linux-amd64 block node install -p <profile>
+   sudo ./weaver-linux-amd64 Block Node install -p <profile>
    ```
 
    *(Replace **`<profile>`** with the desired value. For ARM, use **`weaver-linux-arm64`** instead.)*
@@ -214,18 +214,18 @@ If you need to permanently remove a Block Node deployment (for decommissioning, 
 See below for common errors, causes, and solutions during Block Node setup:
 
 1. Error: “Profile not set”
-   - **Cause:** The **`block node install`** command was run without specifying a profile.
+   - **Cause:** The **`Block Node install`** command was run without specifying a profile.
    - **Fix:** Re-run with a valid profile, for example:
 
      ```bash
-     sudo ./weaver-linux-amd64 block node install -p local
+     sudo ./weaver-linux-amd64 Block Node install -p local
      ```
 2. Error: “Requires super user privilege”
-   - **Cause:** The **`block node installp`** command was run without **`sudo`**.
+   - **Cause:** The **`Block Node installp`** command was run without **`sudo`**.
    - **Fix:** Add **`sudo`** before your command:
 
    ```bash
-   sudo ./weaver-linux-amd64 block node install -p local
+   sudo ./weaver-linux-amd64 Block Node install -p local
    ```
 3. Error: Missing **`weaver`** User and/or Group
    - **Cause:** First **`sudo`** run; the **`weaver`** system user and group are not yet created.
