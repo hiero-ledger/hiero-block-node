@@ -31,7 +31,7 @@ Before diving deeper, familiarize yourself with these core concepts:
 
 ## Role in the Hiero Network
 
-Block Nodes act as the trusted historians and data providers for the Hedera network. They receive block streams from Consensus Nodes, verify that each block and its data are correct, and store these blocks along with the current state of the network. By doing so, Block Nodes replace old methods of storing network data in centralized cloud buckets and instead make this data reliably available in a decentralized way.
+Block Nodes act as the trusted historians and data providers for a Hiero network. They receive block streams from Consensus Nodes, verify that each block and its data are correct, and store these blocks along with a copy of the current state of the network. By doing so, Block Nodes replace old methods of storing network data in centralized cloud buckets and instead make this data reliably available in a decentralized way.
 
 Block Nodes distribute blocks to downstream clients—including Mirror Nodes, other Block Nodes, and applications—so anyone can access real-time or historical data. They also generate cryptographic proofs for transactions and state, making it possible for users and applications to independently verify the accuracy of the blockchain’s history without relying on a single provider.
 
