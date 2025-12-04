@@ -1,6 +1,6 @@
 # Block Node Overview
 
-Block Nodes represent a new class of nodes in the Hedera network designed to increase decentralization and network data distributions. They enable operators to provide to assume responsibility for long-term block and state storage while supporting the security and performance characteristics of a Hiero network. This overview document provides operators with the essential concepts needed to understand Block Node roles and responsibilities before diving into deployment.
+Block Nodes represent a new class of nodes in a Hiero network designed to increase decentralization and network data distributions. They enable operators to assume responsibility for long-term block and state storage while supporting the security and performance characteristics of a Hiero network. This overview document provides operators with the essential concepts needed to understand Block Node roles and responsibilities before diving into deployment.
 
 ## What is a Block Node?
 
