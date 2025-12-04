@@ -269,7 +269,7 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
             return;
         }
 
-        // Skip if lack acknowledged block observed has increased
+        // Skip if last acknowledged block observed has increased
         if (lastAcknowledgedBlockObserved > 0 && lastAcknowledgedBlock > lastAcknowledgedBlockObserved) {
             LOGGER.log(
                     TRACE,
@@ -351,10 +351,10 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
                     .toList();
 
             // greedy backfill newer blocks available from peer BN sources to prioritize staying close to the network
-            greedyBackfillRecentBlocks(
-                    lastAcknowledgedBlockObserved.get(), blockRanges.getLast().end());
-            lastAcknowledgedBlockObserved.set(
-                    blockRanges.getLast().end()); // update the last observed acknowledged block
+            long blockRangesLastValue =
+                    blockRanges.isEmpty() ? -1 : blockRanges.getLast().end();
+            greedyBackfillRecentBlocks(lastAcknowledgedBlockObserved.get(), blockRangesLastValue);
+            lastAcknowledgedBlockObserved.set(blockRangesLastValue); // update the last observed acknowledged block
 
             // backfill missing historical blocks from peer BN sources
             detectedGaps = new ArrayList<>();
@@ -389,7 +389,7 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
 
             autonomousError = false;
         } catch (Exception e) {
-            LOGGER.log(TRACE, "Error during backfill autonomous process: {0}", e);
+            LOGGER.log(TRACE, "Error during backfill autonomous process", e);
             autonomousError = true;
             autonomousBackfillEndBlock.set(-1);
         }
