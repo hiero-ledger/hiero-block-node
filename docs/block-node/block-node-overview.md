@@ -10,13 +10,13 @@ Instead of pushing this data into centralized cloud storage, Block Nodes act as 
 
 ## How Block Nodes differ from other nodes
 
-|           **Aspect**           |                                        **Consensus Node**                                         |                                  **Block Node**                                   |                             **Mirror Node**                             |
-|--------------------------------|---------------------------------------------------------------------------------------------------|-----------------------------------------------------------------------------------|-------------------------------------------------------------------------|
-| Primary role                   | Reach consensus and update canonical state.                                                       | Ingest, verify, store, and serve blocks, and state.                               | Provide value‑added access to historical data and analytics.            |
-| Produces blocks                | Yes – produces finalized block streams per **([HIP-1056](https://hips.hedera.com/hip/hip-1056))** | No – consumes and verifies blocks from Consensus Nodes or upstream Block Nodes.   | No – consumes data from Block Nodes.        |
-| Maintains full consensus state | Yes – authoritative state, optimized for consensus.                                               | Yes – replicated state plus saved states and snapshots for queries and reconnect. | No – maintains data in an indexed form as needed for queries and analytics. |
-| Data APIs                      | gRPC for transactions/queries; no history.                                                   | Streamlined gRPC APIs for streaming, random block access, state, and proofs.              | Public REST and custom APIs for queries and observability.              |
-| Who runs it                    | Governing Council and approved operators.                                                         | Tier 1: Council / trusted; Tier 2: permissionless operators, service providers, app teams, and infra providers.  | Permissionless operators, service providers, and app teams.             |
+|           **Aspect**           |                                        **Consensus Node**                                         |                                                 **Block Node**                                                  |                               **Mirror Node**                               |
+|--------------------------------|---------------------------------------------------------------------------------------------------|-----------------------------------------------------------------------------------------------------------------|-----------------------------------------------------------------------------|
+| Primary role                   | Reach consensus and update canonical state.                                                       | Ingest, verify, store, and serve blocks, and state.                                                             | Provide value‑added access to historical data and analytics.                |
+| Produces blocks                | Yes – produces finalized block streams per **([HIP-1056](https://hips.hedera.com/hip/hip-1056))** | No – consumes and verifies blocks from Consensus Nodes or upstream Block Nodes.                                 | No – consumes data from Block Nodes.                                        |
+| Maintains full consensus state | Yes – authoritative state, optimized for consensus.                                               | Yes – replicated state plus saved states and snapshots for queries and reconnect.                               | No – maintains data in an indexed form as needed for queries and analytics. |
+| Data APIs                      | gRPC for transactions/queries; no history.                                                        | Streamlined gRPC APIs for streaming, random block access, state, and proofs.                                    | Public REST and custom APIs for queries and observability.                  |
+| Who runs it                    | Governing Council and approved operators.                                                         | Tier 1: Council / trusted; Tier 2: permissionless operators, service providers, app teams, and infra providers. | Permissionless operators, service providers, and app teams.                 |
 
 ## Key Terms
 
@@ -52,7 +52,7 @@ Block Nodes provide several core services that turn block streams into reliable,
 
 - Running an API server for wallets, explorers, or dApps to access verified blockchain data.
 - Operating analytics or aggregation pipelines using live and historical block streams.
-- Providing specialized compliance, archival, or network recovery support for Hedera services.
+- Providing specialized compliance, archival, or network recovery support for Hiero services.
 
 ## Block Node Types
 
@@ -114,7 +114,7 @@ Use this decision guide to determine which Block Node configuration suits your n
 **Choose Tier 1 if:**
 
 - You are a member of the Hiero network's governance structure or trusted network partner.
-    - In the public Hedera network a governance member is an Hedera Governing Council member.
+  - In the public Hiero network a governance member is an Hiero Governing Council member.
 - You have authorization to peer directly with Consensus Nodes.
 - You can commit to high-availability SLAs (99.9%+ uptime).
 - You want to provide reconnect services to Consensus Nodes.
