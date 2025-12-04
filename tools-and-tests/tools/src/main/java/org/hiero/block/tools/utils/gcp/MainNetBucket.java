@@ -15,7 +15,11 @@ import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 import java.util.function.Function;
 import java.util.stream.IntStream;
 import java.util.stream.Stream;
@@ -39,6 +43,8 @@ public class MainNetBucket {
             BlobListOption.fields(BlobField.NAME, BlobField.SIZE, BlobField.MD5HASH);
     /** Blob name field only */
     private static final Storage.BlobListOption NAME_FIELD_ONLY = BlobListOption.fields(BlobField.NAME);
+    /** Glob filter to signature files only */
+    private static final Storage.BlobListOption SIGNATURE_FILES_ONLY = BlobListOption.matchGlob("**.rcd_sig");
     /** The mainnet bucket name*/
     private static final String HEDERA_MAINNET_STREAMS_BUCKET = "hedera-mainnet-streams";
     /** The GCP Storage service instance - use Storage.list() directly to avoid needing bucket metadata access */
@@ -322,6 +328,115 @@ public class MainNetBucket {
         } catch (Exception e) {
             throw new RuntimeException(e);
         }
+    }
+
+    /**
+     * Check if a specific signature file exists in the bucket for a given node and block timestamp.
+     * The signature file path format is: recordstreams/record{nodeAccountId}/{timestamp}.rcd_sig
+     *
+     * @param nodeAccountId the node account ID (e.g., "0.0.13")
+     * @param blockTimestamp the block timestamp in bucket format (e.g., "2019-10-09T21_32_20.601587003Z")
+     * @return true if the signature file exists in the bucket, false otherwise
+     */
+    public boolean signatureFileExists(String nodeAccountId, String blockTimestamp) {
+        String path = "recordstreams/record" + nodeAccountId + "/" + blockTimestamp + ".rcd_sig";
+        BlobId blobId = BlobId.of(HEDERA_MAINNET_STREAMS_BUCKET, path);
+        try {
+            var blob = STORAGE.get(blobId, Storage.BlobGetOption.fields(BlobField.NAME));
+            return blob != null && blob.exists();
+        } catch (Exception e) {
+            //noinspection CallToPrintStackTrace
+            e.printStackTrace();
+            return false;
+        }
+    }
+
+    /**
+     * Check if multiple signature files exist in the bucket for given nodes and a block timestamp.
+     * Returns a map of node account ID to whether the signature file exists.
+     *
+     * @param nodeAccountIds the set of node account IDs to check (e.g., "0.0.13", "0.0.14")
+     * @param blockTimestamp the block timestamp in bucket format (e.g., "2019-10-09T21_32_20.601587003Z")
+     * @return a map of node account ID to boolean indicating if signature exists in bucket
+     */
+    public Map<String, Boolean> checkSignatureFilesExist(Set<String> nodeAccountIds, String blockTimestamp) {
+        Map<String, Boolean> results = new HashMap<>();
+        for (String nodeAccountId : nodeAccountIds) {
+            results.put(nodeAccountId, signatureFileExists(nodeAccountId, blockTimestamp));
+        }
+        return results;
+    }
+
+    /**
+     * List all signature files in the bucket for a given day. Uses hour-based prefix filtering
+     * for efficiency and filters to only .rcd_sig files.
+     *
+     * <p>Returns a map where keys are block timestamps (e.g., "2019-10-09T21_32_20.601587003Z")
+     * and values are sets of node account IDs that have signature files for that block.
+     *
+     * @param dayPrefix the day prefix in format "YYYY-MM-DD" (e.g., "2019-10-09")
+     * @return a map of block timestamp to set of node account IDs with signatures
+     */
+    public Map<String, Set<String>> listSignatureFilesForDay(String dayPrefix) {
+        // Query each hour of the day (00-23) in parallel for efficiency
+        return IntStream.range(0, 24)
+                .parallel()
+                .mapToObj(hour -> {
+                    String hourPrefix = String.format("%sT%02d", dayPrefix, hour);
+                    return listSignatureFilesWithPrefix(hourPrefix);
+                })
+                .collect(HashMap::new, Map::putAll, Map::putAll); // we know there are no overlapping keys
+    }
+
+    /**
+     * List all signature files in the bucket with the given prefix.
+     * Queries all nodes in parallel for efficiency.
+     *
+     * @param filePrefix the prefix to filter files (e.g., "2019-10-09T21" for hour 21)
+     * @return a map of block timestamp to set of node account IDs with signatures
+     */
+    private Map<String, Set<String>> listSignatureFilesWithPrefix(String filePrefix) {
+        return IntStream.range(minNodeAccountId, maxNodeAccountId + 1)
+                .parallel()
+                .mapToObj(nodeAccountId -> {
+                    final String nodeAccountIdStr = "0.0." + nodeAccountId;
+                    final String prefix = "recordstreams/record" + nodeAccountIdStr + "/" + filePrefix;
+
+                    Map<String, Set<String>> nodeSignatures = new HashMap<>();
+                    try {
+                        STORAGE.list(HEDERA_MAINNET_STREAMS_BUCKET, new BlobListOption[] {
+                                    BlobListOption.prefix(prefix),
+                                    NAME_FIELD_ONLY,
+                                    SIGNATURE_FILES_ONLY,
+                                    BlobListOption.userProject(userProject)
+                                })
+                                .streamAll()
+                                .map(BlobInfo::getName)
+                                .filter(name -> name.endsWith(".rcd_sig"))
+                                .forEach(name -> {
+                                    String fileName = name.substring(name.lastIndexOf('/') + 1);
+                                    String timestamp = fileName.substring(0, fileName.length() - 8);
+
+                                    nodeSignatures
+                                            .computeIfAbsent(timestamp, k -> new HashSet<>())
+                                            .add(nodeAccountIdStr);
+                                });
+                    } catch (Exception e) {
+                        System.err.println("Warning: Error listing signatures for node " + nodeAccountIdStr
+                                + " with prefix " + filePrefix + ": " + e.getMessage());
+                    }
+                    return nodeSignatures;
+                })
+                .collect(
+                        HashMap::new,
+                        (acc, map) -> map.forEach((k, v) -> acc.merge(k, v, (s1, s2) -> {
+                            s1.addAll(s2);
+                            return s1;
+                        })),
+                        (map1, map2) -> map2.forEach((k, v) -> map1.merge(k, v, (s1, s2) -> {
+                            s1.addAll(s2);
+                            return s1;
+                        })));
     }
 
     /**
