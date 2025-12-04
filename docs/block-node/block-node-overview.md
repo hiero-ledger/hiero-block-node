@@ -4,7 +4,7 @@ Block Nodes represent a new class of nodes in a Hiero network designed to increa
 
 ## What is a Block Node?
 
-A Block Node is a special kind of server that keeps a complete, trustworthy copy of what is happening on the Hedera network. It receives a stream of already-agreed blocks from Consensus Nodes, checks that each block is valid, and then stores those blocks and the current network state so they are easy to query later.
+A Block Node is a special kind of server that keeps a complete, trustworthy copy of what is happening on a Hiero network. It receives a stream of already-agreed blocks from Consensus Nodes, checks that each block is valid, and then stores those blocks and updates a copy of the current network state so both are available to query later.
 
 Instead of pushing this data into centralized cloud storage, Block Nodes act as a decentralized data layer for the network. They stream blocks to Mirror Nodes and other Block Nodes, answer questions from apps and services about past blocks or current state, and provide cryptographic proofs so users can independently verify that the data is correct.
 
