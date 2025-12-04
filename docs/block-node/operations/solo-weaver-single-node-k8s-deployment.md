@@ -218,14 +218,14 @@ See below for common errors, causes, and solutions during Block Node setup:
    - **Fix:** Re-run with a valid profile, for example:
 
      ```bash
-     sudo ./weaver-linux-amd64 Block Node install -p local
+     sudo ./weaver-linux-amd64 blocknode install -p local
      ```
 2. Error: “Requires super user privilege”
-   - **Cause:** The **`Block Node installp`** command was run without **`sudo`**.
+   - **Cause:** The **`blocknode install -p`** command was run without **`sudo`**.
    - **Fix:** Add **`sudo`** before your command:
 
    ```bash
-   sudo ./weaver-linux-amd64 Block Node install -p local
+   sudo ./weaver-linux-amd64 blocknode install -p local
    ```
 3. Error: Missing **`weaver`** User and/or Group
    - **Cause:** First **`sudo`** run; the **`weaver`** system user and group are not yet created.
