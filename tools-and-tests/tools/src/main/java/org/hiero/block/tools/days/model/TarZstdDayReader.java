@@ -38,7 +38,7 @@ import org.hiero.block.tools.records.model.unparsed.UnparsedRecordBlock;
  *   <li>Primary sidecar files are indexed like {@code 2019-09-13T22_48_30.277013Z_1.rcd} (index
  *       starts at 1). Node-specific sidecars append a {@code _node_<id>} token,
  *       e.g. {@code 2019-09-13T22_48_30.277013Z_1_node_21.rcd}.</li>
- *   <li>Signature files end with {@code .rcs_sig} and are often named as {@code node_<address>.rcs_sig}
+ *   <li>Signature files end with {@code .rcd_sig} and are often named as {@code node_<address>.rcd_sig}
  *       and colocated inside the timestamp directory.</li>
  * </ul>
  *
@@ -138,7 +138,7 @@ public class TarZstdDayReader {
      * <ul>
      *   <li>Collects all {@code .rcd} files and groups them by their extracted base key
      *       (timestamp portion).</li>
-     *   <li>Collects signature files ({@code .rcs_sig}) and attempts to associate them with an
+     *   <li>Collects signature files ({@code .rcd_sig}) and attempts to associate them with an
      *       existing record-group by matching an extracted base key or by placing them under the
      *       timestamp directory's base key when appropriate.</li>
      *   <li>Detects the primary record file (exact match to {@code baseKey + ".rcd"}) and
@@ -152,7 +152,7 @@ public class TarZstdDayReader {
      *                   when entries are at the archive root; used to infer a directory-level base
      *                   key for signatures that do not include timestamps in their names
      * @param currentFiles files read from the TAR that share the same parent directory; may include
-     *                     {@code .rcd} and {@code .rcs_sig} files
+     *                     {@code .rcd} and {@code .rcd_sig} files
      * @param results the list to append created {@link UnparsedRecordBlock} instances to
      */
     @SuppressWarnings("ReplaceNullCheck")
@@ -179,7 +179,7 @@ public class TarZstdDayReader {
             if (name.endsWith(".rcd")) {
                 String baseKey = extractBaseKey(name);
                 byBase.computeIfAbsent(baseKey, k -> new ArrayList<>()).add(f);
-            } else if (name.endsWith(".rcs_sig")) {
+            } else if (name.endsWith(".rcd_sig") || name.endsWith(".rcs_sig")) {
                 signatureFilesAll.add(f);
             }
             // ignore other files
@@ -215,7 +215,7 @@ public class TarZstdDayReader {
 
             for (InMemoryFile f : files) {
                 String name = f.path().getFileName().toString();
-                if (name.endsWith(".rcs_sig")) signatureFiles.add(f);
+                if (name.endsWith(".rcd_sig") || name.endsWith(".rcs_sig")) signatureFiles.add(f);
                 else if (name.endsWith(".rcd")) rcdFiles.add(f);
             }
 
@@ -376,7 +376,7 @@ public class TarZstdDayReader {
     /**
      * Return the parent directory portion of a TAR entry name, preserving a trailing slash.
      *
-     * <p>Example: {@code parentDirectory("2019-09-13/2019-09-13T23_12_21.610147Z/node_0.0.7.rcs_sig")}
+     * <p>Example: {@code parentDirectory("2019-09-13/2019-09-13T23_12_21.610147Z/node_0.0.7.rcd_sig")}
      * returns {@code "2019-09-13/2019-09-13T23_12_21.610147Z/"}.
      *
      * @param entryName the TAR entry path as stored in the archive
@@ -395,11 +395,11 @@ public class TarZstdDayReader {
      * <ul>
      *   <li>{@code 2019-09-13T22_48_30.277013Z.rcd} -> {@code 2019-09-13T22_48_30.277013Z}</li>
      *   <li>{@code 2019-09-13T22_48_30.277013Z_1.rcd} -> {@code 2019-09-13T22_48_30.277013Z}</li>
-     *   <li>{@code node_0.0.7.rcs_sig} -> {@code node_0.0.7}</li>
+     *   <li>{@code node_0.0.7.rcd_sig} -> {@code node_0.0.7}</li>
      * </ul>
      *
-     * <p>The method strips known extensions (".rcd", ".rcs_sig" and the combined
-     * ".rcd.rcs_sig" case) and then removes {@code _node_<n>} suffixes and final index suffixes
+     * <p>The method strips known extensions (".rcd", ".rcd_sig" and the combined
+     * ".rcd.rcd_sig" case) and then removes {@code _node_<n>} suffixes and final index suffixes
      * like {@code _1} so that sidecars and node-specific files normalize to the underlying
      * timestamp base key.
      *
@@ -413,6 +413,10 @@ public class TarZstdDayReader {
             noExt = noExt.substring(0, noExt.length() - ".rcd.rcs_sig".length());
         } else if (noExt.endsWith(".rcs_sig")) {
             noExt = noExt.substring(0, noExt.length() - ".rcs_sig".length());
+        } else if (noExt.endsWith(".rcd.rcd_sig")) {
+            noExt = noExt.substring(0, noExt.length() - ".rcd.rcd_sig".length());
+        } else if (noExt.endsWith(".rcd_sig")) {
+            noExt = noExt.substring(0, noExt.length() - ".rcd_sig".length());
         } else if (noExt.endsWith(".rcd")) {
             noExt = noExt.substring(0, noExt.length() - ".rcd".length());
         }

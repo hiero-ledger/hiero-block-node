@@ -89,9 +89,9 @@ public class TarReaderCliCompareTest {
 
         TreeMap<String, Long> cliMap = new TreeMap<>();
         // pattern to parse tar -tvf output lines, like:
-        // -rw-r--r--  0 0      0         438 Oct  8 16:19 2019-09-13T23_59_56.056644Z/node_0.0.7.rcs_sig
-        // -rw-r--r--  0 0      0         438 Oct  8 16:19 2019-09-13T23_59_56.056644Z/node_0.0.8.rcs_sig
-        // -rw-r--r--  0 0      0         438 Oct  8 16:19 2019-09-13T23_59_56.056644Z/node_0.0.9.rcs_sig
+        // -rw-r--r--  0 0      0         438 Oct  8 16:19 2019-09-13T23_59_56.056644Z/node_0.0.7.rcd_sig
+        // -rw-r--r--  0 0      0         438 Oct  8 16:19 2019-09-13T23_59_56.056644Z/node_0.0.8.rcd_sig
+        // -rw-r--r--  0 0      0         438 Oct  8 16:19 2019-09-13T23_59_56.056644Z/node_0.0.9.rcd_sig
         Pattern p = Pattern.compile("^(\\S+)\\s+\\S+\\s+\\S+\\s+\\S+\\s+(\\d+)\\s+\\S+\\s+\\d+\\s+\\S+\\s+(.+)$");
         try (BufferedReader br =
                 new BufferedReader(new InputStreamReader(proc.getInputStream(), StandardCharsets.UTF_8))) {
