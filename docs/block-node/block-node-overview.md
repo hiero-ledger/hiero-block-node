@@ -22,7 +22,7 @@ Instead of pushing this data into centralized cloud storage, Block Nodes act as 
 
 Before diving deeper, familiarize yourself with these core concepts:
 
-- **Block Stream ([HIP-1056](https://hips.hedera.com/hip/hip-1056))** - A continuous, ordered feed of finalized blocks produced by Consensus Nodes. Each block contains transactions, state changes, event records, and cryptographic signatures. Block streams are delivered via gRPC in Protocol Buffer format at a rate of approximately [X blocks per second / Y seconds per block].
+- **Block Stream ([HIP-1056](https://hips.hedera.com/hip/hip-1056))** - A continuous, ordered feed of finalized block data produced by Consensus Nodes. Each block consists of a stream of individual items containing transactions, state changes, events, EVM trace data, and cryptographic proofs. Block streams are delivered via gRPC in Protocol Buffer format at a rate determined by network configuration and network usage. A typical public network might complete 1 block per second, up to several blocks per second.
 - **State Snapshot** - A point-in-time capture of the complete network state (accounts, balances, smart contract storage, etc.) at a specific block height. State snapshots enable fast synchronization and recovery without replaying every transaction from genesis.
 - **Aggregated Signatures** - Cryptographic signatures from multiple Consensus Nodes combined into a single compact signature that proves a block was finalized by network consensus. Defined in [HIP-1200](https://hips.hedera.com/hip/hip-1200).
 - **Reconnect Services** - APIs and data streams that help Consensus Nodes catch up to the current network state after downtime or network partitions by providing recent blocks and state snapshots.
