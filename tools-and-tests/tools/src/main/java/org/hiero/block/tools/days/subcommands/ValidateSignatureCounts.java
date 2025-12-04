@@ -11,6 +11,7 @@ import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.LocalDate;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
@@ -20,23 +21,23 @@ import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Stream;
+import org.hiero.block.tools.days.download.DownloadConstants;
 import org.hiero.block.tools.days.model.AddressBookRegistry;
 import org.hiero.block.tools.days.model.TarZstdDayUtils;
 import org.hiero.block.tools.records.model.unparsed.InMemoryFile;
 import org.hiero.block.tools.utils.TarReader;
 import org.hiero.block.tools.utils.ZstCmdInputStream;
+import org.hiero.block.tools.utils.gcp.MainNetBucket;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Help.Ansi;
-import picocli.CommandLine.Model.CommandSpec;
 import picocli.CommandLine.Option;
 import picocli.CommandLine.Parameters;
-import picocli.CommandLine.Spec;
 
 /**
  * Validates that each block in compressed day files contains signatures from all expected nodes
  * as defined in the address book for that day.
  */
-@SuppressWarnings("CallToPrintStackTrace")
+@SuppressWarnings({"CallToPrintStackTrace", "unused"})
 @Command(
         name = "validate-sig-counts",
         description = "Validate that all blocks have signatures from all expected nodes",
@@ -50,13 +51,21 @@ public class ValidateSignatureCounts implements Runnable {
     private static final Pattern BLOCK_DIR_PATTERN =
             Pattern.compile("\\d{4}-\\d{2}-\\d{2}T\\d{2}_\\d{2}_\\d{2}\\.\\d+Z");
 
-    @Spec
-    CommandSpec spec;
+    @Option(
+            names = {"-d", "--downloaded-days-dir"},
+            description = "Directory where downloaded days are stored")
+    private File compressedDaysDir = new File("compressedDays");
+
+    @SuppressWarnings("FieldCanBeLocal")
+    @Option(
+            names = {"-a", "--check-all"},
+            description = "Check ALL blocks against GCP bucket (not just samples). Much slower but comprehensive.")
+    private boolean checkAllBlocks = false;
 
     @Option(
-        names = {"-d", "--downloaded-days-dir"},
-        description = "Directory where downloaded days are stored")
-    private File compressedDaysDir = new File("compressedDays");
+            names = {"-p", "--user-project"},
+            description = "GCP project to bill for requester-pays bucket access (default: from GCP_PROJECT_ID env var)")
+    private String userProject = DownloadConstants.GCP_PROJECT_ID;
 
     @Parameters(index = "0", description = "From year")
     private int fromYear;
@@ -134,6 +143,9 @@ public class ValidateSignatureCounts implements Runnable {
         long totalBlocksProcessed = 0;
         long totalBlocksWithMissingSignatures = 0;
 
+        // Track days with incomplete archives (signatures exist in bucket but missing from tar.zstd)
+        List<LocalDate> daysWithIncompleteArchives = new ArrayList<>();
+
         // Process each day
         for (Path dayPath : filteredDayPaths) {
             LocalDate dayDate = parseDayFromFileName(dayPath.getFileName().toString());
@@ -146,16 +158,38 @@ public class ValidateSignatureCounts implements Runnable {
             for (Map.Entry<String, Long> entry : dayResult.missingByNode.entrySet()) {
                 totalMissingByNode.merge(entry.getKey(), entry.getValue(), Long::sum);
             }
+
+            // Track days with incomplete archives
+            if (dayResult.hasIncompleteArchive) {
+                daysWithIncompleteArchives.add(dayDate);
+            }
         }
 
         // Print overall summary
-        printOverallSummary(totalBlocksProcessed, totalBlocksWithMissingSignatures, totalMissingByNode);
+        printOverallSummary(
+                totalBlocksProcessed, totalBlocksWithMissingSignatures, totalMissingByNode, daysWithIncompleteArchives);
     }
 
     /**
      * Result of processing a single day.
+     *
+     * @param blocksProcessed total blocks processed
+     * @param blocksWithMissingSignatures blocks missing at least one signature
+     * @param missingByNode count of missing signatures per node
+     * @param hasIncompleteArchive true if any sampled missing signatures exist in bucket but not in tar.zstd
+     * @param incompleteBlockCount count of sampled blocks where signatures exist in bucket but missing from archive
      */
-    private record DayResult(long blocksProcessed, long blocksWithMissingSignatures, Map<String, Long> missingByNode) {}
+    private record DayResult(
+            long blocksProcessed,
+            long blocksWithMissingSignatures,
+            Map<String, Long> missingByNode,
+            boolean hasIncompleteArchive,
+            int incompleteBlockCount) {}
+
+    /**
+     * Information about a block with missing signatures to be checked against the bucket.
+     */
+    private record MissingBlockInfo(String blockTimestamp, Set<String> missingNodes) {}
 
     /**
      * Process a single day file.
@@ -211,13 +245,14 @@ public class ValidateSignatureCounts implements Runnable {
         } catch (IOException e) {
             System.out.println(Ansi.AUTO.string("@|red Error reading day file: " + e.getMessage() + "|@"));
             e.printStackTrace();
-            return new DayResult(0, 0, missingByNode);
+            return new DayResult(0, 0, missingByNode, false, 0);
         }
 
-        // Now validate each block
-        int missingBlocksReported = 0;
+        // Collect blocks with missing signatures for bucket checking (sampling)
+        List<MissingBlockInfo> blocksToCheck = new ArrayList<>();
         int maxMissingBlocksToReport = 10;
 
+        // Now validate each block
         for (Map.Entry<String, Set<String>> entry : signaturesByBlock.entrySet()) {
             String blockTimestamp = entry.getKey();
             Set<String> foundSignatures = entry.getValue();
@@ -236,28 +271,153 @@ public class ValidateSignatureCounts implements Runnable {
                     missingByNode.merge(missingNode, 1L, Long::sum);
                 }
 
-                // Report first few blocks with missing signatures
-                if (missingBlocksReported < maxMissingBlocksToReport) {
-                    String blockTimeFormatted = formatBlockTimestamp(blockTimestamp);
-                    System.out.println(Ansi.AUTO.string(String.format(
-                            "    @|red ✗|@ @|yellow %s|@ @|white missing|@ @|red %d|@ @|white signature(s):|@ @|red %s|@",
-                            blockTimeFormatted, missingNodes.size(), formatNodeList(missingNodes))));
-                    missingBlocksReported++;
+                // Collect blocks for bucket checking (sample first few)
+                if (blocksToCheck.size() < maxMissingBlocksToReport) {
+                    blocksToCheck.add(new MissingBlockInfo(blockTimestamp, new HashSet<>(missingNodes)));
                 }
             }
         }
 
-        if (missingBlocksReported >= maxMissingBlocksToReport
-                && blocksWithMissingSignatures > maxMissingBlocksToReport) {
-            System.out.println(Ansi.AUTO.string(String.format(
-                    "    @|yellow ... and %d more blocks with missing signatures|@",
-                    blocksWithMissingSignatures - maxMissingBlocksToReport)));
+        // Track if this day has incomplete archive (signatures exist in bucket but not in tar.zstd)
+        boolean hasIncompleteArchive = false;
+        int incompleteBlockCount = 0;
+
+        // Check blocks against the GCP bucket
+        if (!blocksToCheck.isEmpty()) {
+            // Create MainNetBucket instance (no caching for this use case, with user project for requester-pays)
+            MainNetBucket bucket = new MainNetBucket(false, Path.of("data/gcp-cache"), 3, 34, userProject);
+
+            if (checkAllBlocks) {
+                // Comprehensive mode: fetch all signatures from bucket for this day and compare
+                System.out.println(Ansi.AUTO.string(
+                        "  @|white Fetching ALL signature files from GCP bucket for comprehensive comparison...|@"));
+
+                String dayPrefix = dayDate.toString(); // Format: YYYY-MM-DD
+                Map<String, Set<String>> bucketSignatures = bucket.listSignatureFilesForDay(dayPrefix);
+
+                System.out.println(Ansi.AUTO.string(String.format(
+                        "  @|white Found|@ @|cyan %,d|@ @|white blocks with signatures in bucket|@",
+                        bucketSignatures.size())));
+
+                // Now compare ALL blocks with missing signatures against bucket
+                int blocksReported = 0;
+                for (Map.Entry<String, Set<String>> entry : signaturesByBlock.entrySet()) {
+                    String blockTimestamp = entry.getKey();
+                    Set<String> tarSignatures = entry.getValue();
+
+                    // Find missing signatures in tar.zstd
+                    Set<String> missingInTar = new HashSet<>(expectedNodeAccountIds);
+                    missingInTar.removeAll(tarSignatures);
+
+                    if (!missingInTar.isEmpty()) {
+                        // Get signatures that exist in bucket for this block
+                        Set<String> bucketSigs = bucketSignatures.getOrDefault(blockTimestamp, Set.of());
+
+                        // Find signatures that exist in bucket but are missing from tar.zstd
+                        List<String> existsInBucketMissingInTar = new ArrayList<>();
+                        List<String> missingInBoth = new ArrayList<>();
+
+                        for (String nodeId : missingInTar) {
+                            if (bucketSigs.contains(nodeId)) {
+                                existsInBucketMissingInTar.add(nodeId);
+                            } else {
+                                missingInBoth.add(nodeId);
+                            }
+                        }
+
+                        // Only report blocks where tar.zstd is missing signatures that exist in bucket
+                        if (!existsInBucketMissingInTar.isEmpty()) {
+                            hasIncompleteArchive = true;
+                            incompleteBlockCount++;
+
+                            String blockTimeFormatted = formatBlockTimestamp(blockTimestamp);
+                            System.out.println(Ansi.AUTO.string(String.format(
+                                    "    @|red ✗|@ @|yellow %s|@ @|red [%d EXIST in bucket but missing in tar: %s]|@",
+                                    blockTimeFormatted,
+                                    existsInBucketMissingInTar.size(),
+                                    formatNodeListShort(existsInBucketMissingInTar))));
+                            blocksReported++;
+                        }
+                    }
+                }
+
+                if (blocksReported == 0 && blocksWithMissingSignatures > 0) {
+                    System.out.println(Ansi.AUTO.string(
+                            "    @|green ✓ All missing signatures are also missing from the bucket|@"));
+                }
+
+            } else {
+                // Sampling mode: check only first few blocks
+                System.out.println(Ansi.AUTO.string("  @|white Checking sampled blocks against GCP bucket...|@"));
+
+                for (MissingBlockInfo blockInfo : blocksToCheck) {
+                    String blockTimeFormatted = formatBlockTimestamp(blockInfo.blockTimestamp);
+
+                    // Check each missing node's signature in the bucket
+                    List<String> missingInBucket = new ArrayList<>();
+                    List<String> existsInBucket = new ArrayList<>();
+
+                    for (String nodeAccountId : blockInfo.missingNodes) {
+                        boolean existsInGcp = bucket.signatureFileExists(nodeAccountId, blockInfo.blockTimestamp);
+                        if (existsInGcp) {
+                            existsInBucket.add(nodeAccountId);
+                        } else {
+                            missingInBucket.add(nodeAccountId);
+                        }
+                    }
+
+                    // Track if any signatures exist in bucket but not in archive
+                    if (!existsInBucket.isEmpty()) {
+                        hasIncompleteArchive = true;
+                        incompleteBlockCount++;
+                    }
+
+                    // Format the output based on what we found
+                    StringBuilder sb = new StringBuilder();
+                    sb.append(String.format(
+                            "    @|red ✗|@ @|yellow %s|@ @|white missing|@ @|red %d|@ @|white sig(s):|@",
+                            blockTimeFormatted, blockInfo.missingNodes.size()));
+
+                    if (!missingInBucket.isEmpty() && existsInBucket.isEmpty()) {
+                        // All missing signatures are also missing from bucket
+                        sb.append(String.format(" @|green [all %d missing in bucket too]|@", missingInBucket.size()));
+                    } else if (missingInBucket.isEmpty() && !existsInBucket.isEmpty()) {
+                        // All missing signatures exist in bucket - tar.zstd is incomplete
+                        sb.append(String.format(
+                                " @|red [all %d EXIST in bucket - tar.zstd incomplete: %s]|@",
+                                existsInBucket.size(), formatNodeListShort(existsInBucket)));
+                    } else {
+                        // Mixed: some missing in bucket, some exist
+                        if (!missingInBucket.isEmpty()) {
+                            sb.append(String.format(" @|green [%d missing in bucket]|@", missingInBucket.size()));
+                        }
+                        if (!existsInBucket.isEmpty()) {
+                            sb.append(String.format(
+                                    " @|red [%d EXIST in bucket - tar incomplete: %s]|@",
+                                    existsInBucket.size(), formatNodeListShort(existsInBucket)));
+                        }
+                    }
+
+                    System.out.println(Ansi.AUTO.string(sb.toString()));
+                }
+
+                if (blocksWithMissingSignatures > maxMissingBlocksToReport) {
+                    System.out.println(Ansi.AUTO.string(String.format(
+                            "    @|yellow ... and %d more blocks with missing signatures (not checked against bucket)|@",
+                            blocksWithMissingSignatures - maxMissingBlocksToReport)));
+                }
+            }
         }
 
         // Print day summary
-        printDaySummary(blocksProcessed, blocksWithMissingSignatures, missingByNode);
+        printDaySummary(blocksProcessed, blocksWithMissingSignatures, missingByNode, hasIncompleteArchive);
 
-        return new DayResult(blocksProcessed, blocksWithMissingSignatures, missingByNode);
+        return new DayResult(
+                blocksProcessed,
+                blocksWithMissingSignatures,
+                missingByNode,
+                hasIncompleteArchive,
+                incompleteBlockCount);
     }
 
     /**
@@ -290,14 +450,14 @@ public class ValidateSignatureCounts implements Runnable {
     }
 
     /**
-     * Format a list of node account IDs for display.
+     * Format a list of node account IDs for short display.
      */
-    private String formatNodeList(Set<String> nodes) {
-        if (nodes.size() <= 5) {
-            return String.join(", ", nodes.stream().sorted().toList());
+    private String formatNodeListShort(List<String> nodes) {
+        List<String> sortedNodes = nodes.stream().sorted().toList();
+        if (sortedNodes.size() <= 3) {
+            return String.join(", ", sortedNodes);
         } else {
-            List<String> sortedNodes = nodes.stream().sorted().toList();
-            return String.join(", ", sortedNodes.subList(0, 5)) + " ... +" + (nodes.size() - 5) + " more";
+            return String.join(", ", sortedNodes.subList(0, 3)) + " ...+" + (sortedNodes.size() - 3);
         }
     }
 
@@ -317,7 +477,10 @@ public class ValidateSignatureCounts implements Runnable {
     }
 
     private void printDaySummary(
-            long blocksProcessed, long blocksWithMissingSignatures, Map<String, Long> missingByNode) {
+            long blocksProcessed,
+            long blocksWithMissingSignatures,
+            Map<String, Long> missingByNode,
+            boolean hasIncompleteArchive) {
         System.out.println();
         System.out.println(Ansi.AUTO.string("  @|bold Day Summary:|@"));
         System.out.println(
@@ -346,11 +509,21 @@ public class ValidateSignatureCounts implements Runnable {
                 }
             }
         }
+
+        // Indicate if this day has incomplete archive
+        if (hasIncompleteArchive) {
+            System.out.println(
+                    Ansi.AUTO.string(
+                            "    @|red,bold ⚠ INCOMPLETE ARCHIVE: Some signatures exist in bucket but missing from tar.zstd|@"));
+        }
         System.out.println();
     }
 
     private void printOverallSummary(
-            long totalBlocksProcessed, long totalBlocksWithMissingSignatures, Map<String, Long> totalMissingByNode) {
+            long totalBlocksProcessed,
+            long totalBlocksWithMissingSignatures,
+            Map<String, Long> totalMissingByNode,
+            List<LocalDate> daysWithIncompleteArchives) {
         System.out.println(
                 Ansi.AUTO.string("@|bold,cyan ════════════════════════════════════════════════════════════|@"));
         System.out.println(Ansi.AUTO.string("@|bold,cyan   OVERALL SUMMARY|@"));
@@ -381,6 +554,36 @@ public class ValidateSignatureCounts implements Runnable {
                                 entry.getKey(), entry.getValue()))));
             }
         }
+
+        // Show days with incomplete archives that need investigation
+        if (!daysWithIncompleteArchives.isEmpty()) {
+            System.out.println();
+            System.out.println(
+                    Ansi.AUTO.string("@|bold,red ════════════════════════════════════════════════════════════|@"));
+            System.out.println(Ansi.AUTO.string(String.format(
+                    "@|bold,red   ⚠ DAYS WITH INCOMPLETE ARCHIVES (%d days need investigation)|@",
+                    daysWithIncompleteArchives.size())));
+            System.out.println(
+                    Ansi.AUTO.string("@|bold,red ════════════════════════════════════════════════════════════|@"));
+            System.out.println();
+            System.out.println(
+                    Ansi.AUTO.string("  @|white These days have signatures that exist in the GCP bucket but are|@"));
+            System.out.println(
+                    Ansi.AUTO.string("  @|white missing from the tar.zstd archive (based on sampled blocks):|@"));
+            System.out.println();
+
+            for (LocalDate day : daysWithIncompleteArchives) {
+                System.out.println(Ansi.AUTO.string(String.format("    @|red ✗|@ @|yellow %s|@", day)));
+            }
+            System.out.println();
+        } else if (totalBlocksWithMissingSignatures > 0) {
+            System.out.println();
+            System.out.println(Ansi.AUTO.string(
+                    "  @|green ✓ All sampled missing signatures are also missing from the GCP bucket|@"));
+            System.out.println(
+                    Ansi.AUTO.string("  @|green   (tar.zstd archives appear to be complete copies of bucket data)|@"));
+        }
+
         System.out.println();
     }
 }
