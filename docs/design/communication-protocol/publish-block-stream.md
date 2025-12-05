@@ -4,13 +4,13 @@
 
 1. [Abstract](#abstract)
    1. [Reliability note](#reliability-note)
-1. [Definitions](#definitions)
-1. [Base Protocol](#base-protocol)
+2. [Definitions](#definitions)
+3. [Base Protocol](#base-protocol)
    1. [Base Protocol Diagram](#base-protocol-diagram)
-1. [Multiple Publisher Extension](#multiple-publisher-extension)
+4. [Multiple Publisher Extension](#multiple-publisher-extension)
    1. [Multiple Publisher Diagram](#multiple-publisher-extension-diagram)
-   1. [Pipeline Example Diagram](#pipeline-example-diagram)
-1. [Error Handling](#error-handling)
+   2. [Pipeline Example Diagram](#pipeline-example-diagram)
+5. [Error Handling](#error-handling)
    1. [Error Handling Diagram](#error-handling-diagram)
 
 ## Abstract
@@ -78,7 +78,7 @@ Node.
     * Response includes the last known block, so Publisher can perhaps do its
       own catch up or reconnect.
     * This REQUIRES Publisher to check and resend block header, or end the
-      stream and restart.
+      stream and reconnect.
     * This includes if Publisher sends a block less than the last known block,
       but this Block-Node, for some reason, does not actually hold that
       earlier block.
@@ -88,18 +88,18 @@ Node.
         streaming API is only for current data, not for filling gaps.
   * If this is greater than next block, this Block-Node missed one or more
     blocks and is behind.
-    * Respond with "Behind"
+    * Respond with `BehindPublisher`
       * This includes the last known and verified block number.
       * Publisher will send from block after that block, or send
-        `EndOfStream` and retry with exponential backoff.
-      * Publisher will include earliest known block with end of stream, so
-        this Block-Node has an idea of the range to catch up.
+        `EndOfStream`(`TOO_FAR_BEHIND`) and retry with exponential backoff.
+      * Publisher will include earliest and latest known blocks with end of
+        stream, so this Block-Node has an idea of the range to catch up.
         * This is _advisory_, and will almost certainly change before the
           Block-Node can finish "catching up".
       * If Publisher retries before the Block-Node is able to "catch up",
         the Block-Node MUST record the offered block number, and continue
-        trying to "catch up" to that. The response is still "Behind" with
-        the last known block number.
+        trying to "catch up" to that. The response is still `BehindPublisher`
+        with the last known block number.
         * This allows Publisher to jump in to "catch up" directly if
           the Block-Node is behind, but close enough, by sending earlier
           block(s) instead of `EndOfStream`.
@@ -119,9 +119,9 @@ Node.
     the Block-Node gets a matched block number or Publisher can finish
     catching up that Block-Node.
     * > Note, a Block-Node can (re)enter "catch up" _any_ time that Block-Node
-        gets the next block from Publisher with a block number that is not what
-        the Block Node expects. This simplifies logic for working out when to
-        retry or reset a stream.
+      > gets the next block from Publisher with a block number that is not what
+      > the Block Node expects. This simplifies logic for working out when to
+      > retry or reset a stream.
   * A Publisher _may_ choose to implement routine reset and rebalance.
     * Publisher, strictly after sending a `BlockProof` and before sending the
       next `BlockHeader`, shall send an `EndStream` with code `RESET`.
@@ -152,14 +152,14 @@ sequenceDiagram
     alt N == last known verified block number + 1
       BlockNode-->>Publisher: Accept and start streaming
     else N < last known verified block number
-      BlockNode-->>Publisher: Respond with "DuplicateBlock" (includes last available block L)
-      Publisher-->>BlockNode: Send new block header from block L+1 or send EndStream and retry
+      BlockNode-->>Publisher: Respond with EndOfStream(Duplicate Block) (includes last available block L)
+      Publisher-->>BlockNode: Connect to a new Block-Node and send new block header from block L+1.
       Note over Publisher: Reconnect to consensus network, if needed
     else N > last known verified block number + 1
-      BlockNode-->>Publisher: Respond with "Behind" (includes last known block L)
-      Publisher-->>BlockNode: Send from block L+1 or send EndStream and retry with exponential backoff
-      Note over Publisher: Includes earliest and latest available blocks with EndStream
-      Note over BlockNode: Needs to catch up from another Block-Node
+      BlockNode -->> Publisher: Respond with BehindPublisher and specify the latest completed block (L)
+      Publisher-->>BlockNode: Send from block L+1 or send EndStream(Too Far Behind) and retry with exponential backoff
+      Note over Publisher: Includes earliest and latest available blocks with EndStream if sent
+      Note over BlockNode: May need to catch up from another Block-Node
     end
     critical Validate latest streamed block
       alt Block is verified and persisted
@@ -219,7 +219,7 @@ that is "unhealthy" will not be reselected for the same failed block.
     the Block-Node will reply with "SkipBlock".
     * The Publisher will not send the remainder of that block, but will resume
       sending data with the next Block Header.
-      * This Publisher _may_ be able to resume _before_ the `BlockProof` for
+      * This Publisher _may_ be able to resume _before_ the `BlockEnd` for
         the current block is available, and _should_ do so.
     * The Publisher _must_ still expect acknowledgement for the "skipped" block
       and _must not_ remove that block from cache until it is acknowledged.
@@ -237,27 +237,27 @@ that is "unhealthy" will not be reselected for the same failed block.
     to the current streaming Publisher for the earlier block, and _must_ then
     send `ResendBlock` to all other publishers, specifying the block number that
     _was_ being sent by the first Publisher.
-    * The term "complete" here means the `BlockProof` is received for a block.
+    * The term "complete" here means the `BlockEnd` is received for a block.
       it does _not_ imply the block has been verified or persisted, however.
   * Example
-    > * Alice "wins" the race and starts sending block 9
-    >   * Bob receives a "SkipBlock"
-    >   * Carol receives a "SkipBlock"
-    > * Bob "wins" the race and starts sending block 10
-    >   * Carol receives a "SkipBlock"
-    >   * Alice is still sending block 9
-    > * Carol "wins" and starts sending block 11 (this is unusual, and may
-        already indicate a concern)
-    > * Bob sends the `BlockProof` for block 10
-    >   * Bob tries to send block 11 and receives a `SkipBlock`
-    >     * Here we _might_ want to send `EndOfStream` to Alice, and
-            `ResendBlock(9)` to Bob and Carol.
-    >       * We might also wait for _Carol_ to send a `BlockProof` for block
-              11 instead.
-    >     * A Block-Node _may_ retain the copy of block 10 that Bob sent, if it
-            is "complete", but this is an optimization decision.
-    >     * A Block-Node _must not_ acknowledge block 10 before it has
-            verified, persisted, and acknowledged block 9.
+    * > * Alice "wins" the race and starts sending block 9
+      >   * Bob receives a "SkipBlock"
+      >   * Carol receives a "SkipBlock"
+      > * Bob "wins" the race and starts sending block 10
+      >   * Carol receives a "SkipBlock"
+      >   * Alice is still sending block 9
+      > * Carol "wins" and starts sending block 11 (this is unusual, and may
+      >   already indicate a concern)
+      > * Bob sends the `BlockEnd` for block 10
+      >   * Bob tries to send block 11 and receives a `SkipBlock`
+      >     * Here we _might_ want to send `EndOfStream` to Alice, and
+      >       `ResendBlock(9)` to Bob and Carol.
+      >       * We might also wait for _Carol_ to send a `BlockEnd` for block
+      >         11 instead.
+      >     * A Block-Node _may_ retain the copy of block 10 that Bob sent, if it
+      >       is "complete", but this is an optimization decision.
+      >     * A Block-Node _must not_ acknowledge block 10 before it has
+      >       verified, persisted, and acknowledged block 9.
     * There is a [timeline](#multiple-publisher-extension-diagram) below to help
       clarify the ordering of these events.
   * The Block-Node _may_ also implement a time-out process for the
@@ -290,7 +290,7 @@ sequenceDiagram
       end
     else N > most recent streaming block + 1
       break Return to base protocol
-        BlockNode -->> Publisher: Respond with `EndOfStream` "Behind"
+        BlockNode -->> Publisher: Respond with BehindPublisher and specify the latest completed block
       end
     else N < last known and verified block
       break Return to base protocol
@@ -309,6 +309,7 @@ sequenceDiagram
 ```
 
 ### Pipeline Example Diagram
+
 ```mermaid
 gantt
     title Block Publication "Pipeline" Diagram
@@ -336,7 +337,7 @@ gantt
       Block 9 (SkipBlock) :done, 006, 007
       Block 10 (SkipBlock) :done, 014, 015
       Block 11 (Interrupted) :active, 019, 022
-      Block 9 (ResendBlock) :done, 022, 023 
+      Block 9 (ResendBlock) :done, 022, 023
       Block 9 (SkipBlock) :done, 023, 024
       Block 10 (SkipBlock) :done, 023, 024
       Block 11 (Completed) :active, 023, 038
@@ -399,7 +400,7 @@ sequenceDiagram
         BlockNode-->>Subscriber: Send EndStream with error code
         Note over Subscriber: Should resume streaming from another Block-Node
         BlockNode-->>BlockNode: Recover or await manual recovery
-    else BlockNode receives a `BlockHeader` before<br/>receiving a `BlockProof` for the current block
+    else BlockNode receives a `BlockHeader` before<br/>receiving a `BlockEnd` for the current block
         BlockNode-->>BlockNode: Drop the current in-progress block
         BlockNode-->>BlockNode: Treat the BlockHeader as the start of a new block
         alt New block header is for the "next" block
@@ -407,7 +408,7 @@ sequenceDiagram
         else New block header is for an earlier block
             BlockNode-->>Publisher: Send `DUPLICATE_BLOCK` and continue with "standard" flow
         else New block header is for a "future" block
-            BlockNode-->>Publisher: Send `BEHIND` and continue with "standard" flow
+            BlockNode-->>Publisher: Send `BehindPublisher` and continue with "standard" flow
         end
     end
 ```
