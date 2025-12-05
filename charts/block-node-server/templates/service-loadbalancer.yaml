@@ -1,0 +1,32 @@
+{{- /*
+SPDX-License-Identifier: Apache-2.0
+*/}}
+
+{{- if .Values.loadBalancer.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ default (printf "%s-external" (include "hiero-block-node.fullname" .)) .Values.loadBalancer.nameOverride }}
+  labels:
+    {{- include "hiero-block-node.labels" . | nindent 4 }}
+  {{- with .Values.loadBalancer.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  type: LoadBalancer
+  {{- with .Values.loadBalancer.loadBalancerIP }}
+  loadBalancerIP: {{ . | quote }}
+  {{- end }}
+  selector:
+    {{- include "hiero-block-node.selectorLabels" . | nindent 4 }}
+  ports:
+    - name: {{ default "grpc" .Values.loadBalancer.portName }}
+      port: {{ default .Values.service.port .Values.loadBalancer.port }}
+      targetPort: {{ default "http" .Values.loadBalancer.targetPort }}
+      protocol: {{ default "TCP" .Values.loadBalancer.protocol }}
+  {{- with .Values.loadBalancer.loadBalancerSourceRanges }}
+  loadBalancerSourceRanges:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+{{- end }}
