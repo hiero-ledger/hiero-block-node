@@ -44,6 +44,15 @@ tasks.register<Test>("runSuites") {
 tasks.register<Test>("runAPISuites") {
     description = "Runs API E2E Test Suites"
     group = "api"
+    mainModuleInfo {
+        runtimeOnly("org.hiero.block.node.archive.s3cloud")
+        runtimeOnly("org.hiero.block.node.stream.publisher")
+        runtimeOnly("org.hiero.block.node.stream.subscriber")
+        runtimeOnly("org.hiero.block.node.verification")
+        runtimeOnly("org.hiero.block.node.blocks.files.historic")
+        runtimeOnly("org.hiero.block.node.blocks.files.recent")
+        runtimeOnly("org.hiero.block.node.backfill")
+    }
 
     useJUnitPlatform() { includeTags("api") }
     testLogging { events("passed", "skipped", "failed") }
