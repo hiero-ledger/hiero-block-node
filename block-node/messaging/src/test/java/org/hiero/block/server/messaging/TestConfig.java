@@ -54,7 +54,8 @@ public class TestConfig {
     public static Metrics getMetrics() {
         ConfigurationBuilder configurationBuilder = ConfigurationBuilder.create()
                 .withConfigDataType(com.swirlds.common.metrics.config.MetricsConfig.class)
-                .withConfigDataType(com.swirlds.common.metrics.platform.prometheus.PrometheusConfig.class);
+                .withConfigDataType(com.swirlds.common.metrics.platform.prometheus.PrometheusConfig.class)
+                .withValue("prometheus.endpointEnabled", "false");
         final Configuration configuration = configurationBuilder.build();
         // create metrics provider
         final DefaultMetricsProvider metricsProvider;

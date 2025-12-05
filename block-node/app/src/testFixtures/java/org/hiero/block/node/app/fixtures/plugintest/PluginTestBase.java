@@ -91,7 +91,8 @@ public abstract class PluginTestBase<
                 .withConfigDataType(org.hiero.block.node.app.config.node.NodeConfig.class)
                 .withConfigDataTypes(plugin.configDataTypes().toArray(new Class[0]))
                 .withConfigDataType(com.swirlds.common.metrics.platform.prometheus.PrometheusConfig.class)
-                .withConfigDataType(org.hiero.block.node.app.config.ServerConfig.class);
+                .withConfigDataType(org.hiero.block.node.app.config.ServerConfig.class)
+                .withValue("prometheus.endpointEnabled", "false");
         if (configOverrides != null) {
             for (Entry<String, String> override : configOverrides.entrySet()) {
                 configurationBuilder = configurationBuilder.withValue(override.getKey(), override.getValue());
