@@ -11,6 +11,8 @@ import java.time.LocalDate;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
@@ -107,6 +109,7 @@ public class FixMissingSignatures implements Runnable {
             try (var stream = Files.list(fixedCompressedDaysDir.toPath())) {
                 stream.filter(Files::isRegularFile)
                         .filter(path -> path.getFileName().toString().endsWith(".tar.zstd"))
+                        .sorted()
                         .forEach(fixedDayPath -> {
                             final String fileName = fixedDayPath.getFileName().toString();
                             final LocalDate day = LocalDate.parse(fileName.substring(0, fileName.indexOf(".")));
@@ -139,14 +142,47 @@ public class FixMissingSignatures implements Runnable {
         // Set up GCP bucket access
         final MainNetBucket bucket = new MainNetBucket(
                 false, Path.of("metadata/gcp-cache"), minNodeAccountId, maxNodeAccountId, userProject);
+
+        // Producer-consumer queue with bounded capacity for backpressure
+        final BlockingQueue<DayWork> dayListingsQueue = new LinkedBlockingQueue<>(10);
+        // start a background thread to fetch day bucket signatures
+        Thread fetcherThread = new Thread(() -> {
+            try {
+                for (LocalDate day : days) {
+                    dayListingsQueue.put(new DayWork(day, bucket.listSignatureFilesForDay(day.toString())));
+                }
+            } catch (Exception e) {
+                e.printStackTrace();
+                throw new RuntimeException(e);
+            }
+        });
+        fetcherThread.start();
         // process each day
-        for (int i = 0; i < numOfDays; i++) {
-            LocalDate day = days.get(i);
-            fixDaySignatures(numOfDays, i, day, bucket);
+        int dayCount = 0;
+        while (!dayListingsQueue.isEmpty() || fetcherThread.isAlive()) {
+            DayWork dayWork = dayListingsQueue.poll();
+            if (dayWork == null) {
+                // wait a bit and retry
+                try {
+                    Thread.sleep(100);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                }
+                continue;
+            }
+            fixDaySignatures(numOfDays, dayCount, dayWork.day, bucket, dayWork.bucketSignatures);
+            dayCount++;
         }
     }
 
-    private void fixDaySignatures(int numOfDays, int dayIndex, LocalDate day, MainNetBucket bucket) {
+    private record DayWork(LocalDate day, Map<String, Set<String>> bucketSignatures) {}
+
+    private void fixDaySignatures(
+            int numOfDays,
+            int dayIndex,
+            LocalDate day,
+            MainNetBucket bucket,
+            final Map<String, Set<String>> bucketSignatures) {
         final int progressOffset = dayIndex * ESTIMATE_BLOCKS_PER_DAY;
         final int totalEstimatedBlocks = numOfDays * ESTIMATE_BLOCKS_PER_DAY;
         final String progressPrefix = String.format("Day %d of %d (%s): ", dayIndex + 1, numOfDays, day);
@@ -155,9 +191,6 @@ public class FixMissingSignatures implements Runnable {
         final String dayFileName = day.toString() + ".tar.zstd";
         final Path srcDayPath = compressedDaysDir.toPath().resolve(dayFileName);
         final Path dstDayPath = fixedCompressedDaysDir.toPath().resolve(dayFileName);
-        String dayPrefix = day.toString(); // Format: YYYY-MM-DD
-        // fetch all signatures from bucket for this day and compare
-        Map<String, Set<String>> bucketSignatures = bucket.listSignatureFilesForDay(dayPrefix);
 
         try (Stream<UnparsedRecordBlock> stream = TarZstdDayReaderUsingExec.streamTarZstd(srcDayPath);
                 ConcurrentTarZstdWriter writer = new ConcurrentTarZstdWriter(dstDayPath)) {
