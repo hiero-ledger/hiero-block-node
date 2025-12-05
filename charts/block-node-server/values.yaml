@@ -39,6 +39,8 @@ securityContext: {}
 service:
   type: ClusterIP
   port: 40840
+  annotations: {}
+    # metallb.io/address-pool: public-address-pool
 
 loadBalancer:
   enabled: false
