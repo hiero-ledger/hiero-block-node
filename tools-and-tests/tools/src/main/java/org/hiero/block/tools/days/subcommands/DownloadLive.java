@@ -28,6 +28,9 @@ import java.util.concurrent.TimeUnit;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Stream;
+
+import com.google.gson.Gson;
+import com.google.gson.GsonBuilder;
 import org.hiero.block.tools.days.download.DownloadDayLiveImpl;
 import org.hiero.block.tools.days.model.AddressBookRegistry;
 import org.hiero.block.tools.mirrornode.BlockInfo;
@@ -155,6 +158,15 @@ public class DownloadLive implements Runnable {
     private Path stateJsonPath;
 
     @Option(
+            names = "--running-hash-status-json",
+            defaultValue = "./state/downloadLiveRunningHash.json",
+            paramLabel = "FILE",
+            description =
+                    "Path to a JSON file used to persist the latest validated running hash, "
+                            + "in the same shape as validateCmdStatus.json.")
+    private Path runningHashStatusPath;
+
+    @Option(
             names = "--tmp-dir",
             defaultValue = "./tmp/download-live",
             paramLabel = "DIR",
@@ -167,6 +179,8 @@ public class DownloadLive implements Runnable {
             description =
                     "Optional path to an address book file used for future signature validation (e.g., nodeAddressBook.bin).")
     private Path addressBookPath;
+
+    private static final Gson GSON = new GsonBuilder().create();
 
     @Override
     public void run() {
@@ -181,6 +195,7 @@ public class DownloadLive implements Runnable {
         System.out.println("  maxConcurrency=" + maxConcurrency);
         System.out.println("  runPoller=" + runPoller);
         System.out.println("  stateJsonPath=" + stateJsonPath);
+        System.out.println("  runningHashStatusPath=" + runningHashStatusPath);
         System.out.println("  tmpDir=" + tmpDir);
         System.out.println("  addressBookPath=" + addressBookPath);
 
@@ -192,8 +207,22 @@ public class DownloadLive implements Runnable {
         // --- Start day-scoped poller with live downloader ---
         final ZoneId tz = ZoneId.of("UTC");
         final Duration interval = parseHumanDuration(pollInterval);
+        // Load any previously persisted running-hash status so we can resume validation across restarts.
+        final ValidationStatus existingValidationStatus = readValidationStatus(runningHashStatusPath);
+        final byte[] initialRunningHash =
+                (existingValidationStatus != null && existingValidationStatus.endRunningHashHex != null)
+                        ? fromHex(existingValidationStatus.endRunningHashHex)
+                        : null;
+
         final LiveDownloader downloader =
-                new LiveDownloader(listingDir, downloadedDaysDir, tmpDir, maxConcurrency, addressBookPath);
+                new LiveDownloader(
+                        listingDir,
+                        downloadedDaysDir,
+                        tmpDir,
+                        maxConcurrency,
+                        addressBookPath,
+                        runningHashStatusPath,
+                        initialRunningHash);
 
         LocalDate startDayParsed = null;
         LocalDate endDayParsed = null;
@@ -302,8 +331,6 @@ public class DownloadLive implements Runnable {
         }
     }
 
-    // --- Simple JSON state persistence (no external libs) ---
-
     private static final Pattern P_DAY = Pattern.compile("\"dayKey\"\\s*:\\s*\"([^\"]+)\"");
     private static final Pattern P_LAST = Pattern.compile("\"lastSeenBlock\"\\s*:\\s*(\\d+)");
 
@@ -324,28 +351,110 @@ public class DownloadLive implements Runnable {
         }
     }
 
-    private static void writeState(Path path, State st) {
-        if (path == null || st == null) return;
+    private static void writeState(Path path, State state) {
+        if (path == null || state == null) return;
         try {
             if (path.getParent() != null) {
                 Files.createDirectories(path.getParent());
             }
-            String json = "{\n" + "  \"dayKey\": \""
-                    + st.dayKey + "\",\n" + "  \"lastSeenBlock\": "
-                    + st.lastSeenBlock + "\n" + "}\n";
+            String json = GSON.toJson(state);
             Files.writeString(path, json, StandardCharsets.UTF_8);
         } catch (IOException e) {
             System.err.println("[poller] Failed to write state: " + e.getMessage());
         }
     }
 
-    private static final class State {
-        final String dayKey;
-        final long lastSeenBlock;
+    // ----------- Running-hash status utilities -----------
 
-        State(String dayKey, long lastSeenBlock) {
-            this.dayKey = dayKey;
-            this.lastSeenBlock = lastSeenBlock;
+    private static String toHex(byte[] data) {
+        if (data == null) {
+            return null;
+        }
+        StringBuilder sb = new StringBuilder(data.length * 2);
+        for (byte b : data) {
+            sb.append(Character.forDigit((b >>> 4) & 0xF, 16));
+            sb.append(Character.forDigit(b & 0xF, 16));
+        }
+        return sb.toString();
+    }
+
+    private static byte[] fromHex(String hex) {
+        if (hex == null || hex.isEmpty()) {
+            return null;
+        }
+        int len = hex.length();
+        if ((len & 1) != 0) {
+            throw new IllegalArgumentException("Hex string must have even length");
+        }
+        byte[] out = new byte[len / 2];
+        for (int i = 0; i < len; i += 2) {
+            int hi = Character.digit(hex.charAt(i), 16);
+            int lo = Character.digit(hex.charAt(i + 1), 16);
+            if (hi < 0 || lo < 0) {
+                throw new IllegalArgumentException("Invalid hex character in: " + hex);
+            }
+            out[i / 2] = (byte) ((hi << 4) + lo);
+        }
+        return out;
+    }
+
+    private static final Pattern P_V_DAY =
+            Pattern.compile("\"dayDate\"\\s*:\\s*\"([^\"]+)\"");
+    private static final Pattern P_V_TIME =
+            Pattern.compile("\"recordFileTime\"\\s*:\\s*\"([^\"]+)\"");
+    private static final Pattern P_V_HASH =
+            Pattern.compile("\"endRunningHashHex\"\\s*:\\s*\"([^\"]+)\"");
+
+    private static ValidationStatus readValidationStatus(Path path) {
+        try {
+            if (path == null || !Files.exists(path)) {
+                return null;
+            }
+            String s = Files.readString(path, StandardCharsets.UTF_8);
+            Matcher mDay = P_V_DAY.matcher(s);
+            Matcher mTime = P_V_TIME.matcher(s);
+            Matcher mHash = P_V_HASH.matcher(s);
+            String dayDate = mDay.find() ? mDay.group(1) : null;
+            String recordFileTime = mTime.find() ? mTime.group(1) : null;
+            String endRunningHashHex = mHash.find() ? mHash.group(1) : null;
+            if (dayDate == null || recordFileTime == null || endRunningHashHex == null) {
+                return null;
+            }
+            return new ValidationStatus(dayDate, recordFileTime, endRunningHashHex);
+        } catch (Exception e) {
+            System.err.println("[poller] Failed to read running-hash status: " + e.getMessage());
+            return null;
+        }
+    }
+
+    private static void writeValidationStatus(Path path, ValidationStatus status) {
+        if (path == null || status == null) {
+            return;
+        }
+        try {
+            if (path.getParent() != null) {
+                Files.createDirectories(path.getParent());
+            }
+            String json = "{\n"
+                    + "  \"dayDate\": \"" + status.dayDate + "\",\n"
+                    + "  \"recordFileTime\": \"" + status.recordFileTime + "\",\n"
+                    + "  \"endRunningHashHex\": \"" + status.endRunningHashHex + "\"\n"
+                    + "}\n";
+            Files.writeString(path, json, StandardCharsets.UTF_8);
+        } catch (IOException e) {
+            System.err.println("[poller] Failed to write running-hash status: " + e.getMessage());
+        }
+    }
+
+    private static final class ValidationStatus {
+        final String dayDate;
+        final String recordFileTime;
+        final String endRunningHashHex;
+
+        ValidationStatus(String dayDate, String recordFileTime, String endRunningHashHex) {
+            this.dayDate = dayDate;
+            this.recordFileTime = recordFileTime;
+            this.endRunningHashHex = endRunningHashHex;
         }
     }
 
@@ -520,6 +629,16 @@ public class DownloadLive implements Runnable {
         }
     }
 
+    private static final class State {
+        final String dayKey;
+        final long lastSeenBlock;
+
+        State(String dayKey, long lastSeenBlock) {
+            this.dayKey = dayKey;
+            this.lastSeenBlock = lastSeenBlock;
+        }
+    }
+
     /**
      * Handles downloading and placing files for a batch of blocks.
      *
@@ -538,6 +657,7 @@ public class DownloadLive implements Runnable {
         private final File tmpRoot;
         private final int maxConcurrency;
         private final Path addressBookPath;
+        private final Path runningHashStatusPath;
         private final org.hiero.block.tools.days.model.AddressBookRegistry addressBookRegistry;
         private final ConcurrentDownloadManagerVirtualThreads downloadManager;
         // Running previous record-file hash used to validate the block hash chain across files.
@@ -546,12 +666,20 @@ public class DownloadLive implements Runnable {
         private final ExecutorService compressionExecutor;
 
         LiveDownloader(
-                File listingDir, File downloadedDaysDir, File tmpRoot, int maxConcurrency, Path addressBookPath) {
+                File listingDir,
+                File downloadedDaysDir,
+                File tmpRoot,
+                int maxConcurrency,
+                Path addressBookPath,
+                Path runningHashStatusPath,
+                byte[] initialRunningHash) {
             this.listingDir = listingDir;
             this.downloadedDaysDir = downloadedDaysDir;
             this.tmpRoot = tmpRoot;
             this.maxConcurrency = Math.max(1, maxConcurrency);
             this.addressBookPath = addressBookPath;
+            this.runningHashStatusPath = runningHashStatusPath;
+            this.previousRecordFileHash = initialRunningHash;
             // Initialise the address book registry:
             //  - If a JSON history file is provided via --address-book, load from it
             //  - Otherwise fall back to the built-in Genesis address book
@@ -607,7 +735,7 @@ public class DownloadLive implements Runnable {
                         .orElse(null);
 
                 List<InMemoryFile> signatures = result.files.stream()
-                        .filter(f -> f.path().getFileName().toString().endsWith(".rcd_sig"))
+                        .filter(f -> f.path().getFileName().toString().endsWith(".rcs_sig"))
                         .toList();
 
                 List<InMemoryFile> sidecars = result.files.stream()
@@ -662,7 +790,7 @@ public class DownloadLive implements Runnable {
          * Shutdown hook for releasing GCS transfer resources and the background compression executor.
          * This is invoked from the top-level DownloadLive command via a JVM shutdown hook.
          */
-        void shutdown() {
+        private void shutdown() {
             // Close the GCS transfer manager if it supports AutoCloseable/Closeable.
             try {
                 if (downloadManager instanceof AutoCloseable closeable) {
@@ -712,7 +840,7 @@ public class DownloadLive implements Runnable {
          * Append the given file (by entryName) to the per-day tar archive using the system tar command.
          * The tar file is created under outRoot as dayKey.tar and entries are taken from the per-day folder.
          */
-        void appendToDayTar(String dayKey, String entryName) {
+        private void appendToDayTar(String dayKey, String entryName) {
             try {
                 final Path dayDir = downloadedDaysDir.toPath().resolve(dayKey);
                 final Path tarPath = downloadedDaysDir.toPath().resolve(dayKey + ".tar");
@@ -750,7 +878,7 @@ public class DownloadLive implements Runnable {
          * This "closes" the tar for the day by stopping further appends (handled by the poller/dayKey rollover),
          * then compresses dayKey.tar into dayKey.tar.zstd and cleans up the per-day folder.
          */
-        void finalizeDay(String dayKey) {
+        private void finalizeDay(String dayKey) {
             System.out.println("[download] Scheduling background compression for day " + dayKey);
             compressionExecutor.submit(() -> compressAndCleanupDay(dayKey));
         }
@@ -807,10 +935,12 @@ public class DownloadLive implements Runnable {
          * Download and place all files for the given batch. Returns the highest block number
          * that was successfully downloaded and placed, or -1 if none succeeded.
          */
-        long downloadBatch(String dayKey, List<BlockDescriptor> batch) {
+        private long downloadBatch(String dayKey, List<BlockDescriptor> batch) {
             if (batch == null || batch.isEmpty()) {
                 return -1L;
             }
+            // Make a mutable copy because callers may pass in an immutable List (e.g., Stream.toList()).
+            final List<BlockDescriptor> sortedBatch = new ArrayList<>(batch);
             try {
                 Files.createDirectories(downloadedDaysDir.toPath().resolve(dayKey));
                 Files.createDirectories(tmpRoot.toPath());
@@ -820,14 +950,14 @@ public class DownloadLive implements Runnable {
             }
 
             // Ensure deterministic order
-            batch.sort(Comparator.comparingLong(b -> b.blockNumber));
+            sortedBatch.sort(Comparator.comparingLong(b -> b.blockNumber));
 
             final LocalDate day = LocalDate.parse(dayKey);
             final LocalDate todayUtc = LocalDate.now(ZoneId.of("UTC"));
 
             // Historical days (strictly before today) use the full day-based pipeline.
             if (day.isBefore(todayUtc)) {
-                final BlockDescriptor lastDescriptor = batch.get(batch.size() - 1);
+                final BlockDescriptor lastDescriptor = sortedBatch.get(sortedBatch.size() - 1);
                 final long result = downloadSingle(dayKey, lastDescriptor);
                 if (result < 0L) {
                     // If the day-level download failed, report no progress for this tick.
@@ -843,7 +973,7 @@ public class DownloadLive implements Runnable {
             final DayBlockInfo dayBlockInfo = daysInfo.get(day);
             if (dayBlockInfo == null) {
                 System.err.println("[download] No DayBlockInfo found for live dayKey=" + dayKey + "; skipping batch of "
-                        + batch.size() + " blocks.");
+                        + sortedBatch.size() + " blocks.");
                 return -1L;
             }
 
@@ -853,7 +983,7 @@ public class DownloadLive implements Runnable {
                 final Path dayDir = downloadedDaysDir.toPath().resolve(dayKey);
                 long highest = -1L;
 
-                for (BlockDescriptor d : batch) {
+                for (BlockDescriptor d : sortedBatch) {
                     try {
                         final DownloadDayLiveImpl.BlockDownloadResult result =
                                 DownloadDayLiveImpl.downloadSingleBlockForLive(
@@ -899,6 +1029,16 @@ public class DownloadLive implements Runnable {
                         // Update running hash and highest processed block only after full validation and persistence.
                         previousRecordFileHash = result.newPreviousRecordFileHash;
                         highest = d.blockNumber;
+
+                        // Persist the latest running-hash status in the same shape as validateCmdStatus.json
+                        if (previousRecordFileHash != null) {
+                            final String endRunningHashHex = toHex(previousRecordFileHash);
+                            final ValidationStatus status = new ValidationStatus(
+                                    dayKey,
+                                    recordFileTime.toString(),
+                                    endRunningHashHex);
+                            writeValidationStatus(runningHashStatusPath, status);
+                        }
                     } catch (Exception e) {
                         System.err.println("[download] Failed live block download for block " + d.blockNumber + ": "
                                 + e.getMessage());
@@ -980,5 +1120,6 @@ public class DownloadLive implements Runnable {
                         + "'}";
             }
         }
-    }
+
+        }
 }
