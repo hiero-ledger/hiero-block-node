@@ -148,6 +148,26 @@ promtail:
   enabled: false
 ```
 
+### Expose via LoadBalancer
+
+Expose gRPC traffic through a dedicated `LoadBalancer` Service by enabling:
+
+```yaml
+loadBalancer:
+  enabled: true
+  # replace <public-ip> with your static IP
+  loadBalancerIP: "<public-ip>"
+  annotations: {}
+  loadBalancerSourceRanges:
+    # Restrict access to the LoadBalancer; omit to allow all
+    - <your-client-ip-address-ranges>
+    - <another-client-ip-address-range>
+    # - 35.191.0.0/16   # GCP health check (example)
+    # - 130.211.0.0/22  # GCP health check (example)
+```
+
+The Service defaults to `grpc` on the main application port/`http` target port and a name of `<release>-block-node-server-external`; override these with `loadBalancer.portName`, `loadBalancer.port`, `loadBalancer.targetPort`, or `loadBalancer.nameOverride` as needed.
+
 ## Post-Installation
 
 Follow the `NOTES` instructions after installing the chart to perform `port-forward` to the Hiero Block Node and be able to use it.
