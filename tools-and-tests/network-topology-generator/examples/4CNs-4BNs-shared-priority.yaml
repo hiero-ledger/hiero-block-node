@@ -1,0 +1,46 @@
+block_nodes:
+    bn1:
+        address: bn1.shared.example.com
+        port: 40800
+        peers:
+            - bn2: 1
+            - bn3: 1
+
+    bn2:
+        address: bn2.shared.example.com
+        port: 40801
+        peers:
+            - bn1: 1
+            - bn4: 2
+
+    bn3:
+        address: bn3.shared.example.com
+        port: 40802
+        peers:
+            - bn1: 1
+            - bn4: 2
+
+    bn4:
+        address: bn4.shared.example.com
+        port: 40803
+        peers:
+            - bn2: 2
+            - bn3: 2
+
+consensus_nodes:
+    cn1:
+        block_nodes:
+            - bn1: 1
+            - bn2: 1
+    cn2:
+        block_nodes:
+            - bn3: 2
+            - bn4: 2
+    cn3:
+        block_nodes:
+            - bn1: 1
+            - bn3: 2
+    cn4:
+        block_nodes:
+            - bn2: 1
+            - bn4: 2
