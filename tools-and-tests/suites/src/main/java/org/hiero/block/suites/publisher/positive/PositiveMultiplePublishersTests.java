@@ -73,6 +73,8 @@ public class PositiveMultiplePublishersTests extends BaseSuite {
         simulators.clear();
     }
 
+    @Disabled(
+            "We cannot send 'to far behind' alone. only in response to `NodeBehindPublisher`.  This test needs to be rewritten.")
     @Test
     @DisplayName("Publisher should send TOO_FAR_BEHIND to activate backfill on demand")
     public void testBackfillOnDemand() throws IOException, InterruptedException {
@@ -199,6 +201,8 @@ public class PositiveMultiplePublishersTests extends BaseSuite {
         assertEquals(blockNumberRequested, blockNumberReceived);
     }
 
+    @Disabled(
+            "We cannot send 'to far behind' alone. only in response to `NodeBehindPublisher`.  This test needs to be rewritten.")
     @Test
     @DisplayName(
             "Autonomous backfill should fill the gaps and Publisher should send TOO_FAR_BEHIND to activate backfill on demand")
@@ -336,8 +340,13 @@ public class PositiveMultiplePublishersTests extends BaseSuite {
         teardownBlockNodes();
     }
 
+    // the behind indicator changed from an "end stream" to a separate message; but the simulator and some
+    // of the E2E test suites were written with flawed assumptions (even for the old messaging), so this
+    // is a complex item that needs the tests and part of the simulator to be rewritten.
+    @Disabled(
+            "This test needs a full rewrite as it's trying to send too-far-behind alone, rather than a response to a `NodeBehindPublisher` method.")
     @Test
-    @DisplayName("Publisher should handle BEHIND and send TOO_FAR_BEHIND")
+    @DisplayName("Publisher should handle `NodeBehindPublisher` and send TOO_FAR_BEHIND")
     public void publisherShouldSendTooFarBehindAfterBehind() throws IOException, InterruptedException {
         // ===== Prepare and Start first simulator and make sure it's streaming ======================
         final Map<String, String> firstSimulatorConfiguration = Map.of("generator.startBlockNumber", "0");
@@ -401,7 +410,7 @@ public class PositiveMultiplePublishersTests extends BaseSuite {
      * Verifies that block data is taken from the faster publisher, when two publishers are streaming to the block-node.
      * The test asserts that the slower one receives skip block response.
      */
-    @Disabled("Temporarily disabled whiles publisher plugin is being rewritten. Currently produces a false positive")
+    @Disabled("Temporarily disabled while publisher plugin is being rewritten. Currently produces a false positive")
     @Test
     @DisplayName("Should switch to faster publisher when it catches up with current block number")
     public void shouldSwitchToFasterPublisherWhenCaughtUp() throws IOException, InterruptedException {
@@ -809,7 +818,6 @@ public class PositiveMultiplePublishersTests extends BaseSuite {
 
     private static Stream<Arguments> provideDataForErrorResponses() {
         return Stream.of(
-                Arguments.of(Map.of("generator.startBlockNumber", Long.toString(15)), "status: BEHIND"),
                 Arguments.of(Map.of("generator.startBlockNumber", Long.toString(4)), "status: DUPLICATE_BLOCK"),
                 Arguments.of(Map.of("generator.startBlockNumber", Long.toString(0)), "status: DUPLICATE_BLOCK"));
     }

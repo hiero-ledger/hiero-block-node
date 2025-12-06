@@ -7,6 +7,7 @@ import static java.util.Objects.requireNonNull;
 import com.swirlds.metrics.api.Counter;
 import edu.umd.cs.findbugs.annotations.NonNull;
 import org.hiero.block.api.BlockNodeServiceInterface;
+import org.hiero.block.api.ServerStatusDetailResponse;
 import org.hiero.block.api.ServerStatusRequest;
 import org.hiero.block.api.ServerStatusResponse;
 import org.hiero.block.node.spi.BlockNodeContext;
@@ -60,6 +61,12 @@ public class ServerStatusServicePlugin implements BlockNodePlugin, BlockNodeServ
                 TRACE, "Received server status request: {0}, and will respond with response: {1}", request, response);
 
         return response;
+    }
+
+    @Override
+    @NonNull
+    public ServerStatusDetailResponse serverStatusDetail(@NonNull final ServerStatusRequest request) {
+        return ServerStatusDetailResponse.DEFAULT;
     }
 
     // ==== BlockNodePlugin Methods ====================================================================================
