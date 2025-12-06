@@ -492,7 +492,7 @@ public class DownloadLive implements Runnable {
             this.configuredEndDay = configuredEndDay;
         }
 
-        void runOnceForDay(LocalDate day) {
+        int runOnceForDay(LocalDate day) {
             final ZonedDateTime start = day.atStartOfDay(ZoneId.of("UTC"));
             final ZonedDateTime end = start.plusDays(1);
             final String dayKey = day.toString(); // YYYY-MM-DD
@@ -510,23 +510,14 @@ public class DownloadLive implements Runnable {
             System.out.println("[poller] dayKey=" + dayKey + " interval=" + interval + " batchSize=" + batchSize
                     + " lastSeen=" + lastSeenBlock);
 
-            final LocalDate lowerBoundDay = (configuredStartDay != null) ? configuredStartDay : day;
-            final long startSeconds =
-                    lowerBoundDay.atStartOfDay(ZoneId.of("UTC")).toEpochSecond();
-
+            final long startSeconds = start.toEpochSecond();
+            final long endSeconds = end.toEpochSecond();
             final List<String> timestampFilters = new ArrayList<>();
             timestampFilters.add("gte:" + startSeconds + ".000000000");
-
-            if (configuredEndDay != null) {
-                final long endSeconds = configuredEndDay
-                        .plusDays(1)
-                        .atStartOfDay(ZoneId.of("UTC"))
-                        .toEpochSecond();
-                timestampFilters.add("lt:" + endSeconds + ".000000000");
-            }
+            timestampFilters.add("lt:" + endSeconds + ".000000000");
 
             final List<BlockInfo> latest =
-                    FetchBlockQuery.getLatestBlocks(batchSize, MirrorNodeBlockQueryOrder.DESC, timestampFilters);
+                    FetchBlockQuery.getLatestBlocks(batchSize, MirrorNodeBlockQueryOrder.ASC, timestampFilters);
             System.out.println("[poller] Latest blocks size: " + latest.size());
 
             final List<LiveDownloader.BlockDescriptor> batch = latest.stream()
@@ -559,8 +550,10 @@ public class DownloadLive implements Runnable {
                         .forEach(d -> System.out.println("[poller] sample -> block=" + d.blockNumber + " file="
                                 + d.filename + " ts=" + d.timestampIso));
                 writeState(statePath, new State(dayKey, lastSeenBlock));
+                return batch.size();
             } else {
                 System.out.println("[poller] No new blocks this tick for " + dayKey + ".");
+                return 0;
             }
         }
 
@@ -586,7 +579,12 @@ public class DownloadLive implements Runnable {
                     System.out.println("[poller] Processing historical day " + dayKey + " (before current live day "
                             + currentToday + ")");
                     stateLoadedForToday = false;
-                    runOnceForDay(logicalDay);
+                    while (true) {
+                        int descriptors = runOnceForDay(logicalDay);
+                        if (descriptors == 0) {
+                            break;
+                        }
+                    }
                     try {
                         System.out.println("[poller] Finalizing historical day " + dayKey);
                         downloader.finalizeDay(dayKey);
