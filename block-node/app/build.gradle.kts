@@ -152,12 +152,12 @@ tasks.register<Exec>("startDockerContainerDebug") {
     )
 }
 
-tasks.register<Exec>("startDockerContainerSmokeTest") {
+tasks.register<Exec>("startDockerContainerCI") {
     description =
-        "Starts the docker smoke test container of the Block Node Server for the current version"
+        "Starts the docker CI test container of the Block Node Server for the current version"
     group = "docker"
 
-    dependsOn(createDockerImage)
+    dependsOn(createDockerImageCI)
     workingDir(dockerBuildRootDirectory)
     commandLine(
         "sh",
