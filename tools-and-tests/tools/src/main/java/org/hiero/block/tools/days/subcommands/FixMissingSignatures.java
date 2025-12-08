@@ -7,6 +7,7 @@ import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Instant;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.Map;
@@ -63,6 +64,7 @@ public class FixMissingSignatures implements Runnable {
             description = "GCP project to bill for requester-pays bucket access (default: from GCP_PROJECT_ID env var)")
     private String userProject = DownloadConstants.GCP_PROJECT_ID;
 
+    @SuppressWarnings("BusyWait")
     @Override
     public void run() {
         // Check compressedDaysDir
@@ -152,6 +154,7 @@ public class FixMissingSignatures implements Runnable {
                     dayListingsQueue.put(new DayWork(day, bucket.listSignatureFilesForDay(day.toString())));
                 }
             } catch (Exception e) {
+                //noinspection CallToPrintStackTrace
                 e.printStackTrace();
                 throw new RuntimeException(e);
             }
@@ -175,14 +178,14 @@ public class FixMissingSignatures implements Runnable {
         }
     }
 
-    private record DayWork(LocalDate day, Map<String, Set<String>> bucketSignatures) {}
+    private record DayWork(LocalDate day, Map<Instant, Set<String>> bucketSignatures) {}
 
     private void fixDaySignatures(
             int numOfDays,
             int dayIndex,
             LocalDate day,
             MainNetBucket bucket,
-            final Map<String, Set<String>> bucketSignatures) {
+            final Map<Instant, Set<String>> bucketSignatures) {
         final int progressOffset = dayIndex * ESTIMATE_BLOCKS_PER_DAY;
         final int totalEstimatedBlocks = numOfDays * ESTIMATE_BLOCKS_PER_DAY;
         final String progressPrefix = String.format("Day %d of %d (%s): ", dayIndex + 1, numOfDays, day);
@@ -197,11 +200,22 @@ public class FixMissingSignatures implements Runnable {
             // we have a stream of files and need to collect all files for a block
             AtomicInteger blockCounter = new AtomicInteger(0);
             stream.forEach((UnparsedRecordBlock block) -> {
-                String blockTimeStr = block.recordFileTime().toString().replace(':', '_');
+                final Instant blockTime = block.recordFileTime();
                 // get expected signatures from bucket
-                Set<String> expectedSignatures = bucketSignatures.get(blockTimeStr);
+                Set<String> expectedSignatures = bucketSignatures.get(block.recordFileTime());
                 if (expectedSignatures == null) {
-                    throw new RuntimeException("No signatures found in bucket for block time: " + blockTimeStr);
+                    System.out.println(Ansi.AUTO.string(
+                            "@|red Error: No signatures found in bucket for block time: " + blockTime + "|@"));
+                    // print top 10 available block times in bucket for this day
+                    List<String> availableBlockTimes = bucketSignatures.keySet().stream()
+                            .sorted()
+                            .limit(10)
+                            .map(Instant::toString)
+                            .toList();
+                    System.out.println(Ansi.AUTO.string(
+                            "@|yellow Available block times in bucket for day " + day + ": "
+                                    + String.join(", ", availableBlockTimes) + "|@"));
+                    throw new RuntimeException("No signatures found in bucket for block time: " + blockTime);
                 }
                 // remove all signatures present in block
                 for (InMemoryFile sigFile : block.signatureFiles()) {
@@ -215,10 +229,10 @@ public class FixMissingSignatures implements Runnable {
                 List<InMemoryFile> newSigFiles = expectedSignatures.stream()
                         .parallel()
                         .map((String sigNodeId) -> {
-                            String sigBucketPath = "recordstreams/record" + sigNodeId + "/" + blockTimeStr + ".rcd_sig";
+                            String sigBucketPath = "recordstreams/record" + sigNodeId + "/" + blockTime + ".rcd_sig";
                             // example path 2024-06-18T00_00_00.001886911Z/node_0.0.10.rcd_sig
                             return new InMemoryFile(
-                                    Path.of(blockTimeStr + "/node_" + sigNodeId + ".rcd_sig"),
+                                    Path.of(blockTime + "/node_" + sigNodeId + ".rcd_sig"),
                                     bucket.download(sigBucketPath));
                         })
                         .toList();

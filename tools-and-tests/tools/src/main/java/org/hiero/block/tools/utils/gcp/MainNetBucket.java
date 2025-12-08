@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.tools.utils.gcp;
 
+import static org.hiero.block.tools.records.RecordFileDates.extractRecordFileTime;
+
 import com.google.cloud.storage.Blob.BlobSourceOption;
 import com.google.cloud.storage.BlobId;
 import com.google.cloud.storage.BlobInfo;
@@ -380,7 +382,7 @@ public class MainNetBucket {
      * @param dayPrefix the day prefix in format "YYYY-MM-DD" (e.g., "2019-10-09")
      * @return a map of block timestamp to set of node account IDs with signatures
      */
-    public Map<String, Set<String>> listSignatureFilesForDay(String dayPrefix) {
+    public Map<Instant, Set<String>> listSignatureFilesForDay(String dayPrefix) {
         // Query each hour of the day (00-23) in parallel for efficiency
         return IntStream.range(0, 24)
                 .parallel()
@@ -398,14 +400,14 @@ public class MainNetBucket {
      * @param filePrefix the prefix to filter files (e.g., "2019-10-09T21" for hour 21)
      * @return a map of block timestamp to set of node account IDs with signatures
      */
-    private Map<String, Set<String>> listSignatureFilesWithPrefix(String filePrefix) {
+    private Map<Instant, Set<String>> listSignatureFilesWithPrefix(String filePrefix) {
         return IntStream.range(minNodeAccountId, maxNodeAccountId + 1)
                 .parallel()
                 .mapToObj(nodeAccountId -> {
                     final String nodeAccountIdStr = "0.0." + nodeAccountId;
                     final String prefix = "recordstreams/record" + nodeAccountIdStr + "/" + filePrefix;
 
-                    Map<String, Set<String>> nodeSignatures = new HashMap<>();
+                    Map<Instant, Set<String>> nodeSignatures = new HashMap<>();
                     try {
                         STORAGE.list(HEDERA_MAINNET_STREAMS_BUCKET, new BlobListOption[] {
                                     BlobListOption.prefix(prefix),
@@ -416,14 +418,9 @@ public class MainNetBucket {
                                 .streamAll()
                                 .map(BlobInfo::getName)
                                 .filter(name -> name.endsWith(".rcd_sig"))
-                                .forEach(name -> {
-                                    String fileName = name.substring(name.lastIndexOf('/') + 1);
-                                    String timestamp = fileName.substring(0, fileName.length() - 8);
-
-                                    nodeSignatures
-                                            .computeIfAbsent(timestamp, k -> new HashSet<>())
-                                            .add(nodeAccountIdStr);
-                                });
+                                .forEach(name -> nodeSignatures
+                                        .computeIfAbsent(extractRecordFileTime(name), k -> new HashSet<>())
+                                        .add(nodeAccountIdStr));
                     } catch (Exception e) {
                         System.err.println("Warning: Error listing signatures for node " + nodeAccountIdStr
                                 + " with prefix " + filePrefix + ": " + e.getMessage());
