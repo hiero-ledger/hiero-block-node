@@ -2,6 +2,7 @@
 package org.hiero.block.tools.days.subcommands;
 
 import static org.hiero.block.tools.days.model.TarZstdDayUtils.parseDayFromFileName;
+import static org.hiero.block.tools.records.RecordFileDates.convertInstantToStringWithPadding;
 
 import com.hedera.hapi.node.base.NodeAddress;
 import com.hedera.hapi.node.base.NodeAddressBook;
@@ -10,6 +11,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Instant;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -189,7 +191,7 @@ public class ValidateSignatureCounts implements Runnable {
     /**
      * Information about a block with missing signatures to be checked against the bucket.
      */
-    private record MissingBlockInfo(String blockTimestamp, Set<String> missingNodes) {}
+    private record MissingBlockInfo(Instant blockTimestamp, Set<String> missingNodes) {}
 
     /**
      * Process a single day file.
@@ -217,7 +219,7 @@ public class ValidateSignatureCounts implements Runnable {
         long blocksWithMissingSignatures = 0;
 
         // Map to collect files per block directory
-        Map<String, Set<String>> signaturesByBlock = new LinkedHashMap<>();
+        Map<Instant, Set<String>> signaturesByBlock = new LinkedHashMap<>();
 
         try (InputStream zstIn = new ZstCmdInputStream(dayPath);
                 Stream<InMemoryFile> files = TarReader.readTarContents(zstIn)) {
@@ -237,7 +239,7 @@ public class ValidateSignatureCounts implements Runnable {
                 if (matcher.matches()) {
                     String nodeAccountId = matcher.group(1);
                     signaturesByBlock
-                            .computeIfAbsent(blockDir, k -> new HashSet<>())
+                            .computeIfAbsent(Instant.parse(blockDir), k -> new HashSet<>())
                             .add(nodeAccountId);
                 }
             });
@@ -253,8 +255,8 @@ public class ValidateSignatureCounts implements Runnable {
         int maxMissingBlocksToReport = 10;
 
         // Now validate each block
-        for (Map.Entry<String, Set<String>> entry : signaturesByBlock.entrySet()) {
-            String blockTimestamp = entry.getKey();
+        for (Map.Entry<Instant, Set<String>> entry : signaturesByBlock.entrySet()) {
+            final Instant blockTimestamp = entry.getKey();
             Set<String> foundSignatures = entry.getValue();
 
             blocksProcessed++;
@@ -292,8 +294,8 @@ public class ValidateSignatureCounts implements Runnable {
                 System.out.println(Ansi.AUTO.string(
                         "  @|white Fetching ALL signature files from GCP bucket for comprehensive comparison...|@"));
 
-                String dayPrefix = dayDate.toString(); // Format: YYYY-MM-DD
-                Map<String, Set<String>> bucketSignatures = bucket.listSignatureFilesForDay(dayPrefix);
+                final String dayPrefix = dayDate.toString(); // Format: YYYY-MM-DD
+                final Map<Instant, Set<String>> bucketSignatures = bucket.listSignatureFilesForDay(dayPrefix);
 
                 System.out.println(Ansi.AUTO.string(String.format(
                         "  @|white Found|@ @|cyan %,d|@ @|white blocks with signatures in bucket|@",
@@ -301,8 +303,8 @@ public class ValidateSignatureCounts implements Runnable {
 
                 // Now compare ALL blocks with missing signatures against bucket
                 int blocksReported = 0;
-                for (Map.Entry<String, Set<String>> entry : signaturesByBlock.entrySet()) {
-                    String blockTimestamp = entry.getKey();
+                for (Map.Entry<Instant, Set<String>> entry : signaturesByBlock.entrySet()) {
+                    Instant blockTimestamp = entry.getKey();
                     Set<String> tarSignatures = entry.getValue();
 
                     // Find missing signatures in tar.zstd
@@ -315,13 +317,10 @@ public class ValidateSignatureCounts implements Runnable {
 
                         // Find signatures that exist in bucket but are missing from tar.zstd
                         List<String> existsInBucketMissingInTar = new ArrayList<>();
-                        List<String> missingInBoth = new ArrayList<>();
 
                         for (String nodeId : missingInTar) {
                             if (bucketSigs.contains(nodeId)) {
                                 existsInBucketMissingInTar.add(nodeId);
-                            } else {
-                                missingInBoth.add(nodeId);
                             }
                         }
 
@@ -358,7 +357,8 @@ public class ValidateSignatureCounts implements Runnable {
                     List<String> existsInBucket = new ArrayList<>();
 
                     for (String nodeAccountId : blockInfo.missingNodes) {
-                        boolean existsInGcp = bucket.signatureFileExists(nodeAccountId, blockInfo.blockTimestamp);
+                        boolean existsInGcp = bucket.signatureFileExists(nodeAccountId,
+                            convertInstantToStringWithPadding(blockInfo.blockTimestamp));
                         if (existsInGcp) {
                             existsInBucket.add(nodeAccountId);
                         } else {
@@ -447,6 +447,13 @@ public class ValidateSignatureCounts implements Runnable {
             return datePart + timePart.replace('_', ':');
         }
         return timestamp;
+    }
+
+    /**
+     * Format a block timestamp for display (convert underscores to colons).
+     */
+    private String formatBlockTimestamp(Instant timestamp) {
+        return timestamp.toString();
     }
 
     /**
