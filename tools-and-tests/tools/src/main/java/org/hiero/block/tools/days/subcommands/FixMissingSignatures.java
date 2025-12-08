@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.tools.days.subcommands;
 
+import static org.hiero.block.tools.records.RecordFileDates.convertInstantToStringWithPadding;
 import static org.hiero.block.tools.utils.PrettyPrint.printProgress;
 
 import java.io.File;
@@ -201,6 +202,7 @@ public class FixMissingSignatures implements Runnable {
             AtomicInteger blockCounter = new AtomicInteger(0);
             stream.forEach((UnparsedRecordBlock block) -> {
                 final Instant blockTime = block.recordFileTime();
+                final String blockTimeFileStr = convertInstantToStringWithPadding(blockTime);
                 // get expected signatures from bucket
                 Set<String> expectedSignatures = bucketSignatures.get(block.recordFileTime());
                 if (expectedSignatures == null) {
@@ -217,22 +219,22 @@ public class FixMissingSignatures implements Runnable {
                                     + String.join(", ", availableBlockTimes) + "|@"));
                     throw new RuntimeException("No signatures found in bucket for block time: " + blockTime);
                 }
-                // remove all signatures present in block
+                // remove all signatures present in the block
                 for (InMemoryFile sigFile : block.signatureFiles()) {
                     final String sigFileName = sigFile.path().getFileName().toString(); // eg. node_0.0.10.rcd_sig
                     final String sigNodeId =
                             sigFileName.substring(sigFileName.indexOf("_") + 1, sigFileName.indexOf(".rc"));
                     expectedSignatures.remove(sigNodeId);
                 }
-                // what ever remains in expectedSignatures is missing from downloaded block, so download from bucket
+                // whatever remains in expectedSignatures is missing from the downloaded block, so download from bucket
                 // gs://hedera-mainnet-streams/recordstreams/record0.0.3/2019-10-09T21_32_20.601587003Z.rcd_sig
                 List<InMemoryFile> newSigFiles = expectedSignatures.stream()
                         .parallel()
                         .map((String sigNodeId) -> {
-                            String sigBucketPath = "recordstreams/record" + sigNodeId + "/" + blockTime + ".rcd_sig";
+                            String sigBucketPath = "recordstreams/record" + sigNodeId + "/" + blockTimeFileStr + ".rcd_sig";
                             // example path 2024-06-18T00_00_00.001886911Z/node_0.0.10.rcd_sig
                             return new InMemoryFile(
-                                    Path.of(blockTime + "/node_" + sigNodeId + ".rcd_sig"),
+                                    Path.of(blockTimeFileStr + "/node_" + sigNodeId + ".rcd_sig"),
                                     bucket.download(sigBucketPath));
                         })
                         .toList();
