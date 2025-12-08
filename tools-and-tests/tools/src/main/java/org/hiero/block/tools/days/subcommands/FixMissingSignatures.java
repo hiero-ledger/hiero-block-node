@@ -2,7 +2,6 @@
 package org.hiero.block.tools.days.subcommands;
 
 import static org.hiero.block.tools.records.RecordFileDates.convertInstantToStringWithPadding;
-import static org.hiero.block.tools.utils.PrettyPrint.printProgress;
 
 import java.io.File;
 import java.io.IOException;
@@ -15,7 +14,8 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.LinkedBlockingQueue;
-import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import org.hiero.block.tools.days.download.DownloadConstants;
@@ -23,6 +23,7 @@ import org.hiero.block.tools.days.model.TarZstdDayReaderUsingExec;
 import org.hiero.block.tools.records.model.unparsed.InMemoryFile;
 import org.hiero.block.tools.records.model.unparsed.UnparsedRecordBlock;
 import org.hiero.block.tools.utils.ConcurrentTarZstdWriter;
+import org.hiero.block.tools.utils.PrettyPrint;
 import org.hiero.block.tools.utils.gcp.MainNetBucket;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Help.Ansi;
@@ -31,7 +32,7 @@ import picocli.CommandLine.Option;
 /**
  * Command to fix missing signatures in downloaded days
  */
-@SuppressWarnings("FieldCanBeLocal")
+@SuppressWarnings({"FieldCanBeLocal", "UnusedAssignment"})
 @Command(
         name = "fix-missing-signatures",
         description = "Command to fix missing signatures in downloaded days",
@@ -161,8 +162,18 @@ public class FixMissingSignatures implements Runnable {
             }
         });
         fetcherThread.start();
+
+        // ETA/speed tracking state
+        final long startNanos = System.nanoTime();
+        final AtomicLong totalProgress = new AtomicLong((long) numOfDays * ESTIMATE_BLOCKS_PER_DAY);
+        final AtomicLong progress = new AtomicLong(0);
+        // Track speed calculation over last 10 seconds of wall clock time
+        final AtomicReference<Instant> lastSpeedCalcBlockTime = new AtomicReference<>();
+        final AtomicLong lastSpeedCalcRealTimeNanos = new AtomicLong(0);
+
         // process each day
         int dayCount = 0;
+        long progressAtStartOfDay = 0L;
         while (!dayListingsQueue.isEmpty() || fetcherThread.isAlive()) {
             DayWork dayWork = dayListingsQueue.poll();
             if (dayWork == null) {
@@ -174,9 +185,30 @@ public class FixMissingSignatures implements Runnable {
                 }
                 continue;
             }
-            fixDaySignatures(numOfDays, dayCount, dayWork.day, bucket, dayWork.bucketSignatures);
+            progressAtStartOfDay = progress.get();
+            fixDaySignatures(
+                    numOfDays,
+                    dayCount,
+                    dayWork.day,
+                    bucket,
+                    dayWork.bucketSignatures,
+                    startNanos,
+                    totalProgress,
+                    progress,
+                    lastSpeedCalcBlockTime,
+                    lastSpeedCalcRealTimeNanos);
             dayCount++;
+            // After finishing the day, update aggregates
+            final long progressAtEndOfDay = progress.get();
+            final long blocksInDay = progressAtEndOfDay - progressAtStartOfDay;
+            final long remainingDays = numOfDays - dayCount;
+            // update total estimate based on actual blocks processed in this day
+            totalProgress.set(progressAtEndOfDay + (remainingDays * blocksInDay));
         }
+        // clear the progress line once done and print a summary
+        PrettyPrint.clearProgress();
+        System.out.println("Fix signatures complete. Days processed: " + dayCount + ", Blocks processed: "
+                + progress.get());
     }
 
     private record DayWork(LocalDate day, Map<Instant, Set<String>> bucketSignatures) {}
@@ -186,12 +218,14 @@ public class FixMissingSignatures implements Runnable {
             int dayIndex,
             LocalDate day,
             MainNetBucket bucket,
-            final Map<Instant, Set<String>> bucketSignatures) {
-        final int progressOffset = dayIndex * ESTIMATE_BLOCKS_PER_DAY;
-        final int totalEstimatedBlocks = numOfDays * ESTIMATE_BLOCKS_PER_DAY;
-        final String progressPrefix = String.format("Day %d of %d (%s): ", dayIndex + 1, numOfDays, day);
-        printProgress(progressOffset, totalEstimatedBlocks, progressPrefix);
-        // Compute path to day file
+            final Map<Instant, Set<String>> bucketSignatures,
+            long startNanos,
+            AtomicLong totalProgress,
+            AtomicLong progress,
+            AtomicReference<Instant> lastSpeedCalcBlockTime,
+            AtomicLong lastSpeedCalcRealTimeNanos) {
+        final String progressPrefix = String.format("Day %d of %d (%s)", dayIndex + 1, numOfDays, day);
+        // Compute the path to the day file
         final String dayFileName = day.toString() + ".tar.zstd";
         final Path srcDayPath = compressedDaysDir.toPath().resolve(dayFileName);
         final Path dstDayPath = fixedCompressedDaysDir.toPath().resolve(dayFileName);
@@ -199,13 +233,16 @@ public class FixMissingSignatures implements Runnable {
         try (Stream<UnparsedRecordBlock> stream = TarZstdDayReaderUsingExec.streamTarZstd(srcDayPath);
                 ConcurrentTarZstdWriter writer = new ConcurrentTarZstdWriter(dstDayPath)) {
             // we have a stream of files and need to collect all files for a block
-            AtomicInteger blockCounter = new AtomicInteger(0);
+            // Track the last consensus-minute (epoch minute) we reported progress for so we only print
+            // once per minute of consensus time.
+            final AtomicLong lastReportedMinute = new AtomicLong(Long.MIN_VALUE);
             stream.forEach((UnparsedRecordBlock block) -> {
                 final Instant blockTime = block.recordFileTime();
                 final String blockTimeFileStr = convertInstantToStringWithPadding(blockTime);
                 // get expected signatures from bucket
                 Set<String> expectedSignatures = bucketSignatures.get(block.recordFileTime());
                 if (expectedSignatures == null) {
+                    PrettyPrint.clearProgress();
                     System.out.println(Ansi.AUTO.string(
                             "@|red Error: No signatures found in bucket for block time: " + blockTime + "|@"));
                     // print top 10 available block times in bucket for this day
@@ -231,7 +268,8 @@ public class FixMissingSignatures implements Runnable {
                 List<InMemoryFile> newSigFiles = expectedSignatures.stream()
                         .parallel()
                         .map((String sigNodeId) -> {
-                            String sigBucketPath = "recordstreams/record" + sigNodeId + "/" + blockTimeFileStr + ".rcd_sig";
+                            String sigBucketPath =
+                                    "recordstreams/record" + sigNodeId + "/" + blockTimeFileStr + ".rcd_sig";
                             // example path 2024-06-18T00_00_00.001886911Z/node_0.0.10.rcd_sig
                             return new InMemoryFile(
                                     Path.of(blockTimeFileStr + "/node_" + sigNodeId + ".rcd_sig"),
@@ -246,11 +284,56 @@ public class FixMissingSignatures implements Runnable {
                 block.otherRecordFiles().forEach(writer::putEntry);
                 block.primarySidecarFiles().forEach(writer::putEntry);
                 block.otherSidecarFiles().forEach(writer::putEntry);
-                // print progress
-                printProgress(
-                        progressOffset + blockCounter.incrementAndGet(),
-                        totalEstimatedBlocks,
-                        progressPrefix + " " + block.recordFileTime() + " processed");
+
+                // update progress counter
+                progress.incrementAndGet();
+
+                // Calculate processing speed over last 10 seconds of wall clock time
+                final long currentRealTimeNanos = System.nanoTime();
+                final long tenSecondsInNanos = 10_000_000_000L;
+                String speedString = "";
+
+                // Initialize tracking on the first block
+                if (lastSpeedCalcBlockTime.get() == null) {
+                    lastSpeedCalcBlockTime.set(blockTime);
+                    lastSpeedCalcRealTimeNanos.set(currentRealTimeNanos);
+                }
+
+                // Update the tracking window if more than 10 seconds of real time has elapsed
+                long realTimeSinceLastCalc = currentRealTimeNanos - lastSpeedCalcRealTimeNanos.get();
+                if (realTimeSinceLastCalc >= tenSecondsInNanos) {
+                    lastSpeedCalcBlockTime.set(blockTime);
+                    lastSpeedCalcRealTimeNanos.set(currentRealTimeNanos);
+                }
+
+                // Calculate speed if we have at least 1 second of real time elapsed since tracking point
+                if (realTimeSinceLastCalc >= 1_000_000_000L) { // At least 1 second
+                    long dataTimeElapsedMillis =
+                            blockTime.toEpochMilli() - lastSpeedCalcBlockTime.get().toEpochMilli();
+                    long realTimeElapsedMillis = realTimeSinceLastCalc / 1_000_000L;
+                    double speedMultiplier = (double) dataTimeElapsedMillis / (double) realTimeElapsedMillis;
+                    speedString = String.format(" speed %.1fx", speedMultiplier);
+                }
+
+                // Build progress string showing time
+                final String progressString = String.format("%s %s%s", progressPrefix, blockTime, speedString);
+
+                // Estimate totals and ETA
+                final long elapsedMillis = (currentRealTimeNanos - startNanos) / 1_000_000L;
+                // Progress percent and remaining
+                final long processedSoFarAcrossAll = progress.get();
+                final long totalProgressFinal = totalProgress.get();
+                double percent = ((double) processedSoFarAcrossAll / (double) totalProgressFinal) * 100.0;
+                long remainingMillis = PrettyPrint.computeRemainingMilliseconds(
+                        processedSoFarAcrossAll, totalProgressFinal, elapsedMillis);
+
+                // Only print progress once per consensus-minute of blocks processed. Use epoch-second / 60
+                // to compute the minute bucket for the block's consensus time.
+                long blockMinute = blockTime.getEpochSecond() / 60L;
+                if (blockMinute != lastReportedMinute.get()) {
+                    PrettyPrint.printProgressWithEta(percent, progressString, remainingMillis);
+                    lastReportedMinute.set(blockMinute);
+                }
             });
         } catch (Exception e) {
             throw new RuntimeException(e);
