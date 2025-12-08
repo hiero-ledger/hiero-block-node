@@ -103,8 +103,15 @@ public class MainNetBucket {
         this.userProject = userProject;
     }
 
+    /** Maximum number of retry attempts for GCP operations. */
+    private static final int MAX_RETRIES = 3;
+
+    /** Initial delay in milliseconds between retries (will be doubled for each retry). */
+    private static final long INITIAL_RETRY_DELAY_MS = 1000;
+
     /**
      * Download a file from GCP, caching if CACHE_ENABLED is true. This is designed to be thread safe.
+     * Retries up to MAX_RETRIES times with exponential backoff if the blob is not found.
      *
      * @param path the path to the file in the bucket
      * @return the bytes of the file
@@ -116,9 +123,7 @@ public class MainNetBucket {
             if (cacheEnabled && Files.exists(cachedFilePath)) {
                 rawBytes = Files.readAllBytes(cachedFilePath);
             } else {
-                rawBytes = STORAGE.get(
-                                BlobId.of(HEDERA_MAINNET_STREAMS_BUCKET, path), BlobGetOption.userProject(userProject))
-                        .getContent(BlobSourceOption.userProject(userProject));
+                rawBytes = downloadWithRetry(path);
                 if (cacheEnabled) {
                     Files.createDirectories(cachedFilePath.getParent());
                     Path tempCachedFilePath = Files.createTempFile(cacheDir, null, ".tmp");
@@ -140,7 +145,38 @@ public class MainNetBucket {
     }
 
     /**
+     * Downloads a file from GCP with retry logic and exponential backoff.
+     *
+     * @param path the path to the file in the bucket
+     * @return the bytes of the file
+     * @throws RuntimeException if the file cannot be downloaded after all retries
+     */
+    private byte[] downloadWithRetry(String path) {
+        long delay = INITIAL_RETRY_DELAY_MS;
+        for (int attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+            var blob = STORAGE.get(
+                    BlobId.of(HEDERA_MAINNET_STREAMS_BUCKET, path), BlobGetOption.userProject(userProject));
+            if (blob != null) {
+                return blob.getContent(BlobSourceOption.userProject(userProject));
+            }
+            if (attempt < MAX_RETRIES) {
+                System.err.println("Warning: Blob not found for path '" + path + "', attempt " + attempt + " of "
+                        + MAX_RETRIES + ". Retrying in " + delay + "ms...");
+                try {
+                    Thread.sleep(delay);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    throw new RuntimeException("Interrupted while waiting to retry download for: " + path, e);
+                }
+                delay *= 2; // Exponential backoff
+            }
+        }
+        throw new RuntimeException("Blob not found after " + MAX_RETRIES + " attempts for path: " + path);
+    }
+
+    /**
      * Download a file from GCP as a stream, caching if CACHE_ENABLED is true. This is designed to be thread safe.
+     * Retries up to MAX_RETRIES times with exponential backoff if the blob is not found.
      *
      * @param path the path to the file in the bucket
      * @return the stream of the file
@@ -151,8 +187,7 @@ public class MainNetBucket {
             if (cacheEnabled && Files.exists(cachedFilePath)) {
                 return Files.newInputStream(cachedFilePath, StandardOpenOption.READ);
             } else {
-                final byte[] bytes = STORAGE.get(BlobId.of(HEDERA_MAINNET_STREAMS_BUCKET, path))
-                        .getContent();
+                final byte[] bytes = downloadWithRetryNoUserProject(path);
                 if (cacheEnabled) {
                     Files.createDirectories(cachedFilePath.getParent());
                     Path tempCachedFilePath = Files.createTempFile(cacheDir, null, ".tmp");
@@ -164,6 +199,35 @@ public class MainNetBucket {
         } catch (Exception e) {
             throw new RuntimeException(e);
         }
+    }
+
+    /**
+     * Downloads a file from GCP with retry logic and exponential backoff (without userProject option).
+     *
+     * @param path the path to the file in the bucket
+     * @return the bytes of the file
+     * @throws RuntimeException if the file cannot be downloaded after all retries
+     */
+    private byte[] downloadWithRetryNoUserProject(String path) {
+        long delay = INITIAL_RETRY_DELAY_MS;
+        for (int attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+            var blob = STORAGE.get(BlobId.of(HEDERA_MAINNET_STREAMS_BUCKET, path));
+            if (blob != null) {
+                return blob.getContent();
+            }
+            if (attempt < MAX_RETRIES) {
+                System.err.println("Warning: Blob not found for path '" + path + "', attempt " + attempt + " of "
+                        + MAX_RETRIES + ". Retrying in " + delay + "ms...");
+                try {
+                    Thread.sleep(delay);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    throw new RuntimeException("Interrupted while waiting to retry download for: " + path, e);
+                }
+                delay *= 2; // Exponential backoff
+            }
+        }
+        throw new RuntimeException("Blob not found after " + MAX_RETRIES + " attempts for path: " + path);
     }
 
     /**
