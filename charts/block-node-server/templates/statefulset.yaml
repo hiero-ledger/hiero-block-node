@@ -8,13 +8,13 @@ metadata:
   name: {{ include "hiero-block-node.fullname" . }}
   labels:
     {{- include "hiero-block-node.labels" . | nindent 4 }}
+    block-node.hiero.com/type: block-node
 spec:
   replicas: {{ .Values.replicaCount | default 1 }}
   serviceName: {{ include "hiero-block-node.fullname" . }}
   selector:
     matchLabels:
       {{- include "hiero-block-node.selectorLabels" . | nindent 6 }}
-      block-node.hiero.com/type: block-node
   template:
     metadata:
       {{- with .Values.podAnnotations }}
@@ -23,6 +23,7 @@ spec:
       {{- end }}
       labels:
         {{- include "hiero-block-node.selectorLabels" . | nindent 8 }}
+        block-node.hiero.com/type: block-node
     spec:
       {{- with .Values.imagePullSecrets }}
       imagePullSecrets:
