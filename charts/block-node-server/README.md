@@ -168,6 +168,24 @@ loadBalancer:
 
 The Service defaults to `grpc` on the main application port/`http` target port and a name of `<release>-block-node-server-external`; override these with `loadBalancer.portName`, `loadBalancer.port`, `loadBalancer.targetPort`, or `loadBalancer.nameOverride` as needed.
 
+### Use Host Networking or Host Ports
+
+To place pods directly on the node network, enable `hostNetwork`. The chart defaults the DNS policy to `ClusterFirstWithHostNet` when it is enabled.
+
+```yaml
+hostNetwork: true
+dnsPolicy: ClusterFirstWithHostNet  # override if you need a different policy
+```
+
+To bind container ports to host ports, set `blockNode.hostPorts` using the container port names:
+
+```yaml
+blockNode:
+  hostPorts:
+    http: 40840     # binds the http container port to the host
+    metrics: 16007  # binds the metrics container port to the host
+```
+
 ## Post-Installation
 
 Follow the `NOTES` instructions after installing the chart to perform `port-forward` to the Hiero Block Node and be able to use it.

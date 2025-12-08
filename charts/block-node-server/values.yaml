@@ -36,6 +36,10 @@ securityContext: {}
   # runAsNonRoot: true
 # runAsUser: 1000
 
+hostNetwork: false
+# Optional override for the pod DNS policy. When hostNetwork is true, defaults to ClusterFirstWithHostNet.
+dnsPolicy: ""
+
 service:
   type: ClusterIP
   port: 40840
@@ -91,6 +95,11 @@ tolerations: []
 affinity: {}
 
 blockNode:
+  # Optional hostPort mappings keyed by container port name.
+  # hostPorts:
+  #   http: 40840
+  #   metrics: 16007
+  hostPorts: {}
   # init container verbatim
   initContainers:
     - name: init-storage-dirs
