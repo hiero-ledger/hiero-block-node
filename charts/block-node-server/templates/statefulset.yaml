@@ -14,6 +14,7 @@ spec:
   selector:
     matchLabels:
       {{- include "hiero-block-node.selectorLabels" . | nindent 6 }}
+      block-node.hiero.com/type: block-node
   template:
     metadata:
       {{- with .Values.podAnnotations }}
