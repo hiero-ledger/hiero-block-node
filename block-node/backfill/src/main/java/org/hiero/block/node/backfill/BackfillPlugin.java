@@ -13,13 +13,18 @@ import edu.umd.cs.findbugs.annotations.NonNull;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 import org.hiero.block.internal.BlockUnparsed;
+import org.hiero.block.node.backfill.client.BackfillSourceConfig;
 import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.BlockNodePlugin;
 import org.hiero.block.node.spi.ServiceBuilder;
@@ -422,11 +427,23 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
         }
         backfillGrpcClient.resetStatus();
 
-        // Process gap in smaller chunks
-        List<LongRange> chunks = chunkifyGap(gap);
+        Map<BackfillSourceConfig, LongRange> availability = backfillGrpcClient.getAvailabilityForRange(gap);
+        Set<BackfillSourceConfig> temporarilyUnavailable = new HashSet<>();
+        long currentBlock = gap.start();
+        long batchSize = backfillConfiguration.fetchBatchSize();
 
-        for (LongRange chunk : chunks) {
-            List<BlockUnparsed> batchOfBlocks = backfillGrpcClient.fetchBlocks(chunk);
+        while (currentBlock <= gap.end()) {
+            Optional<BackfillGrpcClient.NodeSelection> selection = backfillGrpcClient.selectNextChunk(
+                    currentBlock, gap.end(), batchSize, availability, temporarilyUnavailable);
+            if (selection.isEmpty()) {
+                LOGGER.log(TRACE, "No available nodes found for block {0}", currentBlock);
+                backfillFetchErrors.increment();
+                break;
+            }
+
+            LongRange chunk = selection.get().chunkRange();
+            List<BlockUnparsed> batchOfBlocks =
+                    backfillGrpcClient.fetchBlocksFromNode(selection.get().nodeConfig(), chunk);
             // Set up latch for verification and persistence tracking
             // normally will be decremented only by persisted notifications
             // however if it fails verification, it will be decremented as well
@@ -434,6 +451,7 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
             getLatch(backfillType).set(new CountDownLatch(batchOfBlocks.size()));
 
             if (batchOfBlocks.isEmpty()) {
+                temporarilyUnavailable.add(selection.get().nodeConfig());
                 LOGGER.log(DEBUG, "No blocks fetched for gap {0}, skipping", chunk);
                 continue; // Skip empty batches
             }
@@ -465,6 +483,7 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
 
             // Cooldown between batches
             Thread.sleep(backfillConfiguration.delayBetweenBatches());
+            currentBlock = chunk.end() + 1;
         }
 
         LOGGER.log(
@@ -490,25 +509,6 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
         return BlockHeader.PROTOBUF
                 .parse(blockUnparsed.blockItems().getFirst().blockHeaderOrThrow())
                 .number();
-    }
-
-    /**
-     * Chunks a gap into smaller ranges based on the configured fetch batch size.
-     * @param gap the LongRange representing the gap to be chunked
-     * @return a list of LongRange chunks
-     */
-    private List<LongRange> chunkifyGap(LongRange gap) {
-        long start = gap.start();
-        long end = gap.end();
-        long batchSize = backfillConfiguration.fetchBatchSize();
-        List<LongRange> chunks = new ArrayList<>();
-
-        while (start <= end) {
-            long chunkEnd = Math.min(start + batchSize - 1, end);
-            chunks.add(new LongRange(start, chunkEnd));
-            start += batchSize;
-        }
-        return chunks;
     }
 
     /**
