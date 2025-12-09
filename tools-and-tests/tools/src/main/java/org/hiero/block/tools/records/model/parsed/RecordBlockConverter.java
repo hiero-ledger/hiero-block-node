@@ -121,11 +121,6 @@ public class RecordBlockConverter {
                 .findFirst()
                 .orElseThrow(() -> new IllegalArgumentException("Block does not contain a BlockHeader"))
                 .blockHeader();
-        final BlockFooter blockFooter = block.items().stream()
-                .filter(BlockItem::hasBlockFooter)
-                .findFirst()
-                .orElseThrow(() -> new IllegalArgumentException("Block does not contain a BlockFooter"))
-                .blockFooter();
         final BlockProof blockProof = block.items().stream()
                 .filter(BlockItem::hasBlockProof)
                 .findFirst()
@@ -139,7 +134,11 @@ public class RecordBlockConverter {
                 blockTime,
                 signedRecordFileProof.version(),
                 blockHeader.hapiProtoVersion(),
-                blockFooter.previousBlockRootHash().toByteArray(),
+                recordFileItem
+                        .recordFileContents()
+                        .startObjectRunningHash()
+                        .hash()
+                        .toByteArray(),
                 recordFileItem.recordFileContents());
         List<ParsedSignatureFile> signatureFiles = signedRecordFileProof.recordFileSignatures().stream()
                 .map(rfs -> new ParsedSignatureFile(
