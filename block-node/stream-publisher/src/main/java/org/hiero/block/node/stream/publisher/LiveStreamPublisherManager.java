@@ -444,11 +444,14 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
         // updated. Any other query of these values needs to be made again!
         final long currentStreaming = currentStreamingBlockNumber.get();
         final long nextUnstreamed = nextUnstreamedBlockNumber.get();
-        if (blockNumber >= currentStreaming && blockNumber < nextUnstreamed) {
+        final String queueName = getQueueNameForHandlerId(handlerId);
+        if (blockNumber >= currentStreaming
+                && blockNumber < nextUnstreamed
+                && transferQueueMap.containsKey(queueName)) {
             // decrement the next unstreamed value, but only if the block number
             // provided by the ending handler is the latest started block.
             nextUnstreamedBlockNumber.compareAndSet(blockNumber + 1, blockNumber);
-            transferQueueMap.remove(getQueueNameForHandlerId(handlerId));
+            transferQueueMap.remove(queueName);
             // Also (potentially) remove this block from the queueByBlockMap.
             // and clear the queue if it is removed here.
             // Note, we know the last block must be incomplete _if_ it was started
@@ -458,6 +461,12 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
             if (queue != null) {
                 discardIncompleteTrailingBlock(queue);
             }
+        } else if (transferQueueMap.containsKey(queueName)) {
+            // this should never happen
+            final String message =
+                    "Invalid state detected for handler %d when ending mid-block %d. Current Streaming Block Number: %d, Next Unstreamed Block Number: %d"
+                            .formatted(handlerId, blockNumber, currentStreaming, nextUnstreamed);
+            LOGGER.log(WARNING, message);
         }
     }
 
