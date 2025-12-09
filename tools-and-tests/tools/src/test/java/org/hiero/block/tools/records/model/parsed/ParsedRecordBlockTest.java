@@ -208,7 +208,7 @@ public class ParsedRecordBlockTest {
             // Write the block (not gzipped)
             v2ParsedBlock.write(testDir, false);
 
-            // Verify record file was written
+            // Verify a record file was written
             var recordFilePath = testDir.resolve(V2_TEST_BLOCK_RECORD_FILE_NAME);
             assertTrue(Files.exists(recordFilePath), "Record file should exist");
 

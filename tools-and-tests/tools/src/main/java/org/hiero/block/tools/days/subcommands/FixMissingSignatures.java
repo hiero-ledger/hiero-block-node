@@ -207,8 +207,8 @@ public class FixMissingSignatures implements Runnable {
         }
         // clear the progress line once done and print a summary
         PrettyPrint.clearProgress();
-        System.out.println("Fix signatures complete. Days processed: " + dayCount + ", Blocks processed: "
-                + progress.get());
+        System.out.println(
+                "Fix signatures complete. Days processed: " + dayCount + ", Blocks processed: " + progress.get());
     }
 
     private record DayWork(LocalDate day, Map<Instant, Set<String>> bucketSignatures) {}
@@ -251,9 +251,8 @@ public class FixMissingSignatures implements Runnable {
                             .limit(10)
                             .map(Instant::toString)
                             .toList();
-                    System.out.println(Ansi.AUTO.string(
-                            "@|yellow Available block times in bucket for day " + day + ": "
-                                    + String.join(", ", availableBlockTimes) + "|@"));
+                    System.out.println(Ansi.AUTO.string("@|yellow Available block times in bucket for day " + day + ": "
+                            + String.join(", ", availableBlockTimes) + "|@"));
                     throw new RuntimeException("No signatures found in bucket for block time: " + blockTime);
                 }
                 // remove all signatures present in the block
@@ -308,8 +307,8 @@ public class FixMissingSignatures implements Runnable {
 
                 // Calculate speed if we have at least 1 second of real time elapsed since tracking point
                 if (realTimeSinceLastCalc >= 1_000_000_000L) { // At least 1 second
-                    long dataTimeElapsedMillis =
-                            blockTime.toEpochMilli() - lastSpeedCalcBlockTime.get().toEpochMilli();
+                    long dataTimeElapsedMillis = blockTime.toEpochMilli()
+                            - lastSpeedCalcBlockTime.get().toEpochMilli();
                     long realTimeElapsedMillis = realTimeSinceLastCalc / 1_000_000L;
                     double speedMultiplier = (double) dataTimeElapsedMillis / (double) realTimeElapsedMillis;
                     speedString = String.format(" speed %.1fx", speedMultiplier);

@@ -41,6 +41,7 @@ import org.hiero.block.tools.records.RecordFileDates;
  *    <li><code>gs://hedera-mainnet-streams/recordstreams/record0.0.3/sidecar/2023-04-25T17_42_16.032498578Z_01.rcd.gz</code></li>
  * </ul>
  */
+@SuppressWarnings("unused")
 public class MainNetBucket {
     /** The required fields we need from blobs */
     private static final Storage.BlobListOption REQUIRED_FIELDS =
@@ -154,8 +155,8 @@ public class MainNetBucket {
     private byte[] downloadWithRetry(String path) {
         long delay = INITIAL_RETRY_DELAY_MS;
         for (int attempt = 1; attempt <= MAX_RETRIES; attempt++) {
-            var blob = STORAGE.get(
-                    BlobId.of(HEDERA_MAINNET_STREAMS_BUCKET, path), BlobGetOption.userProject(userProject));
+            var blob =
+                    STORAGE.get(BlobId.of(HEDERA_MAINNET_STREAMS_BUCKET, path), BlobGetOption.userProject(userProject));
             if (blob != null) {
                 return blob.getContent(BlobSourceOption.userProject(userProject));
             }
