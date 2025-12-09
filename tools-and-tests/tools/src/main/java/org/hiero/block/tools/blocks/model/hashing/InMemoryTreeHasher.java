@@ -6,6 +6,7 @@ import static org.hiero.block.tools.blocks.model.hashing.HashingUtils.hashLeaf;
 import static org.hiero.block.tools.utils.Sha384.SHA_384_HASH_SIZE;
 import static org.hiero.block.tools.utils.Sha384.sha384Digest;
 
+import com.hedera.pbj.runtime.io.buffer.Bytes;
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.nio.file.Files;
@@ -102,8 +103,29 @@ public class InMemoryTreeHasher implements Hasher {
     @Override
     public void addLeaf(byte[] data) {
         // Hash the leaf data
-        byte[] leafHash = hashLeaf(digest, data);
+        addLeafImpl(hashLeaf(digest, data));
+    }
 
+    /**
+     * Add a new leaf to the Merkle tree.
+     *
+     * <p>The leaf data is hashed using the leaf prefix scheme: {@code hash(0x00 || data)}.
+     * This method may trigger internal node hash computations as the tree grows.
+     *
+     * @param data the raw data for the new leaf (will be prefixed and hashed)
+     */
+    @Override
+    public void addLeaf(Bytes data) {
+        // Hash the leaf data
+        addLeafImpl(hashLeaf(digest, data));
+    }
+
+    /**
+     * Internal implementation to add a leaf hash and update the tree structure.
+     *
+     * @param leafHash the precomputed hash of the leaf
+     */
+    private void addLeafImpl(byte[] leafHash) {
         // Add to level 0 (leaves)
         int leafIndex = levels.getFirst().size();
         levels.getFirst().add(leafHash);

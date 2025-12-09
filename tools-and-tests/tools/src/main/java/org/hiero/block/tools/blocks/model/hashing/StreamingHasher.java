@@ -5,6 +5,7 @@ import static org.hiero.block.tools.blocks.model.hashing.HashingUtils.hashIntern
 import static org.hiero.block.tools.blocks.model.hashing.HashingUtils.hashLeaf;
 import static org.hiero.block.tools.utils.Sha384.sha384Digest;
 
+import com.hedera.pbj.runtime.io.buffer.Bytes;
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.nio.file.Files;
@@ -147,6 +148,30 @@ public class StreamingHasher implements Hasher {
      */
     @Override
     public void addLeaf(byte[] data) {
+        final long i = leafCount;
+        final byte[] e = hashLeaf(digest, data);
+        hashList.add(e);
+        // Fold up: combine sibling pairs while the current position is odd
+        for (long n = i; (n & 1L) == 1; n >>= 1) {
+            final byte[] y = hashList.removeLast();
+            final byte[] x = hashList.removeLast();
+            hashList.add(hashInternalNode(digest, x, y));
+        }
+        leafCount++;
+    }
+
+    /**
+     * Adds a new leaf to the Merkle tree.
+     *
+     * <p>The leaf data is hashed with prefix {@code 0x00}, then the streaming fold-up
+     * algorithm combines any complete sibling pairs into internal nodes.
+     *
+     * <p>Time complexity: O(log n) hash operations in the worst case, O(1) amortized.
+     *
+     * @param data the raw data for the new leaf
+     */
+    @Override
+    public void addLeaf(Bytes data) {
         final long i = leafCount;
         final byte[] e = hashLeaf(digest, data);
         hashList.add(e);
