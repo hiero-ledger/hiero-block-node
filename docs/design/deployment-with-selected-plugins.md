@@ -19,14 +19,9 @@ future community or user developed plugins.
 1. Build with all Hiero-defined plugins in the block node repo for E2E testing.
 2. Build with only the minimum required plugins for use by Helm chart deployments
    that add plugins dynamically based on chart configuration.
-3. TBD(2 options for now)
-
-- Modify the build to publish all current plugin modules to Maven Central
-  as individual libraries so that they can be downloaded individually during Helm chart deployments. (This is not small task
-  since currently all plugins are built and published as one docker image)
-
-- Modify the build to publish 2 OCI images - one with all plugins and one with only the minimum required plugins.
-  There will be a mechanism for copying plugins from the full image to the minimal image based on plugin selection(This is easier but not optimal)
+3. Modify the build to publish all current plugin modules to Maven Central
+   as individual libraries so that they can be downloaded individually during Helm chart deployments.
+4. Modify the build to publish 2 OCI images - one with all plugins and one with only the minimum required plugins.
 
 ## Design
 
