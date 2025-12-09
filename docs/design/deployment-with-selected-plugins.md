@@ -38,6 +38,11 @@ The cleanest way to support that at deployment would be to enable the Helm chart
 to add arbitrary jars to that extension location based on value files, so an operator
 just lists the required jars in their values file and those plugins get loaded into their deployment.
 
+To achieve that we will add a plugins list to values.yaml where operators specify plugin jar URLs.
+In the deployment template, we will mount a volume (e.g., /opt/block-node/plugins) for plugin jars.
+We will add an init container that downloads each plugin jar from the list
+to the extension folder before the main container starts.
+
 ## Acceptance Tests
 
 **Verify e2e tests are passing after the changes**
