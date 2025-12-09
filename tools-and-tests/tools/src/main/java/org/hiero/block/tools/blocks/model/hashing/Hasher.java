@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.tools.blocks.model.hashing;
 
+import com.hedera.pbj.runtime.io.buffer.Bytes;
 import java.nio.file.Path;
 
 /**
@@ -47,6 +48,16 @@ public interface Hasher {
      * @param data the raw data for the new leaf (will be prefixed and hashed)
      */
     void addLeaf(byte[] data);
+
+    /**
+     * Add a new leaf to the Merkle tree.
+     *
+     * <p>The leaf data is hashed using the leaf prefix scheme: {@code hash(0x00 || data)}.
+     * This method may trigger internal node hash computations as the tree grows.
+     *
+     * @param data the raw data for the new leaf (will be prefixed and hashed)
+     */
+    void addLeaf(Bytes data);
 
     /**
      * Compute the Merkle tree root hash from the current state.
