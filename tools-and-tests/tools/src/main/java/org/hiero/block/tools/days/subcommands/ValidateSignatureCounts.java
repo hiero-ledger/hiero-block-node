@@ -357,8 +357,8 @@ public class ValidateSignatureCounts implements Runnable {
                     List<String> existsInBucket = new ArrayList<>();
 
                     for (String nodeAccountId : blockInfo.missingNodes) {
-                        boolean existsInGcp = bucket.signatureFileExists(nodeAccountId,
-                            convertInstantToStringWithPadding(blockInfo.blockTimestamp));
+                        boolean existsInGcp = bucket.signatureFileExists(
+                                nodeAccountId, convertInstantToStringWithPadding(blockInfo.blockTimestamp));
                         if (existsInGcp) {
                             existsInBucket.add(nodeAccountId);
                         } else {

@@ -1,18 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.tools.blocks;
 
-import static java.nio.file.StandardOpenOption.CREATE;
-import static java.nio.file.StandardOpenOption.TRUNCATE_EXISTING;
-import static org.hiero.block.tools.blocks.model.BlockWriter.maxStoredBlockNumber;
 import static org.hiero.block.tools.blocks.model.hashing.BlockStreamBlockHasher.hashBlock;
 import static org.hiero.block.tools.mirrornode.DayBlockInfo.loadDayBlockInfoMap;
+import static org.hiero.block.tools.records.RecordFileDates.FIRST_BLOCK_TIME_INSTANT;
 
-import com.google.gson.Gson;
-import com.google.gson.GsonBuilder;
 import com.hedera.hapi.block.stream.Block;
 import java.io.File;
 import java.io.IOException;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Instant;
@@ -26,6 +21,7 @@ import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Stream;
 import org.hiero.block.tools.blocks.model.BlockArchiveType;
 import org.hiero.block.tools.blocks.model.BlockWriter;
+import org.hiero.block.tools.blocks.model.hashing.BlockStreamBlockHashRegistry;
 import org.hiero.block.tools.blocks.model.hashing.InMemoryTreeHasher;
 import org.hiero.block.tools.blocks.model.hashing.StreamingHasher;
 import org.hiero.block.tools.days.model.AddressBookRegistry;
@@ -34,26 +30,29 @@ import org.hiero.block.tools.days.model.TarZstdDayUtils;
 import org.hiero.block.tools.metadata.MetadataFiles;
 import org.hiero.block.tools.mirrornode.BlockTimeReader;
 import org.hiero.block.tools.mirrornode.DayBlockInfo;
+import org.hiero.block.tools.records.model.parsed.ParsedRecordBlock;
 import org.hiero.block.tools.records.model.parsed.RecordBlockConverter;
 import org.hiero.block.tools.records.model.unparsed.UnparsedRecordBlock;
 import org.hiero.block.tools.utils.PrettyPrint;
+import org.jspecify.annotations.NonNull;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Help.Ansi;
 import picocli.CommandLine.Option;
 
 /**
- * Convert blockchain in record file blocks in tar.zstd day files into wrapped block stream blocks. This command is
- * designed to work with two directories, an input one with day tar.zstd files and an output directory of zip files of
- * wrapped blocks. Optionally, the output directory can also contain an "addressBookHistory.json" file, which is where
- * this command stores the address books as it builds them processing data.
+ * The {@code ToWrappedBlocksCommand} class is used to convert record file blocks organized in daily files
+ * into wrapped block stream files for efficient processing and analysis. This tool is designed to process
+ * binary and metadata files required for the conversion process and outputs the resulting wrapped block files
+ * in the specified directory.
  * <p>
- * The output format is designed to match the historic storage plugin of Block Node. This should allow the output
- * directory to be dropped in as is into a block node to see it with historical blocks. The Block Node works on
- * individual blocks where each block is a self-contained "Block" protobuf object serialized into a file and zstd
- * compressed. Those compressed blocks are combined into batches by block number into uncompressed zip files. The zip
- * format is used as it reduces stress on an OS file system by having fewer files while still allowing random access
- * reads of a single block. At the time of writing, Hedera has over 87 million blocks growing by 43,000 a day.
- * </p>
+ * Fields:<br>
+ * - {@code blockTimesFile}: Path to the binary file mapping block times to block numbers.<br>
+ * - {@code dayBlocksFile}: Path to the JSON file with metadata for blocks organized by day.<br>
+ * - {@code unzipped}: Path to the unzipped directory containing the blocks to be processed.<br>
+ * - {@code compressedDaysDir}: Path to the directory with compressed daily block files.<br>
+ * - {@code outputBlocksDir}: Destination directory for the wrapped block files.
+ * </p><p>
+ * This class implements the {@link Runnable} interface, allowing multithreaded processing if needed.</p>
  */
 @SuppressWarnings({"CallToPrintStackTrace", "FieldCanBeLocal", "DuplicatedCode"})
 @Command(
@@ -61,49 +60,6 @@ import picocli.CommandLine.Option;
         description = "Convert record file blocks in day files to wrapped block stream blocks",
         mixinStandardHelpOptions = true)
 public class ToWrappedBlocksCommand implements Runnable {
-
-    /** Gson instance for Status JSON serialization */
-    private static final Gson GSON = new GsonBuilder().create();
-
-    /** Zero hash for previous / root when none available */
-    private static final byte[] ZERO_HASH = new byte[48];
-
-    /**
-     * Simple status object saved to outputBlocksDir/wrappingState.json to allow resuming.
-     * <p>Note: JSON (de)serialization handled by Gson via field reflection.</p>
-     */
-    @SuppressWarnings("ClassCanBeRecord")
-    private static final class Status {
-        final long lastProcessedBlockNumber;
-        final String lastProcessedBlockTime; // ISO-8601 from Instant.toString()
-
-        Status(long lastProcessedBlockNumber, String lastProcessedBlockTime) {
-            this.lastProcessedBlockNumber = lastProcessedBlockNumber;
-            this.lastProcessedBlockTime = lastProcessedBlockTime;
-        }
-
-        private static void writeStatusFile(Path statusFile, Status s) {
-            if (statusFile == null || s == null) return;
-            try {
-                String json = GSON.toJson(s);
-                Files.writeString(statusFile, json, StandardCharsets.UTF_8, CREATE, TRUNCATE_EXISTING);
-            } catch (IOException e) {
-                System.err.println("Failed to write status file " + statusFile + ": " + e.getMessage());
-                e.printStackTrace();
-            }
-        }
-
-        private static Status readStatusFile(Path statusFile) {
-            try {
-                if (statusFile == null || !Files.exists(statusFile)) return null;
-                String content = Files.readString(statusFile, StandardCharsets.UTF_8);
-                return GSON.fromJson(content, Status.class);
-            } catch (Exception e) {
-                System.err.println("Failed to read/parse status file " + statusFile + ": " + e.getMessage());
-                return null;
-            }
-        }
-    }
 
     @Option(
             names = {"-b", "--blocktimes-file"},
@@ -133,9 +89,12 @@ public class ToWrappedBlocksCommand implements Runnable {
     @SuppressWarnings("unused") // assigned reflectively by picocli
     private Path outputBlocksDir = Path.of("wrappedBlocks");
 
+    /**
+     * Run the ToWrappedBlocksCommand to convert record file blocks in day files to wrapped block stream blocks.
+     */
     @Override
     public void run() {
-        // create output directory if it does not exist
+        // create an output directory if it does not exist
         try {
             Files.createDirectories(outputBlocksDir);
             System.out.println(
@@ -145,7 +104,7 @@ public class ToWrappedBlocksCommand implements Runnable {
         }
         // create AddressBookRegistry to load address books as needed during conversion
         final Path addressBookFile = outputBlocksDir.resolve("addressBookHistory.json");
-        // check if it exists already, if not try coping from input dir
+        // check if it exists already, if not, try coping from input dir
         if (!Files.exists(addressBookFile)) {
             final Path inputAddressBookFile = compressedDaysDir.resolve("addressBookHistory.json");
             if (Files.exists(inputAddressBookFile)) {
@@ -158,7 +117,7 @@ public class ToWrappedBlocksCommand implements Runnable {
                 }
             }
         }
-        // load or create new AddressBookRegistry
+        // load or create a new AddressBookRegistry
         final AddressBookRegistry addressBookRegistry =
                 Files.exists(addressBookFile) ? new AddressBookRegistry(addressBookFile) : new AddressBookRegistry();
         System.out.println(
@@ -180,29 +139,20 @@ public class ToWrappedBlocksCommand implements Runnable {
         }
         // load day block info map
         final Map<LocalDate, DayBlockInfo> dayMap = loadDayBlockInfoMap(dayBlocksFile);
-        // load resume status if available
-        final Path statusFile = outputBlocksDir.resolve("wrappingState.json");
-        final Status resumeStatus = Status.readStatusFile(statusFile);
-        // atomic reference for last good status
-        final AtomicReference<Status> lastGood = new AtomicReference<>(resumeStatus);
 
         // load block times
-        try (BlockTimeReader blockTimeReader = new BlockTimeReader(blockTimesFile)) {
-            // scan the output dir and work out what the most recent block is so we know where to start
-            long highestStoredBlockNumber = maxStoredBlockNumber(outputBlocksDir, BlockWriter.DEFAULT_COMPRESSION);
-
-            // If we have resume status, use it to determine where to start
-            if (resumeStatus != null) {
-                highestStoredBlockNumber = resumeStatus.lastProcessedBlockNumber;
-                System.out.println(Ansi.AUTO.string("@|yellow Resuming from block:|@ " + highestStoredBlockNumber
-                        + " @|yellow at|@ " + resumeStatus.lastProcessedBlockTime));
-            }
+        try (final BlockTimeReader blockTimeReader = new BlockTimeReader(blockTimesFile);
+                // BlockStreamBlockHashRegistry for storing block hashes
+                final BlockStreamBlockHashRegistry blockRegistry =
+                        new BlockStreamBlockHashRegistry(outputBlocksDir.resolve("blockStreamBlockHashes.bin"))) {
+            // get the most recent block number from BlockStreamBlockHashRegistry
+            long highestStoredBlockNumber = blockRegistry.highestBlockNumberStored();
+            System.out.println(Ansi.AUTO.string("@|yellow Starting from block:|@ " + highestStoredBlockNumber + " @|"));
             // Print highest stored block time
             final Instant highestStoredBlockTime = highestStoredBlockNumber == -1
-                    ? Instant.EPOCH
+                    ? FIRST_BLOCK_TIME_INSTANT
                     : blockTimeReader.getBlockInstant(highestStoredBlockNumber);
-            System.out.println(Ansi.AUTO.string("@|yellow Highest block in storage:|@ " + highestStoredBlockNumber
-                    + " @|yellow at|@ " + highestStoredBlockTime));
+            System.out.println(Ansi.AUTO.string("@|yellow Starting at time:|@ " + highestStoredBlockNumber + " @|"));
 
             // compute the block to start processing at
             final long startBlock = highestStoredBlockNumber == -1 ? 0 : highestStoredBlockNumber + 1;
@@ -216,13 +166,10 @@ public class ToWrappedBlocksCommand implements Runnable {
             // load day paths from the input directory, filtering to just ones newer than the startBlockDate and sorting
             final List<Path> dayPaths = TarZstdDayUtils.sortedDayPaths(new File[] {compressedDaysDir.toFile()}).stream()
                     .filter(p -> {
-                        final LocalDate fileDate =
-                                LocalDate.parse(p.getFileName().toString().substring(0, 10));
+                        final LocalDate fileDate = dayPathToLocalDate(p);
                         return fileDate.isEqual(startBlockDate) || fileDate.isAfter(startBlockDate);
                     })
-                    .sorted(Comparator.comparingLong(
-                            p -> LocalDate.parse(p.getFileName().toString().substring(0, 10))
-                                    .toEpochDay()))
+                    .sorted(Comparator.comparingLong(p -> dayPathToLocalDate(p).toEpochDay()))
                     .toList();
             // print range of days to be processed
             if (dayPaths.isEmpty()) {
@@ -230,20 +177,18 @@ public class ToWrappedBlocksCommand implements Runnable {
                 return;
             } else {
                 System.out.println(Ansi.AUTO.string("@|yellow Processing day files from|@ "
-                        + dayPaths.getFirst().getFileName().toString().substring(0, 10)
+                        + dayPathToLocalDate(dayPaths.getFirst())
                         + " @|yellow to|@ "
-                        + dayPaths.getLast().getFileName().toString().substring(0, 10)));
+                        + dayPathToLocalDate(dayPaths.getLast())));
             }
 
             // Progress tracking setup
             final long startNanos = System.nanoTime();
             final long totalBlocksToProcess = highestStoredBlockNumber - startBlock;
             final AtomicLong blocksProcessed = new AtomicLong(0);
-
             // Track last block time for speed calculation
             final AtomicReference<Instant> lastSpeedCalcBlockTime = new AtomicReference<>();
             final AtomicLong lastSpeedCalcRealTimeNanos = new AtomicLong(0);
-
             // Track the last reported minute to avoid spamming progress output
             final AtomicLong lastReportedMinute = new AtomicLong(Long.MIN_VALUE);
 
@@ -259,50 +204,48 @@ public class ToWrappedBlocksCommand implements Runnable {
                 inMemoryTreeHasher.load(inMemoryMerkleTreeFile);
             }
 
-            // Register shutdown hook to persist last good status on JVM exit (Ctrl+C, etc.)
+            // Register a shutdown hook to persist last good status on JVM exit (Ctrl+C, etc.)
             Runtime.getRuntime()
                     .addShutdownHook(new Thread(
                             () -> {
-                                Status s = lastGood.get();
-                                if (s != null) {
-                                    System.err.println("Shutdown: writing status to " + statusFile);
-                                    Status.writeStatusFile(statusFile, s);
-                                    System.err.println("Shutdown: address book to " + addressBookFile);
-                                    addressBookRegistry.saveAddressBookRegistryToJsonFile(addressBookFile);
-                                    // write merkle tree states
-                                    try {
-                                        streamingHasher.save(streamingMerkleTreeFile);
-                                        inMemoryTreeHasher.save(inMemoryMerkleTreeFile);
-                                        System.err.println("Shutdown: saved merkle tree states. To "
-                                                + streamingMerkleTreeFile + " and " + inMemoryMerkleTreeFile);
-                                    } catch (Exception e) {
-                                        System.err.println(
-                                                "Failed to save merkle tree states on shutdown: " + e.getMessage());
-                                        e.printStackTrace();
-                                    }
+                                System.err.println("Shutdown: address book to " + addressBookFile);
+                                addressBookRegistry.saveAddressBookRegistryToJsonFile(addressBookFile);
+                                // write merkle tree states
+                                try {
+                                    streamingHasher.save(streamingMerkleTreeFile);
+                                    inMemoryTreeHasher.save(inMemoryMerkleTreeFile);
+                                    System.err.println("Shutdown: saved merkle tree states. To "
+                                            + streamingMerkleTreeFile + " and " + inMemoryMerkleTreeFile);
+                                } catch (Exception e) {
+                                    System.err.println(
+                                            "Failed to save merkle tree states on shutdown: " + e.getMessage());
+                                    e.printStackTrace();
                                 }
                             },
                             "wrap-shutdown-hook"));
 
-            // track the block number
+            // track the block number we are working on, atomic as we want to update this global state from lambdas
             final AtomicLong blockCounter = new AtomicLong(startBlock);
+            // Iterate over all the days to convert. We have to convert in order and sequentially as we are building new
+            // ordered blockchains
             for (final Path dayPath : dayPaths) {
-                final LocalDate dayDate =
-                        LocalDate.parse(dayPath.getFileName().toString().substring(0, 10));
-                PrettyPrint.clearProgress();
-                System.out.println(Ansi.AUTO.string("@|yellow Processing day file:|@ " + dayPath));
+                final LocalDate dayDate = dayPathToLocalDate(dayPath);
                 long currentBlockNumberBeingRead = dayMap.get(dayDate).firstBlockNumber;
+                System.out.println(Ansi.AUTO.string("\n@|yellow Starting processing day:|@ " + dayPath
+                        + " @|yellow at block:|@ " + currentBlockNumberBeingRead + " @|"));
                 if (currentBlockNumberBeingRead > startBlock) {
-                    // double check blockCounter is in sync
+                    // double-check blockCounter is in sync
                     if (blockCounter.get() != currentBlockNumberBeingRead) {
                         throw new RuntimeException("Block counter out of sync with day block number for " + dayDate
                                 + ": " + blockCounter.get() + " != " + currentBlockNumberBeingRead);
                     }
                 }
+                // read the record stream blocks from the day tar.zstd file
                 try (Stream<UnparsedRecordBlock> stream = TarZstdDayReaderUsingExec.streamTarZstd(dayPath)) {
                     stream
                             // filter out blocks we have already processed, only leaving newer blocks
                             .filter(recordBlock -> recordBlock.recordFileTime().isAfter(highestStoredBlockTime))
+                            // parse each record block
                             .map(UnparsedRecordBlock::parse)
                             .forEach(recordBlock -> {
                                 try {
@@ -325,18 +268,19 @@ public class ToWrappedBlocksCommand implements Runnable {
                                     // get the block time
                                     final Instant blockTime = blockTimeReader.getBlockInstant(blockNum);
                                     // Convert record file block to wrapped block. We pass zero hashes for previous/root
-                                    // TODO Rocky we need to get rid of experimental block, I added experimental to
+                                    // TODO we need to get rid of experimental block, I added experimental to
                                     //  change API locally, We need to push those changes up stream to HAPI lib then
                                     //  pull latest.
                                     final com.hedera.hapi.block.stream.experimental.Block wrappedExp =
                                             RecordBlockConverter.toBlock(
                                                     recordBlock,
                                                     blockNum,
-                                                    ZERO_HASH, // TODO compute the block hash merkle tree
+                                                    blockRegistry.mostRecentBlockHash(),
+                                                    streamingHasher.computeRootHash(),
                                                     addressBookRegistry.getAddressBookForBlock(blockTime));
 
                                     // Convert experimental Block to stable Block for storage APIs
-                                    // TODO Rocky this will slow things down and can be deleted once above is fixed
+                                    // TODO this will slow things down and can be deleted once above is fixed
                                     final com.hedera.pbj.runtime.io.buffer.Bytes protoBytes =
                                             com.hedera.hapi.block.stream.experimental.Block.PROTOBUF.toBytes(
                                                     wrappedExp);
@@ -351,74 +295,27 @@ public class ToWrappedBlocksCommand implements Runnable {
                                         System.exit(1);
                                     }
                                     // add block hash to merkle tree hashers
-                                    byte[] blockHash = hashBlock(wrappedExp, streamingHasher.computeRootHash());
-                                    streamingHasher.addLeaf(blockHash);
-                                    inMemoryTreeHasher.addLeaf(blockHash);
+                                    final byte[] blockStreamBlockHash =
+                                            hashBlock(wrappedExp, streamingHasher.computeRootHash());
+                                    streamingHasher.addLeaf(blockStreamBlockHash);
+                                    inMemoryTreeHasher.addLeaf(blockStreamBlockHash);
+                                    // add the block hash to the registry
+                                    blockRegistry.addBlock(blockNum, blockStreamBlockHash);
 
-                                    // Update progress tracking
-                                    blocksProcessed.incrementAndGet();
-
-                                    // Calculate processing speed over the last 10 seconds of wall clock time
-                                    final long currentRealTimeNanos = System.nanoTime();
-                                    final long tenSecondsInNanos = 10_000_000_000L;
-                                    String speedString = "";
-
-                                    // Initialize tracking on the first block
-                                    if (lastSpeedCalcBlockTime.get() == null) {
-                                        lastSpeedCalcBlockTime.set(recordBlock.blockTime());
-                                        lastSpeedCalcRealTimeNanos.set(currentRealTimeNanos);
-                                    }
-
-                                    // Update the tracking window if more than 10 seconds of real time has elapsed
-                                    long realTimeSinceLastCalc =
-                                            currentRealTimeNanos - lastSpeedCalcRealTimeNanos.get();
-                                    if (realTimeSinceLastCalc >= tenSecondsInNanos) {
-                                        lastSpeedCalcBlockTime.set(recordBlock.blockTime());
-                                        lastSpeedCalcRealTimeNanos.set(currentRealTimeNanos);
-                                    }
-
-                                    // Calculate speed if we have at least 1 second of real time elapsed since tracking
-                                    // point
-                                    if (realTimeSinceLastCalc >= 1_000_000_000L) { // At least 1 second
-                                        long dataTimeElapsedMillis = recordBlock
-                                                        .blockTime()
-                                                        .toEpochMilli()
-                                                - lastSpeedCalcBlockTime.get().toEpochMilli();
-                                        long realTimeElapsedMillis = realTimeSinceLastCalc / 1_000_000L;
-                                        double speedMultiplier =
-                                                (double) dataTimeElapsedMillis / (double) realTimeElapsedMillis;
-                                        speedString = String.format(" speed %.1fx", speedMultiplier);
-                                    }
-
-                                    // Build progress string
-                                    final String progressString = String.format(
-                                            "Block %d at %s%s", blockNum, recordBlock.blockTime(), speedString);
-
-                                    // Calculate ETA
-                                    final long elapsedMillis = (System.nanoTime() - startNanos) / 1_000_000L;
-                                    final long processedCount = blocksProcessed.get();
-                                    double percent = ((double) processedCount / (double) totalBlocksToProcess) * 100.0;
-                                    long remainingMillis = PrettyPrint.computeRemainingMilliseconds(
-                                            processedCount, totalBlocksToProcess, elapsedMillis);
-
-                                    // Only print progress once per consensus-minute to avoid spam
-                                    long blockMinute = recordBlock.blockTime().getEpochSecond() / 60L;
-                                    if (blockMinute != lastReportedMinute.get()) {
-                                        PrettyPrint.printProgressWithEta(percent, progressString, remainingMillis);
-                                        lastReportedMinute.set(blockMinute);
-                                    }
-
-                                    // Update last good processed block (in-memory only, not writing to disk here)
-                                    lastGood.set(new Status(
-                                            blockNum, recordBlock.blockTime().toString()));
+                                    printUpdatedProgress(
+                                            recordBlock,
+                                            blocksProcessed,
+                                            lastSpeedCalcBlockTime,
+                                            lastSpeedCalcRealTimeNanos,
+                                            blockNum,
+                                            startNanos,
+                                            totalBlocksToProcess,
+                                            lastReportedMinute);
                                 } catch (Exception ex) {
                                     PrettyPrint.clearProgress();
                                     System.err.println(
                                             "Failed processing record block in " + dayPath + ": " + ex.getMessage());
                                     ex.printStackTrace();
-                                    // Persist last good status and exit
-                                    Status s = lastGood.get();
-                                    if (s != null) Status.writeStatusFile(statusFile, s);
                                     addressBookRegistry.saveAddressBookRegistryToJsonFile(addressBookFile);
                                     System.exit(1);
                                 }
@@ -431,15 +328,89 @@ public class ToWrappedBlocksCommand implements Runnable {
             PrettyPrint.clearProgress();
             System.out.println("Conversion complete. Blocks written: " + blocksProcessed.get());
 
-            // Save final status on successful completion
-            Status s = lastGood.get();
-            if (s != null) {
-                Status.writeStatusFile(statusFile, s);
-                System.out.println("Saved progress to " + statusFile);
-            }
             addressBookRegistry.saveAddressBookRegistryToJsonFile(addressBookFile);
         } catch (Exception e) {
             throw new RuntimeException(e);
+        }
+    }
+
+    /**
+     * Convert a day file path to a LocalDate.
+     *
+     * @param p the day file path to a directory with a name in the form "2025-11-13"
+     * @return return the LocalDate corresponding to the day file path
+     */
+    private static @NonNull LocalDate dayPathToLocalDate(Path p) {
+        return LocalDate.parse(p.getFileName().toString().substring(0, 10));
+    }
+
+    /**
+     * Print updated progress information including processing speed and ETA.
+     *
+     * @param recordBlock the parsed record block
+     * @param blocksProcessed the number of blocks processed so far
+     * @param lastSpeedCalcBlockTime last speed calculation block time
+     * @param lastSpeedCalcRealTimeNanos last speed calculation real time nanos
+     * @param blockNum the block number being processed
+     * @param startNanos the start time of the conversion process in nanos
+     * @param totalBlocksToProcess the total number of blocks to process
+     * @param lastReportedMinute the last reported minute to avoid spamming progress output
+     */
+    private static void printUpdatedProgress(
+            ParsedRecordBlock recordBlock,
+            AtomicLong blocksProcessed,
+            AtomicReference<Instant> lastSpeedCalcBlockTime,
+            AtomicLong lastSpeedCalcRealTimeNanos,
+            long blockNum,
+            long startNanos,
+            long totalBlocksToProcess,
+            AtomicLong lastReportedMinute) {
+        // Update progress tracking
+        blocksProcessed.incrementAndGet();
+
+        // Calculate processing speed over the last 10 seconds of wall clock time
+        final long currentRealTimeNanos = System.nanoTime();
+        final long tenSecondsInNanos = 10_000_000_000L;
+        String speedString = "";
+
+        // Initialize tracking on the first block
+        if (lastSpeedCalcBlockTime.get() == null) {
+            lastSpeedCalcBlockTime.set(recordBlock.blockTime());
+            lastSpeedCalcRealTimeNanos.set(currentRealTimeNanos);
+        }
+
+        // Update the tracking window if more than 10 seconds of real time has elapsed
+        long realTimeSinceLastCalc = currentRealTimeNanos - lastSpeedCalcRealTimeNanos.get();
+        if (realTimeSinceLastCalc >= tenSecondsInNanos) {
+            lastSpeedCalcBlockTime.set(recordBlock.blockTime());
+            lastSpeedCalcRealTimeNanos.set(currentRealTimeNanos);
+        }
+
+        // Calculate speed if we have at least 1 second of real time elapsed since tracking
+        // point
+        if (realTimeSinceLastCalc >= 1_000_000_000L) { // At least 1 second
+            long dataTimeElapsedMillis = recordBlock.blockTime().toEpochMilli()
+                    - lastSpeedCalcBlockTime.get().toEpochMilli();
+            long realTimeElapsedMillis = realTimeSinceLastCalc / 1_000_000L;
+            double speedMultiplier = (double) dataTimeElapsedMillis / (double) realTimeElapsedMillis;
+            speedString = String.format(" speed %.1fx", speedMultiplier);
+        }
+
+        // Build progress string
+        final String progressString = String.format("Block %d at %s%s", blockNum, recordBlock.blockTime(), speedString);
+
+        // Calculate ETA
+        final long elapsedMillis = (System.nanoTime() - startNanos) / 1_000_000L;
+        final long processedCount = blocksProcessed.get();
+        double percent = ((double) processedCount / (double) totalBlocksToProcess) * 100.0;
+        long remainingMillis =
+                PrettyPrint.computeRemainingMilliseconds(processedCount, totalBlocksToProcess, elapsedMillis);
+
+        // Only print progress once per consensus-minute to avoid spam
+        long blockMinute = recordBlock.blockTime().getEpochSecond() / 60L;
+        if (blockMinute != lastReportedMinute.get()) {
+            PrettyPrint.printProgressWithEta(percent, progressString, remainingMillis);
+            lastReportedMinute.set(blockMinute);
         }
     }
 }
