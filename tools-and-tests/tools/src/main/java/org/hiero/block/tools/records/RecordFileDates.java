@@ -43,8 +43,9 @@ public final class RecordFileDates {
             recordOrSidecarFileName = recordOrSidecarFileName.substring(lastSlash + 1);
         }
         // extract date prefix from file name, last chat is always 'Z'
-        final String dateString = recordOrSidecarFileName.substring(0, recordOrSidecarFileName.indexOf('Z') + 1)
-            .replaceAll("_", ":");
+        final String dateString = recordOrSidecarFileName
+                .substring(0, recordOrSidecarFileName.indexOf('Z') + 1)
+                .replaceAll("_", ":");
         try {
             return Instant.parse(dateString);
         } catch (DateTimeParseException e) {
@@ -119,8 +120,8 @@ public final class RecordFileDates {
 
     /**
      * A string representation of the Instant using ISO-8601 representation, with colons converted to underscores for
-     * Windows compatibility. The nano-of-second always outputs nine digits with padding when necessary, to ensure same
-     * length filenames and proper sorting. examples: input: 2020-10-19T21:35:39Z output:
+     * Windows compatibility. The nano-of-second always outputs nine digits with padding when necessary, to ensure the
+     * same length filenames and proper sorting. Examples: input: 2020-10-19T21:35:39Z output:
      * "2020-10-19T21_35_39.000000000Z"
      * <p>
      * input: 2020-10-19T21:35:39.454265Z output: "2020-10-19T21:35:39.454265000Z"
@@ -129,7 +130,7 @@ public final class RecordFileDates {
      * </p>
      *
      * @param timestamp an Instant object
-     * @return a string representation of the Instant, to be used as stream file name
+     * @return a string representation of the Instant, to be used as a stream file name
      */
     public static String convertInstantToStringWithPadding(final Instant timestamp) {
         String string = timestamp.toString().replace(":", "_");
