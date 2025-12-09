@@ -267,22 +267,12 @@ public class BackfillGrpcClient {
             return Optional.empty();
         }
 
-        // Prefer the candidate that gives the farthest end (largest coverage for this batch)
-        long farthestEnd = candidates.stream()
-                .map(NodeSelection::chunkRange)
-                .mapToLong(LongRange::end)
-                .max()
-                .orElse(startBlock);
-        List<NodeSelection> bestEndCandidates = candidates.stream()
-                .filter(c -> c.chunkRange().end() == farthestEnd)
-                .toList();
-
-        // Within those, pick the lowest priority value
-        int bestPriority = bestEndCandidates.stream()
+        // Pick the lowest priority value (cost/bandwidth) among candidates covering the earliest available start
+        int bestPriority = candidates.stream()
                 .mapToInt(selection -> selection.nodeConfig().priority())
                 .min()
                 .orElse(Integer.MAX_VALUE);
-        List<NodeSelection> bestPriorityCandidates = bestEndCandidates.stream()
+        List<NodeSelection> bestPriorityCandidates = candidates.stream()
                 .filter(c -> c.nodeConfig().priority() == bestPriority)
                 .toList();
 
