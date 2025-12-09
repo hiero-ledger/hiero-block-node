@@ -51,8 +51,9 @@ public class RecordBlockConverterTest {
     /** Dummy root hash for a block hashes merkle tree (48 bytes for SHA-384) */
     private static final byte[] DUMMY_ROOT_HASH = new byte[48];
     /** Dummy previous block hash (48 bytes for SHA-384) */
-    private static final byte[] DUMMY_PREVIOUS_BLOCK_HASH = HexFormat.of().parseHex(
-        "52939c10ed7d382366e636c4c071287ed0a4ebcab144a750b6293a4dee11f5a021e81f3e093a29b5b53bf3d1fd870080");
+    private static final byte[] DUMMY_PREVIOUS_BLOCK_HASH = HexFormat.of()
+            .parseHex(
+                    "52939c10ed7d382366e636c4c071287ed0a4ebcab144a750b6293a4dee11f5a021e81f3e093a29b5b53bf3d1fd870080");
 
     /** V2 parsed block for testing */
     private ParsedRecordBlock v2ParsedBlock;
@@ -118,7 +119,11 @@ public class RecordBlockConverterTest {
 
         // Convert to Block
         Block block = RecordBlockConverter.toBlock(
-                v2ParsedBlock, V2_TEST_BLOCK_NUMBER, DUMMY_PREVIOUS_BLOCK_HASH, DUMMY_ROOT_HASH, V2_TEST_BLOCK_ADDRESS_BOOK);
+                v2ParsedBlock,
+                V2_TEST_BLOCK_NUMBER,
+                DUMMY_PREVIOUS_BLOCK_HASH,
+                DUMMY_ROOT_HASH,
+                V2_TEST_BLOCK_ADDRESS_BOOK);
         assertNotNull(block);
         assertEquals(4, block.items().size(), "Block should have 4 items (header, record file, footer, proof)");
 
@@ -164,7 +169,11 @@ public class RecordBlockConverterTest {
 
         // Convert to Block
         Block block = RecordBlockConverter.toBlock(
-                v5ParsedBlock, V5_TEST_BLOCK_NUMBER, DUMMY_PREVIOUS_BLOCK_HASH, DUMMY_ROOT_HASH, V5_TEST_BLOCK_ADDRESS_BOOK);
+                v5ParsedBlock,
+                V5_TEST_BLOCK_NUMBER,
+                DUMMY_PREVIOUS_BLOCK_HASH,
+                DUMMY_ROOT_HASH,
+                V5_TEST_BLOCK_ADDRESS_BOOK);
         assertNotNull(block);
         assertEquals(4, block.items().size(), "Block should have 4 items (header, record file, footer, proof)");
 
@@ -210,7 +219,11 @@ public class RecordBlockConverterTest {
 
         // Convert to Block
         Block block = RecordBlockConverter.toBlock(
-                v6ParsedBlock, V6_TEST_BLOCK_NUMBER, DUMMY_PREVIOUS_BLOCK_HASH, DUMMY_ROOT_HASH, V6_TEST_BLOCK_ADDRESS_BOOK);
+                v6ParsedBlock,
+                V6_TEST_BLOCK_NUMBER,
+                DUMMY_PREVIOUS_BLOCK_HASH,
+                DUMMY_ROOT_HASH,
+                V6_TEST_BLOCK_ADDRESS_BOOK);
         assertNotNull(block);
         assertEquals(4, block.items().size(), "Block should have 4 items (header, record file, footer, proof)");
 
@@ -273,7 +286,11 @@ public class RecordBlockConverterTest {
 
         // Convert to Block and back
         Block block = RecordBlockConverter.toBlock(
-                v2ParsedBlock, V2_TEST_BLOCK_NUMBER, DUMMY_PREVIOUS_BLOCK_HASH, DUMMY_ROOT_HASH, V2_TEST_BLOCK_ADDRESS_BOOK);
+                v2ParsedBlock,
+                V2_TEST_BLOCK_NUMBER,
+                DUMMY_PREVIOUS_BLOCK_HASH,
+                DUMMY_ROOT_HASH,
+                V2_TEST_BLOCK_ADDRESS_BOOK);
         ParsedRecordBlock roundTripBlock = RecordBlockConverter.toRecordFile(block, V2_TEST_BLOCK_ADDRESS_BOOK);
 
         // Validate the round-trip block with correct previous hash
@@ -296,7 +313,11 @@ public class RecordBlockConverterTest {
 
         // Convert to Block and back
         Block block = RecordBlockConverter.toBlock(
-                v5ParsedBlock, V5_TEST_BLOCK_NUMBER, DUMMY_PREVIOUS_BLOCK_HASH, DUMMY_ROOT_HASH, V5_TEST_BLOCK_ADDRESS_BOOK);
+                v5ParsedBlock,
+                V5_TEST_BLOCK_NUMBER,
+                DUMMY_PREVIOUS_BLOCK_HASH,
+                DUMMY_ROOT_HASH,
+                V5_TEST_BLOCK_ADDRESS_BOOK);
         ParsedRecordBlock roundTripBlock = RecordBlockConverter.toRecordFile(block, V5_TEST_BLOCK_ADDRESS_BOOK);
 
         // Validate the round-trip block with the correct previous hash
@@ -319,7 +340,11 @@ public class RecordBlockConverterTest {
 
         // Convert to Block and back
         Block block = RecordBlockConverter.toBlock(
-                v6ParsedBlock, V6_TEST_BLOCK_NUMBER, DUMMY_PREVIOUS_BLOCK_HASH, DUMMY_ROOT_HASH, V6_TEST_BLOCK_ADDRESS_BOOK);
+                v6ParsedBlock,
+                V6_TEST_BLOCK_NUMBER,
+                DUMMY_PREVIOUS_BLOCK_HASH,
+                DUMMY_ROOT_HASH,
+                V6_TEST_BLOCK_ADDRESS_BOOK);
         ParsedRecordBlock roundTripBlock = RecordBlockConverter.toRecordFile(block, V6_TEST_BLOCK_ADDRESS_BOOK);
 
         // Validate the round-trip block with the correct previous hash
@@ -341,7 +366,11 @@ public class RecordBlockConverterTest {
         assertNotNull(v2ParsedBlock);
 
         Block block = RecordBlockConverter.toBlock(
-                v2ParsedBlock, V2_TEST_BLOCK_NUMBER, DUMMY_PREVIOUS_BLOCK_HASH, DUMMY_ROOT_HASH, V2_TEST_BLOCK_ADDRESS_BOOK);
+                v2ParsedBlock,
+                V2_TEST_BLOCK_NUMBER,
+                DUMMY_PREVIOUS_BLOCK_HASH,
+                DUMMY_ROOT_HASH,
+                V2_TEST_BLOCK_ADDRESS_BOOK);
 
         // Verify block items
         assertTrue(block.items().get(0).hasBlockHeader(), "First item should be BlockHeader");
@@ -380,7 +409,11 @@ public class RecordBlockConverterTest {
         assertNotNull(v6ParsedBlock);
 
         Block block = RecordBlockConverter.toBlock(
-                v6ParsedBlock, V6_TEST_BLOCK_NUMBER, DUMMY_PREVIOUS_BLOCK_HASH, DUMMY_ROOT_HASH, V6_TEST_BLOCK_ADDRESS_BOOK);
+                v6ParsedBlock,
+                V6_TEST_BLOCK_NUMBER,
+                DUMMY_PREVIOUS_BLOCK_HASH,
+                DUMMY_ROOT_HASH,
+                V6_TEST_BLOCK_ADDRESS_BOOK);
 
         // Verify RecordFile contains sidecar files
         var recordFileItem = block.items().get(1);

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.tools.records.model.parsed;
 
+import static org.hiero.block.tools.records.RecordFileDates.instantToRecordFileName;
 import static org.hiero.block.tools.utils.TestBlocks.*;
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -208,8 +209,8 @@ public class ParsedRecordBlockTest {
             // Write the block (not gzipped)
             v2ParsedBlock.write(testDir, false);
 
-            // Verify a record file was written
-            var recordFilePath = testDir.resolve(V2_TEST_BLOCK_RECORD_FILE_NAME);
+            // Verify a record file was written (with padded nanoseconds in the filename)
+            var recordFilePath = testDir.resolve(instantToRecordFileName(v2ParsedBlock.blockTime()));
             assertTrue(Files.exists(recordFilePath), "Record file should exist");
 
             // Verify signature files were written
