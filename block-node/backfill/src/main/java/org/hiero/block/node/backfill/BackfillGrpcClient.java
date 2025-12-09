@@ -64,6 +64,8 @@ public class BackfillGrpcClient {
      * This allows us to reuse clients for the same node configuration.
      */
     private ConcurrentHashMap<BackfillSourceConfig, BlockNodeClient> nodeClientMap = new ConcurrentHashMap<>();
+    /** Cache of available ranges per node to avoid repeated serverStatus calls while chunking a gap. */
+    private ConcurrentHashMap<BackfillSourceConfig, LongRange> nodeAvailableRangeCache = new ConcurrentHashMap<>();
 
     /**
      * Constructor for BackfillGrpcClient.
@@ -92,16 +94,26 @@ public class BackfillGrpcClient {
 
     /**
      * Checks if the specified block range is available in the given block node.
+     * Caches the node's reported available range to avoid repeated serverStatus calls while iterating over chunks.
+     *
+     * @param nodeConfig the block node configuration to use as the cache key
      * @param node the block node to check
      * @param blockRange the block range to check
      * @return a LongRange representing the intersection of the block range and the available blocks in the node.
      */
-    private LongRange getAvailableRangeInNode(BlockNodeClient node, LongRange blockRange) {
+    private LongRange getAvailableRangeInNode(
+            BackfillSourceConfig nodeConfig, BlockNodeClient node, LongRange blockRange) {
+        LongRange cachedRange = nodeAvailableRangeCache.get(nodeConfig);
+        if (cachedRange != null && cachedRange.contains(blockRange.start(), blockRange.end())) {
+            return blockRange;
+        }
 
         final ServerStatusResponse nodeStatus =
                 node.getBlockNodeServiceClient().serverStatus(new ServerStatusRequest());
         long firstAvailableBlock = nodeStatus.firstAvailableBlock();
         long lastAvailableBlock = nodeStatus.lastAvailableBlock();
+        final LongRange availableRange = new LongRange(firstAvailableBlock, lastAvailableBlock);
+        nodeAvailableRangeCache.put(nodeConfig, availableRange);
 
         long start = blockRange.start();
         long end = blockRange.end();
@@ -204,7 +216,7 @@ public class BackfillGrpcClient {
                 try {
                     BlockNodeClient currentNodeClient = getNodeClient(node);
                     // Check if the node has the blocks we need
-                    LongRange actualRange = getAvailableRangeInNode(currentNodeClient, blockRange);
+                    LongRange actualRange = getAvailableRangeInNode(node, currentNodeClient, blockRange);
                     if (actualRange == null) {
                         LOGGER.log(
                                 INFO,
@@ -277,6 +289,7 @@ public class BackfillGrpcClient {
     public void resetStatus() {
         for (BackfillSourceConfig node : blockNodeSource.nodes()) {
             nodeStatusMap.put(node, Status.UNKNOWN);
+            nodeAvailableRangeCache.remove(node);
         }
     }
 

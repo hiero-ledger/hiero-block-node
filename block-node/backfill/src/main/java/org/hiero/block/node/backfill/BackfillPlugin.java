@@ -568,8 +568,10 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
         // we should create  new Gap and a new task to backfill it
         long lastPersistedBlock =
                 context.historicalBlockProvider().availableBlocks().max();
+        // if lastPersistedBlock is less than backfill start block, we start from backfill start block
+        long startBackfillFrom = Math.max(lastPersistedBlock, backfillConfiguration.startBlock());
         long newestBlockKnown = notification.blockNumber();
-        LongRange gap = new LongRange(lastPersistedBlock + 1, newestBlockKnown);
+        LongRange gap = new LongRange(startBackfillFrom, newestBlockKnown);
         LOGGER.log(
                 TRACE,
                 "Detected new block known to network: {0,number,#}, starting backfill task for gap: {1}",
