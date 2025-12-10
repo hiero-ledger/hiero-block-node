@@ -146,7 +146,7 @@ public class BackfillGrpcClient {
     }
 
     /**
-     * Determine available ranges for a node. Once serverStatusDetail is available, this method will return multiple
+     * Determine available ranges for a node. Once serverStatusDetail is available, this method could return multiple
      * ranges; today it returns a single contiguous range from serverStatus.
      */
     protected List<LongRange> resolveAvailableRanges(BlockNodeClient node) {
