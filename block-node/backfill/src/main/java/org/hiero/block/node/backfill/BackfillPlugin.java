@@ -499,7 +499,8 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
         return backfillGrpcClient.getAvailabilityForRange(gap);
     }
 
-    private LongRange computeChunk(
+    // Package-private for test visibility
+    LongRange computeChunk(
             BackfillGrpcClient.NodeSelection selection,
             Map<BackfillSourceConfig, List<LongRange>> availability,
             long gapEnd,
