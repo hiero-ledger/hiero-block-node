@@ -30,31 +30,29 @@ public class TestBlockNodeServer {
         final Builder pbjRoutingBuilder = PbjRouting.builder()
                 .service(new TrivialBlockNodeServerInterface(historicalBlockFacility))
                 .service((BlockStreamSubscribeServiceInterface) (request, replies) -> {
-                    if (historicalBlockFacility
-                            .availableBlocks()
-                            .contains(request.startBlockNumber(), request.endBlockNumber())) {
-                        // publishes one set of block items and an EndOfBlock response for each block
-                        for (long i = request.startBlockNumber(); i <= request.endBlockNumber(); i++) {
+                    for (long i = request.startBlockNumber(); i <= request.endBlockNumber(); i++) {
+                        if (!historicalBlockFacility.availableBlocks().contains(i)) {
                             replies.onNext(SubscribeStreamResponse.newBuilder()
-                                    .blockItems(BlockItemSet.newBuilder()
-                                            .blockItems(historicalBlockFacility
-                                                    .block(i)
-                                                    .block()
-                                                    .items())
-                                            .build())
+                                    .status(SubscribeStreamResponse.Code.NOT_AVAILABLE)
                                     .build());
-                            replies.onNext(SubscribeStreamResponse.newBuilder()
-                                    .endOfBlock(
-                                            BlockEnd.newBuilder().blockNumber(i).build())
-                                    .build());
+                            replies.onComplete();
+                            return;
                         }
 
                         replies.onNext(SubscribeStreamResponse.newBuilder()
-                                .status(Code.SUCCESS)
+                                .blockItems(BlockItemSet.newBuilder()
+                                        .blockItems(historicalBlockFacility.block(i).block().items())
+                                        .build())
                                 .build());
-
-                        replies.onComplete();
+                        replies.onNext(SubscribeStreamResponse.newBuilder()
+                                .endOfBlock(BlockEnd.newBuilder().blockNumber(i).build())
+                                .build());
                     }
+
+                    replies.onNext(SubscribeStreamResponse.newBuilder()
+                            .status(Code.SUCCESS)
+                            .build());
+                    replies.onComplete();
                 });
         // start the web server with the PBJ configuration and routing
         webServer = WebServerConfig.builder()

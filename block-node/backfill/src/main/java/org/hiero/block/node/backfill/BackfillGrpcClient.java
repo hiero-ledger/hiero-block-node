@@ -69,7 +69,8 @@ public class BackfillGrpcClient {
      */
     private ConcurrentHashMap<BackfillSourceConfig, BlockNodeClient> nodeClientMap = new ConcurrentHashMap<>();
     /** Cache of available ranges per node to avoid repeated serverStatus calls while chunking a gap. */
-    private ConcurrentHashMap<BackfillSourceConfig, LongRange> nodeAvailableRangeCache = new ConcurrentHashMap<>();
+    private ConcurrentHashMap<BackfillSourceConfig, List<LongRange>> nodeAvailableRangeCache =
+            new ConcurrentHashMap<>();
 
     /**
      * Constructor for BackfillGrpcClient.
@@ -149,6 +150,16 @@ public class BackfillGrpcClient {
     }
 
     /**
+     * Determine available ranges for a node. Once serverStatusDetail is available, this method will return multiple
+     * ranges; today it returns a single contiguous range from serverStatus.
+     */
+    protected List<LongRange> resolveAvailableRanges(BlockNodeClient node) {
+        final ServerStatusResponse nodeStatus =
+                node.getBlockNodeServiceClient().serverStatus(new ServerStatusRequest());
+        return List.of(new LongRange(nodeStatus.firstAvailableBlock(), nodeStatus.lastAvailableBlock()));
+    }
+
+    /**
      * Returns a BlockNodeClient for the given BackfillSourceConfig.
      * If a client for the node already exists, it returns that client.
      * Otherwise, it creates a new client and stores it in the map.
@@ -156,7 +167,7 @@ public class BackfillGrpcClient {
      * @param node the BackfillSourceConfig to get the client for
      * @return a BlockNodeClient for the specified node
      */
-    private BlockNodeClient getNodeClient(BackfillSourceConfig node) {
+    protected BlockNodeClient getNodeClient(BackfillSourceConfig node) {
         return nodeClientMap.computeIfAbsent(
                 node, BlockNodeClient -> new BlockNodeClient(node, connectionTimeoutSeconds, enableTls));
     }
@@ -179,8 +190,8 @@ public class BackfillGrpcClient {
      * @param targetRange overall gap we are trying to backfill
      * @return map of node -> available range overlapping the target
      */
-    public Map<BackfillSourceConfig, LongRange> getAvailabilityForRange(LongRange targetRange) {
-        Map<BackfillSourceConfig, LongRange> availability = new HashMap<>();
+    public Map<BackfillSourceConfig, List<LongRange>> getAvailabilityForRange(LongRange targetRange) {
+        Map<BackfillSourceConfig, List<LongRange>> availability = new HashMap<>();
 
         for (BackfillSourceConfig node : blockNodeSource.nodes()) {
             BlockNodeClient currentNodeClient = getNodeClient(node);
@@ -189,17 +200,20 @@ public class BackfillGrpcClient {
                 continue;
             }
 
-            final ServerStatusResponse nodeStatus =
-                    currentNodeClient.getBlockNodeServiceClient().serverStatus(new ServerStatusRequest());
-            long firstAvailableBlock = nodeStatus.firstAvailableBlock();
-            long lastAvailableBlock = nodeStatus.lastAvailableBlock();
-            final LongRange availableRange = new LongRange(firstAvailableBlock, lastAvailableBlock);
-            nodeAvailableRangeCache.put(node, availableRange);
+            List<LongRange> ranges =
+                    nodeAvailableRangeCache.computeIfAbsent(node, ignored -> resolveAvailableRanges(currentNodeClient));
 
-            long intersectionStart = Math.max(targetRange.start(), firstAvailableBlock);
-            long intersectionEnd = Math.min(targetRange.end(), lastAvailableBlock);
-            if (intersectionStart <= intersectionEnd) {
-                availability.put(node, new LongRange(intersectionStart, intersectionEnd));
+            List<LongRange> intersections = new ArrayList<>();
+            for (LongRange range : ranges) {
+                long intersectionStart = Math.max(targetRange.start(), range.start());
+                long intersectionEnd = Math.min(targetRange.end(), range.end());
+                if (intersectionStart <= intersectionEnd) {
+                    intersections.add(new LongRange(intersectionStart, intersectionEnd));
+                }
+            }
+
+            if (!intersections.isEmpty()) {
+                availability.put(node, intersections);
                 nodeStatusMap.put(node, Status.AVAILABLE);
             } else {
                 nodeStatusMap.put(node, Status.UNAVAILABLE);
@@ -223,7 +237,7 @@ public class BackfillGrpcClient {
             long startBlock,
             long gapEnd,
             long batchSize,
-            Map<BackfillSourceConfig, LongRange> availability,
+            Map<BackfillSourceConfig, List<LongRange>> availability,
             Set<BackfillSourceConfig> excludedNodes) {
         if (startBlock > gapEnd) {
             return Optional.empty();
@@ -231,36 +245,38 @@ public class BackfillGrpcClient {
 
         long earliestAvailableStart = Long.MAX_VALUE;
         List<NodeSelection> candidates = new ArrayList<>();
-        for (Map.Entry<BackfillSourceConfig, LongRange> entry : availability.entrySet()) {
+        for (Map.Entry<BackfillSourceConfig, List<LongRange>> entry : availability.entrySet()) {
             if (excludedNodes.contains(entry.getKey())) {
                 continue;
             }
-            LongRange availableRange = entry.getValue();
-            long candidateStart = Math.max(startBlock, availableRange.start());
-            if (candidateStart > availableRange.end() || candidateStart > gapEnd) {
-                continue;
+            for (LongRange availableRange : entry.getValue()) {
+                long candidateStart = Math.max(startBlock, availableRange.start());
+                if (candidateStart > availableRange.end() || candidateStart > gapEnd) {
+                    continue;
+                }
+                earliestAvailableStart = Math.min(earliestAvailableStart, candidateStart);
             }
-            earliestAvailableStart = Math.min(earliestAvailableStart, candidateStart);
         }
 
         if (earliestAvailableStart == Long.MAX_VALUE) {
             return Optional.empty();
         }
 
-        for (Map.Entry<BackfillSourceConfig, LongRange> entry : availability.entrySet()) {
+        for (Map.Entry<BackfillSourceConfig, List<LongRange>> entry : availability.entrySet()) {
             if (excludedNodes.contains(entry.getKey())) {
                 continue;
             }
-            LongRange availableRange = entry.getValue();
-            long candidateStart = Math.max(startBlock, availableRange.start());
-            if (candidateStart != earliestAvailableStart) {
-                continue;
+            for (LongRange availableRange : entry.getValue()) {
+                long candidateStart = Math.max(startBlock, availableRange.start());
+                if (candidateStart != earliestAvailableStart) {
+                    continue;
+                }
+                if (candidateStart > availableRange.end() || candidateStart > gapEnd) {
+                    continue;
+                }
+                long chunkEnd = Math.min(Math.min(candidateStart + batchSize - 1, availableRange.end()), gapEnd);
+                candidates.add(new NodeSelection(entry.getKey(), new LongRange(candidateStart, chunkEnd)));
             }
-            if (candidateStart > availableRange.end() || candidateStart > gapEnd) {
-                continue;
-            }
-            long chunkEnd = Math.min(Math.min(candidateStart + batchSize - 1, availableRange.end()), gapEnd);
-            candidates.add(new NodeSelection(entry.getKey(), new LongRange(candidateStart, chunkEnd)));
         }
 
         if (candidates.isEmpty()) {
@@ -293,9 +309,14 @@ public class BackfillGrpcClient {
 
         for (int attempt = 1; attempt <= maxRetries; attempt++) {
             try {
-                return currentNodeClient
+                List<BlockUnparsed> batch = currentNodeClient
                         .getBlockstreamSubscribeUnparsedClient()
                         .getBatchOfBlocks(blockRange.start(), blockRange.end());
+                if (batch.size() != blockRange.size()) {
+                    nodeStatusMap.put(nodeConfig, Status.UNAVAILABLE);
+                    return Collections.emptyList();
+                }
+                return batch;
             } catch (Exception e) {
                 if (attempt == maxRetries) {
                     nodeStatusMap.put(nodeConfig, Status.UNAVAILABLE);

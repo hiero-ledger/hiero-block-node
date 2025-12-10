@@ -8,6 +8,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import com.swirlds.metrics.api.Metric.ValueType;
+import java.lang.reflect.Field;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -35,6 +36,7 @@ import org.hiero.block.node.spi.blockmessaging.NewestBlockKnownToNetworkNotifica
 import org.hiero.block.node.spi.blockmessaging.PersistedNotification;
 import org.hiero.block.node.spi.blockmessaging.VerificationNotification;
 import org.hiero.block.node.spi.historicalblocks.HistoricalBlockFacility;
+import org.hiero.block.node.spi.historicalblocks.LongRange;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -1050,6 +1052,55 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, BlockingExecutor
                 125,
                 blockMessaging.getSentVerificationNotifications().size(),
                 "Should have sent 125 verification notifications");
+    }
+
+    @Test
+    @DisplayName("Lying BN is marked unavailable when advertised range has gaps")
+    void testLyingNodeMarkedUnavailable() throws Exception {
+        BackfillSourceConfig backfillSourceConfig = BackfillSourceConfig.newBuilder()
+                .address("localhost")
+                .port(40845)
+                .priority(1)
+                .build();
+        BackfillSource backfillSource =
+                BackfillSource.newBuilder().nodes(backfillSourceConfig).build();
+        String backfillSourcePath = testTempDir + "/backfill-source-lying.json";
+        createTestBlockNodeSourcesFile(backfillSource, backfillSourcePath);
+
+        // Create storage with a gap (missing block 10) but still reporting 0..11
+        SimpleInMemoryHistoricalBlockFacility gappyStorage = new SimpleInMemoryHistoricalBlockFacility();
+        for (long i = 0; i <= 11; i++) {
+            if (i == 10) {
+                continue;
+            }
+            final BlockItemUnparsed[] block = SimpleTestBlockItemBuilder.createSimpleBlockUnparsedWithNumber(i);
+            gappyStorage.handleBlockItemsReceived(new BlockItems(List.of(block), i), false);
+        }
+
+        testBlockNodeServers.add(new TestBlockNodeServer(backfillSourceConfig.port(), gappyStorage));
+
+        Map<String, String> config = BackfillConfigBuilder.NewBuilder()
+                .backfillSourcePath(backfillSourcePath)
+                .fetchBatchSize(10)
+                .initialDelay(50)
+                .scanInterval(20000)
+                .build();
+
+        // Plugin store has only block 12, so gap 0..11 triggers fetch against the lying BN
+        SimpleInMemoryHistoricalBlockFacility pluginStore = getHistoricalBlockFacility(12, 12);
+
+        start(new BackfillPlugin(), pluginStore, config);
+
+        CountDownLatch latch = new CountDownLatch(10); // 0..9 should be backfilled, 10 missing stops stream
+
+        // allow time for initial scan and attempted backfill
+        registerDefaultTestBackfillHandler();
+        registerDefaultTestVerificationHandler(latch);
+        latch.await(5, TimeUnit.SECONDS);
+
+        assertEquals(0, latch.getCount(), "Should have backfilled available prefix before hitting the gap");
+        assertEquals(10, blockMessaging.getSentPersistedNotifications().size(), "Should persist available blocks");
+        assertEquals(10, blockMessaging.getSentVerificationNotifications().size(), "Should verify available blocks");
     }
 
     private void createTestBlockNodeSourcesFile(BackfillSource backfillSource, String configPath) {

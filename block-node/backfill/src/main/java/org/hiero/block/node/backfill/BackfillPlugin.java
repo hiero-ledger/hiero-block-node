@@ -427,7 +427,7 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
         }
         backfillGrpcClient.resetStatus();
 
-        Map<BackfillSourceConfig, LongRange> availability = backfillGrpcClient.getAvailabilityForRange(gap);
+        Map<BackfillSourceConfig, List<LongRange>> availability = backfillGrpcClient.getAvailabilityForRange(gap);
         Set<BackfillSourceConfig> temporarilyUnavailable = new HashSet<>();
         long currentBlock = gap.start();
         long batchSize = backfillConfiguration.fetchBatchSize();
