@@ -16,7 +16,6 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.TimeUnit;
@@ -225,15 +224,10 @@ public class BackfillGrpcClient {
      * @param gapEnd     inclusive end of the gap
      * @param batchSize  maximum number of blocks to request
      * @param availability map of node -> available range intersecting the gap
-     * @param excludedNodes nodes temporarily marked as unavailable due to failures in this run
      * @return optional NodeSelection describing which node to hit and what range to request
      */
     public Optional<NodeSelection> selectNextChunk(
-            long startBlock,
-            long gapEnd,
-            long batchSize,
-            Map<BackfillSourceConfig, List<LongRange>> availability,
-            Set<BackfillSourceConfig> excludedNodes) {
+            long startBlock, long gapEnd, long batchSize, Map<BackfillSourceConfig, List<LongRange>> availability) {
         if (startBlock > gapEnd) {
             return Optional.empty();
         }
@@ -241,9 +235,6 @@ public class BackfillGrpcClient {
         long earliestAvailableStart = Long.MAX_VALUE;
         List<NodeSelection> candidates = new ArrayList<>();
         for (Map.Entry<BackfillSourceConfig, List<LongRange>> entry : availability.entrySet()) {
-            if (excludedNodes.contains(entry.getKey())) {
-                continue;
-            }
             for (LongRange availableRange : entry.getValue()) {
                 long candidateStart = Math.max(startBlock, availableRange.start());
                 if (candidateStart > availableRange.end() || candidateStart > gapEnd) {
@@ -258,9 +249,6 @@ public class BackfillGrpcClient {
         }
 
         for (Map.Entry<BackfillSourceConfig, List<LongRange>> entry : availability.entrySet()) {
-            if (excludedNodes.contains(entry.getKey())) {
-                continue;
-            }
             for (LongRange availableRange : entry.getValue()) {
                 long candidateStart = Math.max(startBlock, availableRange.start());
                 if (candidateStart != earliestAvailableStart) {

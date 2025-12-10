@@ -13,11 +13,9 @@ import edu.umd.cs.findbugs.annotations.NonNull;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.Set;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
@@ -428,13 +426,12 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
         backfillGrpcClient.resetStatus();
 
         Map<BackfillSourceConfig, List<LongRange>> availability = backfillGrpcClient.getAvailabilityForRange(gap);
-        Set<BackfillSourceConfig> temporarilyUnavailable = new HashSet<>();
         long currentBlock = gap.start();
         long batchSize = backfillConfiguration.fetchBatchSize();
 
         while (currentBlock <= gap.end()) {
-            Optional<BackfillGrpcClient.NodeSelection> selection = backfillGrpcClient.selectNextChunk(
-                    currentBlock, gap.end(), batchSize, availability, temporarilyUnavailable);
+            Optional<BackfillGrpcClient.NodeSelection> selection =
+                    backfillGrpcClient.selectNextChunk(currentBlock, gap.end(), batchSize, availability);
             if (selection.isEmpty()) {
                 LOGGER.log(TRACE, "No available nodes found for block {0}", currentBlock);
                 backfillFetchErrors.increment();
@@ -451,7 +448,7 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
             getLatch(backfillType).set(new CountDownLatch(batchOfBlocks.size()));
 
             if (batchOfBlocks.isEmpty()) {
-                temporarilyUnavailable.add(selection.get().nodeConfig());
+                availability.remove(selection.get().nodeConfig());
                 LOGGER.log(DEBUG, "No blocks fetched for gap {0}, skipping", chunk);
                 continue; // Skip empty batches
             }
