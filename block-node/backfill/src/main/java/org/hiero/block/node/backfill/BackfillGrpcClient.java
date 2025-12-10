@@ -2,6 +2,7 @@
 package org.hiero.block.node.backfill;
 
 import static java.lang.System.Logger.Level.INFO;
+import static java.lang.System.Logger.Level.TRACE;
 
 import com.hedera.pbj.runtime.ParseException;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
@@ -115,6 +116,58 @@ public class BackfillGrpcClient {
         }
 
         return new LongRange(intersectionStart, intersectionEnd);
+    }
+
+    /**
+     * Determines the new available block range across all configured block nodes,
+     * starting from the latest stored block number + 1 and ending at the maximum
+     * last available block number reported by any of the nodes.
+     *
+     * @param latestStoredBlockNumber the latest stored block number
+     * @return a LongRange representing the new available block range
+     */
+    public LongRange getNewAvailableRange(long latestStoredBlockNumber) {
+        long earliestPeerBlock = Long.MAX_VALUE;
+        long latestPeerBlock = Long.MIN_VALUE;
+
+        for (BackfillSourceConfig node : blockNodeSource.nodes()) {
+            BlockNodeClient currentNodeClient = getNodeClient(node);
+            if (currentNodeClient == null || !currentNodeClient.isNodeReachable()) {
+                // to-do: add logic to retry node later to avoid marking it unavailable forever
+                nodeStatusMap.put(node, Status.UNAVAILABLE);
+                LOGGER.log(INFO, "Unable to reach node {0}, marked as unavailable", node);
+                continue;
+            }
+
+            final ServerStatusResponse nodeStatus =
+                    currentNodeClient.getBlockNodeServiceClient().serverStatus(new ServerStatusRequest());
+            long firstAvailableBlock = nodeStatus.firstAvailableBlock();
+            long lastAvailableBlock = nodeStatus.lastAvailableBlock();
+
+            // update the earliestPeerBlock to the max lastAvailableBlock
+            latestPeerBlock = Math.max(latestPeerBlock, lastAvailableBlock);
+            earliestPeerBlock = Math.min(earliestPeerBlock, firstAvailableBlock);
+        }
+
+        LOGGER.log(
+                TRACE,
+                "Determined block range from peer blocks nodes earliestPeerBlock={0,number,#} to latestStoredBlockNumber={1,number,#}",
+                earliestPeerBlock,
+                latestPeerBlock);
+
+        // confirm next block is available if not we still can't backfill
+        if (latestStoredBlockNumber + 1 < earliestPeerBlock
+                || latestStoredBlockNumber > latestPeerBlock
+                || latestStoredBlockNumber + 1 > latestPeerBlock) {
+            return null;
+        }
+
+        LOGGER.log(
+                INFO,
+                "Determined available range from peer blocks nodes start={0,number,#} to end={1,number,#}",
+                latestStoredBlockNumber + 1,
+                latestPeerBlock);
+        return new LongRange(latestStoredBlockNumber + 1, latestPeerBlock);
     }
 
     /**

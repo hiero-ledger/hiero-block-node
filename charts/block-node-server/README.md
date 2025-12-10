@@ -38,7 +38,7 @@ Set environment variables that will be used throughout this guide. Replace the v
 
 ```bash
 export RELEASE="bn-release"  # bn-release is short for block-node-release
-export VERSION="0.24.0-SNAPSHOT"
+export VERSION="0.25.0-SNAPSHOT"
 ```
 
 ## Installation Options
@@ -148,6 +148,44 @@ promtail:
   enabled: false
 ```
 
+### Expose via LoadBalancer
+
+Expose gRPC traffic through a dedicated `LoadBalancer` Service by enabling:
+
+```yaml
+loadBalancer:
+  enabled: true
+  # replace <public-ip> with your static IP
+  loadBalancerIP: "<public-ip>"
+  annotations: {}
+  loadBalancerSourceRanges:
+    # Restrict access to the LoadBalancer; omit to allow all
+    - <your-client-ip-address-ranges>
+    - <another-client-ip-address-range>
+    # - 35.191.0.0/16   # GCP health check (example)
+    # - 130.211.0.0/22  # GCP health check (example)
+```
+
+The Service defaults to `grpc` on the main application port/`http` target port and a name of `<release>-block-node-server-external`; override these with `loadBalancer.portName`, `loadBalancer.port`, `loadBalancer.targetPort`, or `loadBalancer.nameOverride` as needed.
+
+### Use Host Networking or Host Ports
+
+To place pods directly on the node network, enable `hostNetwork`. The chart defaults the DNS policy to `ClusterFirstWithHostNet` when it is enabled.
+
+```yaml
+hostNetwork: true
+dnsPolicy: ClusterFirstWithHostNet  # override if you need a different policy
+```
+
+To bind container ports to host ports, set `blockNode.hostPorts` using the container port names:
+
+```yaml
+blockNode:
+  hostPorts:
+    http: 40840     # binds the http container port to the host
+    metrics: 16007  # binds the metrics container port to the host
+```
+
 ## Post-Installation
 
 Follow the `NOTES` instructions after installing the chart to perform `port-forward` to the Hiero Block Node and be able to use it.
@@ -161,7 +199,7 @@ To upgrade the chart to a new version from the OCI registry:
 1. Set the new version:
 
 ```bash
-export VERSION="<new-version>"
+export VERSION="0.25.0-SNAPSHOT"
 ```
 
 2. Save your current configuration:

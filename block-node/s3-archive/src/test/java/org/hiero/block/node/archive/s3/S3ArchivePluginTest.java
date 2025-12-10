@@ -35,6 +35,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 import java.util.stream.StreamSupport;
@@ -56,7 +57,7 @@ import org.testcontainers.containers.GenericContainer;
  */
 @Timeout(value = 5, unit = TimeUnit.SECONDS)
 @SuppressWarnings("SameParameterValue")
-class S3ArchivePluginTest extends PluginTestBase<S3ArchivePlugin, ExecutorService> {
+class S3ArchivePluginTest extends PluginTestBase<S3ArchivePlugin, ExecutorService, ScheduledExecutorService> {
     private static final Instant START_TIME =
             ZonedDateTime.of(2025, 1, 1, 0, 0, 0, 0, ZoneOffset.UTC).toInstant();
     private static final String BUCKET_NAME = "test-bucket";
@@ -69,7 +70,7 @@ class S3ArchivePluginTest extends PluginTestBase<S3ArchivePlugin, ExecutorServic
 
     @SuppressWarnings("resource")
     public S3ArchivePluginTest() throws GeneralSecurityException, IOException, MinioException {
-        super(Executors.newSingleThreadExecutor());
+        super(Executors.newSingleThreadExecutor(), Executors.newSingleThreadScheduledExecutor());
         // Start MinIO container
         GenericContainer<?> minioContainer = new GenericContainer<>("minio/minio:latest")
                 .withCommand("server /data")

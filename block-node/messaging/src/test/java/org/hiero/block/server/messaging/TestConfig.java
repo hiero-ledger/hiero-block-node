@@ -7,6 +7,7 @@ import com.swirlds.config.api.ConfigurationBuilder;
 import com.swirlds.metrics.api.Metrics;
 import java.util.concurrent.LinkedBlockingQueue;
 import org.hiero.block.node.app.fixtures.async.BlockingExecutor;
+import org.hiero.block.node.app.fixtures.async.ScheduledBlockingExecutor;
 import org.hiero.block.node.app.fixtures.async.TestThreadPoolManager;
 import org.hiero.block.node.messaging.MessagingConfig;
 import org.hiero.block.node.spi.BlockNodeContext;
@@ -37,7 +38,9 @@ public class TestConfig {
             null,
             null,
             null,
-            new TestThreadPoolManager<>(new BlockingExecutor(new LinkedBlockingQueue<>())));
+            new TestThreadPoolManager<>(
+                    new BlockingExecutor(new LinkedBlockingQueue<>()),
+                    new ScheduledBlockingExecutor(new LinkedBlockingQueue<>())));
 
     public static BlockNodeContext generateContext(final ThreadPoolManager threadPoolManager) {
         return new BlockNodeContext(getConfig(), getMetrics(), null, null, null, null, threadPoolManager);
@@ -51,7 +54,8 @@ public class TestConfig {
     public static Metrics getMetrics() {
         ConfigurationBuilder configurationBuilder = ConfigurationBuilder.create()
                 .withConfigDataType(com.swirlds.common.metrics.config.MetricsConfig.class)
-                .withConfigDataType(com.swirlds.common.metrics.platform.prometheus.PrometheusConfig.class);
+                .withConfigDataType(com.swirlds.common.metrics.platform.prometheus.PrometheusConfig.class)
+                .withValue("prometheus.endpointEnabled", "false");
         final Configuration configuration = configurationBuilder.build();
         // create metrics provider
         final DefaultMetricsProvider metricsProvider;

@@ -14,11 +14,14 @@ import com.hedera.hapi.block.stream.output.BlockHeader;
 import com.hedera.pbj.runtime.OneOf;
 import com.hedera.pbj.runtime.ParseException;
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.ScheduledExecutorService;
 import org.hiero.block.internal.BlockItemUnparsed;
 import org.hiero.block.internal.BlockItemUnparsed.ItemOneOfType;
 import org.hiero.block.node.app.fixtures.async.BlockingExecutor;
+import org.hiero.block.node.app.fixtures.async.ScheduledBlockingExecutor;
 import org.hiero.block.node.app.fixtures.blocks.BlockUtils;
 import org.hiero.block.node.app.fixtures.plugintest.NoBlocksHistoricalBlockFacility;
 import org.hiero.block.node.app.fixtures.plugintest.PluginTestBase;
@@ -32,10 +35,13 @@ import org.junit.jupiter.api.Test;
 /**
  * Unit test for {@link VerificationServicePlugin}.
  */
-class VerificationServicePluginTest extends PluginTestBase<VerificationServicePlugin, BlockingExecutor> {
+class VerificationServicePluginTest
+        extends PluginTestBase<VerificationServicePlugin, BlockingExecutor, ScheduledExecutorService> {
 
     public VerificationServicePluginTest() {
-        super(new BlockingExecutor(new LinkedBlockingQueue<>()));
+        super(
+                new BlockingExecutor(new LinkedBlockingQueue<>()),
+                new ScheduledBlockingExecutor(new LinkedBlockingQueue<>()));
         start(new VerificationServicePlugin(), new NoBlocksHistoricalBlockFacility());
     }
 
@@ -74,8 +80,11 @@ class VerificationServicePluginTest extends PluginTestBase<VerificationServicePl
 
         BlockUtils.SampleBlockInfo sampleBlockInfo =
                 BlockUtils.getSampleBlockInfo(BlockUtils.SAMPLE_BLOCKS.HAPI_0_68_0_BLOCK_14);
+        // get the original block items
+        List<BlockItemUnparsed> originalItems = sampleBlockInfo.blockUnparsed().blockItems();
+        // make a mutable copy
+        List<BlockItemUnparsed> blockItems = new ArrayList<>(originalItems);
 
-        List<BlockItemUnparsed> blockItems = sampleBlockInfo.blockUnparsed().blockItems();
         // remove one block item, so the hash is no longer valid
         blockItems.remove(3);
         long blockNumber = sampleBlockInfo.blockNumber();
@@ -106,7 +115,11 @@ class VerificationServicePluginTest extends PluginTestBase<VerificationServicePl
         BlockUtils.SampleBlockInfo sampleBlockInfo =
                 BlockUtils.getSampleBlockInfo(BlockUtils.SAMPLE_BLOCKS.HAPI_0_68_0_BLOCK_14);
         long blockNumber = sampleBlockInfo.blockNumber();
-        List<BlockItemUnparsed> blockItems = sampleBlockInfo.blockUnparsed().blockItems();
+        List<BlockItemUnparsed> originalItems = sampleBlockInfo.blockUnparsed().blockItems();
+
+        // make a mutable copy
+        List<BlockItemUnparsed> blockItems = new ArrayList<>(originalItems);
+
         // remove the header to simulate a case where receive items and have never received a header
         blockItems.removeFirst();
         // send some items to the plugin, they should be ignored

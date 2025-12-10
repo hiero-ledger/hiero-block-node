@@ -14,9 +14,11 @@ import com.hedera.pbj.runtime.ParseException;
 import com.hedera.pbj.runtime.grpc.ServiceInterface;
 import java.util.List;
 import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.ScheduledExecutorService;
 import org.hiero.block.api.ServerStatusRequest;
 import org.hiero.block.api.ServerStatusResponse;
 import org.hiero.block.node.app.fixtures.async.BlockingExecutor;
+import org.hiero.block.node.app.fixtures.async.ScheduledBlockingExecutor;
 import org.hiero.block.node.app.fixtures.plugintest.GrpcPluginTestBase;
 import org.hiero.block.node.app.fixtures.plugintest.SimpleInMemoryHistoricalBlockFacility;
 import org.hiero.block.node.spi.blockmessaging.BlockItems;
@@ -29,11 +31,14 @@ import org.junit.jupiter.api.Test;
  * Validates the functionality of the server status service and its responses
  * under different conditions.
  */
-public class ServerStatusServicePluginTest extends GrpcPluginTestBase<ServerStatusServicePlugin, BlockingExecutor> {
+public class ServerStatusServicePluginTest
+        extends GrpcPluginTestBase<ServerStatusServicePlugin, BlockingExecutor, ScheduledExecutorService> {
     private final ServerStatusServicePlugin plugin = new ServerStatusServicePlugin();
 
     public ServerStatusServicePluginTest() {
-        super(new BlockingExecutor(new LinkedBlockingQueue<>()));
+        super(
+                new BlockingExecutor(new LinkedBlockingQueue<>()),
+                new ScheduledBlockingExecutor(new LinkedBlockingQueue<>()));
         start(plugin, plugin.methods().getFirst(), new SimpleInMemoryHistoricalBlockFacility());
     }
 

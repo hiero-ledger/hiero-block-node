@@ -23,6 +23,7 @@ import org.hiero.block.node.base.Loggable;
  *                                  process indefinitely in case something unexpected happens, this would allow for self-recovery
  * @param grpcOverallTimeout single timeout configuration for gRPC Client construction, connectTimeout, readTimeout and pollWaitTime
  * @param enableTLS if enabled will assume block-node client supports tls connection.
+ * @param greedy if enabled will search and retrieve blocks beyond latestAcknowledged to ensure BN doesn't fall too far behind.
  */
 @ConfigData("backfill")
 public record BackfillConfiguration(
@@ -37,4 +38,5 @@ public record BackfillConfiguration(
         @Loggable @ConfigProperty(defaultValue = "15000") @Min(5) int initialDelay,
         @Loggable @ConfigProperty(defaultValue = "1000") @Min(500) int perBlockProcessingTimeout,
         @Loggable @ConfigProperty(defaultValue = "60000") @Min(10000) int grpcOverallTimeout,
-        @Loggable @ConfigProperty(defaultValue = "false") boolean enableTLS) {}
+        @Loggable @ConfigProperty(defaultValue = "false") boolean enableTLS,
+        @Loggable @ConfigProperty(defaultValue = "false") boolean greedy) {}

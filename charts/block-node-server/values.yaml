@@ -36,9 +36,33 @@ securityContext: {}
   # runAsNonRoot: true
 # runAsUser: 1000
 
+hostNetwork: false
+# Optional override for the pod DNS policy. When hostNetwork is true, defaults to ClusterFirstWithHostNet.
+dnsPolicy: ""
+
 service:
   type: ClusterIP
   port: 40840
+  annotations: {}
+    # metallb.io/address-pool: public-address-pool
+
+loadBalancer:
+  enabled: false
+  # Optional custom name for the external Service, defaults to "<release>-block-node-server-external"
+  nameOverride: ""
+  annotations: {}
+  # is required for static IPs on some cloud providers
+  loadBalancerIP: ""
+  portName: grpc
+  # Defaults to service.port when left empty
+  port: ""
+  targetPort: http
+  protocol: TCP
+  # CIDR ranges allowed to reach the LoadBalancer; leave empty to allow all
+  loadBalancerSourceRanges: []
+    # - 203.0.113.0/24  # your clients
+    # - 35.191.0.0/16   # GCP health check (example)
+    # - 130.211.0.0/22  # GCP health check (example)
 
 ingress:
   enabled: false
@@ -71,6 +95,11 @@ tolerations: []
 affinity: {}
 
 blockNode:
+  # Optional hostPort mappings keyed by container port name.
+  # hostPorts:
+  #   http: 40840
+  #   metrics: 16007
+  hostPorts: {}
   # init container verbatim
   initContainers:
     - name: init-storage-dirs
