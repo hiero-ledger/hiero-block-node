@@ -16,6 +16,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.OptionalLong;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.TimeUnit;
@@ -231,8 +232,19 @@ public class BackfillGrpcClient {
             return Optional.empty();
         }
 
+        OptionalLong earliestAvailableStart = findEarliestAvailableStart(startBlock, gapEnd, availability);
+        if (earliestAvailableStart.isEmpty()) {
+            return Optional.empty();
+        }
+
+        List<NodeSelection> candidates =
+                candidatesForEarliest(startBlock, gapEnd, earliestAvailableStart.getAsLong(), availability);
+        return chooseBestCandidate(candidates);
+    }
+
+    private OptionalLong findEarliestAvailableStart(
+            long startBlock, long gapEnd, Map<BackfillSourceConfig, List<LongRange>> availability) {
         long earliestAvailableStart = Long.MAX_VALUE;
-        List<NodeSelection> candidates = new ArrayList<>();
         for (Map.Entry<BackfillSourceConfig, List<LongRange>> entry : availability.entrySet()) {
             for (LongRange availableRange : entry.getValue()) {
                 long candidateStart = Math.max(startBlock, availableRange.start());
@@ -244,9 +256,18 @@ public class BackfillGrpcClient {
         }
 
         if (earliestAvailableStart == Long.MAX_VALUE) {
-            return Optional.empty();
+            return OptionalLong.empty();
         }
 
+        return OptionalLong.of(earliestAvailableStart);
+    }
+
+    private List<NodeSelection> candidatesForEarliest(
+            long startBlock,
+            long gapEnd,
+            long earliestAvailableStart,
+            Map<BackfillSourceConfig, List<LongRange>> availability) {
+        List<NodeSelection> candidates = new ArrayList<>();
         for (Map.Entry<BackfillSourceConfig, List<LongRange>> entry : availability.entrySet()) {
             for (LongRange availableRange : entry.getValue()) {
                 long candidateStart = Math.max(startBlock, availableRange.start());
@@ -259,12 +280,14 @@ public class BackfillGrpcClient {
                 candidates.add(new NodeSelection(entry.getKey(), candidateStart));
             }
         }
+        return candidates;
+    }
 
+    private Optional<NodeSelection> chooseBestCandidate(List<NodeSelection> candidates) {
         if (candidates.isEmpty()) {
             return Optional.empty();
         }
 
-        // Pick the lowest priority value (cost/bandwidth) among candidates covering the earliest available start
         int bestPriority = candidates.stream()
                 .mapToInt(selection -> selection.nodeConfig().priority())
                 .min()
@@ -277,7 +300,6 @@ public class BackfillGrpcClient {
             return Optional.of(bestPriorityCandidates.getFirst());
         }
 
-        // Tie on range + priority: pick randomly to distribute load.
         int chosenIndex = ThreadLocalRandom.current().nextInt(bestPriorityCandidates.size());
         return Optional.of(bestPriorityCandidates.get(chosenIndex));
     }

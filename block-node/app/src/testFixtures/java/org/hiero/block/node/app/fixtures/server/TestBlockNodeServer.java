@@ -41,7 +41,10 @@ public class TestBlockNodeServer {
 
                         replies.onNext(SubscribeStreamResponse.newBuilder()
                                 .blockItems(BlockItemSet.newBuilder()
-                                        .blockItems(historicalBlockFacility.block(i).block().items())
+                                        .blockItems(historicalBlockFacility
+                                                .block(i)
+                                                .block()
+                                                .items())
                                         .build())
                                 .build());
                         replies.onNext(SubscribeStreamResponse.newBuilder()

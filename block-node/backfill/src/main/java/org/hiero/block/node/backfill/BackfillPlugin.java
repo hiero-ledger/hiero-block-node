@@ -510,15 +510,16 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
         }
 
         long start = selection.startBlock();
-        for (LongRange range : ranges) {
-            if (start < range.start() || start > range.end()) {
-                continue;
-            }
-            long chunkEnd = Math.min(Math.min(start + batchSize - 1, range.end()), gapEnd);
-            return new LongRange(start, chunkEnd);
+        LongRange coveringRange = ranges.stream()
+                .filter(range -> start >= range.start() && start <= range.end())
+                .findFirst()
+                .orElse(null);
+        if (coveringRange == null) {
+            return null;
         }
 
-        return null;
+        long chunkEnd = Math.min(Math.min(start + batchSize - 1, coveringRange.end()), gapEnd);
+        return new LongRange(start, chunkEnd);
     }
 
     /**
