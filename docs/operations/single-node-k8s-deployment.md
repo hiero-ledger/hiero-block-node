@@ -1,4 +1,3 @@
-
 # Single Node Kubernetes Deployment
 
 This document provides instructions for deploying the Block Node Server Helm chart in a Single-Node Kubernetes environment.
@@ -12,23 +11,23 @@ Block Node Server.
 Suggested minimum specifications for mainnet deployments:
 
 1. **Local Full History (LFH)**: All block history is stored locally on the server.
-    - CPU: 24 cores, 48 threads (2024 or newer CPU) (PCIe 4+)
-    - RAM: 256 GB
-    - Disk:
-        - 8 TB NVMe SSD
-        - 300 TB
-    - 2 x 10 Gbps Network Interface Cards (NICs)
+   - CPU: 24 cores, 48 threads (2024 or newer CPU) (PCIe 4+)
+   - RAM: 256 GB
+   - Disk:
+     - 8 TB NVMe SSD
+     - 300 TB
+   - 2 x 10 Gbps Network Interface Cards (NICs)
 2. **Remote Full History (RFH)**: Block history is stored remotely.
-    - CPU: 24 cores, 48 threads (2024 or newer CPU) (PCIe 4+)
-    - RAM: 256 GB
-    - Disk: 8 TB NVMe SSD
-    - 2 x 10 Gbps Network Interface Cards (NICs)
+   - CPU: 24 cores, 48 threads (2024 or newer CPU) (PCIe 4+)
+   - RAM: 256 GB
+   - Disk: 8 TB NVMe SSD
+   - 2 x 10 Gbps Network Interface Cards (NICs)
 
 Recommendations:
 - In both configurations a Linux-based operating system is recommended, such as Ubuntu 22.04 LTS or Debian 11 LTS.
 - Whiles 10 Gbps NICs are suggested, we recommend higher bandwidth NICs (20 Gbps or more) for better performance and future-proofing.
 - Whiles 300 TB disk space is suggested for LFH, we recommend higher storage space (500 TB) for local full history that
-  will maintain block history and state on disk.
+will maintain block history and state on disk.
 
 Note: Servers may be acquired by bare metal providers or cloud service providers that offer dedicated instances.
 LFH servers require significant storage capacity, as such these are expected to be sourced from bare metal providers.
