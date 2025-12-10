@@ -163,7 +163,7 @@ jobs:
           build-contexts: |
             distributions=./block-node/app/build/distributions
 
-  publish-protobuf-jar:
+  publish-jars:
     timeout-minutes: 30
     runs-on: hiero-block-node-linux-medium
 
@@ -216,7 +216,7 @@ jobs:
           VERSION=$(cat version.txt)
           echo "VERSION=${VERSION}" >> $GITHUB_ENV
 
-      - name: Publish protobuf jar to Maven Central
+      - name: Publish jars to Maven Central
         if: "${{ github.event_name != 'workflow_dispatch' || github.event.inputs.publish == 'true' }}"
         env:
           NEXUS_USERNAME: ${{ secrets.SONATYPE_USERNAME }}
