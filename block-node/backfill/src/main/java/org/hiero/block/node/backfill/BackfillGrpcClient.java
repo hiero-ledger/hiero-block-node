@@ -68,9 +68,6 @@ public class BackfillGrpcClient {
      * This allows us to reuse clients for the same node configuration.
      */
     private ConcurrentHashMap<BackfillSourceConfig, BlockNodeClient> nodeClientMap = new ConcurrentHashMap<>();
-    /** Cache of available ranges per node to avoid repeated serverStatus calls while chunking a gap. */
-    private ConcurrentHashMap<BackfillSourceConfig, List<LongRange>> nodeAvailableRangeCache =
-            new ConcurrentHashMap<>();
 
     /**
      * Constructor for BackfillGrpcClient.
@@ -180,12 +177,11 @@ public class BackfillGrpcClient {
     public void resetStatus() {
         for (BackfillSourceConfig node : blockNodeSource.nodes()) {
             nodeStatusMap.put(node, Status.UNKNOWN);
-            nodeAvailableRangeCache.remove(node);
         }
     }
 
     /**
-     * Perform a single serverStatus call per configured node and cache the available ranges intersecting the target.
+     * Perform a serverStatus call per configured node and compute the available ranges intersecting the target.
      *
      * @param targetRange overall gap we are trying to backfill
      * @return map of node -> available range overlapping the target
@@ -200,8 +196,7 @@ public class BackfillGrpcClient {
                 continue;
             }
 
-            List<LongRange> ranges =
-                    nodeAvailableRangeCache.computeIfAbsent(node, ignored -> resolveAvailableRanges(currentNodeClient));
+            List<LongRange> ranges = resolveAvailableRanges(currentNodeClient);
 
             List<LongRange> intersections = new ArrayList<>();
             for (LongRange range : ranges) {
