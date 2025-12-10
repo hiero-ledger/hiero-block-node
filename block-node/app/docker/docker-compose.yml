@@ -5,6 +5,7 @@ services:
     volumes:
       - ./logging.properties:/opt/hiero/block-node/logs/config/logging.properties
       - ./backfill-sources.json:/opt/hiero/block-node/backfill/backfill-sources.json
+      - ./downloaded:/
     env_file:
       - .env
     ports:

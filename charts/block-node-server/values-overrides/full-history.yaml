@@ -1,0 +1,18 @@
+blockNode:
+    # init container verbatim
+    initContainers:
+        - name: init-storage-dirs
+          image: busybox
+          command:
+              - sh
+              - -c
+              - |
+                  mkdir -p /live-pvc/live-data && \
+                  chown 2000:2000 /live-pvc/live-data && \
+                  chmod 700 /live-pvc/live-data && \
+                  mkdir -p /archive-pvc/archive-data && \
+                  chown 2000:2000 /archive-pvc/archive-data && \
+                  chmod 700 /archive-pvc/archive-data
+
+        # download plugins and put them in plugins
+

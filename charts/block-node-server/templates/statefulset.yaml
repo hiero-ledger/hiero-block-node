@@ -93,6 +93,9 @@ spec:
           - name: {{ default "live-storage" .Values.blockNode.persistence.live.volumeName }}
             mountPath: {{ .Values.blockNode.persistence.live.mountPath }}
             subPath: {{ .Values.blockNode.persistence.live.subPath }}
+          - name: {{ default "plugins"}}
+            mountPath: {{ .Values.blockNode.persistence.plugins.mountPath }}
+
           {{- if and .Values.blockNode.backfill .Values.blockNode.backfill.sources }}
           - name: block-node-sources
             mountPath: {{ .Values.blockNode.backfill.path }}
