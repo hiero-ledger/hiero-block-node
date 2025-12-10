@@ -569,7 +569,7 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
         long lastPersistedBlock =
                 context.historicalBlockProvider().availableBlocks().max();
         // if lastPersistedBlock is less than backfill start block, we start from backfill start block
-        long startBackfillFrom = Math.max(lastPersistedBlock, backfillConfiguration.startBlock());
+        long startBackfillFrom = Math.max(lastPersistedBlock + 1, backfillConfiguration.startBlock());
         long newestBlockKnown = notification.blockNumber();
         LongRange gap = new LongRange(startBackfillFrom, newestBlockKnown);
         LOGGER.log(
