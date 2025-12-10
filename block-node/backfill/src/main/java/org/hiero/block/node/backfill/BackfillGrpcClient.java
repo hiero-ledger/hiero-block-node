@@ -7,6 +7,7 @@ import static java.lang.System.Logger.Level.TRACE;
 import com.hedera.pbj.runtime.ParseException;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import com.swirlds.metrics.api.Counter;
+import edu.umd.cs.findbugs.annotations.NonNull;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -227,7 +228,7 @@ public class BackfillGrpcClient {
      * @return optional NodeSelection describing which node to hit and what range to request
      */
     public Optional<NodeSelection> selectNextChunk(
-            long startBlock, long gapEnd, Map<BackfillSourceConfig, List<LongRange>> availability) {
+            long startBlock, long gapEnd, @NonNull Map<BackfillSourceConfig, List<LongRange>> availability) {
         if (startBlock > gapEnd) {
             return Optional.empty();
         }
@@ -242,8 +243,9 @@ public class BackfillGrpcClient {
         return chooseBestCandidate(candidates);
     }
 
+    /** Locate the earliest start index across all available ranges that can satisfy the request bounds. */
     private OptionalLong findEarliestAvailableStart(
-            long startBlock, long gapEnd, Map<BackfillSourceConfig, List<LongRange>> availability) {
+            long startBlock, long gapEnd, @NonNull Map<BackfillSourceConfig, List<LongRange>> availability) {
         long earliestAvailableStart = Long.MAX_VALUE;
         for (Map.Entry<BackfillSourceConfig, List<LongRange>> entry : availability.entrySet()) {
             for (LongRange availableRange : entry.getValue()) {
@@ -262,11 +264,12 @@ public class BackfillGrpcClient {
         return OptionalLong.of(earliestAvailableStart);
     }
 
+    /** Build the list of nodes that can serve the earliest available start. */
     private List<NodeSelection> candidatesForEarliest(
             long startBlock,
             long gapEnd,
             long earliestAvailableStart,
-            Map<BackfillSourceConfig, List<LongRange>> availability) {
+            @NonNull Map<BackfillSourceConfig, List<LongRange>> availability) {
         List<NodeSelection> candidates = new ArrayList<>();
         for (Map.Entry<BackfillSourceConfig, List<LongRange>> entry : availability.entrySet()) {
             for (LongRange availableRange : entry.getValue()) {
@@ -283,7 +286,8 @@ public class BackfillGrpcClient {
         return candidates;
     }
 
-    private Optional<NodeSelection> chooseBestCandidate(List<NodeSelection> candidates) {
+    /** Choose the lowest-priority candidate (tie-breaking randomly) from the supplied list. */
+    private Optional<NodeSelection> chooseBestCandidate(@NonNull List<NodeSelection> candidates) {
         if (candidates.isEmpty()) {
             return Optional.empty();
         }

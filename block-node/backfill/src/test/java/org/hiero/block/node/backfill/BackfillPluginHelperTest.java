@@ -24,9 +24,9 @@ class BackfillPluginHelperTest {
     @Test
     @DisplayName("Returns null when requested start is outside every available range")
     void computeChunkReturnsNullWhenStartOutsideAvailability() {
-        BackfillPlugin plugin = new BackfillPlugin();
-        BackfillSourceConfig source = node("localhost", 1);
-        Map<BackfillSourceConfig, List<LongRange>> availability = Map.of(source, List.of(new LongRange(20, 30)));
+        final BackfillPlugin plugin = new BackfillPlugin();
+        final BackfillSourceConfig source = node("localhost", 1);
+        final Map<BackfillSourceConfig, List<LongRange>> availability = Map.of(source, List.of(new LongRange(20, 30)));
 
         // Start is below the only available range, so no chunk should be produced.
         LongRange result = plugin.computeChunk(new BackfillGrpcClient.NodeSelection(source, 10), availability, 50, 5);
@@ -37,9 +37,9 @@ class BackfillPluginHelperTest {
     @Test
     @DisplayName("Clamps chunk end to both available range and gap end")
     void computeChunkClampsToRangeAndGap() {
-        BackfillPlugin plugin = new BackfillPlugin();
-        BackfillSourceConfig source = node("localhost", 1);
-        Map<BackfillSourceConfig, List<LongRange>> availability = Map.of(source, List.of(new LongRange(10, 15)));
+        final BackfillPlugin plugin = new BackfillPlugin();
+        final BackfillSourceConfig source = node("localhost", 1);
+        final Map<BackfillSourceConfig, List<LongRange>> availability = Map.of(source, List.of(new LongRange(10, 15)));
 
         // Batch size would request past range end, and gapEnd is 12, so end should clamp at 12.
         LongRange result = plugin.computeChunk(new BackfillGrpcClient.NodeSelection(source, 10), availability, 12, 10);

@@ -500,9 +500,12 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
     }
 
     // Package-private for test visibility
+    /**
+     * Determine the chunk to request for a given node selection, respecting both availability and gap bounds.
+     */
     LongRange computeChunk(
-            BackfillGrpcClient.NodeSelection selection,
-            Map<BackfillSourceConfig, List<LongRange>> availability,
+            @NonNull BackfillGrpcClient.NodeSelection selection,
+            @NonNull Map<BackfillSourceConfig, List<LongRange>> availability,
             long gapEnd,
             long batchSize) {
         List<LongRange> ranges = availability.get(selection.nodeConfig());
