@@ -100,10 +100,6 @@ jobs:
             git checkout ${RELEASE_BRANCH}
           fi
 
-      # task is currently failing due to needing credentials.username for PublishToMavenRepository task
-      #- name: Gradle Release
-      #  run: ./gradlew release -Pversion=${{ env.VERSION }}
-
       - name: Bump Version
         run: ./gradlew versionAsSpecified -PnewVersion=${{ env.VERSION }}
 
