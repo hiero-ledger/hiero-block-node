@@ -222,12 +222,11 @@ public class BackfillGrpcClient {
      *
      * @param startBlock the next block number to fetch
      * @param gapEnd     inclusive end of the gap
-     * @param batchSize  maximum number of blocks to request
      * @param availability map of node -> available range intersecting the gap
      * @return optional NodeSelection describing which node to hit and what range to request
      */
     public Optional<NodeSelection> selectNextChunk(
-            long startBlock, long gapEnd, long batchSize, Map<BackfillSourceConfig, List<LongRange>> availability) {
+            long startBlock, long gapEnd, Map<BackfillSourceConfig, List<LongRange>> availability) {
         if (startBlock > gapEnd) {
             return Optional.empty();
         }
@@ -257,8 +256,7 @@ public class BackfillGrpcClient {
                 if (candidateStart > availableRange.end() || candidateStart > gapEnd) {
                     continue;
                 }
-                long chunkEnd = Math.min(Math.min(candidateStart + batchSize - 1, availableRange.end()), gapEnd);
-                candidates.add(new NodeSelection(entry.getKey(), new LongRange(candidateStart, chunkEnd)));
+                candidates.add(new NodeSelection(entry.getKey(), candidateStart));
             }
         }
 
@@ -319,7 +317,7 @@ public class BackfillGrpcClient {
         return Collections.emptyList();
     }
 
-    public record NodeSelection(BackfillSourceConfig nodeConfig, LongRange chunkRange) {}
+    public record NodeSelection(BackfillSourceConfig nodeConfig, long startBlock) {}
 
     /**
      * Enum representing the status of a block node:

@@ -415,32 +415,30 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
      * @throws ParseException if there is an error parsing the block header
      */
     private void backfillGap(LongRange gap, BackfillType backfillType) throws InterruptedException, ParseException {
-        // Reset client status to retry previously unavailable nodes
-        BackfillGrpcClient backfillGrpcClient;
+        BackfillGrpcClient backfillGrpcClient = backfillType.equals(BackfillType.AUTONOMOUS)
+                ? backfillGrpcClientAutonomous
+                : backfillGrpcClientOnDemand;
 
-        if (backfillType.equals(BackfillType.AUTONOMOUS)) {
-            backfillGrpcClient = backfillGrpcClientAutonomous;
-        } else {
-            backfillGrpcClient = backfillGrpcClientOnDemand;
-        }
-        backfillGrpcClient.resetStatus();
-
-        Map<BackfillSourceConfig, List<LongRange>> availability = backfillGrpcClient.getAvailabilityForRange(gap);
+        Map<BackfillSourceConfig, List<LongRange>> availability = planAvailabilityForGap(backfillGrpcClient, gap);
         long currentBlock = gap.start();
         long batchSize = backfillConfiguration.fetchBatchSize();
 
         while (currentBlock <= gap.end()) {
             Optional<BackfillGrpcClient.NodeSelection> selection =
-                    backfillGrpcClient.selectNextChunk(currentBlock, gap.end(), batchSize, availability);
+                    backfillGrpcClient.selectNextChunk(currentBlock, gap.end(), availability);
             if (selection.isEmpty()) {
                 LOGGER.log(TRACE, "No available nodes found for block {0}", currentBlock);
                 backfillFetchErrors.increment();
                 break;
             }
 
-            LongRange chunk = selection.get().chunkRange();
-            List<BlockUnparsed> batchOfBlocks =
-                    backfillGrpcClient.fetchBlocksFromNode(selection.get().nodeConfig(), chunk);
+            BackfillGrpcClient.NodeSelection nodeChoice = selection.get();
+            LongRange chunk = computeChunk(nodeChoice, availability, gap.end(), batchSize);
+            if (chunk == null) {
+                availability.remove(nodeChoice.nodeConfig());
+                continue;
+            }
+            List<BlockUnparsed> batchOfBlocks = backfillGrpcClient.fetchBlocksFromNode(nodeChoice.nodeConfig(), chunk);
             // Set up latch for verification and persistence tracking
             // normally will be decremented only by persisted notifications
             // however if it fails verification, it will be decremented as well
@@ -448,7 +446,7 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
             getLatch(backfillType).set(new CountDownLatch(batchOfBlocks.size()));
 
             if (batchOfBlocks.isEmpty()) {
-                availability.remove(selection.get().nodeConfig());
+                availability.remove(nodeChoice.nodeConfig());
                 LOGGER.log(DEBUG, "No blocks fetched for gap {0}, skipping", chunk);
                 continue; // Skip empty batches
             }
@@ -493,6 +491,34 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
             onDemandBackfillStartBlock.set(-1); // Reset on-demand start block after backfill
             onDemandBackfillEndBlock.set(-1);
         }
+    }
+
+    private Map<BackfillSourceConfig, List<LongRange>> planAvailabilityForGap(
+            BackfillGrpcClient backfillGrpcClient, LongRange gap) {
+        backfillGrpcClient.resetStatus();
+        return backfillGrpcClient.getAvailabilityForRange(gap);
+    }
+
+    private LongRange computeChunk(
+            BackfillGrpcClient.NodeSelection selection,
+            Map<BackfillSourceConfig, List<LongRange>> availability,
+            long gapEnd,
+            long batchSize) {
+        List<LongRange> ranges = availability.get(selection.nodeConfig());
+        if (ranges == null) {
+            return null;
+        }
+
+        long start = selection.startBlock();
+        for (LongRange range : ranges) {
+            if (start < range.start() || start > range.end()) {
+                continue;
+            }
+            long chunkEnd = Math.min(Math.min(start + batchSize - 1, range.end()), gapEnd);
+            return new LongRange(start, chunkEnd);
+        }
+
+        return null;
     }
 
     /**
