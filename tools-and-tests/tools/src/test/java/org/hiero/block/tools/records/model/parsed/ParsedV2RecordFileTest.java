@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.tools.records.model.parsed;
 
-import static org.hiero.block.tools.records.RecordFileDates.instantToRecordFileName;
 import static org.hiero.block.tools.utils.TestBlocks.V2_TEST_BLOCK_ADDRESS_BOOK;
 import static org.hiero.block.tools.utils.TestBlocks.V2_TEST_BLOCK_BYTES;
 import static org.hiero.block.tools.utils.TestBlocks.V2_TEST_BLOCK_HASH;
@@ -111,8 +110,8 @@ public class ParsedV2RecordFileTest {
             var pathTest = fs.getPath("test");
             Files.createDirectories(pathTest);
             v2BlockParsedRecordFile.write(pathTest, false);
-            // read back the written file and compare bytes (filename has padded nanoseconds)
-            var writtenPath = pathTest.resolve(instantToRecordFileName(v2BlockParsedRecordFile.blockTime()));
+            // read back the written file and compare bytes
+            var writtenPath = pathTest.resolve("2019-09-13T21_53_51.396440Z.rcd");
             byte[] writtenBytes = Files.readAllBytes(writtenPath);
             assertArrayEquals(
                     V2_TEST_BLOCK_BYTES,
