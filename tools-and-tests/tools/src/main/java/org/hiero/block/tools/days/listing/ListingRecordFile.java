@@ -81,12 +81,8 @@ public record ListingRecordFile(String path, LocalDateTime timestamp, int sizeBy
     @SuppressWarnings("NullableProblems")
     @Override
     public String toString() {
-        return "RecordFile{" + "type="
-                + type() + ", path='"
-                + path + '\'' + ", timestamp="
-                + timestamp + ", sizeBytes="
-                + sizeBytes + ", md5Hex="
-                + md5Hex + '}';
+        return "RecordFile{type=%s, path='%s', timestamp=%s, sizeBytes=%d, md5Hex=%s}"
+                .formatted(type(), path, timestamp, sizeBytes, md5Hex);
     }
 
     public void write(DataOutputStream dos) throws IOException {
