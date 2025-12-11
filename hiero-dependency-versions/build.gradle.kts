@@ -36,6 +36,9 @@ dependencies.constraints {
     api("com.lmax:disruptor:4.0.0") { because("com.lmax.disruptor") }
     api("com.swirlds:swirlds-common:$swirldsVersion") { because("com.swirlds.common") }
     api("com.swirlds:swirlds-config-impl:$swirldsVersion") { because("com.swirlds.config.impl") }
+    // State API dependencies (version constraints for future use with VirtualMap integration)
+    // Note: Upgrading to 0.69+ requires migrating from com.swirlds to com.hedera.hashgraph group ID
+    // and updating hiero-gradle plugin configuration for the module name mappings
     api("com.swirlds:swirlds-state-api:$swirldsVersion") { because("com.swirlds.state.api") }
     api("com.swirlds:swirlds-state-impl:$swirldsVersion") { because("com.swirlds.state.impl") }
     api("com.swirlds:swirlds-merkledb:$swirldsVersion") { because("com.swirlds.merkledb") }
