@@ -1,8 +1,8 @@
 {
-  "name": "k6",
+  "name": "@hiero-ledger/block-node-k6",
   "version": "0.0.1",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "./run-k6-tests.sh"
   },
   "devDependencies": {
     "@types/k6": "^1.4.0"

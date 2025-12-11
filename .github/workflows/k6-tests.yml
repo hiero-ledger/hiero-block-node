@@ -68,7 +68,7 @@ jobs:
         run: |
           pushd ${K6_ROOT} || exit 1
           trap "popd" EXIT
-          ./run-k6-tests.sh
+          npm run test
 
       - name: Stop Containers
         if: ${{ always() }}

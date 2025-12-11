@@ -68,7 +68,7 @@ run_server_status_test() {
     run_bn
     run_simulator 0 10
     echo "Running server status test..."
-    k6 run ./test/bn-server-status.js >> "${k6_out_file}" 2>&1
+    k6 run ./average-load/bn-server-status.js >> "${k6_out_file}" 2>&1
     echo "Server status test completed."
 }
 
@@ -76,7 +76,7 @@ run_query_validation_test() {
     run_bn
     run_simulator 0 10
     echo "Running query validation test..."
-    k6 run ./test/bn-query-validation.js >> "${k6_out_file}" 2>&1
+    k6 run ./smoke/bn-query-validation.js >> "${k6_out_file}" 2>&1
     echo "Query validation test completed."
 }
 
@@ -84,7 +84,7 @@ run_stream_validation_test() {
     run_bn
     run_simulator 0 10
     echo "Running stream validation test..."
-    k6 run ./test/bn-stream-validation.js >> "${k6_out_file}" 2>&1
+    k6 run ./smoke/bn-stream-validation.js >> "${k6_out_file}" 2>&1
     echo "Stream validation test completed."
 }
 
