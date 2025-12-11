@@ -143,31 +143,6 @@ val createDockerImageCI: TaskProvider<Exec> =
         commandLine("sh", "-c", "./docker-build.sh ${project.version}")
     }
 
-val createDockerImageAll: TaskProvider<Exec> =
-    tasks.register<Exec>("createDockerImageAll") {
-        description = "Creates a production docker image of the Block Node Server with all plugins."
-        group = "docker"
-        mainModuleInfo {
-            runtimeOnly("com.swirlds.config.impl")
-            runtimeOnly("io.helidon.logging.jul")
-            runtimeOnly("com.hedera.pbj.grpc.helidon.config")
-            runtimeOnly("org.hiero.block.node.archive.s3cloud")
-            runtimeOnly("org.hiero.block.node.messaging")
-            runtimeOnly("org.hiero.block.node.health")
-            runtimeOnly("org.hiero.block.node.stream.publisher")
-            runtimeOnly("org.hiero.block.node.stream.subscriber")
-            runtimeOnly("org.hiero.block.node.verification")
-            runtimeOnly("org.hiero.block.node.blocks.files.historic")
-            runtimeOnly("org.hiero.block.node.blocks.files.recent")
-            runtimeOnly("org.hiero.block.node.access.service")
-            runtimeOnly("org.hiero.block.node.server.status")
-            runtimeOnly("org.hiero.block.node.backfill")
-        }
-        dependsOn(copyDockerFolder, tasks.assemble)
-        workingDir(dockerBuildRootDirectory)
-        commandLine("sh", "-c", "./docker-build.sh ${project.version}")
-    }
-
 tasks.register<Exec>("startDockerContainer") {
     description =
         "Starts the docker production container of the Block Node Server for the current version"
