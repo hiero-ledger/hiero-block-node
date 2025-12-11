@@ -211,8 +211,15 @@ public class DownloadLive implements Runnable {
                             + endDay);
         }
 
-        final LivePoller poller =
-                new LivePoller(interval, tz, batchSize, stateJsonPath, downloader, startDayParsed, endDayParsed);
+        final LivePoller poller = new LivePoller(
+                interval,
+                tz,
+                batchSize,
+                stateJsonPath,
+                runningHashStatusPath,
+                downloader,
+                startDayParsed,
+                endDayParsed);
 
         // Ensure we release GCS and executor resources on JVM shutdown.
         Runtime.getRuntime()

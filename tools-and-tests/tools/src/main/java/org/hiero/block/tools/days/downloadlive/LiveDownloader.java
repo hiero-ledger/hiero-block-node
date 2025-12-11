@@ -29,6 +29,7 @@ import org.hiero.block.tools.days.subcommands.UpdateDayListingsCommand;
 import org.hiero.block.tools.mirrornode.BlockTimeReader;
 import org.hiero.block.tools.mirrornode.DayBlockInfo;
 import org.hiero.block.tools.records.model.unparsed.InMemoryFile;
+import org.hiero.block.tools.utils.PrettyPrint;
 import org.hiero.block.tools.utils.gcp.ConcurrentDownloadManagerVirtualThreads;
 
 /**
@@ -63,7 +64,7 @@ public class LiveDownloader {
     private final int maxConcurrency;
     private final Path addressBookPath;
     private final Path runningHashStatusPath;
-    private final org.hiero.block.tools.days.model.AddressBookRegistry addressBookRegistry;
+    private final AddressBookRegistry addressBookRegistry;
     private final ConcurrentDownloadManagerVirtualThreads downloadManager;
     // Running previous record-file hash used to validate the block hash chain across files.
     private byte[] previousRecordFileHash;
@@ -189,11 +190,29 @@ public class LiveDownloader {
     }
 
     /**
-     * Append the given file (by entryName) to the per-day tar archive using the system tar command.
-     * The tar file is created under outRoot as dayKey.tar and entries are taken from the per-day folder.
+     * Appends a file entry to the day's tar archive using the system tar command.
+     *
+     * <p>The tar file is created under outRoot as dayKey.tar and entries are taken from the per-day folder.
+     *
+     * <p><b>Security Note:</b> This method uses {@link ProcessBuilder} with separate arguments
+     * (not shell execution) to safely execute tar commands. Arguments are passed as individual
+     * parameters, preventing command injection even if inputs contain shell metacharacters.
+     *
+     * @param dayKey the day identifier in YYYY-MM-DD format
+     * @param entryName the relative path of the file to append (within the day directory)
      */
     private void appendToDayTar(String dayKey, String entryName) {
         try {
+            // Validate inputs to prevent path traversal and ensure valid format
+            if (dayKey == null || !dayKey.matches("\\d{4}-\\d{2}-\\d{2}")) {
+                System.err.println("[download] Invalid dayKey format: " + dayKey);
+                return;
+            }
+            if (entryName == null || entryName.isEmpty() || entryName.contains("..")) {
+                System.err.println("[download] Invalid entryName: " + entryName);
+                return;
+            }
+
             final Path dayDir = downloadedDaysDir.toPath().resolve(dayKey);
             final Path tarPath = downloadedDaysDir.toPath().resolve(dayKey + ".tar");
 
@@ -206,22 +225,26 @@ public class LiveDownloader {
             final ProcessBuilder pb;
             if (!tarExists) {
                 // First entry: create tar with the initial file.
+                // ProcessBuilder with varargs prevents command injection by passing arguments
+                // separately to the process, not through a shell interpreter.
                 pb = new ProcessBuilder("tar", "-cf", tarPath.toString(), entryName);
             } else {
                 // Append to existing tar.
+                // ProcessBuilder with varargs prevents command injection by passing arguments
+                // separately to the process, not through a shell interpreter.
                 pb = new ProcessBuilder("tar", "-rf", tarPath.toString(), entryName);
             }
             pb.directory(dayDir.toFile());
             final Process p = pb.start();
             final int exit = p.waitFor();
             if (exit != 0) {
-                System.err.println("[download] tar command failed for day " + dayKey + " entry " + entryName
-                        + " with exit=" + exit);
+                System.err.println("[download] tar command failed for day %s entry %s with exit=%d"
+                        .formatted(dayKey, entryName, exit));
             } else {
-                System.out.println("[download] appended " + entryName + " to " + tarPath);
+                System.out.println("[download] appended %s to %s".formatted(entryName, tarPath));
             }
         } catch (Exception e) {
-            System.err.println("[download] Failed to append to tar for day " + dayKey + ": " + e.getMessage());
+            System.err.println("[download] Failed to append to tar for day %s: %s".formatted(dayKey, e.getMessage()));
         }
     }
 
@@ -237,9 +260,19 @@ public class LiveDownloader {
 
     /**
      * Worker that runs in the background executor to compress and clean up a day's data.
+     *
+     * <p><b>Security Note:</b> This method uses {@link ProcessBuilder} with separate arguments
+     * (not shell execution) to safely execute zstd commands. Arguments are passed as individual
+     * parameters, preventing command injection even if inputs contain shell metacharacters.
      */
     private void compressAndCleanupDay(String dayKey) {
         try {
+            // Validate dayKey format to prevent path traversal and ensure valid format
+            if (dayKey == null || !dayKey.matches("\\d{4}-\\d{2}-\\d{2}")) {
+                System.err.println("[download] Invalid dayKey format for compression: " + dayKey);
+                return;
+            }
+
             final Path tarPath = downloadedDaysDir.toPath().resolve(dayKey + ".tar");
             final Path dayDir = downloadedDaysDir.toPath().resolve(dayKey);
             if (!Files.isRegularFile(tarPath)) {
@@ -248,6 +281,9 @@ public class LiveDownloader {
             }
             final Path zstdPath = downloadedDaysDir.toPath().resolve(dayKey + ".tar.zstd");
             System.out.println("[download] Compressing " + tarPath + " -> " + zstdPath + " using zstd");
+
+            // ProcessBuilder with varargs prevents command injection by passing arguments
+            // separately to the process, not through a shell interpreter.
             final ProcessBuilder pb = new ProcessBuilder(
                     "zstd",
                     "-T0", // use all cores
@@ -412,16 +448,30 @@ public class LiveDownloader {
         try {
             final BlockTimeReader blockTimeReader = new BlockTimeReader();
             long highest = -1L;
+            final long startTime = System.currentTimeMillis();
+            final int totalBlocks = context.sortedBatch.size();
 
-            for (BlockDescriptor descriptor : context.sortedBatch) {
+            for (int i = 0; i < context.sortedBatch.size(); i++) {
+                BlockDescriptor descriptor = context.sortedBatch.get(i);
                 if (!processBlock(dayKey, descriptor, context, blockTimeReader)) {
                     break;
                 }
                 highest = descriptor.getBlockNumber();
+
+                // Print progress with ETA
+                long elapsed = System.currentTimeMillis() - startTime;
+                double percent = ((i + 1) * 100.0) / totalBlocks;
+                long remaining = PrettyPrint.computeRemainingMilliseconds(i + 1, totalBlocks, elapsed);
+                PrettyPrint.printProgressWithEta(
+                        percent, "Downloading block " + descriptor.getBlockNumber(), remaining);
             }
+
+            PrettyPrint.clearProgress();
+            System.out.println("[download] Completed batch: " + totalBlocks + " blocks for day " + dayKey);
 
             return highest;
         } catch (Exception e) {
+            PrettyPrint.clearProgress();
             System.err.println("[download] Failed to download day " + dayKey + ": " + e.getMessage());
             e.printStackTrace();
         }

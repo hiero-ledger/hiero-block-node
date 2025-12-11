@@ -70,6 +70,21 @@ public class FetchBlockQuery {
      */
     public static List<BlockInfo> getLatestBlocks(
             int limit, MirrorNodeBlockQueryOrder order, List<String> timestampFilters) {
+        final String url = buildBlocksQueryUrl(limit, order, timestampFilters);
+        final JsonObject json = MirrorNodeUtils.readUrl(url);
+        return parseBlocksResponse(json);
+    }
+
+    /**
+     * Builds the URL for querying blocks from the mirror node API.
+     *
+     * @param limit number of blocks to retrieve
+     * @param order ordering of blocks
+     * @param timestampFilters optional list of timestamp filters
+     * @return the complete query URL
+     */
+    private static String buildBlocksQueryUrl(
+            int limit, MirrorNodeBlockQueryOrder order, List<String> timestampFilters) {
         final StringBuilder url = new StringBuilder();
         url.append(MAINNET_MIRROR_NODE_API_URL)
                 .append("blocks")
@@ -80,55 +95,103 @@ public class FetchBlockQuery {
 
         if (timestampFilters != null && !timestampFilters.isEmpty()) {
             for (String ts : timestampFilters) {
-                if (ts == null || ts.isBlank()) {
-                    continue;
+                if (ts != null && !ts.isBlank()) {
+                    url.append("&timestamp=").append(URLEncoder.encode(ts, StandardCharsets.UTF_8));
                 }
-                url.append("&timestamp=").append(URLEncoder.encode(ts, StandardCharsets.UTF_8));
             }
         }
 
-        final JsonObject json = MirrorNodeUtils.readUrl(url.toString());
+        return url.toString();
+    }
+
+    /**
+     * Parses the JSON response containing block information.
+     *
+     * @param json the JSON response from the mirror node API
+     * @return a list of BlockInfo objects
+     */
+    private static List<BlockInfo> parseBlocksResponse(JsonObject json) {
         List<BlockInfo> blocks = new ArrayList<>();
 
         if (json.has("blocks") && json.get("blocks").isJsonArray()) {
             json.getAsJsonArray("blocks").forEach(elem -> {
-                JsonObject b = elem.getAsJsonObject();
-                BlockInfo blockInfo = new BlockInfo();
-                blockInfo.count = b.has("count") ? b.get("count").getAsInt() : 0;
-                blockInfo.hapiVersion = (b.has("hapi_version")
-                                && !b.get("hapi_version").isJsonNull())
-                        ? b.get("hapi_version").getAsString()
-                        : null;
-                blockInfo.hash = (b.has("hash") && !b.get("hash").isJsonNull())
-                        ? b.get("hash").getAsString()
-                        : null;
-                blockInfo.name = (b.has("name") && !b.get("name").isJsonNull())
-                        ? b.get("name").getAsString()
-                        : null;
-                blockInfo.number = b.has("number") ? b.get("number").getAsLong() : -1;
-                blockInfo.previousHash = (b.has("previous_hash")
-                                && !b.get("previous_hash").isJsonNull())
-                        ? b.get("previous_hash").getAsString()
-                        : null;
-                blockInfo.size = b.has("size") && !b.get("size").isJsonNull()
-                        ? b.get("size").getAsLong()
-                        : 0;
-                blockInfo.gasUsed = b.has("gas_used") ? b.get("gas_used").getAsLong() : 0;
-                if (b.has("timestamp") && b.get("timestamp").isJsonObject()) {
-                    JsonObject tsObj = b.getAsJsonObject("timestamp");
-                    blockInfo.timestampFrom = (tsObj.has("from")
-                                    && !tsObj.get("from").isJsonNull())
-                            ? tsObj.get("from").getAsString()
-                            : null;
-                    blockInfo.timestampTo = (tsObj.has("to") && !tsObj.get("to").isJsonNull())
-                            ? tsObj.get("to").getAsString()
-                            : null;
-                }
-                blocks.add(blockInfo);
+                blocks.add(parseBlockInfo(elem.getAsJsonObject()));
             });
         }
-
         return blocks;
+    }
+
+    /**
+     * Parses a single block JSON object into a BlockInfo instance.
+     *
+     * @param blockJson the JSON object representing a block
+     * @return a populated BlockInfo object
+     */
+    private static BlockInfo parseBlockInfo(JsonObject blockJson) {
+        BlockInfo blockInfo = new BlockInfo();
+        blockInfo.count = getIntOrDefault(blockJson, "count", 0);
+        blockInfo.hapiVersion = getStringOrNull(blockJson, "hapi_version");
+        blockInfo.hash = getStringOrNull(blockJson, "hash");
+        blockInfo.name = getStringOrNull(blockJson, "name");
+        blockInfo.number = getLongOrDefault(blockJson, "number", -1);
+        blockInfo.previousHash = getStringOrNull(blockJson, "previous_hash");
+        blockInfo.size = getLongOrDefault(blockJson, "size", 0);
+        blockInfo.gasUsed = getLongOrDefault(blockJson, "gas_used", 0);
+        parseTimestampInfo(blockJson, blockInfo);
+        return blockInfo;
+    }
+
+    /**
+     * Parses timestamp information from the block JSON and sets it on the BlockInfo.
+     *
+     * @param blockJson the JSON object representing a block
+     * @param blockInfo the BlockInfo object to populate
+     */
+    private static void parseTimestampInfo(JsonObject blockJson, BlockInfo blockInfo) {
+        if (blockJson.has("timestamp") && blockJson.get("timestamp").isJsonObject()) {
+            JsonObject tsObj = blockJson.getAsJsonObject("timestamp");
+            blockInfo.timestampFrom = getStringOrNull(tsObj, "from");
+            blockInfo.timestampTo = getStringOrNull(tsObj, "to");
+        }
+    }
+
+    /**
+     * Safely extracts a string value from a JSON object, returning null if missing or null.
+     *
+     * @param json the JSON object
+     * @param fieldName the field name
+     * @return the string value or null
+     */
+    private static String getStringOrNull(JsonObject json, String fieldName) {
+        return (json.has(fieldName) && !json.get(fieldName).isJsonNull())
+                ? json.get(fieldName).getAsString()
+                : null;
+    }
+
+    /**
+     * Safely extracts an integer value from a JSON object, returning a default if missing.
+     *
+     * @param json the JSON object
+     * @param fieldName the field name
+     * @param defaultValue the default value
+     * @return the integer value or default
+     */
+    private static int getIntOrDefault(JsonObject json, String fieldName, int defaultValue) {
+        return json.has(fieldName) ? json.get(fieldName).getAsInt() : defaultValue;
+    }
+
+    /**
+     * Safely extracts a long value from a JSON object, returning a default if missing or null.
+     *
+     * @param json the JSON object
+     * @param fieldName the field name
+     * @param defaultValue the default value
+     * @return the long value or default
+     */
+    private static long getLongOrDefault(JsonObject json, String fieldName, long defaultValue) {
+        return (json.has(fieldName) && !json.get(fieldName).isJsonNull())
+                ? json.get(fieldName).getAsLong()
+                : defaultValue;
     }
 
     /**

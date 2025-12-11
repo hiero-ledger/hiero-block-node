@@ -5,6 +5,9 @@ import static org.hiero.block.tools.days.downloadlive.DateUtil.parseMirrorTimest
 
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
+import com.google.gson.JsonElement;
+import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -14,15 +17,15 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
 import java.time.ZonedDateTime;
+import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Objects;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 import org.hiero.block.tools.mirrornode.BlockInfo;
 import org.hiero.block.tools.mirrornode.FetchBlockQuery;
 import org.hiero.block.tools.mirrornode.MirrorNodeBlockQueryOrder;
+import org.hiero.block.tools.utils.PrettyPrint;
 
 /**
  * Day-scoped live poller that queries the mirror node for latest blocks,
@@ -31,15 +34,20 @@ import org.hiero.block.tools.mirrornode.MirrorNodeBlockQueryOrder;
  */
 public class LivePoller {
 
-    private static final Pattern P_DAY = Pattern.compile("\"dayKey\"\\s*:\\s*\"([^\"]+)\"");
-    private static final Pattern P_LAST = Pattern.compile("\"lastSeenBlock\"\\s*:\\s*(\\d+)");
+    // Historical-day completion: only finalize once we observe blocks from the next day.
+    // We extend the mirror query window slightly past day-end so we can detect rollover.
+    private static final Duration HISTORICAL_ROLLOVER_LOOKAHEAD = Duration.ofHours(2);
 
     private final Duration interval;
     private final ZoneId tz;
     private final int batchSize;
     private long lastSeenBlock = -1L;
     private Instant lastSeenTimestamp = null;
+    // If we have a lastSeenBlock but no timestamp in state (older state files), we "seek" forward through
+    // the day in coarse steps until mirror results include blocks beyond lastSeenBlock.
+    private Instant seekWindowStart = null;
     private final Path statePath;
+    private final Path runningHashStatusPath;
     private final LiveDownloader downloader;
     private boolean stateLoadedForToday = false;
     // Optional global date range for ingestion.
@@ -48,24 +56,141 @@ public class LivePoller {
 
     private static final Gson GSON = new GsonBuilder().create();
 
+    /**
+     * Best-effort read of the running-hash status file. This file is written by other parts of the
+     * toolchain and may be absent or partially populated.
+     */
+    private static RunningHashStatus readRunningHashStatus(final Path path) {
+        try {
+            if (path == null || !Files.exists(path)) {
+                return null;
+            }
+            final String raw = Files.readString(path, StandardCharsets.UTF_8);
+            final JsonObject obj = JsonParser.parseString(raw).getAsJsonObject();
+
+            final String dayDate = obj.has("dayDate") && !obj.get("dayDate").isJsonNull()
+                    ? obj.get("dayDate").getAsString()
+                    : null;
+
+            Instant recordFileTime = null;
+            if (obj.has("recordFileTime") && !obj.get("recordFileTime").isJsonNull()) {
+                try {
+                    recordFileTime = Instant.parse(obj.get("recordFileTime").getAsString());
+                } catch (Exception ignored) {
+                    recordFileTime = null;
+                }
+            }
+
+            final String endRunningHashHex = obj.has("endRunningHashHex")
+                            && !obj.get("endRunningHashHex").isJsonNull()
+                    ? obj.get("endRunningHashHex").getAsString()
+                    : null;
+
+            return new RunningHashStatus(dayDate, recordFileTime, endRunningHashHex);
+        } catch (Exception e) {
+            System.err.println("[poller] Failed to read running hash status: " + e.getMessage());
+            return null;
+        }
+    }
+
+    /**
+     * If persisted block state and persisted running-hash state disagree, we must not resume with a
+     * mismatched previous-hash cursor.
+     *
+     * We repair by resetting the running-hash cursor to null so the downloader can re-initialize
+     * from a safe source (e.g. mirror node / validation) rather than repeatedly failing with
+     * previous-hash mismatches.
+     */
+    private void repairRunningHashCursorIfInconsistent(final String dayKey) {
+        final RunningHashStatus rhs = readRunningHashStatus(runningHashStatusPath);
+        if (rhs == null) {
+            return;
+        }
+
+        // If the file belongs to a different day, reset it.
+        if (rhs.dayDate != null && !rhs.dayDate.equals(dayKey)) {
+            System.out.println("[poller] Running-hash status dayDate=" + rhs.dayDate + " does not match state dayKey="
+                    + dayKey + "; resetting running-hash cursor.");
+            writeRunningHashStatusReset(dayKey);
+            return;
+        }
+
+        // If we have a state timestamp and the running-hash recordFileTime is ahead of it, the two
+        // cursors are out of sync (hash cursor advanced beyond block cursor). Reset to avoid
+        // previous-hash mismatch loops.
+        if (lastSeenTimestamp != null && rhs.recordFileTime != null && rhs.recordFileTime.isAfter(lastSeenTimestamp)) {
+            System.out.println("[poller] Running-hash recordFileTime=" + rhs.recordFileTime
+                    + " is ahead of state lastSeenTimestamp=" + lastSeenTimestamp
+                    + " for dayKey=" + dayKey + "; resetting running-hash cursor.");
+            writeRunningHashStatusReset(dayKey);
+        }
+    }
+
+    private void writeRunningHashStatusReset(final String dayKey) {
+        if (runningHashStatusPath == null) {
+            return;
+        }
+        try {
+            if (runningHashStatusPath.getParent() != null) {
+                Files.createDirectories(runningHashStatusPath.getParent());
+            }
+            final JsonObject out = new JsonObject();
+            out.addProperty("dayDate", dayKey);
+            // Null cursor forces downstream components to re-initialize previous hash safely.
+            out.add("recordFileTime", null);
+            out.add("endRunningHashHex", null);
+            Files.writeString(runningHashStatusPath, out.toString(), StandardCharsets.UTF_8);
+        } catch (Exception e) {
+            System.err.println("[poller] Failed to reset running hash status: " + e.getMessage());
+        }
+    }
+
+    private static final class RunningHashStatus {
+        final String dayDate;
+        final Instant recordFileTime;
+        final String endRunningHashHex;
+
+        private RunningHashStatus(final String dayDate, final Instant recordFileTime, final String endRunningHashHex) {
+            this.dayDate = dayDate;
+            this.recordFileTime = recordFileTime;
+            this.endRunningHashHex = endRunningHashHex;
+        }
+    }
+
+    private static final class PollResult {
+        final int processedDescriptors;
+        final boolean sawNextDayBlock;
+
+        private PollResult(final int processedDescriptors, final boolean sawNextDayBlock) {
+            this.processedDescriptors = processedDescriptors;
+            this.sawNextDayBlock = sawNextDayBlock;
+        }
+    }
+
     public LivePoller(
-            Duration interval,
-            ZoneId tz,
-            int batchSize,
-            Path statePath,
-            LiveDownloader downloader,
-            LocalDate configuredStartDay,
-            LocalDate configuredEndDay) {
+            final Duration interval,
+            final ZoneId tz,
+            final int batchSize,
+            final Path statePath,
+            final Path runningHashStatusPath,
+            final LiveDownloader downloader,
+            final LocalDate configuredStartDay,
+            final LocalDate configuredEndDay) {
         this.interval = interval;
         this.tz = tz;
         this.batchSize = batchSize;
         this.statePath = statePath;
+        this.runningHashStatusPath = runningHashStatusPath;
         this.downloader = downloader;
         this.configuredStartDay = configuredStartDay;
         this.configuredEndDay = configuredEndDay;
     }
 
     int runOnceForDay(LocalDate day) {
+        return runOnceForDayInternal(day, false).processedDescriptors;
+    }
+
+    private PollResult runOnceForDayInternal(final LocalDate day, final boolean rolloverProbe) {
         final ZonedDateTime dayStart = day.atStartOfDay(ZoneId.of("UTC"));
         final ZonedDateTime dayEnd = dayStart.plusDays(1);
         final String dayKey = day.toString(); // YYYY-MM-DD
@@ -74,21 +199,49 @@ public class LivePoller {
             State st = readState(statePath);
             if (st != null && dayKey.equals(st.getDayKey())) {
                 lastSeenBlock = st.getLastSeenBlock();
-                System.out.println(
-                        "[poller] Resumed lastSeenBlock from state for day " + dayKey + ": " + lastSeenBlock);
+
+                // Resume timestamp cursor if present (epoch millis), otherwise enable seek fallback.
+                seekWindowStart = null;
+                if (st.getLastSeenTimestamp() >= 0) {
+                    lastSeenTimestamp = Instant.ofEpochMilli(st.getLastSeenTimestamp());
+                    System.out.println("[poller] Resumed lastSeenBlock from state for day " + dayKey + ": "
+                            + lastSeenBlock + ", lastSeenTimestamp=" + lastSeenTimestamp);
+                } else {
+                    lastSeenTimestamp = null;
+                    if (lastSeenBlock >= 0) {
+                        seekWindowStart = dayStart.toInstant();
+                        System.out.println("[poller] Resumed lastSeenBlock from state for day " + dayKey + ": "
+                                + lastSeenBlock + " (no timestamp; enabling seek cursor from day start)");
+                    } else {
+                        System.out.println(
+                                "[poller] Resumed lastSeenBlock from state for day " + dayKey + ": " + lastSeenBlock);
+                    }
+                }
             } else {
                 lastSeenBlock = -1L;
+                lastSeenTimestamp = null;
+                seekWindowStart = null;
                 System.out.println(
-                        "[poller] No matching state for " + dayKey + " (starting fresh from beginning of day).");
+                        "[poller] No matching state for " + dayKey + " (starting fresh from beginning of day)."
+                                + (rolloverProbe ? " [rollover-probe enabled]" : ""));
             }
+            repairRunningHashCursorIfInconsistent(dayKey);
             stateLoadedForToday = true;
         }
         System.out.println("[poller] dayKey=" + dayKey + " interval=" + interval + " batchSize=" + batchSize
                 + " lastSeen=" + lastSeenBlock);
 
-        final Instant windowStartInstant =
-                (lastSeenTimestamp != null) ? lastSeenTimestamp.plusNanos(1) : dayStart.toInstant();
-        final Instant windowEndInstant = dayEnd.toInstant();
+        final Instant windowStartInstant;
+        if (lastSeenTimestamp != null) {
+            windowStartInstant = lastSeenTimestamp.plusNanos(1);
+        } else if (seekWindowStart != null) {
+            windowStartInstant = seekWindowStart;
+        } else {
+            windowStartInstant = dayStart.toInstant();
+        }
+        final Instant baseWindowEndInstant = dayEnd.toInstant();
+        final Instant windowEndInstant =
+                rolloverProbe ? baseWindowEndInstant.plus(HISTORICAL_ROLLOVER_LOOKAHEAD) : baseWindowEndInstant;
 
         final long startSeconds = windowStartInstant.getEpochSecond();
         final long endSeconds = windowEndInstant.getEpochSecond();
@@ -101,6 +254,8 @@ public class LivePoller {
                 FetchBlockQuery.getLatestBlocks(batchSize, MirrorNodeBlockQueryOrder.ASC, timestampFilters);
         System.out.println("[poller] Latest blocks size: " + latest.size());
 
+        boolean sawNextDay = false;
+
         final List<BlockDescriptor> batch = latest.stream()
                 .filter(b -> lastSeenBlock < 0 || b.number > lastSeenBlock)
                 .map(b -> {
@@ -112,34 +267,104 @@ public class LivePoller {
                     BlockInfo b = (BlockInfo) arr[0];
                     Instant ts = (Instant) arr[1];
                     ZonedDateTime zts = ZonedDateTime.ofInstant(ts, ZoneId.of("UTC"));
+
+                    // Detect rollover blocks when probing (any block timestamp >= dayEnd belongs to next day).
+                    if (rolloverProbe && !zts.isBefore(dayEnd)) {
+                        return new Object[] {null, Boolean.TRUE};
+                    }
+
+                    // Only process blocks that belong to the target day.
                     if (zts.isBefore(dayStart) || !zts.isBefore(dayEnd)) {
                         return null;
                     }
-                    return new BlockDescriptor(b.number, b.name, ts.toString(), b.hash);
+                    return new Object[] {new BlockDescriptor(b.number, b.name, ts.toString(), b.hash), Boolean.FALSE};
                 })
                 .filter(Objects::nonNull)
+                .peek(obj -> {
+                    if (obj[1] == Boolean.TRUE) {
+                        // Rollover marker observed.
+                        // Note: we do not process this descriptor here; it belongs to the next day.
+                    }
+                })
+                .filter(obj -> obj[1] != Boolean.TRUE)
+                .map(obj -> (BlockDescriptor) obj[0])
                 .sorted(Comparator.comparingLong(d -> d.getBlockNumber()))
                 .toList();
+
+        // Re-scan to determine if we saw rollover blocks (kept separate to avoid mixing types).
+        if (rolloverProbe) {
+            for (BlockInfo b : latest) {
+                Instant ts = parseMirrorTimestamp(b.timestampFrom != null ? b.timestampFrom : b.timestampTo);
+                if (ts == null) {
+                    continue;
+                }
+                ZonedDateTime zts = ZonedDateTime.ofInstant(ts, ZoneId.of("UTC"));
+                if (!zts.isBefore(dayEnd)) {
+                    sawNextDay = true;
+                    break;
+                }
+            }
+        }
+
         System.out.println("[poller] descriptors=" + batch.size());
         if (!batch.isEmpty()) {
+            final long previousLastSeenBlock = lastSeenBlock;
+
             final long highestDownloaded = downloader.downloadBatch(dayKey, batch);
+
+            // Only advance the timestamp cursor if we actually advanced the block cursor.
+            // Otherwise we risk persisting an inconsistent state (old block number + newer timestamp)
+            // which causes resume to jump forward in time while the running-hash cursor is still behind.
             if (highestDownloaded > lastSeenBlock) {
                 lastSeenBlock = highestDownloaded;
+
+                // Find the descriptor corresponding to the highest downloaded block so the next window
+                // starts just after this block.
+                final BlockDescriptor highestDescriptor = batch.stream()
+                        .filter(d -> d.getBlockNumber() == highestDownloaded)
+                        .findFirst()
+                        .orElse(batch.get(batch.size() - 1));
+
+                lastSeenTimestamp = Instant.parse(highestDescriptor.getTimestampIso());
+                seekWindowStart = null;
+
+                // Persist the current state so subsequent runs can resume from the latest known cursor.
+                writeState(
+                        statePath,
+                        new State(
+                                dayKey,
+                                lastSeenBlock,
+                                lastSeenTimestamp != null ? lastSeenTimestamp.toEpochMilli() : -1L));
+            } else {
+                // No progress; do NOT overwrite state (especially the timestamp) on a failed batch.
+                System.out.println("[poller] Batch made no progress for " + dayKey + " (highestDownloaded="
+                        + highestDownloaded + ", lastSeenBlock=" + previousLastSeenBlock + "); state not updated.");
             }
-            // Track the timestamp of the highest block we just processed so that the next poll
-            // window starts after this point, allowing us to walk the entire day in batches.
-            BlockDescriptor lastDescriptor = batch.get(batch.size() - 1);
-            lastSeenTimestamp = Instant.parse(lastDescriptor.getTimestampIso());
+
             batch.stream()
                     .limit(3)
                     .forEach(d -> System.out.println("[poller] sample -> block=" + d.getBlockNumber() + " file="
                             + d.getFilename() + " ts=" + d.getTimestampIso()));
-            // Persist the current state so subsequent runs can resume from the latest known cursor.
-            writeState(statePath, new State(dayKey, lastSeenBlock));
-            return batch.size();
+
+            return new PollResult(batch.size(), sawNextDay);
         } else {
             System.out.println("[poller] No new blocks this tick for " + dayKey + ".");
-            return 0;
+
+            if (seekWindowStart != null) {
+                final Instant next = seekWindowStart.plus(Duration.ofHours(1));
+                final Instant max = dayEnd.toInstant();
+                if (next.isAfter(max)) {
+                    seekWindowStart = null;
+                    System.out.println(
+                            "[poller] Seek cursor reached day end without finding blocks beyond lastSeenBlock; disabling seek.");
+                } else {
+                    seekWindowStart = next;
+                    System.out.println("[poller] Advancing seek cursor for " + dayKey + " to " + seekWindowStart
+                            + " (lastSeenBlock=" + lastSeenBlock + ")");
+                }
+            }
+
+            return new PollResult(0, sawNextDay);
         }
     }
 
@@ -149,8 +374,13 @@ public class LivePoller {
         LocalDate logicalDay =
                 (configuredStartDay != null && !configuredStartDay.isAfter(todayInTz)) ? configuredStartDay : todayInTz;
 
+        // Track start time and initial day for ETA calculation during historical processing
+        final long historicalStartTime = System.currentTimeMillis();
+        final LocalDate historicalStartDay = logicalDay;
+
         while (true) {
             if (configuredEndDay != null && logicalDay.isAfter(configuredEndDay)) {
+                PrettyPrint.clearProgress();
                 System.out.println(
                         "[poller] Reached configured end day " + configuredEndDay + "; exiting live poller.");
                 return;
@@ -161,29 +391,62 @@ public class LivePoller {
 
             if (logicalDay.isBefore(currentToday)) {
                 final String dayKey = logicalDay.toString();
-                System.out.println("[poller] Processing historical day " + dayKey + " (before current live day "
-                        + currentToday + ")");
+
+                // Calculate and display progress for historical day processing
+                long daysProcessed = ChronoUnit.DAYS.between(historicalStartDay, logicalDay);
+                long totalHistoricalDays = ChronoUnit.DAYS.between(historicalStartDay, currentToday);
+
+                if (totalHistoricalDays > 0) {
+                    double percent = (daysProcessed * 100.0) / totalHistoricalDays;
+                    long elapsed = System.currentTimeMillis() - historicalStartTime;
+                    long remaining =
+                            PrettyPrint.computeRemainingMilliseconds(daysProcessed, totalHistoricalDays, elapsed);
+
+                    PrettyPrint.printProgressWithEta(
+                            percent,
+                            "Processing historical day " + dayKey + " (" + (daysProcessed + 1) + " of "
+                                    + totalHistoricalDays + ")",
+                            remaining);
+                }
+
                 // For historical days, reuse any persisted state (if present) so we can resume
                 // long-running downloads. We always reset the in-memory timestamp cursor and
-                // let runOnceForDay() rehydrate lastSeenBlock from state on the first tick.
+                // let runOnceForDayInternal() rehydrate lastSeenBlock from state on the first tick.
                 lastSeenTimestamp = null;
                 stateLoadedForToday = false;
+
                 while (true) {
-                    int descriptors = runOnceForDay(logicalDay);
-                    if (descriptors == 0) {
+                    final PollResult result = runOnceForDayInternal(logicalDay, true);
+                    if (result.processedDescriptors > 0) {
+                        continue;
+                    }
+                    if (result.sawNextDayBlock) {
+                        System.out.println("[poller] Observed next-day blocks while polling " + dayKey
+                                + "; completing historical day.");
                         break;
+                    }
+
+                    // No descriptors and no rollover observed yet; keep polling.
+                    try {
+                        Thread.sleep(interval.toMillis());
+                    } catch (InterruptedException ie) {
+                        Thread.currentThread().interrupt();
+                        return;
                     }
                 }
                 try {
+                    PrettyPrint.clearProgress();
                     System.out.println("[poller] Finalizing historical day " + dayKey);
                     downloader.finalizeDay(dayKey);
                 } catch (Exception e) {
+                    PrettyPrint.clearProgress();
                     System.err.println("[poller] Failed to finalize day archive for " + dayKey + ": " + e.getMessage());
                 }
                 logicalDay = logicalDay.plusDays(1);
                 continue;
             }
 
+            PrettyPrint.clearProgress();
             final LocalDate liveDay = currentToday;
             final String liveDayKey = liveDay.toString();
 
@@ -223,17 +486,47 @@ public class LivePoller {
         }
     }
 
-    public static State readState(Path path) {
+    public static State readState(final Path path) {
         try {
-            if (path == null) return null;
-            if (!Files.exists(path)) return null;
-            String s = Files.readString(path, StandardCharsets.UTF_8);
-            Matcher mDay = P_DAY.matcher(s);
-            Matcher mLast = P_LAST.matcher(s);
-            String day = mDay.find() ? mDay.group(1) : null;
-            long last = mLast.find() ? Long.parseLong(mLast.group(1)) : -1L;
-            if (day == null) return null;
-            return new State(day, last);
+            if (path == null) {
+                return null;
+            }
+            if (!Files.exists(path)) {
+                return null;
+            }
+
+            final String raw = Files.readString(path, StandardCharsets.UTF_8);
+            final JsonObject obj = JsonParser.parseString(raw).getAsJsonObject();
+
+            final JsonElement dayEl = obj.get("dayKey");
+            if (dayEl == null || dayEl.isJsonNull()) {
+                return null;
+            }
+            final String dayKey = dayEl.getAsString();
+
+            final long lastSeenBlock =
+                    obj.has("lastSeenBlock") && !obj.get("lastSeenBlock").isJsonNull()
+                            ? obj.get("lastSeenBlock").getAsLong()
+                            : -1L;
+
+            long lastSeenTsMillis = -1L;
+            if (obj.has("lastSeenTimestamp") && !obj.get("lastSeenTimestamp").isJsonNull()) {
+                final JsonElement tsEl = obj.get("lastSeenTimestamp");
+                // Support legacy/expected format (epoch millis) as well as ISO-8601 strings.
+                if (tsEl.isJsonPrimitive() && tsEl.getAsJsonPrimitive().isNumber()) {
+                    lastSeenTsMillis = tsEl.getAsLong();
+                } else {
+                    final String tsStr = tsEl.getAsString();
+                    try {
+                        lastSeenTsMillis = Instant.parse(tsStr).toEpochMilli();
+                    } catch (Exception ignored) {
+                        // Keep -1; caller will fall back to seek mode.
+                        lastSeenTsMillis = -1L;
+                    }
+                }
+            }
+
+            return new State(dayKey, lastSeenBlock, lastSeenTsMillis);
         } catch (Exception e) {
             System.err.println("[poller] Failed to read state: " + e.getMessage());
             return null;
@@ -246,6 +539,8 @@ public class LivePoller {
             if (path.getParent() != null) {
                 Files.createDirectories(path.getParent());
             }
+            // We intentionally persist epoch millis for lastSeenTimestamp for stable numeric resume,
+            // while readState accepts ISO strings for manual debugging.
             String json = GSON.toJson(state);
             Files.writeString(path, json, StandardCharsets.UTF_8);
         } catch (IOException e) {
