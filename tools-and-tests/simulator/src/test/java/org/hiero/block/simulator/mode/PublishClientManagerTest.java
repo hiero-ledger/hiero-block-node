@@ -103,16 +103,15 @@ class PublishClientManagerTest {
     }
 
     @Test
-    void handleEndOfStreamOnBehind()
+    void handleNodeBehindPublisher()
             throws BlockSimulatorParsingException, IOException, InterruptedException, ParseException {
         Block nextBlock = createBlocks(0, 1);
         PublishStreamResponse response = mock(PublishStreamResponse.class);
-        PublishStreamResponse.EndOfStream endOfStream = mock(PublishStreamResponse.EndOfStream.class);
+        PublishStreamResponse.BehindPublisher behindPublisher = mock(PublishStreamResponse.BehindPublisher.class);
 
-        when(response.getEndStream()).thenReturn(endOfStream);
-        when(endOfStream.getBlockNumber()).thenReturn(5L);
-        when(endOfStream.getStatus()).thenReturn(Code.BEHIND);
-        when(response.hasEndStream()).thenReturn(true);
+        when(response.getNodeBehindPublisher()).thenReturn(behindPublisher);
+        when(behindPublisher.getBlockNumber()).thenReturn(5L);
+        when(response.hasNodeBehindPublisher()).thenReturn(true);
 
         publishClientManager.handleResponse(nextBlock, response);
 

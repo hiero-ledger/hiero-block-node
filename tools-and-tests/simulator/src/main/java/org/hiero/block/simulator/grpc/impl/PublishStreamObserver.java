@@ -14,7 +14,10 @@ import java.util.Deque;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 import org.hiero.block.api.protoc.PublishStreamResponse;
+import org.hiero.block.api.protoc.PublishStreamResponse.BehindPublisher;
 import org.hiero.block.api.protoc.PublishStreamResponse.BlockAcknowledgement;
+import org.hiero.block.api.protoc.PublishStreamResponse.ResendBlock;
+import org.hiero.block.api.protoc.PublishStreamResponse.SkipBlock;
 import org.hiero.block.simulator.startup.SimulatorStartupData;
 
 /**
@@ -62,15 +65,20 @@ public class PublishStreamObserver implements StreamObserver<PublishStreamRespon
         if (lastKnownStatuses.size() >= lastKnownStatusesCapacity) {
             lastKnownStatuses.pollFirst();
         }
-
         if (publishStreamResponse.hasAcknowledgement()) {
             final BlockAcknowledgement ack = publishStreamResponse.getAcknowledgement();
-            try {
-                startupData.updateLatestAckBlockStartupData(ack.getBlockNumber());
-            } catch (final IOException e) {
-                throw new UncheckedIOException(e);
-            }
-        } else if (publishStreamResponse.hasResendBlock() || publishStreamResponse.hasSkipBlock()) {
+            updateLastAcked(ack.getBlockNumber());
+        } else if (publishStreamResponse.hasResendBlock()) {
+            final ResendBlock resendValue = publishStreamResponse.getResendBlock();
+            updateLastAcked(resendValue.getBlockNumber());
+            this.publishStreamResponse.set(publishStreamResponse);
+        } else if (publishStreamResponse.hasSkipBlock()) {
+            final SkipBlock skipValue = publishStreamResponse.getSkipBlock();
+            updateLastAcked(skipValue.getBlockNumber());
+            this.publishStreamResponse.set(publishStreamResponse);
+        } else if (publishStreamResponse.hasNodeBehindPublisher()) {
+            final BehindPublisher behindValue = publishStreamResponse.getNodeBehindPublisher();
+            updateLastAcked(behindValue.getBlockNumber());
             this.publishStreamResponse.set(publishStreamResponse);
         } else if (publishStreamResponse.hasEndStream()) {
             streamEnabled.set(false);
@@ -78,6 +86,14 @@ public class PublishStreamObserver implements StreamObserver<PublishStreamRespon
         }
         lastKnownStatuses.add(publishStreamResponse.toString());
         LOGGER.log(INFO, "Received Response: " + publishStreamResponse);
+    }
+
+    private void updateLastAcked(final long newLastAcknowledged) {
+        try {
+            startupData.updateLatestAckBlockStartupData(newLastAcknowledged);
+        } catch (final IOException e) {
+            throw new UncheckedIOException(e);
+        }
     }
 
     /**
