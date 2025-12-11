@@ -55,6 +55,7 @@ mainModuleInfo {
     runtimeOnly("org.hiero.block.node.archive.s3cloud")
     runtimeOnly("org.hiero.block.node.messaging")
     runtimeOnly("org.hiero.block.node.health")
+    runtimeOnly("org.hiero.block.node.state.live")
     runtimeOnly("org.hiero.block.node.stream.publisher")
     runtimeOnly("org.hiero.block.node.stream.subscriber")
     runtimeOnly("org.hiero.block.node.verification")

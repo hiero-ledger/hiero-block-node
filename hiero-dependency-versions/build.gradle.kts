@@ -36,6 +36,10 @@ dependencies.constraints {
     api("com.lmax:disruptor:4.0.0") { because("com.lmax.disruptor") }
     api("com.swirlds:swirlds-common:$swirldsVersion") { because("com.swirlds.common") }
     api("com.swirlds:swirlds-config-impl:$swirldsVersion") { because("com.swirlds.config.impl") }
+    api("com.swirlds:swirlds-state-api:$swirldsVersion") { because("com.swirlds.state.api") }
+    api("com.swirlds:swirlds-state-impl:$swirldsVersion") { because("com.swirlds.state.impl") }
+    api("com.swirlds:swirlds-merkledb:$swirldsVersion") { because("com.swirlds.merkledb") }
+    api("com.swirlds:swirlds-virtualmap:$swirldsVersion") { because("com.swirlds.virtualmap") }
     api("io.helidon.logging:helidon-logging-jul:$helidonVersion") {
         because("io.helidon.logging.jul")
     }

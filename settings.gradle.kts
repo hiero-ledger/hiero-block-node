@@ -32,6 +32,7 @@ javaModules {
         module("block-access") { artifact = "block-access-service" }
         module("block-providers/files.historic") { artifact = "block-node-blocks-file-historic" }
         module("block-providers/files.recent") { artifact = "block-node-blocks-file-recent" }
+        module("state/live") { artifact = "block-node-state-live" }
         module("health") { artifact = "block-node-health" }
         module("messaging") { artifact = "facility-messaging" }
         module("protobuf-pbj") { artifact = "block-node-protobuf-pbj" }
