@@ -30,22 +30,27 @@ public class DownloadDayUtil {
         byte[] computedBlockHash = recordFileInfo.blockHash();
         if (blockHashFromMirrorNode != null && !Arrays.equals(blockHashFromMirrorNode, computedBlockHash)) {
             throw new IllegalStateException(
-                    "Block[" + blockNum + "] hash mismatch with mirror node listing. " + ", Expected: "
-                            + HexFormat.of().formatHex(blockHashFromMirrorNode).substring(0, 8)
-                            + ", Found: "
-                            + HexFormat.of().formatHex(computedBlockHash).substring(0, 8) + "\n"
-                            + "Context mostCommonRecordFile:"
-                            + mostCommonRecordFileInMem.path() + " computedHash:"
-                            + HexFormat.of().formatHex(computedBlockHash).substring(0, 8));
+                    "Block[%d] hash mismatch with mirror node listing. Expected: %s, Found: %s\nContext mostCommonRecordFile:%s computedHash:%s"
+                            .formatted(
+                                    blockNum,
+                                    HexFormat.of()
+                                            .formatHex(blockHashFromMirrorNode)
+                                            .substring(0, 8),
+                                    HexFormat.of().formatHex(computedBlockHash).substring(0, 8),
+                                    mostCommonRecordFileInMem.path(),
+                                    HexFormat.of().formatHex(computedBlockHash).substring(0, 8)));
         }
         if (prevRecordFileHash != null && !Arrays.equals(prevRecordFileHash, readPreviousBlockHash)) {
-            throw new IllegalStateException("Block[" + blockNum + "] previous block hash mismatch. " + ", Expected: "
-                    + HexFormat.of().formatHex(prevRecordFileHash).substring(0, 8)
-                    + ", Found: "
-                    + HexFormat.of().formatHex(readPreviousBlockHash).substring(0, 8) + "\n"
-                    + "Context mostCommonRecordFile:"
-                    + mostCommonRecordFileInMem.path() + " computedHash:"
-                    + HexFormat.of().formatHex(computedBlockHash).substring(0, 8));
+            throw new IllegalStateException(
+                    "Block[%d] previous block hash mismatch. Expected: %s, Found: %s\nContext mostCommonRecordFile:%s computedHash:%s"
+                            .formatted(
+                                    blockNum,
+                                    HexFormat.of().formatHex(prevRecordFileHash).substring(0, 8),
+                                    HexFormat.of()
+                                            .formatHex(readPreviousBlockHash)
+                                            .substring(0, 8),
+                                    mostCommonRecordFileInMem.path(),
+                                    HexFormat.of().formatHex(computedBlockHash).substring(0, 8)));
         }
         return computedBlockHash;
     }

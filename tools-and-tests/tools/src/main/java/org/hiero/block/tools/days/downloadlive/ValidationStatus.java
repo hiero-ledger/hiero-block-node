@@ -66,4 +66,10 @@ public class ValidationStatus {
     public String getEndRunningHashHex() {
         return endRunningHashHex;
     }
+
+    @Override
+    public String toString() {
+        return "ValidationStatus{dayDate='%s', recordFileTime='%s', endRunningHashHex='%s'}"
+                .formatted(dayDate, recordFileTime, endRunningHashHex);
+    }
 }

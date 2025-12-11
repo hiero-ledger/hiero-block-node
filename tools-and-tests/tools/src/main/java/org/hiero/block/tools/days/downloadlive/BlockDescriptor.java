@@ -35,7 +35,7 @@ public final class BlockDescriptor {
 
     @Override
     public String toString() {
-        return "BlockDescriptor{number=" + blockNumber + ", file='" + filename + "', ts='" + timestampIso + "'}";
+        return "BlockDescriptor{number=%d, file='%s', ts='%s'}".formatted(blockNumber, filename, timestampIso);
     }
 
     /**
