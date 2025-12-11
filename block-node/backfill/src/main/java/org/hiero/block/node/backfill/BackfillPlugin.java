@@ -415,10 +415,11 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
      * @throws ParseException if there is an error parsing the block header
      */
     private void backfillGap(LongRange gap, BackfillType backfillType) throws InterruptedException, ParseException {
-        BackfillGrpcClient backfillGrpcClient = backfillType.equals(BackfillType.AUTONOMOUS)
-                ? backfillGrpcClientAutonomous
-                : backfillGrpcClientOnDemand;
-
+        BackfillGrpcClient backfillGrpcClient =
+                switch (backfillType) {
+                    case AUTONOMOUS -> backfillGrpcClientAutonomous;
+                    case ON_DEMAND -> backfillGrpcClientOnDemand;
+                };
         Map<BackfillSourceConfig, List<LongRange>> availability = planAvailabilityForGap(backfillGrpcClient, gap);
         long currentBlock = gap.start();
         long batchSize = backfillConfiguration.fetchBatchSize();
