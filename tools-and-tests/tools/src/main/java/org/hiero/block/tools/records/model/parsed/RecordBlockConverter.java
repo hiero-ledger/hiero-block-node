@@ -1,8 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.tools.records.model.parsed;
 
-import static org.hiero.block.tools.utils.Sha384.ZERO_HASH;
-
 import com.hedera.hapi.block.stream.experimental.Block;
 import com.hedera.hapi.block.stream.experimental.BlockFooter;
 import com.hedera.hapi.block.stream.experimental.BlockItem;
@@ -16,7 +14,6 @@ import com.hedera.hapi.block.stream.output.BlockHeader;
 import com.hedera.hapi.node.base.BlockHashAlgorithm;
 import com.hedera.hapi.node.base.NodeAddressBook;
 import com.hedera.hapi.node.base.Timestamp;
-import com.hedera.hapi.streams.RecordStreamItem;
 import com.hedera.hapi.streams.SidecarFile;
 import com.hedera.pbj.runtime.OneOf;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
@@ -35,7 +32,6 @@ public class RecordBlockConverter {
      *
      * @param recordBlock the parsed record file block
      * @param blockNumber the block number for the block which is often not in record files
-     * @param previousBlockStreamBlockHash the previous block stream block hash, this has to be computed outside
      * @param rootHashOfBlockHashesMerkleTree the root hash of the block hashes merkle tree, this has to be computed
      *                                        outside this code
      * @return the block stream block
@@ -43,7 +39,6 @@ public class RecordBlockConverter {
     public static Block toBlock(
             final ParsedRecordBlock recordBlock,
             final long blockNumber,
-            final byte[] previousBlockStreamBlockHash,
             final byte[] rootHashOfBlockHashesMerkleTree,
             final NodeAddressBook addressBook) {
         // read the record file into UniversalRecordFile
@@ -61,35 +56,20 @@ public class RecordBlockConverter {
         // create a block header
         final Instant blockTime = recordBlock.recordFile().blockTime();
         final Timestamp recordFileTimestamp = new Timestamp(blockTime.getEpochSecond(), blockTime.getNano());
-        final Timestamp firstTransactionTimestamp =
-                recordBlock.recordFile().recordStreamFile().recordStreamItems().stream()
-                        .filter(RecordStreamItem::hasRecord)
-                        .map(rsi -> rsi.recordOrThrow().consensusTimestampOrThrow())
-                        .findFirst()
-                        .orElseThrow();
         final BlockHeader blockHeader = new BlockHeader(
                 universalRecordFile.hapiProtoVersion(),
-                // There is no software version in the record files, so setting to `null`. Ideally, we would track down
-                // this data. The best idea how to do that is to use mirror node data to work out consensus times of
-                // network upgrades. Then take those times, look up archived saved states backups in the bucket. Then
-                // try and read the first saved saved-state (many custom binary formats) after each upgrade. From there
-                // we could in theory work out a software version they were written with.
-                null,
+                null, // TODO is this right? could be hapi version again, not sure if that is better
                 blockNumber,
-                // block time is the time of the first round that is the time of the first transaction, this is
-                // different from the record file time
-                firstTransactionTimestamp,
+                recordFileTimestamp, // TODO this needs to be computed based on transaction timestamps
                 BlockHashAlgorithm.SHA2_384);
         // create RecordFileItem
         final RecordFileItem recordFileItem = new RecordFileItem(
                 recordFileTimestamp, universalRecordFile.recordStreamFile(), recordBlock.sidecarFiles());
         // create footer
         final BlockFooter blockFooter = new BlockFooter(
-                // the hash chain between block stream blocks has to use block stream hashes
-                Bytes.wrap(previousBlockStreamBlockHash),
+                Bytes.wrap(recordBlock.recordFile().previousBlockHash()),
                 Bytes.wrap(rootHashOfBlockHashesMerkleTree),
-                // the state root hash for wrapped blocks is 48 zeros to indicate there is NO HASH
-                Bytes.wrap(ZERO_HASH));
+                null);
         // create and return the Block
         return new Block(List.of(
                 new BlockItem(new OneOf<>(ItemOneOfType.BLOCK_HEADER, blockHeader)),
@@ -121,6 +101,11 @@ public class RecordBlockConverter {
                 .findFirst()
                 .orElseThrow(() -> new IllegalArgumentException("Block does not contain a BlockHeader"))
                 .blockHeader();
+        final BlockFooter blockFooter = block.items().stream()
+                .filter(BlockItem::hasBlockFooter)
+                .findFirst()
+                .orElseThrow(() -> new IllegalArgumentException("Block does not contain a BlockFooter"))
+                .blockFooter();
         final BlockProof blockProof = block.items().stream()
                 .filter(BlockItem::hasBlockProof)
                 .findFirst()
@@ -134,11 +119,7 @@ public class RecordBlockConverter {
                 blockTime,
                 signedRecordFileProof.version(),
                 blockHeader.hapiProtoVersion(),
-                recordFileItem
-                        .recordFileContents()
-                        .startObjectRunningHash()
-                        .hash()
-                        .toByteArray(),
+                blockFooter.previousBlockRootHash().toByteArray(),
                 recordFileItem.recordFileContents());
         List<ParsedSignatureFile> signatureFiles = signedRecordFileProof.recordFileSignatures().stream()
                 .map(rfs -> new ParsedSignatureFile(

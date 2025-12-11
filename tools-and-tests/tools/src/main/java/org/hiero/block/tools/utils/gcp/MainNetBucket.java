@@ -41,7 +41,6 @@ import org.hiero.block.tools.records.RecordFileDates;
  *    <li><code>gs://hedera-mainnet-streams/recordstreams/record0.0.3/sidecar/2023-04-25T17_42_16.032498578Z_01.rcd.gz</code></li>
  * </ul>
  */
-@SuppressWarnings("unused")
 public class MainNetBucket {
     /** The required fields we need from blobs */
     private static final Storage.BlobListOption REQUIRED_FIELDS =

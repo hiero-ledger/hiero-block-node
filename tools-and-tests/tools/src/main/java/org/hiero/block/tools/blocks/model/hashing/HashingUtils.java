@@ -1,14 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.tools.blocks.model.hashing;
 
-import com.hedera.pbj.runtime.io.buffer.Bytes;
 import edu.umd.cs.findbugs.annotations.NonNull;
 import edu.umd.cs.findbugs.annotations.Nullable;
 import java.security.MessageDigest;
 import java.util.Objects;
 
 /**
- * Utility methods for Merkle tree hashing following the Block & State Merkle Tree Design.
+ * Utility methods for Merkle tree hashing following the Block and State Merkle Tree Design.
  *
  * <p>This class provides domain-separated hashing for Merkle tree nodes using SHA-384.
  * Domain separation is achieved through single-byte prefixes that ensure leaf hashes
@@ -55,21 +54,6 @@ public class HashingUtils {
     public static byte[] hashLeaf(@NonNull final MessageDigest digest, @NonNull final byte[] leafData) {
         digest.update(LEAF_PREFIX);
         return digest.digest(leafData);
-    }
-
-    /**
-     * Hash a leaf node with the appropriate prefix.
-     *
-     * <p>Computes: {@code hash(0x00 || leafData)}
-     *
-     * @param digest the MessageDigest instance to use for hashing (should be SHA-384)
-     * @param leafData the serialized data of the leaf (typically protobuf-encoded)
-     * @return the 48-byte SHA-384 hash of the prefixed leaf data
-     */
-    public static byte[] hashLeaf(@NonNull final MessageDigest digest, @NonNull final Bytes leafData) {
-        digest.update(LEAF_PREFIX);
-        leafData.writeTo(digest);
-        return digest.digest();
     }
 
     /**

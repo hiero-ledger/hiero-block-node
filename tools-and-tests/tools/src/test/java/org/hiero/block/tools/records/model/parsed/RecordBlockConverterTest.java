@@ -1,37 +1,14 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.tools.records.model.parsed;
 
-import static org.hiero.block.tools.utils.TestBlocks.V2_TEST_BLOCK_ADDRESS_BOOK;
-import static org.hiero.block.tools.utils.TestBlocks.V2_TEST_BLOCK_BYTES;
-import static org.hiero.block.tools.utils.TestBlocks.V2_TEST_BLOCK_HASH;
-import static org.hiero.block.tools.utils.TestBlocks.V2_TEST_BLOCK_NUMBER;
-import static org.hiero.block.tools.utils.TestBlocks.V2_TEST_BLOCK_RECORD_FILE_NAME;
-import static org.hiero.block.tools.utils.TestBlocks.V5_TEST_BLOCK_ADDRESS_BOOK;
-import static org.hiero.block.tools.utils.TestBlocks.V5_TEST_BLOCK_BYTES;
-import static org.hiero.block.tools.utils.TestBlocks.V5_TEST_BLOCK_HASH;
-import static org.hiero.block.tools.utils.TestBlocks.V5_TEST_BLOCK_NUMBER;
-import static org.hiero.block.tools.utils.TestBlocks.V5_TEST_BLOCK_RECORD_FILE_NAME;
-import static org.hiero.block.tools.utils.TestBlocks.V6_TEST_BLOCK_ADDRESS_BOOK;
-import static org.hiero.block.tools.utils.TestBlocks.V6_TEST_BLOCK_BYTES;
-import static org.hiero.block.tools.utils.TestBlocks.V6_TEST_BLOCK_HASH;
-import static org.hiero.block.tools.utils.TestBlocks.V6_TEST_BLOCK_NUMBER;
-import static org.hiero.block.tools.utils.TestBlocks.V6_TEST_BLOCK_RECORD_FILE_NAME;
-import static org.hiero.block.tools.utils.TestBlocks.V6_TEST_BLOCK_SIDECAR_BYTES;
-import static org.hiero.block.tools.utils.TestBlocks.loadV2SignatureFiles;
-import static org.hiero.block.tools.utils.TestBlocks.loadV5SignatureFiles;
-import static org.hiero.block.tools.utils.TestBlocks.loadV6SignatureFiles;
-import static org.junit.jupiter.api.Assertions.assertArrayEquals;
-import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertNotNull;
-import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.hiero.block.tools.utils.TestBlocks.*;
+import static org.junit.jupiter.api.Assertions.*;
 
 import com.hedera.hapi.block.stream.experimental.Block;
 import com.hedera.hapi.streams.SidecarFile;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import java.nio.file.Path;
 import java.util.Collections;
-import java.util.HexFormat;
 import java.util.List;
 import org.hiero.block.tools.records.model.unparsed.InMemoryFile;
 import org.junit.jupiter.api.DisplayName;
@@ -48,12 +25,9 @@ import org.junit.jupiter.api.TestMethodOrder;
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
 @TestMethodOrder(MethodOrderer.OrderAnnotation.class)
 public class RecordBlockConverterTest {
-    /** Dummy root hash for a block hashes merkle tree (48 bytes for SHA-384) */
+
+    /** Dummy root hash for block hashes merkle tree (48 bytes for SHA-384) */
     private static final byte[] DUMMY_ROOT_HASH = new byte[48];
-    /** Dummy previous block hash (48 bytes for SHA-384) */
-    private static final byte[] DUMMY_PREVIOUS_BLOCK_HASH = HexFormat.of()
-            .parseHex(
-                    "52939c10ed7d382366e636c4c071287ed0a4ebcab144a750b6293a4dee11f5a021e81f3e093a29b5b53bf3d1fd870080");
 
     /** V2 parsed block for testing */
     private ParsedRecordBlock v2ParsedBlock;
@@ -119,11 +93,7 @@ public class RecordBlockConverterTest {
 
         // Convert to Block
         Block block = RecordBlockConverter.toBlock(
-                v2ParsedBlock,
-                V2_TEST_BLOCK_NUMBER,
-                DUMMY_PREVIOUS_BLOCK_HASH,
-                DUMMY_ROOT_HASH,
-                V2_TEST_BLOCK_ADDRESS_BOOK);
+                v2ParsedBlock, V2_TEST_BLOCK_NUMBER, DUMMY_ROOT_HASH, V2_TEST_BLOCK_ADDRESS_BOOK);
         assertNotNull(block);
         assertEquals(4, block.items().size(), "Block should have 4 items (header, record file, footer, proof)");
 
@@ -169,11 +139,7 @@ public class RecordBlockConverterTest {
 
         // Convert to Block
         Block block = RecordBlockConverter.toBlock(
-                v5ParsedBlock,
-                V5_TEST_BLOCK_NUMBER,
-                DUMMY_PREVIOUS_BLOCK_HASH,
-                DUMMY_ROOT_HASH,
-                V5_TEST_BLOCK_ADDRESS_BOOK);
+                v5ParsedBlock, V5_TEST_BLOCK_NUMBER, DUMMY_ROOT_HASH, V5_TEST_BLOCK_ADDRESS_BOOK);
         assertNotNull(block);
         assertEquals(4, block.items().size(), "Block should have 4 items (header, record file, footer, proof)");
 
@@ -219,11 +185,7 @@ public class RecordBlockConverterTest {
 
         // Convert to Block
         Block block = RecordBlockConverter.toBlock(
-                v6ParsedBlock,
-                V6_TEST_BLOCK_NUMBER,
-                DUMMY_PREVIOUS_BLOCK_HASH,
-                DUMMY_ROOT_HASH,
-                V6_TEST_BLOCK_ADDRESS_BOOK);
+                v6ParsedBlock, V6_TEST_BLOCK_NUMBER, DUMMY_ROOT_HASH, V6_TEST_BLOCK_ADDRESS_BOOK);
         assertNotNull(block);
         assertEquals(4, block.items().size(), "Block should have 4 items (header, record file, footer, proof)");
 
@@ -286,11 +248,7 @@ public class RecordBlockConverterTest {
 
         // Convert to Block and back
         Block block = RecordBlockConverter.toBlock(
-                v2ParsedBlock,
-                V2_TEST_BLOCK_NUMBER,
-                DUMMY_PREVIOUS_BLOCK_HASH,
-                DUMMY_ROOT_HASH,
-                V2_TEST_BLOCK_ADDRESS_BOOK);
+                v2ParsedBlock, V2_TEST_BLOCK_NUMBER, DUMMY_ROOT_HASH, V2_TEST_BLOCK_ADDRESS_BOOK);
         ParsedRecordBlock roundTripBlock = RecordBlockConverter.toRecordFile(block, V2_TEST_BLOCK_ADDRESS_BOOK);
 
         // Validate the round-trip block with correct previous hash
@@ -313,14 +271,10 @@ public class RecordBlockConverterTest {
 
         // Convert to Block and back
         Block block = RecordBlockConverter.toBlock(
-                v5ParsedBlock,
-                V5_TEST_BLOCK_NUMBER,
-                DUMMY_PREVIOUS_BLOCK_HASH,
-                DUMMY_ROOT_HASH,
-                V5_TEST_BLOCK_ADDRESS_BOOK);
+                v5ParsedBlock, V5_TEST_BLOCK_NUMBER, DUMMY_ROOT_HASH, V5_TEST_BLOCK_ADDRESS_BOOK);
         ParsedRecordBlock roundTripBlock = RecordBlockConverter.toRecordFile(block, V5_TEST_BLOCK_ADDRESS_BOOK);
 
-        // Validate the round-trip block with the correct previous hash
+        // Validate the round-trip block with correct previous hash
         byte[] previousBlockHash = v5ParsedBlock.recordFile().previousBlockHash();
         assertDoesNotThrow(() -> {
             byte[] validatedBlockHash = roundTripBlock.validate(previousBlockHash, V5_TEST_BLOCK_ADDRESS_BOOK);
@@ -340,14 +294,10 @@ public class RecordBlockConverterTest {
 
         // Convert to Block and back
         Block block = RecordBlockConverter.toBlock(
-                v6ParsedBlock,
-                V6_TEST_BLOCK_NUMBER,
-                DUMMY_PREVIOUS_BLOCK_HASH,
-                DUMMY_ROOT_HASH,
-                V6_TEST_BLOCK_ADDRESS_BOOK);
+                v6ParsedBlock, V6_TEST_BLOCK_NUMBER, DUMMY_ROOT_HASH, V6_TEST_BLOCK_ADDRESS_BOOK);
         ParsedRecordBlock roundTripBlock = RecordBlockConverter.toRecordFile(block, V6_TEST_BLOCK_ADDRESS_BOOK);
 
-        // Validate the round-trip block with the correct previous hash
+        // Validate the round-trip block with correct previous hash
         byte[] previousBlockHash = v6ParsedBlock.recordFile().previousBlockHash();
         assertDoesNotThrow(() -> {
             byte[] validatedBlockHash = roundTripBlock.validate(previousBlockHash, V6_TEST_BLOCK_ADDRESS_BOOK);
@@ -366,11 +316,7 @@ public class RecordBlockConverterTest {
         assertNotNull(v2ParsedBlock);
 
         Block block = RecordBlockConverter.toBlock(
-                v2ParsedBlock,
-                V2_TEST_BLOCK_NUMBER,
-                DUMMY_PREVIOUS_BLOCK_HASH,
-                DUMMY_ROOT_HASH,
-                V2_TEST_BLOCK_ADDRESS_BOOK);
+                v2ParsedBlock, V2_TEST_BLOCK_NUMBER, DUMMY_ROOT_HASH, V2_TEST_BLOCK_ADDRESS_BOOK);
 
         // Verify block items
         assertTrue(block.items().get(0).hasBlockHeader(), "First item should be BlockHeader");
@@ -409,11 +355,7 @@ public class RecordBlockConverterTest {
         assertNotNull(v6ParsedBlock);
 
         Block block = RecordBlockConverter.toBlock(
-                v6ParsedBlock,
-                V6_TEST_BLOCK_NUMBER,
-                DUMMY_PREVIOUS_BLOCK_HASH,
-                DUMMY_ROOT_HASH,
-                V6_TEST_BLOCK_ADDRESS_BOOK);
+                v6ParsedBlock, V6_TEST_BLOCK_NUMBER, DUMMY_ROOT_HASH, V6_TEST_BLOCK_ADDRESS_BOOK);
 
         // Verify RecordFile contains sidecar files
         var recordFileItem = block.items().get(1);

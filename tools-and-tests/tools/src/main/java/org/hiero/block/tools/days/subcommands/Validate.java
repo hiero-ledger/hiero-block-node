@@ -114,6 +114,7 @@ public class Validate implements Runnable {
             if (statusFile == null || s == null) return;
             try {
                 String json = GSON.toJson(s);
+                System.out.println("json: " + json + " to file:" + statusFile);
                 Files.writeString(statusFile, json, StandardCharsets.UTF_8, CREATE, TRUNCATE_EXISTING);
             } catch (IOException e) {
                 System.err.println("Failed to write status file " + statusFile + ": " + e.getMessage());
