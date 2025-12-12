@@ -1,0 +1,75 @@
+# SPDX-License-Identifier: Apache-2.0
+name: "K6 Load Tests"
+on:
+  push:
+    branches:
+      - main
+      - release/*
+  pull_request:
+    types:
+      - opened
+      - reopened
+      - synchronize
+
+defaults:
+  run:
+    shell: bash
+
+permissions:
+  contents: read
+
+env:
+  GRADLE_EXEC: ionice -c 2 -n 2 nice -n 19 ./gradlew --no-daemon
+  K6_ROOT: ./tools-and-tests/k6
+
+jobs:
+  k6-tests:
+    timeout-minutes: 30
+    runs-on: hiero-block-node-linux-medium
+
+    steps:
+      - name: Harden Runner
+        uses: step-security/harden-runner@95d9a5deda9de15063e7595e9719c11c38c90ae2 # v2.13.2
+        with:
+          egress-policy: audit
+
+      - name: Checkout repository
+        uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
+        with:
+          fetch-depth: 0
+
+      - name: Extract version
+        id: extract_version
+        run: |
+          VERSION=$(cat version.txt)
+          echo "VERSION=${VERSION}" >> $GITHUB_ENV
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@dded0888837ed1f317902acf8a20df0ad188d165 # v5.0.0
+        with:
+          distribution: "temurin"
+          java-version: "21.0.6"
+
+      - name: Setup Node
+        uses: actions/setup-node@2028fbc5c25fe9cf00d9f06a71cc4710d4507903 # v6.0.0
+        with:
+          node-version: "20.19.4"
+
+      - name: Install k6
+        run: |
+          # based on https://grafana.com/docs/k6/latest/set-up/install-k6/#debianubuntu
+          sudo gpg -k
+          sudo gpg --no-default-keyring --keyring /usr/share/keyrings/k6-archive-keyring.gpg --keyserver hkp://keyserver.ubuntu.com:80 --recv-keys C5AD17C747E3415A3642D57D77C6C491D6AC1D69
+          echo "deb [signed-by=/usr/share/keyrings/k6-archive-keyring.gpg] https://dl.k6.io/deb stable main" | sudo tee /etc/apt/sources.list.d/k6.list
+          sudo apt-get update
+          sudo apt-get install k6
+
+      - name: Run k6 tests
+        run: |
+          pushd ${K6_ROOT} || exit 1
+          trap "popd" EXIT
+          npm run test
+
+      - name: Stop Containers
+        if: ${{ always() }}
+        run: ${GRADLE_EXEC} stopDockerContainer
