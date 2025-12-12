@@ -2,7 +2,7 @@
   "nodes": [
     {
       "address": "host.docker.internal",
-      "port": 40841,
+      "port": 40840,
       "priority": 1
     }
   ]

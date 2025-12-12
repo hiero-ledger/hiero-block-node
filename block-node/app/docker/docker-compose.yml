@@ -1,72 +1,73 @@
 services:
-  block-node-server:
-    container_name: block-node-server
-    image: block-node-server:${VERSION}
+  block-node-server-backfill:
+    container_name: block-node-server-backfill
+    image: block-node-server:0.25.0-SNAPSHOT
+#    build: .
     volumes:
       - ./logging.properties:/opt/hiero/block-node/logs/config/logging.properties
       - ./backfill-sources.json:/opt/hiero/block-node/backfill/backfill-sources.json
     env_file:
       - .env
     ports:
-      - "40840:40840"
-      - "5005:5005"
-      - "16007:16007"
-      - "8849:8849"
+      - "40841:40840"
+      - "5006:5005"
+      - "16008:16007"
+      - "8850:8849"
 
-  cadvisor:
-    image: "gcr.io/cadvisor/cadvisor:v0.47.0"
-    container_name: cadvisor
-    ports:
-      - "8081:8080" # Expose cAdvisor on port 8081
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock:ro
-      - /sys:/sys:ro
-      - /var/lib/docker/:/var/lib/docker:ro
-
-  prometheus:
-    image: prom/prometheus
-    container_name: prometheus
-    volumes:
-      - ./metrics/prometheus.yml:/etc/prometheus/prometheus.yml
-    command:
-      - '--config.file=/etc/prometheus/prometheus.yml'
-    # Exposing Prometheus outside the stack can create issues with
-    # the MetricsService in the Simulator. Here it's exposed within
-    # the stack.
-    ports:
-      - "9090"
-
-  grafana:
-    image: grafana/grafana
-    container_name: grafana
-    depends_on:
-      - prometheus
-    environment:
-      GF_SECURITY_DISABLE_INITIAL_ADMIN_CREATION: "true"
-      GF_AUTH_ANONYMOUS_ENABLED: "true"
-      GF_AUTH_ANONYMOUS_ORG_ROLE: "Admin"
-      GF_AUTH_DISABLE_SIGNOUT_MENU: "true"
-      GF_AUTH_DISABLE_LOGIN_FORM: "true"
-    volumes:
-      - ./metrics/dashboards:/etc/grafana/provisioning/dashboards
-      - ./metrics/datasources/datasources.yml:/etc/grafana/provisioning/datasources/datasources.yml
-    ports:
-      - "3000:3000"
-
-  # Add Loki service
-  loki:
-    image: grafana/loki:2.9.2
-    ports:
-      - "3100:3100"
-    command: -config.file=/etc/loki/local-config.yaml
-
-  # Add Promtail service
-  promtail:
-    image: grafana/promtail:2.8.2
-    container_name: promtail
-    depends_on:
-      - loki
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock:ro  # Mount Docker socket
-      - ./promtail-config.yaml:/etc/promtail/config.yaml:ro
-    command: --config.file=/etc/promtail/config.yaml
+#  cadvisor:
+#    image: "gcr.io/cadvisor/cadvisor:v0.47.0"
+#    container_name: cadvisor
+#    ports:
+#      - "8081:8080" # Expose cAdvisor on port 8081
+#    volumes:
+#      - /var/run/docker.sock:/var/run/docker.sock:ro
+#      - /sys:/sys:ro
+#      - /var/lib/docker/:/var/lib/docker:ro
+#
+#  prometheus:
+#    image: prom/prometheus
+#    container_name: prometheus
+#    volumes:
+#      - ./metrics/prometheus.yml:/etc/prometheus/prometheus.yml
+#    command:
+#      - '--config.file=/etc/prometheus/prometheus.yml'
+#    # Exposing Prometheus outside the stack can create issues with
+#    # the MetricsService in the Simulator. Here it's exposed within
+#    # the stack.
+#    ports:
+#      - "9090"
+#
+#  grafana:
+#    image: grafana/grafana
+#    container_name: grafana
+#    depends_on:
+#      - prometheus
+#    environment:
+#      GF_SECURITY_DISABLE_INITIAL_ADMIN_CREATION: "true"
+#      GF_AUTH_ANONYMOUS_ENABLED: "true"
+#      GF_AUTH_ANONYMOUS_ORG_ROLE: "Admin"
+#      GF_AUTH_DISABLE_SIGNOUT_MENU: "true"
+#      GF_AUTH_DISABLE_LOGIN_FORM: "true"
+#    volumes:
+#      - ./metrics/dashboards:/etc/grafana/provisioning/dashboards
+#      - ./metrics/datasources/datasources.yml:/etc/grafana/provisioning/datasources/datasources.yml
+#    ports:
+#      - "3000:3000"
+#
+#  # Add Loki service
+#  loki:
+#    image: grafana/loki:2.9.2
+#    ports:
+#      - "3100:3100"
+#    command: -config.file=/etc/loki/local-config.yaml
+#
+#  # Add Promtail service
+#  promtail:
+#    image: grafana/promtail:2.8.2
+#    container_name: promtail
+#    depends_on:
+#      - loki
+#    volumes:
+#      - /var/run/docker.sock:/var/run/docker.sock:ro  # Mount Docker socket
+#      - ./promtail-config.yaml:/etc/promtail/config.yaml:ro
+#    command: --config.file=/etc/promtail/config.yaml

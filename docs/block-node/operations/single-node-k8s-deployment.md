@@ -37,17 +37,57 @@ LFH servers require significant storage capacity, as such these are expected to 
 Once a server has been acquired, it needs to be provisioned with the necessary software components to run Kubernetes
 and the Block Node Server.
 
-Assuming a Linux based environment, [linux-bare-metal-provisioner.sh](./../../tools-and-tests/scripts/node-operations/linux-bare-metal-provisioner.sh) serves as a provisioner
-template script to automate the installation of required dependencies. Simply download the script to the server and run.
+Assuming a Linux based environment, a node operator has two options at this time
+1. [Solo Weaver](https://github.com/hashgraph/solo-weaver) installation (recommended)
+2. Custom provisioner script
 
-Note: The script is provided as-is and may require further edits by operators depending on their OS and version.
-The script focuses on installing k8s env setup, kubelet, kubeadm, helm, CRI-O, cilium, metalLB and other packages.
+### Solo Weaver
+
+Solo weaver is a go-based tool to simplify the provisioning of Hiero network components (like the block node) in a
+streamlined and automated fashion.
+
+To utilize the Solo Weaver experience
+
+1. Install Weaver on the server
+```bash
+curl -sSL https://raw.githubusercontent.com/hashgraph/solo-weaver/main/install.sh | bash
+weaver --help
+```
+
+2. Run the provisioning and install flow
+Follow the [Setup Block Node](https://github.com/hashgraph/solo-weaver/blob/main/docs/quickstart.md#setup-block-node) steps.
+
+### Custom Provisioning Script
+
+A node operator with sufficient knowledge and expertize may desire to create a script that factors in their cloud
+provider and business needs when provisioning the machine.
+
+In this case the following recipe steps are suggested as a guide when designing your script
+1. Disable Linux Swap
+2. Configure [Sysctl for Kubernetes](https://kubernetes.io/docs/tasks/administer-cluster/sysctl-cluster/)
+3. Setup Bind Mounts
+4. Setup [Kubelet](https://kubernetes.io/docs/reference/command-line-tools-reference/kubelet/) and its Systemd Service
+5. Setup [Kubectl](https://kubernetes.io/docs/reference/kubectl/kubectl/)
+6. Setup [Helm](https://helm.sh/)
+7. Setup [K9s](https://k9scli.io/)
+8. Setup [CRI-O](https://cri-o.io/) and its Systemd Service
+9. Setup [Kubeadm](https://kubernetes.io/docs/reference/setup-tools/kubeadm/)
+10. Initialize Cluster
+11. Setup and start [Cilium](https://cilium.io/)
+12. Setup [MetalLB](https://metallb.io/)
+13. Check ClusterHealth
+
+Note: The script recipe is provided as-is (with no maintenance) and may require further edits by operators depending on
+their OS and version. The recipe focuses on setting up k8s, supporting helm based installation and kubectl modification
+in addition to metalLB load balancing.
 
 ## Installation Steps
 
 With the server provisioned, follow these steps to deploy the Block Node Server on a single-node Kubernetes cluster:
 
-Note: Some steps are marked as intermediate, indicating they will change due to improvements
+Note 1: Skip steps 1 through 7 if you utilize Solo Weaver as will install teh block node for you.
+
+Note 2: Some steps are marked as intermediate, indicating they will change due to improvements.
 
 1. **ENV variables setup**: Set some helpful environment variables for your deployment in a `.env file:
 
@@ -58,9 +98,9 @@ Note: Some steps are marked as intermediate, indicating they will change due to 
    POD=${RELEASE}-block-node-server-0
    ```
 
-   A sample `.env` file is provided at [.env.sample](./../../tools-and-tests/scripts/node-operations/.env.sample).
+   A sample `.env` file is provided at [.env.sample](./../../../tools-and-tests/scripts/node-operations/sample.env).
 
-2. (Intermediate) **Automate with Task**: Use the provided [Taskfile.yml](./../../tools-and-tests/scripts/node-operations/Taskfile.yml) to
+2. (Intermediate) **Automate with Task**: Use the provided [Taskfile.yml](../../../tools-and-tests/scripts/node-operations/Taskfile.yml) to
    streamline the deployment process. The Taskfile includes tasks for installing Helm charts, configuring the Block Node
    Server, and managing the Kubernetes cluster.
 
@@ -72,14 +112,14 @@ Note: Some steps are marked as intermediate, indicating they will change due to 
 4. **Configure Persistent Volume Creation Script**: Create Persistent Volume (PV)s and Persistent Volume Claim (PVC)s
    for Block Node Server data storage.
 
-   Update [./values-overrides/host-paths.yaml](./../../charts/block-node-server/values-overrides/host-paths.yaml) with the appropriate namespace.
+   Update [./values-overrides/host-paths.yaml](../../../charts/block-node-server/values-overrides/host-paths.yaml) with the appropriate namespace.
 
    ```bash
    kubectl apply -f ./k8s/single-node/pv-pvc.yaml -n ${NAMESPACE}
    ```
 5. **Configure Helm Chart Values**: Customize the Helm chart values for your deployment.
 
-   Update [./lfh-values.yaml](./../../charts/block-node-server/values-overrides/lfh-values.yaml) or [./values-overrides/rfh-values.yaml](./../../charts/block-node-server/values-overrides/rfh-values.yaml) with your specific configuration settings.
+   Update [./lfh-values.yaml](../../../charts/block-node-server/values-overrides/lfh-values.yaml) or [./values-overrides/rfh-values.yaml](../../../charts/block-node-server/values-overrides/rfh-values.yaml) with your specific configuration settings.
 
 6. **Install Block Node Server Helm Chart**: Deploy the Block Node Server using Helm.
 
