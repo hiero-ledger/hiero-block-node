@@ -37,7 +37,7 @@ sourceSets {
 
 // jjohannes: remove cross-project task dependency once the following issue is addressed
 // https://github.com/hiero-ledger/hiero-gradle-conventions/issues/185
-tasks.generatePbjSource { dependsOn(":block-node-protobuf-sources:generateBlockNodeProtoArtifact") }
+tasks.generatePbjSource { dependsOn(":protobuf-sources:generateBlockNodeProtoArtifact") }
 
 tasks.test {
     // we can exclude the standard protobuf generated tests as we don't need to test them again here

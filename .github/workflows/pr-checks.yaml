@@ -52,7 +52,7 @@ jobs:
           java-version: "21.0.6"
 
       - name: Produce artifact
-        run: ${GRADLE_EXEC} :block-node-protobuf-sources:generateBlockNodeProtoArtifact
+        run: ${GRADLE_EXEC} :protobuf-sources:generateBlockNodeProtoArtifact
 
   compile:
     timeout-minutes: 20

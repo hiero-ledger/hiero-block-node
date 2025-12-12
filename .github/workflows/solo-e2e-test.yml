@@ -168,7 +168,7 @@ jobs:
 
       # produce protobuf source artifact
       - name: Produce Protobuf proto artifact
-        run: ${GRADLE_EXEC} :block-node-protobuf-sources:generateBlockNodeProtoArtifact
+        run: ${GRADLE_EXEC} :protobuf-sources:generateBlockNodeProtoArtifact
 
       # untar protobuf sources
       - name: Untar Protobuf Sources

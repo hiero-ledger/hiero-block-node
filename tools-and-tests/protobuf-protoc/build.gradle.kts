@@ -21,4 +21,4 @@ sourceSets {
 
 // jjohannes: remove cross-project task dependency once the following issue is addressed
 // https://github.com/hiero-ledger/hiero-gradle-conventions/issues/185
-tasks.generateProto { dependsOn(":block-node-protobuf-sources:generateBlockNodeProtoArtifact") }
+tasks.generateProto { dependsOn(":protobuf-sources:generateBlockNodeProtoArtifact") }

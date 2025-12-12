@@ -30,7 +30,7 @@ tasks.register<Test>("runSuites") {
 
     // @todo(#813) All of the docker processing belongs here, not in block-node-app.
     //    This might mean duplication, which is perfectly fine.
-    dependsOn(":block-node-app:createDockerImageCI")
+    dependsOn(":app:createDockerImageCI")
 
     useJUnitPlatform() { excludeTags("api") }
     testLogging { events("passed", "skipped", "failed") }
@@ -38,7 +38,7 @@ tasks.register<Test>("runSuites") {
     classpath = sourceSets["main"].runtimeClasspath
 
     // Pass the block-node version as a system property
-    systemProperty("block.node.version", project(":block-node-app").version.toString())
+    systemProperty("block.node.version", project(":app").version.toString())
 }
 
 tasks.register<Test>("runAPISuites") {
@@ -51,5 +51,5 @@ tasks.register<Test>("runAPISuites") {
     classpath = sourceSets["main"].runtimeClasspath
 
     // Pass the block-node version as a system property
-    systemProperty("block.node.version", project(":block-node-app").version.toString())
+    systemProperty("block.node.version", project(":app").version.toString())
 }
