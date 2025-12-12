@@ -6,7 +6,7 @@ plugins {
     id("com.hedera.pbj.pbj-compiler") version "0.12.10" apply false
 }
 
-val hieroGroup = "org.hiero.block"
+val hieroGroup = "org.hiero.block-node"
 
 rootProject.name = "hiero-block-node"
 
@@ -14,7 +14,7 @@ javaModules {
     directory(".") {
         group = hieroGroup
         module("common")
-        module("protobuf-sources") { artifact = "block-node-protobuf-sources" }
+        module("protobuf-sources") { artifact = "protobuf-sources" }
     }
     directory("tools-and-tests") {
         group = hieroGroup
@@ -25,22 +25,22 @@ javaModules {
     }
     directory("block-node") {
         group = hieroGroup
-        module("app") { artifact = "block-node-app" }
-        module("app-config") { artifact = "block-node-app-config" }
-        module("backfill") { artifact = "block-node-backfill" }
-        module("base") { artifact = "block-node-base" }
+        module("app") { artifact = "app" }
+        module("app-config") { artifact = "app-config" }
+        module("backfill") { artifact = "backfill" }
+        module("base") { artifact = "base" }
         module("block-access") { artifact = "block-access-service" }
-        module("block-providers/files.historic") { artifact = "block-node-blocks-file-historic" }
-        module("block-providers/files.recent") { artifact = "block-node-blocks-file-recent" }
-        module("health") { artifact = "block-node-health" }
+        module("block-providers/files.historic") { artifact = "blocks-file-historic" }
+        module("block-providers/files.recent") { artifact = "blocks-file-recent" }
+        module("health") { artifact = "health" }
         module("messaging") { artifact = "facility-messaging" }
-        module("protobuf-pbj") { artifact = "block-node-protobuf-pbj" }
-        module("s3-archive") { artifact = "block-node-s3-archive" }
-        module("server-status") { artifact = "block-node-server-status" }
-        module("spi") { artifact = "block-node-spi-plugins" }
-        module("stream-publisher") { artifact = "block-node-stream-publisher" }
-        module("stream-subscriber") { artifact = "block-node-stream-subscriber" }
-        module("verification") { artifact = "block-node-verification" }
+        module("protobuf-pbj") { artifact = "protobuf-pbj" }
+        module("s3-archive") { artifact = "s3-archive" }
+        module("server-status") { artifact = "server-status" }
+        module("spi") { artifact = "spi-plugins" }
+        module("stream-publisher") { artifact = "stream-publisher" }
+        module("stream-subscriber") { artifact = "stream-subscriber" }
+        module("verification") { artifact = "verification" }
     }
 }
 

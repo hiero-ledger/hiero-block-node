@@ -86,10 +86,10 @@ WORKDIR ${BN_WORKDIR}
 # Copy Distribution TAR file
 # Ignore Codacy, the `distributions` context is set on command line and
 # _must be_ so set in order to work with the wonky CI setup.
-COPY --from=distributions block-node-app-${VERSION}.tar .
+COPY --from=distributions app-${VERSION}.tar .
 
 # Extract the TAR file
-RUN tar -xvf block-node-app-${VERSION}.tar
+RUN tar -xvf app-${VERSION}.tar
 
 # Create a log directory
 RUN mkdir -p ${BN_WORKDIR}/logs/config
@@ -157,4 +157,4 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=3s --retries=3 \
       curl -f http://localhost:40840/healthz/readyz || exit 1
 
 # RUN the bin script for starting the server
-ENTRYPOINT ["/bin/bash", "-c", "${BN_WORKDIR}/block-node-app-${VERSION}/bin/block-node-app || sleep 30d"]
+ENTRYPOINT ["/bin/bash", "-c", "${BN_WORKDIR}/app-${VERSION}/bin/app || sleep 30d"]
