@@ -49,13 +49,14 @@ streamlined and automated fashion.
 To utilize the Solo Weaver experience
 
 1. Install Weaver on the server
+
 ```bash
 curl -sSL https://raw.githubusercontent.com/hashgraph/solo-weaver/main/install.sh | bash
 weaver --help
 ```
 
 2. Run the provisioning and install flow
-Follow the [Setup Block Node](https://github.com/hashgraph/solo-weaver/blob/main/docs/quickstart.md#setup-block-node) steps.
+   Follow the [Setup Block Node](https://github.com/hashgraph/solo-weaver/blob/main/docs/quickstart.md#setup-block-node) steps.
 
 ### Custom Provisioning Script
 
