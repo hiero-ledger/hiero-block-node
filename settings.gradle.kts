@@ -23,25 +23,7 @@ javaModules {
         module("simulator")
         module("protobuf-protoc")
     }
-    directory("block-node") {
-        group = hieroGroup
-        module("app") { artifact = "app" }
-        module("app-config") { artifact = "app-config" }
-        module("backfill") { artifact = "backfill" }
-        module("base") { artifact = "base" }
-        module("block-access") { artifact = "block-access-service" }
-        module("block-providers/files.historic") { artifact = "blocks-file-historic" }
-        module("block-providers/files.recent") { artifact = "blocks-file-recent" }
-        module("health") { artifact = "health" }
-        module("messaging") { artifact = "facility-messaging" }
-        module("protobuf-pbj") { artifact = "protobuf-pbj" }
-        module("s3-archive") { artifact = "s3-archive" }
-        module("server-status") { artifact = "server-status" }
-        module("spi") { artifact = "spi-plugins" }
-        module("stream-publisher") { artifact = "stream-publisher" }
-        module("stream-subscriber") { artifact = "stream-subscriber" }
-        module("verification") { artifact = "verification" }
-    }
+    directory("block-node") { group = hieroGroup }
 }
 
 // @jjohannes: remove once 'swirldsVersion' is updated to '0.63.x' in
