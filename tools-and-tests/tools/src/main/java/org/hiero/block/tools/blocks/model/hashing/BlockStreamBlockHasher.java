@@ -126,7 +126,8 @@ public class BlockStreamBlockHasher {
             switch (blockItem.item().kind()) {
                 case EVENT_HEADER, ROUND_HEADER -> consensusHeadersHasher.addLeaf(blockItemBytes);
                 case SIGNED_TRANSACTION -> inputItemsHasher.addLeaf(blockItemBytes);
-                case BLOCK_HEADER, RECORD_FILE, TRANSACTION_RESULT, TRANSACTION_OUTPUT -> outputItemsHasher.addLeaf(blockItemBytes);
+                case BLOCK_HEADER, RECORD_FILE, TRANSACTION_RESULT, TRANSACTION_OUTPUT ->
+                    outputItemsHasher.addLeaf(blockItemBytes);
                 case STATE_CHANGES -> stateChangeItemsHasher.addLeaf(blockItemBytes);
                 case FILTERED_ITEM_HASH -> {
                     FilteredItemHash filteredItemHash = blockItem.filteredItemHashOrThrow();
