@@ -7,6 +7,7 @@ import org.hiero.block.tools.days.subcommands.DownloadDay;
 import org.hiero.block.tools.days.subcommands.DownloadDays;
 import org.hiero.block.tools.days.subcommands.DownloadDaysV2;
 import org.hiero.block.tools.days.subcommands.FixMissingSignatures;
+import org.hiero.block.tools.days.subcommands.FixSignatureFileNames;
 import org.hiero.block.tools.days.subcommands.Ls;
 import org.hiero.block.tools.days.subcommands.LsDayListing;
 import org.hiero.block.tools.days.subcommands.PrintListing;
@@ -40,6 +41,7 @@ import picocli.CommandLine.Spec;
             CleanDayOfBadRecordSets.class,
             UpdateDayListingsCommand.class,
             FixMissingSignatures.class,
+            FixSignatureFileNames.class,
         },
         mixinStandardHelpOptions = true)
 public class DaysCommand implements Runnable {
