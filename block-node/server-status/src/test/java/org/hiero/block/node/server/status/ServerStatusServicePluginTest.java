@@ -11,8 +11,6 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 
 import com.hedera.hapi.block.stream.BlockItem;
 import com.hedera.pbj.runtime.ParseException;
-import com.hedera.pbj.runtime.grpc.ServiceInterface;
-import java.util.List;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.ScheduledExecutorService;
 import org.hiero.block.api.ServerStatusRequest;
@@ -51,20 +49,6 @@ public class ServerStatusServicePluginTest
     }
 
     /**
-     * Verifies that the service interface correctly registers and exposes
-     * the server status method.
-     */
-    @Test
-    @DisplayName("Should return correct method for ServerStatusServicePlugin")
-    void shouldReturnCorrectMethod() {
-        assertNotNull(serviceInterface);
-        List<ServiceInterface.Method> methods = serviceInterface.methods();
-        assertNotNull(methods);
-        assertEquals(1, methods.size());
-        assertEquals(plugin.methods().getFirst(), methods.getFirst());
-    }
-
-    /**
      * Tests that the server status response is valid when no blocks are available.
      * Verifies the first and last available block numbers and other response properties.
      *
@@ -83,9 +67,6 @@ public class ServerStatusServicePluginTest
         assertEquals(UNKNOWN_BLOCK_NUMBER, response.firstAvailableBlock());
         assertEquals(UNKNOWN_BLOCK_NUMBER, response.lastAvailableBlock());
         assertFalse(response.onlyLatestState());
-
-        // TODO(#579) Remove when block node version information is implemented.
-        assertFalse(response.hasVersionInformation());
     }
 
     /**
@@ -109,9 +90,6 @@ public class ServerStatusServicePluginTest
         assertEquals(0, response.firstAvailableBlock());
         assertEquals(blocks - 1, response.lastAvailableBlock());
         assertFalse(response.onlyLatestState());
-
-        // TODO() Remove when block node version information is implemented.
-        assertFalse(response.hasVersionInformation());
     }
 
     /**

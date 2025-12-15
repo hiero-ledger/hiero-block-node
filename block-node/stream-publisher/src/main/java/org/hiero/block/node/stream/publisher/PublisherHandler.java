@@ -28,6 +28,7 @@ import java.util.concurrent.atomic.AtomicLong;
 import org.hiero.block.api.BlockEnd;
 import org.hiero.block.api.PublishStreamRequest.EndStream;
 import org.hiero.block.api.PublishStreamResponse;
+import org.hiero.block.api.PublishStreamResponse.BehindPublisher;
 import org.hiero.block.api.PublishStreamResponse.BlockAcknowledgement;
 import org.hiero.block.api.PublishStreamResponse.EndOfStream;
 import org.hiero.block.api.PublishStreamResponse.EndOfStream.Code;
@@ -288,7 +289,7 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
                     case ACCEPT -> handleAccept(itemSetUnparsed, blockItems);
                     case SKIP -> handleSkip(blockNumber);
                     case RESEND -> handleResend();
-                    case END_BEHIND -> handleEndBehind();
+                    case SEND_BEHIND -> handleSendBehind();
                     case END_DUPLICATE -> handleEndDuplicate();
                     case END_ERROR -> handleEndError();
                 };
@@ -610,12 +611,22 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
     /**
      * Handle the END_BEHIND action for a block.
      */
-    private BatchHandleResult handleEndBehind() {
-        LOGGER.log(DEBUG, "Handler {0} is sending BEHIND({1}).", handlerId, publisherManager.getLatestBlockNumber());
-        // If the action is END_BEHIND, we need to send an end of stream
+    private BatchHandleResult handleSendBehind() {
+        LOGGER.log(DEBUG, "Handler {0} is sending Behind({1}).", handlerId, publisherManager.getLatestBlockNumber());
+        // If the action is SEND_BEHIND, we need to send an end of stream
         // response to the publisher and not propagate the items.
-        sendEndOfStream(Code.BEHIND);
-        return new BatchHandleResult(true, true);
+        final BehindPublisher behindMessage = BehindPublisher.newBuilder()
+                .blockNumber(publisherManager.getLatestBlockNumber())
+                .build();
+        final PublishStreamResponse response = PublishStreamResponse.newBuilder()
+                .nodeBehindPublisher(behindMessage)
+                .build();
+        if (sendResponse(response)) {
+            metrics.nodeBehindSent.increment(); // @todo(1415) add label
+            return new BatchHandleResult(false, true);
+        } else {
+            return new BatchHandleResult(true, true);
+        }
     }
 
     /**
@@ -759,6 +770,7 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
             Counter blockSkipsSent,
             Counter blockResendsSent,
             Counter endOfStreamsSent,
+            Counter nodeBehindSent,
             Counter sendResponseFailed,
             Counter endStreamsReceived,
             Counter receiveBlockTimeLatencyNs) {
@@ -787,6 +799,9 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
             final Counter blockResendsSent =
                     metrics.getOrCreate(new Counter.Config(METRICS_CATEGORY, "publisher_blocks_resend_sent")
                             .withDescription("Block Resend messages sent"));
+            final Counter nodeBehindSent =
+                    metrics.getOrCreate(new Counter.Config(METRICS_CATEGORY, "publisher_block_node_behind_sent")
+                            .withDescription("Node Behind Publisher messages sent"));
             final Counter endOfStreamsSent =
                     metrics.getOrCreate(new Counter.Config(METRICS_CATEGORY, "publisher_block_endofstream_sent")
                             .withDescription("Block End-of-Stream messages sent"));
@@ -809,6 +824,7 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
                     blockSkipsSent,
                     blockResendsSent,
                     endOfStreamsSent,
+                    nodeBehindSent,
                     sendResponseFailed,
                     endStreamsReceived,
                     receiveBlockTimeLatencyNs);
