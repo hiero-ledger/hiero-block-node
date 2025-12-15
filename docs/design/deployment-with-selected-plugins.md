@@ -39,7 +39,7 @@ just lists the required jars in their values file and those plugins get loaded i
 
 To achieve that we will have RFH, LFH and all plugins overrides in values-overrides folder.
 Each override file will specify the required plugins for that deployment in initContainers where
-the required plugins will be downloaded and put to the /lib folder in block-node-app container.
+the required plugins will be downloaded and put to the /lib folder in block-node-app.
 
 ## Acceptance Tests
 
