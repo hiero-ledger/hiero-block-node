@@ -66,6 +66,11 @@ public class FixMissingSignatures implements Runnable {
             description = "GCP project to bill for requester-pays bucket access (default: from GCP_PROJECT_ID env var)")
     private String userProject = DownloadConstants.GCP_PROJECT_ID;
 
+    @Option(
+            names = {"--single-day"},
+            description = "Process only a single day (format: YYYY-MM-DD, e.g., 2025-10-09)")
+    private String singleDay = null;
+
     @SuppressWarnings("BusyWait")
     @Override
     public void run() {
@@ -93,6 +98,26 @@ public class FixMissingSignatures implements Runnable {
             System.out.println(Ansi.AUTO.string(
                     "@|red Error: no days found in compressedDays directory at: " + compressedDaysDir + "|@"));
             return;
+        }
+        // Handle --single-day option: override the days list to process only the specified day
+        if (singleDay != null) {
+            LocalDate targetDay;
+            try {
+                targetDay = LocalDate.parse(singleDay);
+            } catch (Exception e) {
+                System.out.println(Ansi.AUTO.string("@|red Error: Invalid date format for --single-day: " + singleDay
+                        + ". Expected format: YYYY-MM-DD (e.g., 2025-10-09)|@"));
+                return;
+            }
+            if (!days.contains(targetDay)) {
+                System.out.println(Ansi.AUTO.string("@|red Error: Specified day " + singleDay
+                        + " not found in compressedDays directory. Available range: " + days.getFirst() + " to "
+                        + days.getLast() + "|@"));
+                return;
+            }
+            days.clear();
+            days.add(targetDay);
+            System.out.println(Ansi.AUTO.string("@|cyan Processing single day: " + targetDay + "|@"));
         }
         // Check fixedCompressedDaysDir
         if (!fixedCompressedDaysDir.exists()) {
