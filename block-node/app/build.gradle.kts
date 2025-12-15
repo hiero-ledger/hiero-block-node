@@ -11,6 +11,15 @@ description = "Hiero Block Node Server App"
 // and then fix the reported issues.
 tasks.withType<JavaCompile>().configureEach { options.compilerArgs.add("-Xlint:-exports") }
 
+tasks.startScripts {
+    classpath = files()
+    doLast {
+        unixScript.writeText(
+            unixScript.readText().replace("MODULE_PATH=\n", "MODULE_PATH=\$APP_HOME/lib/\n")
+        )
+    }
+}
+
 tasks.withType<JavaExec>().configureEach {
     modularity.inferModulePath = true
     val serverDataDir = layout.buildDirectory.get().dir("block-node-storage")
