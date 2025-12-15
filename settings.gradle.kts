@@ -11,17 +11,10 @@ val hieroGroup = "org.hiero.block-node"
 rootProject.name = "hiero-block-node"
 
 javaModules {
-    directory(".") {
-        group = hieroGroup
-        module("common")
-        module("protobuf-sources") { artifact = "protobuf-sources" }
-    }
+    directory(".") { group = hieroGroup }
     directory("tools-and-tests") {
         group = hieroGroup
         module("tools") // no 'module-info' yet
-        module("suites")
-        module("simulator")
-        module("protobuf-protoc")
     }
     directory("block-node") { group = hieroGroup }
 }
