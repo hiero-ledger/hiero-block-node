@@ -7,14 +7,19 @@ import static java.lang.System.Logger.Level.TRACE;
 import com.hedera.pbj.runtime.ParseException;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import com.swirlds.metrics.api.Counter;
+import edu.umd.cs.findbugs.annotations.NonNull;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.Comparator;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import java.util.OptionalLong;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.TimeUnit;
 import org.hiero.block.api.ServerStatusRequest;
 import org.hiero.block.api.ServerStatusResponse;
@@ -91,34 +96,6 @@ public class BackfillGrpcClient {
     }
 
     /**
-     * Checks if the specified block range is available in the given block node.
-     * @param node the block node to check
-     * @param blockRange the block range to check
-     * @return a LongRange representing the intersection of the block range and the available blocks in the node.
-     */
-    private LongRange getAvailableRangeInNode(BlockNodeClient node, LongRange blockRange) {
-
-        final ServerStatusResponse nodeStatus =
-                node.getBlockNodeServiceClient().serverStatus(new ServerStatusRequest());
-        long firstAvailableBlock = nodeStatus.firstAvailableBlock();
-        long lastAvailableBlock = nodeStatus.lastAvailableBlock();
-
-        long start = blockRange.start();
-        long end = blockRange.end();
-
-        // Compute the intersection
-        long intersectionStart = Math.max(start, firstAvailableBlock);
-        long intersectionEnd = Math.min(end, lastAvailableBlock);
-
-        // If there's no overlap, return null
-        if (intersectionStart > intersectionEnd) {
-            return null;
-        }
-
-        return new LongRange(intersectionStart, intersectionEnd);
-    }
-
-    /**
      * Determines the new available block range across all configured block nodes,
      * starting from the latest stored block number + 1 and ending at the maximum
      * last available block number reported by any of the nodes.
@@ -171,89 +148,13 @@ public class BackfillGrpcClient {
     }
 
     /**
-     * Fetches missing blocks for the given block range.
-     *
-     * @param blockRange The block range to fetch
-     * @return A list of blocks fetched from the block nodes, or an empty list if no blocks were found
+     * Determine available ranges for a node. Once serverStatusDetail is available, this method could return multiple
+     * ranges; today it returns a single contiguous range from serverStatus.
      */
-    public List<BlockUnparsed> fetchBlocks(LongRange blockRange) {
-        LOGGER.log(
-                INFO,
-                "Requesting blocks for range start={0,number,#} to end={1,number,#}",
-                blockRange.start(),
-                blockRange.end());
-
-        // only use nodes that are ACTIVE or UNKNOWN
-        List<BackfillSourceConfig> activeOrUnknownNodes = new ArrayList<>();
-        for (BackfillSourceConfig node : blockNodeSource.nodes()) {
-            Status currentStatus = nodeStatusMap.getOrDefault(node, Status.UNKNOWN);
-            if (currentStatus == Status.AVAILABLE || currentStatus == Status.UNKNOWN) {
-                activeOrUnknownNodes.add(node);
-            }
-        }
-        // Randomize order to avoid always hitting the same node first
-        Collections.shuffle(activeOrUnknownNodes);
-        // Sort by priority
-        activeOrUnknownNodes.sort(Comparator.comparingInt(BackfillSourceConfig::priority));
-
-        // Try each node in priority order
-        for (BackfillSourceConfig node : activeOrUnknownNodes) {
-            LOGGER.log(INFO, "Trying Block Node: {0}:{1}", node.address(), node.port());
-
-            for (int attempt = 1; attempt <= maxRetries; attempt++) {
-                try {
-                    BlockNodeClient currentNodeClient = getNodeClient(node);
-                    // Check if the node has the blocks we need
-                    LongRange actualRange = getAvailableRangeInNode(currentNodeClient, blockRange);
-                    if (actualRange == null) {
-                        LOGGER.log(
-                                INFO,
-                                "Block range not available in node {0}:{1}, trying next node",
-                                node.address(),
-                                node.port());
-                        break;
-                    }
-                    // if we reach here, the node is available
-                    nodeStatusMap.put(node, Status.AVAILABLE);
-
-                    // Try to fetch blocks from this node
-                    return currentNodeClient
-                            .getBlockstreamSubscribeUnparsedClient()
-                            .getBatchOfBlocks(actualRange.start(), actualRange.end());
-                } catch (Exception e) {
-                    if (attempt == maxRetries) {
-                        // If we reach the max retries, mark the node as UNAVAILABLE
-                        nodeStatusMap.put(node, Status.UNAVAILABLE);
-
-                        LOGGER.log(
-                                INFO,
-                                "Failed to fetch blocks from node address={0} port={1,number,#} error={2}",
-                                node.address(),
-                                node.port(),
-                                e);
-
-                    } else {
-                        long delay = Math.multiplyExact(initialRetryDelayMs, attempt);
-                        LOGGER.log(INFO, "Attempt {0} failed. Retrying in {1} milliseconds...", attempt, delay);
-                        try {
-                            TimeUnit.MILLISECONDS.sleep(delay);
-                        } catch (InterruptedException ie) {
-                            Thread.currentThread().interrupt();
-                            break;
-                        }
-                        // update metrics
-                        backfillRetries.increment();
-                    }
-                }
-            }
-        }
-
-        LOGGER.log(
-                INFO,
-                "No configured Block Node had the missing blocks for range: {0} to {1}",
-                blockRange.start(),
-                blockRange.end());
-        return Collections.emptyList();
+    protected List<LongRange> resolveAvailableRanges(BlockNodeClient node) {
+        final ServerStatusResponse nodeStatus =
+                node.getBlockNodeServiceClient().serverStatus(new ServerStatusRequest());
+        return List.of(new LongRange(nodeStatus.firstAvailableBlock(), nodeStatus.lastAvailableBlock()));
     }
 
     /**
@@ -264,7 +165,7 @@ public class BackfillGrpcClient {
      * @param node the BackfillSourceConfig to get the client for
      * @return a BlockNodeClient for the specified node
      */
-    private BlockNodeClient getNodeClient(BackfillSourceConfig node) {
+    protected BlockNodeClient getNodeClient(BackfillSourceConfig node) {
         return nodeClientMap.computeIfAbsent(
                 node, BlockNodeClient -> new BlockNodeClient(node, connectionTimeoutSeconds, enableTls));
     }
@@ -279,6 +180,170 @@ public class BackfillGrpcClient {
             nodeStatusMap.put(node, Status.UNKNOWN);
         }
     }
+
+    /**
+     * Perform a serverStatus call per configured node and compute the available ranges intersecting the target.
+     *
+     * @param targetRange overall gap we are trying to backfill
+     * @return map of node -> available range overlapping the target
+     */
+    public Map<BackfillSourceConfig, List<LongRange>> getAvailabilityForRange(LongRange targetRange) {
+        Map<BackfillSourceConfig, List<LongRange>> availability = new HashMap<>();
+
+        for (BackfillSourceConfig node : blockNodeSource.nodes()) {
+            BlockNodeClient currentNodeClient = getNodeClient(node);
+            if (currentNodeClient == null || !currentNodeClient.isNodeReachable()) {
+                nodeStatusMap.put(node, Status.UNAVAILABLE);
+                continue;
+            }
+
+            List<LongRange> ranges = resolveAvailableRanges(currentNodeClient);
+
+            List<LongRange> intersections = new ArrayList<>();
+            for (LongRange range : ranges) {
+                long intersectionStart = Math.max(targetRange.start(), range.start());
+                long intersectionEnd = Math.min(targetRange.end(), range.end());
+                if (intersectionStart <= intersectionEnd) {
+                    intersections.add(new LongRange(intersectionStart, intersectionEnd));
+                }
+            }
+
+            if (!intersections.isEmpty()) {
+                availability.put(node, intersections);
+                nodeStatusMap.put(node, Status.AVAILABLE);
+            } else {
+                nodeStatusMap.put(node, Status.UNAVAILABLE);
+            }
+        }
+
+        return availability;
+    }
+
+    /**
+     * Selects the best node and chunk to fetch next, based on pre-computed availability.
+     *
+     * @param startBlock the next block number to fetch
+     * @param gapEnd     inclusive end of the gap
+     * @param availability map of node -> available range intersecting the gap
+     * @return optional NodeSelection describing which node to hit and what range to request
+     */
+    public Optional<NodeSelection> selectNextChunk(
+            long startBlock, long gapEnd, @NonNull Map<BackfillSourceConfig, List<LongRange>> availability) {
+        if (startBlock > gapEnd) {
+            return Optional.empty();
+        }
+
+        OptionalLong earliestAvailableStart = findEarliestAvailableStart(startBlock, gapEnd, availability);
+        if (earliestAvailableStart.isEmpty()) {
+            return Optional.empty();
+        }
+
+        List<NodeSelection> candidates =
+                candidatesForEarliest(startBlock, gapEnd, earliestAvailableStart.getAsLong(), availability);
+        return chooseBestCandidate(candidates);
+    }
+
+    /** Locate the earliest start index across all available ranges that can satisfy the request bounds. */
+    private OptionalLong findEarliestAvailableStart(
+            long startBlock, long gapEnd, @NonNull Map<BackfillSourceConfig, List<LongRange>> availability) {
+        long earliestAvailableStart = Long.MAX_VALUE;
+        for (Map.Entry<BackfillSourceConfig, List<LongRange>> entry : availability.entrySet()) {
+            for (LongRange availableRange : entry.getValue()) {
+                long candidateStart = Math.max(startBlock, availableRange.start());
+                if (candidateStart > availableRange.end() || candidateStart > gapEnd) {
+                    continue;
+                }
+                earliestAvailableStart = Math.min(earliestAvailableStart, candidateStart);
+            }
+        }
+
+        if (earliestAvailableStart == Long.MAX_VALUE) {
+            return OptionalLong.empty();
+        }
+
+        return OptionalLong.of(earliestAvailableStart);
+    }
+
+    /** Build the list of nodes that can serve the earliest available start. */
+    private List<NodeSelection> candidatesForEarliest(
+            long startBlock,
+            long gapEnd,
+            long earliestAvailableStart,
+            @NonNull Map<BackfillSourceConfig, List<LongRange>> availability) {
+        List<NodeSelection> candidates = new ArrayList<>();
+        for (Map.Entry<BackfillSourceConfig, List<LongRange>> entry : availability.entrySet()) {
+            for (LongRange availableRange : entry.getValue()) {
+                long candidateStart = Math.max(startBlock, availableRange.start());
+                if (candidateStart != earliestAvailableStart) {
+                    continue;
+                }
+                if (candidateStart > availableRange.end() || candidateStart > gapEnd) {
+                    continue;
+                }
+                candidates.add(new NodeSelection(entry.getKey(), candidateStart));
+            }
+        }
+        return candidates;
+    }
+
+    /** Choose the lowest-priority candidate (tie-breaking randomly) from the supplied list. */
+    private Optional<NodeSelection> chooseBestCandidate(@NonNull List<NodeSelection> candidates) {
+        if (candidates.isEmpty()) {
+            return Optional.empty();
+        }
+
+        int bestPriority = candidates.stream()
+                .mapToInt(selection -> selection.nodeConfig().priority())
+                .min()
+                .orElse(Integer.MAX_VALUE);
+        List<NodeSelection> bestPriorityCandidates = candidates.stream()
+                .filter(c -> c.nodeConfig().priority() == bestPriority)
+                .toList();
+
+        if (bestPriorityCandidates.size() == 1) {
+            return Optional.of(bestPriorityCandidates.getFirst());
+        }
+
+        int chosenIndex = ThreadLocalRandom.current().nextInt(bestPriorityCandidates.size());
+        return Optional.of(bestPriorityCandidates.get(chosenIndex));
+    }
+
+    /**
+     * Fetch blocks for the provided range from the selected node using retries, without iterating other nodes.
+     */
+    public List<BlockUnparsed> fetchBlocksFromNode(BackfillSourceConfig nodeConfig, LongRange blockRange) {
+        BlockNodeClient currentNodeClient = getNodeClient(nodeConfig);
+
+        for (int attempt = 1; attempt <= maxRetries; attempt++) {
+            try {
+                List<BlockUnparsed> batch = currentNodeClient
+                        .getBlockstreamSubscribeUnparsedClient()
+                        .getBatchOfBlocks(blockRange.start(), blockRange.end());
+                if (batch.size() != blockRange.size()) {
+                    nodeStatusMap.put(nodeConfig, Status.UNAVAILABLE);
+                    return Collections.emptyList();
+                }
+                return batch;
+            } catch (Exception e) {
+                if (attempt == maxRetries) {
+                    nodeStatusMap.put(nodeConfig, Status.UNAVAILABLE);
+                } else {
+                    long delay = Math.multiplyExact(initialRetryDelayMs, attempt);
+                    try {
+                        TimeUnit.MILLISECONDS.sleep(delay);
+                    } catch (InterruptedException ie) {
+                        Thread.currentThread().interrupt();
+                        break;
+                    }
+                    backfillRetries.increment();
+                }
+            }
+        }
+
+        return Collections.emptyList();
+    }
+
+    public record NodeSelection(BackfillSourceConfig nodeConfig, long startBlock) {}
 
     /**
      * Enum representing the status of a block node:

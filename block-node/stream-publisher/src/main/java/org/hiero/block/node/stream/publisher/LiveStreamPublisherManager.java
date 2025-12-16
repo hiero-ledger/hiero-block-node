@@ -181,10 +181,10 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
         return switch (previousAction) {
             case null -> getActionForHeader(blockNumber, handlerId);
             case ACCEPT -> getActionForCurrentlyStreaming(blockNumber);
-            case END_ERROR, END_DUPLICATE, END_BEHIND ->
+            case END_ERROR, END_DUPLICATE ->
                 // This should not happen because the Handler should have shut down.
                 BlockAction.END_ERROR;
-            case SKIP, RESEND ->
+            case SKIP, RESEND, SEND_BEHIND ->
                 // This should not happen because the Handler should have reset the previous action.
                 BlockAction.END_ERROR;
         };
@@ -224,7 +224,7 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
         } else if (blockNumber == nextUnstreamedBlockNumber.get()) {
             return addHandlerQueueForBlock(blockNumber, handlerId);
         } else if (blockNumber > nextUnstreamedBlockNumber.get()) {
-            return BlockAction.END_BEHIND;
+            return BlockAction.SEND_BEHIND;
         } else {
             // This should not be possible, all cases that could reach here are
             // already handled above.
@@ -283,7 +283,8 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
             }
         }
         // Return the correct action if another handler jumped in front of the caller.
-        return blockNumber < nextUnstreamedBlockNumber.get() ? BlockAction.SKIP : BlockAction.END_BEHIND;
+        // Note, neither of these ends the stream; both ask the publisher to send a different block.
+        return blockNumber < nextUnstreamedBlockNumber.get() ? BlockAction.SKIP : BlockAction.SEND_BEHIND;
     }
 
     /*
@@ -362,7 +363,7 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
             // the block node is behind. The most likely cause here is a block
             // that failed to verify, or got stuck and did not finish, and was
             // parallel streaming a block earlier than the calling handler.
-            return BlockAction.END_BEHIND;
+            return BlockAction.SEND_BEHIND;
         } else {
             // This should not be possible, all cases that could reach here are
             // already handled above.
@@ -444,11 +445,14 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
         // updated. Any other query of these values needs to be made again!
         final long currentStreaming = currentStreamingBlockNumber.get();
         final long nextUnstreamed = nextUnstreamedBlockNumber.get();
-        if (blockNumber >= currentStreaming && blockNumber < nextUnstreamed) {
+        final String queueName = getQueueNameForHandlerId(handlerId);
+        if (blockNumber >= currentStreaming
+                && blockNumber < nextUnstreamed
+                && transferQueueMap.containsKey(queueName)) {
             // decrement the next unstreamed value, but only if the block number
             // provided by the ending handler is the latest started block.
             nextUnstreamedBlockNumber.compareAndSet(blockNumber + 1, blockNumber);
-            transferQueueMap.remove(getQueueNameForHandlerId(handlerId));
+            transferQueueMap.remove(queueName);
             // Also (potentially) remove this block from the queueByBlockMap.
             // and clear the queue if it is removed here.
             // Note, we know the last block must be incomplete _if_ it was started
@@ -458,7 +462,7 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
             if (queue != null) {
                 discardIncompleteTrailingBlock(queue);
             }
-        } else {
+        } else if (transferQueueMap.containsKey(queueName)) {
             // this should never happen
             final String message =
                     "Invalid state detected for handler %d when ending mid-block %d. Current Streaming Block Number: %d, Next Unstreamed Block Number: %d"

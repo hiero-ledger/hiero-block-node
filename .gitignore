@@ -63,3 +63,7 @@ server/src/test/resources/test_output/
 # protobuf artifcate related dirs
 protobuf-sources/block-node-protobuf/
 protobuf-sources/hiero-consensus-node/
+
+node_modules/
+k6-proto/
+k6-out.txt

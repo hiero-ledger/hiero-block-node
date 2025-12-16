@@ -57,12 +57,12 @@ jobs:
     runs-on: hiero-block-node-linux-medium
     steps:
       - name: Harden Runner
-        uses: step-security/harden-runner@df199fb7be9f65074067a9eb93f12bb4c5547cf2 # v2.13.3
+        uses: step-security/harden-runner@20cf305ff2072d973412fa9b1e3a4f227bda3c76 # v2.14.0
         with:
           egress-policy: audit
 
       - name: Checkout repository
-        uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
+        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
         with:
           fetch-depth: 0
           ref: ${{ inputs.block-node-helm-chart-version }}
@@ -86,7 +86,7 @@ jobs:
           wait: 120s
 
       - name: Install JDK
-        uses: actions/setup-java@dded0888837ed1f317902acf8a20df0ad188d165 # v5.0.0
+        uses: actions/setup-java@f2beeb24e141e01a676f977032f5a29d81c9e27e # v5.1.0
         with:
           distribution: "temurin"
           java-version: 21
@@ -168,7 +168,7 @@ jobs:
 
       # produce protobuf source artifact
       - name: Produce Protobuf proto artifact
-        run: ${GRADLE_EXEC} :block-node-protobuf-sources:generateBlockNodeProtoArtifact
+        run: ${GRADLE_EXEC} :protobuf-sources:generateBlockNodeProtoArtifact
 
       # untar protobuf sources
       - name: Untar Protobuf Sources
@@ -313,7 +313,7 @@ jobs:
 
       - name: Checkout Regression Code
         if: ${{ inputs.run-tck-regression-tests }}
-        uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
+        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
         with:
           path: sdk-tck/regression
           repository: hiero-ledger/hiero-sdk-tck
@@ -332,7 +332,7 @@ jobs:
       # Checkout the JS-SDK server
       - name: Checkout JS-SDK Server
         if: ${{ inputs.run-tck-regression-tests }}
-        uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
+        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
         with:
           path: sdk-tck/sdk-server
           repository: hiero-ledger/hiero-sdk-js

@@ -164,6 +164,8 @@ class PublisherHandlerTest {
                 response -> response.response().kind();
         private final Function<PublishStreamResponse, Code> endStreamResponseCodeExtractor =
                 response -> Objects.requireNonNull(response.endStream()).status();
+        private final Function<PublishStreamResponse, Long> nodeBehindBlockNumberExtractor = response ->
+                Objects.requireNonNull(response.nodeBehindPublisher()).blockNumber();
         private final Function<PublishStreamResponse, Long> endStreamBlockNumberExtractor =
                 response -> Objects.requireNonNull(response.endStream()).blockNumber();
         private final Function<PublishStreamResponse, Long> skipBlockNumberExtractor =
@@ -922,12 +924,12 @@ class PublisherHandlerTest {
              * The request's first item is the block header for the streamed block,
              * and the last item is the block proof for the streamed block.
              * We expect that when the {@link StreamPublisherManager} returns
-             * {@link BlockAction#END_BEHIND} for the streamed block number no items
+             * {@link BlockAction#SEND_BEHIND} for the streamed block number no items
              * will be offered to the transfer queue, and the handler will reply
              */
             @Test
             @DisplayName(
-                    "Test onNext() with valid request with a complete single block no items offered to transfer queue - EndOfStream, Code BEHIND")
+                    "Test onNext() with valid request with a complete single block no items offered to transfer queue")
             void testOnNextBEHIND() {
                 // Setup request to send, in this case a single complete valid block
                 // as items, starting with header and ending with proof
@@ -940,8 +942,8 @@ class PublisherHandlerTest {
                 final PublishStreamRequestUnparsed request = PublishStreamRequestUnparsed.newBuilder()
                         .blockItems(blockItemSet)
                         .build();
-                // Train the manager to return END_BEHIND for the block number
-                manager.setBlockAction(BlockAction.END_BEHIND);
+                // Train the manager to return SEND_BEHIND for the block number
+                manager.setBlockAction(BlockAction.SEND_BEHIND);
                 // Call
                 toTest.onNext(request);
                 // Assert no items offered to the transfer queue
@@ -955,14 +957,12 @@ class PublisherHandlerTest {
              * The request's first item is the block header for the streamed block,
              * and the last item is the block proof for the streamed block.
              * We expect that when the {@link StreamPublisherManager} returns
-             * {@link BlockAction#END_BEHIND} for the streamed block number the
+             * {@link BlockAction#SEND_BEHIND} for the streamed block number the
              * handler will reply with a
-             * {@link org.hiero.block.api.PublishStreamResponse.EndOfStream}
-             * with {@link org.hiero.block.api.PublishStreamResponse.EndOfStream.Code#BEHIND}.
+             * {@link org.hiero.block.api.PublishStreamResponse.BehindPublisher}.
              */
             @Test
-            @DisplayName(
-                    "Test onNext() with valid request with a complete single block response EndOfStream, Code BEHIND - EndOfStream, Code BEHIND")
+            @DisplayName("Test onNext() with valid request with a complete single block response BehindPublisher")
             void testOnNextResponseBEHIND() {
                 // Setup request to send, in this case a single complete valid block
                 // as items, starting with header and ending with proof
@@ -975,8 +975,8 @@ class PublisherHandlerTest {
                 final PublishStreamRequestUnparsed request = PublishStreamRequestUnparsed.newBuilder()
                         .blockItems(blockItemSet)
                         .build();
-                // Train the manager to return END_BEHIND for the block number
-                manager.setBlockAction(BlockAction.END_BEHIND);
+                // Train the manager to return SEND_BEHIND for the block number
+                manager.setBlockAction(BlockAction.SEND_BEHIND);
                 // Train the manager to return the expected latest block number
                 final long expectedLatestBlockNumber = 10L; // Example latest block number
                 manager.setLatestBlockNumber(expectedLatestBlockNumber);
@@ -988,14 +988,8 @@ class PublisherHandlerTest {
                 assertThat(repliesPipeline.getOnNextCalls())
                         .hasSize(1)
                         .first()
-                        .returns(ResponseOneOfType.END_STREAM, responseKindExtractor)
-                        .returns(Code.BEHIND, endStreamResponseCodeExtractor)
-                        .returns(expectedLatestBlockNumber, endStreamBlockNumberExtractor);
-                assertThat(repliesPipeline.getOnCompleteCalls().get()).isEqualTo(1);
-                // Assert no other responses sent
-                assertThat(repliesPipeline.getOnErrorCalls()).isEmpty();
-                assertThat(repliesPipeline.getOnSubscriptionCalls()).isEmpty();
-                assertThat(repliesPipeline.getClientEndStreamCalls().get()).isEqualTo(0);
+                        .returns(ResponseOneOfType.NODE_BEHIND_PUBLISHER, responseKindExtractor)
+                        .returns(expectedLatestBlockNumber, nodeBehindBlockNumberExtractor);
             }
 
             /**
@@ -1005,12 +999,12 @@ class PublisherHandlerTest {
              * The request's first item is the block header for the streamed block,
              * and the last item is the block proof for the streamed block.
              * We expect that when the {@link StreamPublisherManager} returns
-             * {@link BlockAction#END_BEHIND} for the streamed block number the
+             * {@link BlockAction#SEND_BEHIND} for the streamed block number the
              * metrics will be properly updated.
              */
             @Test
             @DisplayName(
-                    "Test onNext() with valid request with a complete single block metrics updated EndOfStream, Code BEHIND - EndOfStream, Code BEHIND")
+                    "Test onNext() with valid request with a complete single block metrics updated returns BehindPublisher")
             void testOnNextMetricsBEHIND() {
                 // Setup request to send, in this case a single complete valid block
                 // as items, starting with header and ending with proof
@@ -1024,18 +1018,19 @@ class PublisherHandlerTest {
                         .blockItems(blockItemSet)
                         .build();
                 // Train the manager to return END_BEHIND for the block number
-                manager.setBlockAction(BlockAction.END_BEHIND);
+                manager.setBlockAction(BlockAction.SEND_BEHIND);
                 // Train the manager to return the expected latest block number
                 final long latestBlockNumber = 10L; // Example latest block number
                 manager.setLatestBlockNumber(latestBlockNumber);
                 // Call
                 toTest.onNext(request);
                 // Assert metrics updated
-                assertThat(metrics.endOfStreamsSent().get()).isEqualTo(1);
+                assertThat(metrics.endOfStreamsSent().get()).isEqualTo(0);
                 // Assert other metrics unchanged
                 assertThat(metrics.liveBlockItemsReceived().get()).isEqualTo(0);
                 assertThat(metrics.blockAcknowledgementsSent().get()).isEqualTo(0);
                 assertThat(metrics.streamErrors().get()).isEqualTo(0);
+                assertThat(metrics.nodeBehindSent().get()).isEqualTo(1);
                 assertThat(metrics.blockSkipsSent().get()).isEqualTo(0);
                 assertThat(metrics.blockResendsSent().get()).isEqualTo(0);
                 assertThat(metrics.sendResponseFailed().get()).isEqualTo(0);
@@ -2120,10 +2115,10 @@ class PublisherHandlerTest {
         }
 
         /**
-         * Requirement: {@link PublisherHandler#onSubscribe(org.reactivestreams.Subscription)} must be a no-op:
+         * Requirement: {@link PublisherHandler#onSubscribe(Subscription)} must be a no-op:
          * it should not throw, and it must produce no protocol responses or reply-pipeline side effects.
          *
-         * Verification strategy: Start from a clean reply pipeline, pass a minimal no-op {@link org.reactivestreams.Subscription}
+         * Verification strategy: Start from a clean reply pipeline, pass a minimal no-op Subscription
          * to {@code onSubscribe(...)}, assert no exception is thrown, and then assert zero interactions across
          * onNext/onError/onSubscription/onComplete and client-end-stream counters.
          *
@@ -2210,7 +2205,7 @@ class PublisherHandlerTest {
 
         /**
          * Requirement: When an acknowledgement is sent for a given block number, the handler must emit exactly one
-         * {@link org.hiero.block.api.PublishStreamResponse.Acknowledgement} response containing the same block number
+         * {@link PublishStreamResponse} response containing the same block number
          * and increment the {@code blockAcknowledgementsSent} metric by one.
          *
          * Verification strategy: Begin from a clean state, invoke {@link PublisherHandler#sendAcknowledgement(long)}, then
@@ -2402,6 +2397,7 @@ class PublisherHandlerTest {
                 new DefaultCounter(new Config(METRICS_CATEGORY, "publisher_blocks_skips_sent")),
                 new DefaultCounter(new Config(METRICS_CATEGORY, "publisher_blocks_resend_sent")),
                 new DefaultCounter(new Config(METRICS_CATEGORY, "publisher_block_endofstream_sent")),
+                new DefaultCounter(new Config(METRICS_CATEGORY, "publisher_block_node_behind_sent")),
                 new DefaultCounter(new Config(METRICS_CATEGORY, "publisher_block_send_response_failed")),
                 new DefaultCounter(new Config(METRICS_CATEGORY, "publisher_block_endstream_received")),
                 new DefaultCounter(new Config(METRICS_CATEGORY, "publisher_receive_latency_ns")));

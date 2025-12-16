@@ -14,12 +14,15 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 import org.hiero.block.internal.BlockUnparsed;
+import org.hiero.block.node.backfill.client.BackfillSourceConfig;
 import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.BlockNodePlugin;
 import org.hiero.block.node.spi.ServiceBuilder;
@@ -269,7 +272,7 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
             return;
         }
 
-        // Skip if lack acknowledged block observed has increased
+        // Skip if last acknowledged block observed has increased
         if (lastAcknowledgedBlockObserved > 0 && lastAcknowledgedBlock > lastAcknowledgedBlockObserved) {
             LOGGER.log(
                     TRACE,
@@ -351,10 +354,10 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
                     .toList();
 
             // greedy backfill newer blocks available from peer BN sources to prioritize staying close to the network
-            greedyBackfillRecentBlocks(
-                    lastAcknowledgedBlockObserved.get(), blockRanges.getLast().end());
-            lastAcknowledgedBlockObserved.set(
-                    blockRanges.getLast().end()); // update the last observed acknowledged block
+            long blockRangesLastValue =
+                    blockRanges.isEmpty() ? -1 : blockRanges.getLast().end();
+            greedyBackfillRecentBlocks(lastAcknowledgedBlockObserved.get(), blockRangesLastValue);
+            lastAcknowledgedBlockObserved.set(blockRangesLastValue); // update the last observed acknowledged block
 
             // backfill missing historical blocks from peer BN sources
             detectedGaps = new ArrayList<>();
@@ -389,7 +392,7 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
 
             autonomousError = false;
         } catch (Exception e) {
-            LOGGER.log(TRACE, "Error during backfill autonomous process: {0}", e);
+            LOGGER.log(TRACE, "Error during backfill autonomous process", e);
             autonomousError = true;
             autonomousBackfillEndBlock.set(-1);
         }
@@ -412,21 +415,31 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
      * @throws ParseException if there is an error parsing the block header
      */
     private void backfillGap(LongRange gap, BackfillType backfillType) throws InterruptedException, ParseException {
-        // Reset client status to retry previously unavailable nodes
-        BackfillGrpcClient backfillGrpcClient;
+        BackfillGrpcClient backfillGrpcClient =
+                switch (backfillType) {
+                    case AUTONOMOUS -> backfillGrpcClientAutonomous;
+                    case ON_DEMAND -> backfillGrpcClientOnDemand;
+                };
+        Map<BackfillSourceConfig, List<LongRange>> availability = planAvailabilityForGap(backfillGrpcClient, gap);
+        long currentBlock = gap.start();
+        long batchSize = backfillConfiguration.fetchBatchSize();
 
-        if (backfillType.equals(BackfillType.AUTONOMOUS)) {
-            backfillGrpcClient = backfillGrpcClientAutonomous;
-        } else {
-            backfillGrpcClient = backfillGrpcClientOnDemand;
-        }
-        backfillGrpcClient.resetStatus();
+        while (currentBlock <= gap.end()) {
+            Optional<BackfillGrpcClient.NodeSelection> selection =
+                    backfillGrpcClient.selectNextChunk(currentBlock, gap.end(), availability);
+            if (selection.isEmpty()) {
+                LOGGER.log(TRACE, "No available nodes found for block {0}", currentBlock);
+                backfillFetchErrors.increment();
+                break;
+            }
 
-        // Process gap in smaller chunks
-        List<LongRange> chunks = chunkifyGap(gap);
-
-        for (LongRange chunk : chunks) {
-            List<BlockUnparsed> batchOfBlocks = backfillGrpcClient.fetchBlocks(chunk);
+            BackfillGrpcClient.NodeSelection nodeChoice = selection.get();
+            LongRange chunk = computeChunk(nodeChoice, availability, gap.end(), batchSize);
+            if (chunk == null) {
+                availability.remove(nodeChoice.nodeConfig());
+                continue;
+            }
+            List<BlockUnparsed> batchOfBlocks = backfillGrpcClient.fetchBlocksFromNode(nodeChoice.nodeConfig(), chunk);
             // Set up latch for verification and persistence tracking
             // normally will be decremented only by persisted notifications
             // however if it fails verification, it will be decremented as well
@@ -434,6 +447,7 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
             getLatch(backfillType).set(new CountDownLatch(batchOfBlocks.size()));
 
             if (batchOfBlocks.isEmpty()) {
+                availability.remove(nodeChoice.nodeConfig());
                 LOGGER.log(DEBUG, "No blocks fetched for gap {0}, skipping", chunk);
                 continue; // Skip empty batches
             }
@@ -465,6 +479,7 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
 
             // Cooldown between batches
             Thread.sleep(backfillConfiguration.delayBetweenBatches());
+            currentBlock = chunk.end() + 1;
         }
 
         LOGGER.log(
@@ -479,6 +494,39 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
         }
     }
 
+    private Map<BackfillSourceConfig, List<LongRange>> planAvailabilityForGap(
+            BackfillGrpcClient backfillGrpcClient, LongRange gap) {
+        backfillGrpcClient.resetStatus();
+        return backfillGrpcClient.getAvailabilityForRange(gap);
+    }
+
+    // Package-private for test visibility
+    /**
+     * Determine the chunk to request for a given node selection, respecting both availability and gap bounds.
+     */
+    LongRange computeChunk(
+            @NonNull BackfillGrpcClient.NodeSelection selection,
+            @NonNull Map<BackfillSourceConfig, List<LongRange>> availability,
+            long gapEnd,
+            long batchSize) {
+        List<LongRange> ranges = availability.get(selection.nodeConfig());
+        if (ranges == null) {
+            return null;
+        }
+
+        long start = selection.startBlock();
+        LongRange coveringRange = ranges.stream()
+                .filter(range -> start >= range.start() && start <= range.end())
+                .findFirst()
+                .orElse(null);
+        if (coveringRange == null) {
+            return null;
+        }
+
+        long chunkEnd = Math.min(Math.min(start + batchSize - 1, coveringRange.end()), gapEnd);
+        return new LongRange(start, chunkEnd);
+    }
+
     /**
      * Extracts the block number from the BlockUnparsed object.
      *
@@ -490,25 +538,6 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
         return BlockHeader.PROTOBUF
                 .parse(blockUnparsed.blockItems().getFirst().blockHeaderOrThrow())
                 .number();
-    }
-
-    /**
-     * Chunks a gap into smaller ranges based on the configured fetch batch size.
-     * @param gap the LongRange representing the gap to be chunked
-     * @return a list of LongRange chunks
-     */
-    private List<LongRange> chunkifyGap(LongRange gap) {
-        long start = gap.start();
-        long end = gap.end();
-        long batchSize = backfillConfiguration.fetchBatchSize();
-        List<LongRange> chunks = new ArrayList<>();
-
-        while (start <= end) {
-            long chunkEnd = Math.min(start + batchSize - 1, end);
-            chunks.add(new LongRange(start, chunkEnd));
-            start += batchSize;
-        }
-        return chunks;
     }
 
     /**
@@ -568,8 +597,10 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
         // we should create  new Gap and a new task to backfill it
         long lastPersistedBlock =
                 context.historicalBlockProvider().availableBlocks().max();
+        // if lastPersistedBlock is less than backfill start block, we start from backfill start block
+        long startBackfillFrom = Math.max(lastPersistedBlock + 1, backfillConfiguration.startBlock());
         long newestBlockKnown = notification.blockNumber();
-        LongRange gap = new LongRange(lastPersistedBlock + 1, newestBlockKnown);
+        LongRange gap = new LongRange(startBackfillFrom, newestBlockKnown);
         LOGGER.log(
                 TRACE,
                 "Detected new block known to network: {0,number,#}, starting backfill task for gap: {1}",

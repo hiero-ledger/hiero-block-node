@@ -31,7 +31,7 @@ jobs:
 
     steps:
       - name: Harden Runner
-        uses: step-security/harden-runner@df199fb7be9f65074067a9eb93f12bb4c5547cf2 # v2.13.3
+        uses: step-security/harden-runner@20cf305ff2072d973412fa9b1e3a4f227bda3c76 # v2.14.0
         with:
           egress-policy: audit
 
@@ -60,7 +60,7 @@ jobs:
           EOF
 
       - name: Checkout Repository
-        uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
+        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
         with:
           fetch-depth: 0
           ref: main
@@ -78,7 +78,7 @@ jobs:
           passphrase: ${{ secrets.GPG_KEY_PASSPHRASE }}
 
       - name: Install JDK
-        uses: actions/setup-java@dded0888837ed1f317902acf8a20df0ad188d165 # v5.0.0
+        uses: actions/setup-java@f2beeb24e141e01a676f977032f5a29d81c9e27e # v5.1.0
         with:
           distribution: "temurin"
           java-version: "21.0.6"
@@ -99,10 +99,6 @@ jobs:
           else
             git checkout ${RELEASE_BRANCH}
           fi
-
-      # task is currently failing due to needing credentials.username for PublishToMavenRepository task
-      #- name: Gradle Release
-      #  run: ./gradlew release -Pversion=${{ env.VERSION }}
 
       - name: Bump Version
         run: ./gradlew versionAsSpecified -PnewVersion=${{ env.VERSION }}
@@ -151,12 +147,12 @@ jobs:
 
     steps:
       - name: Harden Runner
-        uses: step-security/harden-runner@df199fb7be9f65074067a9eb93f12bb4c5547cf2 # v2.13.3
+        uses: step-security/harden-runner@20cf305ff2072d973412fa9b1e3a4f227bda3c76 # v2.14.0
         with:
           egress-policy: audit
 
       - name: Checkout Repository
-        uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
+        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
         with:
           fetch-depth: 0
           ref: main
@@ -173,7 +169,7 @@ jobs:
           passphrase: ${{ secrets.GPG_KEY_PASSPHRASE }}
 
       - name: Install JDK
-        uses: actions/setup-java@dded0888837ed1f317902acf8a20df0ad188d165 # v5.0.0
+        uses: actions/setup-java@f2beeb24e141e01a676f977032f5a29d81c9e27e # v5.1.0
         with:
           distribution: "temurin"
           java-version: "21.0.6"
@@ -190,7 +186,7 @@ jobs:
         run: ./gradlew versionAsSpecified -PnewVersion=${{ env.NEXT_VERSION_SNAPSHOT }}
 
       - name: Create Pull Request
-        uses: peter-evans/create-pull-request@84ae59a2cdc2258d6fa0732dd66352dddae2a412 # v7.0.9
+        uses: peter-evans/create-pull-request@98357b18bf14b5342f975ff684046ec3b2a07725 # v8.0.0
         with:
           author: ${{ steps.gpg_importer.outputs.name }} <${{ steps.gpg_importer.outputs.email }}>
           body: Bump versions for v${{ env.NEXT_VERSION_SNAPSHOT }}

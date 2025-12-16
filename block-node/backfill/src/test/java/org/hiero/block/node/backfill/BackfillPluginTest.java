@@ -1,10 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.node.backfill;
 
+import static java.util.concurrent.locks.LockSupport.parkNanos;
+import static org.hiero.block.node.spi.BlockNodePlugin.METRICS_CATEGORY;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.hedera.pbj.runtime.io.buffer.Bytes;
+import com.swirlds.metrics.api.Metric.ValueType;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -121,6 +124,92 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, BlockingExecutor
     }
 
     @Test
+    @DisplayName("Autonomous Historical Backfill - Empty Store")
+    void testBackfillAutonomousEmptyStore() {
+
+        // Block Node sources
+        String blockNodeSourcesPath =
+                getClass().getClassLoader().getResource("block-nodes.json").getFile();
+        // BN 1
+        final HistoricalBlockFacility historicalBlockFacilityForServer = getHistoricalBlockFacility(0, 110);
+        testBlockNodeServers.add(new TestBlockNodeServer(40801, historicalBlockFacilityForServer));
+
+        // Config Override
+        Map<String, String> configOverride = BackfillConfigBuilder.NewBuilder()
+                .backfillSourcePath(blockNodeSourcesPath)
+                .fetchBatchSize(100)
+                .initialDelay(500) // start quickly
+                .build();
+
+        // start the plugin with no history or gaps
+        start(new BackfillPlugin(), new SimpleInMemoryHistoricalBlockFacility(), configOverride);
+
+        // allow some time for the backfill process to run
+        parkNanos(5_000_000_000L);
+
+        // expected blocks to backfill
+        int expectedBlocksToBackfill = 0; // no gaps exist and greedy mode is disabled
+
+        // Verify sent verifications
+        assertEquals(
+                expectedBlocksToBackfill,
+                blockMessaging.getSentPersistedNotifications().size(),
+                "Should have sent 0 persisted notifications");
+        assertEquals(
+                expectedBlocksToBackfill,
+                blockMessaging.getSentVerificationNotifications().size(),
+                "Should have sent 0 verification notifications");
+
+        assertEquals(
+                0L, // backfill status should be idle
+                Objects.requireNonNull(blockNodeContext.metrics().getMetric(METRICS_CATEGORY, "backfill_status"))
+                        .get(ValueType.VALUE));
+    }
+
+    @Test
+    @DisplayName("Autonomous Historical Backfill - No Gaps")
+    void testBackfillAutonomousNoGaps() {
+
+        // Block Node sources
+        String blockNodeSourcesPath =
+                getClass().getClassLoader().getResource("block-nodes.json").getFile();
+        // BN 1
+        final HistoricalBlockFacility historicalBlockFacilityForServer = getHistoricalBlockFacility(0, 110);
+        testBlockNodeServers.add(new TestBlockNodeServer(40801, historicalBlockFacilityForServer));
+
+        // Config Override
+        Map<String, String> configOverride = BackfillConfigBuilder.NewBuilder()
+                .backfillSourcePath(blockNodeSourcesPath)
+                .fetchBatchSize(100)
+                .initialDelay(500) // start quickly
+                .build();
+
+        // start the plugin with no history or gaps
+        start(new BackfillPlugin(), historicalBlockFacilityForServer, configOverride);
+
+        // allow some time for the backfill process to run
+        parkNanos(5_000_000_000L);
+
+        // expected blocks to backfill
+        int expectedBlocksToBackfill = 0; // no gaps exist and greedy mode is disabled
+
+        // Verify sent verifications
+        assertEquals(
+                expectedBlocksToBackfill,
+                blockMessaging.getSentPersistedNotifications().size(),
+                "Should have sent 0 persisted notifications");
+        assertEquals(
+                expectedBlocksToBackfill,
+                blockMessaging.getSentVerificationNotifications().size(),
+                "Should have sent 0 verification notifications");
+
+        assertEquals(
+                0L, // backfill status should be idle
+                Objects.requireNonNull(blockNodeContext.metrics().getMetric(METRICS_CATEGORY, "backfill_status"))
+                        .get(ValueType.VALUE));
+    }
+
+    @Test
     @DisplayName("Greedy Autonomous Recent Backfill - Happy Test")
     void testBackfillGreedyAutonomous() throws InterruptedException {
 
@@ -169,6 +258,94 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, BlockingExecutor
                 expectedBlocksToBackfill,
                 blockMessaging.getSentVerificationNotifications().size(),
                 "Should have sent 200 verification notifications");
+    }
+
+    @Test
+    @DisplayName("Greedy Autonomous Recent Backfill - Empty Store")
+    void testBackfillGreedyAutonomousEmptyStore() throws InterruptedException {
+
+        // Block Node sources
+        String blockNodeSourcesPath =
+                getClass().getClassLoader().getResource("block-nodes.json").getFile();
+
+        // BN 1
+        int blockToBackfillCount = 10;
+        final HistoricalBlockFacility historicalBlockFacilityForServer =
+                getHistoricalBlockFacility(0, blockToBackfillCount - 1);
+        testBlockNodeServers.add(new TestBlockNodeServer(40801, historicalBlockFacilityForServer));
+
+        // Config Override
+        Map<String, String> configOverride = BackfillConfigBuilder.NewBuilder()
+                .backfillSourcePath(blockNodeSourcesPath)
+                .greedy(true)
+                .fetchBatchSize(100)
+                .initialDelay(500) // start quickly
+                .build();
+
+        // start the plugin
+        start(new BackfillPlugin(), new SimpleInMemoryHistoricalBlockFacility(), configOverride);
+
+        CountDownLatch countDownLatch = new CountDownLatch(blockToBackfillCount);
+        // register the backfill handler
+        registerDefaultTestBackfillHandler();
+        // register the verification handler
+        registerDefaultTestVerificationHandler(countDownLatch);
+
+        countDownLatch.await(1, TimeUnit.MINUTES); // Wait until countDownLatch.countDown() is called
+
+        // Continue with your assertions or test logic/BlockItems blockItems = mock(BlockItems.class);
+        assertEquals(0, countDownLatch.getCount(), "Count down latch should be 0 after backfill");
+
+        // Verify sent verifications
+        assertEquals(
+                blockToBackfillCount,
+                blockMessaging.getSentPersistedNotifications().size(),
+                "Should have sent 10 persisted notifications");
+        assertEquals(
+                blockToBackfillCount,
+                blockMessaging.getSentVerificationNotifications().size(),
+                "Should have sent 10 verification notifications");
+    }
+
+    @Test
+    @DisplayName("Greedy Autonomous Recent Backfill - NoGap")
+    void testBackfillGreedyAutonomousNoGap() {
+
+        // Block Node sources
+        String blockNodeSourcesPath =
+                getClass().getClassLoader().getResource("block-nodes.json").getFile();
+
+        // BN 1
+        int blockToBackfillCount = 10;
+        final HistoricalBlockFacility historicalBlockFacility = getHistoricalBlockFacility(0, blockToBackfillCount);
+        testBlockNodeServers.add(new TestBlockNodeServer(40801, historicalBlockFacility));
+
+        // Config Override
+        Map<String, String> configOverride = BackfillConfigBuilder.NewBuilder()
+                .backfillSourcePath(blockNodeSourcesPath)
+                .greedy(true)
+                .fetchBatchSize(100)
+                .initialDelay(500) // start quickly
+                .build();
+
+        // start the plugin
+        start(new BackfillPlugin(), historicalBlockFacility, configOverride);
+
+        // allow some time for the backfill process to run
+        parkNanos(5_000_000_000L);
+
+        // Verify sent verifications
+        assertEquals(
+                0, blockMessaging.getSentPersistedNotifications().size(), "Should have sent 0 persisted notifications");
+        assertEquals(
+                0,
+                blockMessaging.getSentVerificationNotifications().size(),
+                "Should have sent 0 verification notifications");
+
+        assertEquals(
+                0L, // backfill status should be idle
+                Objects.requireNonNull(blockNodeContext.metrics().getMetric(METRICS_CATEGORY, "backfill_status"))
+                        .get(ValueType.VALUE));
     }
 
     @Test
@@ -293,7 +470,6 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, BlockingExecutor
         // config override for test
         final Map<String, String> configOverride = BackfillConfigBuilder.NewBuilder()
                 .backfillSourcePath(backfillSourcePath)
-                .greedy(false)
                 .build();
 
         // create a historical block facility for the plugin (should have a GAP)
@@ -328,6 +504,107 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, BlockingExecutor
                 20,
                 blockMessaging.getSentVerificationNotifications().size(),
                 "Should have sent 20 verification notifications");
+    }
+
+    @Test
+    @DisplayName("On-Demand Recent Backfill - Empty Store")
+    void testBackfillOnDemandEmptyStore() throws InterruptedException {
+        // Block Node sources
+        BackfillSourceConfig config = BackfillSourceConfig.newBuilder()
+                .address("localhost")
+                .port(40844)
+                .priority(1)
+                .build();
+        BackfillSource backfillSource =
+                BackfillSource.newBuilder().nodes(config).build();
+        // Create a temporary file for the backfill source configuration
+        String backfillSourcePath = testTempDir + "/backfill-source-4.json";
+        createTestBlockNodeSourcesFile(backfillSource, backfillSourcePath);
+        // using the same port, start a BN mock that has blocks from 0 to 50
+        final HistoricalBlockFacility blockNodeServerBlockFacility = getHistoricalBlockFacility(0, 19);
+        testBlockNodeServers.add(new TestBlockNodeServer(config.port(), blockNodeServerBlockFacility));
+
+        // config override for test
+        final Map<String, String> configOverride = BackfillConfigBuilder.NewBuilder()
+                .backfillSourcePath(backfillSourcePath)
+                .build();
+
+        // start block-node with blocks from 0 to 30
+        start(new BackfillPlugin(), new SimpleInMemoryHistoricalBlockFacility(), configOverride);
+
+        // We will backfill blocks from 0 to 19 inclusive, so we expect 20 blocks to be backfilled
+        CountDownLatch countDownLatch = new CountDownLatch(20); // from 0 to 19 inclusive, so 20 blocks
+        // register the backfill handler
+        registerDefaultTestBackfillHandler();
+        // register the verification handler
+        registerDefaultTestVerificationHandler(countDownLatch);
+        // Trigger the backfill on-demand by sending a NewestBlockKnownToNetworkNotification
+        // to the block messaging system
+        NewestBlockKnownToNetworkNotification newestBlockNotification = new NewestBlockKnownToNetworkNotification(20L);
+        this.blockMessaging.sendNewestBlockKnownToNetwork(newestBlockNotification);
+        // Wait for the backfill to complete
+
+        countDownLatch.await(1, TimeUnit.MINUTES); // Wait until countDownLatch.countDown() is called
+
+        // assertions
+        assertEquals(0, countDownLatch.getCount(), "Count down latch should be 0 after backfill");
+
+        // Verify sent verifications
+        assertEquals(
+                20,
+                blockMessaging.getSentPersistedNotifications().size(),
+                "Should have sent 20 persisted notifications");
+        assertEquals(
+                20,
+                blockMessaging.getSentVerificationNotifications().size(),
+                "Should have sent 20 verification notifications");
+    }
+
+    @Test
+    @DisplayName("On-Demand Recent Backfill - No Gap")
+    void testBackfillOnDemandNoGap() throws InterruptedException {
+        // Block Node sources
+        BackfillSourceConfig config = BackfillSourceConfig.newBuilder()
+                .address("localhost")
+                .port(40844)
+                .priority(1)
+                .build();
+        BackfillSource backfillSource =
+                BackfillSource.newBuilder().nodes(config).build();
+        // Create a temporary file for the backfill source configuration
+        String backfillSourcePath = testTempDir + "/backfill-source-4.json";
+        createTestBlockNodeSourcesFile(backfillSource, backfillSourcePath);
+        // using the same port, start a BN mock that has blocks from 0 to 50
+        final HistoricalBlockFacility blockNodeServerBlockFacility = getHistoricalBlockFacility(0, 19);
+        testBlockNodeServers.add(new TestBlockNodeServer(config.port(), blockNodeServerBlockFacility));
+
+        // config override for test
+        final Map<String, String> configOverride = BackfillConfigBuilder.NewBuilder()
+                .backfillSourcePath(backfillSourcePath)
+                .build();
+
+        // start block-node with blocks from 0 to 30
+        start(new BackfillPlugin(), blockNodeServerBlockFacility, configOverride);
+
+        // Trigger the backfill on-demand by sending a NewestBlockKnownToNetworkNotification
+        // to the block messaging system
+        NewestBlockKnownToNetworkNotification newestBlockNotification = new NewestBlockKnownToNetworkNotification(20L);
+        this.blockMessaging.sendNewestBlockKnownToNetwork(newestBlockNotification);
+        // Wait for the backfill to complete
+
+        // allow some time for the backfill process to run
+        parkNanos(5_000_000_000L);
+
+        // Verify sent verifications
+        assertEquals(
+                0, blockMessaging.getSentPersistedNotifications().size(), "Should have sent 0 persisted notifications");
+        assertEquals(
+                0,
+                blockMessaging.getSentVerificationNotifications().size(),
+                "Should have sent 0 verification notifications");
+
+        Objects.requireNonNull(blockNodeContext.metrics().getMetric(METRICS_CATEGORY, "backfill_status"))
+                .get(ValueType.VALUE);
     }
 
     @Test
@@ -775,6 +1052,55 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, BlockingExecutor
                 "Should have sent 125 verification notifications");
     }
 
+    @Test
+    @DisplayName("Lying BN is marked unavailable when advertised range has gaps")
+    void testLyingNodeMarkedUnavailable() throws Exception {
+        BackfillSourceConfig backfillSourceConfig = BackfillSourceConfig.newBuilder()
+                .address("localhost")
+                .port(40845)
+                .priority(1)
+                .build();
+        BackfillSource backfillSource =
+                BackfillSource.newBuilder().nodes(backfillSourceConfig).build();
+        String backfillSourcePath = testTempDir + "/backfill-source-lying.json";
+        createTestBlockNodeSourcesFile(backfillSource, backfillSourcePath);
+
+        // Create storage with a gap (missing block 10) but still reporting 0..11
+        SimpleInMemoryHistoricalBlockFacility gappyStorage = new SimpleInMemoryHistoricalBlockFacility();
+        for (long i = 0; i <= 11; i++) {
+            if (i == 10) {
+                continue;
+            }
+            final BlockItemUnparsed[] block = SimpleTestBlockItemBuilder.createSimpleBlockUnparsedWithNumber(i);
+            gappyStorage.handleBlockItemsReceived(new BlockItems(List.of(block), i), false);
+        }
+
+        testBlockNodeServers.add(new TestBlockNodeServer(backfillSourceConfig.port(), gappyStorage));
+
+        Map<String, String> config = BackfillConfigBuilder.NewBuilder()
+                .backfillSourcePath(backfillSourcePath)
+                .fetchBatchSize(10)
+                .initialDelay(50)
+                .scanInterval(20000)
+                .build();
+
+        // Plugin store has only block 12, so gap 0..11 triggers fetch against the lying BN
+        SimpleInMemoryHistoricalBlockFacility pluginStore = getHistoricalBlockFacility(12, 12);
+
+        start(new BackfillPlugin(), pluginStore, config);
+
+        CountDownLatch latch = new CountDownLatch(10); // 0..9 should be backfilled, 10 missing stops stream
+
+        // allow time for initial scan and attempted backfill
+        registerDefaultTestBackfillHandler();
+        registerDefaultTestVerificationHandler(latch);
+        latch.await(5, TimeUnit.SECONDS);
+
+        assertEquals(0, latch.getCount(), "Should have backfilled available prefix before hitting the gap");
+        assertEquals(10, blockMessaging.getSentPersistedNotifications().size(), "Should persist available blocks");
+        assertEquals(10, blockMessaging.getSentVerificationNotifications().size(), "Should verify available blocks");
+    }
+
     private void createTestBlockNodeSourcesFile(BackfillSource backfillSource, String configPath) {
         String jsonString = BackfillSource.JSON.toJSON(backfillSource);
         // Write the JSON string to the specified file path
@@ -843,7 +1169,7 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, BlockingExecutor
         private long startBlock = 0L;
         private long endBlock = -1L; // -1 means no end block, backfill until the latest block
         private int perBlockProcessingTimeout = 500; // half second
-        private boolean greedy = true;
+        private boolean greedy = false;
 
         private BackfillConfigBuilder() {
             // private to force use of NewBuilder()
