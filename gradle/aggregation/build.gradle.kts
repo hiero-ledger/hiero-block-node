@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 dependencies {
-    published(project(":protobuf-sources"))
+    published(project(":protobuf-pbj"))
     published(project(":app"))
     published(project(":app-config"))
     published(project(":backfill"))
