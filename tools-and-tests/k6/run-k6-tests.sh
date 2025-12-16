@@ -5,7 +5,7 @@ setup_proto_defs() {
     cd ../../
     VERSION=$(cat version.txt)
     ./gradlew clean # todo we should be able to skip this clean, but locally, too many caching errors...
-    ./gradlew :block-node-protobuf-sources:generateBlockNodeProtoArtifact
+    ./gradlew :protobuf-sources:generateBlockNodeProtoArtifact
     src_tar=./protobuf-sources/block-node-protobuf-${VERSION}.tgz
     dst_dir=./tools-and-tests/k6/k6-proto
     rm -rf "$dst_dir"
@@ -18,8 +18,8 @@ run_bn() {
     (
     cd ../../
     ./gradlew clean # todo we should be able to skip this clean, but locally, too many caching errors...
-    ./gradlew :block-node-app:stopDockerContainer
-    ./gradlew :block-node-app:startDockerContainerCI
+    ./gradlew :app:stopDockerContainer
+    ./gradlew :app:startDockerContainerCI
     )
 }
 
