@@ -2,6 +2,7 @@
 package org.hiero.block.node.app.fixtures.server;
 
 import com.hedera.pbj.grpc.helidon.PbjRouting;
+import com.hedera.pbj.grpc.helidon.PbjRouting.Builder;
 import com.hedera.pbj.grpc.helidon.config.PbjConfig;
 import com.hedera.pbj.runtime.grpc.Pipeline;
 import edu.umd.cs.findbugs.annotations.NonNull;
@@ -12,9 +13,11 @@ import org.hiero.block.api.BlockEnd;
 import org.hiero.block.api.BlockItemSet;
 import org.hiero.block.api.BlockNodeServiceInterface;
 import org.hiero.block.api.BlockStreamSubscribeServiceInterface;
+import org.hiero.block.api.ServerStatusRequest;
 import org.hiero.block.api.ServerStatusResponse;
 import org.hiero.block.api.SubscribeStreamRequest;
 import org.hiero.block.api.SubscribeStreamResponse;
+import org.hiero.block.api.SubscribeStreamResponse.Code;
 import org.hiero.block.node.spi.historicalblocks.HistoricalBlockFacility;
 
 public class TestBlockNodeServer {
@@ -35,11 +38,10 @@ public class TestBlockNodeServer {
                 .addProtocol(pbjConfig)
                 .addRouting(pbjRoutingBuilder)
                 .connectionConfig(ConnectionConfig.builder()
-                        .sendBufferSize(32768)
-                        .receiveBufferSize(32768)
+                        .sendBufferSize(524288)
+                        .receiveBufferSize(524288)
                         .build())
                 .build();
-
         webServer.start();
     }
 
