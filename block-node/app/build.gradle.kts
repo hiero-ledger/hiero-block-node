@@ -11,6 +11,9 @@ description = "Hiero Block Node Server App"
 // and then fix the reported issues.
 tasks.withType<JavaCompile>().configureEach { options.compilerArgs.add("-Xlint:-exports") }
 
+// Adjust the generated start scripts to use the 'lib' folder for the module path.
+// We need to do this because we want to add selected plugins in lib and load them
+// via the module path.
 tasks.startScripts {
     classpath = files()
     doLast {
