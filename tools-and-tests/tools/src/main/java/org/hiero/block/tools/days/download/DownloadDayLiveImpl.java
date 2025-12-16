@@ -209,6 +209,10 @@ public class DownloadDayLiveImpl {
      * @return the block hash as bytes, or null if not available
      */
     public static byte[] extractBlockHashFromMirrorNode(final long blockNumber, final DayBlockInfo dayBlockInfo) {
+        if (dayBlockInfo == null) {
+            return null;
+        }
+
         final long firstBlock = dayBlockInfo.firstBlockNumber;
         final long lastBlock = dayBlockInfo.lastBlockNumber;
 
@@ -341,6 +345,37 @@ public class DownloadDayLiveImpl {
             final long blockNumber,
             final byte[] previousRecordFileHash)
             throws Exception {
+        return downloadSingleBlockForLive(
+                downloadManager,
+                dayBlockInfo,
+                blockTimeReader,
+                listingDir,
+                year,
+                month,
+                day,
+                blockNumber,
+                previousRecordFileHash,
+                true);
+    }
+
+    /**
+     * Download and optionally validate a single block for a given day.
+     *
+     * @param skipHashValidation if true, skip hash chain validation for faster catch-up
+     * @see #downloadSingleBlockForLive(ConcurrentDownloadManager, DayBlockInfo, BlockTimeReader, Path, int, int, int, long, byte[])
+     */
+    public static BlockDownloadResult downloadSingleBlockForLive(
+            final ConcurrentDownloadManager downloadManager,
+            final DayBlockInfo dayBlockInfo,
+            final BlockTimeReader blockTimeReader,
+            final Path listingDir,
+            final int year,
+            final int month,
+            final int day,
+            final long blockNumber,
+            final byte[] previousRecordFileHash,
+            final boolean skipHashValidation)
+            throws Exception {
 
         // Step 1: Load file metadata for the block
         final List<ListingRecordFile> group =
@@ -353,9 +388,15 @@ public class DownloadDayLiveImpl {
         // Step 3: Download and process all files
         final List<InMemoryFile> inMemoryFilesForWriting = downloadAndProcessFiles(downloadManager, context);
 
-        // Step 4: Validate block hash chain
-        final byte[] newPrevRecordFileHash = validateBlockHashChain(
-                blockNumber, inMemoryFilesForWriting, previousRecordFileHash, context.blockHashFromMirrorNode);
+        // Step 4: Validate block hash chain (if not skipped)
+        final byte[] newPrevRecordFileHash;
+        if (skipHashValidation) {
+            // Skip validation - just return the previous hash
+            newPrevRecordFileHash = previousRecordFileHash;
+        } else {
+            newPrevRecordFileHash = validateBlockHashChain(
+                    blockNumber, inMemoryFilesForWriting, previousRecordFileHash, context.blockHashFromMirrorNode);
+        }
 
         return new BlockDownloadResult(blockNumber, inMemoryFilesForWriting, newPrevRecordFileHash);
     }
@@ -847,7 +888,7 @@ public class DownloadDayLiveImpl {
                 targetFileName = filename.replaceAll("\\.rcd$", "_node_" + nodeDir + ".rcd");
             }
         } else if (lr.type() == ListingRecordFile.Type.RECORD_SIG) {
-            targetFileName = "node_" + nodeDir + ".rcs_sig";
+            targetFileName = "node_" + nodeDir + ".rcd_sig";
         } else {
             throw new IOException("Unsupported file type: " + lr.type());
         }

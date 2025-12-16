@@ -21,7 +21,6 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Comparator;
 import java.util.HashSet;
 import java.util.List;
@@ -647,8 +646,11 @@ public class LiveDownloader {
         final List<ListingRecordFile> orderedFiles;
         final List<CompletableFuture<InMemoryFile>> futures = new ArrayList<>();
 
-        BlockWork(long blockNumber, byte[] blockHashFromMirrorNode, LocalDateTime blockTime,
-                  List<ListingRecordFile> orderedFiles) {
+        BlockWork(
+                long blockNumber,
+                byte[] blockHashFromMirrorNode,
+                LocalDateTime blockTime,
+                List<ListingRecordFile> orderedFiles) {
             this.blockNumber = blockNumber;
             this.blockHashFromMirrorNode = blockHashFromMirrorNode;
             this.blockTime = blockTime;
@@ -672,7 +674,8 @@ public class LiveDownloader {
             final long startBlockNumber,
             final long overallStartMillis,
             final int dayIndex,
-            final long totalDays) throws IOException {
+            final long totalDays)
+            throws IOException {
 
         final LocalDate day = LocalDate.parse(dayKey);
         final int year = day.getYear();
@@ -724,8 +727,8 @@ public class LiveDownloader {
             return previousRecordFileHash;
         }
 
-        System.out.println("[download] Starting pipelined download for " + dayKey
-                + " blocks " + firstBlock + " to " + lastBlock + " (" + totalBlocks + " blocks)");
+        System.out.println("[download] Starting pipelined download for " + dayKey + " blocks " + firstBlock + " to "
+                + lastBlock + " (" + totalBlocks + " blocks)");
 
         final double daySharePercent = (totalDays <= 0) ? 100.0 : (100.0 / totalDays);
         final AtomicLong blocksProcessed = new AtomicLong(0);
@@ -739,8 +742,8 @@ public class LiveDownloader {
                 final List<ListingRecordFile> group = cachedFilesByBlock.get(blockTime);
 
                 if (group == null || group.isEmpty()) {
-                    throw new IllegalStateException("Missing record files for block " + blockNumber
-                            + " at time " + blockTime + " on " + dayKey);
+                    throw new IllegalStateException("Missing record files for block " + blockNumber + " at time "
+                            + blockTime + " on " + dayKey);
                 }
 
                 final ListingRecordFile mostCommonRecordFile =
@@ -752,11 +755,12 @@ public class LiveDownloader {
                         computeFilesToDownload(mostCommonRecordFile, mostCommonSidecarFile, group);
 
                 // Get mirror node block hash if available
-                byte[] blockHashFromMirrorNode = DownloadDayLiveImpl.extractBlockHashFromMirrorNode(
-                        blockNumber, dayBlockInfo);
+                byte[] blockHashFromMirrorNode =
+                        DownloadDayLiveImpl.extractBlockHashFromMirrorNode(blockNumber, dayBlockInfo);
 
                 // Create BlockWork and start async downloads
-                final BlockWork bw = new BlockWork(blockNumber, blockHashFromMirrorNode, blockTime, orderedFilesToDownload);
+                final BlockWork bw =
+                        new BlockWork(blockNumber, blockHashFromMirrorNode, blockTime, orderedFilesToDownload);
                 for (ListingRecordFile lr : orderedFilesToDownload) {
                     final String blobName = BUCKET_PATH_PREFIX + lr.path();
                     bw.futures.add(downloadManager.downloadAsync(BUCKET_NAME, blobName));
@@ -789,7 +793,8 @@ public class LiveDownloader {
 
                 // Wait for all downloads for this block to complete
                 try {
-                    CompletableFuture.allOf(ready.futures.toArray(new CompletableFuture[0])).join();
+                    CompletableFuture.allOf(ready.futures.toArray(new CompletableFuture[0]))
+                            .join();
                 } catch (CompletionException ce) {
                     PrettyPrint.clearProgress();
                     throw new RuntimeException("Failed downloading block " + ready.blockTime, ce.getCause());
@@ -805,9 +810,10 @@ public class LiveDownloader {
                 // Perform full block validation
                 final DownloadDayLiveImpl.BlockDownloadResult result = new DownloadDayLiveImpl.BlockDownloadResult(
                         ready.blockNumber, filesForWriting, previousRecordFileHash);
-                final Instant recordFileTime = ready.blockTime.atZone(java.time.ZoneOffset.UTC).toInstant();
-                final boolean fullyValid = fullBlockValidate(
-                        addressBookRegistry, previousRecordFileHash, recordFileTime, result, null);
+                final Instant recordFileTime =
+                        ready.blockTime.atZone(java.time.ZoneOffset.UTC).toInstant();
+                final boolean fullyValid =
+                        fullBlockValidate(addressBookRegistry, previousRecordFileHash, recordFileTime, result, null);
 
                 if (!fullyValid) {
                     System.err.println("[download] Full block validation failed for block " + ready.blockNumber);
@@ -916,8 +922,8 @@ public class LiveDownloader {
                 filesForWriting.add(new InMemoryFile(newFilePath, contentBytes));
 
             } catch (Exception e) {
-                System.err.println("Warning: Skipping file [" + filename + "] for block "
-                        + blockWork.blockNumber + ": " + e.getMessage());
+                System.err.println("Warning: Skipping file [" + filename + "] for block " + blockWork.blockNumber + ": "
+                        + e.getMessage());
             }
         }
 
@@ -948,7 +954,8 @@ public class LiveDownloader {
                 return downloadedFile;
 
             } catch (Exception e) {
-                lastException = (e instanceof IOException) ? (IOException) e
+                lastException = (e instanceof IOException)
+                        ? (IOException) e
                         : new IOException("Download failed for " + blobName, e);
 
                 if (e.getMessage() != null && e.getMessage().contains("MD5 mismatch")) {
@@ -981,10 +988,7 @@ public class LiveDownloader {
      * Validates block hashes - delegates to DownloadDayLiveImpl.
      */
     private static byte[] validateBlockHashes(
-            long blockNumber,
-            List<InMemoryFile> files,
-            byte[] prevRecordFileHash,
-            byte[] blockHashFromMirrorNode) {
+            long blockNumber, List<InMemoryFile> files, byte[] prevRecordFileHash, byte[] blockHashFromMirrorNode) {
         return DownloadDayLiveImpl.validateBlockHashes(blockNumber, files, prevRecordFileHash, blockHashFromMirrorNode);
     }
 }

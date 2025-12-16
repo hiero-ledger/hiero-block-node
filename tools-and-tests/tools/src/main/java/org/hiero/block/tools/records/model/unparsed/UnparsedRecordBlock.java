@@ -37,7 +37,11 @@ public abstract class UnparsedRecordBlock {
             String warningMessages,
             byte[] endRunningHash,
             SemanticVersion hapiVersion,
-            List<TransactionBody> addressBookTransactions) {}
+            List<TransactionBody> addressBookTransactions,
+            int validSignatureCount) {}
+
+    /** Helper record to return signature validation results */
+    protected record SignatureValidationResult(boolean isValid, int validSignatureCount) {}
 
     /** the consensus time of the block */
     protected final Instant recordFileTime;
@@ -302,10 +306,10 @@ public abstract class UnparsedRecordBlock {
      *                        verification
      * @param warningMessages a StringBuilder to append any warning messages to
      * @param recordFileSignedHash  the computed 48-byte SHA-384 hash that is signed for this version record file
-     * @return the updated validity state after checking all signatures
+     * @return SignatureValidationResult containing validity and valid signature count
      * @throws IOException if an I/O error occurs reading a signature file
      */
-    protected boolean validateSignatures(
+    protected SignatureValidationResult validateSignatures(
             NodeAddressBook addressBook, StringBuffer warningMessages, byte[] recordFileSignedHash) throws IOException {
         if (addressBook != null && !signatureFiles().isEmpty()) {
             try {
@@ -349,17 +353,17 @@ public abstract class UnparsedRecordBlock {
                             .append(" nodes; required ")
                             .append(requiredSignatures)
                             .append("\n");
-                    return false;
+                    return new SignatureValidationResult(false, (int) validSignatureCount);
                 }
-                return true;
+                return new SignatureValidationResult(true, (int) validSignatureCount);
             } catch (Exception e) {
                 warningMessages.append("Error validating signatures: " + e.getMessage() + "\n");
                 e.printStackTrace();
-                return false;
+                return new SignatureValidationResult(false, 0);
             }
         }
         warningMessages.append(
                 "Missing signature files [" + signatureFiles().size() + "] or address book: " + addressBook + "\n");
-        return false;
+        return new SignatureValidationResult(false, 0);
     }
 }

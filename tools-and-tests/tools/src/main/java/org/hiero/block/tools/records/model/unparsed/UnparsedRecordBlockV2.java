@@ -113,7 +113,9 @@ public class UnparsedRecordBlockV2 extends UnparsedRecordBlock {
             final byte[] blockHash = digest.digest();
 
             // Validate all signature files if an address book is provided
-            isValid = isValid && validateSignatures(addressBook, warningMessages, blockHash);
+            final SignatureValidationResult sigResult = validateSignatures(addressBook, warningMessages, blockHash);
+            isValid = isValid && sigResult.isValid();
+            final int validSigCount = sigResult.validSignatureCount();
 
             // read all the transactions
             final List<Transaction> transactions = new ArrayList<>();
@@ -153,7 +155,7 @@ public class UnparsedRecordBlockV2 extends UnparsedRecordBlock {
                     AddressBookRegistry.filterToJustAddressBookTransactions(transactions);
             // return the validation result
             return new ValidationResult(
-                    isValid, warningMessages.toString(), blockHash, hapiVersion, addressBookTransactions);
+                    isValid, warningMessages.toString(), blockHash, hapiVersion, addressBookTransactions, validSigCount);
         } catch (IOException | NoSuchAlgorithmException | ParseException e) {
             throw new RuntimeException(e);
         }

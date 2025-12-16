@@ -412,17 +412,14 @@ public class LivePoller {
                 long startBlockNumber = 0;
                 if (st != null && dayKey.equals(st.getDayKey()) && st.getLastSeenBlock() > 0) {
                     startBlockNumber = st.getLastSeenBlock() + 1;
-                    System.out.println("[poller] Resuming historical day " + dayKey + " from block " + startBlockNumber);
+                    System.out.println(
+                            "[poller] Resuming historical day " + dayKey + " from block " + startBlockNumber);
                 }
 
                 try {
                     // Use the optimized pipelined download method
                     byte[] finalHash = downloader.downloadDayPipelined(
-                            dayKey,
-                            startBlockNumber,
-                            historicalStartTime,
-                            dayIndex,
-                            totalHistoricalDays);
+                            dayKey, startBlockNumber, historicalStartTime, dayIndex, totalHistoricalDays);
 
                     if (finalHash != null) {
                         PrettyPrint.clearProgress();

@@ -134,7 +134,8 @@ public class UnparsedRecordBlockV6 extends UnparsedRecordBlock {
             }
 
             // Validate signatures
-            isValid = isValid && validateSignatures(addressBook, warnings, entireFileHash);
+            final SignatureValidationResult sigResult = validateSignatures(addressBook, warnings, entireFileHash);
+            isValid = isValid && sigResult.isValid();
 
             // get all transactions in the record file
             final List<Transaction> transactions = rsf.recordStreamItems().stream()
@@ -146,7 +147,7 @@ public class UnparsedRecordBlockV6 extends UnparsedRecordBlock {
             final List<TransactionBody> addressBookTransactions =
                     AddressBookRegistry.filterToJustAddressBookTransactions(transactions);
             return new ValidationResult(
-                    isValid, warnings.toString(), endRunningHash, hapiVersion, addressBookTransactions);
+                    isValid, warnings.toString(), endRunningHash, hapiVersion, addressBookTransactions, sigResult.validSignatureCount());
         } catch (IOException | ParseException e) {
             throw new RuntimeException(e);
         }
