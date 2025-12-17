@@ -1,0 +1,27 @@
+resources:
+    requests:
+        cpu: "6"
+        memory: "16Gi"
+
+blockNode:
+    secretRef: "bn-<env>-s3-creds"
+        config:
+            JAVA_OPTS: '-Xms8G -Xmx8G -XX:+HeapDumpOnOutOfMemoryError -XX:HeapDumpPath="/tmp/dump.hprof"'
+            # Change the following Value with the next expected Block to be
+            # published by the Network.
+            # BLOCK_NODE_EARLIEST_MANAGED_BLOCK: "0"
+            # Archive Node Configuration
+            ARCHIVE_BLOCKS_PER_FILE: "10000" # Default is 100_000
+            ARCHIVE_BUCKET_NAME: "bn-eng-archive-bucket"
+            ARCHIVE_ENDPOINT_URL: "https://storage.googleapis.com"
+            ARCHIVE_BASE_PATH: "previewnet/archive1"
+            ARCHIVE_STORAGE_CLASS: "ARCHIVE"
+            ARCHIVE_REGION_NAME: "us-central1"
+
+        persistence:
+            archive:
+                size: 50Gi
+            live:
+                size: 10Gi
+            logging:
+                size: 2Gi
