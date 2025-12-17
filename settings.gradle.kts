@@ -45,16 +45,14 @@ javaModules {
     }
 }
 
-// @jjohannes: remove once 'swirldsVersion' is updated to '0.63.x' in
-// hiero-dependency-versions/build.gradle.kts
+// Patch swirlds JARs that need additional module-info configuration
 @Suppress("UnstableApiUsage")
 gradle.lifecycle.beforeProject {
     plugins.withId("org.hiero.gradle.module.library") {
         the<ExtraJavaModuleInfoPluginExtension>().apply {
-            // rewrite requires: io.prometheus.simpleclient -> simpleclient
-            // https://github.com/hiero-ledger/hiero-gradle-conventions/pull/178
-            // https://github.com/hiero-ledger/hiero-consensus-node/pull/19059
-            module("com.swirlds:swirlds-common", "com.swirlds.common") {
+
+            // Patch swirlds-common to add missing requires directives
+            module("com.hedera.hashgraph:swirlds-common", "com.swirlds.common") {
                 patchRealModule()
                 exportAllPackages()
                 requireAllDefinedDependencies()
@@ -62,6 +60,50 @@ gradle.lifecycle.beforeProject {
                 requires("jdk.httpserver")
                 requires("jdk.management")
             }
+
+            // Replace base-utility module-info to use our protobuf-pbj instead of hapi
+            module("com.hedera.hashgraph:base-utility", "org.hiero.base.utility") {
+                patchRealModule() // overwrite existing module-info.class completely
+                exportAllPackages()
+                // Core dependencies (from original module-info, minus hapi)
+                requires("com.swirlds.base")
+                requires("com.swirlds.logging")
+                requires("com.hedera.pbj.runtime")
+                requires("io.github.classgraph")
+                // Replace hapi with our protobuf-pbj
+                requires("org.hiero.block.protobuf.pbj")
+            }
+
+            // Replace consensus-model module-info to use our protobuf-pbj instead of hapi
+            module("com.hedera.hashgraph:consensus-model", "org.hiero.consensus.model") {
+                patchRealModule() // overwrite existing module-info.class completely
+                exportAllPackages()
+                // Core dependencies (from original module-info, minus hapi)
+                requires("com.hedera.pbj.runtime")
+                requires("org.hiero.base.crypto")
+                requires("org.hiero.base.utility")
+                // Replace hapi with our protobuf-pbj
+                requires("org.hiero.block.protobuf.pbj")
+            }
+
+            // Patch base-crypto
+            module("com.hedera.hashgraph:base-crypto", "org.hiero.base.crypto") {
+                patchRealModule()
+                exportAllPackages()
+                requireAllDefinedDependencies()
+            }
+
+            // Patch base-concurrent
+            module("com.hedera.hashgraph:base-concurrent", "org.hiero.base.concurrent") {
+                patchRealModule()
+                exportAllPackages()
+                requireAllDefinedDependencies()
+            }
         }
+
+        // Exclude hapi from all configurations - we use our own protobuf-pbj types
+        // This prevents the package conflict between com.hedera.node.hapi and
+        // org.hiero.block.protobuf.pbj
+        configurations.all { exclude(group = "com.hedera.hashgraph", module = "hapi") }
     }
 }

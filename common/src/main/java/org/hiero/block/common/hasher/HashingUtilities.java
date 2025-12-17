@@ -5,7 +5,6 @@ import com.hedera.hapi.block.stream.output.BlockFooter;
 import com.hedera.hapi.block.stream.output.BlockHeader;
 import com.hedera.hapi.node.base.Timestamp;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
-import com.swirlds.common.crypto.DigestType;
 import edu.umd.cs.findbugs.annotations.NonNull;
 import java.nio.ByteBuffer;
 import java.security.MessageDigest;
@@ -59,7 +58,7 @@ public final class HashingUtilities {
      */
     public static Bytes noThrowSha384HashOf(@NonNull final Bytes bytes) {
         try {
-            final var digest = MessageDigest.getInstance(DigestType.SHA_384.algorithmName());
+            final var digest = MessageDigest.getInstance(HASH_ALGORITHM);
             bytes.writeTo(digest);
             return Bytes.wrap(digest.digest());
         } catch (final NoSuchAlgorithmException fatal) {
@@ -101,7 +100,7 @@ public final class HashingUtilities {
      */
     public static Bytes combine(@NonNull final Bytes leftHash, @NonNull final Bytes rightHash) {
         try {
-            final var digest = MessageDigest.getInstance(DigestType.SHA_384.algorithmName());
+            final var digest = MessageDigest.getInstance(HASH_ALGORITHM);
             leftHash.writeTo(digest);
             rightHash.writeTo(digest);
             return Bytes.wrap(digest.digest());

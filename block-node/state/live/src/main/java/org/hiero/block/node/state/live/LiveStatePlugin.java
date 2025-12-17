@@ -12,6 +12,9 @@ import com.hedera.hapi.block.stream.output.StateChange;
 import com.hedera.hapi.block.stream.output.StateChanges;
 import com.hedera.pbj.runtime.ParseException;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
+import com.swirlds.base.time.Time;
+import com.swirlds.state.StateLifecycleManager;
+import com.swirlds.state.merkle.StateLifecycleManagerImpl;
 import edu.umd.cs.findbugs.annotations.NonNull;
 import java.lang.System.Logger;
 import java.util.List;
@@ -84,6 +87,10 @@ public class LiveStatePlugin implements BlockNodePlugin, BlockNotificationHandle
 
         // Register to receive block verification notifications
         context.blockMessaging().registerBlockNotificationHandler(this, true, "LiveStateNotificationHandler");
+
+        // TODO  temp for now so that we can test import dependencies
+        StateLifecycleManager stateLifecycleManager =
+                new StateLifecycleManagerImpl(context.metrics(), Time.getCurrent(), (virtualMap) -> null);
     }
 
     @Override

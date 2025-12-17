@@ -10,7 +10,7 @@ dependencies.constraints {
     val helidonVersion = "4.3.2"
     val pbjVersion = pluginVersions.version("com.hedera.pbj.pbj-compiler")
     val protobufVersion = "4.33.2"
-    val swirldsVersion = "0.61.3"
+    val swirldsVersion = "0.69.0"
     val mockitoVersion = "5.20.0"
     val testContainersVersion = "1.21.3"
 
@@ -34,15 +34,40 @@ dependencies.constraints {
     }
     api("com.hedera.pbj:pbj-runtime:${pbjVersion}") { because("com.hedera.pbj.runtime") }
     api("com.lmax:disruptor:4.0.0") { because("com.lmax.disruptor") }
-    api("com.swirlds:swirlds-common:$swirldsVersion") { because("com.swirlds.common") }
-    api("com.swirlds:swirlds-config-impl:$swirldsVersion") { because("com.swirlds.config.impl") }
-    // State API dependencies (version constraints for future use with VirtualMap integration)
-    // Note: Upgrading to 0.69+ requires migrating from com.swirlds to com.hedera.hashgraph group ID
-    // and updating hiero-gradle plugin configuration for the module name mappings
-    api("com.swirlds:swirlds-state-api:$swirldsVersion") { because("com.swirlds.state.api") }
-    api("com.swirlds:swirlds-state-impl:$swirldsVersion") { because("com.swirlds.state.impl") }
-    api("com.swirlds:swirlds-merkledb:$swirldsVersion") { because("com.swirlds.merkledb") }
-    api("com.swirlds:swirlds-virtualmap:$swirldsVersion") { because("com.swirlds.virtualmap") }
+    // Base modules from com.hedera.hashgraph group (0.68+)
+    api("com.hedera.hashgraph:base-concurrent:$swirldsVersion") {
+        because("org.hiero.base.concurrent")
+    }
+    api("com.hedera.hashgraph:base-crypto:$swirldsVersion") { because("org.hiero.base.crypto") }
+    api("com.hedera.hashgraph:base-utility:$swirldsVersion") { because("org.hiero.base.utility") }
+    api("com.hedera.hashgraph:consensus-model:$swirldsVersion") {
+        because("org.hiero.consensus.model")
+    }
+    // Note: hapi is excluded globally - we use org.hiero.block.protobuf.pbj instead
+    // Swirlds/Hedera modules from com.hedera.hashgraph group (0.68+)
+    api("com.hedera.hashgraph:swirlds-base:$swirldsVersion") { because("com.swirlds.base") }
+    api("com.hedera.hashgraph:swirlds-common:$swirldsVersion") { because("com.swirlds.common") }
+    api("com.hedera.hashgraph:swirlds-config-api:$swirldsVersion") {
+        because("com.swirlds.config.api")
+    }
+    api("com.hedera.hashgraph:swirlds-config-impl:$swirldsVersion") {
+        because("com.swirlds.config.impl")
+    }
+    api("com.hedera.hashgraph:swirlds-config-extensions:$swirldsVersion") {
+        because("com.swirlds.config.extensions")
+    }
+    api("com.hedera.hashgraph:swirlds-metrics-api:$swirldsVersion") {
+        because("com.swirlds.metrics.api")
+    }
+    api("com.hedera.hashgraph:swirlds-metrics-impl:$swirldsVersion") {
+        because("com.swirlds.metrics.impl")
+    }
+    api("com.hedera.hashgraph:swirlds-state-api:$swirldsVersion") {
+        because("com.swirlds.state.api")
+    }
+    api("com.hedera.hashgraph:swirlds-state-impl:$swirldsVersion") {
+        because("com.swirlds.state.impl")
+    }
     api("io.helidon.logging:helidon-logging-jul:$helidonVersion") {
         because("io.helidon.logging.jul")
     }
@@ -57,6 +82,10 @@ dependencies.constraints {
         because("io.helidon.webclient")
     }
     api("org.jetbrains:annotations:26.0.2-1") { because("org.jetbrains.annotations") }
+
+    // Prometheus metrics
+    api("io.prometheus:simpleclient:0.16.0") { because("simpleclient") }
+    api("io.prometheus:simpleclient_httpserver:0.16.0") { because("simpleclient.httpserver") }
 
     // gRPC dependencies
     api("io.grpc:grpc-api:$grpcIoVersion") { because("io.grpc") }
