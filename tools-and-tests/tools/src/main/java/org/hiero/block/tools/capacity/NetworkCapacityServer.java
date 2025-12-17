@@ -62,6 +62,8 @@ public class NetworkCapacityServer {
                         .receiveBufferSize(config.receiveBufferSize())
                         .tcpNoDelay(config.tcpNoDelay())
                         .build())
+                .backlog(config.backlogSize())
+                .writeQueueLength(config.writeQueueLength())
                 .build();
 
         webServer.start();
