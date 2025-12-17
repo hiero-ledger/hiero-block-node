@@ -347,26 +347,26 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
             final String earliestAndLatestBlockNumbers,
             final long endStreamLatestBlockNumber) {
         return switch (code) {
-            case EndStream.Code.UNKNOWN -> {
+            case UNRECOGNIZED, UNKNOWN -> {
                 final String message = "Handler %d received EndStream with UNKNOWN. %s"
                         .formatted(handlerId, earliestAndLatestBlockNumbers);
                 yield handleEndStream(WARNING, message);
             }
-            case EndStream.Code.RESET -> {
+            case RESET -> {
                 final String message = "Handler %d received EndStream with RESET. %s"
                         .formatted(handlerId, earliestAndLatestBlockNumbers);
                 yield handleEndStream(DEBUG, message);
             }
-            case EndStream.Code.TIMEOUT -> {
+            case TIMEOUT -> {
                 final String message = "Handler %d received EndStream with TIMEOUT. %s"
                         .formatted(handlerId, earliestAndLatestBlockNumbers);
                 yield handleEndStream(DEBUG, message);
             }
-            case EndStream.Code.ERROR -> {
+            case ERROR -> {
                 final String message = "Handler %d received EndStream with ERROR.".formatted(handlerId);
                 yield handleEndStream(DEBUG, message);
             }
-            case EndStream.Code.TOO_FAR_BEHIND -> {
+            case TOO_FAR_BEHIND -> {
                 final String message = "Handler %d received EndStream with TOO_FAR_BEHIND. %s"
                         .formatted(handlerId, earliestAndLatestBlockNumbers);
                 yield handleEndStreamBehind(DEBUG, message, endStreamLatestBlockNumber);
