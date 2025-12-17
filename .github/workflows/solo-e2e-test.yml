@@ -395,7 +395,7 @@ jobs:
         working-directory: sdk-tck/regression # required
 
       - name: BN Based - SDK TCK Regression Test Report
-        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         if: ${{ !cancelled()  &&  inputs.run-tck-regression-tests }}
         with:
           name: SDK TCK Regression Test Report
@@ -429,7 +429,7 @@ jobs:
       - name: Upload CN Logs
         if: always()
         id: upload_logs_cn
-        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
           name: cn-logs
           path: ${{ env.CN_LOG_FOLDER }}/*.zip
@@ -437,7 +437,7 @@ jobs:
       - name: Upload Logs
         if: always()
         id: upload_logs_bn_mn
-        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
           name: BN-MN-logs
           path: |
