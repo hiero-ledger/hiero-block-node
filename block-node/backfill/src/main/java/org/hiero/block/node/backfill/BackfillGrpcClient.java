@@ -135,7 +135,7 @@ public class BackfillGrpcClient {
         // Determine the earliest block we can actually fetch from peers
         long startBlock = Math.max(latestStoredBlockNumber + 1, earliestPeerBlock);
         // confirm next block is available if not we still can't backfill
-        if (latestStoredBlockNumber > latestPeerBlock || startBlock > latestPeerBlock) {
+        if (startBlock > latestPeerBlock) {
             return null;
         }
 
