@@ -19,11 +19,17 @@ import org.hiero.block.simulator.config.data.BlockGeneratorConfig;
  * including transfer lists and token transfers.
  */
 public class TransactionResultHandler extends AbstractBlockItemHandler {
-
-    private final BlockGeneratorConfig blockGeneratorConfig;
+    private final long realmNum;
+    private final long shardNum;
 
     public TransactionResultHandler(@NonNull final BlockGeneratorConfig blockGeneratorConfig) {
-        this.blockGeneratorConfig = blockGeneratorConfig;
+        this.realmNum = blockGeneratorConfig.realmNum();
+        this.shardNum = blockGeneratorConfig.shardNum();
+    }
+
+    public TransactionResultHandler(final long realmNum, final long shardNum) {
+        this.realmNum = realmNum;
+        this.shardNum = shardNum;
     }
 
     @Override
@@ -61,8 +67,8 @@ public class TransactionResultHandler extends AbstractBlockItemHandler {
         // todo(700) Add support for non-zero shard/realm entity
         return AccountAmount.newBuilder()
                 .setAccountID(AccountID.newBuilder()
-                        .setRealmNum(blockGeneratorConfig.realmNum())
-                        .setShardNum(blockGeneratorConfig.shardNum())
+                        .setRealmNum(realmNum)
+                        .setShardNum(shardNum)
                         .setAccountNum(accountNum)
                         .build())
                 .setAmount(accountAmount)
@@ -77,8 +83,8 @@ public class TransactionResultHandler extends AbstractBlockItemHandler {
 
         return TokenTransferList.newBuilder()
                 .setToken(TokenID.newBuilder()
-                        .setRealmNum(blockGeneratorConfig.realmNum())
-                        .setShardNum(blockGeneratorConfig.shardNum())
+                        .setRealmNum(realmNum)
+                        .setShardNum(shardNum)
                         .setTokenNum(tokenId))
                 .addTransfers(createAccountAmount(creditAccount, -amount))
                 .addTransfers(createAccountAmount(debitAccount, amount))

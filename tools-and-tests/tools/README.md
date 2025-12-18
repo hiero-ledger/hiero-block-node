@@ -117,6 +117,8 @@ Below are quick synopses. Use `-h` on each for authoritative flags.
   * *Synopsis:* `addNewerBlockTimes --bucket <name> --prefix <path> -i <existing.csv> -o <updated.csv>`
 * **networkCapacity** – Throughput testing (server/client)
   * *Synopsis:* `networkCapacity -m <server|client> -c <config.json> [other options]`
+* **generate** - Generate blocks for testing purposes
+  * *Synopsis:* `generate -o <output-dir> -s <n> -e <n>`
 
 ---
 

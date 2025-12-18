@@ -35,5 +35,16 @@ class SubscribeBlockStreamRequest {
     }
 }
 
-export { ServerStatusRequest, GetBlockRequest, SubscribeBlockStreamRequest };
+class PublisherStreamRequest {
+    constructor(client) {
+        this.client = client;
+        this.protoDef = 'org.hiero.block.api.BlockStreamPublishService/publishBlockStream'
+    }
+
+    invoke(params = {}) {
+        return new Stream(this.client, this.protoDef , params);
+    }
+}
+
+export { ServerStatusRequest, GetBlockRequest, SubscribeBlockStreamRequest, PublisherStreamRequest };
 

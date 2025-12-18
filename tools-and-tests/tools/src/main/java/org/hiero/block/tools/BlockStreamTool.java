@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.tools;
 
+import org.hiero.block.tools.commands.BlockGenerator;
 import org.hiero.block.tools.commands.BlockInfo;
 import org.hiero.block.tools.commands.ConvertToJson;
 import org.hiero.block.tools.commands.NetworkCapacity;
@@ -28,7 +29,8 @@ import picocli.CommandLine.Command;
             ExtractBlockTimes.class,
             ValidateBlockTimes.class,
             AddNewerBlockTimes.class,
-            NetworkCapacity.class
+            NetworkCapacity.class,
+            BlockGenerator.class
         })
 public final class BlockStreamTool {
 
