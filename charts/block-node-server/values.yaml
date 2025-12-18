@@ -94,6 +94,15 @@ tolerations: []
 
 affinity: {}
 
+plugins:
+    enabled: true
+    baseUrl: "https://repo1.maven.org/maven2/org/hiero/block-node"
+    version: "0.25.0-rc1"
+    targetDir: "/app-{{ .Values.app.version }}/lib"
+    names:
+        - plugin1
+        - plugin2
+
 blockNode:
   # Optional hostPort mappings keyed by container port name.
   # hostPorts:
@@ -114,15 +123,27 @@ blockNode:
           mkdir -p /archive-pvc/archive-data && \
           chown 2000:2000 /archive-pvc/archive-data && \
           chmod 700 /archive-pvc/archive-data
-
-     # download plugins and put them in plugins
       volumeMounts:
         - name: live-storage
           mountPath: /live-pvc
         - name: archive-storage
           mountPath: /archive-pvc
+    - name: download-plugins
+      image: curlimages/curl:8.5.0
+      command:
+        - sh
+        - -c
+        - |
+            {{- if .Values.plugins.enabled }}
+            {{- range .Values.plugins.names }}
+            mkdir -p {{ $.Values.plugins.targetDir | quote }} && \
+            curl -L -o "{{ $.Values.plugins.targetDir }}/{{ . }}.jar" \
+              "{{ $.Values.plugins.baseUrl }}/{{ . }}/{{ $.Values.plugins.version }}/{{ . }}-{{ $.Values.plugins.version }}.jar" && \
+            {{- end }}
+            {{- end }}
+      volumeMounts:
         - name: plugins
-        mountPath: /plugins #application path
+          mountPath: /app  # Mount root so targetDir resolves correctly
   # if blank will use same as AppVersion of chart.
   version: ""
   config:
@@ -172,12 +193,6 @@ blockNode:
       # should match PERSISTENCE_STORAGE_LIVE_ROOT_PATH, leave as is for default.
       mountPath: "/opt/hiero/block-node/data/live"
       size: 20Gi
-
-      plugins:
-        # name of the volume within the statefulset
-        volumeName: "plugins"
-        mountPath: "/plugins"
-        size: 5Gi
       # Optionally add a storage class name if needed
       # storageClass: "your-storage-class"
       # Optionally specify an existing PVC name instead of creating via volumeClaimTemplate
