@@ -13,4 +13,7 @@ import org.hiero.block.node.base.Loggable;
  */
 @ConfigData("state.live")
 public record LiveStateConfig(
-        @Loggable @ConfigProperty(defaultValue = "/opt/hiero/block-node/data/state") Path storagePath) {}
+        @Loggable @ConfigProperty(defaultValue = "/opt/hiero/block-node/data/state") Path storagePath,
+        @Loggable @ConfigProperty(defaultValue = "/opt/hiero/block-node/data/state/latest") Path latestStatePath,
+        @Loggable @ConfigProperty(defaultValue = "/opt/hiero/block-node/data/state/matadata.dat") Path stateMetadataPath
+) {}
