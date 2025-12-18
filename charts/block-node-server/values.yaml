@@ -95,13 +95,12 @@ tolerations: []
 affinity: {}
 
 plugins:
-    enabled: true
-    baseUrl: "https://repo1.maven.org/maven2/org/hiero/block-node"
-    version: "0.25.0-rc1"
-    targetDir: "/app-{{ .Values.app.version }}/lib"
-    names:
-        - plugin1
-        - plugin2
+  enabled: true
+  baseUrl: "https://repo1.maven.org/maven2/org/hiero/block-node"
+  version: "0.25.0-rc1"
+  targetDir: "/app-{{ .Values.app.version }}/lib"
+  names:
+    -
 
 blockNode:
   # Optional hostPort mappings keyed by container port name.
