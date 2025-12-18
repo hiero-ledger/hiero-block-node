@@ -117,7 +117,7 @@ public class LiveStatePlugin implements BlockNodePlugin, BlockNotificationHandle
             } else { // assume genesis starting with block 0
                 logger.log(INFO, "Creating new empty genesis state");
                 // create new state metadata
-                stateMetadata = new StateMetadata(-1);
+                stateMetadata = new StateMetadata(-1, new byte[48]);
                 // create a new empty virtual map state
                 VirtualMapState state = new VirtualMapState(context.configuration(), context.metrics());
                 stateLifecycleManager.initState(state, true);
@@ -349,7 +349,6 @@ public class LiveStatePlugin implements BlockNodePlugin, BlockNotificationHandle
      */
     private void applyStateChanges(@NonNull final MerkleNodeState state, @NonNull final StateChanges stateChanges,
             final long blockNumber) {
-        state.get
 
         for (final StateChange change : stateChanges.stateChanges()) {
             final int stateId = change.stateId();
@@ -359,7 +358,7 @@ public class LiveStatePlugin implements BlockNodePlugin, BlockNotificationHandle
                     final Bytes key = createSingletonKey(stateId);
                     final Object value = StateChangeParser.singletonValueFor(change.singletonUpdateOrThrow());
                     final Bytes valueBytes = serializeValue(value);
-                    state.put(key, valueBytes);
+//                    state.put(key, valueBytes);
                     logger.log(DEBUG, "Applied singleton update for state {0}", stateId);
 
                 } else if (StateChangeParser.isMapUpdate(change)) {
@@ -368,13 +367,13 @@ public class LiveStatePlugin implements BlockNodePlugin, BlockNotificationHandle
                     final Object mapValue = StateChangeParser.mapValueFor(mapUpdate.valueOrThrow());
                     final Bytes key = createMapKey(stateId, mapKey);
                     final Bytes valueBytes = serializeValue(mapValue);
-                    stateMap.put(key, valueBytes);
+//                    stateMap.put(key, valueBytes);
 
                 } else if (StateChangeParser.isMapDelete(change)) {
                     final var mapDelete = change.mapDeleteOrThrow();
                     final Object mapKey = StateChangeParser.mapKeyFor(mapDelete.keyOrThrow());
                     final Bytes key = createMapKey(stateId, mapKey);
-                    stateMap.remove(key);
+//                    stateMap.remove(key);
 
                 } else if (StateChangeParser.isQueuePush(change)) {
                     // Queue operations need special handling - track head/tail indices
@@ -463,12 +462,12 @@ public class LiveStatePlugin implements BlockNodePlugin, BlockNotificationHandle
 
 
     /**
-     * Get the last block number that was applied to state.
+     * Get the last block number that was applied to the state.
      *
      * @return the last applied block number, or -1 if no blocks applied yet
      */
     public long getLastAppliedBlockNumber() {
-        return lastAppliedBlockNumber;
+        return stateMetadata.lastAppliedBlockNumber();
     }
 
     /**
@@ -480,12 +479,12 @@ public class LiveStatePlugin implements BlockNodePlugin, BlockNotificationHandle
         return stateReady;
     }
 
-    /**
-     * Get the current state map size (for testing/monitoring).
-     *
-     * @return the number of entries in the state map
-     */
-    public int getStateSize() {
-        return stateMap.size();
-    }
+//    /**
+//     * Get the current state map size (for testing/monitoring).
+//     *
+//     * @return the number of entries in the state map
+//     */
+//    public int getStateSize() {
+//        return stateMap.size();
+//    }
 }
