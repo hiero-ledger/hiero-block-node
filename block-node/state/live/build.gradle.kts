@@ -14,4 +14,16 @@ mainModuleInfo {
     runtimeOnly("com.hedera.pbj.grpc.helidon.config")
 }
 
-testModuleInfo { requires("org.junit.jupiter.api") }
+testModuleInfo {
+    requires("org.junit.jupiter.api")
+    requires("com.swirlds.virtualmap")
+    requires("com.swirlds.state.api")
+    requires("com.swirlds.state.impl")
+    requires("com.swirlds.merkledb")
+    requires("com.swirlds.config.api")
+    requires("com.swirlds.config.impl")
+    requires("com.swirlds.common")
+    requires("com.swirlds.metrics.api")
+    requires("org.hiero.block.protobuf.pbj")
+    requires("com.hedera.pbj.runtime")
+}

@@ -22,7 +22,7 @@ import edu.umd.cs.findbugs.annotations.NonNull;
  * and backwards compatible. So will handle state types being added or removed. It treats the state contents as binary
  * as they are the same protobuf binary format in state changes as they are stored in the state database.
  */
-@SuppressWarnings("unused")
+@SuppressWarnings({"unused", "RedundantLabeledSwitchRuleCodeBlock"})
 public final class StateChangeParser {
     public static void applyStateChanges(@NonNull VirtualMap virtualMap, @NonNull Bytes stateChangesBytes) {
         ReadableSequentialData input = stateChangesBytes.toReadableSequentialData();
@@ -39,16 +39,18 @@ public final class StateChangeParser {
                     // this is "repeated" field so we will get more than one call
                     final var messageLength = input.readVarInt(false);
                     if (messageLength > 0) {
-                        processStateChange(virtualMap, input);
+                        final long endPosition = input.position() + messageLength;
+                        processStateChange(virtualMap, input, endPosition);
                     }
                 }
             }
         }
     }
 
-    private static void processStateChange(@NonNull VirtualMap virtualMap, @NonNull ReadableSequentialData input) {
+    private static void processStateChange(@NonNull VirtualMap virtualMap, @NonNull ReadableSequentialData input,
+            long endPosition) {
         int stateId = -1;
-        while (input.hasRemaining()) {
+        while (input.position() < endPosition) {
             switch (input.readVarInt(false)) {
                 case 8 /* type=0 [UINT32] field=1 [state_id] */ -> {
                     stateId = readUint32(input);
@@ -66,32 +68,35 @@ public final class StateChangeParser {
                 case 34 /* type=2 [MESSAGE] field=4 [singleton_update] */ -> {
                     final var messageLength = input.readVarInt(false);
                     if (messageLength > 0) {
-                        processSingletonUpdateChange(virtualMap, stateId, input);
+                        final long msgEndPosition = input.position() + messageLength;
+                        processSingletonUpdateChange(virtualMap, stateId, input, msgEndPosition);
                     }
                 }
                 case 42 /* type=2 [MESSAGE] field=5 [map_update] */ -> {
                     final var messageLength = input.readVarInt(false);
                     if (messageLength > 0) {
-                        processMapUpdateChange(virtualMap, stateId, input);
+                        final long msgEndPosition = input.position() + messageLength;
+                        processMapUpdateChange(virtualMap, stateId, input, msgEndPosition);
                     }
                 }
                 case 50 /* type=2 [MESSAGE] field=6 [map_delete] */ -> {
                     final var messageLength = input.readVarInt(false);
                     if (messageLength > 0) {
-                        processMapDeleteChange(virtualMap, stateId, input);
+                        final long msgEndPosition = input.position() + messageLength;
+                        processMapDeleteChange(virtualMap, stateId, input, msgEndPosition);
                     }
                 }
                 case 58 /* type=2 [MESSAGE] field=7 [queue_push] */ -> {
                     final var messageLength = input.readVarInt(false);
                     if (messageLength > 0) {
-                        processQueuePushChange(virtualMap, stateId, input);
+                        final long msgEndPosition = input.position() + messageLength;
+                        processQueuePushChange(virtualMap, stateId, input, msgEndPosition);
                     }
                 }
                 case 66 /* type=2 [MESSAGE] field=8 [queue_pop] */ -> {
                     final var messageLength = input.readVarInt(false);
-                    if (messageLength > 0) {
-                        processQueuePopChange(virtualMap, stateId, input);
-                    }
+                    // QueuePopChange has no fields, so messageLength will be 0, but we still need to process it
+                    processQueuePopChange(virtualMap, stateId);
                 }
             }
         }
@@ -103,9 +108,10 @@ public final class StateChangeParser {
      * @param virtualMap the virtual map to apply the change to
      * @param stateId the state ID of the singleton
      * @param input the input positioned at the beginning of the singleton update change message
+     * @param endPosition the position in input at which this message ends
      */
     private static void processSingletonUpdateChange(@NonNull VirtualMap virtualMap, int stateId,
-            @NonNull ReadableSequentialData input) {
+            @NonNull ReadableSequentialData input, long endPosition) {
         // SingletonUpdateChange has 1 single oneof, so we do not need a loop
         final int tag = input.readVarInt(false);
         // we also do not care which field it is as they are all wire type length encoded.
@@ -124,13 +130,14 @@ public final class StateChangeParser {
      * @param virtualMap the virtual map to apply the change to
      * @param stateId the state ID of the map
      * @param input the input positioned at the beginning of the map update change message
+     * @param endPosition the position in input at which this message ends
      */
     private static void processMapUpdateChange(@NonNull VirtualMap virtualMap, int stateId,
-            @NonNull ReadableSequentialData input) {
+            @NonNull ReadableSequentialData input, long endPosition) {
         // read map key and value contents as Bytes
         Bytes mapKeyAsStateKey = null;
         Bytes mapValueAsStateValue = null;
-        while (input.hasRemaining()) {
+        while (input.position() < endPosition) {
             final int tag = input.readVarInt(false);
             switch (tag) {
                 case 10 /* type=2 [MESSAGE] field=1 [key] */ -> {
@@ -167,11 +174,12 @@ public final class StateChangeParser {
      * @param virtualMap the virtual map to apply the change to
      * @param stateId the state ID of the map
      * @param input the input positioned at the beginning of the map delete change message
+     * @param endPosition the position in input at which this message ends
      */
     private static void processMapDeleteChange(@NonNull VirtualMap virtualMap, int stateId,
-            @NonNull ReadableSequentialData input) {
+            @NonNull ReadableSequentialData input, long endPosition) {
         Bytes mapKeyAsStateKey = null;
-        while (input.hasRemaining()) {
+        while (input.position() < endPosition) {
             final int tag = input.readVarInt(false);
             if (tag == 10 /* type=2 [MESSAGE] field=1 [key] */) {
                 final var messageLength = input.readVarInt(false);
@@ -191,16 +199,17 @@ public final class StateChangeParser {
     }
 
     /**
-     * Process a queue push change from the input and apply it to the given virtual map.
+     * Process a queue, push change from the input and apply it to the given virtual map.
      * This reads the current queue state (head/tail), adds the new element at the tail position,
      * and updates the queue state with the incremented tail.
      *
      * @param virtualMap the virtual map to apply the change to
      * @param stateId the state ID of the queue
      * @param input the input positioned at the beginning of the queue push change message
+     * @param endPosition the position in input at which this message ends
      */
     private static void processQueuePushChange(@NonNull VirtualMap virtualMap, int stateId,
-            @NonNull ReadableSequentialData input) {
+            @NonNull ReadableSequentialData input, long endPosition) {
         try {
             // Read the current queue state
             Bytes queueStateKey = getStateKeyForSingleton(stateId);
@@ -214,7 +223,7 @@ public final class StateChangeParser {
             //   field 2: proto_string_element (wrapper message with string field 1)
             //   field 3: transaction_receipt_entries_element (direct message)
             Bytes elementValue = null;
-            while (input.hasRemaining()) {
+            while (input.position() < endPosition) {
                 final int tag = input.readVarInt(false);
                 final var messageLength = input.readVarInt(false);
                 if (messageLength > 0) {
@@ -250,17 +259,15 @@ public final class StateChangeParser {
     }
 
     /**
-     * Process a queue pop change from the input and apply it to the given virtual map.
+     * Process a queue pop change and apply it to the given virtual map.
      * This reads the current queue state (head/tail), removes the element at the head position,
      * and updates the queue state with the incremented head.
      *
      * @param virtualMap the virtual map to apply the change to
      * @param stateId the state ID of the queue
-     * @param input the input positioned at the beginning of the queue pop change message (unused, QueuePopChange has no fields)
      */
-    private static void processQueuePopChange(@NonNull VirtualMap virtualMap, int stateId,
-            @NonNull ReadableSequentialData input) {
-        // QueuePopChange has no fields, so we don't need to parse input
+    private static void processQueuePopChange(@NonNull VirtualMap virtualMap, int stateId) {
+        // QueuePopChange has no fields, so we don't need any input
         try {
             // Read the current queue state
             Bytes queueStateKey = getStateKeyForSingleton(stateId);
