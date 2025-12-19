@@ -1,13 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.node.state.live;
 
-import static com.hedera.pbj.runtime.ProtoParserTools.readBool;
 import static com.hedera.pbj.runtime.ProtoParserTools.readUint32;
 import static com.swirlds.state.merkle.StateKeyUtils.kvKey;
+import static com.swirlds.state.merkle.StateKeyUtils.queueKey;
 import static com.swirlds.state.merkle.StateUtils.getStateKeyForSingleton;
 
-import com.hedera.hapi.block.stream.output.MapChangeKey;
-import com.hedera.hapi.block.stream.output.MapChangeValue;
+import com.hedera.hapi.platform.state.QueueState;
+import com.hedera.pbj.runtime.ParseException;
 import com.hedera.pbj.runtime.ProtoConstants;
 import com.hedera.pbj.runtime.ProtoParserTools;
 import com.hedera.pbj.runtime.ProtoWriterTools;
@@ -16,8 +16,6 @@ import com.hedera.pbj.runtime.io.buffer.BufferedData;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import com.swirlds.virtualmap.VirtualMap;
 import edu.umd.cs.findbugs.annotations.NonNull;
-import java.io.IOException;
-import java.io.UncheckedIOException;
 
 /**
  * This class does the minimal protobuf parsing of state changes to get just the data it needs in a way that is forwards
@@ -128,62 +126,163 @@ public final class StateChangeParser {
      * @param input the input positioned at the beginning of the map update change message
      */
     private static void processMapUpdateChange(@NonNull VirtualMap virtualMap, int stateId,
-        @NonNull ReadableSequentialData input) {
+            @NonNull ReadableSequentialData input) {
+        // read map key and value contents as Bytes
+        Bytes mapKeyAsStateKey = null;
+        Bytes mapValueAsStateValue = null;
+        while (input.hasRemaining()) {
+            final int tag = input.readVarInt(false);
+            switch (tag) {
+                case 10 /* type=2 [MESSAGE] field=1 [key] */ -> {
+                    final var messageLength = input.readVarInt(false);
+                    if (messageLength > 0) {
+                        // MapChangeKey has a single oneof field; we do not care what field id it is
+                        final int mapChangeKeyFieldTag = input.readVarInt(false);
+                        final var mapChangeKeyFieldMessageLength = input.readVarInt(false);
+                        mapKeyAsStateKey = kvKey(stateId, input.readBytes(mapChangeKeyFieldMessageLength));
+                    }
+                }
+                case 18 /* type=2 [MESSAGE] field=2 [value] */ -> {
+                    final var messageLength = input.readVarInt(false);
+                    if (messageLength > 0) {
+                        // MapChangeValue has a single oneof field; we do not care what field id it is
+                        final int mapChangeValueFieldTag = input.readVarInt(false);
+                        final var mapChangeValueFieldMessageLength = input.readVarInt(false);
+                        mapValueAsStateValue = stateValueWrap(stateId, mapChangeValueFieldMessageLength, input);
+                    }
+                }
+                case 24 /* type=0 [BOOL] field=3 [identical] */ -> input.readVarInt(false); // not needed
+            }
+        }
+        if (mapKeyAsStateKey == null || mapValueAsStateValue == null) {
+            throw new RuntimeException("MapChangeKey or MapChangeValue missing");
+        }
+        // put into the virtual merkle map
+        virtualMap.putBytes(mapKeyAsStateKey, mapValueAsStateValue);
+    }
+
+    /**
+     * Process a map-delete-change from the input and apply it to the given virtual map.
+     *
+     * @param virtualMap the virtual map to apply the change to
+     * @param stateId the state ID of the map
+     * @param input the input positioned at the beginning of the map delete change message
+     */
+    private static void processMapDeleteChange(@NonNull VirtualMap virtualMap, int stateId,
+            @NonNull ReadableSequentialData input) {
+        Bytes mapKeyAsStateKey = null;
+        while (input.hasRemaining()) {
+            final int tag = input.readVarInt(false);
+            if (tag == 10 /* type=2 [MESSAGE] field=1 [key] */) {
+                final var messageLength = input.readVarInt(false);
+                if (messageLength > 0) {
+                    // MapChangeKey has a single oneof field; we do not care what field id it is
+                    final int mapChangeKeyFieldTag = input.readVarInt(false);
+                    final var mapChangeKeyFieldMessageLength = input.readVarInt(false);
+                    mapKeyAsStateKey = kvKey(stateId, input.readBytes(mapChangeKeyFieldMessageLength));
+                }
+            }
+        }
+        if (mapKeyAsStateKey == null) {
+            throw new RuntimeException("MapChangeKey missing in MapDeleteChange");
+        }
+        // remove from the virtual merkle map
+        virtualMap.remove(mapKeyAsStateKey);
+    }
+
+    /**
+     * Process a queue push change from the input and apply it to the given virtual map.
+     * This reads the current queue state (head/tail), adds the new element at the tail position,
+     * and updates the queue state with the incremented tail.
+     *
+     * @param virtualMap the virtual map to apply the change to
+     * @param stateId the state ID of the queue
+     * @param input the input positioned at the beginning of the queue push change message
+     */
+    private static void processQueuePushChange(@NonNull VirtualMap virtualMap, int stateId,
+            @NonNull ReadableSequentialData input) {
         try {
-            // read map key and value contents as Bytes
-            Bytes mapKeyAsStateKey = null;
-            Bytes mapValueAsStateValue = null;
+            // Read the current queue state
+            Bytes queueStateKey = getStateKeyForSingleton(stateId);
+            Bytes existingQueueStateBytes = virtualMap.getBytes(queueStateKey);
+            QueueState queueState = existingQueueStateBytes != null ?
+                QueueState.PROTOBUF.parse(existingQueueStateBytes) : new QueueState(1, 1);
+
+            // Parse the QueuePushChange to get the element value
+            // QueuePushChange has a value oneof with options:
+            //   field 1: proto_bytes_element (wrapper message with bytes field 1)
+            //   field 2: proto_string_element (wrapper message with string field 1)
+            //   field 3: transaction_receipt_entries_element (direct message)
+            Bytes elementValue = null;
             while (input.hasRemaining()) {
                 final int tag = input.readVarInt(false);
-                switch (tag) {
-                    case 10 /* type=2 [MESSAGE] field=1 [key] */ -> {
-                        final var messageLength = input.readVarInt(false);
-                        final MapChangeKey value;
-                        if (messageLength > 0) {
-                            // MapChangeKey has a single oneof field; we do not care what field id it is
-                            final int mapChangeKeyFieldTag = input.readVarInt(false);
-                            final var mapChangeKeyFieldMessageLength = input.readVarInt(false);
-                            mapKeyAsStateKey = kvKey(stateId, input.readBytes(mapChangeKeyFieldMessageLength));
+                final var messageLength = input.readVarInt(false);
+                if (messageLength > 0) {
+                    switch (tag) {
+                        case 10 /* proto_bytes_element */, 18 /* proto_string_element */ -> {
+                            // These are wrapper messages with field 1 containing the actual value
+                            final int innerTag = input.readVarInt(false);
+                            final int innerLength = input.readVarInt(false);
+                            elementValue = stateValueWrap(stateId, innerLength, input);
                         }
-                    }
-                    case 18 /* type=2 [MESSAGE] field=2 [value] */ -> {
-                        final var messageLength = input.readVarInt(false);
-                        final MapChangeValue value;
-                        if (messageLength > 0) {
-                            // MapChangeValue has a single oneof field; we do not care what field id it is
-                            final int mapChangeValueFieldTag = input.readVarInt(false);
-                            final var mapChangeValueFieldMessageLength = input.readVarInt(false);
-                            mapValueAsStateValue = stateValueWrap(stateId, mapChangeValueFieldMessageLength, input);
+                        case 26 /* transaction_receipt_entries_element */ -> {
+                            // This is a direct message - the whole message is the value
+                            elementValue = stateValueWrap(stateId, messageLength, input);
                         }
-                    }
-                    case 24 /* type=0 [BOOL] field=3 [identical] */ -> {
-                        final var isIdentical = readBool(input); // not needed
+                        default -> input.skip(messageLength);
                     }
                 }
             }
-            if (mapKeyAsStateKey == null || mapValueAsStateValue == null) {
-                throw new RuntimeException("MapChangeKey or MapChangeValue missing");
+            if (elementValue == null) {
+                throw new RuntimeException("No value found in QueuePushChange");
             }
-            // put into the virtual merkle map
-            virtualMap.putBytes(mapKeyAsStateKey, mapValueAsStateValue);
-        } catch (IOException e) {
-            throw new UncheckedIOException(e);
+            // Create a queue element key at the current tail position
+            Bytes queueElementKey = queueKey(stateId, queueState.tail());
+            // Put element into virtual map
+            virtualMap.putBytes(queueElementKey, elementValue);
+            // Update queue state (increment tail)
+            Bytes newQueueStateBytes = QueueState.PROTOBUF.toBytes(
+                new QueueState(queueState.head(), queueState.tail() + 1));
+            virtualMap.putBytes(queueStateKey, newQueueStateBytes);
+        } catch (ParseException e) {
+            throw new RuntimeException("Failed to parse QueueState.",e);
         }
     }
 
-    private static void processMapDeleteChange(@NonNull VirtualMap virtualMap, int stateId,
-        @NonNull ReadableSequentialData input) {
-
-    }
-
-    private static void processQueuePushChange(@NonNull VirtualMap virtualMap, int stateId,
-        @NonNull ReadableSequentialData input) {
-
-    }
-
+    /**
+     * Process a queue pop change from the input and apply it to the given virtual map.
+     * This reads the current queue state (head/tail), removes the element at the head position,
+     * and updates the queue state with the incremented head.
+     *
+     * @param virtualMap the virtual map to apply the change to
+     * @param stateId the state ID of the queue
+     * @param input the input positioned at the beginning of the queue pop change message (unused, QueuePopChange has no fields)
+     */
     private static void processQueuePopChange(@NonNull VirtualMap virtualMap, int stateId,
-        @NonNull ReadableSequentialData input) {
-
+            @NonNull ReadableSequentialData input) {
+        // QueuePopChange has no fields, so we don't need to parse input
+        try {
+            // Read the current queue state
+            Bytes queueStateKey = getStateKeyForSingleton(stateId);
+            Bytes existingQueueStateBytes = virtualMap.getBytes(queueStateKey);
+            if (existingQueueStateBytes == null) {
+                throw new RuntimeException("Cannot pop from queue - queue state not found for stateId: " + stateId);
+            }
+            QueueState queueState = QueueState.PROTOBUF.parse(existingQueueStateBytes);
+            // Check if the queue is empty
+            if (queueState.head() >= queueState.tail()) {
+                throw new RuntimeException("Cannot pop from empty queue for stateId: " + stateId);
+            }
+            // Remove element at head position
+            Bytes queueElementKey = queueKey(stateId, queueState.head());
+            virtualMap.remove(queueElementKey);
+            // Update queue state (increment head)
+            Bytes newQueueStateBytes = QueueState.PROTOBUF.toBytes(
+                new QueueState(queueState.head() + 1, queueState.tail()));
+            virtualMap.putBytes(queueStateKey, newQueueStateBytes);
+        } catch (ParseException e) {
+            throw new RuntimeException("Failed to parse QueueState.",e);
+        }
     }
 
     /**
