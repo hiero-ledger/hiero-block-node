@@ -21,6 +21,7 @@ import java.util.TreeSet;
 import java.util.stream.Collectors;
 import org.hiero.block.internal.AddressBookHistory;
 import org.hiero.block.internal.DatedNodeAddressBook;
+import org.hiero.block.tools.days.model.AddressBookRegistry;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Option;
 
@@ -134,11 +135,7 @@ public class CompareAddressBooks implements Runnable {
                 status = "❌ NEW ONLY";
             }
 
-            System.out.printf("%-15s %-12s %-12s %-10s%n",
-                    day,
-                    inOld ? "YES" : "NO",
-                    inNew ? "YES" : "NO",
-                    status);
+            System.out.printf("%-15s %-12s %-12s %-10s%n", day, inOld ? "YES" : "NO", inNew ? "YES" : "NO", status);
         }
 
         System.out.println("\n" + "=".repeat(80));
@@ -148,9 +145,15 @@ public class CompareAddressBooks implements Runnable {
         System.out.println("Dates in OLD file:          " + oldByDay.size());
         System.out.println("Dates in NEW file:          " + newByDay.size());
 
-        long inBoth = allDays.stream().filter(d -> oldByDay.containsKey(d) && newByDay.containsKey(d)).count();
-        long oldOnly = allDays.stream().filter(d -> oldByDay.containsKey(d) && !newByDay.containsKey(d)).count();
-        long newOnly = allDays.stream().filter(d -> !oldByDay.containsKey(d) && newByDay.containsKey(d)).count();
+        long inBoth = allDays.stream()
+                .filter(d -> oldByDay.containsKey(d) && newByDay.containsKey(d))
+                .count();
+        long oldOnly = allDays.stream()
+                .filter(d -> oldByDay.containsKey(d) && !newByDay.containsKey(d))
+                .count();
+        long newOnly = allDays.stream()
+                .filter(d -> !oldByDay.containsKey(d) && newByDay.containsKey(d))
+                .count();
 
         System.out.println("Dates in BOTH files:        " + inBoth);
         System.out.println("Dates in OLD ONLY:          " + oldOnly);
@@ -249,11 +252,11 @@ public class CompareAddressBooks implements Runnable {
         }
 
         // Compare each node
-        Map<Long, NodeAddress> oldNodesMap = oldNodes.stream()
-                .collect(Collectors.toMap(NodeAddress::nodeId, n -> n));
+        Map<Long, NodeAddress> oldNodesMap =
+                oldNodes.stream().collect(Collectors.toMap(AddressBookRegistry::getNodeAccountId, n -> n));
 
-        Map<Long, NodeAddress> newNodesMap = newNodes.stream()
-                .collect(Collectors.toMap(NodeAddress::nodeId, n -> n));
+        Map<Long, NodeAddress> newNodesMap =
+                newNodes.stream().collect(Collectors.toMap(AddressBookRegistry::getNodeAccountId, n -> n));
 
         Set<Long> allNodeIds = new TreeSet<>();
         allNodeIds.addAll(oldNodesMap.keySet());
@@ -305,9 +308,11 @@ public class CompareAddressBooks implements Runnable {
     }
 
     private void printAddressBookDetails(String label, NodeAddressBook book) {
-        System.out.println("   " + label + " address book: " + book.nodeAddress().size() + " nodes");
-        book.nodeAddress().forEach(node -> System.out.println("      Node " + node.nodeId() + ": "
-                + node.ipAddress() + ":" + node.portno() + " - " + node.description()));
+        System.out.println(
+                "   " + label + " address book: " + book.nodeAddress().size() + " nodes");
+        book.nodeAddress()
+                .forEach(node -> System.out.println("      Node " + node.nodeId() + ": " + node.ipAddress() + ":"
+                        + node.portno() + " - " + node.description()));
     }
 
     private void printComparison(AddressBookComparison comparison) {
@@ -324,7 +329,8 @@ public class CompareAddressBooks implements Runnable {
             Map<Long, NodeAddress> newNodes,
             Map<Long, String> differences) {
 
-        AddressBookComparison(boolean isEqual, String summary, Map<Long, NodeAddress> oldNodes, Map<Long, NodeAddress> newNodes) {
+        AddressBookComparison(
+                boolean isEqual, String summary, Map<Long, NodeAddress> oldNodes, Map<Long, NodeAddress> newNodes) {
             this(isEqual, summary, oldNodes, newNodes, null);
         }
 

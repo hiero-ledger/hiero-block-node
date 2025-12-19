@@ -147,7 +147,12 @@ public class UnparsedRecordBlockV6 extends UnparsedRecordBlock {
             final List<TransactionBody> addressBookTransactions =
                     AddressBookRegistry.filterToJustAddressBookTransactions(transactions);
             return new ValidationResult(
-                    isValid, warnings.toString(), endRunningHash, hapiVersion, addressBookTransactions, sigResult.validSignatureCount());
+                    isValid,
+                    warnings.toString(),
+                    endRunningHash,
+                    hapiVersion,
+                    addressBookTransactions,
+                    sigResult.validSignatureCount());
         } catch (IOException | ParseException e) {
             throw new RuntimeException(e);
         }

@@ -170,7 +170,12 @@ public class UnparsedRecordBlockV5 extends UnparsedRecordBlock {
                     AddressBookRegistry.filterToJustAddressBookTransactions(transactions);
             // return the validation result
             return new ValidationResult(
-                    isValid, warnings.toString(), endRunningHash, hapiVersion, addressBookTransactions, sigResult.validSignatureCount());
+                    isValid,
+                    warnings.toString(),
+                    endRunningHash,
+                    hapiVersion,
+                    addressBookTransactions,
+                    sigResult.validSignatureCount());
         } catch (IOException | ParseException e) {
             throw new RuntimeException(e);
         }

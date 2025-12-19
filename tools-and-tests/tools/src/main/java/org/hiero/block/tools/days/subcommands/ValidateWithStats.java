@@ -249,7 +249,8 @@ public class ValidateWithStats implements Runnable {
                 // Determine max signature count we need to handle (up to 40 to be safe)
                 int maxSigCount = 40;
                 StringBuilder header = new StringBuilder();
-                header.append("date,percentage,number_of_blocks,number_of_nodes,valid_signatures,worst_block_signature_coverage_percentage,avg_percentage_per_block");
+                header.append(
+                        "date,percentage,number_of_blocks,number_of_nodes,valid_signatures,worst_block_signature_coverage_percentage,avg_percentage_per_block");
                 for (int i = 1; i <= maxSigCount; i++) {
                     header.append(",blocks_with_").append(i).append("_sig");
                 }
@@ -725,8 +726,10 @@ public class ValidateWithStats implements Runnable {
                     case DAY_START -> {
                         progressAtStartOfDay = progress.get();
                         blockInDayCounter.set(0L);
-                        int nodeCount =
-                                addressBookRegistry.getCurrentAddressBook().nodeAddress().size();
+                        int nodeCount = addressBookRegistry
+                                .getCurrentAddressBook()
+                                .nodeAddress()
+                                .size();
                         stats.startDay(item.dayDate, nodeCount);
                     }
                     case BLOCK -> {
@@ -740,8 +743,7 @@ public class ValidateWithStats implements Runnable {
 
                         try {
                             final byte[] previousBlockHash = carryOverHash.get();
-                            final ValidationResult vr =
-                                    block.validate(previousBlockHash, blockAddressBook);
+                            final ValidationResult vr = block.validate(previousBlockHash, blockAddressBook);
 
                             // Record block statistics after validation to get valid signature count
                             stats.recordBlock(block.signatureFiles(), vr.validSignatureCount(), nodeCount);

@@ -31,15 +31,14 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.zip.GZIPInputStream;
 import org.hiero.block.internal.AddressBookHistory;
 import org.hiero.block.internal.DatedNodeAddressBook;
+import org.hiero.block.tools.utils.TimeUtils;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Option;
 
 /**
  * Generate address book history JSON from Mirror Node CSV export.
  */
-@Command(
-        name = "generateAddressBook",
-        description = "Generate address book history JSON from Mirror Node CSV export")
+@Command(name = "generateAddressBook", description = "Generate address book history JSON from Mirror Node CSV export")
 public class GenerateAddressBookFromMirrorNode implements Runnable {
     private static final String BUCKET_NAME = "mirrornode-db-export";
     private static final String ADDRESS_BOOK_PATH = "/address_book/address_book.csv.gz";
@@ -61,8 +60,24 @@ public class GenerateAddressBookFromMirrorNode implements Runnable {
 
     @Option(
             names = {"--keep-duplicates"},
-            description = "Keep all entries even if same timestamp appears multiple times (default: false, keeps latest)")
+            description =
+                    "Keep all entries even if same timestamp appears multiple times (default: false, keeps latest)")
     private boolean keepDuplicates = false;
+
+    @Option(
+            names = {"--show-changes"},
+            description = "Show detailed changes between consecutive address book entries")
+    private boolean showChanges = false;
+
+    @Option(
+            names = {"--filter-duplicates"},
+            description = "Filter out duplicate entries with identical content (default: true)")
+    private boolean filterDuplicates = true;
+
+    @Option(
+            names = {"--filter-description-only"},
+            description = "Filter out entries where only node descriptions changed (default: false)")
+    private boolean filterDescriptionOnly = false;
 
     @Override
     public void run() {
@@ -82,6 +97,10 @@ public class GenerateAddressBookFromMirrorNode implements Runnable {
             Path csvFile = downloadAddressBookCsv(storage, projectId, latestVersion);
             List<DatedNodeAddressBook> addressBooks = parseAddressBookCsv(csvFile);
             System.out.println("Parsed " + addressBooks.size() + " address book entries");
+
+            if (showChanges) {
+                analyzeChanges(addressBooks);
+            }
 
             writeAddressBookHistory(addressBooks);
             System.out.println("Address book history written to: " + outputFile);
@@ -110,7 +129,8 @@ public class GenerateAddressBookFromMirrorNode implements Runnable {
                 .streamAll()
                 .map(Blob::getName)
                 .map(name -> name.replaceAll("/$", ""))
-                .filter(name -> MirrorNodeUtils.SYMANTIC_VERSION_PATTERN.matcher(name).matches())
+                .filter(name ->
+                        MirrorNodeUtils.SYMANTIC_VERSION_PATTERN.matcher(name).matches())
                 .max(Comparator.comparingLong(MirrorNodeUtils::parseSymantecVersion))
                 .orElseThrow(() -> new RuntimeException("No version directories found"));
     }
@@ -131,15 +151,23 @@ public class GenerateAddressBookFromMirrorNode implements Runnable {
     }
 
     private List<DatedNodeAddressBook> parseAddressBookCsv(Path csvFile) throws IOException {
-        try (BufferedReader reader = new BufferedReader(
-                new InputStreamReader(new GZIPInputStream(Files.newInputStream(csvFile))))) {
+        try (BufferedReader reader =
+                new BufferedReader(new InputStreamReader(new GZIPInputStream(Files.newInputStream(csvFile))))) {
 
             String[] headers = parseHeader(reader);
             int timestampIdx = findColumnIndex(headers, "start_consensus_timestamp");
             int fileDataIdx = findColumnIndex(headers, "file_data");
             int fileIdIdx = findColumnIndex(headers, "file_id");
 
-            return parseRows(reader, timestampIdx, fileDataIdx, fileIdIdx);
+            // Try to find transaction_result column (optional - may not exist in all CSV versions)
+            int transactionResultIdx = -1;
+            try {
+                transactionResultIdx = findColumnIndex(headers, "transaction_result");
+            } catch (IOException e) {
+                System.out.println("Note: transaction_result column not found - will include all rows");
+            }
+
+            return parseRows(reader, timestampIdx, fileDataIdx, fileIdIdx, transactionResultIdx);
         }
     }
 
@@ -156,13 +184,18 @@ public class GenerateAddressBookFromMirrorNode implements Runnable {
                 .orElseThrow(() -> new IOException("Required column not found: " + columnName));
     }
 
-    private List<DatedNodeAddressBook> parseRows(BufferedReader reader, int timestampIdx, int fileDataIdx, int fileIdIdx)
+    private List<DatedNodeAddressBook> parseRows(
+            BufferedReader reader, int timestampIdx, int fileDataIdx, int fileIdIdx, int transactionResultIdx)
             throws IOException {
         System.out.println("Processing CSV rows...");
 
         final java.util.concurrent.atomic.AtomicInteger rowCount = new java.util.concurrent.atomic.AtomicInteger(0);
-        final java.util.concurrent.atomic.AtomicInteger duplicateCount = new java.util.concurrent.atomic.AtomicInteger(0);
-        final java.util.concurrent.atomic.AtomicInteger filteredCount = new java.util.concurrent.atomic.AtomicInteger(0);
+        final java.util.concurrent.atomic.AtomicInteger duplicateCount =
+                new java.util.concurrent.atomic.AtomicInteger(0);
+        final java.util.concurrent.atomic.AtomicInteger filteredCount =
+                new java.util.concurrent.atomic.AtomicInteger(0);
+        final java.util.concurrent.atomic.AtomicInteger failedTxCount =
+                new java.util.concurrent.atomic.AtomicInteger(0);
 
         List<DatedNodeAddressBook> addressBooks = reader.lines()
                 .peek(line -> {
@@ -180,6 +213,18 @@ public class GenerateAddressBookFromMirrorNode implements Runnable {
                         filteredCount.incrementAndGet();
                         return false;
                     }
+
+                    // Filter by transaction_result = 22 (SUCCESS) if column exists
+                    // See: https://github.com/hashgraph/hedera-protobufs/blob/main/services/response_code.proto
+                    // ResponseCodeEnum.SUCCESS = 22
+                    if (transactionResultIdx >= 0 && transactionResultIdx < columns.length) {
+                        String result = columns[transactionResultIdx];
+                        if (!"22".equals(result)) {
+                            failedTxCount.incrementAndGet();
+                            return false;
+                        }
+                    }
+
                     return true;
                 })
                 .map(line -> {
@@ -197,16 +242,41 @@ public class GenerateAddressBookFromMirrorNode implements Runnable {
 
         System.out.println("\nCompleted processing " + rowCount.get() + " rows");
         if (filteredCount.get() > 0) {
-            System.out.println("Filtered out " + filteredCount.get() + " rows (non-address-book files, keeping only file_id=102)");
+            System.out.println(
+                    "Filtered out " + filteredCount.get() + " rows (non-address-book files, keeping only file_id=102)");
+        }
+        if (failedTxCount.get() > 0) {
+            System.out.println(
+                    "Filtered out " + failedTxCount.get() + " rows (failed transactions, keeping only SUCCESS=22)");
         }
 
-        // Handle duplicates
+        // Handle timestamp-based duplicates
         if (!keepDuplicates) {
-            List<DatedNodeAddressBook> deduplicated = deduplicateByTimestamp(addressBooks, duplicateCount);
+            addressBooks = deduplicateByTimestamp(addressBooks, duplicateCount);
             if (duplicateCount.get() > 0) {
-                System.out.println("Removed " + duplicateCount.get() + " duplicate entries (kept latest for each timestamp)");
+                System.out.println(
+                        "Removed " + duplicateCount.get() + " duplicate entries (kept latest for each timestamp)");
             }
-            return deduplicated;
+        }
+
+        // Apply content-based filtering
+        int originalSize = addressBooks.size();
+
+        if (filterDuplicates) {
+            addressBooks = filterContentDuplicates(addressBooks);
+            int removed = originalSize - addressBooks.size();
+            if (removed > 0) {
+                System.out.println("Filtered out " + removed + " content-duplicate entries (no changes from previous)");
+                originalSize = addressBooks.size();
+            }
+        }
+
+        if (filterDescriptionOnly) {
+            addressBooks = filterDescriptionOnlyChanges(addressBooks);
+            int removed = originalSize - addressBooks.size();
+            if (removed > 0) {
+                System.out.println("Filtered out " + removed + " description-only change entries");
+            }
         }
 
         return addressBooks;
@@ -232,6 +302,101 @@ public class GenerateAddressBookFromMirrorNode implements Runnable {
         return Instant.ofEpochSecond(ts.seconds(), ts.nanos());
     }
 
+    private List<DatedNodeAddressBook> filterContentDuplicates(List<DatedNodeAddressBook> addressBooks) {
+        if (addressBooks.isEmpty()) return addressBooks;
+
+        List<DatedNodeAddressBook> filtered = new ArrayList<>();
+        NodeAddressBook previousBook = null;
+
+        for (DatedNodeAddressBook current : addressBooks) {
+            NodeAddressBook currentBook = current.addressBook();
+
+            // Always keep first entry
+            if (previousBook == null) {
+                filtered.add(current);
+                previousBook = currentBook;
+                continue;
+            }
+
+            // Check if content is identical to previous
+            if (!addressBooksEqual(previousBook, currentBook)) {
+                filtered.add(current);
+                previousBook = currentBook;
+            }
+            // Skip if identical
+        }
+
+        return filtered;
+    }
+
+    private List<DatedNodeAddressBook> filterDescriptionOnlyChanges(List<DatedNodeAddressBook> addressBooks) {
+        if (addressBooks.isEmpty()) return addressBooks;
+
+        List<DatedNodeAddressBook> filtered = new ArrayList<>();
+        NodeAddressBook previousBook = null;
+
+        for (DatedNodeAddressBook current : addressBooks) {
+            NodeAddressBook currentBook = current.addressBook();
+
+            // Always keep first entry
+            if (previousBook == null) {
+                filtered.add(current);
+                previousBook = currentBook;
+                continue;
+            }
+
+            // Check if there are structural changes (not just descriptions)
+            if (hasStructuralChanges(previousBook, currentBook)) {
+                filtered.add(current);
+                previousBook = currentBook;
+            }
+            // Skip if only descriptions changed
+        }
+
+        return filtered;
+    }
+
+    private boolean hasStructuralChanges(NodeAddressBook book1, NodeAddressBook book2) {
+        // Check for node count changes
+        if (book1.nodeAddress().size() != book2.nodeAddress().size()) {
+            return true;
+        }
+
+        // Create maps by node account ID
+        Map<Long, com.hedera.hapi.node.base.NodeAddress> map1 = new java.util.HashMap<>();
+        Map<Long, com.hedera.hapi.node.base.NodeAddress> map2 = new java.util.HashMap<>();
+
+        for (var node : book1.nodeAddress()) {
+            map1.put(getNodeAccountId(node), node);
+        }
+
+        for (var node : book2.nodeAddress()) {
+            map2.put(getNodeAccountId(node), node);
+        }
+
+        // Check if node IDs are different (additions/removals)
+        if (!map1.keySet().equals(map2.keySet())) {
+            return true;
+        }
+
+        // Check each node for non-description changes
+        for (Long nodeId : map1.keySet()) {
+            com.hedera.hapi.node.base.NodeAddress node1 = map1.get(nodeId);
+            com.hedera.hapi.node.base.NodeAddress node2 = map2.get(nodeId);
+
+            // Check for changes other than description
+            if (node1.nodeId() != node2.nodeId()
+                    || !node1.ipAddress().equals(node2.ipAddress())
+                    || node1.portno() != node2.portno()
+                    || !node1.rsaPubKey().equals(node2.rsaPubKey())) {
+                return true;
+            }
+        }
+
+        // Only descriptions differ (or no changes at all)
+        return false;
+    }
+
     private DatedNodeAddressBook parseRow(String[] columns, int timestampIdx, int fileDataIdx) throws Exception {
         // Parse timestamp - can be either nanoseconds (e.g., "1758733200632122897") or formatted string
         String timestampStr = columns[timestampIdx];
@@ -247,17 +412,24 @@ public class GenerateAddressBookFromMirrorNode implements Runnable {
             // Numeric timestamp in nanoseconds since epoch
             long nanos = Long.parseLong(timestampStr);
 
-            // Validate timestamp is reasonable (after 2019-01-01 and before 2100-01-01)
-            long seconds = nanos / 1_000_000_000L;
-            if (seconds < 1546300800L || seconds > 4102444800L) {
-                throw new IllegalArgumentException("Timestamp out of valid range: " + seconds + " (" + timestampStr + ")");
-            }
+            // Special case: epoch 0 means genesis
+            if (nanos == 0 || nanos == 1) {
+                System.out.println("Found epoch 0 timestamp, using GENESIS_TIMESTAMP");
+                timestamp = TimeUtils.GENESIS_TIMESTAMP;
+            } else {
+                // Validate timestamp is reasonable (after 2019-01-01 and before 2100-01-01)
+                long seconds = nanos / 1_000_000_000L;
+                if (seconds < 1546300800L || seconds > 4102444800L) {
+                    throw new IllegalArgumentException(
+                            "Timestamp out of valid range: " + seconds + " (" + timestampStr + ")");
+                }
 
-            int remainingNanos = (int) (nanos % 1_000_000_000L);
-            timestamp = Timestamp.newBuilder()
-                    .seconds(seconds)
-                    .nanos(remainingNanos)
-                    .build();
+                int remainingNanos = (int) (nanos % 1_000_000_000L);
+                timestamp = Timestamp.newBuilder()
+                        .seconds(seconds)
+                        .nanos(remainingNanos)
+                        .build();
+            }
         } else {
             // Formatted string: "2019-09-13 21:53:51.396440003"
             LocalDateTime ldt = LocalDateTime.parse(timestampStr, TIMESTAMP_FORMATTER);
@@ -276,10 +448,166 @@ public class GenerateAddressBookFromMirrorNode implements Runnable {
         byte[] fileDataBytes = HEX_FORMAT.parseHex(hexData);
 
         // Parse protobuf
-        NodeAddressBook addressBook = NodeAddressBook.PROTOBUF.parse(
-                new ReadableStreamingData(new ByteArrayInputStream(fileDataBytes)));
+        NodeAddressBook addressBook =
+                NodeAddressBook.PROTOBUF.parse(new ReadableStreamingData(new ByteArrayInputStream(fileDataBytes)));
 
         return new DatedNodeAddressBook(timestamp, addressBook);
+    }
+
+    private void analyzeChanges(List<DatedNodeAddressBook> addressBooks) {
+        System.out.println("\n" + "=".repeat(80));
+        System.out.println("ADDRESS BOOK CHANGES ANALYSIS");
+        System.out.println("=".repeat(80));
+
+        NodeAddressBook previousBook = null;
+        Timestamp previousTimestamp = null;
+
+        for (int i = 0; i < addressBooks.size(); i++) {
+            DatedNodeAddressBook dated = addressBooks.get(i);
+            NodeAddressBook currentBook = dated.addressBook();
+            Timestamp currentTimestamp = dated.blockTimestampOrThrow();
+            Instant currentInstant = Instant.ofEpochSecond(currentTimestamp.seconds(), currentTimestamp.nanos());
+
+            if (previousBook == null) {
+                // First entry
+                System.out.printf(
+                        "\n[%d] %s - First entry with %d nodes%n",
+                        i + 1, currentInstant, currentBook.nodeAddress().size());
+            } else {
+                // Compare with previous
+                boolean hasChanges = !addressBooksEqual(previousBook, currentBook);
+                String changes = hasChanges ? getAddressBookChanges(previousBook, currentBook) : "No changes";
+
+                Instant previousInstant = Instant.ofEpochSecond(previousTimestamp.seconds(), previousTimestamp.nanos());
+                long secondsBetween = java.time.Duration.between(previousInstant, currentInstant)
+                        .getSeconds();
+
+                System.out.printf(
+                        "\n[%d] %s - %d nodes (%.1f hours after previous)%n",
+                        i + 1, currentInstant, currentBook.nodeAddress().size(), secondsBetween / 3600.0);
+
+                if (hasChanges) {
+                    System.out.println("  Changes: " + changes);
+                } else {
+                    System.out.println("  ⚠️  NO CHANGES - Same as previous entry!");
+                }
+            }
+
+            previousBook = currentBook;
+            previousTimestamp = currentTimestamp;
+        }
+
+        System.out.println("\n" + "=".repeat(80));
+    }
+
+    private boolean addressBooksEqual(NodeAddressBook book1, NodeAddressBook book2) {
+        if (book1.nodeAddress().size() != book2.nodeAddress().size()) {
+            return false;
+        }
+
+        // Create maps by node account ID for comparison
+        Map<Long, com.hedera.hapi.node.base.NodeAddress> map1 = new java.util.HashMap<>();
+        Map<Long, com.hedera.hapi.node.base.NodeAddress> map2 = new java.util.HashMap<>();
+
+        for (var node : book1.nodeAddress()) {
+            map1.put(getNodeAccountId(node), node);
+        }
+
+        for (var node : book2.nodeAddress()) {
+            map2.put(getNodeAccountId(node), node);
+        }
+
+        if (!map1.keySet().equals(map2.keySet())) {
+            return false;
+        }
+
+        // Compare each node
+        for (Long nodeId : map1.keySet()) {
+            com.hedera.hapi.node.base.NodeAddress node1 = map1.get(nodeId);
+            com.hedera.hapi.node.base.NodeAddress node2 = map2.get(nodeId);
+
+            if (!nodesEqual(node1, node2)) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private boolean nodesEqual(
+            com.hedera.hapi.node.base.NodeAddress node1, com.hedera.hapi.node.base.NodeAddress node2) {
+        return node1.nodeId() == node2.nodeId()
+                && node1.ipAddress().equals(node2.ipAddress())
+                && node1.portno() == node2.portno()
+                && node1.rsaPubKey().equals(node2.rsaPubKey())
+                && node1.description().equals(node2.description());
+    }
+
+    private String getAddressBookChanges(NodeAddressBook oldBook, NodeAddressBook newBook) {
+        Map<Long, com.hedera.hapi.node.base.NodeAddress> oldMap = new java.util.HashMap<>();
+        Map<Long, com.hedera.hapi.node.base.NodeAddress> newMap = new java.util.HashMap<>();
+
+        for (var node : oldBook.nodeAddress()) {
+            oldMap.put(getNodeAccountId(node), node);
+        }
+
+        for (var node : newBook.nodeAddress()) {
+            newMap.put(getNodeAccountId(node), node);
+        }
+
+        List<String> changes = new ArrayList<>();
+
+        // Find added nodes
+        for (Long nodeId : newMap.keySet()) {
+            if (!oldMap.containsKey(nodeId)) {
+                changes.add("Added node " + nodeId);
+            }
+        }
+
+        // Find removed nodes
+        for (Long nodeId : oldMap.keySet()) {
+            if (!newMap.containsKey(nodeId)) {
+                changes.add("Removed node " + nodeId);
+            }
+        }
+
+        // Find modified nodes
+        for (Long nodeId : oldMap.keySet()) {
+            if (newMap.containsKey(nodeId)) {
+                com.hedera.hapi.node.base.NodeAddress oldNode = oldMap.get(nodeId);
+                com.hedera.hapi.node.base.NodeAddress newNode = newMap.get(nodeId);
+
+                if (!nodesEqual(oldNode, newNode)) {
+                    List<String> nodeChanges = new ArrayList<>();
+                    if (!oldNode.ipAddress().equals(newNode.ipAddress())) {
+                        nodeChanges.add("IP changed");
+                    }
+                    if (oldNode.portno() != newNode.portno()) {
+                        nodeChanges.add("Port changed");
+                    }
+                    if (!oldNode.rsaPubKey().equals(newNode.rsaPubKey())) {
+                        nodeChanges.add("Public key changed");
+                    }
+                    if (!oldNode.description().equals(newNode.description())) {
+                        nodeChanges.add("Description changed");
+                    }
+                    changes.add("Modified node " + nodeId + ": " + String.join(", ", nodeChanges));
+                }
+            }
+        }
+
+        return changes.isEmpty() ? "Unknown changes" : String.join("; ", changes);
+    }
+
+    private long getNodeAccountId(com.hedera.hapi.node.base.NodeAddress nodeAddress) {
+        if (nodeAddress.hasNodeAccountId() && nodeAddress.nodeAccountId().hasAccountNum()) {
+            return nodeAddress.nodeAccountId().accountNum();
+        } else if (nodeAddress.memo().length() > 0) {
+            final String memoStr = nodeAddress.memo().asUtf8String();
+            return Long.parseLong(memoStr.substring(memoStr.lastIndexOf('.') + 1));
+        } else {
+            throw new IllegalArgumentException("NodeAddress has no nodeAccountId or memo: " + nodeAddress);
+        }
     }
 
     private void writeAddressBookHistory(List<DatedNodeAddressBook> addressBooks) throws IOException {
