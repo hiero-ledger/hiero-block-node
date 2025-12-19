@@ -7,8 +7,6 @@ import static java.lang.System.Logger.Level.INFO;
 import static java.lang.System.Logger.Level.WARNING;
 
 import com.hedera.hapi.block.stream.output.BlockFooter;
-import com.hedera.hapi.block.stream.output.StateChange;
-import com.hedera.hapi.block.stream.output.StateChanges;
 import com.hedera.pbj.runtime.ParseException;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import com.swirlds.base.time.Time;
@@ -16,6 +14,7 @@ import com.swirlds.state.MerkleNodeState;
 import com.swirlds.state.StateLifecycleManager;
 import com.swirlds.state.merkle.StateLifecycleManagerImpl;
 import com.swirlds.state.merkle.VirtualMapState;
+import com.swirlds.virtualmap.VirtualMap;
 import edu.umd.cs.findbugs.annotations.NonNull;
 import java.io.IOException;
 import java.io.ObjectInputStream;
@@ -318,16 +317,13 @@ public class LiveStatePlugin implements BlockNodePlugin, BlockNotificationHandle
         }
         // get the current mutable state
         final MerkleNodeState state = stateLifecycleManager.getMutableState();
+        // hack to get virtual map instance
+        final VirtualMap virtualMap = (VirtualMap)state.getRoot();
         // apply state changes from each block item
         for (final var item : block.blockItems()) {
             if (item.hasStateChanges()) {
-                try {
-                    final Bytes stateChangesBytes = item.stateChangesOrThrow();
-                    final StateChanges stateChanges = StateChanges.PROTOBUF.parse(stateChangesBytes);
-                    applyStateChanges(state, stateChanges, blockNumber);
-                } catch (final ParseException e) {
-                    logger.log(ERROR, "Failed to parse state changes for block " + blockNumber, e);
-                }
+                final Bytes stateChangesBytes = item.stateChangesOrThrow();
+                StateChangeParser.applyStateChanges(virtualMap, stateChangesBytes);
             }
         }
         // copy and hash state
@@ -339,152 +335,4 @@ public class LiveStatePlugin implements BlockNodePlugin, BlockNotificationHandle
         stateMetadata = new StateMetadata(blockNumber,
             stateRootHash.getBytes().toByteArray());
     }
-
-    /**
-     * Apply a set of state changes to the current state.
-     *
-     * @param state the current mutable state, to apply changes to
-     * @param stateChanges the state changes to apply
-     * @param blockNumber the block number for logging
-     */
-    private void applyStateChanges(@NonNull final MerkleNodeState state, @NonNull final StateChanges stateChanges,
-            final long blockNumber) {
-
-        for (final StateChange change : stateChanges.stateChanges()) {
-            final int stateId = change.stateId();
-
-            try {
-                if (StateChangeParser.isSingletonUpdate(change)) {
-                    final Bytes key = createSingletonKey(stateId);
-                    final Object value = StateChangeParser.singletonValueFor(change.singletonUpdateOrThrow());
-                    final Bytes valueBytes = serializeValue(value);
-//                    state.put(key, valueBytes);
-                    logger.log(DEBUG, "Applied singleton update for state {0}", stateId);
-
-                } else if (StateChangeParser.isMapUpdate(change)) {
-                    final var mapUpdate = change.mapUpdateOrThrow();
-                    final Object mapKey = StateChangeParser.mapKeyFor(mapUpdate.keyOrThrow());
-                    final Object mapValue = StateChangeParser.mapValueFor(mapUpdate.valueOrThrow());
-                    final Bytes key = createMapKey(stateId, mapKey);
-                    final Bytes valueBytes = serializeValue(mapValue);
-//                    stateMap.put(key, valueBytes);
-
-                } else if (StateChangeParser.isMapDelete(change)) {
-                    final var mapDelete = change.mapDeleteOrThrow();
-                    final Object mapKey = StateChangeParser.mapKeyFor(mapDelete.keyOrThrow());
-                    final Bytes key = createMapKey(stateId, mapKey);
-//                    stateMap.remove(key);
-
-                } else if (StateChangeParser.isQueuePush(change)) {
-                    // Queue operations need special handling - track head/tail indices
-                    logger.log(DEBUG, "Queue push for state {0} - queue support pending", stateId);
-
-                } else if (StateChangeParser.isQueuePop(change)) {
-                    logger.log(DEBUG, "Queue pop for state {0} - queue support pending", stateId);
-
-                } else if (StateChangeParser.isNewState(change)) {
-                    logger.log(DEBUG, "New state {0} added", StateChangeParser.stateNameOf(stateId));
-
-                } else if (StateChangeParser.isStateRemoved(change)) {
-                    // Remove all entries for this state ID
-                    // This is inefficient with ConcurrentHashMap - would be better with VirtualMap
-                    logger.log(DEBUG, "State {0} removed", StateChangeParser.stateNameOf(stateId));
-                }
-            } catch (final Exception e) {
-                logger.log(
-                        WARNING,
-                        "Failed to apply state change for state ID " + stateId + " in block " + blockNumber,
-                        e);
-            }
-        }
-    }
-
-    /**
-     * Create a key for a singleton state.
-     *
-     * @param stateId the state ID
-     * @return the composite key
-     */
-    private Bytes createSingletonKey(final int stateId) {
-        final byte[] keyBytes = new byte[4];
-        keyBytes[0] = (byte) (stateId >> 24);
-        keyBytes[1] = (byte) (stateId >> 16);
-        keyBytes[2] = (byte) (stateId >> 8);
-        keyBytes[3] = (byte) stateId;
-        return Bytes.wrap(keyBytes);
-    }
-
-    /**
-     * Create a composite key for a map entry.
-     *
-     * @param stateId the state ID
-     * @param mapKey the map key object
-     * @return the composite key
-     */
-    private Bytes createMapKey(final int stateId, final Object mapKey) {
-        final Bytes mapKeyBytes = serializeValue(mapKey);
-        final byte[] compositeKey = new byte[4 + (int) mapKeyBytes.length()];
-        compositeKey[0] = (byte) (stateId >> 24);
-        compositeKey[1] = (byte) (stateId >> 16);
-        compositeKey[2] = (byte) (stateId >> 8);
-        compositeKey[3] = (byte) stateId;
-        mapKeyBytes.getBytes(0, compositeKey, 4, (int) mapKeyBytes.length());
-        return Bytes.wrap(compositeKey);
-    }
-
-    /**
-     * Serialize a value object to bytes.
-     *
-     * @param value the value to serialize
-     * @return the serialized bytes
-     */
-    @SuppressWarnings("unchecked")
-    private Bytes serializeValue(final Object value) {
-        if (value instanceof Bytes bytes) {
-            return bytes;
-        }
-
-        // Try to use PBJ PROTOBUF codec if available
-        try {
-            final var clazz = value.getClass();
-            final var protobufField = clazz.getField("PROTOBUF");
-            final var codec = protobufField.get(null);
-            if (codec instanceof com.hedera.pbj.runtime.Codec<?> pbjCodec) {
-                return ((com.hedera.pbj.runtime.Codec<Object>) pbjCodec).toBytes(value);
-            }
-        } catch (final Exception e) {
-            // Fall through to toString serialization
-        }
-
-        // Fallback: convert to string representation
-        return Bytes.wrap(value.toString().getBytes());
-    }
-
-
-    /**
-     * Get the last block number that was applied to the state.
-     *
-     * @return the last applied block number, or -1 if no blocks applied yet
-     */
-    public long getLastAppliedBlockNumber() {
-        return stateMetadata.lastAppliedBlockNumber();
-    }
-
-    /**
-     * Check if the state is ready for use.
-     *
-     * @return true if state is initialized and ready
-     */
-    public boolean isStateReady() {
-        return stateReady;
-    }
-
-//    /**
-//     * Get the current state map size (for testing/monitoring).
-//     *
-//     * @return the number of entries in the state map
-//     */
-//    public int getStateSize() {
-//        return stateMap.size();
-//    }
 }
