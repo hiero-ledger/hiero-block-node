@@ -132,19 +132,19 @@ public class BackfillGrpcClient {
                 earliestPeerBlock,
                 latestPeerBlock);
 
+        // Determine the earliest block we can actually fetch from peers
+        long startBlock = Math.max(latestStoredBlockNumber + 1, earliestPeerBlock);
         // confirm next block is available if not we still can't backfill
-        if (latestStoredBlockNumber + 1 < earliestPeerBlock
-                || latestStoredBlockNumber > latestPeerBlock
-                || latestStoredBlockNumber + 1 > latestPeerBlock) {
+        if (startBlock > latestPeerBlock) {
             return null;
         }
 
         LOGGER.log(
                 INFO,
                 "Determined available range from peer blocks nodes start={0,number,#} to end={1,number,#}",
-                latestStoredBlockNumber + 1,
+                startBlock,
                 latestPeerBlock);
-        return new LongRange(latestStoredBlockNumber + 1, latestPeerBlock);
+        return new LongRange(startBlock, latestPeerBlock);
     }
 
     /**
