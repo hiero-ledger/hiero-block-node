@@ -308,6 +308,102 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, BlockingExecutor
     }
 
     @Test
+    @DisplayName("Greedy autonomous respects startBlock on an empty store")
+    void greedyBackfillStartsFromConfiguredStartBlock() throws InterruptedException {
+
+        // BN1 exposes only blocks 400..700
+        BackfillSourceConfig sourceConfig = BackfillSourceConfig.newBuilder()
+                .address("localhost")
+                .port(40891)
+                .priority(1)
+                .build();
+        BackfillSource backfillSource =
+                BackfillSource.newBuilder().nodes(sourceConfig).build();
+        String backfillSourcePath = testTempDir + "/backfill-source-start-boundary.json";
+        createTestBlockNodeSourcesFile(backfillSource, backfillSourcePath);
+        testBlockNodeServers.add(new TestBlockNodeServer(sourceConfig.port(), getHistoricalBlockFacility(400, 700)));
+
+        Map<String, String> configOverride = BackfillConfigBuilder.NewBuilder()
+                .backfillSourcePath(backfillSourcePath)
+                .startBlock(500)
+                .greedy(true)
+                .fetchBatchSize(50)
+                .initialDelay(50)
+                .build();
+
+        // BN2 is brand new with no history
+        start(new BackfillPlugin(), new SimpleInMemoryHistoricalBlockFacility(), configOverride);
+
+        int expectedBlocks = 201; // 500..700 inclusive
+        CountDownLatch latch = new CountDownLatch(expectedBlocks);
+        registerDefaultTestBackfillHandler();
+        registerDefaultTestVerificationHandler(latch);
+
+        assertTrue(
+                latch.await(10, TimeUnit.SECONDS),
+                "Greedy backfill should start at backfill.startBlock even when local store is empty");
+        assertEquals(
+                expectedBlocks,
+                blockMessaging.getSentPersistedNotifications().size(),
+                "Should backfill only from the configured start block upwards");
+        long earliestBackfilled = blockMessaging.getSentPersistedNotifications().stream()
+                .mapToLong(PersistedNotification::blockNumber)
+                .min()
+                .orElse(-1);
+        assertEquals(500, earliestBackfilled, "Should skip peer blocks before backfill.startBlock");
+    }
+
+    @Test
+    @DisplayName("Greedy autonomous starts at peer earliest block when startBlock is default on an empty BN")
+    void greedyBackfillStartsAtPeerEarliestWhenUnset() throws InterruptedException {
+
+        // BN1 exposes only blocks 400..700
+        BackfillSourceConfig sourceConfig = BackfillSourceConfig.newBuilder()
+                .address("localhost")
+                .port(40892)
+                .priority(1)
+                .build();
+        BackfillSource backfillSource =
+                BackfillSource.newBuilder().nodes(sourceConfig).build();
+        String backfillSourcePath = testTempDir + "/backfill-source-earliest-peer.json";
+        createTestBlockNodeSourcesFile(backfillSource, backfillSourcePath);
+        testBlockNodeServers.add(new TestBlockNodeServer(sourceConfig.port(), getHistoricalBlockFacility(400, 700)));
+
+        Map<String, String> configOverride = BackfillConfigBuilder.NewBuilder()
+                .backfillSourcePath(backfillSourcePath)
+                .greedy(true)
+                .fetchBatchSize(25)
+                .initialDelay(50)
+                .build();
+
+        // BN2 is brand new with no history
+        start(new BackfillPlugin(), new SimpleInMemoryHistoricalBlockFacility(), configOverride);
+
+        int expectedBlocks = 301; // 400..700 inclusive
+        CountDownLatch latch = new CountDownLatch(expectedBlocks);
+        registerDefaultTestBackfillHandler();
+        registerDefaultTestVerificationHandler(latch);
+
+        assertTrue(
+                latch.await(10, TimeUnit.SECONDS),
+                "Greedy backfill should start at the peer's earliest block when startBlock is unset");
+        assertEquals(
+                expectedBlocks,
+                blockMessaging.getSentPersistedNotifications().size(),
+                "Should backfill the full peer range when no blocks are stored locally");
+        long earliestBackfilled = blockMessaging.getSentPersistedNotifications().stream()
+                .mapToLong(PersistedNotification::blockNumber)
+                .min()
+                .orElse(-1);
+        long latestBackfilled = blockMessaging.getSentPersistedNotifications().stream()
+                .mapToLong(PersistedNotification::blockNumber)
+                .max()
+                .orElse(-1);
+        assertEquals(400, earliestBackfilled, "Should begin at the peer's first available block");
+        assertEquals(700, latestBackfilled, "Should continue through the peer's last available block");
+    }
+
+    @Test
     @DisplayName("Greedy Autonomous Recent Backfill - NoGap")
     void testBackfillGreedyAutonomousNoGap() {
 
