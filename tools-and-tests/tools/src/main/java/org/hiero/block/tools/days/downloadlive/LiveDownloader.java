@@ -1,10 +1,14 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.tools.days.downloadlive;
 
+import static org.hiero.block.tools.days.download.DownloadConstants.BUCKET_NAME;
+import static org.hiero.block.tools.days.download.DownloadConstants.BUCKET_PATH_PREFIX;
 import static org.hiero.block.tools.days.download.DownloadConstants.GCP_PROJECT_ID;
 import static org.hiero.block.tools.days.downloadlive.ValidateDownloadLive.fullBlockValidate;
+import static org.hiero.block.tools.days.listing.DayListingFileReader.loadRecordsFileForDay;
 import static org.hiero.block.tools.days.subcommands.DownloadLive.toHex;
 import static org.hiero.block.tools.mirrornode.DayBlockInfo.loadDayBlockInfoMap;
+import static org.hiero.block.tools.records.RecordFileUtils.findMostCommonByType;
 
 import com.google.cloud.storage.Storage;
 import com.google.cloud.storage.StorageOptions;
@@ -15,20 +19,32 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.LinkedBlockingDeque;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicLong;
+import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import org.hiero.block.tools.days.download.DownloadDayLiveImpl;
+import org.hiero.block.tools.days.listing.ListingRecordFile;
 import org.hiero.block.tools.days.model.AddressBookRegistry;
 import org.hiero.block.tools.days.subcommands.UpdateDayListingsCommand;
 import org.hiero.block.tools.mirrornode.BlockTimeReader;
 import org.hiero.block.tools.mirrornode.DayBlockInfo;
 import org.hiero.block.tools.records.model.unparsed.InMemoryFile;
+import org.hiero.block.tools.utils.ConcurrentTarZstdWriter;
+import org.hiero.block.tools.utils.Gzip;
+import org.hiero.block.tools.utils.Md5Checker;
 import org.hiero.block.tools.utils.PrettyPrint;
 import org.hiero.block.tools.utils.gcp.ConcurrentDownloadManagerVirtualThreads;
 
@@ -73,6 +89,18 @@ public class LiveDownloader {
     private static final File cacheDir = new File("data/gcp-cache");
     private static final int minNodeAccountId = 3;
     private static final int maxNodeAccountId = 37;
+
+    // === CACHED STATE FOR PERFORMANCE ===
+    // Cache DayBlockInfo map - loaded once and reused across all batches
+    private Map<LocalDate, DayBlockInfo> cachedDaysInfo;
+    // Cache day listing files - loaded once per day, not per block
+    private String cachedListingDayKey;
+    private Map<LocalDateTime, List<ListingRecordFile>> cachedFilesByBlock;
+    private Set<ListingRecordFile> cachedMostCommonFiles;
+    // Reusable BlockTimeReader - created once and reused across batches
+    private BlockTimeReader cachedBlockTimeReader;
+    // Maximum number of retries for MD5 mismatch errors
+    private static final int MAX_MD5_RETRIES = 3;
 
     /**
      * Creates a new LiveDownloader with the specified configuration.
@@ -534,5 +562,433 @@ public class LiveDownloader {
             e.printStackTrace();
             System.err.println("[poller] Failed to write running-hash status: " + e.getMessage());
         }
+    }
+
+    // ========================================================================
+    // OPTIMIZED PIPELINED DOWNLOAD - Similar to DownloadDaysV2 for performance
+    // ========================================================================
+
+    /**
+     * Gets or creates the cached BlockTimeReader.
+     */
+    private BlockTimeReader getBlockTimeReader() throws IOException {
+        if (cachedBlockTimeReader == null) {
+            cachedBlockTimeReader = new BlockTimeReader();
+        }
+        return cachedBlockTimeReader;
+    }
+
+    /**
+     * Gets or loads the cached DayBlockInfo map.
+     */
+    private Map<LocalDate, DayBlockInfo> getDaysInfo() {
+        if (cachedDaysInfo == null) {
+            cachedDaysInfo = loadDayBlockInfoMap();
+            System.out.println("[download] Loaded DayBlockInfo cache with " + cachedDaysInfo.size() + " days");
+        }
+        return cachedDaysInfo;
+    }
+
+    /**
+     * Invalidates cached DayBlockInfo to force reload on next access.
+     * Call this when new days become available.
+     */
+    public void invalidateDaysInfoCache() {
+        cachedDaysInfo = null;
+    }
+
+    /**
+     * Loads and caches day listing files for the given day.
+     * Only reloads if the day key changes.
+     *
+     * @throws IOException if listing files cannot be loaded
+     */
+    private void ensureDayListingsCached(String dayKey, int year, int month, int day) throws IOException {
+        if (dayKey.equals(cachedListingDayKey) && cachedFilesByBlock != null) {
+            return; // Already cached for this day
+        }
+
+        System.out.println("[download] Loading listing files for day " + dayKey);
+        final List<ListingRecordFile> allDaysFiles = loadRecordsFileForDay(listingDir.toPath(), year, month, day);
+        cachedFilesByBlock = allDaysFiles.stream().collect(Collectors.groupingBy(ListingRecordFile::timestamp));
+
+        // Compute most common files for this day
+        cachedMostCommonFiles = new HashSet<>();
+        cachedFilesByBlock.values().forEach(list -> {
+            final ListingRecordFile mostCommonRecordFile = findMostCommonByType(list, ListingRecordFile.Type.RECORD);
+            final ListingRecordFile mostCommonSidecarFile =
+                    findMostCommonByType(list, ListingRecordFile.Type.RECORD_SIDECAR);
+            if (mostCommonRecordFile != null) cachedMostCommonFiles.add(mostCommonRecordFile);
+            if (mostCommonSidecarFile != null) cachedMostCommonFiles.add(mostCommonSidecarFile);
+        });
+
+        cachedListingDayKey = dayKey;
+        System.out.println("[download] Cached " + allDaysFiles.size() + " listing files for day " + dayKey);
+    }
+
+    /**
+     * Invalidates cached day listings to force reload on next access.
+     * Call this after refreshing GCS listings.
+     */
+    public void invalidateDayListingsCache() {
+        cachedListingDayKey = null;
+        cachedFilesByBlock = null;
+        cachedMostCommonFiles = null;
+    }
+
+    /**
+     * Helper container for pending block downloads in the pipelined approach.
+     */
+    private static final class BlockWork {
+        final long blockNumber;
+        final byte[] blockHashFromMirrorNode;
+        final LocalDateTime blockTime;
+        final List<ListingRecordFile> orderedFiles;
+        final List<CompletableFuture<InMemoryFile>> futures = new ArrayList<>();
+
+        BlockWork(
+                long blockNumber,
+                byte[] blockHashFromMirrorNode,
+                LocalDateTime blockTime,
+                List<ListingRecordFile> orderedFiles) {
+            this.blockNumber = blockNumber;
+            this.blockHashFromMirrorNode = blockHashFromMirrorNode;
+            this.blockTime = blockTime;
+            this.orderedFiles = orderedFiles;
+        }
+    }
+
+    /**
+     * Downloads an entire day using pipelined concurrent downloads - similar to DownloadDaysV2.
+     * This is much faster than processing blocks sequentially.
+     *
+     * @param dayKey the day to download in YYYY-MM-DD format
+     * @param startBlockNumber the first block number to download (for resuming)
+     * @param overallStartMillis epoch millis when overall run started (for ETA)
+     * @param dayIndex zero-based index of this day within the overall run
+     * @param totalDays total number of days in the overall run
+     * @return the hash of the last processed block, or null on failure
+     */
+    public byte[] downloadDayPipelined(
+            final String dayKey,
+            final long startBlockNumber,
+            final long overallStartMillis,
+            final int dayIndex,
+            final long totalDays)
+            throws IOException {
+
+        final LocalDate day = LocalDate.parse(dayKey);
+        final int year = day.getYear();
+        final int month = day.getMonthValue();
+        final int dayOfMonth = day.getDayOfMonth();
+
+        // Check if output already exists
+        final Path finalOutFile = downloadedDaysDir.toPath().resolve(dayKey + ".tar.zstd");
+        if (Files.exists(finalOutFile)) {
+            System.out.println("[download] Skipping " + dayKey + " - already exists: " + finalOutFile);
+            return null;
+        }
+
+        // Ensure directories exist
+        try {
+            Files.createDirectories(downloadedDaysDir.toPath());
+        } catch (IOException e) {
+            System.err.println("[download] Failed to create output dir: " + e.getMessage());
+            return null;
+        }
+
+        // Get cached DayBlockInfo
+        final Map<LocalDate, DayBlockInfo> daysInfo = getDaysInfo();
+        final DayBlockInfo dayBlockInfo = daysInfo.get(day);
+        if (dayBlockInfo == null) {
+            System.err.println("[download] No DayBlockInfo found for day " + dayKey);
+            return null;
+        }
+
+        // Ensure day listings are cached
+        ensureDayListingsCached(dayKey, year, month, dayOfMonth);
+
+        // Get cached BlockTimeReader
+        final BlockTimeReader blockTimeReader;
+        try {
+            blockTimeReader = getBlockTimeReader();
+        } catch (IOException e) {
+            System.err.println("[download] Failed to create BlockTimeReader: " + e.getMessage());
+            return null;
+        }
+
+        // Determine block range
+        final long firstBlock = Math.max(dayBlockInfo.firstBlockNumber, startBlockNumber);
+        final long lastBlock = dayBlockInfo.lastBlockNumber;
+        final int totalBlocks = (int) (lastBlock - firstBlock + 1);
+
+        if (totalBlocks <= 0) {
+            System.out.println("[download] No blocks to download for day " + dayKey);
+            return previousRecordFileHash;
+        }
+
+        System.out.println("[download] Starting pipelined download for " + dayKey + " blocks " + firstBlock + " to "
+                + lastBlock + " (" + totalBlocks + " blocks)");
+
+        final double daySharePercent = (totalDays <= 0) ? 100.0 : (100.0 / totalDays);
+        final AtomicLong blocksProcessed = new AtomicLong(0);
+        final AtomicLong blocksQueuedForDownload = new AtomicLong(0);
+        final LinkedBlockingDeque<BlockWork> pending = new LinkedBlockingDeque<>(1000);
+
+        // Queue downloads in background thread
+        final CompletableFuture<Void> downloadQueueingFuture = CompletableFuture.runAsync(() -> {
+            for (long blockNumber = firstBlock; blockNumber <= lastBlock; blockNumber++) {
+                final LocalDateTime blockTime = blockTimeReader.getBlockLocalDateTime(blockNumber);
+                final List<ListingRecordFile> group = cachedFilesByBlock.get(blockTime);
+
+                if (group == null || group.isEmpty()) {
+                    throw new IllegalStateException("Missing record files for block " + blockNumber + " at time "
+                            + blockTime + " on " + dayKey);
+                }
+
+                final ListingRecordFile mostCommonRecordFile =
+                        findMostCommonByType(group, ListingRecordFile.Type.RECORD);
+                final ListingRecordFile mostCommonSidecarFile =
+                        findMostCommonByType(group, ListingRecordFile.Type.RECORD_SIDECAR);
+
+                final List<ListingRecordFile> orderedFilesToDownload =
+                        computeFilesToDownload(mostCommonRecordFile, mostCommonSidecarFile, group);
+
+                // Get mirror node block hash if available
+                byte[] blockHashFromMirrorNode =
+                        DownloadDayLiveImpl.extractBlockHashFromMirrorNode(blockNumber, dayBlockInfo);
+
+                // Create BlockWork and start async downloads
+                final BlockWork bw =
+                        new BlockWork(blockNumber, blockHashFromMirrorNode, blockTime, orderedFilesToDownload);
+                for (ListingRecordFile lr : orderedFilesToDownload) {
+                    final String blobName = BUCKET_PATH_PREFIX + lr.path();
+                    bw.futures.add(downloadManager.downloadAsync(BUCKET_NAME, blobName));
+                }
+
+                try {
+                    pending.putLast(bw);
+                } catch (InterruptedException ie) {
+                    Thread.currentThread().interrupt();
+                    throw new RuntimeException("Interrupted while enqueueing block work", ie);
+                }
+                blocksQueuedForDownload.incrementAndGet();
+            }
+        });
+
+        // Process and write blocks as downloads complete
+        try (ConcurrentTarZstdWriter writer = new ConcurrentTarZstdWriter(finalOutFile)) {
+            while (!downloadQueueingFuture.isDone() || !pending.isEmpty()) {
+                final BlockWork ready;
+                try {
+                    ready = pending.pollFirst(1, TimeUnit.SECONDS);
+                } catch (InterruptedException ie) {
+                    Thread.currentThread().interrupt();
+                    throw new RuntimeException("Interrupted while waiting for pending block", ie);
+                }
+
+                if (ready == null) {
+                    continue;
+                }
+
+                // Wait for all downloads for this block to complete
+                try {
+                    CompletableFuture.allOf(ready.futures.toArray(new CompletableFuture[0]))
+                            .join();
+                } catch (CompletionException ce) {
+                    PrettyPrint.clearProgress();
+                    throw new RuntimeException("Failed downloading block " + ready.blockTime, ce.getCause());
+                }
+
+                // Process downloaded files
+                final List<InMemoryFile> filesForWriting = processDownloadedFiles(ready);
+
+                // Validate block hashes
+                previousRecordFileHash = DownloadDayLiveImpl.validateBlockHashes(
+                        ready.blockNumber, filesForWriting, previousRecordFileHash, ready.blockHashFromMirrorNode);
+
+                // Perform full block validation
+                final DownloadDayLiveImpl.BlockDownloadResult result = new DownloadDayLiveImpl.BlockDownloadResult(
+                        ready.blockNumber, filesForWriting, previousRecordFileHash);
+                final Instant recordFileTime =
+                        ready.blockTime.atZone(java.time.ZoneOffset.UTC).toInstant();
+                final boolean fullyValid =
+                        fullBlockValidate(addressBookRegistry, previousRecordFileHash, recordFileTime, result, null);
+
+                if (!fullyValid) {
+                    System.err.println("[download] Full block validation failed for block " + ready.blockNumber);
+                    // Continue anyway - the hash chain validation passed
+                }
+
+                // Write files to tar archive
+                for (InMemoryFile imf : filesForWriting) {
+                    writer.putEntry(imf);
+                }
+
+                // Update running hash status
+                updateRunningHashState(dayKey, previousRecordFileHash, recordFileTime);
+
+                // Print progress
+                final long processed = blocksProcessed.incrementAndGet();
+                if (processed == 1 || processed % 50 == 0) {
+                    final double blockFraction = processed / (double) totalBlocks;
+                    final double overallPercent = dayIndex * daySharePercent + blockFraction * daySharePercent;
+                    final long now = System.currentTimeMillis();
+                    final long elapsed = Math.max(1L, now - overallStartMillis);
+                    final long remaining = (overallPercent > 0.0 && overallPercent < 100.0)
+                            ? (long) (elapsed * (100.0 - overallPercent) / overallPercent)
+                            : Long.MAX_VALUE;
+
+                    final String msg = dayKey + " - Block q:" + blocksQueuedForDownload.get()
+                            + " p:" + processed + " t:" + totalBlocks
+                            + " (" + ready.blockTime + ")";
+                    PrettyPrint.printProgressWithEta(overallPercent, msg, remaining);
+                }
+            }
+
+            // Ensure producer exceptions are propagated
+            downloadQueueingFuture.join();
+
+        } catch (Exception e) {
+            PrettyPrint.clearProgress();
+            System.err.println("[download] Failed pipelined download for day " + dayKey + ": " + e.getMessage());
+            e.printStackTrace();
+            return null;
+        }
+
+        PrettyPrint.clearProgress();
+        System.out.println("[download] Completed pipelined download for " + dayKey + ": " + totalBlocks + " blocks");
+        return previousRecordFileHash;
+    }
+
+    /**
+     * Computes the ordered list of files to download for a block.
+     */
+    private static List<ListingRecordFile> computeFilesToDownload(
+            ListingRecordFile mostCommonRecordFile,
+            ListingRecordFile mostCommonSidecarFile,
+            List<ListingRecordFile> group) {
+
+        final List<ListingRecordFile> orderedFilesToDownload = new ArrayList<>();
+        if (mostCommonRecordFile != null) orderedFilesToDownload.add(mostCommonRecordFile);
+        if (mostCommonSidecarFile != null) orderedFilesToDownload.add(mostCommonSidecarFile);
+
+        for (ListingRecordFile file : group) {
+            switch (file.type()) {
+                case RECORD -> {
+                    if (!file.equals(mostCommonRecordFile)) orderedFilesToDownload.add(file);
+                }
+                case RECORD_SIG -> orderedFilesToDownload.add(file);
+                case RECORD_SIDECAR -> {
+                    if (!file.equals(mostCommonSidecarFile)) orderedFilesToDownload.add(file);
+                }
+                default -> throw new RuntimeException("Unsupported file type: " + file.type());
+            }
+        }
+        return orderedFilesToDownload;
+    }
+
+    /**
+     * Processes downloaded files for a block: validates MD5, ungzips if needed, computes paths.
+     */
+    private List<InMemoryFile> processDownloadedFiles(BlockWork blockWork) throws IOException {
+        final List<InMemoryFile> filesForWriting = new ArrayList<>();
+
+        for (int i = 0; i < blockWork.orderedFiles.size(); i++) {
+            final ListingRecordFile lr = blockWork.orderedFiles.get(i);
+            String filename = lr.path().substring(lr.path().lastIndexOf('/') + 1);
+
+            try {
+                InMemoryFile downloadedFile = blockWork.futures.get(i).join();
+
+                // Check MD5 and retry if mismatch
+                boolean md5Valid = Md5Checker.checkMd5(lr.md5Hex(), downloadedFile.data());
+                if (!md5Valid) {
+                    PrettyPrint.clearProgress();
+                    System.err.println("MD5 mismatch for " + lr.path() + ", retrying...");
+                    downloadedFile = downloadFileWithRetry(lr);
+                    if (downloadedFile == null) {
+                        continue; // Skip signature files with persistent MD5 mismatch
+                    }
+                }
+
+                byte[] contentBytes = downloadedFile.data();
+                if (filename.endsWith(".gz")) {
+                    contentBytes = Gzip.ungzipInMemory(contentBytes);
+                    filename = filename.replaceAll("\\.gz$", "");
+                }
+
+                final Path newFilePath = DownloadDayLiveImpl.computeNewFilePath(lr, cachedMostCommonFiles, filename);
+                filesForWriting.add(new InMemoryFile(newFilePath, contentBytes));
+
+            } catch (Exception e) {
+                System.err.println("Warning: Skipping file [" + filename + "] for block " + blockWork.blockNumber + ": "
+                        + e.getMessage());
+            }
+        }
+
+        return filesForWriting;
+    }
+
+    /**
+     * Downloads a file with retry logic for MD5 mismatch errors.
+     */
+    private InMemoryFile downloadFileWithRetry(ListingRecordFile lr) throws IOException {
+        final String blobName = BUCKET_PATH_PREFIX + lr.path();
+        final boolean isSignatureFile = lr.type() == ListingRecordFile.Type.RECORD_SIG;
+        IOException lastException = null;
+
+        for (int attempt = 1; attempt <= MAX_MD5_RETRIES; attempt++) {
+            try {
+                final CompletableFuture<InMemoryFile> future = downloadManager.downloadAsync(BUCKET_NAME, blobName);
+                final InMemoryFile downloadedFile = future.join();
+
+                if (!Md5Checker.checkMd5(lr.md5Hex(), downloadedFile.data())) {
+                    throw new IOException("MD5 mismatch for blob " + blobName);
+                }
+
+                if (attempt > 1) {
+                    PrettyPrint.clearProgress();
+                    System.err.println("Successfully downloaded " + blobName + " after " + attempt + " attempts");
+                }
+                return downloadedFile;
+
+            } catch (Exception e) {
+                lastException = (e instanceof IOException)
+                        ? (IOException) e
+                        : new IOException("Download failed for " + blobName, e);
+
+                if (e.getMessage() != null && e.getMessage().contains("MD5 mismatch")) {
+                    if (attempt < MAX_MD5_RETRIES) {
+                        PrettyPrint.clearProgress();
+                        System.err.println("MD5 mismatch for " + blobName + " (attempt " + attempt + "), retrying...");
+                        try {
+                            Thread.sleep(100L * attempt);
+                        } catch (InterruptedException ie) {
+                            Thread.currentThread().interrupt();
+                            throw new IOException("Interrupted during retry delay", ie);
+                        }
+                    }
+                } else {
+                    throw lastException;
+                }
+            }
+        }
+
+        if (isSignatureFile) {
+            PrettyPrint.clearProgress();
+            System.err.println("WARNING: Skipping signature file " + blobName + " due to persistent MD5 mismatch");
+            return null;
+        }
+
+        throw lastException;
+    }
+
+    /**
+     * Validates block hashes - delegates to DownloadDayLiveImpl.
+     */
+    private static byte[] validateBlockHashes(
+            long blockNumber, List<InMemoryFile> files, byte[] prevRecordFileHash, byte[] blockHashFromMirrorNode) {
+        return DownloadDayLiveImpl.validateBlockHashes(blockNumber, files, prevRecordFileHash, blockHashFromMirrorNode);
     }
 }

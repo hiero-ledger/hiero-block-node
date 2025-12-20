@@ -76,4 +76,81 @@ public class AddressBookRegistryTest {
                     "Node 16 public key should contain ac367eb1, but was: " + node16.rsaPubKey());
         }
     }
+
+    /**
+     * Test that duplicate address books (same content) are not added to the registry.
+     * This test verifies the fix for the reference equality bug where line 167 was using
+     * `!=` instead of `.equals()`, causing duplicate entries with identical content.
+     */
+    @Test
+    public void testNoDuplicateAddressBooks() throws Exception {
+
+        try (var in = new ReadableStreamingData(AddressBookRegistryTest.class.getResourceAsStream(
+                "/2021-06-08T17_35_26.000831000Z-file-102-update-transaction-body.bin"))) {
+            int numOfTransactions = in.readInt();
+            List<TransactionBody> transactionBodies = new ArrayList<>(numOfTransactions);
+            for (int i = 0; i < numOfTransactions; i++) {
+                int len = in.readInt();
+                Bytes tbBytes = in.readBytes(len);
+                transactionBodies.add(TransactionBody.PROTOBUF.parse(tbBytes));
+            }
+
+            AddressBookRegistry addressBookRegistry = new AddressBookRegistry();
+
+            // Initial size: 1 (genesis)
+            assertEquals(1, addressBookRegistry.getAddressBookCount(), "Should start with only genesis address book");
+
+            // First update - should add new entry
+            Instant time1 = Instant.parse("2021-06-08T17:35:26.000831000Z");
+            String changes1 = addressBookRegistry.updateAddressBook(time1, transactionBodies);
+            assertNotNull(changes1, "Should detect changes on first update");
+            assertTrue(changes1.contains("Node 16 added"), "Should add new nodes");
+
+            // Size should now be 2 (genesis + new)
+            assertEquals(2, addressBookRegistry.getAddressBookCount(), "Should have 2 entries after first update");
+
+            // Second update with SAME transactions - should NOT add duplicate entry
+            Instant time2 = Instant.parse("2021-06-08T18:00:00.000000000Z");
+            String changes2 = addressBookRegistry.updateAddressBook(time2, transactionBodies);
+            assertNull(changes2, "Should NOT detect changes when content is identical");
+
+            // Size should still be 2 (no duplicate added)
+            assertEquals(2, addressBookRegistry.getAddressBookCount(), "Should NOT add duplicate entry when content is identical");
+
+            // Third update with empty transaction list - should NOT add entry
+            Instant time3 = Instant.parse("2021-06-08T19:00:00.000000000Z");
+            String changes3 = addressBookRegistry.updateAddressBook(time3, new ArrayList<>());
+            assertNull(changes3, "Should NOT detect changes with empty transactions");
+
+            // Size should still be 2
+            assertEquals(2, addressBookRegistry.getAddressBookCount(), "Should NOT add entry when no transactions provided");
+        }
+    }
+
+    /**
+     * Test that content equality is used, not reference equality.
+     * This directly tests the bug where different object references with identical
+     * content would be considered different.
+     */
+    @Test
+    public void testContentEqualityNotReferenceEquality() throws ParseException {
+        // Create two registries with same genesis book
+        AddressBookRegistry registry1 = new AddressBookRegistry();
+        AddressBookRegistry registry2 = new AddressBookRegistry();
+
+        // Get genesis books from both registries
+        NodeAddressBook book1 = registry1.getCurrentAddressBook();
+        NodeAddressBook book2 = registry2.getCurrentAddressBook();
+
+        // They should be different object references
+        assertNotSame(book1, book2, "Should be different object instances");
+
+        // But they should be equal in content
+        assertEquals(book1, book2, "Should have equal content (proper equals() implementation)");
+
+        // Verify both registries start with same size
+        int count1 = registry1.toPrettyString().split("\n").length - 1;
+        int count2 = registry2.toPrettyString().split("\n").length - 1;
+        assertEquals(count1, count2, "Both registries should start with same number of entries");
+    }
 }
