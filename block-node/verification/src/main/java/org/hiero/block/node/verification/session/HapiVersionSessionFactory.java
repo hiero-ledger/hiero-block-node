@@ -12,8 +12,8 @@ import org.hiero.block.node.verification.session.impl.ExtendedMerkleTreeSession;
  * Factory for creating {@link VerificationSession} instances based on the requested HAPI version.
  */
 public final class HapiVersionSessionFactory {
+    private static final SemanticVersion V_0_70_0 = semanticVersion(0, 70, 0);
     private static final SemanticVersion V_0_69_0 = semanticVersion(0, 69, 0);
-    private static final SemanticVersion V_0_68_0 = semanticVersion(0, 68, 0);
     private static final SemanticVersion V_0_64_0 = semanticVersion(0, 64, 0);
 
     private HapiVersionSessionFactory() {}
@@ -35,11 +35,11 @@ public final class HapiVersionSessionFactory {
         Preconditions.requireWhole(blockNumber, "blockNumber must be >= 0");
 
         // TODO, before going live we should remove the Dummy Implementation.
-        if (isGreaterThanOrEqual(hapiVersion, V_0_69_0)) {
+        if (isGreaterThanOrEqual(hapiVersion, V_0_70_0)) {
             return new DummyVerificationSession(blockNumber, blockSource);
         }
 
-        if (isGreaterThanOrEqual(hapiVersion, V_0_68_0)) {
+        if (isGreaterThanOrEqual(hapiVersion, V_0_69_0)) {
             return new ExtendedMerkleTreeSession(blockNumber, blockSource);
         }
 

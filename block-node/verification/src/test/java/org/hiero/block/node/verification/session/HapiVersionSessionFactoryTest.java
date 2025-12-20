@@ -49,12 +49,12 @@ class HapiVersionSessionFactoryTest {
     // ---------- Version selection tests ----------
 
     static Stream<Arguments> latestImplVersions() {
-        return Stream.of(Arguments.of(sv(0, 68, 0)), Arguments.of(sv(0, 68, 1)));
+        return Stream.of(Arguments.of(sv(0, 69, 0)), Arguments.of(sv(0, 69, 1)));
     }
 
-    @ParameterizedTest(name = ">= 0.68.0 resolves to ExtendedMerkleTreeSession for {0}")
+    @ParameterizedTest(name = ">= 0.69.0 resolves to ExtendedMerkleTreeSession for {0}")
     @MethodSource("latestImplVersions")
-    void selectsLatestImplFor0680AndAbove(SemanticVersion v) {
+    void selectsLatestImplFor0690AndAbove(SemanticVersion v) {
         assertCreates(v, ExtendedMerkleTreeSession.class, blockSource);
     }
 
@@ -65,7 +65,7 @@ class HapiVersionSessionFactoryTest {
                 Arguments.of(sv(0, 65, 0)),
                 Arguments.of(sv(0, 65, 1)),
                 Arguments.of(sv(0, 66, 0)),
-                Arguments.of(sv(0, 67, 999)));
+                Arguments.of(sv(0, 67, 999), Arguments.of(sv(0, 68, 999))));
     }
 
     @ParameterizedTest(name = ">= 0.64.0 and < 0.68.0 resolves to DummyVerificationSession for {0}")
@@ -75,10 +75,10 @@ class HapiVersionSessionFactoryTest {
     }
 
     @Test
-    @DisplayName("Boundary: 0.67.x resolves to 0640; 0.68.0 flips to 0680")
+    @DisplayName("Boundary: 0.67.x resolves to Dummy; 0.69.0 flips to ExtendedMerkleTreeSession")
     void boundaryFlipAt0680() {
-        assertCreates(sv(0, 67, 999), DummyVerificationSession.class, blockSource);
-        assertCreates(sv(0, 68, 0), ExtendedMerkleTreeSession.class, blockSource);
+        assertCreates(sv(0, 68, 999), DummyVerificationSession.class, blockSource);
+        assertCreates(sv(0, 69, 0), ExtendedMerkleTreeSession.class, blockSource);
     }
 
     @Test
@@ -121,7 +121,7 @@ class HapiVersionSessionFactoryTest {
         @Test
         @DisplayName("Uses the same impl regardless of blockNumber (0 and large)")
         void blockNumberDoesNotAffectImpl() {
-            var v = sv(0, 68, 3);
+            var v = sv(0, 69, 3);
             var s1 = HapiVersionSessionFactory.createSession(0L, blockSource, v);
             var s2 = HapiVersionSessionFactory.createSession(9_999_999L, blockSource, v);
 

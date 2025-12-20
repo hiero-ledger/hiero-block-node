@@ -9,6 +9,7 @@ import com.hedera.hapi.block.stream.output.protoc.BlockHeader;
 import com.hedera.hapi.block.stream.protoc.Block;
 import com.hedera.hapi.block.stream.protoc.BlockItem;
 import com.hedera.hapi.block.stream.protoc.BlockProof;
+import com.hedera.hapi.block.stream.protoc.TssSignedBlockProof;
 import com.hederahashgraph.api.proto.java.BlockHashAlgorithm;
 import com.hederahashgraph.api.proto.java.SemanticVersion;
 import java.util.Arrays;
@@ -91,12 +92,11 @@ public class BlockBuilder {
     }
 
     public static BlockProof createBlockProof(final long blockNumber) {
-        return BlockProof.newBuilder()
-                .setBlock(blockNumber)
-                .setPreviousBlockRootHash(ByteString.copyFrom("previousBlockRootHash".getBytes()))
-                .setStartOfBlockStateRootHash(ByteString.copyFrom("startOfBlockStateRootHash".getBytes()))
+        TssSignedBlockProof tssSignedBlockProof = TssSignedBlockProof.newBuilder()
                 .setBlockSignature(ByteString.copyFrom("block_signature".getBytes()))
-                .setVerificationKey(ByteString.copyFrom("verificationKey".getBytes()))
                 .build();
+        BlockProof blockProof =
+                BlockProof.newBuilder().setSignedBlockProof(tssSignedBlockProof).build();
+        return blockProof;
     }
 }
