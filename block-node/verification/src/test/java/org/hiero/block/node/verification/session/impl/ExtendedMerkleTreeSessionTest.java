@@ -22,7 +22,7 @@ class ExtendedMerkleTreeSessionTest {
 
     @BeforeEach
     void setUp() throws IOException, ParseException {
-        sampleBlockInfo = BlockUtils.getSampleBlockInfo(BlockUtils.SAMPLE_BLOCKS.HAPI_0_68_0_BLOCK_14);
+        sampleBlockInfo = BlockUtils.getSampleBlockInfo(BlockUtils.SAMPLE_BLOCKS.HAPI_0_69_0_BLOCK_240);
         blockItems = sampleBlockInfo.blockUnparsed().blockItems();
     }
 
