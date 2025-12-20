@@ -6,7 +6,10 @@ import org.hiero.block.tools.days.subcommands.Compress;
 import org.hiero.block.tools.days.subcommands.DownloadDay;
 import org.hiero.block.tools.days.subcommands.DownloadDays;
 import org.hiero.block.tools.days.subcommands.DownloadDaysV2;
+import org.hiero.block.tools.days.subcommands.DownloadLive;
+import org.hiero.block.tools.days.subcommands.DownloadLive2;
 import org.hiero.block.tools.days.subcommands.FixMissingSignatures;
+import org.hiero.block.tools.days.subcommands.FixSignatureFileNames;
 import org.hiero.block.tools.days.subcommands.Ls;
 import org.hiero.block.tools.days.subcommands.LsDayListing;
 import org.hiero.block.tools.days.subcommands.PrintListing;
@@ -14,6 +17,7 @@ import org.hiero.block.tools.days.subcommands.SplitJsonToDayFiles;
 import org.hiero.block.tools.days.subcommands.UpdateDayListingsCommand;
 import org.hiero.block.tools.days.subcommands.Validate;
 import org.hiero.block.tools.days.subcommands.ValidateSignatureCounts;
+import org.hiero.block.tools.days.subcommands.ValidateWithStats;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Model.CommandSpec;
 import picocli.CommandLine.Spec;
@@ -30,16 +34,20 @@ import picocli.CommandLine.Spec;
             Ls.class,
             Validate.class,
             ValidateSignatureCounts.class,
+            ValidateWithStats.class,
             Compress.class,
             DownloadDay.class,
             DownloadDaysV2.class,
             DownloadDays.class,
+            DownloadLive.class,
+            DownloadLive2.class,
             PrintListing.class,
             LsDayListing.class,
             SplitJsonToDayFiles.class,
             CleanDayOfBadRecordSets.class,
             UpdateDayListingsCommand.class,
             FixMissingSignatures.class,
+            FixSignatureFileNames.class,
         },
         mixinStandardHelpOptions = true)
 public class DaysCommand implements Runnable {

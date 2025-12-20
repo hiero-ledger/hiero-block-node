@@ -158,18 +158,24 @@ public class UnparsedRecordBlockV5 extends UnparsedRecordBlock {
                         .append(" bytes remaining for end running hash, but found ")
                         .append(in.remaining())
                         .append('\n');
-                return new ValidationResult(false, warnings.toString(), null, hapiVersion, Collections.emptyList());
+                return new ValidationResult(false, warnings.toString(), null, hapiVersion, Collections.emptyList(), 0);
             }
             // read the end running-hash
             final byte[] endRunningHash = readV5HashObject(in);
             // Validate signatures
-            isValid = isValid && validateSignatures(addressBook, warnings, entireFileHash);
+            final SignatureValidationResult sigResult = validateSignatures(addressBook, warnings, entireFileHash);
+            isValid = isValid && sigResult.isValid();
             // feed the transactions to the address book registry to extract any address book transactions
             final List<TransactionBody> addressBookTransactions =
                     AddressBookRegistry.filterToJustAddressBookTransactions(transactions);
             // return the validation result
             return new ValidationResult(
-                    isValid, warnings.toString(), endRunningHash, hapiVersion, addressBookTransactions);
+                    isValid,
+                    warnings.toString(),
+                    endRunningHash,
+                    hapiVersion,
+                    addressBookTransactions,
+                    sigResult.validSignatureCount());
         } catch (IOException | ParseException e) {
             throw new RuntimeException(e);
         }
