@@ -1,12 +1,16 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.node.state.live;
 
+import static com.swirlds.state.merkle.StateKeyUtils.kvKey;
+import static com.swirlds.state.merkle.StateKeyUtils.queueKey;
+import static com.swirlds.state.merkle.StateUtils.getStateKeyForSingleton;
 import static java.lang.System.Logger.Level.DEBUG;
 import static java.lang.System.Logger.Level.ERROR;
 import static java.lang.System.Logger.Level.INFO;
 import static java.lang.System.Logger.Level.WARNING;
 
 import com.hedera.hapi.block.stream.output.BlockFooter;
+import com.hedera.hapi.platform.state.QueueState;
 import com.hedera.pbj.runtime.ParseException;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import com.swirlds.base.time.Time;
@@ -22,6 +26,7 @@ import java.io.ObjectOutputStream;
 import java.lang.System.Logger;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Comparator;
 import java.util.HexFormat;
@@ -53,9 +58,8 @@ import org.hiero.block.node.spi.historicalblocks.HistoricalBlockFacility;
  * <p><b>Note:</b> This implementation currently uses an in-memory map for state storage.
  * The full VirtualMap/MerkleDB integration is pending resolution of module conflicts
  * between the consensus node's hapi types and the block-node's protobuf types.
- * TODO: Replace ConcurrentHashMap with VirtualMap once dependency issues are resolved.
  */
-public class LiveStatePlugin implements BlockNodePlugin, BlockNotificationHandler {
+public class LiveStatePlugin implements BlockNodePlugin, BlockNotificationHandler, LiveStateAccess {
     private final Logger logger = System.getLogger(getClass().getName());
 
     /** The block node context providing access to facilities */
@@ -117,6 +121,9 @@ public class LiveStatePlugin implements BlockNodePlugin, BlockNotificationHandle
                 logger.log(INFO, "Creating new empty genesis state");
                 // create new state metadata
                 stateMetadata = new StateMetadata(-1, new byte[48]);
+                // Create a state lifecycle manager
+                stateLifecycleManager = new StateLifecycleManagerImpl(context.metrics(), Time.getCurrent(),
+                    (virtualMap) -> new VirtualMapState(virtualMap, context.metrics()));
                 // create a new empty virtual map state
                 VirtualMapState state = new VirtualMapState(context.configuration(), context.metrics());
                 stateLifecycleManager.initState(state, true);
@@ -148,8 +155,12 @@ public class LiveStatePlugin implements BlockNodePlugin, BlockNotificationHandle
             }
         }
         // write the state metadata to disk
-        try(ObjectOutputStream out = new ObjectOutputStream(Files.newOutputStream(config.stateMetadataPath()))) {
-            out.writeObject(stateMetadata);
+        try {
+            // Ensure parent directory exists
+            Files.createDirectories(config.stateMetadataPath().getParent());
+            try(ObjectOutputStream out = new ObjectOutputStream(Files.newOutputStream(config.stateMetadataPath()))) {
+                out.writeObject(stateMetadata);
+            }
         } catch (IOException e) {
             logger.log(ERROR, "Failed to write state metadata to file: " + config.stateMetadataPath(), e);
             throw new RuntimeException("Failed to write state metadata to file", e);
@@ -334,5 +345,113 @@ public class LiveStatePlugin implements BlockNodePlugin, BlockNotificationHandle
         assert stateRootHash != null;
         stateMetadata = new StateMetadata(blockNumber,
             stateRootHash.getBytes().toByteArray());
+    }
+
+    // ================================================================================================================
+    // LiveStateAccess Implementation - Thread-safe read-only access to the latest state
+    // ================================================================================================================
+
+    /**
+     * Get the VirtualMap from the latest immutable state. This method is thread-safe as it retrieves
+     * a snapshot of the state that will not be modified.
+     *
+     * @return the VirtualMap for read operations
+     * @throws IllegalStateException if the state is not ready
+     */
+    private VirtualMap getLatestVirtualMap() {
+        if (!stateReady) {
+            throw new IllegalStateException("State is not ready");
+        }
+        return (VirtualMap) stateLifecycleManager.getLatestImmutableState().getRoot();
+    }
+
+    @Override
+    public long blockNumber() {
+        // stateMetadata is replaced atomically, so reading it is thread-safe
+        return stateMetadata.lastAppliedBlockNumber();
+    }
+
+    @Override
+    public Bytes mapValue(final int stateID, @NonNull final Bytes key) {
+        final VirtualMap virtualMap = getLatestVirtualMap();
+        final Bytes stateKey = kvKey(stateID, key);
+        return virtualMap.getBytes(stateKey);
+    }
+
+    @Override
+    public Bytes singleton(final int singletonID) {
+        try {
+            final VirtualMap virtualMap = getLatestVirtualMap();
+            final Bytes stateKey = getStateKeyForSingleton(singletonID);
+            return virtualMap.getBytes(stateKey);
+        } catch (ArrayIndexOutOfBoundsException | IllegalArgumentException e) {
+            // Invalid state IDs (negative or too large) may cause index errors
+            return null;
+        }
+    }
+
+    @Override
+    public QueueState queueState(final int stateID) {
+        final VirtualMap virtualMap = getLatestVirtualMap();
+        final Bytes queueStateKey = getStateKeyForSingleton(stateID);
+        final Bytes queueStateBytes = virtualMap.getBytes(queueStateKey);
+        if (queueStateBytes == null) {
+            return new QueueState(0, 0); // Empty queue
+        }
+        try {
+            return QueueState.PROTOBUF.parse(queueStateBytes);
+        } catch (ParseException e) {
+            throw new IllegalStateException("Failed to parse queue state for stateID: " + stateID, e);
+        }
+    }
+
+    @Override
+    public Bytes queuePeekHead(final int stateID) {
+        final VirtualMap virtualMap = getLatestVirtualMap();
+        final QueueState state = queueState(stateID);
+        if (state.head() >= state.tail()) {
+            return null; // Empty queue
+        }
+        final Bytes elementKey = queueKey(stateID, (int) state.head());
+        return virtualMap.getBytes(elementKey);
+    }
+
+    @Override
+    public Bytes queuePeekTail(final int stateID) {
+        final VirtualMap virtualMap = getLatestVirtualMap();
+        final QueueState state = queueState(stateID);
+        if (state.head() >= state.tail()) {
+            return null; // Empty queue
+        }
+        // Tail points to the next position to write, so tail-1 is the last element
+        final Bytes elementKey = queueKey(stateID, (int) (state.tail() - 1));
+        return virtualMap.getBytes(elementKey);
+    }
+
+    @Override
+    public Bytes queuePeek(final int stateID, final int index) {
+        final VirtualMap virtualMap = getLatestVirtualMap();
+        final QueueState state = queueState(stateID);
+        if (index < state.head() || index >= state.tail()) {
+            throw new IllegalArgumentException(
+                    "Index " + index + " is out of bounds. Valid range is [" + state.head() + ", " + (state.tail() - 1) + "]");
+        }
+        final Bytes elementKey = queueKey(stateID, index);
+        return virtualMap.getBytes(elementKey);
+    }
+
+    @Override
+    public List<Bytes> queueAsList(final int stateID) {
+        final VirtualMap virtualMap = getLatestVirtualMap();
+        final QueueState state = queueState(stateID);
+        final List<Bytes> result = new ArrayList<>();
+        for (long i = state.head(); i < state.tail(); i++) {
+            final Bytes elementKey = queueKey(stateID, (int) i);
+            final Bytes element = virtualMap.getBytes(elementKey);
+            if (element != null) {
+                result.add(element);
+            }
+        }
+        return result;
     }
 }

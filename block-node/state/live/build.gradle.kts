@@ -7,6 +7,10 @@ description = "Hiero Block Node Live State Service"
 // and then fix the reported issues.
 tasks.withType<JavaCompile>().configureEach { options.compilerArgs.add("-Xlint:-exports") }
 
+tasks.withType<Test>().configureEach {
+    jvmArgs("--add-reads", "org.hiero.base.utility=jdk.unsupported")
+}
+
 mainModuleInfo {
     runtimeOnly("com.swirlds.config.impl")
     runtimeOnly("org.apache.logging.log4j.slf4j2.impl")

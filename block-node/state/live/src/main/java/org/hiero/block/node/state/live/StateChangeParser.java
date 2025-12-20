@@ -143,10 +143,23 @@ public final class StateChangeParser {
                 case 10 /* type=2 [MESSAGE] field=1 [key] */ -> {
                     final var messageLength = input.readVarInt(false);
                     if (messageLength > 0) {
-                        // MapChangeKey has a single oneof field; we do not care what field id it is
+                        // MapChangeKey has a single oneof field; extract the field number to determine type
                         final int mapChangeKeyFieldTag = input.readVarInt(false);
                         final var mapChangeKeyFieldMessageLength = input.readVarInt(false);
-                        mapKeyAsStateKey = kvKey(stateId, input.readBytes(mapChangeKeyFieldMessageLength));
+                        // Field number from tag (lower 3 bits are wire type)
+                        int fieldNumber = mapChangeKeyFieldTag >>> 3;
+
+                        // proto_bytes_key (field 6) and proto_string_key (field 7) are wrapper types
+                        // that contain an inner message with the actual bytes/string at field 1
+                        if (fieldNumber == 6 || fieldNumber == 7) {
+                            // Wrapper type - read through inner tag and length to get actual bytes
+                            final int innerTag = input.readVarInt(false);
+                            final int innerLength = input.readVarInt(false);
+                            mapKeyAsStateKey = kvKey(stateId, input.readBytes(innerLength));
+                        } else {
+                            // Other key types (account_id_key at field 2, etc.) - read as-is
+                            mapKeyAsStateKey = kvKey(stateId, input.readBytes(mapChangeKeyFieldMessageLength));
+                        }
                     }
                 }
                 case 18 /* type=2 [MESSAGE] field=2 [value] */ -> {
@@ -184,10 +197,22 @@ public final class StateChangeParser {
             if (tag == 10 /* type=2 [MESSAGE] field=1 [key] */) {
                 final var messageLength = input.readVarInt(false);
                 if (messageLength > 0) {
-                    // MapChangeKey has a single oneof field; we do not care what field id it is
+                    // MapChangeKey has a single oneof field; extract the field number to determine type
                     final int mapChangeKeyFieldTag = input.readVarInt(false);
                     final var mapChangeKeyFieldMessageLength = input.readVarInt(false);
-                    mapKeyAsStateKey = kvKey(stateId, input.readBytes(mapChangeKeyFieldMessageLength));
+                    // Field number from tag (lower 3 bits are wire type)
+                    int fieldNumber = mapChangeKeyFieldTag >>> 3;
+
+                    // proto_bytes_key (field 6) and proto_string_key (field 7) are wrapper types
+                    if (fieldNumber == 6 || fieldNumber == 7) {
+                        // Wrapper type - read through inner tag and length to get actual bytes
+                        final int innerTag = input.readVarInt(false);
+                        final int innerLength = input.readVarInt(false);
+                        mapKeyAsStateKey = kvKey(stateId, input.readBytes(innerLength));
+                    } else {
+                        // Other key types (account_id_key at field 2, etc.) - read as-is
+                        mapKeyAsStateKey = kvKey(stateId, input.readBytes(mapChangeKeyFieldMessageLength));
+                    }
                 }
             }
         }

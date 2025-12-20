@@ -1,6 +1,6 @@
 package org.hiero.block.node.state.live;
 
-import com.hedera.pbj.runtime.io.buffer.Bytes;
+import java.io.Serializable;
 
 /**
  * Metadata about the current state, this is what is persisted to disk for LiveStatePlugin.
@@ -14,5 +14,5 @@ import com.hedera.pbj.runtime.io.buffer.Bytes;
 public record StateMetadata(
     long lastAppliedBlockNumber,
     byte[] nextBlockStateRootHash
-) {
+) implements Serializable {
 }
