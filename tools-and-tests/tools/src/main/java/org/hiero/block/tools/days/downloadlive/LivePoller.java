@@ -392,56 +392,52 @@ public class LivePoller {
             if (logicalDay.isBefore(currentToday)) {
                 final String dayKey = logicalDay.toString();
 
-                // Calculate and display progress for historical day processing
-                long daysProcessed = ChronoUnit.DAYS.between(historicalStartDay, logicalDay);
+                // Calculate progress for historical day processing
+                int dayIndex = (int) ChronoUnit.DAYS.between(historicalStartDay, logicalDay);
                 long totalHistoricalDays = ChronoUnit.DAYS.between(historicalStartDay, currentToday);
 
-                if (totalHistoricalDays > 0) {
-                    double percent = (daysProcessed * 100.0) / totalHistoricalDays;
-                    long elapsed = System.currentTimeMillis() - historicalStartTime;
-                    long remaining =
-                            PrettyPrint.computeRemainingMilliseconds(daysProcessed, totalHistoricalDays, elapsed);
+                System.out.println("[poller] Processing historical day " + dayKey + " (" + (dayIndex + 1) + " of "
+                        + totalHistoricalDays + ") using optimized pipelined download");
 
-                    PrettyPrint.printProgressWithEta(
-                            percent,
-                            "Processing historical day " + dayKey + " (" + (daysProcessed + 1) + " of "
-                                    + totalHistoricalDays + ")",
-                            remaining);
+                // For historical days, use the optimized pipelined download method.
+                // This is MUCH faster than the sequential per-block approach because:
+                // 1. Downloads are pipelined using LinkedBlockingDeque
+                // 2. Day listing files are cached and loaded once per day, not per block
+                // 3. DayBlockInfo is cached and reused across all days
+                // 4. Writes directly to tar.zstd without intermediate tar file or subprocess
+                // 5. BlockTimeReader is reused across batches
+
+                // Get start block number from state if resuming
+                State st = readState(statePath);
+                long startBlockNumber = 0;
+                if (st != null && dayKey.equals(st.getDayKey()) && st.getLastSeenBlock() > 0) {
+                    startBlockNumber = st.getLastSeenBlock() + 1;
+                    System.out.println(
+                            "[poller] Resuming historical day " + dayKey + " from block " + startBlockNumber);
                 }
 
-                // For historical days, reuse any persisted state (if present) so we can resume
-                // long-running downloads. We always reset the in-memory timestamp cursor and
-                // let runOnceForDayInternal() rehydrate lastSeenBlock from state on the first tick.
-                lastSeenTimestamp = null;
-                stateLoadedForToday = false;
-
-                while (true) {
-                    final PollResult result = runOnceForDayInternal(logicalDay, true);
-                    if (result.processedDescriptors > 0) {
-                        continue;
-                    }
-                    if (result.sawNextDayBlock) {
-                        System.out.println("[poller] Observed next-day blocks while polling " + dayKey
-                                + "; completing historical day.");
-                        break;
-                    }
-
-                    // No descriptors and no rollover observed yet; keep polling.
-                    try {
-                        Thread.sleep(interval.toMillis());
-                    } catch (InterruptedException ie) {
-                        Thread.currentThread().interrupt();
-                        return;
-                    }
-                }
                 try {
-                    PrettyPrint.clearProgress();
-                    System.out.println("[poller] Finalizing historical day " + dayKey);
-                    downloader.finalizeDay(dayKey);
+                    // Use the optimized pipelined download method
+                    byte[] finalHash = downloader.downloadDayPipelined(
+                            dayKey, startBlockNumber, historicalStartTime, dayIndex, totalHistoricalDays);
+
+                    if (finalHash != null) {
+                        PrettyPrint.clearProgress();
+                        System.out.println("[poller] Completed historical day " + dayKey);
+                    } else {
+                        PrettyPrint.clearProgress();
+                        System.out.println("[poller] Historical day " + dayKey + " was skipped (already exists)");
+                    }
+
+                    // Invalidate day listings cache for next day
+                    downloader.invalidateDayListingsCache();
+
                 } catch (Exception e) {
                     PrettyPrint.clearProgress();
-                    System.err.println("[poller] Failed to finalize day archive for " + dayKey + ": " + e.getMessage());
+                    System.err.println("[poller] Failed to download historical day " + dayKey + ": " + e.getMessage());
+                    e.printStackTrace();
                 }
+
                 logicalDay = logicalDay.plusDays(1);
                 continue;
             }

@@ -208,7 +208,11 @@ public class DownloadDayLiveImpl {
      *
      * @return the block hash as bytes, or null if not available
      */
-    static byte[] extractBlockHashFromMirrorNode(final long blockNumber, final DayBlockInfo dayBlockInfo) {
+    public static byte[] extractBlockHashFromMirrorNode(final long blockNumber, final DayBlockInfo dayBlockInfo) {
+        if (dayBlockInfo == null) {
+            return null;
+        }
+
         final long firstBlock = dayBlockInfo.firstBlockNumber;
         final long lastBlock = dayBlockInfo.lastBlockNumber;
 
@@ -341,6 +345,37 @@ public class DownloadDayLiveImpl {
             final long blockNumber,
             final byte[] previousRecordFileHash)
             throws Exception {
+        return downloadSingleBlockForLive(
+                downloadManager,
+                dayBlockInfo,
+                blockTimeReader,
+                listingDir,
+                year,
+                month,
+                day,
+                blockNumber,
+                previousRecordFileHash,
+                true);
+    }
+
+    /**
+     * Download and optionally validate a single block for a given day.
+     *
+     * @param skipHashValidation if true, skip hash chain validation for faster catch-up
+     * @see #downloadSingleBlockForLive(ConcurrentDownloadManager, DayBlockInfo, BlockTimeReader, Path, int, int, int, long, byte[])
+     */
+    public static BlockDownloadResult downloadSingleBlockForLive(
+            final ConcurrentDownloadManager downloadManager,
+            final DayBlockInfo dayBlockInfo,
+            final BlockTimeReader blockTimeReader,
+            final Path listingDir,
+            final int year,
+            final int month,
+            final int day,
+            final long blockNumber,
+            final byte[] previousRecordFileHash,
+            final boolean skipHashValidation)
+            throws Exception {
 
         // Step 1: Load file metadata for the block
         final List<ListingRecordFile> group =
@@ -353,9 +388,15 @@ public class DownloadDayLiveImpl {
         // Step 3: Download and process all files
         final List<InMemoryFile> inMemoryFilesForWriting = downloadAndProcessFiles(downloadManager, context);
 
-        // Step 4: Validate block hash chain
-        final byte[] newPrevRecordFileHash = validateBlockHashChain(
-                blockNumber, inMemoryFilesForWriting, previousRecordFileHash, context.blockHashFromMirrorNode);
+        // Step 4: Validate block hash chain (if not skipped)
+        final byte[] newPrevRecordFileHash;
+        if (skipHashValidation) {
+            // Skip validation - just return the previous hash
+            newPrevRecordFileHash = previousRecordFileHash;
+        } else {
+            newPrevRecordFileHash = validateBlockHashChain(
+                    blockNumber, inMemoryFilesForWriting, previousRecordFileHash, context.blockHashFromMirrorNode);
+        }
 
         return new BlockDownloadResult(blockNumber, inMemoryFilesForWriting, newPrevRecordFileHash);
     }
@@ -807,6 +848,24 @@ public class DownloadDayLiveImpl {
     }
 
     /**
+     * Validates block hashes using the DownloadDayUtil utility.
+     * This is a public wrapper for external callers.
+     *
+     * @param blockNumber the block number being validated
+     * @param files the in-memory files for the block
+     * @param previousRecordFileHash the running hash from the previous block (may be null for first block)
+     * @param blockHashFromMirrorNode the expected block hash from mirror node (may be null)
+     * @return the updated running hash to be used for the next block
+     */
+    public static byte[] validateBlockHashes(
+            final long blockNumber,
+            final List<InMemoryFile> files,
+            final byte[] previousRecordFileHash,
+            final byte[] blockHashFromMirrorNode) {
+        return DownloadDayUtil.validateBlockHashes(blockNumber, files, previousRecordFileHash, blockHashFromMirrorNode);
+    }
+
+    /**
      * Compute the new file path for a record file within the output tar.zstd archive.
      *
      * @param lr the listing record file
@@ -815,7 +874,7 @@ public class DownloadDayLiveImpl {
      * @return the new file path within the archive
      * @throws IOException if an unsupported file type is encountered
      */
-    static Path computeNewFilePath(ListingRecordFile lr, Set<ListingRecordFile> mostCommonFiles, String filename)
+    public static Path computeNewFilePath(ListingRecordFile lr, Set<ListingRecordFile> mostCommonFiles, String filename)
             throws IOException {
         String parentDir = lr.path();
         int lastSlash = parentDir.lastIndexOf('/');
@@ -829,7 +888,7 @@ public class DownloadDayLiveImpl {
                 targetFileName = filename.replaceAll("\\.rcd$", "_node_" + nodeDir + ".rcd");
             }
         } else if (lr.type() == ListingRecordFile.Type.RECORD_SIG) {
-            targetFileName = "node_" + nodeDir + ".rcs_sig";
+            targetFileName = "node_" + nodeDir + ".rcd_sig";
         } else {
             throw new IOException("Unsupported file type: " + lr.type());
         }

@@ -164,7 +164,9 @@ public class AddressBookRegistry {
                 throw new RuntimeException("Error updating address book", e);
             }
         }
-        if (newAddressBook != currentBook) {
+        // Use content equality check instead of reference equality to properly detect duplicates
+        // NodeAddressBook has proper equals() implementation that compares content
+        if (newAddressBook != null && !newAddressBook.equals(currentBook)) {
             addressBooks.add(new DatedNodeAddressBook(toTimestamp(blockInstant), newAddressBook));
             // Update changes description
             return "Address Book Changed, via file update:\n" + addressBookChanges(currentBook, newAddressBook);
@@ -355,6 +357,15 @@ public class AddressBookRegistry {
             sb.append(String.format("   Node %d removed%n", removedNodeId));
         }
         return sb.toString();
+    }
+
+    /**
+     * Get the number of address book entries in the registry.
+     *
+     * @return the number of address book entries
+     */
+    public int getAddressBookCount() {
+        return addressBooks.size();
     }
 
     /**

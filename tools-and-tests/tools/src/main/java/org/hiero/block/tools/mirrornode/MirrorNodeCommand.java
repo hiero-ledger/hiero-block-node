@@ -18,7 +18,9 @@ import picocli.CommandLine.Spec;
             AddNewerBlockTimes.class,
             FetchMirrorNodeRecordsCsv.class,
             ExtractDayBlocks.class,
-            UpdateBlockData.class
+            UpdateBlockData.class,
+            GenerateAddressBookFromMirrorNode.class,
+            CompareAddressBooks.class
         },
         mixinStandardHelpOptions = true)
 public class MirrorNodeCommand implements Runnable {

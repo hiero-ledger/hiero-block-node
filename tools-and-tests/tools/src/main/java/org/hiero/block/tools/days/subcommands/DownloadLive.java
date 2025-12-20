@@ -116,7 +116,7 @@ public class DownloadLive implements Runnable {
                     "Optional end day (inclusive) for ingestion, e.g., 2025-11-15. If omitted, ingestion continues indefinitely and rolls over each day.")
     private String endDay;
 
-    @Option(names = "--max-concurrency", defaultValue = "8", paramLabel = "N", description = "Max parallel downloads.")
+    @Option(names = "--max-concurrency", defaultValue = "64", paramLabel = "N", description = "Max parallel downloads.")
     private int maxConcurrency;
 
     @Option(names = "--run-poller", defaultValue = "false", description = "If true, run the day-scoped live poller.")
