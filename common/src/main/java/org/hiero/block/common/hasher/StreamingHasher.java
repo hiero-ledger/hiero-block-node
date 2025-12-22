@@ -26,12 +26,8 @@ public class StreamingHasher {
     private long leafCount = 0;
 
     /** Create a new StreamingHasher with an empty state. */
-    public StreamingHasher() {
-        try {
-            digest = MessageDigest.getInstance("SHA-384");
-        } catch (NoSuchAlgorithmException e) {
-            throw new RuntimeException(e);
-        }
+    public StreamingHasher() throws NoSuchAlgorithmException {
+        digest = MessageDigest.getInstance("SHA-384");
     }
 
     /**
@@ -40,7 +36,7 @@ public class StreamingHasher {
      *
      * @param intermediateHashingState the intermediate hashing state
      */
-    public StreamingHasher(List<byte[]> intermediateHashingState) {
+    public StreamingHasher(List<byte[]> intermediateHashingState) throws NoSuchAlgorithmException {
         this();
         this.hashList.addAll(intermediateHashingState);
     }
