@@ -15,6 +15,7 @@ import edu.umd.cs.findbugs.annotations.NonNull;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
+import java.util.function.Predicate;
 import org.hiero.block.common.hasher.HashingUtilities;
 import org.hiero.block.common.hasher.NaiveStreamingTreeHasher;
 import org.hiero.block.common.hasher.StreamingTreeHasher;
@@ -99,11 +100,11 @@ public class ExtendedMerkleTreeSession implements VerificationSession {
             }
         }
 
-        // since we are only expecting 1 block proof per block, we can finalize verification here
-        // however in the future, we might want to revisit this if we expect multiple proofs
-        // and use the EndOfBlock signal to finalize verification.
-        if (blockFooter != null && blockProofs.size() > 0) {
-            return finalizeVerification(blockProofs.get(0));
+        // for now, we only support TSS based signature proofs, we expect only 1 of these.
+        BlockProof tssBasedProof = getSingle(blockProofs, BlockProof::hasSignedBlockProof);
+
+        if (blockFooter != null && tssBasedProof != null) {
+            return finalizeVerification(tssBasedProof);
         }
 
         // was not able to finalize verification yet
@@ -163,5 +164,18 @@ public class ExtendedMerkleTreeSession implements VerificationSession {
         // Dummy implementation
         // signature = is Hash384( BlockHash )
         return signature.equals(noThrowSha384HashOf(hash));
+    }
+
+    public static <T> T getSingle(List<T> list, Predicate<T> predicate) {
+        List<T> filtered = list.stream().filter(predicate).toList();
+
+        if (filtered.size() != 1) {
+            throw new IllegalStateException(String.format(
+                "Expected exactly 1 element matching predicate [%s], but found %d.",
+                predicate, filtered.size()
+            ));
+        }
+
+        return filtered.get(0);
     }
 }
