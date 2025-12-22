@@ -126,7 +126,7 @@ Use this decision guide to determine which Block Node configuration suits your n
 - You have authorization to peer directly with Consensus Nodes.
 - You can commit to high-availability SLAs (99.9%+ uptime).
 - You want to provide reconnect services to Consensus Nodes.
-- You are able to operate a bare‑metal server that meets the recommended hardware specifications described in the Block Node deployment guides.
+- You are able to operate a bare‑metal server that meets the recommended hardware specifications described in the [Block Node deployment guides](https://github.com/hiero-ledger/hiero-block-node/blob/main/docs/block-node/operations/single-node-k8s-deployment.md).
 
 **Choose Tier 2 if:**
 
@@ -142,5 +142,5 @@ Use this decision guide to determine which Block Node configuration suits your n
 
 ***To start running a Block Node, read:***
 
-- **Solo Weaver Single Node Kubernetes Deployment Guide** – step‑by‑step instructions for deploying a single Block Node instance with the Solo Weaver on a Kubernetes, including environment preparation, deployment, and basic verification.
-- **Single Node Kubernetes Deployment** – instructions for deploying the Block Node Server Helm chart in a single‑node Kubernetes environment, suitable for production setups on bare metal or cloud VMs.
+- **Solo Weaver Single Node Kubernetes Deployment Guide** – [step‑by‑step instructions for deploying a single Block Node instance with the Solo Weaver on a Kubernetes, including environment preparation, deployment, and basic verification.](https://github.com/hiero-ledger/hiero-block-node/blob/main/docs/block-node/operations/single-node-k8s-deployment.md)
+- **Single Node Kubernetes Deployment** – [instructions for deploying the Block Node Server Helm chart in a single‑node Kubernetes environment, suitable for production setups on bare metal or cloud VMs.](https://github.com/hiero-ledger/hiero-block-node/blob/main/docs/block-node/operations/solo-weaver-single-node-k8s-deployment.md)
