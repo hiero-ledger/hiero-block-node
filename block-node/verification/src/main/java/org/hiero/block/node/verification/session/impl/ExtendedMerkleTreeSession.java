@@ -171,9 +171,7 @@ public class ExtendedMerkleTreeSession implements VerificationSession {
 
         if (filtered.size() != 1) {
             throw new IllegalStateException(String.format(
-                "Expected exactly 1 element matching predicate [%s], but found %d.",
-                predicate, filtered.size()
-            ));
+                    "Expected exactly 1 element matching predicate [%s], but found %d.", predicate, filtered.size()));
         }
 
         return filtered.get(0);
