@@ -18,6 +18,10 @@ import org.hiero.block.simulator.exception.BlockSimulatorParsingException;
 abstract class AbstractBlockItemHandler implements ItemHandler {
     protected BlockItem blockItem;
 
+    /** Current HAPI version to craft blocks from **/
+    final SemanticVersion HAPI_VERSION =
+            SemanticVersion.newBuilder().setMajor(0).setMinor(69).setPatch(0).build();
+
     @Override
     public BlockItem getItem() {
         return blockItem;
@@ -49,7 +53,7 @@ abstract class AbstractBlockItemHandler implements ItemHandler {
      * @return A SemanticVersion protobuf object
      */
     protected SemanticVersion getSemanticVersion() {
-        return SemanticVersion.newBuilder().setMajor(0).setMinor(68).setPatch(0).build();
+        return HAPI_VERSION;
     }
 
     /**
