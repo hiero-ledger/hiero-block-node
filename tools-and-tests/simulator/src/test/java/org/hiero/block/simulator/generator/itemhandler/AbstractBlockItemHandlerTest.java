@@ -9,6 +9,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import com.hedera.hapi.block.stream.protoc.BlockItem;
 import com.hederahashgraph.api.proto.java.SemanticVersion;
 import com.hederahashgraph.api.proto.java.Timestamp;
+import java.util.Random;
 import org.hiero.block.internal.BlockItemUnparsed;
 import org.hiero.block.simulator.exception.BlockSimulatorParsingException;
 import org.junit.jupiter.api.BeforeEach;
@@ -36,7 +37,8 @@ class AbstractBlockItemHandlerTest {
         }
 
         public long generateTestRandomValue(long min, long max) {
-            return generateRandomValue(min, max);
+            Random random = new Random();
+            return random.nextLong(min, max);
         }
     }
 

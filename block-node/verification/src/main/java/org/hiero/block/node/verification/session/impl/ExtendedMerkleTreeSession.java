@@ -44,8 +44,6 @@ public class ExtendedMerkleTreeSession implements VerificationSession {
     private final StreamingTreeHasher traceDataHasher;
     /** The source of the block, used to construct the final notification. */
     private final BlockSource blockSource;
-    /** The previous block hash, initialized to empty and updated as needed. */
-    private Bytes previousBlockHash = Bytes.EMPTY;
 
     /**
      * The block items for the block this session is responsible for. We collect them here so we can provide the
@@ -71,9 +69,8 @@ public class ExtendedMerkleTreeSession implements VerificationSession {
         LOGGER.log(INFO, "Created ExtendedMerkleTreeSession for block {0}", blockNumber);
     }
 
-    // todo(1661) implement the real logic here, for now just return true if last item has block proof.
     @Override
-    public VerificationNotification processBlockItems(List<BlockItemUnparsed> blockItems) throws ParseException {
+    public void processBlockItems(List<BlockItemUnparsed> blockItems) throws ParseException {
 
         // collect block items
         this.blockItems.addAll(blockItems);
@@ -99,12 +96,30 @@ public class ExtendedMerkleTreeSession implements VerificationSession {
                 }
             }
         }
+    }
+
+    public VerificationNotification finalizeVerification(Bytes rootHashOfAllBlockHashesTree, Bytes previousBlockHash) {
+        // if provided, use the provided root hash of all previous block hashes tree, otherwise use the one from the
+        // footer
+        Bytes rootOfAllPreviousBlockHashes = rootHashOfAllBlockHashesTree != null
+                ? rootHashOfAllBlockHashesTree
+                : this.blockFooter.rootHashOfAllBlockHashesTree();
+        // if provided, use the provided previous block hash, otherwise use the one from the footer
+        Bytes previousBlockHashToUse =
+                previousBlockHash != null ? previousBlockHash : this.blockFooter.previousBlockRootHash();
+        if (previousBlockHashToUse != this.blockFooter.previousBlockRootHash()) {
+            LOGGER.log(
+                    WARNING,
+                    "Previous block hash provided to finalizeVerification does not match the one in the block footer.");
+        }
+
+        Bytes startOfBlockStateRootHash = this.blockFooter.startOfBlockStateRootHash();
 
         // for now, we only support TSS based signature proofs, we expect only 1 of these.
         BlockProof tssBasedProof = getSingle(blockProofs, BlockProof::hasSignedBlockProof);
-
-        if (blockFooter != null && tssBasedProof != null) {
-            return finalizeVerification(tssBasedProof);
+        if (tssBasedProof != null) {
+            return getVerificationResult(
+                    tssBasedProof, previousBlockHashToUse, rootOfAllPreviousBlockHashes, startOfBlockStateRootHash);
         }
 
         // was not able to finalize verification yet
@@ -118,33 +133,25 @@ public class ExtendedMerkleTreeSession implements VerificationSession {
      * @param blockProof the block proof
      * @return VerificationNotification indicating the result of the verification
      */
-    protected VerificationNotification finalizeVerification(BlockProof blockProof) {
+    protected VerificationNotification getVerificationResult(
+            BlockProof blockProof,
+            Bytes previousBlockHash,
+            Bytes rootOfAllPreviousBlockHashes,
+            Bytes startOfBlockStateRootHash) {
 
-        // pre-checks
-        if (previousBlockHash != Bytes.EMPTY
-                && !blockFooter.previousBlockRootHash().equals(previousBlockHash)) {
-            LOGGER.log(WARNING, "Block {0} previous block hash does not match expected value.", blockNumber);
-            return new VerificationNotification(false, blockNumber, Bytes.EMPTY, null, blockSource);
-        }
-
-        // @todo(1906) we might want to send the rootOfAllPreviousBlockHashes that we calculate here to not rely only on
-        // the block_footer. also add the field to the pre-checks to make sure is the same.
-        // we should also include a verification.
         final Bytes blockRootHash = HashingUtilities.computeFinalBlockHash(
-                blockHeader,
-                blockFooter,
+                blockHeader.blockTimestamp(),
+                previousBlockHash,
+                rootOfAllPreviousBlockHashes,
+                startOfBlockStateRootHash,
                 inputTreeHasher,
                 outputTreeHasher,
                 consensusHeaderHasher,
                 stateChangesHasher,
-                traceDataHasher,
-                previousBlockHash);
+                traceDataHasher);
 
         final boolean verified =
                 verifySignature(blockRootHash, blockProof.signedBlockProof().blockSignature());
-
-        // set the previous block hash for the next block
-        previousBlockHash = blockRootHash;
 
         return new VerificationNotification(
                 verified, blockNumber, blockRootHash, verified ? new BlockUnparsed(blockItems) : null, blockSource);

@@ -9,9 +9,12 @@ import static java.lang.System.Logger.Level.WARNING;
 import com.hedera.hapi.block.stream.output.BlockHeader;
 import com.hedera.hapi.node.base.SemanticVersion;
 import com.hedera.pbj.runtime.ParseException;
+import com.hedera.pbj.runtime.io.buffer.Bytes;
 import com.swirlds.metrics.api.Counter;
 import edu.umd.cs.findbugs.annotations.NonNull;
+import java.security.NoSuchAlgorithmException;
 import java.util.List;
+import org.hiero.block.common.hasher.StreamingHasher;
 import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.BlockNodePlugin;
 import org.hiero.block.node.spi.ServiceBuilder;
@@ -51,6 +54,12 @@ public class VerificationServicePlugin implements BlockNodePlugin, BlockItemHand
     private Counter verificationBlockTime;
     /** Metric for block hashing time. ignores time to receive block */
     private Counter hashingBlockTimeNs;
+    /** Streaming hasher for all previous blocks hashes. */
+    private StreamingHasher streamingHasherAllPreviousBlocks;
+    /** The previous block hash, used for verification of the current block. */
+    private Bytes previousBlockHash;
+    /** ZERO block hash constant. */
+    static final Bytes ZERO_BLOCK_HASH = Bytes.wrap(new byte[48]);
 
     /**
      * {@inheritDoc}
@@ -83,6 +92,34 @@ public class VerificationServicePlugin implements BlockNodePlugin, BlockItemHand
                 .withDescription("Verification time per block (ms)"));
         hashingBlockTimeNs = metrics.getOrCreate(new Counter.Config(METRICS_CATEGORY, "hashing_block_time")
                 .withDescription("Hashing time per block (ms)"));
+
+        // init streamingHasherAllPreviousBlocks
+        // 1. Check for File.
+        // if so load streaming hasher from disk, apply differential to catch up with store (in case there is
+        // discrepancy)
+        // verify from calculated hash
+
+        // 2. Check if Store has uninterrupted blocks from genesis.
+        // if so, calculate in background and use provided hash on block_footer in the mean time.
+        // verify from calculated hash once background process catches up.
+
+        // 3. Check if BN is empty.
+        // if so, start calculating it so
+        // verify from calculated hash
+        if (context.historicalBlockProvider().availableBlocks().size() == 0) {
+            try {
+                streamingHasherAllPreviousBlocks = new StreamingHasher();
+                streamingHasherAllPreviousBlocks.addLeaf(ZERO_BLOCK_HASH.toByteArray());
+                LOGGER.log(
+                        INFO,
+                        "Starting allPreviousBlockHashes Streaming Hasher from Genesis successfully initialized.");
+            } catch (NoSuchAlgorithmException e) {
+                streamingHasherAllPreviousBlocks = null;
+                LOGGER.log(
+                        WARNING,
+                        "Starting allPreviousBlockHashes Streaming Hasher from Genesis failed, falling back to using provided on block footer.");
+            }
+        }
     }
 
     /**
@@ -161,16 +198,37 @@ public class VerificationServicePlugin implements BlockNodePlugin, BlockItemHand
                 final String traceMessage = "Appending {0} block items to the current session for block number: {1}";
                 LOGGER.log(TRACE, traceMessage, blockItems.blockItems().size(), currentBlockNumber);
                 long startHashingTime = System.nanoTime();
-                VerificationNotification notification = currentSession.processBlockItems(blockItems.blockItems());
+                currentSession.processBlockItems(blockItems.blockItems());
                 long hashingTime = System.nanoTime() - startHashingTime;
                 hashingBlockTimeNs.add(hashingTime);
-                if (notification != null) {
+                // if this is the end of the block, finalize verification
+                if (blockItems.isEndOfBlock()) {
+                    Bytes rootHashOfAllBlockHashesTree = null;
+                    if (streamingHasherAllPreviousBlocks != null && streamingHasherAllPreviousBlocks.leafCount() > 0) {
+                        try {
+                            rootHashOfAllBlockHashesTree =
+                                    Bytes.wrap(streamingHasherAllPreviousBlocks.computeRootHash());
+                        } catch (IllegalStateException e) {
+                            LOGGER.log(
+                                    WARNING,
+                                    "Could not get root hash of all previous blocks hasher, falling back to using provided on block footer.");
+                        }
+                    }
+                    VerificationNotification notification =
+                            currentSession.finalizeVerification(rootHashOfAllBlockHashesTree, this.previousBlockHash);
                     LOGGER.log(TRACE, COMPLETED_MESSAGE, currentBlockNumber, notification.success());
                     if (notification.success()) {
                         verificationBlocksVerified.increment();
                         // send the notification to the block messaging service
                         LOGGER.log(TRACE, "Sending verification notification for block={0}", currentBlockNumber);
                         context.blockMessaging().sendBlockVerification(notification);
+                        // Update previousBlockHash for next block verification
+                        this.previousBlockHash = notification.blockHash();
+                        // Update streamingHasherAllPreviousBlocks
+                        if (streamingHasherAllPreviousBlocks != null) {
+                            streamingHasherAllPreviousBlocks.addLeaf(
+                                    notification.blockHash().toByteArray());
+                        }
                     } else {
                         LOGGER.log(INFO, "Verification failed for block={0}", currentBlockNumber);
                         sendFailureNotification(currentBlockNumber, BlockSource.PUBLISHER);
@@ -223,8 +281,8 @@ public class VerificationServicePlugin implements BlockNodePlugin, BlockItemHand
                 VerificationSession backfillSession = HapiVersionSessionFactory.createSession(
                         notification.blockNumber(), BlockSource.BACKFILL, blockHeader.hapiProtoVersionOrThrow());
                 // process the block items in the backfilled notification
-                VerificationNotification backfillNotification =
-                        backfillSession.processBlockItems(notification.block().blockItems());
+                backfillSession.processBlockItems(notification.block().blockItems());
+                VerificationNotification backfillNotification = backfillSession.finalizeVerification(null, null);
                 // Log the backfill verification result
                 LOGGER.log(TRACE, COMPLETED_MESSAGE, notification.blockNumber(), backfillNotification.success());
                 // send the verification notification for the backfilled block
