@@ -328,55 +328,55 @@ public class CraftBlockStreamManager implements BlockStreamManager {
             final long outCount = outHashes == null ? 0L : (outHashes.remaining() / StreamingTreeHasher.HASH_LENGTH);
             final long consCount = consHashes == null ? 0L : (consHashes.remaining() / StreamingTreeHasher.HASH_LENGTH);
             final long stateCount =
-                stateHashes == null ? 0L : (stateHashes.remaining() / StreamingTreeHasher.HASH_LENGTH);
+                    stateHashes == null ? 0L : (stateHashes.remaining() / StreamingTreeHasher.HASH_LENGTH);
             final long traceCount =
-                traceHashes == null ? 0L : (traceHashes.remaining() / StreamingTreeHasher.HASH_LENGTH);
+                    traceHashes == null ? 0L : (traceHashes.remaining() / StreamingTreeHasher.HASH_LENGTH);
 
             final Bytes inRoot =
-                inputTreeHasher != null ? inputTreeHasher.rootHash().join() : Bytes.wrap(new byte[0]);
+                    inputTreeHasher != null ? inputTreeHasher.rootHash().join() : Bytes.wrap(new byte[0]);
             final Bytes outRoot =
-                outputTreeHasher != null ? outputTreeHasher.rootHash().join() : Bytes.wrap(new byte[0]);
+                    outputTreeHasher != null ? outputTreeHasher.rootHash().join() : Bytes.wrap(new byte[0]);
             final Bytes consRoot = consensusHeaderHasher != null
-                ? consensusHeaderHasher.rootHash().join()
-                : Bytes.wrap(new byte[0]);
+                    ? consensusHeaderHasher.rootHash().join()
+                    : Bytes.wrap(new byte[0]);
             final Bytes stateRoot =
-                stateChangesHasher != null ? stateChangesHasher.rootHash().join() : Bytes.wrap(new byte[0]);
+                    stateChangesHasher != null ? stateChangesHasher.rootHash().join() : Bytes.wrap(new byte[0]);
             final Bytes traceRoot =
-                traceDataHasher != null ? traceDataHasher.rootHash().join() : Bytes.wrap(new byte[0]);
+                    traceDataHasher != null ? traceDataHasher.rootHash().join() : Bytes.wrap(new byte[0]);
 
             final Bytes headerBytes = (currentBlockHeader != null)
-                ? Bytes.wrap(currentBlockHeader.toByteArray())
-                : Bytes.wrap(new byte[0]);
+                    ? Bytes.wrap(currentBlockHeader.toByteArray())
+                    : Bytes.wrap(new byte[0]);
             final Bytes footerBytes = (currentBlockFooter != null)
-                ? Bytes.wrap(currentBlockFooter.toByteArray())
-                : Bytes.wrap(new byte[0]);
+                    ? Bytes.wrap(currentBlockFooter.toByteArray())
+                    : Bytes.wrap(new byte[0]);
 
             final Bytes rootOfAll = (rootHashOfAllBlockHashesTreeHasher != null
-                && rootHashOfAllBlockHashesTreeHasher.intermediateHashingState() != null)
-                ? Bytes.wrap(rootHashOfAllBlockHashesTreeHasher.computeRootHash())
-                : Bytes.wrap(new byte[0]);
+                            && rootHashOfAllBlockHashesTreeHasher.intermediateHashingState() != null)
+                    ? Bytes.wrap(rootHashOfAllBlockHashesTreeHasher.computeRootHash())
+                    : Bytes.wrap(new byte[0]);
 
             LOGGER.log(
-                INFO,
-                ("Block parts: number=%s previousHash=%s header=%s footer=%s "
-                    + "rootOfAll=%s inputRoot=%s(inputLeaves=%s) outputRoot=%s(outputLeaves=%s) "
-                    + "consensusRoot=%s(consLeaves=%s) stateRoot=%s(stateLeaves=%s) traceRoot=%s(traceLeaves=%s)")
-                    .formatted(
-                        currentBlockNumber,
-                        Bytes.wrap(previousBlockHash),
-                        headerBytes,
-                        footerBytes,
-                        rootOfAll,
-                        inRoot,
-                        inCount,
-                        outRoot,
-                        outCount,
-                        consRoot,
-                        consCount,
-                        stateRoot,
-                        stateCount,
-                        traceRoot,
-                        traceCount));
+                    INFO,
+                    ("Block parts: number=%s previousHash=%s header=%s footer=%s "
+                                    + "rootOfAll=%s inputRoot=%s(inputLeaves=%s) outputRoot=%s(outputLeaves=%s) "
+                                    + "consensusRoot=%s(consLeaves=%s) stateRoot=%s(stateLeaves=%s) traceRoot=%s(traceLeaves=%s)")
+                            .formatted(
+                                    currentBlockNumber,
+                                    Bytes.wrap(previousBlockHash),
+                                    headerBytes,
+                                    footerBytes,
+                                    rootOfAll,
+                                    inRoot,
+                                    inCount,
+                                    outRoot,
+                                    outCount,
+                                    consRoot,
+                                    consCount,
+                                    stateRoot,
+                                    stateCount,
+                                    traceRoot,
+                                    traceCount));
         } catch (final Exception e) {
             // Don't let logging interfere with normal execution; log and continue
             LOGGER.log(ERROR, "Failed to log detailed block parts", e);
