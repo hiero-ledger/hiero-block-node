@@ -6,8 +6,6 @@ import com.hedera.pbj.runtime.ParseException;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import com.hederahashgraph.api.proto.java.SemanticVersion;
 import com.hederahashgraph.api.proto.java.Timestamp;
-import java.util.Random;
-import org.hiero.block.common.utils.Preconditions;
 import org.hiero.block.internal.BlockItemUnparsed;
 import org.hiero.block.simulator.exception.BlockSimulatorParsingException;
 
@@ -43,7 +41,7 @@ abstract class AbstractBlockItemHandler implements ItemHandler {
      */
     protected Timestamp getTimestamp() {
         return Timestamp.newBuilder()
-                .setSeconds(System.currentTimeMillis() / 1000)
+                .setSeconds(1734953412) // Fixed timestamp for deterministic consistency in tests
                 .build();
     }
 
@@ -54,20 +52,5 @@ abstract class AbstractBlockItemHandler implements ItemHandler {
      */
     protected SemanticVersion getSemanticVersion() {
         return HAPI_VERSION;
-    }
-
-    /**
-     * Generates a random value within the specified range.
-     *
-     * @param min The minimum value (inclusive)
-     * @param max The maximum value (exclusive)
-     * @return A random long value between min and max
-     * @throws IllegalArgumentException if min or max is negative
-     */
-    protected long generateRandomValue(long min, long max) {
-        Preconditions.requirePositive(min);
-        Preconditions.requirePositive(max);
-
-        return new Random().nextLong(min, max);
     }
 }

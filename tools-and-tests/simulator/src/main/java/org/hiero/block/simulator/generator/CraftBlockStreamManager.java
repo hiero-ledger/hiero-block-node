@@ -15,6 +15,7 @@ import com.hedera.pbj.runtime.io.buffer.Bytes;
 import edu.umd.cs.findbugs.annotations.NonNull;
 import java.io.IOException;
 import java.lang.System.Logger;
+import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
@@ -29,6 +30,7 @@ import java.util.regex.Pattern;
 import org.hiero.block.common.hasher.Hashes;
 import org.hiero.block.common.hasher.HashingUtilities;
 import org.hiero.block.common.hasher.NaiveStreamingTreeHasher;
+import org.hiero.block.common.hasher.StreamingHasher;
 import org.hiero.block.common.hasher.StreamingTreeHasher;
 import org.hiero.block.internal.BlockItemUnparsed;
 import org.hiero.block.simulator.config.data.BlockGeneratorConfig;
@@ -83,6 +85,9 @@ public class CraftBlockStreamManager implements BlockStreamManager {
     private final BlockGeneratorConfig blockGeneratorConfig;
     private final SimulatorStartupData simulatorStartupData;
 
+    StreamingHasher rootHashOfAllBlockHashesTreeHasher;
+    Bytes ZERO_BLOCK_HASH = Bytes.wrap(new byte[48]);
+
     /**
      * Constructs a new CraftBlockStreamManager with the specified configuration.
      *
@@ -112,7 +117,9 @@ public class CraftBlockStreamManager implements BlockStreamManager {
         this.stateChangesHasher = new NaiveStreamingTreeHasher();
         this.traceDataHasher = new NaiveStreamingTreeHasher();
         this.simulatorStartupData = simulatorStartupData;
-        this.currentBlockNumber = simulatorStartupData.getLatestAckBlockNumber() + 1L;
+        // currently we are not supporting startup saved data due to the calculation of the
+        // root hash of all block hashes tree hasher
+        this.currentBlockNumber = 0;
         this.previousBlockHash = simulatorStartupData.getLatestAckBlockHash();
         LOGGER.log(INFO, "Block Stream Simulator will use Craft mode for block management");
 
@@ -120,6 +127,28 @@ public class CraftBlockStreamManager implements BlockStreamManager {
         unorderedStreamingEnabled = unorderedStreamConfig.enabled();
         if (unorderedStreamingEnabled) {
             initUnorderedStreaming(simulatorStartupData, unorderedStreamConfig);
+        }
+
+        // init root hash of all block hashes tree hasher
+        initRootHashOfAllBlockHashesTreeHasher();
+
+        if (simulatorStartupData.getLatestAckBlockNumber() >= 0) {
+            final long targetBlock = simulatorStartupData.getLatestAckBlockNumber() + 1L;
+            resetToBlock(targetBlock);
+        }
+    }
+
+    /***
+     * Initializes the hasher for the root hash of all block hashes tree.
+     * currently only supports from genesis, in the future we might consider
+     * initializing from saved state on file.
+     */
+    private void initRootHashOfAllBlockHashesTreeHasher() {
+        try {
+            this.rootHashOfAllBlockHashesTreeHasher = new StreamingHasher();
+            this.rootHashOfAllBlockHashesTreeHasher.addLeaf(ZERO_BLOCK_HASH.toByteArray());
+        } catch (NoSuchAlgorithmException e) {
+            LOGGER.log(ERROR, "Error initializing rootHashOfAllBlockHashesTreeHasher", e);
         }
     }
 
@@ -187,12 +216,38 @@ public class CraftBlockStreamManager implements BlockStreamManager {
 
     @Override
     public void resetToBlock(final long block) {
-        currentBlockNumber = block;
+        LOGGER.log(
+                DEBUG, "Resetting to block number %s. current block number = %s".formatted(block, currentBlockNumber));
+
+        // if current block is bigger, we reset state and start from 0 up to block
+        if (currentBlockNumber > block) {
+            LOGGER.log(
+                    DEBUG,
+                    "Current block number %s is greater than target block number %s. Resetting state and starting from block 0."
+                            .formatted(currentBlockNumber, block));
+            resetState();
+            currentBlockNumber = 0;
+            previousBlockHash = ZERO_BLOCK_HASH.toByteArray();
+            initRootHashOfAllBlockHashesTreeHasher();
+        }
+
+        while (currentBlockNumber < block) {
+            try {
+                createNextBlock();
+            } catch (Exception e) {
+                LOGGER.log(ERROR, "Error while resetting to block " + block, e);
+                throw new RuntimeException(e);
+            }
+        }
+        LOGGER.log(
+                DEBUG,
+                "Reset to block number %s completed. current block number = %s".formatted(block, currentBlockNumber));
     }
 
     private Block createNextBlock() throws BlockSimulatorParsingException, ParseException {
         LOGGER.log(DEBUG, "Started creation of block number %s.".formatted(currentBlockNumber));
-        // todo(683) Refactor common hasher to accept protoc types, in order to avoid the additional overhead of keeping
+        // todo(683) Refactor common hFasher to accept protoc types, in order to avoid the additional overhead of
+        // keeping
         // and unparsing.
         final List<BlockItemUnparsed> blockItemsUnparsed = new ArrayList<>();
         final List<ItemHandler> items = new ArrayList<>();
@@ -201,14 +256,12 @@ public class CraftBlockStreamManager implements BlockStreamManager {
         items.add(headerItemHandler);
         blockItemsUnparsed.add(headerItemHandler.unparseBlockItem());
         currentBlockHeader = headerItemHandler.getItem().getBlockHeader();
-
-        final int eventsNumber = random.nextInt(minEventsPerBlock, maxEventsPerBlock);
+        final int eventsNumber = minEventsPerBlock; // for deterministic testing
         for (int i = 0; i < eventsNumber; i++) {
             final ItemHandler eventHeaderHandler = new EventHeaderHandler();
             items.add(eventHeaderHandler);
             blockItemsUnparsed.add(eventHeaderHandler.unparseBlockItem());
-
-            final int transactionsNumber = random.nextInt(minTransactionsPerEvent, maxTransactionsPerEvent);
+            final int transactionsNumber = minTransactionsPerEvent; // for deterministic testing
             for (int j = 0; j < transactionsNumber; j++) {
                 final ItemHandler eventTransactionHandler = new SignedTransactionHandler();
                 items.add(eventTransactionHandler);
@@ -224,7 +277,11 @@ public class CraftBlockStreamManager implements BlockStreamManager {
 
         processBlockItems(blockItemsUnparsed);
 
-        ItemHandler footerItemHandler = new BlockFooterHandler(previousBlockHash);
+        byte[] rootHashOfAllBlockHashesTree = null;
+        if (rootHashOfAllBlockHashesTreeHasher != null) {
+            rootHashOfAllBlockHashesTree = rootHashOfAllBlockHashesTreeHasher.computeRootHash();
+        }
+        ItemHandler footerItemHandler = new BlockFooterHandler(previousBlockHash, rootHashOfAllBlockHashesTree);
         items.add(footerItemHandler);
         currentBlockFooter = footerItemHandler.getItem().getBlockFooter();
 
@@ -239,10 +296,91 @@ public class CraftBlockStreamManager implements BlockStreamManager {
 
         ItemHandler proofItemHandler = new BlockProofHandler(currentBlockHash, currentBlockNumber);
         items.add(proofItemHandler);
+        // print all the individual parts of the block, for debugging
+        // printProducedBlockForDebugging(blockItemsUnparsed);
+        LOGGER.log(
+                DEBUG,
+                "Created block number %s with hash %s".formatted(currentBlockNumber, Bytes.wrap(currentBlockHash)));
+
+        if (rootHashOfAllBlockHashesTreeHasher != null) {
+            rootHashOfAllBlockHashesTreeHasher.addLeaf(currentBlockHash);
+        }
+
         resetState();
+
         return Block.newBuilder()
                 .addAllItems(items.stream().map(ItemHandler::getItem).toList())
                 .build();
+    }
+
+    private void printProducedBlockForDebugging(List<BlockItemUnparsed> blockItemsUnparsed) {
+        try {
+            // Recompute the raw hashes for the block items so we can log counts and roots for each tree
+            final Hashes loggingHashes = HashingUtilities.getBlockHashes(blockItemsUnparsed);
+
+            final java.nio.ByteBuffer inHashes = loggingHashes.inputHashes();
+            final java.nio.ByteBuffer outHashes = loggingHashes.outputHashes();
+            final java.nio.ByteBuffer consHashes = loggingHashes.consensusHeaderHashes();
+            final java.nio.ByteBuffer stateHashes = loggingHashes.stateChangesHashes();
+            final java.nio.ByteBuffer traceHashes = loggingHashes.traceDataHashes();
+
+            final long inCount = inHashes == null ? 0L : (inHashes.remaining() / StreamingTreeHasher.HASH_LENGTH);
+            final long outCount = outHashes == null ? 0L : (outHashes.remaining() / StreamingTreeHasher.HASH_LENGTH);
+            final long consCount = consHashes == null ? 0L : (consHashes.remaining() / StreamingTreeHasher.HASH_LENGTH);
+            final long stateCount =
+                stateHashes == null ? 0L : (stateHashes.remaining() / StreamingTreeHasher.HASH_LENGTH);
+            final long traceCount =
+                traceHashes == null ? 0L : (traceHashes.remaining() / StreamingTreeHasher.HASH_LENGTH);
+
+            final Bytes inRoot =
+                inputTreeHasher != null ? inputTreeHasher.rootHash().join() : Bytes.wrap(new byte[0]);
+            final Bytes outRoot =
+                outputTreeHasher != null ? outputTreeHasher.rootHash().join() : Bytes.wrap(new byte[0]);
+            final Bytes consRoot = consensusHeaderHasher != null
+                ? consensusHeaderHasher.rootHash().join()
+                : Bytes.wrap(new byte[0]);
+            final Bytes stateRoot =
+                stateChangesHasher != null ? stateChangesHasher.rootHash().join() : Bytes.wrap(new byte[0]);
+            final Bytes traceRoot =
+                traceDataHasher != null ? traceDataHasher.rootHash().join() : Bytes.wrap(new byte[0]);
+
+            final Bytes headerBytes = (currentBlockHeader != null)
+                ? Bytes.wrap(currentBlockHeader.toByteArray())
+                : Bytes.wrap(new byte[0]);
+            final Bytes footerBytes = (currentBlockFooter != null)
+                ? Bytes.wrap(currentBlockFooter.toByteArray())
+                : Bytes.wrap(new byte[0]);
+
+            final Bytes rootOfAll = (rootHashOfAllBlockHashesTreeHasher != null
+                && rootHashOfAllBlockHashesTreeHasher.intermediateHashingState() != null)
+                ? Bytes.wrap(rootHashOfAllBlockHashesTreeHasher.computeRootHash())
+                : Bytes.wrap(new byte[0]);
+
+            LOGGER.log(
+                INFO,
+                ("Block parts: number=%s previousHash=%s header=%s footer=%s "
+                    + "rootOfAll=%s inputRoot=%s(inputLeaves=%s) outputRoot=%s(outputLeaves=%s) "
+                    + "consensusRoot=%s(consLeaves=%s) stateRoot=%s(stateLeaves=%s) traceRoot=%s(traceLeaves=%s)")
+                    .formatted(
+                        currentBlockNumber,
+                        Bytes.wrap(previousBlockHash),
+                        headerBytes,
+                        footerBytes,
+                        rootOfAll,
+                        inRoot,
+                        inCount,
+                        outRoot,
+                        outCount,
+                        consRoot,
+                        consCount,
+                        stateRoot,
+                        stateCount,
+                        traceRoot,
+                        traceCount));
+        } catch (final Exception e) {
+            // Don't let logging interfere with normal execution; log and continue
+            LOGGER.log(ERROR, "Failed to log detailed block parts", e);
+        }
     }
 
     private void updateCurrentBlockHash() throws ParseException {
@@ -254,14 +392,15 @@ public class CraftBlockStreamManager implements BlockStreamManager {
                         Bytes.wrap(currentBlockFooter.toByteArray()));
 
         currentBlockHash = HashingUtilities.computeFinalBlockHash(
-                        blockHeader,
-                        blockFooter,
+                        blockHeader.blockTimestamp(),
+                        blockFooter.previousBlockRootHash(),
+                        blockFooter.rootHashOfAllBlockHashesTree(),
+                        blockFooter.startOfBlockStateRootHash(),
                         inputTreeHasher,
                         outputTreeHasher,
                         consensusHeaderHasher,
                         stateChangesHasher,
-                        traceDataHasher,
-                        Bytes.EMPTY)
+                        traceDataHasher)
                 .toByteArray();
     }
 

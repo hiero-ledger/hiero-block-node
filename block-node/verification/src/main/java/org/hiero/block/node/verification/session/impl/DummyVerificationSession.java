@@ -29,6 +29,12 @@ public class DummyVerificationSession implements VerificationSession {
     /** The source of the block, used to construct the final notification. */
     private final BlockSource blockSource;
 
+    /** The block hash, set upon finalization. */
+    private Bytes blockHash = null;
+
+    /** The complete block, set upon finalization. */
+    private BlockUnparsed block = null;
+
     /**
      * The block items for the block this session is responsible for. We collect them here so we can provide the
      * complete block in the final notification.
@@ -42,16 +48,18 @@ public class DummyVerificationSession implements VerificationSession {
     }
 
     @Override
-    public VerificationNotification processBlockItems(List<BlockItemUnparsed> blockItems) throws ParseException {
+    public void processBlockItems(List<BlockItemUnparsed> blockItems) throws ParseException {
         this.blockItems.addAll(blockItems);
         LOGGER.log(TRACE, "Processed {0} block items for block {1}", blockItems.size(), blockNumber);
         if (blockItems.getLast().hasBlockProof()) {
-            BlockUnparsed block =
-                    BlockUnparsed.newBuilder().blockItems(this.blockItems).build();
-            Bytes blockHash = Bytes.wrap("0x00");
+            block = BlockUnparsed.newBuilder().blockItems(this.blockItems).build();
+            blockHash = Bytes.wrap("0x00");
             LOGGER.log(TRACE, "Returning always True verification notification for block {0}", blockNumber);
-            return new VerificationNotification(true, blockNumber, blockHash, block, blockSource);
         }
-        return null;
+    }
+
+    @Override
+    public VerificationNotification finalizeVerification(Bytes rootHashOfAllBlockHashesTree, Bytes previousBlockHash) {
+        return new VerificationNotification(true, blockNumber, blockHash, block, blockSource);
     }
 }

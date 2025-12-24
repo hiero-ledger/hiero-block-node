@@ -38,7 +38,8 @@ class ExtendedMerkleTreeSessionTest {
 
         ExtendedMerkleTreeSession session = new ExtendedMerkleTreeSession(blockNumber, BlockSource.PUBLISHER);
 
-        VerificationNotification blockNotification = session.processBlockItems(blockItems);
+        session.processBlockItems(blockItems);
+        VerificationNotification blockNotification = session.finalizeVerification(null, null);
 
         assertArrayEquals(
                 blockItems.toArray(),
