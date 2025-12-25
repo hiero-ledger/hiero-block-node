@@ -17,6 +17,10 @@ tasks.withType<JavaExec>().configureEach {
     environment("FILES_HISTORIC_ROOT_PATH", "${serverDataDir}/files-historic")
     environment("FILES_RECENT_LIVE_ROOT_PATH", "${serverDataDir}/files-live")
     environment("FILES_RECENT_UNVERIFIED_ROOT_PATH", "${serverDataDir}/files-unverified")
+    environment(
+        "VERIFICATION_ROOT_HASH_OF_ALL_PREVIOUS_BLOCKS_PATH",
+        "${serverDataDir}/verification/rootHashOfAllPreviousBlocks.bin",
+    )
 }
 
 tasks.register<JavaExec>("runWithCleanStorage") {
@@ -38,6 +42,10 @@ tasks.register<JavaExec>("runWithCleanStorage") {
     environment("FILES_HISTORIC_ROOT_PATH", "${serverDataDir}/files-historic")
     environment("FILES_RECENT_LIVE_ROOT_PATH", "${serverDataDir}/files-live")
     environment("FILES_RECENT_UNVERIFIED_ROOT_PATH", "${serverDataDir}/files-unverified")
+    environment(
+        "VERIFICATION_ROOT_HASH_OF_ALL_PREVIOUS_BLOCKS_PATH",
+        "${serverDataDir}/verification/rootHashOfAllPreviousBlocks.bin",
+    )
 }
 
 application {

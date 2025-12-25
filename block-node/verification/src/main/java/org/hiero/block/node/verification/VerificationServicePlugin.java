@@ -5,14 +5,25 @@ import static java.lang.System.Logger.Level.ERROR;
 import static java.lang.System.Logger.Level.INFO;
 import static java.lang.System.Logger.Level.TRACE;
 import static java.lang.System.Logger.Level.WARNING;
+import static java.util.Objects.requireNonNull;
 
+import com.hedera.hapi.block.stream.Block;
+import com.hedera.hapi.block.stream.BlockItem;
+import com.hedera.hapi.block.stream.output.BlockFooter;
 import com.hedera.hapi.block.stream.output.BlockHeader;
 import com.hedera.hapi.node.base.SemanticVersion;
 import com.hedera.pbj.runtime.ParseException;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import com.swirlds.metrics.api.Counter;
 import edu.umd.cs.findbugs.annotations.NonNull;
+import java.io.BufferedInputStream;
+import java.io.BufferedOutputStream;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
 import java.security.NoSuchAlgorithmException;
+import java.util.Arrays;
 import java.util.List;
 import org.hiero.block.common.hasher.StreamingHasher;
 import org.hiero.block.node.spi.BlockNodeContext;
@@ -60,6 +71,8 @@ public class VerificationServicePlugin implements BlockNodePlugin, BlockItemHand
     private Bytes previousBlockHash;
     /** ZERO block hash constant. */
     static final Bytes ZERO_BLOCK_HASH = Bytes.wrap(new byte[48]);
+    /** Expected size of a block hash in bytes. */
+    private static final int BLOCK_HASH_LENGTH = ZERO_BLOCK_HASH.toByteArray().length;
 
     /**
      * {@inheritDoc}
@@ -92,33 +105,157 @@ public class VerificationServicePlugin implements BlockNodePlugin, BlockItemHand
                 .withDescription("Verification time per block (ms)"));
         hashingBlockTimeNs = metrics.getOrCreate(new Counter.Config(METRICS_CATEGORY, "hashing_block_time")
                 .withDescription("Hashing time per block (ms)"));
+    }
 
-        // init streamingHasherAllPreviousBlocks
-        // 1. Check for File.
-        // if so load streaming hasher from disk, apply differential to catch up with store (in case there is
-        // discrepancy)
-        // verify from calculated hash
+    private void initializePreviousAllBlocksHasher() {
 
-        // 2. Check if Store has uninterrupted blocks from genesis.
-        // if so, calculate in background and use provided hash on block_footer in the mean time.
-        // verify from calculated hash once background process catches up.
+        // Verify is enabled.
+        if (!verificationConfig.calculateRootHashOfAllPreviousBlocksEnabled()) {
+            // feature disable, we keep the hasher null
+            streamingHasherAllPreviousBlocks = null;
+            return;
+        }
 
-        // 3. Check if BN is empty.
-        // if so, start calculating it so
-        // verify from calculated hash
+        // init streaming hasher
+        try {
+            streamingHasherAllPreviousBlocks = new StreamingHasher();
+        } catch (NoSuchAlgorithmException e) {
+            streamingHasherAllPreviousBlocks = null;
+            LOGGER.log(
+                    WARNING,
+                    "Unable to initialize streaming hasher for all previous blocks; falling back to footer values.",
+                    e);
+            return;
+        }
+
+        final Path hasherPath = requireNonNull(
+                verificationConfig.rootHashOfAllPreviousBlocksPath(),
+                "verification.rootHashOfAllPreviousBlocksPath path must not be null or empty when enabled.");
+
+        // make sure directories exist
+        try {
+            Files.createDirectories(hasherPath.getParent());
+        } catch (IOException e) {
+            LOGGER.log(WARNING, "Failed to create directories for hasher file at " + hasherPath, e);
+        }
+
+        // if there are no blocks lets do a new empty file and return, regardless of existing file
         if (context.historicalBlockProvider().availableBlocks().size() == 0) {
             try {
-                streamingHasherAllPreviousBlocks = new StreamingHasher();
-                streamingHasherAllPreviousBlocks.addLeaf(ZERO_BLOCK_HASH.toByteArray());
-                LOGGER.log(
-                        INFO,
-                        "Starting allPreviousBlockHashes Streaming Hasher from Genesis successfully initialized.");
-            } catch (NoSuchAlgorithmException e) {
+                Files.deleteIfExists(hasherPath);
+                Files.createFile(hasherPath);
+                // for a new genesis, the previous block hash is ZERO
+                appendLatestHashToAllPreviousBlocksStreamingHasher(ZERO_BLOCK_HASH.toByteArray());
+            } catch (IOException e) {
+                LOGGER.log(WARNING, "Failed to create empty hasher file at " + hasherPath, e);
+            }
+            return;
+        }
+
+        // if file exists, load existing state
+        if (Files.exists(hasherPath)) {
+            try (BufferedInputStream inputStream = new BufferedInputStream(Files.newInputStream(hasherPath))) {
+                final byte[] buffer = new byte[BLOCK_HASH_LENGTH];
+                long loadedHashes = 0;
+                int read;
+                while ((read = inputStream.readNBytes(buffer, 0, BLOCK_HASH_LENGTH)) == BLOCK_HASH_LENGTH) {
+                    final byte[] hashCopy = Arrays.copyOf(buffer, BLOCK_HASH_LENGTH);
+                    streamingHasherAllPreviousBlocks.addLeaf(hashCopy);
+                    loadedHashes++;
+                }
+
+                if (read > 0 && read < BLOCK_HASH_LENGTH) {
+                    LOGGER.log(
+                            WARNING,
+                            "Detected trailing {0} byte(s) in {1}; ignoring incomplete hash entry.",
+                            read,
+                            hasherPath);
+                }
+
+                // Should not be needed, but just in case, load any missing hashes from historical blocks
+                // might come useful if we decide to save to file every X amount of blocks instead of every block
+                if (loadedHashes
+                        < context.historicalBlockProvider().availableBlocks().max()) {
+                    // load differential from block footers
+                    // decrement -1 due to ZERO_BLOCK being the first hash before block 0. avoid a one-off error.
+                    for (long i = loadedHashes - 1;
+                            i
+                                    <= context.historicalBlockProvider()
+                                            .availableBlocks()
+                                            .max();
+                            i++) {
+                        Block block = context.historicalBlockProvider().block(i).block();
+                        final BlockFooter blockFooter = block.items().stream()
+                                .filter(blockItem -> blockItem.item().kind() == BlockItem.ItemOneOfType.BLOCK_FOOTER)
+                                .findFirst()
+                                .get()
+                                .blockFooter();
+                        streamingHasherAllPreviousBlocks.addLeaf(
+                                blockFooter.previousBlockRootHash().toByteArray());
+                    }
+                }
+
+                if (streamingHasherAllPreviousBlocks.leafCount() - 1
+                        != context.historicalBlockProvider().availableBlocks().max()) {
+                    LOGGER.log(
+                            WARNING,
+                            "Loaded leaf count {0} does not match expected block count {1} from historical provider.",
+                            streamingHasherAllPreviousBlocks.leafCount() - 1,
+                            context.historicalBlockProvider().availableBlocks().max());
+                }
+
+            } catch (IOException e) {
                 streamingHasherAllPreviousBlocks = null;
                 LOGGER.log(
                         WARNING,
-                        "Starting allPreviousBlockHashes Streaming Hasher from Genesis failed, falling back to using provided on block footer.");
+                        "Failed to load streaming hasher state from %s , falling back to block footer values."
+                                .formatted(hasherPath),
+                        e);
             }
+        } else {
+            // there is no existing file, but there might be an available range from genesis till latest block
+            final long latestBlockNumber =
+                    context.historicalBlockProvider().availableBlocks().max();
+            final long blocksInMemory =
+                    context.historicalBlockProvider().availableBlocks().size();
+            final long firstBlockNumber =
+                    context.historicalBlockProvider().availableBlocks().min();
+            // if there is only 1 range, and the first available block is 0, we can assume we have all blocks from
+            // genesis to latest
+            if (context.historicalBlockProvider()
+                                    .availableBlocks()
+                                    .streamRanges()
+                                    .count()
+                            == 1
+                    && context.historicalBlockProvider().availableBlocks().min() == 0) {
+                for (long i = 0; i <= latestBlockNumber; i++) {
+                    Block block = context.historicalBlockProvider().block(i).block();
+                    final BlockFooter blockFooter = block.items().stream()
+                            .filter(blockItem -> blockItem.item().kind() == BlockItem.ItemOneOfType.BLOCK_FOOTER)
+                            .findFirst()
+                            .get()
+                            .blockFooter();
+                    streamingHasherAllPreviousBlocks.addLeaf(
+                            blockFooter.previousBlockRootHash().toByteArray());
+                }
+            }
+        }
+    }
+
+    /***
+     * Append the latest block hash to the streaming hasher for all previous blocks.     *
+     * @param blockHashBytes the latest block hash to append
+     */
+    private void appendLatestHashToAllPreviousBlocksStreamingHasher(@NonNull final byte[] blockHashBytes) {
+        if (streamingHasherAllPreviousBlocks != null) {
+            streamingHasherAllPreviousBlocks.addLeaf(blockHashBytes);
+        }
+        final Path hasherPath = verificationConfig.rootHashOfAllPreviousBlocksPath();
+        try (BufferedOutputStream outputStream = new BufferedOutputStream(
+                Files.newOutputStream(hasherPath, StandardOpenOption.CREATE, StandardOpenOption.APPEND))) {
+            outputStream.write(blockHashBytes);
+        } catch (IOException e) {
+            LOGGER.log(WARNING, "Failed to persist block hash to " + hasherPath, e);
         }
     }
 
@@ -135,6 +272,8 @@ public class VerificationServicePlugin implements BlockNodePlugin, BlockItemHand
         // initialize metrics
         initMetrics(context);
         LOGGER.log(TRACE, "VerificationServicePlugin initialized successfully.");
+        // load previous blocks hasher if enabled
+        initializePreviousAllBlocksHasher();
     }
 
     /**
@@ -225,10 +364,8 @@ public class VerificationServicePlugin implements BlockNodePlugin, BlockItemHand
                         // Update previousBlockHash for next block verification
                         this.previousBlockHash = notification.blockHash();
                         // Update streamingHasherAllPreviousBlocks
-                        if (streamingHasherAllPreviousBlocks != null) {
-                            streamingHasherAllPreviousBlocks.addLeaf(
-                                    notification.blockHash().toByteArray());
-                        }
+                        appendLatestHashToAllPreviousBlocksStreamingHasher(this.previousBlockHash.toByteArray());
+
                     } else {
                         LOGGER.log(INFO, "Verification failed for block={0}", currentBlockNumber);
                         sendFailureNotification(currentBlockNumber, BlockSource.PUBLISHER);
