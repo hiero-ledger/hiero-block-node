@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.simulator.generator.itemhandler;
 
+import static org.hiero.block.simulator.generator.itemhandler.AbstractBlockItemHandler.FIXED_TIMESTAMP;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -10,6 +11,7 @@ import com.hedera.hapi.block.stream.protoc.BlockItem;
 import com.hederahashgraph.api.proto.java.SemanticVersion;
 import com.hederahashgraph.api.proto.java.Timestamp;
 import java.util.Random;
+import org.hiero.block.common.utils.Preconditions;
 import org.hiero.block.internal.BlockItemUnparsed;
 import org.hiero.block.simulator.exception.BlockSimulatorParsingException;
 import org.junit.jupiter.api.BeforeEach;
@@ -37,8 +39,9 @@ class AbstractBlockItemHandlerTest {
         }
 
         public long generateTestRandomValue(long min, long max) {
-            Random random = new Random();
-            return random.nextLong(min, max);
+            Preconditions.requirePositive(min);
+            Preconditions.requirePositive(max);
+            return new Random().nextLong(min, max);
         }
     }
 
@@ -64,9 +67,8 @@ class AbstractBlockItemHandlerTest {
         Timestamp timestamp = handler.getTestTimestamp();
         assertNotNull(timestamp);
 
-        // Timestamp should be recent (within last minute)
-        long currentTimeSeconds = System.currentTimeMillis() / 1000;
-        assertTrue(Math.abs(currentTimeSeconds - timestamp.getSeconds()) < 60);
+        // Timestamp should be FIXED
+        assertEquals(FIXED_TIMESTAMP, timestamp);
 
         // Nanos should be 0 as per implementation
         assertEquals(0, timestamp.getNanos());

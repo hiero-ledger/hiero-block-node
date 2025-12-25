@@ -14,6 +14,11 @@ import org.hiero.block.simulator.exception.BlockSimulatorParsingException;
  * Implements core methods and utilities used by specific item handlers.
  */
 abstract class AbstractBlockItemHandler implements ItemHandler {
+
+    static final Timestamp FIXED_TIMESTAMP = Timestamp.newBuilder()
+            .setSeconds(1734953412) // Fixed timestamp for deterministic consistency in tests
+            .build();
+
     protected BlockItem blockItem;
 
     /** Current HAPI version to craft blocks from **/
@@ -40,9 +45,7 @@ abstract class AbstractBlockItemHandler implements ItemHandler {
      * @return A Timestamp protobuf object
      */
     protected Timestamp getTimestamp() {
-        return Timestamp.newBuilder()
-                .setSeconds(1734953412) // Fixed timestamp for deterministic consistency in tests
-                .build();
+        return FIXED_TIMESTAMP;
     }
 
     /**

@@ -120,7 +120,7 @@ public class CraftBlockStreamManager implements BlockStreamManager {
         // currently we are not supporting startup saved data due to the calculation of the
         // root hash of all block hashes tree hasher
         this.currentBlockNumber = 0;
-        this.previousBlockHash = simulatorStartupData.getLatestAckBlockHash();
+        this.previousBlockHash = ZERO_BLOCK_HASH.toByteArray();
         LOGGER.log(INFO, "Block Stream Simulator will use Craft mode for block management");
 
         // Unordered streaming
