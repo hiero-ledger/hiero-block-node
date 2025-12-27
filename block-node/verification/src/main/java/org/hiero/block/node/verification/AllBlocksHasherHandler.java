@@ -54,7 +54,7 @@ public class AllBlocksHasherHandler {
     /** Streaming hasher for all previous blocks hashes. */
     private StreamingHasher hasher;
     /** The previous block hash, used for verification of the current block. */
-    private byte[] previousBlockHash;
+    private byte[] lastBlockHash;
     /** Verification configuration. */
     private final VerificationConfig verificationConfig;
     /** Block node context. access to block provider services for historical blocks */
@@ -88,8 +88,8 @@ public class AllBlocksHasherHandler {
      * @return the root hash as a byte array
      */
     public byte[] computeRootHash() {
-        if(hasher == null) {
-            LOGGER.log(INFO, "AllBlocksHasherHandler: hasher is not available, cannot compute root hash of all previous blocks.");
+        if (hasher == null) {
+            LOGGER.log(INFO, "hasher is not available, cannot compute root hash of all previous blocks.");
             return null;
         }
         return hasher.computeRootHash();
@@ -100,11 +100,11 @@ public class AllBlocksHasherHandler {
      * @return the last block hash as a byte array
      */
     public byte[] lastBlockHash() {
-        if(hasher == null) {
-            LOGGER.log(INFO, "AllBlocksHasherHandler: hasher is not available, cannot know previous root hash");
+        if (hasher == null) {
+            LOGGER.log(INFO, "hasher is not available, cannot know previous root hash");
             return null;
         }
-        return previousBlockHash;
+        return lastBlockHash;
     }
 
     /** *
@@ -120,7 +120,7 @@ public class AllBlocksHasherHandler {
      * @return the number of blocks
      */
     public long getNumberOfBlocks() {
-        if(hasher == null) {
+        if (hasher == null) {
             LOGGER.log(INFO, "hasher is not available, cannot know number of blocks");
             return -1;
         }
@@ -141,15 +141,30 @@ public class AllBlocksHasherHandler {
                     initGenesis();
                 } else if (Files.exists(hasherPath)) {
                     loadFromFile();
-                    syncRemainingBlockHashesFromStore(hasher.leafCount() - 1, available.max());
+                    syncBlockHashesFromStore(hasher.leafCount(), available.max());
                 } else {
                     fullyRebuildFromStore();
                 }
                 // 3. Validate hasher state matches available blocks
                 validateState();
+
+                // 4. Set previous block hash
+                setPreviousBlockHash();
+
             } catch (IOException | NoSuchAlgorithmException | IllegalStateException | ParseException e) {
                 LOGGER.log(WARNING, "Falling back to footer values. Reason: " + e.getMessage(), e);
                 this.hasher = null; // Ensure we return null on failure
+            }
+        }
+    }
+
+    private void setPreviousBlockHash() throws ParseException {
+        if (available.size() > 0 && lastBlockHash == null) {
+            if (hasher.leafCount() > 1) {
+                long lastBlockNumber = available.max();
+                lastBlockHash = calculateBlockHashFromBlockNumber(lastBlockNumber, null);
+            } else {
+                lastBlockHash = ZERO_BLOCK_HASH;
             }
         }
     }
@@ -175,12 +190,12 @@ public class AllBlocksHasherHandler {
     // when needing to rebuild from historical block provider.
     private void fullyRebuildFromStore() throws ParseException {
         if (available.streamRanges().count() == 1 && available.min() == 0) {
-            syncRemainingBlockHashesFromStore(0, available.max());
+            syncBlockHashesFromStore(0, available.max());
         }
     }
 
     // update the hasher from historical block provider.
-    private void syncRemainingBlockHashesFromStore(long start, long end) throws ParseException {
+    private void syncBlockHashesFromStore(long start, long end) throws ParseException {
         for (long i = start; i <= end; i++) {
             byte[] previousHash = extractPreviousRootHashFromBlock(i);
             appendLatestHashToAllPreviousBlocksStreamingHasher(previousHash);
@@ -189,8 +204,16 @@ public class AllBlocksHasherHandler {
                 // add latest block hash, need to recalculate hash
                 byte[] latestBlockHash = calculateBlockHashFromBlockNumber(i, previousHash);
                 appendLatestHashToAllPreviousBlocksStreamingHasher(latestBlockHash);
-                this.previousBlockHash = latestBlockHash;
+                this.lastBlockHash = latestBlockHash;
             }
+        }
+
+        // edge case: missing only 1 hash.
+        if (start != 0 && start - 1 == end) {
+            byte[] previousHash = extractPreviousRootHashFromBlock(end);
+            byte[] latestBlockHash = calculateBlockHashFromBlockNumber(end, previousHash);
+            appendLatestHashToAllPreviousBlocksStreamingHasher(latestBlockHash);
+            this.lastBlockHash = latestBlockHash;
         }
     }
 
@@ -222,9 +245,8 @@ public class AllBlocksHasherHandler {
         VerificationSession session = HapiVersionSessionFactory.createSession(
                 blockNumber, BlockSource.UNKNOWN, blockHeader.hapiProtoVersion());
         session.processBlockItems(items);
-        Bytes rootHashOfAllPreviousBlocks = Bytes.wrap(hasher.computeRootHash());
-        VerificationNotification result =
-                session.finalizeVerification(rootHashOfAllPreviousBlocks, Bytes.wrap(previousBlockHash));
+        Bytes previousBlockHashBytes = previousBlockHash != null ? Bytes.wrap(previousBlockHash) : null;
+        VerificationNotification result = session.finalizeVerification(null, previousBlockHashBytes);
         return result.blockHash().toByteArray();
     }
 
