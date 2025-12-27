@@ -112,13 +112,13 @@ public class VerificationServicePlugin implements BlockNodePlugin, BlockItemHand
         if (allBlocksHasherHandler.isAvailable() && allBlocksHasherHandler.lastBlockHash() != null) {
             previousBlockHash = Bytes.wrap(allBlocksHasherHandler.lastBlockHash());
             LOGGER.log(
-                TRACE,
-                "All previous blocks hasher is available and initialized. with [%s] previous block hashes and last block hash [%s]"
-                    .formatted(allBlocksHasherHandler.getNumberOfBlocks(), previousBlockHash));
+                    TRACE,
+                    "All previous blocks hasher is available and initialized. with [%s] previous block hashes and last block hash [%s]"
+                            .formatted(allBlocksHasherHandler.getNumberOfBlocks(), previousBlockHash));
         } else {
             LOGGER.log(
-                TRACE,
-                "All previous blocks hasher is not available. falling back to use BlockFooter provided root hash for All previous blocks root hash.");
+                    TRACE,
+                    "All previous blocks hasher is not available. falling back to use BlockFooter provided root hash for All previous blocks root hash.");
         }
     }
 

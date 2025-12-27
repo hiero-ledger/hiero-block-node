@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.common.hasher;
 
+import com.hedera.hapi.block.stream.BlockItem;
 import com.hedera.hapi.node.base.Timestamp;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import com.swirlds.common.crypto.DigestType;
@@ -197,6 +198,19 @@ public final class HashingUtilities {
         ByteBuffer buffer = ByteBuffer.allocate(HASH_SIZE);
         buffer.put(digest.digest(
                 BlockItemUnparsed.PROTOBUF.toBytes(blockItemUnparsed).toByteArray()));
+
+        return buffer.flip();
+    }
+
+    /**
+     * returns the ByteBuffer of the hash of the given block item.
+     * @param blockItem the block item
+     * @return the ByteBuffer of the hash of the given block item
+     */
+    public static ByteBuffer getBlockItemHash(@NonNull BlockItem blockItem) {
+        final var digest = sha384DigestOrThrow();
+        ByteBuffer buffer = ByteBuffer.allocate(HASH_SIZE);
+        buffer.put(digest.digest(BlockItem.PROTOBUF.toBytes(blockItem).toByteArray()));
 
         return buffer.flip();
     }
