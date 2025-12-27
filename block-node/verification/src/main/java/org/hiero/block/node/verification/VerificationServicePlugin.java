@@ -5,27 +5,14 @@ import static java.lang.System.Logger.Level.ERROR;
 import static java.lang.System.Logger.Level.INFO;
 import static java.lang.System.Logger.Level.TRACE;
 import static java.lang.System.Logger.Level.WARNING;
-import static java.util.Objects.requireNonNull;
 
-import com.hedera.hapi.block.stream.Block;
-import com.hedera.hapi.block.stream.BlockItem;
 import com.hedera.hapi.block.stream.output.BlockHeader;
 import com.hedera.hapi.node.base.SemanticVersion;
 import com.hedera.pbj.runtime.ParseException;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import com.swirlds.metrics.api.Counter;
 import edu.umd.cs.findbugs.annotations.NonNull;
-import java.io.BufferedInputStream;
-import java.io.BufferedOutputStream;
-import java.io.IOException;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.StandardOpenOption;
-import java.security.NoSuchAlgorithmException;
-import java.util.Arrays;
 import java.util.List;
-import org.hiero.block.common.hasher.StreamingHasher;
-import org.hiero.block.internal.BlockItemUnparsed;
 import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.BlockNodePlugin;
 import org.hiero.block.node.spi.ServiceBuilder;
@@ -35,7 +22,6 @@ import org.hiero.block.node.spi.blockmessaging.BlockItems;
 import org.hiero.block.node.spi.blockmessaging.BlockNotificationHandler;
 import org.hiero.block.node.spi.blockmessaging.BlockSource;
 import org.hiero.block.node.spi.blockmessaging.VerificationNotification;
-import org.hiero.block.node.spi.historicalblocks.BlockRangeSet;
 import org.hiero.block.node.verification.session.HapiVersionSessionFactory;
 import org.hiero.block.node.verification.session.VerificationSession;
 
@@ -66,14 +52,10 @@ public class VerificationServicePlugin implements BlockNodePlugin, BlockItemHand
     private Counter verificationBlockTime;
     /** Metric for block hashing time. ignores time to receive block */
     private Counter hashingBlockTimeNs;
-    /** Streaming hasher for all previous blocks hashes. */
-    private StreamingHasher streamingHasherAllPreviousBlocks;
     /** The previous block hash, used for verification of the current block. */
     private Bytes previousBlockHash;
-    /** ZERO block hash constant. */
-    static final Bytes ZERO_BLOCK_HASH = Bytes.wrap(new byte[48]);
-    /** Expected size of a block hash in bytes. */
-    private static final int BLOCK_HASH_LENGTH = ZERO_BLOCK_HASH.toByteArray().length;
+
+    private AllBlocksHasherHandler allBlocksHasherHandler;
 
     /**
      * {@inheritDoc}
@@ -108,144 +90,6 @@ public class VerificationServicePlugin implements BlockNodePlugin, BlockItemHand
                 .withDescription("Hashing time per block (ms)"));
     }
 
-    private void initializePreviousAllBlocksHasher() {
-        if (verificationConfig.calculateRootHashOfAllPreviousBlocksEnabled()) {
-            try {
-                // 1. Initial Setup
-                Path path = requireNonNull(verificationConfig.rootHashOfAllPreviousBlocksPath());
-                this.streamingHasherAllPreviousBlocks = new StreamingHasher();
-                StreamingHasher hasher = this.streamingHasherAllPreviousBlocks;
-                Files.createDirectories(path.getParent());
-
-                BlockRangeSet available = context.historicalBlockProvider().availableBlocks();
-
-                // 2. Load Data
-                if (available.size() == 0) {
-                    initializeGenesis(path, hasher);
-                } else if (Files.exists(path)) {
-                    loadFromFile(path, hasher);
-                    updateTreeHasherFromStorage(hasher, hasher.leafCount() - 1, available.max());
-                } else {
-                    rebuildFromProvider(hasher, available);
-                }
-                // 3. Validate ro
-                validateState(hasher, available.max());
-            } catch (IOException | NoSuchAlgorithmException | IllegalStateException | ParseException e) {
-                LOGGER.log(WARNING, "Falling back to footer values. Reason: " + e.getMessage(), e);
-                this.streamingHasherAllPreviousBlocks = null; // Ensure we return null on failure
-            }
-        }
-    }
-
-    private void initializeGenesis(Path path, StreamingHasher hasher) throws IOException {
-        Files.deleteIfExists(path);
-        Files.createFile(path);
-        // Only add to memory; the regular lifecycle will handle the first write
-        appendLatestHashToAllPreviousBlocksStreamingHasher(ZERO_BLOCK_HASH.toByteArray());
-    }
-
-    private void loadFromFile(Path path, StreamingHasher hasher) throws IOException {
-        try (var inputStream = new BufferedInputStream(Files.newInputStream(path))) {
-            byte[] buffer = new byte[BLOCK_HASH_LENGTH];
-            while (inputStream.readNBytes(buffer, 0, BLOCK_HASH_LENGTH) == BLOCK_HASH_LENGTH) {
-                hasher.addLeaf(Arrays.copyOf(buffer, BLOCK_HASH_LENGTH));
-            }
-        }
-    }
-
-    private void rebuildFromProvider(StreamingHasher hasher, BlockRangeSet available) throws ParseException {
-        if (available.streamRanges().count() == 1 && available.min() == 0) {
-            updateTreeHasherFromStorage(hasher, 0, available.max());
-        }
-    }
-
-    private void updateTreeHasherFromStorage(StreamingHasher hasher, long start, long end) throws ParseException {
-        for (long i = start; i <= end; i++) {
-            byte[] previousHash = extractPreviousRootHashFromBlock(i);
-            appendLatestHashToAllPreviousBlocksStreamingHasher(previousHash);
-            // if last block
-            if( i == end ) {
-                // add latest block hash, needs to recalculate hash
-                byte[] latestBlockHash = calculateBlockHashFromBlockNumber(i, previousHash);
-                appendLatestHashToAllPreviousBlocksStreamingHasher(latestBlockHash);
-                this.previousBlockHash  = Bytes.wrap(latestBlockHash);
-            }
-        }
-    }
-
-    /**
-     * Calculate the block hash for a given block number using the previous block hash.
-     *
-     * @param blockNumber the block number to calculate the hash for
-     * @param previousBlockHash the previous block hash if absent will be used from block footer
-     * @return the calculated block hash
-     * @throws ParseException if there is an error parsing the block or its items.
-     */
-    private byte[] calculateBlockHashFromBlockNumber(long blockNumber, byte[] previousBlockHash) throws ParseException {
-        Block block = context.historicalBlockProvider().block(blockNumber).block();
-        BlockHeader blockHeader = block.items().getFirst().blockHeader();
-        List<BlockItemUnparsed> items = block.items().stream().map(item -> {
-            try {
-                return BlockItemUnparsed.PROTOBUF.parse(BlockItem.PROTOBUF.toBytes(item));
-            } catch (ParseException e) {
-                LOGGER.log(WARNING, "Failed to parse block item during block hash calculation for block " + blockNumber, e);
-                throw new RuntimeException(e);
-            }
-        }).toList();
-
-        VerificationSession session = HapiVersionSessionFactory.createSession(blockNumber, BlockSource.HISTORY, blockHeader.hapiProtoVersion());
-        session.processBlockItems(items);
-        Bytes rootHashOfAllPreviousBlocks = Bytes.wrap(streamingHasherAllPreviousBlocks.computeRootHash());
-        VerificationNotification result = session.finalizeVerification(rootHashOfAllPreviousBlocks, Bytes.wrap(previousBlockHash));
-        return result.blockHash().toByteArray();
-    }
-
-    private byte[] extractPreviousRootHashFromBlock(long blockNumber) {
-        var items = context.historicalBlockProvider().block(blockNumber).block().items();
-
-        // blocks place the footer closet to the very end.
-        // We iterate backwards to find it almost instantly.
-        for (int i = items.size() - 1; i >= 0; i--) {
-            var item = items.get(i);
-            if (item.item().kind() == BlockItem.ItemOneOfType.BLOCK_FOOTER) {
-                return item.blockFooter().previousBlockRootHash().toByteArray();
-            }
-        }
-
-        throw new IllegalStateException("Missing footer at block " + blockNumber);
-    }
-
-    /***
-     * Validate that the streaming hasher state matches the expected max block.
-     * maxBlock is inclusive and counts 0, while leafCount counts from 1,
-     * and adds the ZERO block hash as the first leaf before block 0.
-     *
-     * @param hasher   the streaming hasher to validate
-     * @param maxBlock the expected maximum block number
-     */
-    private void validateState(StreamingHasher hasher, long maxBlock) {
-        if ((hasher.leafCount() - 2) != maxBlock) {
-            LOGGER.log(WARNING, "Hasher state mismatch: {0} leaves vs {1} max block, falling back to use block footer values", hasher.leafCount() - 1, maxBlock);
-            this.streamingHasherAllPreviousBlocks = null; // Invalidate hasher on mismatch
-        }
-    }
-    /***
-     * Append the latest block hash to the streaming hasher for all previous blocks.     *
-     * @param blockHashBytes the latest block hash to append
-     */
-    private void appendLatestHashToAllPreviousBlocksStreamingHasher(@NonNull final byte[] blockHashBytes) {
-        if (streamingHasherAllPreviousBlocks != null) {
-            streamingHasherAllPreviousBlocks.addLeaf(blockHashBytes);
-        }
-        final Path hasherPath = verificationConfig.rootHashOfAllPreviousBlocksPath();
-        try (BufferedOutputStream outputStream = new BufferedOutputStream(
-                Files.newOutputStream(hasherPath, StandardOpenOption.CREATE, StandardOpenOption.APPEND))) {
-            outputStream.write(blockHashBytes);
-        } catch (IOException e) {
-            LOGGER.log(WARNING, "Failed to persist block hash to " + hasherPath, e);
-        }
-    }
-
     /**
      * {@inheritDoc}
      */
@@ -259,8 +103,20 @@ public class VerificationServicePlugin implements BlockNodePlugin, BlockItemHand
         // initialize metrics
         initMetrics(context);
         LOGGER.log(TRACE, "VerificationServicePlugin initialized successfully.");
-        // load previous blocks hasher if enabled
-        initializePreviousAllBlocksHasher();
+
+        // handles the root hash of all previous blocks hasher lifecycle and operations
+        allBlocksHasherHandler = new AllBlocksHasherHandler(verificationConfig, context);
+        if (allBlocksHasherHandler.isAvailable() && allBlocksHasherHandler.lastBlockHash() != null) {
+            previousBlockHash = Bytes.wrap(allBlocksHasherHandler.lastBlockHash());
+            LOGGER.log(
+                    TRACE,
+                    "All previous blocks hasher is available and initialized. with [%s] previous block hashes and last block hash [%s]"
+                            .formatted(allBlocksHasherHandler.getNumberOfBlocks(), previousBlockHash));
+        } else {
+            LOGGER.log(
+                    TRACE,
+                    "All previous blocks hasher is not available. falling back to use BlockFooter provided root hash for All previous blocks root hash.");
+        }
     }
 
     /**
@@ -330,10 +186,12 @@ public class VerificationServicePlugin implements BlockNodePlugin, BlockItemHand
                 // if this is the end of the block, finalize verification
                 if (blockItems.isEndOfBlock()) {
                     Bytes rootHashOfAllBlockHashesTree = null;
-                    if (streamingHasherAllPreviousBlocks != null && streamingHasherAllPreviousBlocks.leafCount() > 0) {
+
+                    // if (streamingHasherAllPreviousBlocks != null && streamingHasherAllPreviousBlocks.leafCount() > 0)
+                    // {
+                    if (allBlocksHasherHandler.isAvailable() && allBlocksHasherHandler.getNumberOfBlocks() > 0) {
                         try {
-                            rootHashOfAllBlockHashesTree =
-                                    Bytes.wrap(streamingHasherAllPreviousBlocks.computeRootHash());
+                            rootHashOfAllBlockHashesTree = Bytes.wrap(allBlocksHasherHandler.computeRootHash());
                         } catch (IllegalStateException e) {
                             LOGGER.log(
                                     WARNING,
@@ -351,7 +209,8 @@ public class VerificationServicePlugin implements BlockNodePlugin, BlockItemHand
                         // Update previousBlockHash for next block verification
                         this.previousBlockHash = notification.blockHash();
                         // Update streamingHasherAllPreviousBlocks
-                        appendLatestHashToAllPreviousBlocksStreamingHasher(this.previousBlockHash.toByteArray());
+                        allBlocksHasherHandler.appendLatestHashToAllPreviousBlocksStreamingHasher(
+                                this.previousBlockHash.toByteArray());
 
                     } else {
                         LOGGER.log(INFO, "Verification failed for block={0}", currentBlockNumber);
