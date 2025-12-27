@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.node.verification;
 
+import static java.lang.System.Logger.Level.INFO;
 import static java.lang.System.Logger.Level.WARNING;
 import static java.util.Objects.requireNonNull;
 
@@ -60,6 +61,8 @@ public class AllBlocksHasherHandler {
     private final BlockNodeContext context;
     /** path to persist the hasher state */
     private Path hasherPath;
+    /** available blocks from historical block provider */
+    private BlockRangeSet available;
 
     /**
      * Maintains and persists a streaming Merkle hasher over all previous block hashes
@@ -85,6 +88,10 @@ public class AllBlocksHasherHandler {
      * @return the root hash as a byte array
      */
     public byte[] computeRootHash() {
+        if(hasher == null) {
+            LOGGER.log(INFO, "AllBlocksHasherHandler: hasher is not available, cannot compute root hash of all previous blocks.");
+            return null;
+        }
         return hasher.computeRootHash();
     }
 
@@ -93,6 +100,10 @@ public class AllBlocksHasherHandler {
      * @return the last block hash as a byte array
      */
     public byte[] lastBlockHash() {
+        if(hasher == null) {
+            LOGGER.log(INFO, "AllBlocksHasherHandler: hasher is not available, cannot know previous root hash");
+            return null;
+        }
         return previousBlockHash;
     }
 
@@ -109,6 +120,10 @@ public class AllBlocksHasherHandler {
      * @return the number of blocks
      */
     public long getNumberOfBlocks() {
+        if(hasher == null) {
+            LOGGER.log(INFO, "hasher is not available, cannot know number of blocks");
+            return -1;
+        }
         return hasher.leafCount() - 1; // minus the ZERO block hash
     }
 
@@ -119,19 +134,19 @@ public class AllBlocksHasherHandler {
                 hasherPath = requireNonNull(verificationConfig.rootHashOfAllPreviousBlocksPath());
                 hasher = new StreamingHasher();
                 Files.createDirectories(hasherPath.getParent());
-                BlockRangeSet available = context.historicalBlockProvider().availableBlocks();
+                available = context.historicalBlockProvider().availableBlocks();
 
                 // 2. Load Data
                 if (available.size() == 0) {
                     initGenesis();
                 } else if (Files.exists(hasherPath)) {
                     loadFromFile();
-                    updateTreeHasherFromStorage(hasher.leafCount() - 1, available.max());
+                    syncRemainingBlockHashesFromStore(hasher.leafCount() - 1, available.max());
                 } else {
-                    rebuildFromProvider(available);
+                    fullyRebuildFromStore();
                 }
                 // 3. Validate hasher state matches available blocks
-                validateState(hasher, available.max());
+                validateState();
             } catch (IOException | NoSuchAlgorithmException | IllegalStateException | ParseException e) {
                 LOGGER.log(WARNING, "Falling back to footer values. Reason: " + e.getMessage(), e);
                 this.hasher = null; // Ensure we return null on failure
@@ -139,6 +154,7 @@ public class AllBlocksHasherHandler {
         }
     }
 
+    // When starting a fresh node.
     private void initGenesis() throws IOException {
         Files.deleteIfExists(hasherPath);
         Files.createFile(hasherPath);
@@ -146,6 +162,7 @@ public class AllBlocksHasherHandler {
         appendLatestHashToAllPreviousBlocksStreamingHasher(ZERO_BLOCK_HASH);
     }
 
+    // when loading from existing file.
     private void loadFromFile() throws IOException {
         try (var inputStream = new BufferedInputStream(Files.newInputStream(hasherPath))) {
             byte[] buffer = new byte[BLOCK_HASH_LENGTH];
@@ -155,13 +172,15 @@ public class AllBlocksHasherHandler {
         }
     }
 
-    private void rebuildFromProvider(BlockRangeSet available) throws ParseException {
+    // when needing to rebuild from historical block provider.
+    private void fullyRebuildFromStore() throws ParseException {
         if (available.streamRanges().count() == 1 && available.min() == 0) {
-            updateTreeHasherFromStorage(0, available.max());
+            syncRemainingBlockHashesFromStore(0, available.max());
         }
     }
 
-    private void updateTreeHasherFromStorage(long start, long end) throws ParseException {
+    // update the hasher from historical block provider.
+    private void syncRemainingBlockHashesFromStore(long start, long end) throws ParseException {
         for (long i = start; i <= end; i++) {
             byte[] previousHash = extractPreviousRootHashFromBlock(i);
             appendLatestHashToAllPreviousBlocksStreamingHasher(previousHash);
@@ -228,11 +247,9 @@ public class AllBlocksHasherHandler {
      * Validate that the streaming hasher state matches the expected max block.
      * maxBlock is inclusive and counts 0, while leafCount counts from 1,
      * and adds the ZERO block hash as the first leaf before block 0.
-     *
-     * @param hasher   the streaming hasher to validate
-     * @param maxBlock the expected maximum block number
      */
-    private void validateState(StreamingHasher hasher, long maxBlock) {
+    private void validateState() {
+        long maxBlock = available.max();
         if ((hasher.leafCount() - 2) != maxBlock) {
             LOGGER.log(
                     WARNING,

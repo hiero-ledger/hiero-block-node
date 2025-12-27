@@ -54,7 +54,7 @@ public class VerificationServicePlugin implements BlockNodePlugin, BlockItemHand
     private Counter hashingBlockTimeNs;
     /** The previous block hash, used for verification of the current block. */
     private Bytes previousBlockHash;
-
+    /** Handler for root hash for all previous blocks hasher operations and lifecycle. */
     private AllBlocksHasherHandler allBlocksHasherHandler;
 
     /**
@@ -103,19 +103,22 @@ public class VerificationServicePlugin implements BlockNodePlugin, BlockItemHand
         // initialize metrics
         initMetrics(context);
         LOGGER.log(TRACE, "VerificationServicePlugin initialized successfully.");
+        // initialize all previous blocks hasher if enabled and available
+        initAllBlocksHasherIfEnabled();
+    }
 
-        // handles the root hash of all previous blocks hasher lifecycle and operations
+    private void initAllBlocksHasherIfEnabled() {
         allBlocksHasherHandler = new AllBlocksHasherHandler(verificationConfig, context);
         if (allBlocksHasherHandler.isAvailable() && allBlocksHasherHandler.lastBlockHash() != null) {
             previousBlockHash = Bytes.wrap(allBlocksHasherHandler.lastBlockHash());
             LOGGER.log(
-                    TRACE,
-                    "All previous blocks hasher is available and initialized. with [%s] previous block hashes and last block hash [%s]"
-                            .formatted(allBlocksHasherHandler.getNumberOfBlocks(), previousBlockHash));
+                TRACE,
+                "All previous blocks hasher is available and initialized. with [%s] previous block hashes and last block hash [%s]"
+                    .formatted(allBlocksHasherHandler.getNumberOfBlocks(), previousBlockHash));
         } else {
             LOGGER.log(
-                    TRACE,
-                    "All previous blocks hasher is not available. falling back to use BlockFooter provided root hash for All previous blocks root hash.");
+                TRACE,
+                "All previous blocks hasher is not available. falling back to use BlockFooter provided root hash for All previous blocks root hash.");
         }
     }
 
