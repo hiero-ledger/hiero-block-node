@@ -213,26 +213,58 @@ class AllBlocksHasherHandlerTest {
                 new BlockItem(new OneOf<>(ItemOneOfType.BLOCK_PROOF, proof))));
     }
 
+    /**
+     * Calculates the block hash for a given {@link Block}.
+     * <p>
+     * This method:
+     * <ul>
+     *     <li>Serializes each {@link BlockItem} and parses it into a
+     *         {@link BlockItemUnparsed} representation</li>
+     *     <li>Feeds the parsed items into a {@link VerificationSession}</li>
+     *     <li>Finalizes verification using the provided root hash of all previous blocks
+     *         and the previous block hash</li>
+     * </ul>
+     *
+     * <p>
+     * The method is intentionally implemented using a simple loop instead of streams in order to:
+     * <ul>
+     *     <li>Avoid wrapping checked {@link ParseException}s in unchecked exceptions</li>
+     *     <li>Minimize allocation and stream pipeline overhead</li>
+     *     <li>Keep failure semantics explicit and predictable</li>
+     * </ul>
+     *
+     * @param block the block whose hash is being calculated
+     * @param blockNumber the block number associated with the block
+     * @param rootHashOfAllPreviousBlocks the root hash of all blocks preceding this one;
+     *                                    may be {@code null} if not applicable
+     * @param prevHash the hash of the immediately preceding block; may be {@code null}
+     * @return the calculated block hash using the VerificationSessionFactory used by the node app.
+     * @throws ParseException if any block item cannot be serialized or parsed
+     */
     private byte[] calculateBlockHash(
             final Block block, final long blockNumber, final byte[] rootHashOfAllPreviousBlocks, final byte[] prevHash)
             throws ParseException {
-        final List<BlockItemUnparsed> items = block.items().stream()
-                .map(item -> {
-                    try {
-                        return BlockItemUnparsed.PROTOBUF.parse(BlockItem.PROTOBUF.toBytes(item));
-                    } catch (ParseException e) {
-                        throw new RuntimeException(e);
-                    }
-                })
-                .toList();
+
+        final List<BlockItem> blockItems = block.items();
+        final List<BlockItemUnparsed> parsedItems = new ArrayList<>(blockItems.size());
+
+        for (final BlockItem item : blockItems) {
+            parsedItems.add(BlockItemUnparsed.PROTOBUF.parse(BlockItem.PROTOBUF.toBytes(item)));
+        }
 
         final VerificationSession session = HapiVersionSessionFactory.createSession(
                 blockNumber,
                 BlockSource.UNKNOWN,
-                block.items().get(0).blockHeader().hapiProtoVersion());
-        session.processBlockItems(items);
-        final VerificationNotification notification =
-                session.finalizeVerification(Bytes.wrap(rootHashOfAllPreviousBlocks), Bytes.wrap(prevHash));
+                blockItems.getFirst().blockHeader().hapiProtoVersion());
+
+        session.processBlockItems(parsedItems);
+
+        final Bytes previousRootHash =
+                rootHashOfAllPreviousBlocks == null ? null : Bytes.wrap(rootHashOfAllPreviousBlocks);
+        final Bytes previousBlockHash = prevHash == null ? null : Bytes.wrap(prevHash);
+
+        final VerificationNotification notification = session.finalizeVerification(previousRootHash, previousBlockHash);
+
         return notification.blockHash().toByteArray();
     }
 
@@ -247,7 +279,8 @@ class AllBlocksHasherHandlerTest {
                 mock(ThreadPoolManager.class));
     }
 
-    private void persistHasher(final Path hasherPath, final List<byte[]> blockHashes) throws IOException, NoSuchAlgorithmException {
+    private void persistHasher(final Path hasherPath, final List<byte[]> blockHashes)
+            throws IOException, NoSuchAlgorithmException {
         Files.createDirectories(hasherPath.getParent());
         StreamingHasher hasher = new StreamingHasher();
         hasher.addLeaf(AllBlocksHasherHandler.ZERO_BLOCK_HASH);
@@ -255,14 +288,18 @@ class AllBlocksHasherHandlerTest {
             hasher.addLeaf(hash);
         }
 
-        AllPreviousBlocksRootHashHasherSnapshot snapshot =
-            AllPreviousBlocksRootHashHasherSnapshot
-                .newBuilder()
+        AllPreviousBlocksRootHashHasherSnapshot snapshot = AllPreviousBlocksRootHashHasherSnapshot.newBuilder()
                 .leafCount(hasher.leafCount())
-                .intermediateHashes(hasher.intermediateHashingState().stream().map(Bytes::wrap).toList())
+                .intermediateHashes(hasher.intermediateHashingState().stream()
+                        .map(Bytes::wrap)
+                        .toList())
                 .build();
 
-        Files.write(hasherPath, AllPreviousBlocksRootHashHasherSnapshot.PROTOBUF.toBytes(snapshot).toByteArray());
+        Files.write(
+                hasherPath,
+                AllPreviousBlocksRootHashHasherSnapshot.PROTOBUF
+                        .toBytes(snapshot)
+                        .toByteArray());
     }
 
     private record BlockChainData(

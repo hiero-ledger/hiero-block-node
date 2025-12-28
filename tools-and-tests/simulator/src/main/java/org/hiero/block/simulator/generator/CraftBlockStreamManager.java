@@ -313,6 +313,7 @@ public class CraftBlockStreamManager implements BlockStreamManager {
                 .build();
     }
 
+    @SuppressWarnings("testing debugging code")
     private void printProducedBlockForDebugging(List<BlockItemUnparsed> blockItemsUnparsed) {
         try {
             // Recompute the raw hashes for the block items so we can log counts and roots for each tree
