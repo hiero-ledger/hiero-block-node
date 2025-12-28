@@ -20,6 +20,7 @@ import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
 import java.security.NoSuchAlgorithmException;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
@@ -66,8 +67,6 @@ public class AllBlocksHasherHandler {
     private Path hasherPath;
     /** available blocks from historical block provider */
     private BlockRangeSet available;
-    /** Scheduler for periodic tasks. */
-    private ScheduledExecutorService scheduler;
 
     /**
      * Maintains and persists a streaming Merkle hasher over all previous block hashes
@@ -170,7 +169,9 @@ public class AllBlocksHasherHandler {
     }
 
     private void startPersistenceScheduler() {
-        scheduler = context.threadPoolManager()
+        // Two threads: one for autonomous backfill, one for on-demand backfill
+        /** Scheduler for periodic tasks. */
+        ScheduledExecutorService scheduler = context.threadPoolManager()
                 .createVirtualThreadScheduledExecutor(
                         2, // Two threads: one for autonomous backfill, one for on-demand backfill
                         "AllBlocksHasherHandler-Persistence",
@@ -303,27 +304,29 @@ public class AllBlocksHasherHandler {
      * @throws ParseException if there is an error parsing the block or its items.
      */
     private byte[] calculateBlockHashFromBlockNumber(long blockNumber, byte[] previousBlockHash) throws ParseException {
-        Block block = context.historicalBlockProvider().block(blockNumber).block();
-        BlockHeader blockHeader = block.items().getFirst().blockHeader();
-        List<BlockItemUnparsed> items = block.items().stream()
-                .map(item -> {
-                    try {
-                        return BlockItemUnparsed.PROTOBUF.parse(BlockItem.PROTOBUF.toBytes(item));
-                    } catch (ParseException e) {
-                        LOGGER.log(
-                                WARNING,
-                                "Failed to parse block item during block hash calculation for block " + blockNumber,
-                                e);
-                        throw new RuntimeException(e);
-                    }
-                })
-                .toList();
+        final Block block = context.historicalBlockProvider().block(blockNumber).block();
+        final BlockHeader blockHeader = block.items().getFirst().blockHeader();
 
-        VerificationSession session = HapiVersionSessionFactory.createSession(
+        final List<BlockItemUnparsed> items = new ArrayList<>(block.items().size());
+        for (final BlockItem item : block.items()) {
+            try {
+                items.add(BlockItemUnparsed.PROTOBUF.parse(BlockItem.PROTOBUF.toBytes(item)));
+            } catch (ParseException e) {
+                LOGGER.log(
+                        WARNING,
+                        "Failed to parse block item during block hash calculation for block " + blockNumber,
+                        e);
+                throw e;
+            }
+        }
+
+        final VerificationSession session = HapiVersionSessionFactory.createSession(
                 blockNumber, BlockSource.UNKNOWN, blockHeader.hapiProtoVersion());
+
         session.processBlockItems(items);
-        Bytes previousBlockHashBytes = previousBlockHash != null ? Bytes.wrap(previousBlockHash) : null;
-        VerificationNotification result = session.finalizeVerification(null, previousBlockHashBytes);
+
+        final Bytes previousBlockHashBytes = (previousBlockHash == null) ? null : Bytes.wrap(previousBlockHash);
+        final VerificationNotification result = session.finalizeVerification(null, previousBlockHashBytes);
         return result.blockHash().toByteArray();
     }
 
