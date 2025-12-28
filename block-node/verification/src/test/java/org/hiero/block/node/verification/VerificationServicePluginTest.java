@@ -14,8 +14,12 @@ import com.hedera.hapi.block.stream.output.BlockHeader;
 import com.hedera.pbj.runtime.OneOf;
 import com.hedera.pbj.runtime.ParseException;
 import java.io.IOException;
+import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.Objects;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.ScheduledExecutorService;
 import org.hiero.block.internal.BlockItemUnparsed;
@@ -31,6 +35,7 @@ import org.hiero.block.node.spi.blockmessaging.BlockItems;
 import org.hiero.block.node.spi.blockmessaging.VerificationNotification;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
 /**
  * Unit test for {@link VerificationServicePlugin}.
@@ -38,15 +43,33 @@ import org.junit.jupiter.api.Test;
 class VerificationServicePluginTest
         extends PluginTestBase<VerificationServicePlugin, BlockingExecutor, ScheduledExecutorService> {
 
-    public VerificationServicePluginTest() {
+    Path testTempDir;
+
+    Map<String, String> defaultConfig;
+
+    public VerificationServicePluginTest(@TempDir final Path tempDir) {
         super(
                 new BlockingExecutor(new LinkedBlockingQueue<>()),
                 new ScheduledBlockingExecutor(new LinkedBlockingQueue<>()));
-        start(new VerificationServicePlugin(), new NoBlocksHistoricalBlockFacility());
+        this.testTempDir = Objects.requireNonNull(tempDir);
+        Path tempVerificationPath = tempDir.resolve("verificationData.bin");
+        defaultConfig = VerificationConfigBuilder.NewBuilder()
+                .allBlocksHasherFilePath(tempVerificationPath)
+                .allBlocksHasherEnabled(true)
+                .allBlocksHasherPersistenceInterval(2)
+                .toMap();
+        start(new VerificationServicePlugin(), new NoBlocksHistoricalBlockFacility(), defaultConfig);
     }
 
     @Test
     void testVerificationPlugin() throws IOException, ParseException {
+
+        VerificationConfigBuilder simpleConfig = VerificationConfigBuilder.NewBuilder()
+                .allBlocksHasherFilePath(testTempDir.resolve("verificationData.bin"))
+                .allBlocksHasherEnabled(false);
+
+        // restart the plugin with default config
+        start(new VerificationServicePlugin(), new NoBlocksHistoricalBlockFacility(), simpleConfig.toMap());
 
         BlockUtils.SampleBlockInfo sampleBlockInfo =
                 BlockUtils.getSampleBlockInfo(BlockUtils.SAMPLE_BLOCKS.HAPI_0_68_0_BLOCK_14);
@@ -168,7 +191,6 @@ class VerificationServicePluginTest
         BlockUtils.SampleBlockInfo sampleBlockInfo =
                 BlockUtils.getSampleBlockInfo(BlockUtils.SAMPLE_BLOCKS.HAPI_0_68_0_BLOCK_14);
 
-        List<BlockItemUnparsed> blockItems = sampleBlockInfo.blockUnparsed().blockItems();
         long blockNumber = sampleBlockInfo.blockNumber();
         BackfilledBlockNotification notification =
                 new BackfilledBlockNotification(blockNumber, sampleBlockInfo.blockUnparsed());
@@ -217,5 +239,51 @@ class VerificationServicePluginTest
                 blockMessaging.getSentVerificationNotifications().getFirst();
         assertNotNull(blockNotification);
         assertFalse(blockNotification.success(), "The verification should be unsuccessful");
+    }
+
+    private static class VerificationConfigBuilder {
+
+        // Fields with default values
+        private Path allBlocksHasherFilePath;
+        private boolean allBlocksHasherEnabled = true;
+        private int allBlocksHasherPersistenceInterval = 10;
+
+        private VerificationConfigBuilder() {
+            // private to force use of NewBuilder()
+        }
+
+        public static VerificationConfigBuilder NewBuilder() {
+            return new VerificationConfigBuilder();
+        }
+
+        public VerificationConfigBuilder allBlocksHasherEnabled(boolean value) {
+            this.allBlocksHasherEnabled = value;
+            return this;
+        }
+
+        public VerificationConfigBuilder allBlocksHasherFilePath(Path value) {
+            this.allBlocksHasherFilePath = value;
+            return this;
+        }
+
+        public VerificationConfigBuilder allBlocksHasherPersistenceInterval(int value) {
+            this.allBlocksHasherPersistenceInterval = value;
+            return this;
+        }
+
+        public VerificationConfig build() {
+            return new VerificationConfig(
+                    allBlocksHasherFilePath, allBlocksHasherEnabled, allBlocksHasherPersistenceInterval);
+        }
+
+        public Map<String, String> toMap() {
+            Map<String, String> configMap = new HashMap<>();
+            configMap.put("verification.allBlocksHasherFilePath", allBlocksHasherFilePath.toString());
+            configMap.put("verification.allBlocksHasherEnabled", String.valueOf(allBlocksHasherEnabled));
+            configMap.put(
+                    "verification.allBlocksHasherPersistenceInterval",
+                    String.valueOf(allBlocksHasherPersistenceInterval));
+            return configMap;
+        }
     }
 }

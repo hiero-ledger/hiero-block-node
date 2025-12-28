@@ -191,9 +191,6 @@ public class VerificationServicePlugin implements BlockNodePlugin, BlockItemHand
                 // if this is the end of the block, finalize verification
                 if (blockItems.isEndOfBlock()) {
                     Bytes rootHashOfAllBlockHashesTree = null;
-
-                    // if (streamingHasherAllPreviousBlocks != null && streamingHasherAllPreviousBlocks.leafCount() > 0)
-                    // {
                     if (allBlocksHasherHandler.isAvailable() && allBlocksHasherHandler.getNumberOfBlocks() > 0) {
                         try {
                             rootHashOfAllBlockHashesTree = Bytes.wrap(allBlocksHasherHandler.computeRootHash());
