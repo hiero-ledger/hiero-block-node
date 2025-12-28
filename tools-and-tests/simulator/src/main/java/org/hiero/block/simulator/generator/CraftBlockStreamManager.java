@@ -296,8 +296,6 @@ public class CraftBlockStreamManager implements BlockStreamManager {
 
         ItemHandler proofItemHandler = new BlockProofHandler(currentBlockHash, currentBlockNumber);
         items.add(proofItemHandler);
-        // print all the individual parts of the block, for debugging
-        // printProducedBlockForDebugging(blockItemsUnparsed);
         LOGGER.log(
                 DEBUG,
                 "Created block number %s with hash %s".formatted(currentBlockNumber, Bytes.wrap(currentBlockHash)));
@@ -311,77 +309,6 @@ public class CraftBlockStreamManager implements BlockStreamManager {
         return Block.newBuilder()
                 .addAllItems(items.stream().map(ItemHandler::getItem).toList())
                 .build();
-    }
-
-    @SuppressWarnings("testing debugging code")
-    private void printProducedBlockForDebugging(List<BlockItemUnparsed> blockItemsUnparsed) {
-        try {
-            // Recompute the raw hashes for the block items so we can log counts and roots for each tree
-            final Hashes loggingHashes = HashingUtilities.getBlockHashes(blockItemsUnparsed);
-
-            final java.nio.ByteBuffer inHashes = loggingHashes.inputHashes();
-            final java.nio.ByteBuffer outHashes = loggingHashes.outputHashes();
-            final java.nio.ByteBuffer consHashes = loggingHashes.consensusHeaderHashes();
-            final java.nio.ByteBuffer stateHashes = loggingHashes.stateChangesHashes();
-            final java.nio.ByteBuffer traceHashes = loggingHashes.traceDataHashes();
-
-            final long inCount = inHashes == null ? 0L : (inHashes.remaining() / StreamingTreeHasher.HASH_LENGTH);
-            final long outCount = outHashes == null ? 0L : (outHashes.remaining() / StreamingTreeHasher.HASH_LENGTH);
-            final long consCount = consHashes == null ? 0L : (consHashes.remaining() / StreamingTreeHasher.HASH_LENGTH);
-            final long stateCount =
-                    stateHashes == null ? 0L : (stateHashes.remaining() / StreamingTreeHasher.HASH_LENGTH);
-            final long traceCount =
-                    traceHashes == null ? 0L : (traceHashes.remaining() / StreamingTreeHasher.HASH_LENGTH);
-
-            final Bytes inRoot =
-                    inputTreeHasher != null ? inputTreeHasher.rootHash().join() : Bytes.wrap(new byte[0]);
-            final Bytes outRoot =
-                    outputTreeHasher != null ? outputTreeHasher.rootHash().join() : Bytes.wrap(new byte[0]);
-            final Bytes consRoot = consensusHeaderHasher != null
-                    ? consensusHeaderHasher.rootHash().join()
-                    : Bytes.wrap(new byte[0]);
-            final Bytes stateRoot =
-                    stateChangesHasher != null ? stateChangesHasher.rootHash().join() : Bytes.wrap(new byte[0]);
-            final Bytes traceRoot =
-                    traceDataHasher != null ? traceDataHasher.rootHash().join() : Bytes.wrap(new byte[0]);
-
-            final Bytes headerBytes = (currentBlockHeader != null)
-                    ? Bytes.wrap(currentBlockHeader.toByteArray())
-                    : Bytes.wrap(new byte[0]);
-            final Bytes footerBytes = (currentBlockFooter != null)
-                    ? Bytes.wrap(currentBlockFooter.toByteArray())
-                    : Bytes.wrap(new byte[0]);
-
-            final Bytes rootOfAll = (rootHashOfAllBlockHashesTreeHasher != null
-                            && rootHashOfAllBlockHashesTreeHasher.intermediateHashingState() != null)
-                    ? Bytes.wrap(rootHashOfAllBlockHashesTreeHasher.computeRootHash())
-                    : Bytes.wrap(new byte[0]);
-
-            LOGGER.log(
-                    INFO,
-                    ("Block parts: number=%s previousHash=%s header=%s footer=%s "
-                                    + "rootOfAll=%s inputRoot=%s(inputLeaves=%s) outputRoot=%s(outputLeaves=%s) "
-                                    + "consensusRoot=%s(consLeaves=%s) stateRoot=%s(stateLeaves=%s) traceRoot=%s(traceLeaves=%s)")
-                            .formatted(
-                                    currentBlockNumber,
-                                    Bytes.wrap(previousBlockHash),
-                                    headerBytes,
-                                    footerBytes,
-                                    rootOfAll,
-                                    inRoot,
-                                    inCount,
-                                    outRoot,
-                                    outCount,
-                                    consRoot,
-                                    consCount,
-                                    stateRoot,
-                                    stateCount,
-                                    traceRoot,
-                                    traceCount));
-        } catch (final Exception e) {
-            // Don't let logging interfere with normal execution; log and continue
-            LOGGER.log(ERROR, "Failed to log detailed block parts", e);
-        }
     }
 
     private void updateCurrentBlockHash() throws ParseException {
