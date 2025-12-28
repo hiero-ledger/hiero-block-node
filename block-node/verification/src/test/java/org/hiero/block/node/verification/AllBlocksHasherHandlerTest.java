@@ -48,6 +48,7 @@ import org.hiero.block.node.spi.historicalblocks.HistoricalBlockFacility;
 import org.hiero.block.node.spi.threading.ThreadPoolManager;
 import org.hiero.block.node.verification.session.HapiVersionSessionFactory;
 import org.hiero.block.node.verification.session.VerificationSession;
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -76,7 +77,7 @@ class AllBlocksHasherHandlerTest {
 
         assertTrue(handler.isAvailable());
         assertEquals(0, handler.getNumberOfBlocks());
-        assertNull(handler.lastBlockHash());
+        assertArrayEquals(AllBlocksHasherHandler.ZERO_BLOCK_HASH, handler.lastBlockHash());
 
         final StreamingHasher expectedHasher = new StreamingHasher();
         expectedHasher.addLeaf(AllBlocksHasherHandler.ZERO_BLOCK_HASH);
@@ -85,7 +86,7 @@ class AllBlocksHasherHandlerTest {
 
     @Test
     void rebuildsFromStoreWhenFileMissing() throws Exception {
-        final BlockChainData chain = buildBlockChain(6);
+        final BlockChainData chain = buildBlockChain(10);
         final Path hasherFile = tempDir.resolve("rebuild.bin");
         final VerificationConfig config = new VerificationConfig(hasherFile, true, 10);
         final AllBlocksHasherHandler handler =
@@ -148,6 +149,44 @@ class AllBlocksHasherHandlerTest {
         assertEquals(chain.blocks().size(), handler.getNumberOfBlocks());
         assertArrayEquals(chain.expectedRootHash(), handler.computeRootHash());
         assertArrayEquals(chain.blockHashes().getLast(), handler.lastBlockHash());
+    }
+
+    @Test
+    @DisplayName("No available hasher when feature disabled")
+    void noAvailableHasherTest() throws Exception {
+        final BlockChainData chain = buildBlockChain(5);
+        final Path hasherFile = tempDir.resolve("noavailable.bin");
+        final List<byte[]> partialHashes = new ArrayList<byte[]>();
+        persistHasher(hasherFile, partialHashes);
+
+        final VerificationConfig config = new VerificationConfig(hasherFile, false, 10);
+        final AllBlocksHasherHandler handler =
+                new AllBlocksHasherHandler(config, buildContext(new ChainHistoricalBlockFacility(chain)));
+
+        assertFalse(handler.isAvailable());
+        assertEquals(-1, handler.getNumberOfBlocks());
+        assertNull(handler.lastBlockHash());
+        assertNull(handler.computeRootHash());
+    }
+
+    @Test
+    @DisplayName("No available hasher when mismatching state between hasher and storage")
+    void noAvailableHasherDueToHasherMismatch() throws Exception {
+        final BlockChainData chain = buildBlockChain(5);
+        final BlockChainData longerChain = buildBlockChain(10);
+
+        final Path hasherFile = tempDir.resolve("noavailable.bin");
+        final List<byte[]> longerChainHashes = longerChain.blockHashes();
+        persistHasher(hasherFile, longerChainHashes);
+
+        final VerificationConfig config = new VerificationConfig(hasherFile, true, 10);
+        final AllBlocksHasherHandler handler =
+                new AllBlocksHasherHandler(config, buildContext(new ChainHistoricalBlockFacility(chain)));
+
+        assertFalse(handler.isAvailable());
+        assertEquals(-1, handler.getNumberOfBlocks());
+        assertNull(handler.lastBlockHash());
+        assertNull(handler.computeRootHash());
     }
 
     private BlockChainData buildBlockChain(final int blockCount) throws ParseException, NoSuchAlgorithmException {
@@ -288,7 +327,12 @@ class AllBlocksHasherHandlerTest {
             hasher.addLeaf(hash);
         }
 
+        Bytes lastBlockHash = blockHashes.isEmpty()
+                ? Bytes.wrap(AllBlocksHasherHandler.ZERO_BLOCK_HASH)
+                : Bytes.wrap(blockHashes.getLast());
+
         AllPreviousBlocksRootHashHasherSnapshot snapshot = AllPreviousBlocksRootHashHasherSnapshot.newBuilder()
+                .lastRootHash(lastBlockHash)
                 .leafCount(hasher.leafCount())
                 .intermediateHashes(hasher.intermediateHashingState().stream()
                         .map(Bytes::wrap)

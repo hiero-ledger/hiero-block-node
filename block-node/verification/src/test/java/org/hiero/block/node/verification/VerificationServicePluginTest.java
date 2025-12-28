@@ -53,7 +53,7 @@ class VerificationServicePluginTest
                 new ScheduledBlockingExecutor(new LinkedBlockingQueue<>()));
         this.testTempDir = Objects.requireNonNull(tempDir);
         Path tempVerificationPath = tempDir.resolve("verificationData.bin");
-        defaultConfig = VerificationConfigBuilder.NewBuilder()
+        defaultConfig = VerificationConfigBuilder.newBuilder()
                 .allBlocksHasherFilePath(tempVerificationPath)
                 .allBlocksHasherEnabled(true)
                 .allBlocksHasherPersistenceInterval(2)
@@ -63,14 +63,6 @@ class VerificationServicePluginTest
 
     @Test
     void testVerificationPlugin() throws IOException, ParseException {
-
-        VerificationConfigBuilder simpleConfig = VerificationConfigBuilder.NewBuilder()
-                .allBlocksHasherFilePath(testTempDir.resolve("verificationData.bin"))
-                .allBlocksHasherEnabled(false);
-
-        // restart the plugin with default config
-        start(new VerificationServicePlugin(), new NoBlocksHistoricalBlockFacility(), simpleConfig.toMap());
-
         BlockUtils.SampleBlockInfo sampleBlockInfo =
                 BlockUtils.getSampleBlockInfo(BlockUtils.SAMPLE_BLOCKS.HAPI_0_68_0_BLOCK_14);
 
@@ -248,11 +240,12 @@ class VerificationServicePluginTest
         private boolean allBlocksHasherEnabled = true;
         private int allBlocksHasherPersistenceInterval = 10;
 
+        @SuppressWarnings("java:S1118") // “Utility classes should not have public constructors”
         private VerificationConfigBuilder() {
             // private to force use of NewBuilder()
         }
 
-        public static VerificationConfigBuilder NewBuilder() {
+        public static VerificationConfigBuilder newBuilder() {
             return new VerificationConfigBuilder();
         }
 

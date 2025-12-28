@@ -152,8 +152,8 @@ public class AllBlocksHasherHandler {
                 // 3. Validate hasher state matches available blocks
                 validateState();
 
-                // 4. Set previous block hash
-                setPreviousBlockHash();
+                // 4. Persist initial state
+                persistHasherSnapshot();
 
             } catch (IOException | NoSuchAlgorithmException | IllegalStateException | ParseException e) {
                 LOGGER.log(WARNING, "Falling back to footer values. Reason: " + e.getMessage(), e);
@@ -185,6 +185,12 @@ public class AllBlocksHasherHandler {
     }
 
     private void persistHasherSnapshot() {
+
+        if (hasher == null) {
+            LOGGER.log(INFO, "hasher is not available, cannot persist hasher snapshot.");
+            return;
+        }
+
         final Path hasherFilePath = verificationConfig.allBlocksHasherFilePath().toAbsolutePath();
         final Path dir =
                 requireNonNull(hasherFilePath.getParent(), "Hasher snapshot path must have a parent directory");
@@ -194,6 +200,7 @@ public class AllBlocksHasherHandler {
         });
 
         final AllPreviousBlocksRootHashHasherSnapshot snapshot = AllPreviousBlocksRootHashHasherSnapshot.newBuilder()
+                .lastRootHash(Bytes.wrap(lastBlockHash))
                 .leafCount(hasher.leafCount())
                 .intermediateHashes(hasher.intermediateHashingState().stream()
                         .map(Bytes::wrap)
@@ -231,23 +238,13 @@ public class AllBlocksHasherHandler {
         }
     }
 
-    private void setPreviousBlockHash() throws ParseException {
-        if (available.size() > 0 && lastBlockHash == null) {
-            if (hasher.leafCount() > 1) {
-                long lastBlockNumber = available.max();
-                lastBlockHash = calculateBlockHashFromBlockNumber(lastBlockNumber, null);
-            } else {
-                lastBlockHash = ZERO_BLOCK_HASH;
-            }
-        }
-    }
-
     // When starting a fresh node.
     private void initGenesis() throws IOException {
         Files.deleteIfExists(hasherPath);
         Files.createFile(hasherPath);
         // Only add to memory; the regular lifecycle will handle the first write
         appendLatestHashToAllPreviousBlocksStreamingHasher(ZERO_BLOCK_HASH);
+        lastBlockHash = ZERO_BLOCK_HASH;
     }
 
     // when loading from existing file.
@@ -262,6 +259,7 @@ public class AllBlocksHasherHandler {
                     .toList();
 
             hasher = new StreamingHasher(intermediateHashes, leafCount);
+            lastBlockHash = snapshot.lastRootHash().toByteArray();
         }
     }
 
