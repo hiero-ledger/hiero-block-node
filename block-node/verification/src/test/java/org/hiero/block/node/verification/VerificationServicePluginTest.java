@@ -240,11 +240,6 @@ class VerificationServicePluginTest
         private boolean allBlocksHasherEnabled = true;
         private int allBlocksHasherPersistenceInterval = 10;
 
-        @SuppressWarnings("java:S1118") // “Utility classes should not have public constructors”
-        private VerificationConfigBuilder() {
-            // private to force use of NewBuilder()
-        }
-
         public static VerificationConfigBuilder newBuilder() {
             return new VerificationConfigBuilder();
         }
