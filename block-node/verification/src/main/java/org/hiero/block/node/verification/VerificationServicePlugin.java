@@ -132,6 +132,8 @@ public class VerificationServicePlugin implements BlockNodePlugin, BlockItemHand
         context.blockMessaging().registerBlockItemHandler(this, true, VerificationServicePlugin.class.getSimpleName());
         // we do not need to unregister the handler as it will be unregistered when the message service is stopped
         LOGGER.log(TRACE, "VerificationServicePlugin started successfully.");
+
+        allBlocksHasherHandler.start();
     }
 
     // ==== BlockItemHandler Methods ===================================================================================
