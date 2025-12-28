@@ -2,7 +2,6 @@
 package org.hiero.block.node.verification.session.impl;
 
 import static java.lang.System.Logger.Level.INFO;
-import static java.lang.System.Logger.Level.WARNING;
 import static org.hiero.block.common.hasher.HashingUtilities.getBlockItemHash;
 import static org.hiero.block.common.hasher.HashingUtilities.noThrowSha384HashOf;
 
@@ -107,12 +106,7 @@ public class ExtendedMerkleTreeSession implements VerificationSession {
         // if provided, use the provided previous block hash, otherwise use the one from the footer
         Bytes previousBlockHashToUse =
                 previousBlockHash != null ? previousBlockHash : this.blockFooter.previousBlockRootHash();
-        if (previousBlockHashToUse != this.blockFooter.previousBlockRootHash()) {
-            LOGGER.log(
-                    WARNING,
-                    "Previous block hash provided to finalizeVerification does not match the one in the block footer.");
-        }
-
+        // while we don't have state management, we use the start of block state root hash from the footer
         Bytes startOfBlockStateRootHash = this.blockFooter.startOfBlockStateRootHash();
 
         // for now, we only support TSS based signature proofs, we expect only 1 of these.

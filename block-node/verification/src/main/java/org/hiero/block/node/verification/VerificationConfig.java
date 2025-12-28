@@ -13,5 +13,6 @@ import org.hiero.block.node.base.Loggable;
 @ConfigData("verification")
 public record VerificationConfig(
         @Loggable @ConfigProperty(defaultValue = "/opt/hiero/block-node/verification/rootHashOfAllPreviousBlocks.bin")
-                Path rootHashOfAllPreviousBlocksPath,
-        @Loggable @ConfigProperty(defaultValue = "true") boolean calculateRootHashOfAllPreviousBlocksEnabled) {}
+                Path allBlocksHasherFilePath,
+        @Loggable @ConfigProperty(defaultValue = "true") boolean allBlocksHasherEnabled,
+        @Loggable @ConfigProperty(defaultValue = "10") int allBlocksHasherPersistenceInterval) {}

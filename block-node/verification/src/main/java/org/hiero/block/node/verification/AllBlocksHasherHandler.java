@@ -2,6 +2,7 @@
 package org.hiero.block.node.verification;
 
 import static java.lang.System.Logger.Level.INFO;
+import static java.lang.System.Logger.Level.TRACE;
 import static java.lang.System.Logger.Level.WARNING;
 import static java.util.Objects.requireNonNull;
 
@@ -12,14 +13,16 @@ import com.hedera.pbj.runtime.ParseException;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import edu.umd.cs.findbugs.annotations.NonNull;
 import java.io.BufferedInputStream;
-import java.io.BufferedOutputStream;
 import java.io.IOException;
+import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
 import java.security.NoSuchAlgorithmException;
-import java.util.Arrays;
 import java.util.List;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 import org.hiero.block.common.hasher.StreamingHasher;
 import org.hiero.block.internal.BlockItemUnparsed;
 import org.hiero.block.node.spi.BlockNodeContext;
@@ -63,6 +66,8 @@ public class AllBlocksHasherHandler {
     private Path hasherPath;
     /** available blocks from historical block provider */
     private BlockRangeSet available;
+    /** Scheduler for periodic tasks. */
+    private ScheduledExecutorService scheduler;
 
     /**
      * Maintains and persists a streaming Merkle hasher over all previous block hashes
@@ -128,10 +133,10 @@ public class AllBlocksHasherHandler {
     }
 
     private void init() {
-        if (verificationConfig.calculateRootHashOfAllPreviousBlocksEnabled()) {
+        if (verificationConfig.allBlocksHasherEnabled()) {
             try {
                 // 1. Initial Setup
-                hasherPath = requireNonNull(verificationConfig.rootHashOfAllPreviousBlocksPath());
+                hasherPath = requireNonNull(verificationConfig.allBlocksHasherFilePath());
                 hasher = new StreamingHasher();
                 Files.createDirectories(hasherPath.getParent());
                 available = context.historicalBlockProvider().availableBlocks();
@@ -158,6 +163,73 @@ public class AllBlocksHasherHandler {
         }
     }
 
+    public void start() {
+        if (hasher != null) {
+            startPersistenceScheduler();
+        }
+    }
+
+    private void startPersistenceScheduler() {
+        scheduler = context.threadPoolManager()
+                .createVirtualThreadScheduledExecutor(
+                        2, // Two threads: one for autonomous backfill, one for on-demand backfill
+                        "AllBlocksHasherHandler-Persistence",
+                        (t, e) -> LOGGER.log(INFO, "Uncaught exception in thread: " + t.getName(), e));
+
+        scheduler.scheduleAtFixedRate(
+                this::persistHasherSnapshot,
+                1000, // initial delay of 1 second should be plenty of time to start up
+                verificationConfig.allBlocksHasherPersistenceInterval() * 1000L, // convert seconds to milliseconds
+                TimeUnit.MILLISECONDS);
+    }
+
+    private void persistHasherSnapshot() {
+        final Path hasherFilePath = verificationConfig.allBlocksHasherFilePath().toAbsolutePath();
+        final Path dir =
+                requireNonNull(hasherFilePath.getParent(), "Hasher snapshot path must have a parent directory");
+
+        LOGGER.log(TRACE, "Persisting all blocks hasher with {0} leaves snapshot to {1}", new Object[] {
+            hasher.leafCount(), hasherFilePath
+        });
+
+        final AllPreviousBlocksRootHashHasherSnapshot snapshot = AllPreviousBlocksRootHashHasherSnapshot.newBuilder()
+                .leafCount(hasher.leafCount())
+                .intermediateHashes(hasher.intermediateHashingState().stream()
+                        .map(Bytes::wrap)
+                        .toList())
+                .build();
+
+        final byte[] serializedSnapshot = AllPreviousBlocksRootHashHasherSnapshot.PROTOBUF
+                .toBytes(snapshot)
+                .toByteArray();
+
+        Path tmp = null;
+        try {
+            Files.createDirectories(dir);
+
+            tmp = Files.createTempFile(dir, hasherFilePath.getFileName().toString(), ".tmp");
+
+            Files.write(tmp, serializedSnapshot, StandardOpenOption.WRITE, StandardOpenOption.TRUNCATE_EXISTING);
+
+            try {
+                Files.move(tmp, hasherFilePath, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
+            } catch (AtomicMoveNotSupportedException e) {
+                // Some filesystems do not support ATOMIC_MOVE; still keep replace semantics.
+                Files.move(tmp, hasherFilePath, StandardCopyOption.REPLACE_EXISTING);
+            }
+
+        } catch (IOException e) {
+            LOGGER.log(WARNING, "Failed to persist hasher snapshot to " + hasherFilePath, e);
+        } finally {
+            if (tmp != null) {
+                try {
+                    Files.deleteIfExists(tmp);
+                } catch (IOException ignored) {
+                }
+            }
+        }
+    }
+
     private void setPreviousBlockHash() throws ParseException {
         if (available.size() > 0 && lastBlockHash == null) {
             if (hasher.leafCount() > 1) {
@@ -178,12 +250,17 @@ public class AllBlocksHasherHandler {
     }
 
     // when loading from existing file.
-    private void loadFromFile() throws IOException {
-        try (var inputStream = new BufferedInputStream(Files.newInputStream(hasherPath))) {
-            byte[] buffer = new byte[BLOCK_HASH_LENGTH];
-            while (inputStream.readNBytes(buffer, 0, BLOCK_HASH_LENGTH) == BLOCK_HASH_LENGTH) {
-                hasher.addLeaf(Arrays.copyOf(buffer, BLOCK_HASH_LENGTH));
-            }
+    private void loadFromFile() throws IOException, ParseException, NoSuchAlgorithmException {
+        final Path hasherFilePath = verificationConfig.allBlocksHasherFilePath().toAbsolutePath();
+        try (var inputStream = new BufferedInputStream(Files.newInputStream(hasherFilePath))) {
+            Bytes snapshotBytes = Bytes.wrap(inputStream.readAllBytes());
+            var snapshot = AllPreviousBlocksRootHashHasherSnapshot.PROTOBUF.parse(snapshotBytes);
+            long leafCount = snapshot.leafCount();
+            List<byte[]> intermediateHashes = snapshot.intermediateHashes().stream()
+                    .map(Bytes::toByteArray)
+                    .toList();
+
+            hasher = new StreamingHasher(intermediateHashes, leafCount);
         }
     }
 
@@ -288,13 +365,6 @@ public class AllBlocksHasherHandler {
     public void appendLatestHashToAllPreviousBlocksStreamingHasher(@NonNull final byte[] blockHashBytes) {
         if (hasher != null) {
             hasher.addLeaf(blockHashBytes);
-        }
-        final Path hasherPath = verificationConfig.rootHashOfAllPreviousBlocksPath();
-        try (BufferedOutputStream outputStream = new BufferedOutputStream(
-                Files.newOutputStream(hasherPath, StandardOpenOption.CREATE, StandardOpenOption.APPEND))) {
-            outputStream.write(blockHashBytes);
-        } catch (IOException e) {
-            LOGGER.log(WARNING, "Failed to persist block hash to " + hasherPath, e);
         }
     }
 }

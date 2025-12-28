@@ -20,7 +20,6 @@ import com.hedera.pbj.runtime.ParseException;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import com.swirlds.config.api.Configuration;
 import com.swirlds.metrics.api.Metrics;
-import java.io.BufferedOutputStream;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -60,7 +59,7 @@ class AllBlocksHasherHandlerTest {
     @Test
     void initializesFromGenesisWhenStoreEmpty() throws Exception {
         final Path hasherFile = tempDir.resolve("hasher.bin");
-        final VerificationConfig config = new VerificationConfig(hasherFile, true);
+        final VerificationConfig config = new VerificationConfig(hasherFile, true, 10);
         final HistoricalBlockFacility facility = new HistoricalBlockFacility() {
             @Override
             public BlockAccessor block(long blockNumber) {
@@ -82,14 +81,13 @@ class AllBlocksHasherHandlerTest {
         final StreamingHasher expectedHasher = new StreamingHasher();
         expectedHasher.addLeaf(AllBlocksHasherHandler.ZERO_BLOCK_HASH);
         assertArrayEquals(expectedHasher.computeRootHash(), handler.computeRootHash());
-        assertEquals(AllBlocksHasherHandler.BLOCK_HASH_LENGTH, Files.size(hasherFile));
     }
 
     @Test
     void rebuildsFromStoreWhenFileMissing() throws Exception {
         final BlockChainData chain = buildBlockChain(6);
         final Path hasherFile = tempDir.resolve("rebuild.bin");
-        final VerificationConfig config = new VerificationConfig(hasherFile, true);
+        final VerificationConfig config = new VerificationConfig(hasherFile, true, 10);
         final AllBlocksHasherHandler handler =
                 new AllBlocksHasherHandler(config, buildContext(new ChainHistoricalBlockFacility(chain)));
 
@@ -106,7 +104,7 @@ class AllBlocksHasherHandlerTest {
         persistHasher(hasherFile, chain.blockHashes());
         final long originalSize = Files.size(hasherFile);
 
-        final VerificationConfig config = new VerificationConfig(hasherFile, true);
+        final VerificationConfig config = new VerificationConfig(hasherFile, true, 10);
         final AllBlocksHasherHandler handler =
                 new AllBlocksHasherHandler(config, buildContext(new ChainHistoricalBlockFacility(chain)));
 
@@ -124,7 +122,7 @@ class AllBlocksHasherHandlerTest {
         final List<byte[]> partialHashes = chain.blockHashes().subList(0, 5);
         persistHasher(hasherFile, partialHashes);
 
-        final VerificationConfig config = new VerificationConfig(hasherFile, true);
+        final VerificationConfig config = new VerificationConfig(hasherFile, true, 10);
         final AllBlocksHasherHandler handler =
                 new AllBlocksHasherHandler(config, buildContext(new ChainHistoricalBlockFacility(chain)));
 
@@ -142,7 +140,7 @@ class AllBlocksHasherHandlerTest {
                 chain.blockHashes().subList(0, chain.blockHashes().size() - 1);
         persistHasher(hasherFile, partialHashes);
 
-        final VerificationConfig config = new VerificationConfig(hasherFile, true);
+        final VerificationConfig config = new VerificationConfig(hasherFile, true, 10);
         final AllBlocksHasherHandler handler =
                 new AllBlocksHasherHandler(config, buildContext(new ChainHistoricalBlockFacility(chain)));
 
@@ -249,14 +247,22 @@ class AllBlocksHasherHandlerTest {
                 mock(ThreadPoolManager.class));
     }
 
-    private void persistHasher(final Path hasherPath, final List<byte[]> blockHashes) throws IOException {
+    private void persistHasher(final Path hasherPath, final List<byte[]> blockHashes) throws IOException, NoSuchAlgorithmException {
         Files.createDirectories(hasherPath.getParent());
-        try (BufferedOutputStream outputStream = new BufferedOutputStream(Files.newOutputStream(hasherPath))) {
-            outputStream.write(AllBlocksHasherHandler.ZERO_BLOCK_HASH);
-            for (byte[] hash : blockHashes) {
-                outputStream.write(hash);
-            }
+        StreamingHasher hasher = new StreamingHasher();
+        hasher.addLeaf(AllBlocksHasherHandler.ZERO_BLOCK_HASH);
+        for (byte[] hash : blockHashes) {
+            hasher.addLeaf(hash);
         }
+
+        AllPreviousBlocksRootHashHasherSnapshot snapshot =
+            AllPreviousBlocksRootHashHasherSnapshot
+                .newBuilder()
+                .leafCount(hasher.leafCount())
+                .intermediateHashes(hasher.intermediateHashingState().stream().map(Bytes::wrap).toList())
+                .build();
+
+        Files.write(hasherPath, AllPreviousBlocksRootHashHasherSnapshot.PROTOBUF.toBytes(snapshot).toByteArray());
     }
 
     private record BlockChainData(
