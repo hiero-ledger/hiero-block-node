@@ -244,7 +244,6 @@ public class AllBlocksHasherHandler {
         Files.createFile(hasherPath);
         // Only add to memory; the regular lifecycle will handle the first write
         appendLatestHashToAllPreviousBlocksStreamingHasher(ZERO_BLOCK_HASH);
-        lastBlockHash = ZERO_BLOCK_HASH;
     }
 
     // when loading from existing file.
@@ -280,7 +279,6 @@ public class AllBlocksHasherHandler {
                 // add latest block hash, need to recalculate hash
                 byte[] latestBlockHash = calculateBlockHashFromBlockNumber(i, previousHash);
                 appendLatestHashToAllPreviousBlocksStreamingHasher(latestBlockHash);
-                this.lastBlockHash = latestBlockHash;
             }
         }
 
@@ -289,7 +287,6 @@ public class AllBlocksHasherHandler {
             byte[] previousHash = extractPreviousRootHashFromBlock(end);
             byte[] latestBlockHash = calculateBlockHashFromBlockNumber(end, previousHash);
             appendLatestHashToAllPreviousBlocksStreamingHasher(latestBlockHash);
-            this.lastBlockHash = latestBlockHash;
         }
     }
 
@@ -367,5 +364,6 @@ public class AllBlocksHasherHandler {
         if (hasher != null) {
             hasher.addLeaf(blockHashBytes);
         }
+        this.lastBlockHash = blockHashBytes;
     }
 }
