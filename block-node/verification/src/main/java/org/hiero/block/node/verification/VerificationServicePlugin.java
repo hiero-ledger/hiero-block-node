@@ -192,14 +192,8 @@ public class VerificationServicePlugin implements BlockNodePlugin, BlockItemHand
                 if (blockItems.isEndOfBlock()) {
                     Bytes rootHashOfAllBlockHashesTree = null;
                     if (allBlocksHasherHandler.isAvailable()) {
-                        try {
-                            rootHashOfAllBlockHashesTree = Bytes.wrap(allBlocksHasherHandler.computeRootHash());
-                            this.previousBlockHash = Bytes.wrap(allBlocksHasherHandler.lastBlockHash());
-                        } catch (IllegalStateException e) {
-                            LOGGER.log(
-                                    WARNING,
-                                    "Could not get root hash of all previous blocks hasher, falling back to using provided on block footer.");
-                        }
+                        rootHashOfAllBlockHashesTree = Bytes.wrap(allBlocksHasherHandler.computeRootHash());
+                        this.previousBlockHash = Bytes.wrap(allBlocksHasherHandler.lastBlockHash());
                     }
                     VerificationNotification notification =
                             currentSession.finalizeVerification(rootHashOfAllBlockHashesTree, this.previousBlockHash);

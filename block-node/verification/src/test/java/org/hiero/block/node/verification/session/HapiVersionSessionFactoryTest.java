@@ -68,6 +68,13 @@ class HapiVersionSessionFactoryTest {
                 Arguments.of(sv(0, 67, 999), Arguments.of(sv(0, 68, 999))));
     }
 
+    // @todo(1661): Fix this test when upgrading to CN 0.70+
+    @Test
+    @DisplayName("Upcoming changes on 0.70.0 should resolve to DummyVerificationSession")
+    void selectsDummyImplFor0700() {
+        assertCreates(sv(0, 70, 0), DummyVerificationSession.class, blockSource);
+    }
+
     @ParameterizedTest(name = ">= 0.64.0 and < 0.68.0 resolves to DummyVerificationSession for {0}")
     @MethodSource("midRangeImplVersions")
     void selects0640ImplForRange(SemanticVersion v) {
