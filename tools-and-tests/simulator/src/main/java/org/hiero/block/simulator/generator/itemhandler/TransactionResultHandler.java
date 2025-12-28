@@ -46,9 +46,9 @@ public class TransactionResultHandler extends AbstractBlockItemHandler {
     }
 
     private TransferList createTransferList() {
-        long creditAccount = generateRandomValue(1, 100);
-        long debitAccount = generateRandomValue(1, 100);
-        long amount = generateRandomValue(100, 200);
+        long creditAccount = 50;
+        long debitAccount = 60;
+        long amount = 150;
 
         return TransferList.newBuilder()
                 .addAccountAmounts(createAccountAmount(creditAccount, -amount))
@@ -70,10 +70,10 @@ public class TransactionResultHandler extends AbstractBlockItemHandler {
     }
 
     private TokenTransferList createTokenTransferList() {
-        long tokenId = generateRandomValue(1, 100);
-        long creditAccount = generateRandomValue(1, 100);
-        long debitAccount = generateRandomValue(1, 100);
-        long amount = generateRandomValue(100, 200);
+        long tokenId = 50;
+        long creditAccount = 60;
+        long debitAccount = 40;
+        long amount = 150;
 
         return TokenTransferList.newBuilder()
                 .setToken(TokenID.newBuilder()

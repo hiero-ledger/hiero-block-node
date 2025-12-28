@@ -16,6 +16,7 @@ module org.hiero.block.node.verification {
     requires com.hedera.pbj.runtime;
     requires com.swirlds.metrics.api;
     requires org.hiero.block.common;
+    requires org.hiero.block.node.base;
     requires org.hiero.block.protobuf.pbj;
     requires com.github.spotbugs.annotations;
 
