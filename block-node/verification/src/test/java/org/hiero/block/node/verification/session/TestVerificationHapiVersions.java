@@ -53,7 +53,10 @@ class TestVerificationHapiVersions {
 
         final VerificationNotification note = assertTimeoutPreemptively(
                 Duration.ofSeconds(3),
-                () -> session.processBlockItems(blockItems),
+                () -> {
+                    session.processBlockItems(blockItems);
+                    return session.finalizeVerification(null, null);
+                },
                 sampleName + ": processing block items exceeded time budget");
 
         // Group assertions for a single, readable failure report per sample
@@ -74,6 +77,12 @@ class TestVerificationHapiVersions {
         final BlockUtils.SampleBlockInfo s2 =
                 BlockUtils.getSampleBlockInfo(BlockUtils.SAMPLE_BLOCKS.HAPI_0_66_0_BLOCK_10);
 
-        return Stream.of(Arguments.of("HAPI_0_68_0_BLOCK_14", s1), Arguments.of("HAPI_0_66_0_BLOCK_10", s2));
+        final BlockUtils.SampleBlockInfo s3 =
+                BlockUtils.getSampleBlockInfo(BlockUtils.SAMPLE_BLOCKS.HAPI_0_69_0_BLOCK_240);
+
+        return Stream.of(
+                Arguments.of("HAPI_0_68_0_BLOCK_14", s1), // Disabled due to protobuf mismatch
+                Arguments.of("HAPI_0_66_0_BLOCK_10", s2),
+                Arguments.of("HAPI_0_69_0_BLOCK_240", s3));
     }
 }

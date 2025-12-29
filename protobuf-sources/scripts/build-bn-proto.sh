@@ -75,15 +75,30 @@ echo "repository_tag: $repository_tag, release_version: $release_version, output
 # Clone repo if doesn't exist locally
 if [ ! -d "./hiero-consensus-node" ]; then
   echo "Cloning hiero-ledger/hiero-consensus-node repo to '$PWD/hiero-consensus-node'"
-  git clone --depth 1 --sparse --no-checkout --filter=blob:none https://github.com/hiero-ledger/hiero-consensus-node.git
+  git clone \
+    --depth 1 \
+    --sparse \
+    --filter=blob:none \
+    --branch "$repository_tag" \
+    --single-branch \
+    https://github.com/hiero-ledger/hiero-consensus-node.git
   cd hiero-consensus-node || { echo "Failed to change directory"; exit 1; }
 
-  git sparse-checkout init
+  git sparse-checkout init --cone
   git sparse-checkout set "hapi/hedera-protobuf-java-api/src/main/proto"
-  git checkout "$repository_tag"
-  cd ../
+
+  cd ..
 else
-  echo "hiero-consensus-node repo already exists, skipping clone and checkout"
+  echo "hiero-consensus-node repo already exists, updating and checking out $repository_tag"
+  cd hiero-consensus-node || { echo "Failed to change directory"; exit 1; }
+
+  git fetch --depth 1 origin "$repository_tag"
+  git checkout "$repository_tag"
+
+  git sparse-checkout init --cone
+  git sparse-checkout set "hapi/hedera-protobuf-java-api/src/main/proto"
+
+  cd ..
 fi
 
 # prepare output dir
