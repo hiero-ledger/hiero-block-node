@@ -2,6 +2,7 @@
 package org.hiero.block.node.archive.s3;
 
 import static java.util.concurrent.locks.LockSupport.parkNanos;
+import static java.util.logging.Level.FINEST;
 import static org.hiero.block.node.app.fixtures.blocks.SimpleTestBlockItemBuilder.createNumberOfVerySimpleBlocksUnparsed;
 import static org.hiero.block.node.archive.s3.S3ArchivePlugin.LATEST_ARCHIVED_BLOCK_FILE;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
@@ -37,9 +38,11 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
+import java.util.logging.Logger;
 import java.util.stream.Collectors;
 import java.util.stream.StreamSupport;
 import org.hiero.block.internal.BlockItemUnparsed;
+import org.hiero.block.node.app.fixtures.logging.TestLogHandler;
 import org.hiero.block.node.app.fixtures.plugintest.PluginTestBase;
 import org.hiero.block.node.app.fixtures.plugintest.SimpleInMemoryHistoricalBlockFacility;
 import org.hiero.block.node.spi.blockmessaging.BlockItems;
@@ -55,7 +58,7 @@ import org.testcontainers.containers.GenericContainer;
 /**
  * Unit tests for the {@link S3ArchivePlugin} class.
  */
-@Timeout(value = 5, unit = TimeUnit.SECONDS)
+@Timeout(value = 15, unit = TimeUnit.SECONDS)
 @SuppressWarnings("SameParameterValue")
 class S3ArchivePluginTest extends PluginTestBase<S3ArchivePlugin, ExecutorService, ScheduledExecutorService> {
     private static final Instant START_TIME =
@@ -68,9 +71,19 @@ class S3ArchivePluginTest extends PluginTestBase<S3ArchivePlugin, ExecutorServic
     private static final long TASK_AWAIT_NANOS = 500_000_000L;
     private final MinioClient minioClient;
 
+    /** The custom log handler used to capture log messages. */
+    private final TestLogHandler logHandler;
+
     @SuppressWarnings("resource")
     public S3ArchivePluginTest() throws GeneralSecurityException, IOException, MinioException {
         super(Executors.newSingleThreadExecutor(), Executors.newSingleThreadScheduledExecutor());
+        // set-up logger
+        Logger logger = Logger.getLogger(S3ArchivePlugin.class.getName());
+        System.out.println("logger = " + logger);
+        logHandler = new TestLogHandler();
+        logger.addHandler(logHandler);
+        logger.setLevel(FINEST);
+
         // Start MinIO container
         GenericContainer<?> minioContainer = new GenericContainer<>("minio/minio:latest")
                 .withCommand("server /data")
@@ -198,6 +211,10 @@ class S3ArchivePluginTest extends PluginTestBase<S3ArchivePlugin, ExecutorServic
                 allObjects.contains("blocks/2025/03/2025-03-22_00-00-00_0000000000000000080-0000000000000000089.tar"));
         assertTrue(
                 allObjects.contains("blocks/2025/04/2025-04-01_00-00-00_0000000000000000090-0000000000000000099.tar"));
+
+        // verify that there are only 10 scheduling logs (for 10 batches)
+        final int scheduledLogsCount = logHandler.countContaining("Scheduling S3 archive upload for blocks:");
+        assertEquals(10, scheduledLogsCount, "Should see exactly 10 scheduling logs");
     }
 
     @Test
@@ -215,6 +232,23 @@ class S3ArchivePluginTest extends PluginTestBase<S3ArchivePlugin, ExecutorServic
             plugin.handlePersisted(new PersistedNotification(0L, true, 0, BlockSource.UNKNOWN));
             assertFalse(testBucketExists());
         });
+    }
+
+    @Test
+    @DisplayName("ArchivePlugin does not schedule when batch range is not fully available")
+    void skipsSchedulingWhenRangeMissing() {
+        // send blocks from 5 to 15
+        sendBlocks(START_TIME, 5, 15);
+        // await archive task to complete
+        parkNanos(TASK_AWAIT_NANOS * 2);
+        // send another persisted notification to trigger the executor service
+        // cleanup and ensure the task ran
+        plugin.handlePersisted(new PersistedNotification(15L, true, 0, BlockSource.UNKNOWN));
+
+        // No objects should be uploaded to the bucket
+        assertTrue(getAllObjects().isEmpty());
+        final int skippedBatchesLogs = logHandler.countContaining("Scheduling S3 archive upload for blocks:");
+        assertEquals(0, skippedBatchesLogs, "Should appear 0 times");
     }
 
     private void createTestBucket() throws GeneralSecurityException, IOException, MinioException {

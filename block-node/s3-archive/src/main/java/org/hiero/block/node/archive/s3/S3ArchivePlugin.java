@@ -4,6 +4,7 @@ package org.hiero.block.node.archive.s3;
 import static java.lang.System.Logger.Level.DEBUG;
 import static java.lang.System.Logger.Level.ERROR;
 import static java.lang.System.Logger.Level.INFO;
+import static java.lang.System.Logger.Level.TRACE;
 import static java.lang.System.Logger.Level.WARNING;
 import static org.hiero.block.node.base.BlockFile.blockNumberFormated;
 
@@ -19,9 +20,11 @@ import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.Iterator;
 import java.util.List;
+import java.util.Set;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletionService;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorCompletionService;
 import java.util.concurrent.ExecutorService;
@@ -43,6 +46,7 @@ import org.hiero.block.node.spi.blockmessaging.PersistedNotification;
 import org.hiero.block.node.spi.historicalblocks.BlockAccessor;
 import org.hiero.block.node.spi.historicalblocks.BlockAccessor.Format;
 import org.hiero.block.node.spi.historicalblocks.BlockAccessorBatch;
+import org.hiero.block.node.spi.historicalblocks.BlockRangeSet;
 
 /**
  * This a block node plugin that stores verified blocks in a cloud archive for disaster recovery and backup. It will
@@ -74,7 +78,9 @@ public class S3ArchivePlugin implements BlockNodePlugin, BlockNotificationHandle
     /** A single thread executor service for the archive plugin, background jobs. */
     private ExecutorService executorService;
     /** A completion service for the active uploads. */
-    private CompletionService<Void> activeUploads;
+    private CompletionService<Long> activeUploads;
+    /** Tracks batch starts already queued to avoid duplicate scheduling. */
+    private final Set<Long> pendingBatchStarts = ConcurrentHashMap.newKeySet();
     /** The latest block number that has been archived. If there are no archived blocks then is UNKNOWN_BLOCK_NUMBER */
     private final AtomicLong lastArchivedBlockNumber = new AtomicLong(UNKNOWN_BLOCK_NUMBER);
 
@@ -192,18 +198,23 @@ public class S3ArchivePlugin implements BlockNodePlugin, BlockNotificationHandle
 
     private void handleFinishedUploads() {
         // Poll the active uploads to see if any are finished
-        Future<Void> upload;
+        Future<Long> upload;
         while ((upload = activeUploads.poll()) != null) {
             // Handle the finished upload
+            Long batchStart = null;
             try {
                 // Call get() to ensure the upload is complete.
-                upload.get();
+                batchStart = upload.get();
             } catch (final ExecutionException | CancellationException e) {
                 // If the upload was canceled or failed, log the exception.
                 LOGGER.log(Level.INFO, "S3 batch upload failed", e);
             } catch (final InterruptedException e) {
                 // The caller of upload.get() was interrupted
                 Thread.currentThread().interrupt();
+            } finally {
+                if (batchStart != null) {
+                    pendingBatchStarts.remove(batchStart);
+                }
             }
         }
     }
@@ -211,15 +222,25 @@ public class S3ArchivePlugin implements BlockNodePlugin, BlockNotificationHandle
     // ==== Private Methods ============================================================================================
 
     /**
-     * Schedule a batch of blocks to be archived. This is called when a batch of blocks can be archived.
+     * Schedules an archive upload for a fully-available contiguous batch.
      *
-     * @param nextBatchStartBlockNumber the first block number to archive
-     * @param nextBatchEndBlockNumber the last block number to archive, inclusive
+     * @param startBlock first block number to archive
+     * @param endBlock   last block number to archive (inclusive)
      */
-    private void scheduleBatchArchiving(final long nextBatchStartBlockNumber, final long nextBatchEndBlockNumber) {
-        // Submit the task to the executor service
-        activeUploads.submit(new UploadTask(
-                nextBatchStartBlockNumber, nextBatchEndBlockNumber, lastArchivedBlockNumber, archiveConfig, context));
+    private void scheduleBatchArchiving(final long startBlock, final long endBlock) {
+        final BlockRangeSet available = context.historicalBlockProvider().availableBlocks();
+        if (!available.contains(startBlock, endBlock)) {
+            return; // batch not available yet
+        }
+
+        // If already pending, treat as "available" and do not re-submit.
+        if (!pendingBatchStarts.add(startBlock)) {
+            return;
+        }
+
+        LOGGER.log(TRACE, "Scheduling S3 archive upload for blocks: {0} - {1}", startBlock, endBlock);
+
+        activeUploads.submit(new UploadTask(startBlock, endBlock, lastArchivedBlockNumber, archiveConfig, context));
     }
 
     /**
@@ -233,7 +254,7 @@ public class S3ArchivePlugin implements BlockNodePlugin, BlockNotificationHandle
     /**
      * An S3 upload task. This task uploads a
      */
-    private static final class UploadTask implements Callable<Void> {
+    private static final class UploadTask implements Callable<Long> {
         private static final System.Logger LOGGER = System.getLogger(UploadTask.class.getName());
         private final long nextBatchStartBlockNumber;
         private final long nextBatchEndBlockNumber;
@@ -258,7 +279,7 @@ public class S3ArchivePlugin implements BlockNodePlugin, BlockNotificationHandle
         private static final String END_UPLOAD_MESSAGE = "Finished uploading archive block batch: {0} - {1}";
 
         @Override
-        public Void call() throws S3ClientInitializationException, S3ResponseException, IOException {
+        public Long call() throws S3ClientInitializationException, S3ResponseException, IOException {
             // Check the nextBatchStartBlockNumber is less than lastArchivedBlockNumber, ie is this a duplicate
             // batch and
             // already been archived. That can happen as the archive job has not been completed for a batch and
@@ -288,7 +309,7 @@ public class S3ArchivePlugin implements BlockNodePlugin, BlockNotificationHandle
                     }
                 }
             }
-            return null;
+            return nextBatchStartBlockNumber;
         }
 
         /**
