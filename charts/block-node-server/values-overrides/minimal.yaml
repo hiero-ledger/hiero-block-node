@@ -1,0 +1,6 @@
+plugins:
+    enabled: true
+    baseUrl: ""
+    version: "1.0.0"
+    names:
+        -
