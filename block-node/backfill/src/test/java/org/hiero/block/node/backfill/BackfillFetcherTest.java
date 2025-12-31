@@ -10,6 +10,7 @@ import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.TimeUnit;
 import org.hiero.block.internal.BlockUnparsed;
 import org.hiero.block.node.backfill.client.BackfillSource;
 import org.hiero.block.node.backfill.client.BackfillSourceConfig;
@@ -18,8 +19,13 @@ import org.hiero.block.node.backfill.client.BlockStreamSubscribeUnparsedClient;
 import org.hiero.block.node.spi.historicalblocks.LongRange;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.Timeout;
 import org.mockito.Mockito;
 
+/**
+ * Unit tests for {@link BackfillFetcher}.
+ */
+@Timeout(value = 5, unit = TimeUnit.SECONDS)
 class BackfillFetcherTest {
 
     private BackfillSourceConfig node(String host, int port, int priority) {
@@ -42,7 +48,7 @@ class BackfillFetcherTest {
                 highPriority, List.of(new LongRange(10, 20)));
 
         final BackfillFetcher client = newClient(lowPriority, highPriority);
-        final Optional<BackfillFetcher.NodeSelection> selection = client.selectNextChunk(10, 30, availability);
+        final Optional<NodeSelectionStrategy.NodeSelection> selection = client.selectNextChunk(10, 30, availability);
 
         assertTrue(selection.isPresent(), "Expected a candidate");
         assertEquals(
@@ -61,7 +67,7 @@ class BackfillFetcherTest {
                 Map.of(priorityOne, List.of(new LongRange(15, 25)), priorityTwo, List.of(new LongRange(15, 20)));
 
         final BackfillFetcher client = newClient(priorityOne, priorityTwo);
-        final Optional<BackfillFetcher.NodeSelection> selection = client.selectNextChunk(15, 30, availability);
+        final Optional<NodeSelectionStrategy.NodeSelection> selection = client.selectNextChunk(15, 30, availability);
 
         assertTrue(selection.isPresent(), "Expected a candidate");
         assertEquals(priorityOne, selection.get().nodeConfig(), "Should prefer lower priority when starts match");
@@ -75,7 +81,7 @@ class BackfillFetcherTest {
         final Map<BackfillSourceConfig, List<LongRange>> availability = Map.of(node, List.of(new LongRange(10, 20)));
 
         final BackfillFetcher client = newClient(node);
-        final Optional<BackfillFetcher.NodeSelection> selection = client.selectNextChunk(25, 30, availability);
+        final Optional<NodeSelectionStrategy.NodeSelection> selection = client.selectNextChunk(25, 30, availability);
 
         assertTrue(selection.isEmpty(), "Selection should be empty when start is outside all ranges");
     }
@@ -90,7 +96,7 @@ class BackfillFetcherTest {
                 nodeB, List.of(new LongRange(10, 25)));
 
         final BackfillFetcher client = newClient(nodeA, nodeB);
-        final Optional<BackfillFetcher.NodeSelection> selection = client.selectNextChunk(10, 30, availability);
+        final Optional<NodeSelectionStrategy.NodeSelection> selection = client.selectNextChunk(10, 30, availability);
 
         assertTrue(selection.isPresent(), "Expected one of the tied candidates");
         assertEquals(10, selection.get().startBlock());
@@ -117,7 +123,7 @@ class BackfillFetcherTest {
         final BlockNodeClient failingClient = Mockito.mock(BlockNodeClient.class);
         Mockito.when(failingClient.getBlockstreamSubscribeUnparsedClient()).thenReturn(subscribeClient);
 
-        BackfillFetcher client = new BackfillFetcher(tempFile, 2, retryCounter, 1, 1, false) {
+        BackfillFetcher client = new BackfillFetcher(tempFile, 2, retryCounter, 1, 1, 1, false, 300_000L, 1000.0) {
             @Override
             protected BlockNodeClient getNodeClient(BackfillSourceConfig ignored) {
                 return failingClient;
@@ -136,6 +142,6 @@ class BackfillFetcherTest {
                 BackfillSource.newBuilder().nodes(List.of(nodes)).build();
         final Path tempFile = Files.createTempFile("bn-sources", ".json");
         Files.write(tempFile, BackfillSource.JSON.toBytes(source).toByteArray());
-        return new BackfillFetcher(tempFile, 1, null, 0, 0, false);
+        return new BackfillFetcher(tempFile, 1, null, 0, 0, 0, false, 300_000L, 1000.0);
     }
 }

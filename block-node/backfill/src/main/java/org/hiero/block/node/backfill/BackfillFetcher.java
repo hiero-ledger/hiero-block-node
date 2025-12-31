@@ -17,7 +17,6 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.OptionalLong;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.TimeUnit;
@@ -32,16 +31,17 @@ import org.hiero.block.node.spi.historicalblocks.LongRange;
 /**
  * Client for fetching blocks from block nodes using gRPC.
  * This client handles retries and manages the status of block nodes.
- * It uses a round-robin approach to try different block nodes based on their priority.
+ * It uses a priority and health-based strategy to select nodes for fetching blocks.
  * It also maintains a map of node statuses to avoid hitting unavailable nodes repeatedly.
  * <p>
  * The client fetches blocks in a specified range and retries fetching from different nodes
  * if the initial node does not have the required blocks or is unavailable.
- * It also implements exponential backoff for retries to avoid overwhelming the nodes.
+ * It implements exponential backoff with jitter for retries to avoid overwhelming the nodes.
  * <p>
  * The client is initialized with a path to a block node preference file, which contains
- * */
-public class BackfillFetcher {
+ * a list of block nodes with their addresses, ports, and priorities.
+ */
+public class BackfillFetcher implements PriorityHealthBasedStrategy.NodeHealthProvider {
     private static final System.Logger LOGGER = System.getLogger(BackfillFetcher.class.getName());
 
     /** Metric for Number of retries during the backfill process. */
@@ -60,8 +60,16 @@ public class BackfillFetcher {
     private final int initialRetryDelayMs;
     /** Connection timeout in milliseconds for gRPC calls to block nodes. */
     private final int connectionTimeoutSeconds;
+    /** Processing timeout per block batch in milliseconds. */
+    private final int perBlockProcessingTimeoutMs;
     /** Enable TLS for secure connections to block nodes. */
     private final boolean enableTls;
+    /** Maximum backoff duration in milliseconds (configurable). */
+    private final long maxBackoffMs;
+    /** Health penalty per failure for scoring (configurable). */
+    private final double healthPenaltyPerFailure;
+    /** Strategy for selecting nodes. */
+    private final NodeSelectionStrategy selectionStrategy;
     /** Current status of the Block Node Clients */
     private ConcurrentHashMap<BackfillSourceConfig, Status> nodeStatusMap = new ConcurrentHashMap<>();
     /**
@@ -76,6 +84,14 @@ public class BackfillFetcher {
      * Constructor for the fetcher responsible for retrieving blocks from peer block nodes.
      *
      * @param blockNodePreferenceFilePath the path to the block node preference file
+     * @param maxRetries maximum number of retries per fetch attempt
+     * @param backfillRetriesCounter metric counter for retries
+     * @param retryInitialDelayMs initial retry delay in milliseconds
+     * @param connectionTimeoutSeconds connection timeout in seconds
+     * @param perBlockProcessingTimeoutMs per-block processing timeout in milliseconds
+     * @param enableTls whether to enable TLS for connections
+     * @param maxBackoffMs maximum backoff duration in milliseconds
+     * @param healthPenaltyPerFailure health score penalty per failure
      */
     public BackfillFetcher(
             Path blockNodePreferenceFilePath,
@@ -83,14 +99,21 @@ public class BackfillFetcher {
             Counter backfillRetriesCounter,
             int retryInitialDelayMs,
             int connectionTimeoutSeconds,
-            boolean enableTls)
+            int perBlockProcessingTimeoutMs,
+            boolean enableTls,
+            long maxBackoffMs,
+            double healthPenaltyPerFailure)
             throws IOException, ParseException {
         this.blockNodeSource = BackfillSource.JSON.parse(Bytes.wrap(Files.readAllBytes(blockNodePreferenceFilePath)));
         this.maxRetries = maxRetries;
         this.initialRetryDelayMs = retryInitialDelayMs;
         this.backfillRetries = backfillRetriesCounter;
         this.connectionTimeoutSeconds = connectionTimeoutSeconds;
+        this.perBlockProcessingTimeoutMs = perBlockProcessingTimeoutMs;
         this.enableTls = enableTls;
+        this.maxBackoffMs = maxBackoffMs;
+        this.healthPenaltyPerFailure = healthPenaltyPerFailure;
+        this.selectionStrategy = new PriorityHealthBasedStrategy(this);
 
         for (BackfillSourceConfig node : blockNodeSource.nodes()) {
             LOGGER.log(INFO, "Address: {0}, Port: {1}, Priority: {2}", node.address(), node.port(), node.priority());
@@ -112,6 +135,9 @@ public class BackfillFetcher {
         for (BackfillSourceConfig node : blockNodeSource.nodes()) {
             BlockNodeClient currentNodeClient = getNodeClient(node);
             if (currentNodeClient == null || !currentNodeClient.isNodeReachable()) {
+                if (currentNodeClient != null) {
+                    currentNodeClient.initializeClient(perBlockProcessingTimeoutMs);
+                }
                 // to-do: add logic to retry node later to avoid marking it unavailable forever
                 nodeStatusMap.put(node, Status.UNAVAILABLE);
                 LOGGER.log(INFO, "Unable to reach node {0}, marked as unavailable", node);
@@ -169,7 +195,9 @@ public class BackfillFetcher {
      */
     protected BlockNodeClient getNodeClient(BackfillSourceConfig node) {
         return nodeClientMap.computeIfAbsent(
-                node, BlockNodeClient -> new BlockNodeClient(node, connectionTimeoutSeconds, enableTls));
+                node,
+                BlockNodeClient ->
+                        new BlockNodeClient(node, connectionTimeoutSeconds, perBlockProcessingTimeoutMs, enableTls));
     }
 
     /**
@@ -181,7 +209,6 @@ public class BackfillFetcher {
         for (BackfillSourceConfig node : blockNodeSource.nodes()) {
             nodeStatusMap.put(node, Status.UNKNOWN);
         }
-        healthMap.clear();
     }
 
     /**
@@ -199,6 +226,9 @@ public class BackfillFetcher {
             }
             BlockNodeClient currentNodeClient = getNodeClient(node);
             if (currentNodeClient == null || !currentNodeClient.isNodeReachable()) {
+                if (currentNodeClient != null) {
+                    currentNodeClient.initializeClient(perBlockProcessingTimeoutMs);
+                }
                 nodeStatusMap.put(node, Status.UNAVAILABLE);
                 markFailure(node);
                 continue;
@@ -229,108 +259,16 @@ public class BackfillFetcher {
 
     /**
      * Selects the best node and chunk to fetch next, based on pre-computed availability.
+     * Delegates to the configured NodeSelectionStrategy.
      *
      * @param startBlock the next block number to fetch
      * @param gapEnd     inclusive end of the gap
      * @param availability map of node -> available range intersecting the gap
      * @return optional NodeSelection describing which node to hit and what range to request
      */
-    public Optional<NodeSelection> selectNextChunk(
+    public Optional<NodeSelectionStrategy.NodeSelection> selectNextChunk(
             long startBlock, long gapEnd, @NonNull Map<BackfillSourceConfig, List<LongRange>> availability) {
-        if (startBlock > gapEnd) {
-            return Optional.empty();
-        }
-
-        OptionalLong earliestAvailableStart = findEarliestAvailableStart(startBlock, gapEnd, availability);
-        if (earliestAvailableStart.isEmpty()) {
-            return Optional.empty();
-        }
-
-        List<NodeSelection> candidates =
-                candidatesForEarliest(startBlock, gapEnd, earliestAvailableStart.getAsLong(), availability);
-        return chooseBestCandidate(candidates);
-    }
-
-    /** Locate the earliest start index across all available ranges that can satisfy the request bounds. */
-    private OptionalLong findEarliestAvailableStart(
-            long startBlock, long gapEnd, @NonNull Map<BackfillSourceConfig, List<LongRange>> availability) {
-        long earliestAvailableStart = Long.MAX_VALUE;
-        for (Map.Entry<BackfillSourceConfig, List<LongRange>> entry : availability.entrySet()) {
-            for (LongRange availableRange : entry.getValue()) {
-                long candidateStart = Math.max(startBlock, availableRange.start());
-                if (candidateStart > availableRange.end() || candidateStart > gapEnd) {
-                    continue;
-                }
-                earliestAvailableStart = Math.min(earliestAvailableStart, candidateStart);
-            }
-        }
-
-        if (earliestAvailableStart == Long.MAX_VALUE) {
-            return OptionalLong.empty();
-        }
-
-        return OptionalLong.of(earliestAvailableStart);
-    }
-
-    /** Build the list of nodes that can serve the earliest available start. */
-    private List<NodeSelection> candidatesForEarliest(
-            long startBlock,
-            long gapEnd,
-            long earliestAvailableStart,
-            @NonNull Map<BackfillSourceConfig, List<LongRange>> availability) {
-        List<NodeSelection> candidates = new ArrayList<>();
-        for (Map.Entry<BackfillSourceConfig, List<LongRange>> entry : availability.entrySet()) {
-            for (LongRange availableRange : entry.getValue()) {
-                long candidateStart = Math.max(startBlock, availableRange.start());
-                if (candidateStart != earliestAvailableStart) {
-                    continue;
-                }
-                if (candidateStart > availableRange.end() || candidateStart > gapEnd) {
-                    continue;
-                }
-                candidates.add(new NodeSelection(entry.getKey(), candidateStart));
-            }
-        }
-        return candidates;
-    }
-
-    /** Choose the lowest-priority candidate (tie-breaking randomly) from the supplied list. */
-    private Optional<NodeSelection> chooseBestCandidate(@NonNull List<NodeSelection> candidates) {
-        if (candidates.isEmpty()) {
-            return Optional.empty();
-        }
-
-        int bestPriority = candidates.stream()
-                .mapToInt(selection -> selection.nodeConfig().priority())
-                .min()
-                .orElse(Integer.MAX_VALUE);
-        List<NodeSelection> bestPriorityCandidates = candidates.stream()
-                .filter(c -> c.nodeConfig().priority() == bestPriority)
-                .filter(c -> !isInBackoff(c.nodeConfig()))
-                .toList();
-
-        if (bestPriorityCandidates.size() == 1) {
-            return Optional.of(bestPriorityCandidates.getFirst());
-        }
-
-        if (bestPriorityCandidates.isEmpty()) {
-            return Optional.empty();
-        }
-
-        double bestScore = bestPriorityCandidates.stream()
-                .mapToDouble(c -> healthScore(c.nodeConfig()))
-                .min()
-                .orElse(Double.MAX_VALUE);
-        List<NodeSelection> bestHealth = bestPriorityCandidates.stream()
-                .filter(c -> Double.compare(healthScore(c.nodeConfig()), bestScore) == 0)
-                .toList();
-
-        if (bestHealth.size() == 1) {
-            return Optional.of(bestHealth.getFirst());
-        }
-
-        int chosenIndex = ThreadLocalRandom.current().nextInt(bestHealth.size());
-        return Optional.of(bestHealth.get(chosenIndex));
+        return selectionStrategy.select(startBlock, gapEnd, availability);
     }
 
     /**
@@ -372,9 +310,8 @@ public class BackfillFetcher {
         return Collections.emptyList();
     }
 
-    public record NodeSelection(BackfillSourceConfig nodeConfig, long startBlock) {}
-
-    private boolean isInBackoff(BackfillSourceConfig node) {
+    @Override
+    public boolean isInBackoff(BackfillSourceConfig node) {
         SourceHealth health = healthMap.get(node);
         if (health == null) {
             return false;
@@ -385,10 +322,12 @@ public class BackfillFetcher {
     private void markFailure(BackfillSourceConfig node) {
         healthMap.compute(node, (n, h) -> {
             if (h == null) {
-                return new SourceHealth(1, System.currentTimeMillis() + initialRetryDelayMs, 0, 0);
+                long backoff = applyJitter(initialRetryDelayMs);
+                return new SourceHealth(1, System.currentTimeMillis() + backoff, 0, 0);
             }
             int failures = h.failures + 1;
-            long backoff = (long) initialRetryDelayMs * Math.max(1, failures);
+            long base = (long) initialRetryDelayMs * (1L << Math.min(failures - 1, 10));
+            long backoff = applyJitter(Math.min(base, maxBackoffMs));
             long nextAllowed = System.currentTimeMillis() + backoff;
             return new SourceHealth(failures, nextAllowed, h.successes, h.totalLatencyNanos);
         });
@@ -405,14 +344,21 @@ public class BackfillFetcher {
         });
     }
 
-    private double healthScore(BackfillSourceConfig node) {
+    @Override
+    public double healthScore(BackfillSourceConfig node) {
         SourceHealth h = healthMap.get(node);
         if (h == null) {
             return 0.0;
         }
-        double failurePenalty = h.failures * 1000.0;
+        double failurePenalty = h.failures * healthPenaltyPerFailure;
         double latencyPenaltyMs = h.successes > 0 ? (h.totalLatencyNanos / (double) h.successes) / 1_000_000.0 : 0;
         return failurePenalty + latencyPenaltyMs;
+    }
+
+    private long applyJitter(long base) {
+        long jitterBound = Math.max(1L, base / 4);
+        long jitter = ThreadLocalRandom.current().nextLong(jitterBound);
+        return base + jitter;
     }
 
     /**

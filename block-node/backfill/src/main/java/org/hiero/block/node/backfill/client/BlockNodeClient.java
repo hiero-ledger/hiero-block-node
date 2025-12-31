@@ -33,7 +33,8 @@ public class BlockNodeClient {
      *
      * @param blockNodeConfig the configuration for the block node, including address and port
      */
-    public BlockNodeClient(BackfillSourceConfig blockNodeConfig, int timeoutMs, boolean enableTls) {
+    public BlockNodeClient(
+            BackfillSourceConfig blockNodeConfig, int timeoutMs, int perBlockProcessingTimeoutMs, boolean enableTls) {
 
         final Duration timeoutDuration = Duration.ofMillis(timeoutMs);
 
@@ -50,16 +51,17 @@ public class BlockNodeClient {
                 .connectTimeout(timeoutDuration)
                 .build();
 
-        initializeClient();
+        initializeClient(perBlockProcessingTimeoutMs);
     }
 
-    public void initializeClient() {
+    public void initializeClient(int perBlockProcessingTimeoutMs) {
         try {
             PbjGrpcClient pbjGrpcClient = new PbjGrpcClient(webClient, grpcConfig);
 
             // we reuse the host connection with many services.
             blockNodeServiceClient = new BlockNodeServiceInterface.BlockNodeServiceClient(pbjGrpcClient, OPTIONS);
-            this.blockStreamSubscribeUnparsedClient = new BlockStreamSubscribeUnparsedClient(pbjGrpcClient);
+            this.blockStreamSubscribeUnparsedClient =
+                    new BlockStreamSubscribeUnparsedClient(pbjGrpcClient, perBlockProcessingTimeoutMs);
             nodeReachable = true;
         } catch (IllegalArgumentException | IllegalStateException | UncheckedIOException ex) {
             // unable to setup clients

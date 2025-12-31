@@ -42,14 +42,16 @@ public class BlockStreamSubscribeUnparsedClient {
 
     // From constructor
     private final GrpcClient grpcClient;
+    private final long awaitTimeoutMs;
 
     /**
      * Constructs a new client for subscribing to block streams.
      *
      * @param grpcClient the gRPC client to use for communication
      */
-    public BlockStreamSubscribeUnparsedClient(@NonNull final GrpcClient grpcClient) {
+    public BlockStreamSubscribeUnparsedClient(@NonNull final GrpcClient grpcClient, long awaitTimeoutMs) {
         this.grpcClient = requireNonNull(grpcClient);
+        this.awaitTimeoutMs = awaitTimeoutMs;
     }
 
     /**
@@ -89,7 +91,7 @@ public class BlockStreamSubscribeUnparsedClient {
         call.sendRequest(request, true);
 
         // Wait for completion or error and return the blocks
-        return ctx.await();
+        return ctx.await(awaitTimeoutMs);
     }
 
     /**
@@ -123,9 +125,15 @@ public class BlockStreamSubscribeUnparsedClient {
             done.countDown();
         }
 
-        List<BlockUnparsed> await() {
+        List<BlockUnparsed> await(long timeoutMs) {
             try {
-                done.await();
+                if (timeoutMs > 0) {
+                    if (!done.await(timeoutMs, java.util.concurrent.TimeUnit.MILLISECONDS)) {
+                        fail(new RuntimeException("Timed out waiting for block stream response"));
+                    }
+                } else {
+                    done.await();
+                }
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
             }
