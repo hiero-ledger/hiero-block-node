@@ -39,8 +39,13 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.Timeout;
 import org.junit.jupiter.api.io.TempDir;
 
+/**
+ * Integration tests for {@link BackfillPlugin}.
+ */
+@Timeout(value = 30, unit = TimeUnit.SECONDS)
 class BackfillPluginTest extends PluginTestBase<BackfillPlugin, BlockingExecutor, ScheduledBlockingExecutor> {
 
     /** TempDir for the current test */
