@@ -6,12 +6,10 @@ import static java.lang.System.Logger.Level.TRACE;
 
 import com.hedera.hapi.block.stream.output.BlockHeader;
 import com.hedera.pbj.runtime.ParseException;
-import com.swirlds.metrics.api.Counter;
 import edu.umd.cs.findbugs.annotations.NonNull;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.concurrent.atomic.AtomicLong;
 import org.hiero.block.internal.BlockUnparsed;
 import org.hiero.block.node.backfill.client.BackfillSourceConfig;
 import org.hiero.block.node.spi.blockmessaging.BackfilledBlockNotification;
@@ -19,57 +17,74 @@ import org.hiero.block.node.spi.blockmessaging.BlockMessagingFacility;
 import org.hiero.block.node.spi.historicalblocks.LongRange;
 
 /**
- * Executes backfill tasks: plans availability, fetches, and dispatches blocks.
+ * Executes backfill tasks by planning availability, fetching blocks from peers,
+ * and dispatching them to the messaging facility.
  */
 final class BackfillRunner {
     private final BackfillFetcher fetcher;
     private final BackfillConfiguration config;
     private final BlockMessagingFacility messaging;
     private final System.Logger logger;
-    private final AtomicLong pendingBackfillBlocks;
-    private final Counter fetchedBlocks;
-    private final Counter fetchErrors;
+    private final BackfillMetricsCallback metricsCallback;
 
+    /**
+     * Creates a new runner with the specified dependencies.
+     *
+     * @param fetcher the fetcher for retrieving blocks from peer nodes
+     * @param config the backfill configuration
+     * @param messaging the messaging facility to dispatch blocks to
+     * @param logger the logger for this runner
+     * @param metricsCallback callback for reporting metrics
+     */
     BackfillRunner(
-            BackfillFetcher fetcher,
-            BackfillConfiguration config,
-            BlockMessagingFacility messaging,
-            System.Logger logger,
-            AtomicLong pendingBackfillBlocks,
-            Counter fetchedBlocks,
-            Counter fetchErrors) {
+            @NonNull BackfillFetcher fetcher,
+            @NonNull BackfillConfiguration config,
+            @NonNull BlockMessagingFacility messaging,
+            @NonNull System.Logger logger,
+            @NonNull BackfillMetricsCallback metricsCallback) {
         this.fetcher = fetcher;
         this.config = config;
         this.messaging = messaging;
         this.logger = logger;
-        this.pendingBackfillBlocks = pendingBackfillBlocks;
-        this.fetchedBlocks = fetchedBlocks;
-        this.fetchErrors = fetchErrors;
+        this.metricsCallback = metricsCallback;
     }
 
-    BackfillTaskScheduler.LongRangeResult run(BackfillTask task) throws ParseException, InterruptedException {
-        return new BackfillTaskScheduler.LongRangeResult(
-                backfillGap(task.gap().range(), task.gap().type()));
+    /**
+     * Runs the backfill process for the specified gap.
+     *
+     * @param gap the gap to backfill
+     * @throws ParseException if block parsing fails
+     * @throws InterruptedException if the thread is interrupted
+     */
+    void run(@NonNull TypedGap gap) throws ParseException, InterruptedException {
+        backfillGap(gap.range(), gap.type());
     }
 
-    private LongRange backfillGap(LongRange gap, GapType gapType) throws InterruptedException, ParseException {
+    private void backfillGap(LongRange gap, GapType gapType) throws InterruptedException, ParseException {
         logger.log(TRACE, "Starting backfillGap type={0} range={1}", gapType, gap);
         Map<BackfillSourceConfig, List<LongRange>> availability = planAvailabilityForGap(fetcher, gap);
         long currentBlock = gap.start();
         long batchSize = config.fetchBatchSize();
         while (currentBlock <= gap.end()) {
-            Optional<BackfillFetcher.NodeSelection> selection =
+            Optional<NodeSelectionStrategy.NodeSelection> selection =
                     fetcher.selectNextChunk(currentBlock, gap.end(), availability);
             if (selection.isEmpty()) {
                 logger.log(TRACE, "No available nodes found for block {0}", currentBlock);
-                fetchErrors.increment();
-                break;
+                metricsCallback.onFetchError(new RuntimeException("No available nodes for block " + currentBlock));
+                availability = replanAvailability(currentBlock, gap.end());
+                if (availability.isEmpty()) {
+                    break;
+                }
+                continue;
             }
 
-            BackfillFetcher.NodeSelection nodeChoice = selection.get();
+            NodeSelectionStrategy.NodeSelection nodeChoice = selection.get();
             LongRange chunk = computeChunk(nodeChoice, availability, gap.end(), batchSize);
             if (chunk == null) {
                 availability.remove(nodeChoice.nodeConfig());
+                if (availability.isEmpty()) {
+                    break;
+                }
                 continue;
             }
             List<BlockUnparsed> batchOfBlocks = fetcher.fetchBlocksFromNode(nodeChoice.nodeConfig(), chunk);
@@ -77,15 +92,19 @@ final class BackfillRunner {
             if (batchOfBlocks.isEmpty()) {
                 availability.remove(nodeChoice.nodeConfig());
                 logger.log(DEBUG, "No blocks fetched for gap {0}, skipping", chunk);
+                availability = replanAvailability(currentBlock, gap.end());
+                if (availability.isEmpty()) {
+                    break;
+                }
                 continue;
             }
 
             for (BlockUnparsed blockUnparsed : batchOfBlocks) {
                 long blockNumber = extractBlockNumber(blockUnparsed);
-                pendingBackfillBlocks.incrementAndGet();
+                metricsCallback.onBlockFetched(blockNumber);
                 messaging.sendBackfilledBlockNotification(new BackfilledBlockNotification(blockNumber, blockUnparsed));
                 logger.log(TRACE, "Backfilling block {0}", blockNumber);
-                fetchedBlocks.increment();
+                metricsCallback.onBlockDispatched(blockNumber);
             }
             logger.log(TRACE, "Finished sending chunk {0}", chunk);
 
@@ -94,7 +113,6 @@ final class BackfillRunner {
         }
 
         logger.log(TRACE, "Completed backfilling task gap {0}->{1}", gap.start(), gap.end());
-        return null;
     }
 
     private Map<BackfillSourceConfig, List<LongRange>> planAvailabilityForGap(
@@ -103,8 +121,13 @@ final class BackfillRunner {
         return backfillFetcher.getAvailabilityForRange(gap);
     }
 
+    private Map<BackfillSourceConfig, List<LongRange>> replanAvailability(long startBlock, long gapEnd) {
+        LongRange remaining = new LongRange(startBlock, gapEnd);
+        return planAvailabilityForGap(fetcher, remaining);
+    }
+
     static LongRange computeChunk(
-            @NonNull BackfillFetcher.NodeSelection selection,
+            @NonNull NodeSelectionStrategy.NodeSelection selection,
             @NonNull Map<BackfillSourceConfig, List<LongRange>> availability,
             long gapEnd,
             long batchSize) {
