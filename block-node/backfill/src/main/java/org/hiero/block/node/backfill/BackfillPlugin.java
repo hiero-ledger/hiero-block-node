@@ -182,19 +182,23 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
                 TimeUnit.MILLISECONDS);
 
         // Create two independent schedulers with dedicated executors for full isolation
-        historicalExecutor = context.threadPoolManager().createVirtualThreadScheduledExecutor(
-                1,
-                "BackfillHistoricalExecutor",
-                (t, e) -> LOGGER.log(WARNING, "Uncaught exception in thread: " + t.getName(), e));
-        liveTailExecutor = context.threadPoolManager().createVirtualThreadScheduledExecutor(
-                1,
-                "BackfillLiveTailExecutor",
-                (t, e) -> LOGGER.log(WARNING, "Uncaught exception in thread: " + t.getName(), e));
+        historicalExecutor = context.threadPoolManager()
+                .createVirtualThreadScheduledExecutor(
+                        1,
+                        "BackfillHistoricalExecutor",
+                        (t, e) -> LOGGER.log(WARNING, "Uncaught exception in thread: " + t.getName(), e));
+        liveTailExecutor = context.threadPoolManager()
+                .createVirtualThreadScheduledExecutor(
+                        1,
+                        "BackfillLiveTailExecutor",
+                        (t, e) -> LOGGER.log(WARNING, "Uncaught exception in thread: " + t.getName(), e));
 
         historicalScheduler = createScheduler(historicalExecutor, backfillConfiguration.historicalQueueCapacity());
         liveTailScheduler = createScheduler(liveTailExecutor, backfillConfiguration.liveTailQueueCapacity());
 
-        LOGGER.log(TRACE, "Initialized dual schedulers: historical(cap={0}), liveTail(cap={1})",
+        LOGGER.log(
+                TRACE,
+                "Initialized dual schedulers: historical(cap={0}), liveTail(cap={1})",
                 backfillConfiguration.historicalQueueCapacity(),
                 backfillConfiguration.liveTailQueueCapacity());
     }
@@ -211,12 +215,8 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
                     backfillConfiguration.enableTLS(),
                     backfillConfiguration.maxBackoffMs(),
                     backfillConfiguration.healthPenaltyPerFailure());
-            BackfillRunner runner = new BackfillRunner(
-                    fetcher,
-                    backfillConfiguration,
-                    context.blockMessaging(),
-                    LOGGER,
-                    this);
+            BackfillRunner runner =
+                    new BackfillRunner(fetcher, backfillConfiguration, context.blockMessaging(), LOGGER, this);
             return new BackfillTaskScheduler(
                     executor,
                     gap -> {
@@ -332,12 +332,12 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
                 LOGGER.log(TRACE, "Adjusted live-tail gap from {0} to {1}", gap.range(), effectiveGap.range());
             }
             // Update high-water mark
-            liveTailHighWaterMark.updateAndGet(current -> Math.max(current, gap.range().end()));
+            liveTailHighWaterMark.updateAndGet(
+                    current -> Math.max(current, gap.range().end()));
         }
 
-        BackfillTaskScheduler scheduler = (effectiveGap.type() == GapType.HISTORICAL)
-                ? historicalScheduler
-                : liveTailScheduler;
+        BackfillTaskScheduler scheduler =
+                (effectiveGap.type() == GapType.HISTORICAL) ? historicalScheduler : liveTailScheduler;
         if (scheduler != null) {
             scheduler.submit(effectiveGap);
         }

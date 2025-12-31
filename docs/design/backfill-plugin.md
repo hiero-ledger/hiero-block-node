@@ -179,11 +179,11 @@ The gRPC client is used to connect to another Block Node to fetch the missing bl
 file at `backfill.blockNodeSourcesPath`, which lists HOST:PORT pairs of the Block Nodes to connect to.
 - Fetching blocks is done in batches, configured via `backfill.fetchBatchSize`.
 - For each BN configured, the client performs an `BlockNodeService/serverStatus` call to check if the missing gap is
-  available in the remote BN. If it is not available, it skips that BN and continues with the next one.
+available in the remote BN. If it is not available, it skips that BN and continues with the next one.
 - If the remote BN is not available, it logs an info and continues with the next one using backoff.
 - If the BN has the missing blocks, it fetches them in batches using the `BlockStreamSubscribeService/subscribeBlockStream`.
 - If none of the configured BNs have the missing blocks, it logs an info and continues with the next iteration after the
-  configured interval.
+configured interval.
 
 ```mermaid
 flowchart TD

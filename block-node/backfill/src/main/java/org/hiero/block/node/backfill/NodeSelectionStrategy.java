@@ -23,9 +23,7 @@ public interface NodeSelectionStrategy {
      * @return Optional containing the selection, or empty if no suitable node
      */
     Optional<NodeSelection> select(
-            long startBlock,
-            long gapEnd,
-            @NonNull Map<BackfillSourceConfig, List<LongRange>> availability);
+            long startBlock, long gapEnd, @NonNull Map<BackfillSourceConfig, List<LongRange>> availability);
 
     /**
      * Result of node selection containing the chosen node and start block.

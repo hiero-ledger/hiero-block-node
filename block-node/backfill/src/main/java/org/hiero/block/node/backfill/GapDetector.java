@@ -17,8 +17,7 @@ final class GapDetector {
      * across the supplied ranges.
      */
     @NonNull
-    private List<LongRange> findGaps(
-            @NonNull Collection<LongRange> availableRanges, long startBlock, long endBlock) {
+    private List<LongRange> findGaps(@NonNull Collection<LongRange> availableRanges, long startBlock, long endBlock) {
         final List<LongRange> gaps = new ArrayList<>();
         long previousEnd = startBlock - 1;
 

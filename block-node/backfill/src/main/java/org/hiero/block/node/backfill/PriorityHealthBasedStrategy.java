@@ -35,9 +35,7 @@ public final class PriorityHealthBasedStrategy implements NodeSelectionStrategy 
 
     @Override
     public Optional<NodeSelection> select(
-            long startBlock,
-            long gapEnd,
-            @NonNull Map<BackfillSourceConfig, List<LongRange>> availability) {
+            long startBlock, long gapEnd, @NonNull Map<BackfillSourceConfig, List<LongRange>> availability) {
 
         if (startBlock > gapEnd) {
             return Optional.empty();
