@@ -69,7 +69,7 @@ There are two flows for backfilling, Autonomous and On-Demand.
 ### Autonomous Backfill
 
 The plugin will autonomously detect gaps in the block range and fetch missing blocks from a configured sources
-(via `backfill_sources` config).
+(via the JSON `backfill.blockNodeSourcesPath` file).
 
 1. At start-up a loop is defined that runs every `backfill.scanInterval`
 2. At every interval the plugin detects missing gaps in the intended block range against the actual stored blocks using
@@ -175,12 +175,15 @@ sequenceDiagram
 
 ### gRPC Client
 
-The gRPC client is used to connect to another Block Node to fetch the missing blocks. It will be configured with the `backfill_sources` parameter, which is a list of HOST:PORT pairs of the Block Nodes to connect to.
-- Fetching blocks will be done in batches, the size of which can be configured with the `backfill.fetchBatchSize` parameter.
-- For each BN configured, the client will perform an `BlockNodeService/serverStatus` call to check if the missing gap is available in the remote BN, if it is not available, it will skip that BN and continue with the next one.
-- If the remote BN is not available, it will log an info and continue with the next one.
-- If the BN has the missing blocks, it will fetch them in batches using the `BlockStreamSubscribeService/subscribeBlockStream`
-- If none of the configured BNs have the missing blocks, it will log an info and continue with the next iteration after the configured interval.
+The gRPC client is used to connect to another Block Node to fetch the missing blocks. It is configured from the PBJ JSON
+file at `backfill.blockNodeSourcesPath`, which lists HOST:PORT pairs of the Block Nodes to connect to.
+- Fetching blocks is done in batches, configured via `backfill.fetchBatchSize`.
+- For each BN configured, the client performs an `BlockNodeService/serverStatus` call to check if the missing gap is
+  available in the remote BN. If it is not available, it skips that BN and continues with the next one.
+- If the remote BN is not available, it logs an info and continues with the next one using backoff.
+- If the BN has the missing blocks, it fetches them in batches using the `BlockStreamSubscribeService/subscribeBlockStream`.
+- If none of the configured BNs have the missing blocks, it logs an info and continues with the next iteration after the
+  configured interval.
 
 ```mermaid
 flowchart TD

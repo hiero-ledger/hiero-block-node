@@ -231,7 +231,7 @@ Provides metrics related to the backfill process, including On-Demand and Histor
 | Counter | `backfill_blocks_backfilled` | Total number of blocks successfully backfilled                                                    |
 | Counter | `backfill_fetch_errors`      | Total number of errors encountered while fetching blocks                                          |
 | Counter | `backfill_retries`           | Total number of retries attempted during backfill                                                 |
-| Gauge   | `backfill_status`            | Current status of the backfill process (0=Idle, 1=Running, 2=Error, 3=On-Demand Error, 4=Unknown) |
+| Gauge   | `backfill_status`            | Current status of the backfill process (0=Idle, 1=Running) |
 | Gauge   | `backfill_pending_blocks`    | Number of blocks pending to be backfilled                                                         |
 
 ## Alerting Recommendations
