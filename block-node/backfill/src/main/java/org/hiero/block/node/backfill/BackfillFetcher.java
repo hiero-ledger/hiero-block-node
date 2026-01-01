@@ -116,7 +116,10 @@ public class BackfillFetcher implements PriorityHealthBasedStrategy.NodeHealthPr
         this.selectionStrategy = new PriorityHealthBasedStrategy(this);
 
         for (BackfillSourceConfig node : blockNodeSource.nodes()) {
-            LOGGER.log(INFO, "Address: {0}, Port: {1}, Priority: {2}", node.address(), node.port(), node.priority());
+            LOGGER.log(
+                    INFO,
+                    "Address: [%s], Port: [%s], Priority: [%s]"
+                            .formatted(node.address(), node.port(), node.priority()));
         }
     }
 
@@ -140,7 +143,7 @@ public class BackfillFetcher implements PriorityHealthBasedStrategy.NodeHealthPr
                 }
                 // to-do: add logic to retry node later to avoid marking it unavailable forever
                 nodeStatusMap.put(node, Status.UNAVAILABLE);
-                LOGGER.log(INFO, "Unable to reach node {0}, marked as unavailable", node);
+                LOGGER.log(INFO, "Unable to reach node [%s], marked as unavailable".formatted(node));
                 continue;
             }
 
@@ -156,9 +159,8 @@ public class BackfillFetcher implements PriorityHealthBasedStrategy.NodeHealthPr
 
         LOGGER.log(
                 TRACE,
-                "Determined block range from peer blocks nodes earliestPeerBlock={0,number,#} to latestStoredBlockNumber={1,number,#}",
-                earliestPeerBlock,
-                latestPeerBlock);
+                "Determined block range from peer blocks nodes earliestPeerBlock=[%s] to latestStoredBlockNumber=[%s]"
+                        .formatted(earliestPeerBlock, latestPeerBlock));
 
         // Determine the earliest block we can actually fetch from peers
         long startBlock = Math.max(latestStoredBlockNumber + 1, earliestPeerBlock);
@@ -169,9 +171,8 @@ public class BackfillFetcher implements PriorityHealthBasedStrategy.NodeHealthPr
 
         LOGGER.log(
                 INFO,
-                "Determined available range from peer blocks nodes start={0,number,#} to end={1,number,#}",
-                startBlock,
-                latestPeerBlock);
+                "Determined available range from peer blocks nodes start=[%s] to end=[%s]"
+                        .formatted(startBlock, latestPeerBlock));
         return new LongRange(startBlock, latestPeerBlock);
     }
 
