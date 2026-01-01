@@ -146,8 +146,8 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
         if (!Files.isRegularFile(blockNodeSourcesPath)) {
             LOGGER.log(
                     TRACE,
-                    "Block node sources path file does not exist: {0}, backfill will not run",
-                    backfillConfiguration.blockNodeSourcesPath());
+                    "Block node sources path file does not exist: [%s], backfill will not run"
+                            .formatted(backfillConfiguration.blockNodeSourcesPath()));
             return;
         }
 
@@ -167,8 +167,8 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
 
         LOGGER.log(
                 TRACE,
-                "Scheduling backfill process to start in {0} milliseconds",
-                backfillConfiguration.initialDelay());
+                "Scheduling backfill process to start in [%s] milliseconds"
+                        .formatted(backfillConfiguration.initialDelay()));
 
         periodicExecutor = context.threadPoolManager()
                 .createVirtualThreadScheduledExecutor(
@@ -193,17 +193,20 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
                         "BackfillLiveTailExecutor",
                         (t, e) -> LOGGER.log(WARNING, "Uncaught exception in thread: " + t.getName(), e));
 
-        historicalScheduler = createScheduler(historicalExecutor, backfillConfiguration.historicalQueueCapacity());
-        liveTailScheduler = createScheduler(liveTailExecutor, backfillConfiguration.liveTailQueueCapacity());
+        historicalScheduler =
+                createScheduler(historicalExecutor, backfillConfiguration.historicalQueueCapacity(), "Historical");
+        liveTailScheduler =
+                createScheduler(liveTailExecutor, backfillConfiguration.liveTailQueueCapacity(), "LiveTail");
 
         LOGGER.log(
                 TRACE,
-                "Initialized dual schedulers: historical(cap={0}), liveTail(cap={1})",
-                backfillConfiguration.historicalQueueCapacity(),
-                backfillConfiguration.liveTailQueueCapacity());
+                "Initialized dual schedulers: historical(cap=[%s]), liveTail(cap=[%s])"
+                        .formatted(
+                                backfillConfiguration.historicalQueueCapacity(),
+                                backfillConfiguration.liveTailQueueCapacity()));
     }
 
-    private BackfillTaskScheduler createScheduler(ExecutorService executor, int queueCapacity) {
+    private BackfillTaskScheduler createScheduler(ExecutorService executor, int queueCapacity, String schedulerName) {
         try {
             BackfillFetcher fetcher = new BackfillFetcher(
                     blockNodeSourcesPath,
@@ -215,8 +218,13 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
                     backfillConfiguration.enableTLS(),
                     backfillConfiguration.maxBackoffMs(),
                     backfillConfiguration.healthPenaltyPerFailure());
-            BackfillRunner runner =
-                    new BackfillRunner(fetcher, backfillConfiguration, context.blockMessaging(), LOGGER, this);
+            // Create dedicated persistence awaiter for backpressure
+            BackfillPersistenceAwaiter persistenceAwaiter = new BackfillPersistenceAwaiter();
+            context.blockMessaging()
+                    .registerBlockNotificationHandler(
+                            persistenceAwaiter, false, "BackfillPersistenceAwaiter-" + schedulerName);
+            BackfillRunner runner = new BackfillRunner(
+                    fetcher, backfillConfiguration, context.blockMessaging(), LOGGER, this, persistenceAwaiter);
             return new BackfillTaskScheduler(
                     executor,
                     gap -> {
@@ -224,13 +232,13 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
                             runner.run(gap);
                         } catch (ParseException | InterruptedException e) {
                             Thread.currentThread().interrupt();
-                            LOGGER.log(TRACE, "Error executing gap={0}", gap, e);
+                            LOGGER.log(TRACE, "Error executing gap=[%s]".formatted(gap), e);
                         }
                     },
                     queueCapacity,
                     fetcher);
         } catch (Exception e) {
-            LOGGER.log(INFO, "Failed to create scheduler: {0}", e.getMessage());
+            LOGGER.log(INFO, "Failed to create scheduler: [%s]".formatted(e.getMessage()));
             return null;
         }
     }
@@ -299,10 +307,9 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
         for (TypedGap gap : typedGaps) {
             LOGGER.log(
                     TRACE,
-                    "Detected gap type={0} from start={1,number,#} to end={2,number,#}",
-                    gap.type(),
-                    gap.range().start(),
-                    gap.range().end());
+                    "Detected gap type=[%s] from start=[%s] to end=[%s]"
+                            .formatted(
+                                    gap.type(), gap.range().start(), gap.range().end()));
             scheduleGap(gap);
         }
 
@@ -322,14 +329,15 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
             long hwm = liveTailHighWaterMark.get();
             if (gap.range().end() <= hwm) {
                 // Already scheduled this range
-                LOGGER.log(TRACE, "Skipping duplicate live-tail gap {0}, hwm={1}", gap.range(), hwm);
+                LOGGER.log(TRACE, "Skipping duplicate live-tail gap [%s], hwm=[%s]".formatted(gap.range(), hwm));
                 return;
             }
             if (gap.range().start() <= hwm) {
                 // Partial overlap - adjust start
                 long newStart = hwm + 1;
                 effectiveGap = new TypedGap(new LongRange(newStart, gap.range().end()), GapType.LIVE_TAIL);
-                LOGGER.log(TRACE, "Adjusted live-tail gap from {0} to {1}", gap.range(), effectiveGap.range());
+                LOGGER.log(
+                        TRACE, "Adjusted live-tail gap from [%s] to [%s]".formatted(gap.range(), effectiveGap.range()));
             }
             // Update high-water mark
             liveTailHighWaterMark.updateAndGet(
@@ -388,13 +396,12 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
             // Add more detailed logging for persistence notifications
             LOGGER.log(
                     TRACE,
-                    "Received backfill persisted notification for block={0,number,#}",
-                    notification.blockNumber());
+                    "Received backfill persisted notification for block=[%s]".formatted(notification.blockNumber()));
 
             backfillBlocksBackfilled.increment();
             pendingBackfillBlocks.updateAndGet(v -> Math.max(0, v - 1));
         } else {
-            LOGGER.log(TRACE, "Received non-backfill persisted notification: {0}", notification);
+            LOGGER.log(TRACE, "Received non-backfill persisted notification: [%s]".formatted(notification));
         }
     }
 
@@ -404,9 +411,10 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
     @Override
     public void handleVerification(VerificationNotification notification) {
         if (notification.source() == BlockSource.BACKFILL) {
-            LOGGER.log(TRACE, "Received verification notification for block {0,number,#}", notification.blockNumber());
+            LOGGER.log(
+                    TRACE, "Received verification notification for block [%s]".formatted(notification.blockNumber()));
             if (!notification.success()) {
-                LOGGER.log(INFO, "Block verification failed, block={0,number,#}", notification.blockNumber());
+                LOGGER.log(INFO, "Block verification failed, block=[%s]".formatted(notification.blockNumber()));
                 backfillFetchErrors.increment();
                 pendingBackfillBlocks.updateAndGet(v -> Math.max(0, v - 1));
                 // If a block verification fails, we will backfill it again later on the next gap detection run.
@@ -431,9 +439,8 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
         if (cappedEnd < startBackfillFrom) {
             LOGGER.log(
                     TRACE,
-                    "Newest block {0} is before startBackfillFrom {1}, skipping on-demand backfill",
-                    cappedEnd,
-                    startBackfillFrom);
+                    "Newest block [%s] is before startBackfillFrom [%s], skipping on-demand backfill"
+                            .formatted(cappedEnd, startBackfillFrom));
             return;
         }
         scheduleGap(new TypedGap(new LongRange(startBackfillFrom, cappedEnd), GapType.LIVE_TAIL));
@@ -454,6 +461,6 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
     @Override
     public void onFetchError(Throwable error) {
         backfillFetchErrors.increment();
-        LOGGER.log(TRACE, "Fetch error: {0}", error != null ? error.getMessage() : "unknown");
+        LOGGER.log(TRACE, "Fetch error: [%s]".formatted(error != null ? error.getMessage() : "unknown"));
     }
 }
