@@ -335,7 +335,8 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
             if (gap.range().start() <= hwm) {
                 // Partial overlap - adjust start
                 long newStart = hwm + 1;
-                effectiveGap = new GapDetector.Gap(new LongRange(newStart, gap.range().end()), GapDetector.Type.LIVE_TAIL);
+                effectiveGap =
+                        new GapDetector.Gap(new LongRange(newStart, gap.range().end()), GapDetector.Type.LIVE_TAIL);
                 LOGGER.log(
                         TRACE, "Adjusted live-tail gap from [%s] to [%s]".formatted(gap.range(), effectiveGap.range()));
             }

@@ -48,7 +48,6 @@ class BackfillRunnerTest {
             .buildRecord();
 
     private BackfillFetcher mockFetcher;
-    private BackfillConfiguration config;
     private TestBlockMessagingFacility messaging;
     private BackfillMetricsCallback mockMetricsCallback;
     private BackfillPersistenceAwaiter persistenceAwaiter;
@@ -58,12 +57,12 @@ class BackfillRunnerTest {
     @BeforeEach
     void setUp() {
         mockFetcher = mock(BackfillFetcher.class);
-        config = TEST_CONFIG;
         messaging = new TestBlockMessagingFacility();
         mockMetricsCallback = mock(BackfillMetricsCallback.class);
         persistenceAwaiter = new BackfillPersistenceAwaiter();
         logger = System.getLogger(BackfillRunnerTest.class.getName());
-        subject = new BackfillRunner(mockFetcher, config, messaging, logger, mockMetricsCallback, persistenceAwaiter);
+        subject = new BackfillRunner(
+                mockFetcher, TEST_CONFIG, messaging, logger, mockMetricsCallback, persistenceAwaiter);
     }
 
     /**
