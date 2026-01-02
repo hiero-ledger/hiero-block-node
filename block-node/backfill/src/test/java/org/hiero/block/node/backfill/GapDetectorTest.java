@@ -7,6 +7,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
 import org.hiero.block.node.spi.historicalblocks.LongRange;
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
 
@@ -19,6 +20,7 @@ class GapDetectorTest {
     private final GapDetector detector = new GapDetector();
 
     @Test
+    @DisplayName("should find gaps between non-contiguous ranges")
     void findsGapsBetweenRanges() {
         List<LongRange> ranges = List.of(new LongRange(5, 9), new LongRange(15, 20));
 
@@ -31,6 +33,7 @@ class GapDetectorTest {
     }
 
     @Test
+    @DisplayName("should find leading gap from start block")
     void findsGapFromStartBlock() {
         List<LongRange> ranges = List.of(new LongRange(3, 4));
 
@@ -43,6 +46,7 @@ class GapDetectorTest {
     }
 
     @Test
+    @DisplayName("should split gap across live-tail boundary into historical and live-tail types")
     void splitsGapAcrossBoundary() {
         List<LongRange> ranges = List.of(new LongRange(0, 4), new LongRange(15, 20));
 
@@ -55,6 +59,7 @@ class GapDetectorTest {
     }
 
     @Test
+    @DisplayName("should respect end cap and not extend gaps beyond it")
     void respectsEndCap() {
         List<LongRange> ranges = List.of(new LongRange(0, 4));
 
@@ -65,6 +70,7 @@ class GapDetectorTest {
     }
 
     @Test
+    @DisplayName("should return empty list when no gaps exist")
     void returnsEmptyWhenNoGaps() {
         List<LongRange> ranges = List.of(new LongRange(0, 10));
 
