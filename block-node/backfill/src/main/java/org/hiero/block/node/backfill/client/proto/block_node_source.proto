@@ -11,4 +11,51 @@ message BackfillSourceConfig {
   string address = 1; // Address as a string (either hostname or IP)
   uint32 port = 2; // Port number
   uint32 priority = 3; // Priority for each node
+
+  // Identification fields (Issue #1502)
+  string node_id = 4; // Unique identifier for the node
+  string name = 5; // Human-readable name for the node
+
+  // Optional gRPC WebClient tuning configuration (Issue #1778)
+  // All tuning parameters are in this sub-message for cleaner organization
+  GrpcWebClientTuning grpc_webclient_tuning = 6;
+}
+
+// Advanced tuning for Helidon WebClient, HTTP/2 and gRPC protocol settings.
+// All fields are optional - when not specified or set to 0, sensible defaults are used.
+// Timeout defaults fall back to global `backfill.grpcOverallTimeout` configuration.
+// Other defaults are optimized for high-throughput block streaming.
+message GrpcWebClientTuning {
+  // Connection timeout in milliseconds (0 = use global backfill.grpcOverallTimeout)
+  uint32 connect_timeout = 1;
+
+  // Read timeout in milliseconds (0 = use global backfill.grpcOverallTimeout)
+  uint32 read_timeout = 2;
+
+  // Poll wait time in milliseconds (0 = use global backfill.grpcOverallTimeout)
+  uint32 poll_wait_time = 3;
+
+  // HTTP/2 prior knowledge - skip HTTP/1.1 upgrade negotiation (default: true)
+  bool prior_knowledge = 4;
+
+  // HTTP/2 max frame size in bytes (default: 2MB = 2097152)
+  uint32 max_frame_size = 5;
+
+  // HTTP/2 initial window size in bytes for flow control (default: 2MB = 2097152)
+  uint32 initial_window_size = 6;
+
+  // gRPC initial buffer size in bytes (default: 2MB = 2097152)
+  uint32 initial_buffer_size = 7;
+
+  // HTTP/2 flow control blocking timeout in milliseconds (default: 10000)
+  uint32 flow_control_timeout = 8;
+
+  // HTTP/2 max header list size in bytes (default: 8192)
+  uint32 max_header_list_size = 9;
+
+  // Enable HTTP/2 ping for connection keep-alive (default: false)
+  bool ping_enabled = 10;
+
+  // HTTP/2 ping timeout in milliseconds (default: 10000)
+  uint32 ping_timeout = 11;
 }

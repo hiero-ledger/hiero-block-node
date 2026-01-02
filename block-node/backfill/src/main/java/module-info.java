@@ -26,6 +26,7 @@ module org.hiero.block.node.backfill {
     requires io.helidon.common.tls;
     requires io.helidon.webclient.api;
     requires io.helidon.webclient.grpc;
+    requires io.helidon.webclient.http2;
     requires org.antlr.antlr4.runtime;
     requires static transitive com.github.spotbugs.annotations;
 
