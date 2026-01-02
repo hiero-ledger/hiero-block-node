@@ -106,11 +106,12 @@ public final class PriorityHealthBasedStrategy implements NodeSelectionStrategy 
             return Optional.empty();
         }
 
-        // Filter by lowest priority number (highest priority)
+        // Filter by lowest priority number (highest priority, 0 = highest)
+        // candidates is guaranteed non-empty here due to early return above
         int bestPriority = candidates.stream()
                 .mapToInt(selection -> selection.nodeConfig().priority())
                 .min()
-                .orElse(Integer.MAX_VALUE);
+                .getAsInt();
 
         List<NodeSelection> bestPriorityCandidates = candidates.stream()
                 .filter(c -> c.nodeConfig().priority() == bestPriority)
@@ -126,10 +127,11 @@ public final class PriorityHealthBasedStrategy implements NodeSelectionStrategy 
         }
 
         // Among same-priority nodes, select by health score
+        // bestPriorityCandidates has at least 2 elements here (size==1 and empty cases handled above)
         double bestScore = bestPriorityCandidates.stream()
                 .mapToDouble(c -> healthProvider.healthScore(c.nodeConfig()))
                 .min()
-                .orElse(Double.MAX_VALUE);
+                .getAsDouble();
 
         List<NodeSelection> bestHealth = bestPriorityCandidates.stream()
                 .filter(c -> Double.compare(healthProvider.healthScore(c.nodeConfig()), bestScore) == 0)
