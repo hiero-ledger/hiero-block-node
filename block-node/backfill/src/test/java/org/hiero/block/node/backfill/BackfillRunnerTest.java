@@ -204,7 +204,7 @@ class BackfillRunnerTest {
         @DisplayName("should handle empty availability gracefully")
         void shouldHandleEmptyAvailability() throws Exception {
             // given
-            TypedGap gap = new TypedGap(new LongRange(0, 10), GapType.HISTORICAL);
+            GapDetector.Gap gap = new GapDetector.Gap(new LongRange(0, 10), GapDetector.Type.HISTORICAL);
             when(mockFetcher.getAvailabilityForRange(any())).thenReturn(Collections.emptyMap());
 
             // when
@@ -223,7 +223,7 @@ class BackfillRunnerTest {
         @DisplayName("should report fetch error when no nodes available")
         void shouldReportFetchErrorWhenNoNodesAvailable() throws Exception {
             // given
-            TypedGap gap = new TypedGap(new LongRange(0, 10), GapType.HISTORICAL);
+            GapDetector.Gap gap = new GapDetector.Gap(new LongRange(0, 10), GapDetector.Type.HISTORICAL);
             BackfillSourceConfig nodeConfig = mock(BackfillSourceConfig.class);
             Map<BackfillSourceConfig, List<LongRange>> availability = new HashMap<>();
             availability.put(nodeConfig, List.of(new LongRange(0, 10)));
@@ -247,7 +247,7 @@ class BackfillRunnerTest {
         @DisplayName("should remove node from availability when fetch returns empty")
         void shouldRemoveNodeOnEmptyFetch() throws Exception {
             // given
-            TypedGap gap = new TypedGap(new LongRange(0, 10), GapType.HISTORICAL);
+            GapDetector.Gap gap = new GapDetector.Gap(new LongRange(0, 10), GapDetector.Type.HISTORICAL);
             BackfillSourceConfig nodeConfig = mock(BackfillSourceConfig.class);
             Map<BackfillSourceConfig, List<LongRange>> availability = new HashMap<>();
             availability.put(nodeConfig, List.of(new LongRange(0, 10)));
@@ -278,7 +278,7 @@ class BackfillRunnerTest {
         @DisplayName("should track blocks before sending and clear after persistence")
         void shouldTrackBlocksBeforeSending() throws Exception {
             // given
-            TypedGap gap = new TypedGap(new LongRange(0, 0), GapType.HISTORICAL);
+            GapDetector.Gap gap = new GapDetector.Gap(new LongRange(0, 0), GapDetector.Type.HISTORICAL);
             BackfillSourceConfig nodeConfig = mock(BackfillSourceConfig.class);
             Map<BackfillSourceConfig, List<LongRange>> availability = new HashMap<>();
             availability.put(nodeConfig, List.of(new LongRange(0, 0)));
@@ -320,7 +320,7 @@ class BackfillRunnerTest {
         @DisplayName("should await persistence for each block")
         void shouldAwaitPersistenceForEachBlock() throws Exception {
             // given
-            TypedGap gap = new TypedGap(new LongRange(0, 0), GapType.HISTORICAL);
+            GapDetector.Gap gap = new GapDetector.Gap(new LongRange(0, 0), GapDetector.Type.HISTORICAL);
             BackfillSourceConfig nodeConfig = mock(BackfillSourceConfig.class);
             Map<BackfillSourceConfig, List<LongRange>> availability = new HashMap<>();
             availability.put(nodeConfig, List.of(new LongRange(0, 0)));
@@ -371,7 +371,7 @@ class BackfillRunnerTest {
             BackfillRunner timeoutSubject = new BackfillRunner(
                     mockFetcher, shortTimeoutConfig, messaging, logger, mockMetricsCallback, persistenceAwaiter);
 
-            TypedGap gap = new TypedGap(new LongRange(0, 0), GapType.HISTORICAL);
+            GapDetector.Gap gap = new GapDetector.Gap(new LongRange(0, 0), GapDetector.Type.HISTORICAL);
             BackfillSourceConfig nodeConfig = mock(BackfillSourceConfig.class);
             Map<BackfillSourceConfig, List<LongRange>> availability = new HashMap<>();
             availability.put(nodeConfig, List.of(new LongRange(0, 0)));
@@ -406,7 +406,7 @@ class BackfillRunnerTest {
         @DisplayName("should report block fetched metric")
         void shouldReportBlockFetched() throws Exception {
             // given
-            TypedGap gap = new TypedGap(new LongRange(0, 0), GapType.HISTORICAL);
+            GapDetector.Gap gap = new GapDetector.Gap(new LongRange(0, 0), GapDetector.Type.HISTORICAL);
             BackfillSourceConfig nodeConfig = mock(BackfillSourceConfig.class);
             Map<BackfillSourceConfig, List<LongRange>> availability = new HashMap<>();
             availability.put(nodeConfig, List.of(new LongRange(0, 0)));
@@ -443,7 +443,7 @@ class BackfillRunnerTest {
         @DisplayName("should report block dispatched metric")
         void shouldReportBlockDispatched() throws Exception {
             // given
-            TypedGap gap = new TypedGap(new LongRange(0, 0), GapType.HISTORICAL);
+            GapDetector.Gap gap = new GapDetector.Gap(new LongRange(0, 0), GapDetector.Type.HISTORICAL);
             BackfillSourceConfig nodeConfig = mock(BackfillSourceConfig.class);
             Map<BackfillSourceConfig, List<LongRange>> availability = new HashMap<>();
             availability.put(nodeConfig, List.of(new LongRange(0, 0)));
@@ -480,7 +480,7 @@ class BackfillRunnerTest {
         @DisplayName("should report multiple blocks fetched and dispatched")
         void shouldReportMultipleBlocks() throws Exception {
             // given
-            TypedGap gap = new TypedGap(new LongRange(0, 2), GapType.HISTORICAL);
+            GapDetector.Gap gap = new GapDetector.Gap(new LongRange(0, 2), GapDetector.Type.HISTORICAL);
             BackfillSourceConfig nodeConfig = mock(BackfillSourceConfig.class);
             Map<BackfillSourceConfig, List<LongRange>> availability = new HashMap<>();
             availability.put(nodeConfig, List.of(new LongRange(0, 2)));
