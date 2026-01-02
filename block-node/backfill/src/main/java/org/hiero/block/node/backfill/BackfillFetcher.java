@@ -26,6 +26,7 @@ import org.hiero.block.internal.BlockUnparsed;
 import org.hiero.block.node.backfill.client.BackfillSource;
 import org.hiero.block.node.backfill.client.BackfillSourceConfig;
 import org.hiero.block.node.backfill.client.BlockNodeClient;
+import org.hiero.block.node.backfill.client.GrpcWebClientTuning;
 import org.hiero.block.node.spi.historicalblocks.LongRange;
 
 /**
@@ -58,8 +59,8 @@ public class BackfillFetcher implements PriorityHealthBasedStrategy.NodeHealthPr
      * This is used for exponential backoff in case of failures.
      */
     private final int initialRetryDelayMs;
-    /** Connection timeout in milliseconds for gRPC calls to block nodes. */
-    private final int connectionTimeoutSeconds;
+    /** Global timeout in milliseconds for gRPC calls to block nodes (used as fallback). */
+    private final int globalGrpcTimeoutMs;
     /** Processing timeout per block batch in milliseconds. */
     private final int perBlockProcessingTimeoutMs;
     /** Enable TLS for secure connections to block nodes. */
@@ -87,7 +88,7 @@ public class BackfillFetcher implements PriorityHealthBasedStrategy.NodeHealthPr
      * @param maxRetries maximum number of retries per fetch attempt
      * @param backfillRetriesCounter metric counter for retries
      * @param retryInitialDelayMs initial retry delay in milliseconds
-     * @param connectionTimeoutSeconds connection timeout in seconds
+     * @param globalGrpcTimeoutMs global gRPC timeout in milliseconds (used as fallback for per-node overrides)
      * @param perBlockProcessingTimeoutMs per-block processing timeout in milliseconds
      * @param enableTls whether to enable TLS for connections
      * @param maxBackoffMs maximum backoff duration in milliseconds
@@ -98,7 +99,7 @@ public class BackfillFetcher implements PriorityHealthBasedStrategy.NodeHealthPr
             int maxRetries,
             Counter backfillRetriesCounter,
             int retryInitialDelayMs,
-            int connectionTimeoutSeconds,
+            int globalGrpcTimeoutMs,
             int perBlockProcessingTimeoutMs,
             boolean enableTls,
             long maxBackoffMs,
@@ -108,7 +109,7 @@ public class BackfillFetcher implements PriorityHealthBasedStrategy.NodeHealthPr
         this.maxRetries = maxRetries;
         this.initialRetryDelayMs = retryInitialDelayMs;
         this.backfillRetries = backfillRetriesCounter;
-        this.connectionTimeoutSeconds = connectionTimeoutSeconds;
+        this.globalGrpcTimeoutMs = globalGrpcTimeoutMs;
         this.perBlockProcessingTimeoutMs = perBlockProcessingTimeoutMs;
         this.enableTls = enableTls;
         this.maxBackoffMs = maxBackoffMs;
@@ -116,10 +117,17 @@ public class BackfillFetcher implements PriorityHealthBasedStrategy.NodeHealthPr
         this.selectionStrategy = new PriorityHealthBasedStrategy(this);
 
         for (BackfillSourceConfig node : blockNodeSource.nodes()) {
+            GrpcWebClientTuning tuning = node.grpcWebclientTuning();
             LOGGER.log(
                     INFO,
-                    "Address: [%s], Port: [%s], Priority: [%s]"
-                            .formatted(node.address(), node.port(), node.priority()));
+                    "Node: [%s] (%s) Address: [%s], Port: [%s], Priority: [%s], Tuning: %s"
+                            .formatted(
+                                    node.nodeId().isEmpty() ? "n/a" : node.nodeId(),
+                                    node.name().isEmpty() ? "unnamed" : node.name(),
+                                    node.address(),
+                                    node.port(),
+                                    node.priority(),
+                                    tuning != null ? "custom" : "defaults"));
         }
     }
 
@@ -190,6 +198,10 @@ public class BackfillFetcher implements PriorityHealthBasedStrategy.NodeHealthPr
      * Returns a BlockNodeClient for the given BackfillSourceConfig.
      * If a client for the node already exists, it returns that client.
      * Otherwise, it creates a new client and stores it in the map.
+     * <p>
+     * Per-node gRPC tuning (timeouts, HTTP/2 settings, buffer sizes) is passed
+     * to the client. When tuning values are 0 or not specified, the global
+     * timeout from BackfillConfiguration is used as fallback.
      *
      * @param node the BackfillSourceConfig to get the client for
      * @return a BlockNodeClient for the specified node
@@ -197,8 +209,8 @@ public class BackfillFetcher implements PriorityHealthBasedStrategy.NodeHealthPr
     protected BlockNodeClient getNodeClient(BackfillSourceConfig node) {
         return nodeClientMap.computeIfAbsent(
                 node,
-                BlockNodeClient ->
-                        new BlockNodeClient(node, connectionTimeoutSeconds, perBlockProcessingTimeoutMs, enableTls));
+                n -> new BlockNodeClient(
+                        n, globalGrpcTimeoutMs, perBlockProcessingTimeoutMs, enableTls, n.grpcWebclientTuning()));
     }
 
     /**

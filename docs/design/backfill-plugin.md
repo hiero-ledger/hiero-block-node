@@ -217,15 +217,57 @@ flowchart TD
     {
       "address": "node2.example.com",
       "port": 40902,
-      "priority": 2
+      "priority": 2,
+      "node_id": "node-2",
+      "name": "Node 2"
+    },
+    {
+      "address": "node3.example.com",
+      "port": 40903,
+      "priority": 2,
+      "node_id": "node-3",
+      "name": "Node 3 (Custom Tuning)",
+      "grpc_webclient_tuning": {
+        "connect_timeout": 45000,
+        "read_timeout": 60000,
+        "poll_wait_time": 120000,
+        "prior_knowledge": true,
+        "max_frame_size": 4194304,
+        "initial_window_size": 4194304
+      }
     }
   ]
 }
 ```
 
-** Initial implementations will only support `address`:`port` that could be a hostname or an IP address, and `port` as a number, once BlockNode supports Address Book, we can use `nodeId` as well.
+#### Field Descriptions
 
-** Name is the internal label for the node given by the operator, is only used for observability (logging and tracking) purposes.
+|          Field          |  Type   | Required |                              Description                              |
+|-------------------------|---------|----------|-----------------------------------------------------------------------|
+| `address`               | string  | Yes      | Hostname or IP address of the block node                              |
+| `port`                  | integer | Yes      | Port number for gRPC connection                                       |
+| `priority`              | integer | Yes      | Priority for node selection (lower = higher priority)                 |
+| `node_id`               | string  | No       | Unique identifier for the node (for Address Book integration)         |
+| `name`                  | string  | No       | Human-readable label for observability (logging/tracking)             |
+| `grpc_webclient_tuning` | object  | No       | gRPC client tuning including timeouts and HTTP/2 settings (see below) |
+
+#### GrpcWebClientTuning Fields
+
+All gRPC client tuning is consolidated in this object. All fields are optional - when set to `0` or omitted, sensible defaults are used. Timeout fields fall back to global `backfill.grpcOverallTimeout`.
+
+|         Field          |  Type   |    Default    |                           Description                            |
+|------------------------|---------|---------------|------------------------------------------------------------------|
+| `connect_timeout`      | integer | global        | Connection timeout in ms (0 = use `backfill.grpcOverallTimeout`) |
+| `read_timeout`         | integer | global        | Read timeout in ms (0 = use `backfill.grpcOverallTimeout`)       |
+| `poll_wait_time`       | integer | global        | Poll wait time in ms (0 = use `backfill.grpcOverallTimeout`)     |
+| `prior_knowledge`      | boolean | true          | Skip HTTP/1.1 upgrade negotiation (assumes HTTP/2)               |
+| `max_frame_size`       | integer | 2097152 (2MB) | HTTP/2 maximum frame size in bytes                               |
+| `initial_window_size`  | integer | 2097152 (2MB) | HTTP/2 initial window size for flow control                      |
+| `initial_buffer_size`  | integer | 2097152 (2MB) | gRPC initial buffer size in bytes                                |
+| `flow_control_timeout` | integer | 10000         | HTTP/2 flow control blocking timeout in ms                       |
+| `max_header_list_size` | integer | 8192          | HTTP/2 max header list size in bytes                             |
+| `ping_enabled`         | boolean | true          | Enable HTTP/2 ping for connection keep-alive                     |
+| `ping_timeout`         | integer | 500           | HTTP/2 ping timeout in milliseconds                              |
 
 ## Exceptions
 
