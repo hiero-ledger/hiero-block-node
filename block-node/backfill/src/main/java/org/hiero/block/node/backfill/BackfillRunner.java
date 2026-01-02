@@ -61,11 +61,11 @@ final class BackfillRunner {
      * @throws ParseException if block parsing fails
      * @throws InterruptedException if the thread is interrupted
      */
-    void run(@NonNull TypedGap gap) throws ParseException, InterruptedException {
+    void run(@NonNull GapDetector.Gap gap) throws ParseException, InterruptedException {
         backfillGap(gap.range(), gap.type());
     }
 
-    private void backfillGap(LongRange gap, GapType gapType) throws InterruptedException, ParseException {
+    private void backfillGap(LongRange gap, GapDetector.Type gapType) throws InterruptedException, ParseException {
         logger.log(TRACE, "Starting backfillGap type=[%s] range=[%s]".formatted(gapType, gap));
         Map<BackfillSourceConfig, List<LongRange>> availability = planAvailabilityForGap(fetcher, gap);
         long currentBlock = gap.start();

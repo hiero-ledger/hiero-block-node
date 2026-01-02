@@ -300,11 +300,11 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
                         ? earliestManagedBlock
                         : blockRanges.getLast().end(),
                 endCap);
-        List<TypedGap> typedGaps = gapDetector.findTypedGaps(blockRanges, startBound, liveTailBoundary, endCap);
+        List<GapDetector.Gap> typedGaps = gapDetector.findTypedGaps(blockRanges, startBound, liveTailBoundary, endCap);
         if (!typedGaps.isEmpty()) {
             backfillGapsDetected.add(typedGaps.size());
         }
-        for (TypedGap gap : typedGaps) {
+        for (GapDetector.Gap gap : typedGaps) {
             LOGGER.log(
                     TRACE,
                     "Detected gap type=[%s] from start=[%s] to end=[%s]"
@@ -318,14 +318,14 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
         }
     }
 
-    private void scheduleGap(TypedGap gap) {
+    private void scheduleGap(GapDetector.Gap gap) {
         if (gap.range().size() <= 0) {
             return;
         }
 
         // Deduplicate live-tail gaps using high-water mark
-        TypedGap effectiveGap = gap;
-        if (gap.type() == GapType.LIVE_TAIL) {
+        GapDetector.Gap effectiveGap = gap;
+        if (gap.type() == GapDetector.Type.LIVE_TAIL) {
             long hwm = liveTailHighWaterMark.get();
             if (gap.range().end() <= hwm) {
                 // Already scheduled this range
@@ -335,7 +335,7 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
             if (gap.range().start() <= hwm) {
                 // Partial overlap - adjust start
                 long newStart = hwm + 1;
-                effectiveGap = new TypedGap(new LongRange(newStart, gap.range().end()), GapType.LIVE_TAIL);
+                effectiveGap = new GapDetector.Gap(new LongRange(newStart, gap.range().end()), GapDetector.Type.LIVE_TAIL);
                 LOGGER.log(
                         TRACE, "Adjusted live-tail gap from [%s] to [%s]".formatted(gap.range(), effectiveGap.range()));
             }
@@ -345,7 +345,7 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
         }
 
         BackfillTaskScheduler scheduler =
-                (effectiveGap.type() == GapType.HISTORICAL) ? historicalScheduler : liveTailScheduler;
+                (effectiveGap.type() == GapDetector.Type.HISTORICAL) ? historicalScheduler : liveTailScheduler;
         if (scheduler != null) {
             scheduler.submit(effectiveGap);
         }
@@ -375,7 +375,7 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
         if (cappedEnd < peerRange.start()) {
             return;
         }
-        scheduleGap(new TypedGap(new LongRange(peerRange.start(), cappedEnd), GapType.LIVE_TAIL));
+        scheduleGap(new GapDetector.Gap(new LongRange(peerRange.start(), cappedEnd), GapDetector.Type.LIVE_TAIL));
     }
 
     // Package-private for test visibility
@@ -443,7 +443,7 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
                             .formatted(cappedEnd, startBackfillFrom));
             return;
         }
-        scheduleGap(new TypedGap(new LongRange(startBackfillFrom, cappedEnd), GapType.LIVE_TAIL));
+        scheduleGap(new GapDetector.Gap(new LongRange(startBackfillFrom, cappedEnd), GapDetector.Type.LIVE_TAIL));
     }
 
     // BackfillMetricsCallback implementation

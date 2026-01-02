@@ -32,7 +32,7 @@ class BackfillTaskSchedulerTest {
 
     private ExecutorService executor;
     private BackfillFetcher mockFetcher;
-    private List<TypedGap> processedGaps;
+    private List<GapDetector.Gap> processedGaps;
     private CountDownLatch processingLatch;
 
     @BeforeEach
@@ -55,12 +55,12 @@ class BackfillTaskSchedulerTest {
         });
     }
 
-    private BackfillTaskScheduler createScheduler(int queueCapacity, Consumer<TypedGap> processor) {
+    private BackfillTaskScheduler createScheduler(int queueCapacity, Consumer<GapDetector.Gap> processor) {
         return new BackfillTaskScheduler(executor, processor, queueCapacity, mockFetcher);
     }
 
-    private TypedGap createGap(long start, long end, GapType type) {
-        return new TypedGap(new LongRange(start, end), type);
+    private GapDetector.Gap createGap(long start, long end, GapDetector.Type type) {
+        return new GapDetector.Gap(new LongRange(start, end), type);
     }
 
     @Nested
@@ -72,7 +72,7 @@ class BackfillTaskSchedulerTest {
         void shouldAcceptGapWhenQueueHasCapacity() {
             // given
             BackfillTaskScheduler scheduler = createScheduler(10);
-            TypedGap gap = createGap(0, 10, GapType.HISTORICAL);
+            GapDetector.Gap gap = createGap(0, 10, GapDetector.Type.HISTORICAL);
 
             // when
             boolean accepted = scheduler.submit(gap);
@@ -97,15 +97,15 @@ class BackfillTaskSchedulerTest {
             });
 
             // Submit first gap (will start processing and block)
-            scheduler.submit(createGap(0, 10, GapType.HISTORICAL));
+            scheduler.submit(createGap(0, 10, GapDetector.Type.HISTORICAL));
             Thread.sleep(50); // Give time for worker to start
 
             // Fill the queue
-            scheduler.submit(createGap(11, 20, GapType.HISTORICAL));
-            scheduler.submit(createGap(21, 30, GapType.HISTORICAL));
+            scheduler.submit(createGap(11, 20, GapDetector.Type.HISTORICAL));
+            scheduler.submit(createGap(21, 30, GapDetector.Type.HISTORICAL));
 
             // when - queue is now full
-            boolean accepted = scheduler.submit(createGap(31, 40, GapType.HISTORICAL));
+            boolean accepted = scheduler.submit(createGap(31, 40, GapDetector.Type.HISTORICAL));
 
             // then
             assertFalse(accepted);
@@ -122,7 +122,7 @@ class BackfillTaskSchedulerTest {
             scheduler.close();
 
             // when
-            boolean accepted = scheduler.submit(createGap(0, 10, GapType.HISTORICAL));
+            boolean accepted = scheduler.submit(createGap(0, 10, GapDetector.Type.HISTORICAL));
 
             // then
             assertFalse(accepted);
@@ -138,7 +138,7 @@ class BackfillTaskSchedulerTest {
             });
 
             // when
-            scheduler.submit(createGap(0, 10, GapType.HISTORICAL));
+            scheduler.submit(createGap(0, 10, GapDetector.Type.HISTORICAL));
 
             // then
             boolean started = workerStarted.await(1, TimeUnit.SECONDS);
@@ -181,12 +181,12 @@ class BackfillTaskSchedulerTest {
             });
 
             // Submit first (starts processing)
-            scheduler.submit(createGap(0, 10, GapType.HISTORICAL));
+            scheduler.submit(createGap(0, 10, GapDetector.Type.HISTORICAL));
             Thread.sleep(50); // Give time for worker to start
 
             // Submit more to queue
-            scheduler.submit(createGap(11, 20, GapType.HISTORICAL));
-            scheduler.submit(createGap(21, 30, GapType.HISTORICAL));
+            scheduler.submit(createGap(11, 20, GapDetector.Type.HISTORICAL));
+            scheduler.submit(createGap(21, 30, GapDetector.Type.HISTORICAL));
 
             // when
             int size = scheduler.queueSize();
@@ -233,7 +233,7 @@ class BackfillTaskSchedulerTest {
                 }
             });
 
-            scheduler.submit(createGap(0, 10, GapType.HISTORICAL));
+            scheduler.submit(createGap(0, 10, GapDetector.Type.HISTORICAL));
             processingStarted.await(1, TimeUnit.SECONDS);
 
             // when
@@ -255,7 +255,7 @@ class BackfillTaskSchedulerTest {
                 processingDone.countDown();
             });
 
-            scheduler.submit(createGap(0, 10, GapType.HISTORICAL));
+            scheduler.submit(createGap(0, 10, GapDetector.Type.HISTORICAL));
             processingDone.await(1, TimeUnit.SECONDS);
             Thread.sleep(50); // Give time for worker to finish
 
@@ -281,7 +281,7 @@ class BackfillTaskSchedulerTest {
 
             // when
             scheduler.close();
-            boolean accepted = scheduler.submit(createGap(0, 10, GapType.HISTORICAL));
+            boolean accepted = scheduler.submit(createGap(0, 10, GapDetector.Type.HISTORICAL));
 
             // then
             assertFalse(accepted);
@@ -300,10 +300,10 @@ class BackfillTaskSchedulerTest {
                 }
             });
 
-            scheduler.submit(createGap(0, 10, GapType.HISTORICAL));
+            scheduler.submit(createGap(0, 10, GapDetector.Type.HISTORICAL));
             Thread.sleep(50);
-            scheduler.submit(createGap(11, 20, GapType.HISTORICAL));
-            scheduler.submit(createGap(21, 30, GapType.HISTORICAL));
+            scheduler.submit(createGap(11, 20, GapDetector.Type.HISTORICAL));
+            scheduler.submit(createGap(21, 30, GapDetector.Type.HISTORICAL));
 
             assertEquals(2, scheduler.queueSize());
 
@@ -325,16 +325,16 @@ class BackfillTaskSchedulerTest {
         @DisplayName("should process all queued gaps in order")
         void shouldProcessAllQueuedGapsInOrder() throws InterruptedException {
             // given
-            List<TypedGap> processed = Collections.synchronizedList(new ArrayList<>());
+            List<GapDetector.Gap> processed = Collections.synchronizedList(new ArrayList<>());
             CountDownLatch allProcessed = new CountDownLatch(3);
             BackfillTaskScheduler scheduler = createScheduler(10, gap -> {
                 processed.add(gap);
                 allProcessed.countDown();
             });
 
-            TypedGap gap1 = createGap(0, 10, GapType.HISTORICAL);
-            TypedGap gap2 = createGap(11, 20, GapType.HISTORICAL);
-            TypedGap gap3 = createGap(21, 30, GapType.LIVE_TAIL);
+            GapDetector.Gap gap1 = createGap(0, 10, GapDetector.Type.HISTORICAL);
+            GapDetector.Gap gap2 = createGap(11, 20, GapDetector.Type.HISTORICAL);
+            GapDetector.Gap gap3 = createGap(21, 30, GapDetector.Type.LIVE_TAIL);
 
             // when
             scheduler.submit(gap1);
@@ -365,9 +365,9 @@ class BackfillTaskSchedulerTest {
                 }
             });
 
-            scheduler.submit(createGap(0, 10, GapType.HISTORICAL));
-            scheduler.submit(createGap(11, 20, GapType.HISTORICAL));
-            scheduler.submit(createGap(21, 30, GapType.HISTORICAL));
+            scheduler.submit(createGap(0, 10, GapDetector.Type.HISTORICAL));
+            scheduler.submit(createGap(11, 20, GapDetector.Type.HISTORICAL));
+            scheduler.submit(createGap(21, 30, GapDetector.Type.HISTORICAL));
 
             // Wait for first to start processing
             firstProcessed.await(1, TimeUnit.SECONDS);
@@ -384,7 +384,7 @@ class BackfillTaskSchedulerTest {
         @DisplayName("should restart worker if queue not empty after drain")
         void shouldRestartWorkerIfQueueNotEmpty() throws InterruptedException {
             // given
-            List<TypedGap> processed = Collections.synchronizedList(new ArrayList<>());
+            List<GapDetector.Gap> processed = Collections.synchronizedList(new ArrayList<>());
             CountDownLatch firstBatchDone = new CountDownLatch(1);
             CountDownLatch allDone = new CountDownLatch(4);
             AtomicInteger callCount = new AtomicInteger(0);
@@ -398,16 +398,16 @@ class BackfillTaskSchedulerTest {
             });
 
             // Submit 2 gaps
-            scheduler.submit(createGap(0, 10, GapType.HISTORICAL));
-            scheduler.submit(createGap(11, 20, GapType.HISTORICAL));
+            scheduler.submit(createGap(0, 10, GapDetector.Type.HISTORICAL));
+            scheduler.submit(createGap(11, 20, GapDetector.Type.HISTORICAL));
 
             // Wait for first batch to complete
             firstBatchDone.await(1, TimeUnit.SECONDS);
             Thread.sleep(50); // Let worker finish
 
             // Submit 2 more gaps - should restart worker
-            scheduler.submit(createGap(21, 30, GapType.HISTORICAL));
-            scheduler.submit(createGap(31, 40, GapType.HISTORICAL));
+            scheduler.submit(createGap(21, 30, GapDetector.Type.HISTORICAL));
+            scheduler.submit(createGap(31, 40, GapDetector.Type.HISTORICAL));
 
             // when/then
             boolean completed = allDone.await(2, TimeUnit.SECONDS);

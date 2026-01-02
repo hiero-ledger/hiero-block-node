@@ -18,11 +18,11 @@ import java.util.function.Consumer;
 final class BackfillTaskScheduler implements AutoCloseable {
     private static final System.Logger LOGGER = System.getLogger(BackfillTaskScheduler.class.getName());
 
-    private final ArrayBlockingQueue<TypedGap> queue;
+    private final ArrayBlockingQueue<GapDetector.Gap> queue;
     private final AtomicBoolean workerRunning = new AtomicBoolean(false);
     private final AtomicBoolean shutdown = new AtomicBoolean(false);
     private final ExecutorService executor;
-    private final Consumer<TypedGap> gapProcessor;
+    private final Consumer<GapDetector.Gap> gapProcessor;
     private final BackfillFetcher fetcher;
 
     /**
@@ -35,7 +35,7 @@ final class BackfillTaskScheduler implements AutoCloseable {
      */
     BackfillTaskScheduler(
             @NonNull ExecutorService executor,
-            @NonNull Consumer<TypedGap> gapProcessor,
+            @NonNull Consumer<GapDetector.Gap> gapProcessor,
             int queueCapacity,
             @NonNull BackfillFetcher fetcher) {
         this.executor = Objects.requireNonNull(executor);
@@ -60,7 +60,7 @@ final class BackfillTaskScheduler implements AutoCloseable {
      * @param gap the gap to process
      * @return true if the gap was accepted, false if the queue was full (gap discarded)
      */
-    boolean submit(@NonNull TypedGap gap) {
+    boolean submit(@NonNull GapDetector.Gap gap) {
         if (shutdown.get()) {
             return false;
         }
@@ -104,7 +104,7 @@ final class BackfillTaskScheduler implements AutoCloseable {
     private void drain() {
         try {
             while (!shutdown.get() && !Thread.currentThread().isInterrupted()) {
-                TypedGap gap = queue.poll();
+                GapDetector.Gap gap = queue.poll();
                 if (gap == null) {
                     return;
                 }

@@ -13,6 +13,31 @@ import org.hiero.block.node.spi.historicalblocks.LongRange;
 final class GapDetector {
 
     /**
+     * Classification of a detected gap for routing to the appropriate scheduler.
+     */
+    public enum Type {
+        /**
+         * Gap in historical blocks (older blocks that should already exist).
+         * Processed by the historical scheduler with lower priority.
+         */
+        HISTORICAL,
+
+        /**
+         * Gap in live-tail blocks (recent blocks near the chain head).
+         * Processed by the live-tail scheduler with higher priority.
+         */
+        LIVE_TAIL
+    }
+
+    /**
+     * A detected gap with its classification for scheduling decisions.
+     *
+     * @param range the block range representing the gap
+     * @param type the classification of this gap (historical or live-tail)
+     */
+    public record Gap(@NonNull LongRange range, @NonNull Type type) {}
+
+    /**
      * Detect missing contiguous ranges between {@code startBlock} and {@code endBlock}
      * across the supplied ranges.
      */
@@ -43,10 +68,10 @@ final class GapDetector {
      * and overlapping gaps are split.
      */
     @NonNull
-    List<TypedGap> findTypedGaps(
+    List<Gap> findTypedGaps(
             @NonNull Collection<LongRange> availableRanges, long startBlock, long liveTailBoundary, long endCap) {
         List<LongRange> baseGaps = findGaps(availableRanges, startBlock, endCap);
-        List<TypedGap> typed = new ArrayList<>();
+        List<Gap> typed = new ArrayList<>();
         for (LongRange gap : baseGaps) {
             if (gap.start() > endCap) {
                 continue;
@@ -56,13 +81,13 @@ final class GapDetector {
                 continue;
             }
             if (cappedEnd <= liveTailBoundary) {
-                typed.add(new TypedGap(new LongRange(gap.start(), cappedEnd), GapType.HISTORICAL));
+                typed.add(new Gap(new LongRange(gap.start(), cappedEnd), Type.HISTORICAL));
             } else if (gap.start() > liveTailBoundary) {
-                typed.add(new TypedGap(new LongRange(gap.start(), cappedEnd), GapType.LIVE_TAIL));
+                typed.add(new Gap(new LongRange(gap.start(), cappedEnd), Type.LIVE_TAIL));
             } else {
                 // split across boundary
-                typed.add(new TypedGap(new LongRange(gap.start(), liveTailBoundary), GapType.HISTORICAL));
-                typed.add(new TypedGap(new LongRange(liveTailBoundary + 1, cappedEnd), GapType.LIVE_TAIL));
+                typed.add(new Gap(new LongRange(gap.start(), liveTailBoundary), Type.HISTORICAL));
+                typed.add(new Gap(new LongRange(liveTailBoundary + 1, cappedEnd), Type.LIVE_TAIL));
             }
         }
         return typed;
