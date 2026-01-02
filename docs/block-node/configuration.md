@@ -84,7 +84,12 @@ Each plugin has its own properties, but this focuses on core options and core pl
 | BACKFILL_GRPC_OVERALL_TIMEOUT         | Overall gRPC timeout (connect, read, poll) in ms.       |   60000 |
 | BACKFILL_ENABLE_TLS                   | Enable TLS if supported by block-node client.           |   false |
 
-**Note:** Per-node gRPC timeout overrides (`grpc_connect_timeout`, `grpc_read_timeout`, `grpc_poll_wait_time`) and advanced HTTP/2 tuning (`grpc_webclient_tuning`) can be configured in the JSON file at `BACKFILL_BLOCK_NODE_SOURCES_PATH`. See [Backfill Plugin Design](../design/backfill-plugin.md#blocknode-sources-configuration-file-structure) for the JSON schema.
+**Note:** The following can be configured in the JSON file at `BACKFILL_BLOCK_NODE_SOURCES_PATH`:
+- Per-node gRPC timeout overrides: `grpc_connect_timeout`, `grpc_read_timeout`, `grpc_poll_wait_time`
+- Advanced HTTP/2 tuning: `grpc_webclient_tuning`
+
+See [Backfill Plugin Design](../design/backfill-plugin.md#blocknode-sources-configuration-file-structure)
+for the JSON schema.
 
 ### Block Access Plugin Configuration
 
