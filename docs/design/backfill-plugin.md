@@ -242,14 +242,14 @@ flowchart TD
 
 #### Field Descriptions
 
-|          Field          |  Type   | Required |                              Description                              |
-|-------------------------|---------|----------|-----------------------------------------------------------------------|
-| `address`               | string  | Yes      | Hostname or IP address of the block node                              |
-| `port`                  | integer | Yes      | Port number for gRPC connection                                       |
+|          Field          |  Type   | Required |                                Description                                |
+|-------------------------|---------|----------|---------------------------------------------------------------------------|
+| `address`               | string  | Yes      | Hostname or IP address of the block node                                  |
+| `port`                  | integer | Yes      | Port number for gRPC connection                                           |
 | `priority`              | integer | Yes      | Priority for node selection (0 = highest, lower number = higher priority) |
-| `node_id`               | string  | No       | Unique identifier for the node (for Address Book integration)         |
-| `name`                  | string  | No       | Human-readable label for observability (logging/tracking)             |
-| `grpc_webclient_tuning` | object  | No       | gRPC client tuning including timeouts and HTTP/2 settings (see below) |
+| `node_id`               | string  | No       | Unique identifier for the node (for Address Book integration)             |
+| `name`                  | string  | No       | Human-readable label for observability (logging/tracking)                 |
+| `grpc_webclient_tuning` | object  | No       | gRPC client tuning including timeouts and HTTP/2 settings (see below)     |
 
 #### GrpcWebClientTuning Fields
 
